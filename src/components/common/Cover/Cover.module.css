@@ -1,0 +1,53 @@
+/*
+ * The cover tile. It owns its own shadow and edge treatment because it is the object, not chrome:
+ * the ::after inset ring (a 1px inner light edge plus a soft bottom shade) and the grain are fixed
+ * over-art material, not themeable surface colors. Width comes from the parent; the tile stays
+ * square. No hover-lift here.
+ */
+.cover {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--sunken);
+  box-shadow: var(--shadow-soft);
+}
+
+.cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+}
+
+.art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+}
+
+/* A faint grain over the art, kept low at this contained size. */
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2"/></filter><rect width="160" height="160" filter="url(%23n)" opacity="0.5"/></svg>');
+  background-size: 160px;
+}

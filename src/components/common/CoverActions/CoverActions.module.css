@@ -1,0 +1,54 @@
+/*
+ * The glass over-art actions. The overlay spans the whole cover so hovering the tile (or focusing
+ * a button in it) reveals the bar; the bar itself scrims the bottom edge. Colors are the fixed
+ * white-on-glass over-art palette, deliberately theme-independent: this floats over album art, not
+ * over a themed surface.
+ */
+.overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+  opacity: 0;
+  transition: opacity var(--dur-soft) ease;
+}
+
+.overlay:hover .bar,
+.overlay:focus-within .bar {
+  opacity: 1;
+}
+
+.glassbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: background var(--dur-fast) ease;
+}
+
+.glassbtn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    transition: none;
+  }
+}

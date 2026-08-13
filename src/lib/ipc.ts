@@ -9,6 +9,9 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 
 // -- Type Imports --
 import type {
+  CoverCandidate,
+  CoverRef,
+  CoverSize,
   ListTracksResponse,
   ScanProgress,
   ScanSummary,
@@ -35,6 +38,26 @@ export function scanWorkspace(
 /** Signals the running scan to stop. The backend commits its partial index and reports cancelled. */
 export function cancelScan(): Promise<void> {
   return invoke("cancel_scan");
+}
+
+/** Resolves a track's single cover at `size`, or null when it has no art from any source. */
+export function readCover(trackId: number, size: CoverSize): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("read_cover", { trackId, size });
+}
+
+/** Lists every selectable art source for a track: its embedded picture, then adjacent images. */
+export function listCoverCandidates(trackId: number): Promise<CoverCandidate[]> {
+  return invoke<CoverCandidate[]>("list_cover_candidates", { trackId });
+}
+
+/** Binds a picked image as the folder cover for the track, returning the newly resolved cover. */
+export function importFolderCover(trackId: number, srcPath: string): Promise<CoverRef> {
+  return invoke<CoverRef>("import_folder_cover", { trackId, srcPath });
+}
+
+/** Drops the folder cover and returns whatever art the folder falls back to, or null. */
+export function removeFolderCover(trackId: number): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("remove_folder_cover", { trackId });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
+import { TrackDetailCover } from "./TrackDetailCover";
 
 // -- Utils Imports --
 import { formatBytes, formatDuration, formatTimestamp } from "../../lib/format";
@@ -69,6 +70,7 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
           Close
         </QuietButton>
       </div>
+      <TrackDetailCover track={track} />
       <dl className={styles.fields}>
         {fieldsOf(track).map((field) => (
           <div className={styles.field} key={field.label}>

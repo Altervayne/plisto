@@ -16,3 +16,16 @@ export async function pickFolder(): Promise<string | null> {
     return null;
   }
 }
+
+/** Opens the image picker filtered to the accepted art formats, resolving with the path or null. */
+export async function pickImageFile(): Promise<string | null> {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch {
+    return null;
+  }
+}

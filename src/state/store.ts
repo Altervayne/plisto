@@ -139,6 +139,10 @@ export const useGridFilter = (): string => useAppStore((s) => s.gridFilter);
 export const useSetGridSort = () => useAppStore((s) => s.setGridSort);
 export const useSetGridFilter = () => useAppStore((s) => s.setGridFilter);
 
+if (import.meta.env.DEV) {
+  (window as unknown as { __store?: typeof useAppStore }).__store = useAppStore;
+}
+
 export const usePickAndScan = () => useAppStore((s) => s.pickAndScan);
 export const useRescan = () => useAppStore((s) => s.rescan);
 export const useChangeWorkspace = () => useAppStore((s) => s.changeWorkspace);

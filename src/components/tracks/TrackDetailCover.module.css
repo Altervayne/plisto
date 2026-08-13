@@ -1,0 +1,104 @@
+/*
+ * The cover surface above the field list. The tile is contained, not a hero; controls sit under it
+ * as quiet text and recesses. No border or box around the tile: the cover carries its own shadow,
+ * everything else is plain type on the ground.
+ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 20px;
+}
+
+/* The resolved cover and its over-art actions share one positioned frame. */
+.slot {
+  position: relative;
+  width: 148px;
+}
+
+/* The empty slot doubles as the Add control: a sunken recess that veils on hover, not a dropzone. */
+.addSlot {
+  position: relative;
+  width: 148px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.addSlot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  transition: background var(--dur-fast) ease;
+  pointer-events: none;
+}
+
+.addSlot:hover::after {
+  background: var(--veil);
+}
+
+.addSlot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.addHint {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.provenance {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}
+
+.candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.candidateThumb {
+  flex: none;
+  width: 40px;
+}
+
+.candidateLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.safety {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
