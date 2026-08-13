@@ -5,9 +5,6 @@
  * only bridge between them.
  */
 
-// The write path and command layer read these; the fields are set before either is wired.
-#![allow(dead_code)]
-
 /// The raw tag set read from a single file, before any parsing or cleanup. Every field is
 /// optional because a file may carry none of them, and the numeric fields stay strings here
 /// because tags routinely hold junk like "3/12" or "1997-01-01" that only means something

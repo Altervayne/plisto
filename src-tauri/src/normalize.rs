@@ -4,9 +4,6 @@
  * caller so the same inputs always yield the same TrackRecord, which is what the tests lean on.
  */
 
-// The command layer consumes this core; the tests here exercise it directly meanwhile.
-#![allow(dead_code)]
-
 // -- Library Imports --
 use std::path::Path;
 

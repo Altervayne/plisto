@@ -48,7 +48,6 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// Inserts a track, or updates the existing row when `source_path` already exists. Keying on
 /// the UNIQUE path means a re-scan updates in place under the same `id` rather than
 /// duplicating; every column but the key and `id` is refreshed from the incoming record.
-#[allow(dead_code)]
 pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO tracks (

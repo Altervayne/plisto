@@ -1,11 +1,15 @@
 // -- Module Declarations --
+mod commands;
 mod db;
+mod dto;
 mod model;
 mod normalize;
+mod scan;
 mod state;
 
 // -- Library Imports --
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::Manager;
@@ -35,18 +39,28 @@ fn app_info() -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // The index lives in the app data dir, never the music folder. Open it once on
             // launch and hand ownership to managed state.
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let conn = db::open_db(&data_dir.join("plisto.sqlite"))?;
+            let db_path = data_dir.join("plisto.sqlite");
+            let conn = db::open_db(&db_path)?;
             app.manage(AppState {
                 db: Mutex::new(conn),
+                db_path,
+                cancel: Arc::new(AtomicBool::new(false)),
+                scan_running: AtomicBool::new(false),
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_info])
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            commands::scan_workspace,
+            commands::cancel_scan,
+            commands::list_tracks
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
