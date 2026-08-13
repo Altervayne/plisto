@@ -27,7 +27,7 @@ use walkdir::WalkDir;
 use crate::db;
 use crate::dto::{ScanPhase, ScanProgress, ScanSummary};
 use crate::model::TrackRecord;
-use crate::normalize::{is_audio, needs_rescan, normalize_path_key, normalize_track};
+use crate::normalize::{is_audio, needs_reread, normalize_path_key, normalize_track};
 use progress::ProgressThrottle;
 use tags::read_tags;
 
@@ -135,8 +135,8 @@ where
                 return;
             };
 
-            if let Some(stored) = stats_map.get(&key) {
-                if !needs_rescan(*stored, stat) {
+            if let Some((ssize, smtime, art_known)) = stats_map.get(&key) {
+                if !needs_reread((*ssize, *smtime), stat, *art_known) {
                     scanned.fetch_add(1, Ordering::Relaxed);
                     skipped.fetch_add(1, Ordering::Relaxed);
                     return;
@@ -181,12 +181,15 @@ where
     })
 }
 
-/// Loads the current (size, mtime) for every indexed track into a map keyed by the canonical
-/// path, so the incremental check never queries the DB per file.
-fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64)>> {
-    let mut stmt = conn.prepare("SELECT source_path, size_bytes, mtime FROM tracks")?;
+/// Loads each indexed track's (size, mtime, art_known) into a map keyed by the canonical path,
+/// so the incremental check never queries the DB per file. `art_known` is whether the row's
+/// `has_embedded_cover` is non-NULL, which the re-read rule uses to drain unexamined rows.
+fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64, bool)>> {
+    let mut stmt = conn.prepare(
+        "SELECT source_path, size_bytes, mtime, has_embedded_cover IS NOT NULL FROM tracks",
+    )?;
     let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?)))
+        Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))
     })?;
     let mut map = HashMap::new();
     for row in rows {
@@ -389,6 +392,55 @@ mod tests {
         assert_eq!(sum.total, 1);
         assert_eq!(sum.skipped, 1, "the surviving file is unchanged");
         assert_eq!(sum.removed, 1, "the deleted file's row is swept");
+    }
+
+    // Count rows on the db whose has_embedded_cover is still NULL.
+    fn null_art_count(db_path: &Path) -> i64 {
+        let conn = Connection::open(db_path).unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM tracks WHERE has_embedded_cover IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn scan_drains_null_art_then_settles() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        // Empty files: lofty fails, so art is examined-as-none, non-NULL after the first scan.
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+
+        let first = scan(&music.path, &db_path);
+        assert_eq!(first.inserted, 2);
+        assert_eq!(null_art_count(&db_path), 0, "every fresh row is examined");
+
+        // Reset one row to the drain sentinel, as a legacy row would read after the migration.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET has_embedded_cover = NULL WHERE filename = 'a.mp3'",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(null_art_count(&db_path), 1);
+
+        // An unchanged re-scan re-reads only the NULL-art row and refills it.
+        let second = scan(&music.path, &db_path);
+        assert_eq!(second.updated, 1, "the NULL-art row is re-read");
+        assert_eq!(second.skipped, 1, "the examined row is skipped");
+        assert_eq!(second.inserted, 0);
+        assert_eq!(null_art_count(&db_path), 0, "the sentinel is drained");
+
+        // Now that every row is examined, an unchanged re-scan skips all of them.
+        let third = scan(&music.path, &db_path);
+        assert_eq!(third.skipped, 2);
+        assert_eq!(third.updated, 0);
     }
 
     #[test]

@@ -51,6 +51,7 @@ pub fn normalize_track(
         raw_disc_no: parse_leading_int(&raw.disc_no),
         raw_year: parse_leading_int(&raw.year),
         raw_genre: clean_text(&raw.genre),
+        has_embedded_cover: raw.has_embedded_cover,
         scanned_at,
     }
 }
@@ -81,6 +82,13 @@ pub fn is_audio(ext: &str) -> bool {
 /// must be re-read. Unchanged stats mean the row can be skipped without reopening the file.
 pub fn needs_rescan(stored: (i64, i64), current: (i64, i64)) -> bool {
     stored != current
+}
+
+/// True when a row must be re-read: either its stats changed, or its art was never examined.
+/// `art_known` is false for a row whose `has_embedded_cover` is still NULL, so a legacy row is
+/// re-read once to fill the flag and skipped on every later pass once it is non-NULL.
+pub fn needs_reread(stored: (i64, i64), current: (i64, i64), art_known: bool) -> bool {
+    needs_rescan(stored, current) || !art_known
 }
 
 /// Trims a tag and drops it to None when empty. A blank or whitespace-only tag is the same as
@@ -209,5 +217,16 @@ mod tests {
         assert!(!needs_rescan((100, 200), (100, 200)));
         assert!(needs_rescan((100, 200), (101, 200)));
         assert!(needs_rescan((100, 200), (100, 201)));
+    }
+
+    #[test]
+    fn reread_drains_unexamined_art_then_settles() {
+        // Unchanged stats, art already examined: nothing to do.
+        assert!(!needs_reread((100, 200), (100, 200), true));
+        // Unchanged stats, art never examined: re-read once to fill the flag.
+        assert!(needs_reread((100, 200), (100, 200), false));
+        // Changed stats always re-read, whatever the art state.
+        assert!(needs_reread((100, 200), (101, 200), true));
+        assert!(needs_reread((100, 200), (101, 200), false));
     }
 }

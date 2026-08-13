@@ -1,5 +1,6 @@
 // -- Module Declarations --
 mod commands;
+mod covers;
 mod db;
 mod dto;
 mod model;

@@ -8,6 +8,7 @@
 // -- Library Imports --
 use std::path::Path;
 
+use lofty::picture::PictureType;
 use lofty::prelude::{Accessor, AudioFile, ItemKey, TaggedFileExt};
 
 // -- Type Imports --
@@ -15,15 +16,25 @@ use crate::model::RawTags;
 
 /// Reads the primary tag and duration from one file. Returns the tags plus a flag that is true
 /// when lofty could not parse the file, in which case the tags are all None and only the
-/// duration is missing.
+/// duration is missing. `has_embedded_cover` is always set here (Some) - any file lofty opens,
+/// tags or not, and any file it cannot, counts as examined, so the row never stays NULL.
 pub fn read_tags(path: &Path) -> (RawTags, bool) {
     let tagged = match lofty::read_from_path(path) {
         Ok(t) => t,
-        Err(_) => return (RawTags::default(), true),
+        Err(_) => {
+            return (
+                RawTags {
+                    has_embedded_cover: Some(false),
+                    ..RawTags::default()
+                },
+                true,
+            )
+        }
     };
 
     let mut raw = RawTags {
         duration_secs: Some(tagged.properties().duration().as_secs_f64()),
+        has_embedded_cover: Some(false),
         ..RawTags::default()
     };
 
@@ -39,6 +50,16 @@ pub fn read_tags(path: &Path) -> (RawTags, bool) {
             .get_string(ItemKey::Year)
             .or_else(|| tag.get_string(ItemKey::RecordingDate))
             .map(str::to_string);
+
+        // Prefer a front-cover frame, fall back to any picture. This rides the tag lofty
+        // already holds, so it costs no extra read.
+        let pictures = tag.pictures();
+        raw.has_embedded_cover = Some(
+            pictures
+                .iter()
+                .any(|p| p.pic_type() == PictureType::CoverFront)
+                || !pictures.is_empty(),
+        );
     }
 
     (raw, false)
