@@ -90,9 +90,10 @@ export function useTrackCover(trackId: number): TrackCover {
           height: c.height,
         })),
       );
-    } catch (e) {
+    } catch {
+      // A passive load failure stays quiet: the cover simply does not show. Only the explicit
+      // import/use/remove actions surface a message.
       if (id !== requestId.current) return;
-      setError(String(e));
       setCover(null);
       setCandidates([]);
     } finally {
