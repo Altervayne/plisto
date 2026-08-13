@@ -1,0 +1,87 @@
+/*
+ * One grid row: a fixed-height single line, cells laid on the shared column template. No border,
+ * no zebra, no shadow. Scannability comes from the fixed rhythm and disciplined ink, not lines.
+ * Hover and the active peek wash a soft veil under the row.
+ */
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 40px;
+  display: grid;
+  grid-template-columns: var(--track-cols);
+  align-items: center;
+  column-gap: 18px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.active,
+.active:hover {
+  background: var(--veil-2);
+}
+
+/* A single-line cell that clips overflow; the title carries the ellipsis on long text. */
+.cell {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+
+.left {
+  text-align: left;
+}
+
+.right {
+  text-align: right;
+}
+
+/* The one primary-ink anchor per row. */
+.primary {
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.secondary {
+  color: var(--ink-2);
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The format tag: an uppercase micro-label, quiet, never a chip or mono. */
+.upper {
+  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+}
+
+/* A missing tag reads as a deliberate quiet dash, whatever ink the column normally carries. */
+.empty {
+  color: var(--ink-3);
+  font-weight: 400;
+}

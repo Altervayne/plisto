@@ -1,21 +1,25 @@
 /*
- * The app store: the one active workspace and the state of its scan. Actions own the IPC
- * orchestration (pick, scan, cancel) so components stay presentational and only read narrow
- * slices. Track rows are not held here; the grid loads them on its own.
+ * The app store: the one active workspace, the state of its scan, and the indexed rows. Actions
+ * own the IPC orchestration (pick, scan, cancel, load) so components stay presentational and only
+ * read narrow slices. Rows load in one pass after a scan lands; the grid sorts and filters them
+ * client-side.
  */
 
 // -- Library Imports --
 import { create } from "zustand";
 
 // -- Local Imports --
-import { cancelScan, createScanChannel, scanWorkspace } from "../lib/ipc";
+import { cancelScan, createScanChannel, listTracks, scanWorkspace } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
 
 // -- Type Imports --
-import type { ScanProgress, ScanSummary } from "../types";
+import type { ScanProgress, ScanSummary, TrackRow } from "../types";
 
 /** Where a scan is in its life: never started, running, finished, or failed. */
 export type ScanStatus = "idle" | "scanning" | "done" | "error";
+
+/** The grid's sort, structurally the table lib's SortingState but without the coupling. */
+export type GridSort = { id: string; desc: boolean }[];
 
 interface ScanState {
   status: ScanStatus;
@@ -27,10 +31,18 @@ interface ScanState {
 interface AppStore {
   workspace: string | null;
   scan: ScanState;
+  tracks: TrackRow[];
+  // Grid sort and search live here, not in the grid, so a re-scan (which unmounts the grid)
+  // does not lose them.
+  gridSort: GridSort;
+  gridFilter: string;
   pickAndScan: () => Promise<void>;
   rescan: () => Promise<void>;
   changeWorkspace: () => Promise<void>;
   cancel: () => Promise<void>;
+  loadTracks: () => Promise<void>;
+  setGridSort: (sort: GridSort) => void;
+  setGridFilter: (filter: string) => void;
   reset: () => void;
 }
 
@@ -60,6 +72,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     try {
       const summary = await scanWorkspace(path, channel);
       set((s) => ({ scan: { ...s.scan, status: "done", summary } }));
+      // A cancelled run still leaves a valid partial index, so load either way.
+      await get().loadTracks();
     } catch (e) {
       set((s) => ({ scan: { ...s.scan, status: "error", error: String(e) } }));
     }
@@ -68,6 +82,9 @@ export const useAppStore = create<AppStore>((set, get) => {
   return {
     workspace: null,
     scan: idleScan,
+    tracks: [],
+    gridSort: [],
+    gridFilter: "",
 
     pickAndScan: async () => {
       const path = await pickFolder();
@@ -88,7 +105,20 @@ export const useAppStore = create<AppStore>((set, get) => {
       await cancelScan();
     },
 
-    reset: () => set({ workspace: null, scan: idleScan }),
+    loadTracks: async () => {
+      try {
+        const { rows } = await listTracks({});
+        set({ tracks: rows });
+      } catch {
+        set({ tracks: [] });
+      }
+    },
+
+    setGridSort: (gridSort) => set({ gridSort }),
+    setGridFilter: (gridFilter) => set({ gridFilter }),
+
+    reset: () =>
+      set({ workspace: null, scan: idleScan, tracks: [], gridSort: [], gridFilter: "" }),
   };
 });
 
@@ -101,6 +131,13 @@ export const useScanProgress = (): ScanProgress | null =>
 export const useScanSummary = (): ScanSummary | null =>
   useAppStore((s) => s.scan.summary);
 export const useScanError = (): string | null => useAppStore((s) => s.scan.error);
+
+export const useTracks = (): TrackRow[] => useAppStore((s) => s.tracks);
+export const useGridSort = (): GridSort => useAppStore((s) => s.gridSort);
+export const useGridFilter = (): string => useAppStore((s) => s.gridFilter);
+
+export const useSetGridSort = () => useAppStore((s) => s.setGridSort);
+export const useSetGridFilter = () => useAppStore((s) => s.setGridFilter);
 
 export const usePickAndScan = () => useAppStore((s) => s.pickAndScan);
 export const useRescan = () => useAppStore((s) => s.rescan);

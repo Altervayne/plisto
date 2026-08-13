@@ -1,0 +1,43 @@
+/* A control that dissolves until touched: a soft veil recess, deepening as focus lands inside. */
+.field {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--pill);
+  background: var(--veil);
+  transition: background var(--dur-fast) ease;
+}
+
+.field:focus-within {
+  background: var(--veil-2);
+}
+
+.input {
+  width: 100%;
+  padding: 7px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+}
+
+/* The focus ring lives on the pill, not the bare input, so it traces the recess shape. */
+.input:focus {
+  outline: none;
+}
+
+.field:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Drop the browser's native clear affordance; the pill owns the look. */
+.input::-webkit-search-decoration,
+.input::-webkit-search-cancel-button {
+  appearance: none;
+}

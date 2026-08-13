@@ -1,0 +1,64 @@
+/*
+ * The header row of quiet uppercase micro-labels. It sticks to the top and repaints the fixed
+ * ambient ground, so scrolling rows pass under a seamless continuation of it. No band, no hairline:
+ * the header separates from the body by the space below it.
+ */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--track-cols);
+  align-items: center;
+  column-gap: 18px;
+  padding: 6px 10px 10px;
+  background: var(--ambient);
+  background-attachment: fixed;
+}
+
+/* Each label is a quiet button: no fill, veil ink on hover, the micro-label face. */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur-fast) ease;
+}
+
+.label:hover {
+  color: var(--ink-2);
+}
+
+.left {
+  justify-content: flex-start;
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+/* The direction mark: a small triangle in meta ink, shown only on the active column. */
+.mark {
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+}
+
+.asc {
+  border-bottom: 4px solid var(--ink-3);
+}
+
+.desc {
+  border-top: 4px solid var(--ink-3);
+}

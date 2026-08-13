@@ -1,17 +1,15 @@
-/* Top area above a content region, separated by space. The grid replaces the placeholder. */
+/* Top area above the content region, separated by space. The grid fills it and scrolls on its own. */
 .view {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
+/* The grid and the detail peek sit side by side on the ground, parted by space, never a divider. */
 .content {
   flex: 1;
-  padding: 8px 30px 30px;
-}
-
-.placeholder {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink-2);
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  padding: 4px 30px 24px;
 }
