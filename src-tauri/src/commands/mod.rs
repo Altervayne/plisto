@@ -6,6 +6,7 @@
  */
 
 // -- Module Declarations --
+pub mod covers;
 mod list_query;
 
 // -- Library Imports --

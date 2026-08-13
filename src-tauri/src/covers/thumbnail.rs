@@ -17,7 +17,6 @@ const JPEG_QUALITY: u8 = 82;
 /// Decodes `raw_bytes`, scales it so its longest edge is at most `max_edge` (aspect preserved),
 /// flattens any alpha, and encodes JPEG. Returns the encoded bytes, or an error when the source
 /// cannot be decoded. Never mutates anything on disk.
-#[allow(dead_code)]
 pub fn thumbnail(raw_bytes: &[u8], max_edge: u32) -> Result<Vec<u8>, ImageError> {
     let decoded = image::load_from_memory(raw_bytes)?;
 
@@ -38,7 +37,6 @@ pub fn thumbnail(raw_bytes: &[u8], max_edge: u32) -> Result<Vec<u8>, ImageError>
 
 /// Reads an image's pixel dimensions from its header without a full decode, so a cheap size
 /// check does not pay to decode the whole frame.
-#[allow(dead_code)]
 pub fn read_image_dimensions(raw_bytes: &[u8]) -> Result<(u32, u32), ImageError> {
     let reader = ImageReader::new(Cursor::new(raw_bytes)).with_guessed_format()?;
     reader.into_dimensions()

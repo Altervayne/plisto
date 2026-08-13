@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 // The conventional cover stems, most-preferred first. Matched case-insensitively.
 const COVER_STEMS: &[&str] = &["cover", "folder", "front"];
 
-// The image extensions we accept, most-preferred first. Matched case-insensitively.
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp"];
+// The image extensions we accept, most-preferred first. Matched case-insensitively. GIF is
+// last: a static GIF cover turns up occasionally and must decode, even if it is never ideal.
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 
 /// Lists the cover-like images sitting in the track's folder, ordered by stem priority then
 /// extension priority. A file matches when its stem is one of the conventional cover names and
 /// its extension is a supported image type, both compared case-insensitively. Returns empty
 /// when the folder cannot be read or holds none.
-#[allow(dead_code)]
 pub fn discover_adjacent_images(track_source_path: &Path) -> Vec<PathBuf> {
     let Some(dir) = track_source_path.parent() else {
         return Vec::new();

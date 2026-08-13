@@ -55,7 +55,6 @@ pub struct TrackRecord {
 /// (`<content_hash>_<size>.jpg`), so no path column is stored. `source_kind` is one of
 /// "embedded", "adjacent", "imported". Built only by covers::normalize_cover; the DB assigns
 /// `id`, so it is not carried here.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoverRecord {
     pub content_hash: String,

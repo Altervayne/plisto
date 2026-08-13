@@ -12,12 +12,19 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
+// -- Local Imports --
+use crate::covers::InFlightGuard;
+
 /// Held in Tauri's managed state for the app's lifetime. `db` is the read connection; the Mutex
 /// serializes access since rusqlite's Connection is not Sync. `cancel` is shared with the
 /// running scan's workers; `scan_running` is the guard that keeps scans from overlapping.
+/// `covers_dir` is where thumbnails are cached; `covers_in_flight` collapses concurrent
+/// identical thumbnail generations to one decode.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
     pub cancel: Arc<AtomicBool>,
     pub scan_running: AtomicBool,
+    pub covers_dir: PathBuf,
+    pub covers_in_flight: Arc<InFlightGuard>,
 }

@@ -88,3 +88,43 @@ pub struct ListTracksResponse {
     pub rows: Vec<TrackRow>,
     pub total: u32,
 }
+
+/// The thumbnail size a cover command is asked for. `thumb` is the small candidate-list size,
+/// `detail` the larger peek size. Each maps to a bounded longest edge in the cover pipeline.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CoverSize {
+    Thumb,
+    Detail,
+}
+
+/// Where a resolved cover's art came from, surfaced to the frontend for its provenance line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CoverSource {
+    Embedded,
+    Adjacent,
+    Imported,
+}
+
+/// The single resolved cover for a track: a cache-file path the frontend wraps with
+/// `convertFileSrc`, the source art's pixel dimensions, and where it came from.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoverRef {
+    pub path: String,
+    pub width: i64,
+    pub height: i64,
+    pub source: CoverSource,
+}
+
+/// One selectable art source for the cover picker: a generated thumb path plus its provenance.
+/// `origin_path` is the on-disk file the art was read from (the audio file for embedded art,
+/// the image file for an adjacent one), used to label the source.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoverCandidate {
+    pub source: CoverSource,
+    pub origin_path: Option<String>,
+    pub path: String,
+    pub width: i64,
+    pub height: i64,
+}

@@ -16,6 +16,7 @@ use serde::Serialize;
 use tauri::Manager;
 
 // -- State Imports --
+use covers::InFlightGuard;
 use state::AppState;
 
 // Mirrors AppInfo in the frontend's types.ts. Any change here changes the IPC
@@ -48,11 +49,19 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("plisto.sqlite");
             let conn = db::open_db(&db_path)?;
+
+            // Thumbnails cache beside the index, never in the music folder. The webview reads
+            // them back through the asset protocol scoped to this directory.
+            let covers_dir = data_dir.join("covers");
+            std::fs::create_dir_all(&covers_dir)?;
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
                 cancel: Arc::new(AtomicBool::new(false)),
                 scan_running: AtomicBool::new(false),
+                covers_dir,
+                covers_in_flight: Arc::new(InFlightGuard::default()),
             });
             Ok(())
         })
@@ -60,7 +69,11 @@ pub fn run() {
             app_info,
             commands::scan_workspace,
             commands::cancel_scan,
-            commands::list_tracks
+            commands::list_tracks,
+            commands::covers::read_cover,
+            commands::covers::list_cover_candidates,
+            commands::covers::import_folder_cover,
+            commands::covers::remove_folder_cover
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

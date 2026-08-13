@@ -8,17 +8,21 @@
 
 // -- Module Declarations --
 mod adjacent;
+mod cache;
+mod embedded;
 mod thumbnail;
 
 // -- Type Imports --
 use crate::model::CoverRecord;
 
-#[allow(unused_imports)]
 pub use adjacent::discover_adjacent_images;
-#[allow(unused_imports)]
-pub use thumbnail::{read_image_dimensions, thumbnail};
+pub use cache::{ensure_thumb, thumb_cache_path, InFlightGuard};
+pub use embedded::read_embedded_cover_bytes;
+pub use thumbnail::read_image_dimensions;
 
-/// Where a cover came from, stored as a stable string on the manifest row.
+/// Where a cover came from, stored as a stable string on the manifest row. All three kinds are
+/// valid schema values; only imported art is written to the manifest, embedded and adjacent art
+/// are cached by hash without a manifest row.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverSourceKind {
@@ -28,7 +32,6 @@ pub enum CoverSourceKind {
 }
 
 impl CoverSourceKind {
-    #[allow(dead_code)]
     fn as_str(self) -> &'static str {
         match self {
             CoverSourceKind::Embedded => "embedded",
@@ -39,7 +42,6 @@ impl CoverSourceKind {
 }
 
 /// The source that wins for a track once precedence is applied.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedCover {
     Folder,
@@ -52,7 +54,6 @@ pub enum ResolvedCover {
 /// records their size and dims, and never decodes or resizes - the hash is over the original
 /// art, never a generated thumbnail, so the same source always dedups to one row. Dimensions
 /// come pre-validated from read_image_dimensions; the assert guards against a zero slipping in.
-#[allow(dead_code)]
 pub fn normalize_cover(
     raw_bytes: &[u8],
     width: u32,
@@ -77,7 +78,6 @@ pub fn normalize_cover(
 /// Picks the single cover source for a track. A folder cover the user set wins; otherwise the
 /// track's own embedded art; otherwise an adjacent image on disk; otherwise nothing. The peek
 /// still shows every available source - this only chooses the one resolved thumbnail.
-#[allow(dead_code)]
 pub fn resolve_track_cover(
     folder_set: bool,
     has_embedded: bool,

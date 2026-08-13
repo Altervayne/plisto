@@ -67,3 +67,26 @@ export interface ListTracksResponse {
   rows: TrackRow[];
   total: number;
 }
+
+/** The thumbnail size a cover command is asked for. Mirrors CoverSize in dto.rs. */
+export type CoverSize = 'thumb' | 'detail';
+
+/** Where a cover's art came from, for the provenance line. Mirrors CoverSource in dto.rs. */
+export type CoverSource = 'embedded' | 'adjacent' | 'imported';
+
+/** The single resolved cover for a track. `path` is a cache file wrapped with convertFileSrc. */
+export interface CoverRef {
+  path: string;
+  width: number;
+  height: number;
+  source: CoverSource;
+}
+
+/** One selectable art source for the cover picker. Mirrors CoverCandidate in dto.rs. */
+export interface CoverCandidate {
+  source: CoverSource;
+  origin_path: string | null;
+  path: string;
+  width: number;
+  height: number;
+}

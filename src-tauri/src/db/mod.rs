@@ -98,7 +98,6 @@ pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()
 /// Inserts a cover into the content-addressed manifest, or returns the existing row's id when
 /// its `content_hash` is already present. Identical art from any source collapses to one row,
 /// so the caller can upsert freely and rely on the returned id.
-#[allow(dead_code)]
 pub fn upsert_cover(conn: &Connection, rec: &CoverRecord) -> rusqlite::Result<i64> {
     conn.execute(
         "INSERT INTO covers (
@@ -124,7 +123,6 @@ pub fn upsert_cover(conn: &Connection, rec: &CoverRecord) -> rusqlite::Result<i6
 
 /// The cover a user has bound to `folder_path`, or None when they have set none. The resolved
 /// thumbnail for a track prefers this over embedded or adjacent art.
-#[allow(dead_code)]
 pub fn get_folder_cover(conn: &Connection, folder_path: &str) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
         "SELECT cover_id FROM folder_covers WHERE folder_path = ?1",
@@ -140,7 +138,6 @@ pub fn get_folder_cover(conn: &Connection, folder_path: &str) -> rusqlite::Resul
 
 /// Binds `cover_id` to `folder_path`, replacing any prior choice. A discrete user action, not
 /// part of a scan.
-#[allow(dead_code)]
 pub fn set_folder_cover(
     conn: &Connection,
     folder_path: &str,
@@ -156,6 +153,53 @@ pub fn set_folder_cover(
         params![folder_path, cover_id, set_at],
     )?;
     Ok(())
+}
+
+/// Removes the user's cover choice for `folder_path`, if any. A no-op when none is set. After
+/// this, the folder's tracks resolve to embedded or adjacent art again.
+pub fn remove_folder_cover(conn: &Connection, folder_path: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM folder_covers WHERE folder_path = ?1",
+        params![folder_path],
+    )?;
+    Ok(())
+}
+
+/// The source path and tri-state embedded-art flag for one track, or None when no row has that
+/// id. The cover commands start from a track id and need its file path to find its folder and
+/// its own art.
+pub fn get_track_cover_inputs(
+    conn: &Connection,
+    track_id: i64,
+) -> rusqlite::Result<Option<(String, Option<bool>)>> {
+    conn.query_row(
+        "SELECT source_path, has_embedded_cover FROM tracks WHERE id = ?1",
+        params![track_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// The manifest fields a resolved folder cover needs: its content hash (the on-disk thumbnail
+/// key), source kind, and pixel dimensions. None when the id is absent.
+pub fn get_cover(
+    conn: &Connection,
+    cover_id: i64,
+) -> rusqlite::Result<Option<(String, String, i64, i64)>> {
+    conn.query_row(
+        "SELECT content_hash, source_kind, width, height FROM covers WHERE id = ?1",
+        params![cover_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
 }
 
 #[cfg(test)]
