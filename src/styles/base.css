@@ -1,0 +1,53 @@
+/*
+ * Base layer: the continuous ambient ground, the system-font UI stack, and the
+ * global focus and motion rules every view inherits. Regions separate by space,
+ * never borders, so nothing here paints a divider.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* The ambient ground stays put as content scrolls (all layers fixed). */
+  background: var(--ambient);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+}
+
+/* Align digits everywhere they stack (track numbers, durations, counts). */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visible focus is never removed - accent outline with a small offset. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

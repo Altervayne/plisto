@@ -1,0 +1,120 @@
+/*
+ * The design language, as tokens. Light-first on :root, then redefined for dark
+ * under both prefers-color-scheme (guarded so a manual light stamp wins) and an
+ * explicit [data-theme="dark"] stamp (so a manual toggle wins in either direction).
+ * Every color the app paints comes from here - nothing is hard-coded per theme.
+ */
+
+:root {
+  /* -- Neutrals (faint cool bias) -- */
+  --bg: #f4f4f8;
+  --surface: #ffffff;
+  --surface-2: #fafafc;
+  --sunken: #eaeaf0;
+  --ink: #17171c;
+  --ink-2: #63636f;
+  --ink-3: #9a9aa6;
+  --hairline: #e4e4ec;
+
+  /* -- Accent: cyan, the only chromatic UI color. No gradients on it. -- */
+  --accent: #1e9cc0;
+  --accent-ink: #ffffff;
+  --accent-weak: rgba(30, 156, 192, 0.12);
+
+  /* -- Semantic (never used as the accent) -- */
+  --warn: #b4780f;
+  --good: #2f855a;
+
+  /* -- Surfaces and depth (near-threshold materials) -- */
+  --veil: rgba(28, 26, 64, 0.045);
+  --veil-2: rgba(28, 26, 64, 0.085);
+  --edge: rgba(40, 40, 70, 0.05);
+  --shadow-soft: 0 6px 20px -14px rgba(20, 20, 45, 0.3);
+  --shadow-pop: 0 18px 40px -20px rgba(20, 20, 45, 0.35);
+
+  /* -- Ambient ground: three soft radial washes over --bg -- */
+  --ambient:
+    radial-gradient(80% 60% at 6% -6%, rgba(30, 156, 192, 0.12), transparent 55%),
+    radial-gradient(70% 55% at 104% 2%, rgba(74, 142, 190, 0.09), transparent 52%),
+    radial-gradient(74% 66% at 96% 106%, rgba(56, 150, 170, 0.08), transparent 56%),
+    var(--bg);
+
+  /* -- Typography -- */
+  --font-ui: "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", ui-monospace, "SF Mono", Consolas, monospace;
+
+  /* -- Geometry -- */
+  --r-lg: 16px;
+  --r-md: 12px;
+  --r-sm: 9px;
+  --pill: 999px;
+
+  /* -- Motion -- */
+  --ease-cover: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --dur-fast: 0.12s;
+  --dur-soft: 0.2s;
+}
+
+/* Dark via system preference, unless a manual light stamp overrides it. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0c10;
+    --surface: #17171d;
+    --surface-2: #1c1c24;
+    --sunken: #101015;
+    --ink: #f1f1f6;
+    --ink-2: #9c9caa;
+    --ink-3: #6b6b78;
+    --hairline: #2a2a34;
+
+    --accent: #4fb8d4;
+    --accent-ink: #08222b;
+    --accent-weak: rgba(79, 184, 212, 0.16);
+
+    --warn: #e0a83a;
+    --good: #5fbb8b;
+
+    --veil: rgba(255, 255, 255, 0.05);
+    --veil-2: rgba(255, 255, 255, 0.09);
+    --edge: rgba(255, 255, 255, 0.032);
+    --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
+    --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
+
+    --ambient:
+      radial-gradient(80% 60% at 6% -6%, rgba(79, 184, 212, 0.15), transparent 55%),
+      radial-gradient(70% 55% at 104% 2%, rgba(74, 142, 190, 0.12), transparent 52%),
+      radial-gradient(74% 66% at 96% 106%, rgba(56, 150, 170, 0.11), transparent 56%),
+      var(--bg);
+  }
+}
+
+/* Dark via explicit stamp, so a manual toggle wins regardless of system setting. */
+:root[data-theme="dark"] {
+  --bg: #0c0c10;
+  --surface: #17171d;
+  --surface-2: #1c1c24;
+  --sunken: #101015;
+  --ink: #f1f1f6;
+  --ink-2: #9c9caa;
+  --ink-3: #6b6b78;
+  --hairline: #2a2a34;
+
+  --accent: #4fb8d4;
+  --accent-ink: #08222b;
+  --accent-weak: rgba(79, 184, 212, 0.16);
+
+  --warn: #e0a83a;
+  --good: #5fbb8b;
+
+  --veil: rgba(255, 255, 255, 0.05);
+  --veil-2: rgba(255, 255, 255, 0.09);
+  --edge: rgba(255, 255, 255, 0.032);
+  --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
+
+  --ambient:
+    radial-gradient(80% 60% at 6% -6%, rgba(79, 184, 212, 0.15), transparent 55%),
+    radial-gradient(70% 55% at 104% 2%, rgba(74, 142, 190, 0.12), transparent 52%),
+    radial-gradient(74% 66% at 96% 106%, rgba(56, 150, 170, 0.11), transparent 56%),
+    var(--bg);
+}
