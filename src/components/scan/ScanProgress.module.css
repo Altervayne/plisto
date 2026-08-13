@@ -1,0 +1,29 @@
+/* The scanning view: a centered stack of title, path, bar, counts, and a quiet cancel. */
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 440px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.path {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+.cancel {
+  margin-top: 4px;
+}

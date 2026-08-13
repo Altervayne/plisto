@@ -1,0 +1,23 @@
+/* The single solid-accent action. Only one of these belongs on screen at a time. */
+.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--accent) 80%, transparent);
+  transition:
+    filter var(--dur-fast) ease,
+    transform var(--dur-fast) ease;
+}
+
+.primary:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}

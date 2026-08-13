@@ -1,0 +1,35 @@
+/* The no-workspace entry point: title, a quiet safety line, and the one accent action. */
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 440px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.safety {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.action {
+  margin-top: 8px;
+}
+
+.path {
+  margin: 8px 0 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  word-break: break-all;
+}

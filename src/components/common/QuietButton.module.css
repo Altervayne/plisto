@@ -1,0 +1,22 @@
+/* A control that dissolves until touched: transparent at rest, a soft veil on hover. */
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.quiet:hover {
+  background: var(--veil);
+  color: var(--ink);
+}

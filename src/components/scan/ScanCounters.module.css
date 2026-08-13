@@ -1,0 +1,12 @@
+/* Live scan counts. Digits align via tabular-nums; the whole line stays quiet meta ink. */
+.counters {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.errors {
+  color: var(--warn);
+}
