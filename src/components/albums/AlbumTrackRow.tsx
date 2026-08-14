@@ -5,6 +5,9 @@ import { CSS } from "@dnd-kit/utilities";
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 
+// -- Icon Imports --
+import { GripVertical } from "lucide-react";
+
 // -- State Imports --
 import { useCommitTrackOverrides } from "../../state/organize/store";
 
@@ -19,22 +22,6 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./AlbumTrackRow.module.css";
-
-/** Six grip dots: the quiet reorder affordance, distinct from the editable title so a drag never fights an edit. */
-function GripDots() {
-  return (
-    <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" focusable="false">
-      <g fill="currentColor">
-        <circle cx="2.5" cy="3" r="1.2" />
-        <circle cx="7.5" cy="3" r="1.2" />
-        <circle cx="2.5" cy="8" r="1.2" />
-        <circle cx="7.5" cy="8" r="1.2" />
-        <circle cx="2.5" cy="13" r="1.2" />
-        <circle cx="7.5" cy="13" r="1.2" />
-      </g>
-    </svg>
-  );
-}
 
 /**
  * One track row in the drawer: a grip handle, the number, the clean title over its mono source filename, and
@@ -83,7 +70,7 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
         {...attributes}
         {...listeners}
       >
-        <GripDots />
+        <GripVertical size={16} strokeWidth={1.8} />
       </button>
 
       <span className={styles.no}>{row.track_no ?? "-"}</span>

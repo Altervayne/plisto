@@ -2,6 +2,9 @@
 import { NavItem } from "./NavItem";
 import { QuietButton } from "../common/QuietButton";
 
+// -- Icon Imports --
+import { LayoutGrid, Disc, Disc3, Download } from "lucide-react";
+
 // -- State Imports --
 import { useChangeWorkspace, useRescan } from "../../state/store";
 
@@ -13,89 +16,6 @@ import styles from "./Sidebar.module.css";
 
 /** The region showing in the main pane: a library wall, or the export screen. */
 type Mode = "files" | "albums" | "singles" | "export";
-
-/** The grid-of-squares icon for Files. */
-function FilesIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-
-/** The concentric-circles icon for Albums. */
-function AlbumsIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="2" />
-    </svg>
-  );
-}
-
-/** The single-disc icon for Singles: one ring with a solid center, distinct from Albums' two rings. */
-function SinglesIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-/** The down-arrow-to-baseline icon for Export: art landing onto disk. */
-function ExportIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 4 v10" />
-      <path d="M7 11 l5 5 l5 -5" />
-      <path d="M5 20 h14" />
-    </svg>
-  );
-}
 
 /**
  * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
@@ -124,21 +44,21 @@ export function Sidebar({
       <div className={styles.navgroup}>
         <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
         <NavItem
-          icon={<FilesIcon />}
+          icon={<LayoutGrid size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.files)}
           count={filesCount}
           active={mode === "files"}
           onClick={() => onModeChange("files")}
         />
         <NavItem
-          icon={<AlbumsIcon />}
+          icon={<Disc size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.albums)}
           count={albumsCount}
           active={mode === "albums"}
           onClick={() => onModeChange("albums")}
         />
         <NavItem
-          icon={<SinglesIcon />}
+          icon={<Disc3 size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.singles)}
           count={singlesCount}
           active={mode === "singles"}
@@ -149,7 +69,7 @@ export function Sidebar({
       <div className={styles.navgroup}>
         <div className={styles.navlabel}>{t((d) => d.nav.output)}</div>
         <NavItem
-          icon={<ExportIcon />}
+          icon={<Download size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.export)}
           active={mode === "export"}
           onClick={() => onModeChange("export")}

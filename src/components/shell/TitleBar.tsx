@@ -16,98 +16,22 @@ import {
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
+// -- Icon Imports --
+import { Minus, Square, Copy, X } from "lucide-react";
+
+// -- Asset Imports --
+// The mark is the same P + spectrum staff in both; only the notes change - platinum glows on the dark
+// ground, steel reads on the light one. The theme picks which renders (see the module CSS).
+import logoPlatinum from "../../assets/plisto-logo-final.svg";
+import logoSteel from "../../assets/plisto-logo-steel.svg";
+
 // -- Style Imports --
 import styles from "./TitleBar.module.css";
 
-/** The brand mark: a note stem over two record dots, white on the accent square. */
-function BrandMark() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M9 18V6l10-2v12"
-        stroke="#fff"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="6.5" cy="18" r="2.6" stroke="#fff" strokeWidth="2" />
-      <circle cx="16.5" cy="16" r="2.6" stroke="#fff" strokeWidth="2" />
-    </svg>
-  );
-}
-
-/** A single line: the minimize glyph. */
-function MinimizeIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <line x1="4" y1="8" x2="12" y2="8" />
-    </svg>
-  );
-}
-
-/** A single square: the maximize glyph, shown when the window is at its normal size. */
-function MaximizeIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="4" width="8" height="8" rx="1.2" />
-    </svg>
-  );
-}
-
-/** Two offset squares: the restore glyph, shown when the window is maximized. */
-function RestoreIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3.5" y="5.5" width="7" height="7" rx="1.2" />
-      <path d="M6 5.5V4.4Q6 3.3 7.1 3.3H11.6Q12.7 3.3 12.7 4.4V8.9Q12.7 10 11.6 10H10.9" />
-    </svg>
-  );
-}
-
-/** Two crossed lines: the close glyph. */
-function CloseIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <line x1="4.5" y1="4.5" x2="11.5" y2="11.5" />
-      <line x1="11.5" y1="4.5" x2="4.5" y2="11.5" />
-    </svg>
-  );
+/** The trailing folder of a path, so the indicator reads as a name rather than a full mono path. */
+function folderName(path: string): string {
+  const leaf = path.split(/[\\/]/).filter(Boolean).pop();
+  return leaf ?? path;
 }
 
 /**
@@ -145,16 +69,16 @@ export function TitleBar() {
   return (
     <div className={styles.bar} data-tauri-drag-region>
       <div className={styles.brand}>
-        <span className={styles.mark}>
-          <BrandMark />
-        </span>
+        <img src={logoPlatinum} alt="" aria-hidden="true" className={`${styles.logo} ${styles.platinum}`} />
+        <img src={logoSteel} alt="" aria-hidden="true" className={`${styles.logo} ${styles.steel}`} />
         <span className={styles.name}>Plisto</span>
       </div>
 
       {workspace ? (
         <div className={styles.workspace} title={workspace}>
           <span className={styles.dot} aria-hidden="true" />
-          <span className={styles.path}>{workspace}</span>
+          {/* The folder name reads lighter than the full path; the path stays on hover. */}
+          <span className={styles.path}>{folderName(workspace)}</span>
         </div>
       ) : null}
 
@@ -165,7 +89,7 @@ export function TitleBar() {
           onClick={minimizeWindow}
           aria-label={t((d) => d.window.minimize)}
         >
-          <MinimizeIcon />
+          <Minus size={16} strokeWidth={1.3} />
         </button>
         <button
           type="button"
@@ -173,7 +97,7 @@ export function TitleBar() {
           onClick={toggleMaximizeWindow}
           aria-label={maximized ? t((d) => d.window.restore) : t((d) => d.window.maximize)}
         >
-          {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+          {maximized ? <Copy size={16} strokeWidth={1.3} /> : <Square size={16} strokeWidth={1.3} />}
         </button>
         <button
           type="button"
@@ -181,7 +105,7 @@ export function TitleBar() {
           onClick={closeWindow}
           aria-label={t((d) => d.window.close)}
         >
-          <CloseIcon />
+          <X size={16} strokeWidth={1.3} />
         </button>
       </div>
     </div>

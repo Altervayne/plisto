@@ -6,36 +6,59 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 38px;
-  padding-left: 14px;
+  height: 48px;
+  /* The logo's inset from the left equals its inset from the top ((46 - 30) / 2 = 8), so the top-left
+   * origin reads square rather than left-heavy. */
+  padding-left: 9px;
   user-select: none;
 }
 
-/* Brand identity: the accent square carrying the white mark, then the wordmark. */
+/* Brand identity: the spectrum mark, then the wordmark. */
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-left: 4px;
+  gap: 14px;
 }
 
-.mark {
+/* The mark: the same P + staff in both lockups, one shown per theme. Sized to hold its own against the
+ * full-height window controls. */
+.logo {
   flex: none;
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 25px;
-  border-radius: 7px;
-  background: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  display: block;
+  width: auto;
+  height: 32px;
 }
 
-.mark svg {
+/* Platinum glows on the dark ground, steel reads on the light one - swap by theme. Default (light
+ * system, no explicit choice) shows steel; the dark rules below reveal platinum instead. */
+.platinum {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .platinum {
+    display: block;
+  }
+  :global(:root:not([data-theme="light"])) .steel {
+    display: none;
+  }
+}
+
+:global(:root[data-theme="dark"]) .platinum {
+  display: block;
+}
+:global(:root[data-theme="dark"]) .steel {
+  display: none;
+}
+:global(:root[data-theme="light"]) .platinum {
+  display: none;
+}
+:global(:root[data-theme="light"]) .steel {
   display: block;
 }
 
 .name {
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: -0.015em;
   color: var(--ink);
@@ -62,11 +85,12 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
 }
 
+/* The folder name in the UI face, not mono - mono stays reserved for raw source filenames, and it was
+ * the mono path that made this cluster read heavy. */
 .path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
   color: var(--ink-2);
 }
 

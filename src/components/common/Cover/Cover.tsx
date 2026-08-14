@@ -1,6 +1,9 @@
 // -- Framework Imports --
 import { useEffect, useState } from "react";
 
+// -- Icon Imports --
+import { Image as ImageIcon } from "lucide-react";
+
 // -- Style Imports --
 import styles from "./Cover.module.css";
 
@@ -46,20 +49,7 @@ export function Cover({
         />
       ) : (
         <span className={styles.placeholder} aria-hidden="true">
-          <svg
-            width="30"
-            height="30"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2.5" />
-            <circle cx="9" cy="10" r="2" />
-            <path d="m4 18 5-4 4 3 3-2 4 3" />
-          </svg>
+          <ImageIcon size={30} strokeWidth={1.6} />
         </span>
       )}
       <span className={styles.grain} aria-hidden="true" />

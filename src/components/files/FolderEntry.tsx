@@ -1,30 +1,14 @@
 // -- Type Imports --
 import type { FolderNode } from "../../state/files/folderTree";
 
+// -- Icon Imports --
+import { Folder } from "lucide-react";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./FolderBand.module.css";
-
-/** A folder outline in the current ink. */
-function FolderIcon() {
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-    </svg>
-  );
-}
 
 /**
  * One folder as a quiet row, never a tile: a folder glyph, the real-case name, and a trailing count
@@ -42,7 +26,7 @@ export function FolderEntry({
   return (
     <button type="button" className={styles.entry} onClick={() => onOpen(folder.id)}>
       <span className={styles.glyph}>
-        <FolderIcon />
+        <Folder size={17} strokeWidth={1.7} />
       </span>
       <span className={styles.name}>{folder.name}</span>
       <span className={styles.count}>
