@@ -37,10 +37,22 @@ function isPlural(node: string | Plural): node is Plural {
   return typeof node === "object";
 }
 
-/** Fills each `{name}` token from vars; an unmatched token is left as written. */
-function interpolate(text: string, vars?: Record<string, string | number>): string {
+/**
+ * Fills tokens from vars. A `{{name}}` token formats its value as a locale-aware number (French
+ * groups with spaces, English with commas); a plain `{name}` token inserts the raw value. Double
+ * braces resolve first, so the single-brace pass never sees the inner braces. An unmatched token is
+ * left as written.
+ */
+function interpolate(
+  text: string,
+  vars: Record<string, string | number> | undefined,
+  locale: Locale,
+): string {
   if (!vars) return text;
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) =>
+  const withNumbers = text.replace(/\{\{(\w+)\}\}/g, (whole, name: string) =>
+    name in vars ? Number(vars[name]).toLocaleString(locale) : whole,
+  );
+  return withNumbers.replace(/\{(\w+)\}/g, (whole, name: string) =>
     name in vars ? String(vars[name]) : whole,
   );
 }
@@ -59,11 +71,12 @@ export function useSetLocale(): (locale: Locale) => void {
 
 /** A `t` bound to the active locale's dict: resolve a leaf, choose its plural form, interpolate. */
 export function useT(): Translate {
-  const dict = DICTS[useLocale()];
+  const locale = useLocale();
+  const dict = DICTS[locale];
   const t = (pick: (d: Dict) => string | Plural, vars?: Vars): string => {
     const node = pick(dict);
     const text = isPlural(node) ? (vars?.n === 1 ? node.one : node.other) : node;
-    return interpolate(text, vars);
+    return interpolate(text, vars, locale);
   };
   return t as Translate;
 }

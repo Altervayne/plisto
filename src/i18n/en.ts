@@ -1,8 +1,9 @@
 /*
  * The English dictionary: the source of truth for every user-facing string. Object-literal strings
  * widen to `string` (no `as const`), so `Dict` carries `string` and `Plural` leaves that the French
- * scaffold must match key-for-key. A `{name}` token marks an interpolation slot; a nested one/other
- * leaf drives count text, chosen by `n`.
+ * scaffold must match key-for-key. A `{name}` token marks a raw interpolation slot; a `{{name}}`
+ * token formats its value as a locale-aware number (grouped per the active locale); a nested
+ * one/other leaf drives count text, chosen by `n`.
  */
 
 export const en = {
@@ -69,8 +70,8 @@ export const en = {
     trackTitle: "Track title",
     edited: "edited",
     revert: "revert",
-    trackCount: { one: "{n} track", other: "{n} tracks" },
-    tracksMissing: { one: "{n} track missing", other: "{n} tracks missing" },
+    trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
+    tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
   },
 
   cover: {
@@ -133,8 +134,8 @@ export const en = {
     fileView: "File view",
     folderPath: "Folder path",
     upOneLevel: "Up one level",
-    folderTracks: { one: "{n} track", other: "{n} tracks" },
-    folderSubfolders: { one: "{n} folder", other: "{n} folders" },
+    folderTracks: { one: "{{n}} track", other: "{{n}} tracks" },
+    folderSubfolders: { one: "{{n}} folder", other: "{{n}} folders" },
   },
 
   resizer: {
