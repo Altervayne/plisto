@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 // -- Component Imports --
 import { AlbumGrid } from "../albums/AlbumGrid";
+import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { ViewToggle } from "../common/ViewToggle/ViewToggle";
@@ -14,7 +15,16 @@ import { TrackGrid } from "../tracks/TrackGrid";
 
 // -- State Imports --
 import { useChangeWorkspace, useScanSummary } from "../../state/store";
-import { useAlbums, useLoadOrganization } from "../../state/organize/store";
+import {
+  useAlbums,
+  useCanRedo,
+  useCanUndo,
+  useClearError,
+  useLoadOrganization,
+  useOrgError,
+  useRedo,
+  useUndo,
+} from "../../state/organize/store";
 
 // -- Type Imports --
 import type { ViewMode } from "../common/ViewToggle/ViewToggle";
@@ -35,14 +45,43 @@ export function ResultView() {
   const changeWorkspace = useChangeWorkspace();
   const albums = useAlbums();
   const loadOrganization = useLoadOrganization();
+  const undo = useUndo();
+  const redo = useRedo();
+  const canUndo = useCanUndo();
+  const canRedo = useCanRedo();
+  const error = useOrgError();
+  const clearError = useClearError();
   const [selected, setSelected] = useState<TrackRow | null>(null);
   const [view, setView] = useState<ViewMode>("grid");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const count = summary?.total ?? 0;
+  const selectedAlbum = albums.find((a) => a.id === selectedAlbumId) ?? null;
 
   useEffect(() => {
     void loadOrganization();
   }, [loadOrganization]);
+
+  // Global undo/redo, but only when focus is not in a field - a field keeps its own text undo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const el = document.activeElement;
+      const inField =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (inField) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   if (count === 0) {
     return (
@@ -62,14 +101,35 @@ export function ResultView() {
       <TopBar />
       <div className={styles.controls}>
         <ViewToggle value={view} onChange={setView} />
+        <div className={styles.history}>
+          <QuietButton onClick={() => undo()} disabled={!canUndo} aria-label="Undo">
+            Undo
+          </QuietButton>
+          <QuietButton onClick={() => redo()} disabled={!canRedo} aria-label="Redo">
+            Redo
+          </QuietButton>
+        </div>
+        {error ? (
+          <div className={styles.error} role="status">
+            <span>{error}</span>
+            <QuietButton onClick={() => clearError()} aria-label="Dismiss">
+              Dismiss
+            </QuietButton>
+          </div>
+        ) : null}
       </div>
       <div className={styles.content}>
         {view === "grid" ? (
-          <AlbumGrid
-            albums={albums}
-            selectedAlbumId={selectedAlbumId}
-            onOpen={setSelectedAlbumId}
-          />
+          <>
+            <AlbumGrid
+              albums={albums}
+              selectedAlbumId={selectedAlbumId}
+              onOpen={setSelectedAlbumId}
+            />
+            {selectedAlbum ? (
+              <AlbumDrawer album={selectedAlbum} onClose={() => setSelectedAlbumId(null)} />
+            ) : null}
+          </>
         ) : (
           <>
             <TrackGrid

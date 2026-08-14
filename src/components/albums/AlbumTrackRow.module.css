@@ -1,0 +1,87 @@
+/*
+ * One track row: a number column, the title-over-source main column, and a duration column. The row
+ * veils on hover like the rest of the surface. Numbers and duration are tabular so they line up.
+ */
+.row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: start;
+  gap: 12px;
+  padding: 7px 6px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.no {
+  padding-top: 3px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The raw original beneath the clean title: mono filename, an edited marker, and the revert link. */
+.rawline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.source {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.editedMark {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.revert {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.revert:hover {
+  color: var(--ink);
+}
+
+.dur {
+  padding-top: 3px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A member whose file is gone still holds its slot, marked by a quieter, warn-tinted number. */
+.row[data-missing] .no {
+  color: var(--warn);
+}

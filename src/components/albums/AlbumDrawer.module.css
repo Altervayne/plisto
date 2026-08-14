@@ -1,0 +1,47 @@
+/*
+ * The album drawer: a side region on the continuous ground, given density by the edge veil rather than
+ * a border. It scrolls on its own so a long track list never pushes the grid. Mirrors the read-only
+ * track peek's shell.
+ */
+.drawer {
+  flex: 0 0 380px;
+  align-self: stretch;
+  min-height: 0;
+  border-radius: var(--r-md);
+  background: var(--edge);
+}
+
+.scroll {
+  height: 100%;
+}
+
+.inner {
+  padding: 4px 20px 24px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 12px;
+}
+
+/* The title field flexes to fill the header; the close button holds its own width. */
+.titleWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.tracks {
+  padding-top: 8px;
+}
+
+.section {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}

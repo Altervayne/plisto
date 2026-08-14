@@ -1,0 +1,43 @@
+/*
+ * A field that is text, not a box: transparent with no border at rest, a hairline underline surfacing
+ * on hover, and an accent underline on focus that replaces the global ring. The rest and focus states
+ * keep the same total height (a 1px border with 3px pad, a 2px border with 2px pad) so the baseline
+ * never shifts.
+ */
+.field {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0 3px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  transition: border-color var(--dur-fast) ease;
+}
+
+.field::placeholder {
+  color: var(--ink-3);
+}
+
+.field:hover {
+  border-bottom-color: var(--hairline);
+}
+
+.field:focus {
+  outline: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid var(--accent);
+}
+
+/* The drawer title hero. */
+.big {
+  font-size: 23px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+}

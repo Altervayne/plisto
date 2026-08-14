@@ -35,8 +35,10 @@ interface OrganizeStore {
   past: Command[];
   future: Command[];
   selection: Set<number>;
+  error: string | null;
 
   loadOrganization: () => Promise<void>;
+  clearError: () => void;
 
   commitAlbumFields: (albumId: number, next: AlbumFields) => void;
   commitTrackOverrides: (albumId: number, trackId: number, next: TrackOverride) => void;
@@ -60,11 +62,21 @@ interface OrganizeStore {
 const emptyOrg: OrgState = { albums: [], membership: [] };
 
 export const useOrganizeStore = create<OrganizeStore>((set, get) => {
+  // Fires a command's write, and on a failed persist resyncs from the DB (the optimistic projection is
+  // now ahead of it) and surfaces a quiet error. The whole stack is not reverted - a reload is the
+  // correct recovery, leaving past/future intact.
+  const persist = (cmd: Command): void => {
+    void commandToIpc(cmd).catch(() => {
+      void get().loadOrganization();
+      set({ error: "A change could not be saved. Reloaded from the library." });
+    });
+  };
+
   // Applies a committed edit: optimistic projection, push onto the undo stack, drop the redo branch,
   // then fire the write. A committed edit always invalidates any pending redo.
   const commit = (cmd: Command): void => {
-    set((s) => ({ org: applyCommand(s.org, cmd), past: [...s.past, cmd], future: [] }));
-    void commandToIpc(cmd).catch(() => {});
+    set((s) => ({ org: applyCommand(s.org, cmd), past: [...s.past, cmd], future: [], error: null }));
+    persist(cmd);
   };
 
   // Builds the appended row for a track joining `albumId` at `trackNo`. Track-level fields come from the
@@ -105,6 +117,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     past: [],
     future: [],
     selection: new Set<number>(),
+    error: null,
 
     loadOrganization: async () => {
       try {
@@ -114,6 +127,8 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         set({ org: emptyOrg });
       }
     },
+
+    clearError: () => set({ error: null }),
 
     commitAlbumFields: (albumId, next) => {
       const album = get().org.albums.find((a) => a.id === albumId);
@@ -204,8 +219,9 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         org: applyCommand(s.org, inverse),
         past: s.past.slice(0, -1),
         future: [...s.future, cmd],
+        error: null,
       }));
-      void commandToIpc(inverse).catch(() => {});
+      persist(inverse);
     },
 
     redo: () => {
@@ -216,8 +232,9 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         org: applyCommand(s.org, cmd),
         future: s.future.slice(0, -1),
         past: [...s.past, cmd],
+        error: null,
       }));
-      void commandToIpc(cmd).catch(() => {});
+      persist(cmd);
     },
 
     createAlbum: async (fields, trackIds) => {
@@ -295,8 +312,10 @@ export const useAlbumTracks = (albumId: number): AlbumTrackRow[] =>
 export const useSelection = (): Set<number> => useOrganizeStore((s) => s.selection);
 export const useCanUndo = (): boolean => useOrganizeStore((s) => s.past.length > 0);
 export const useCanRedo = (): boolean => useOrganizeStore((s) => s.future.length > 0);
+export const useOrgError = (): string | null => useOrganizeStore((s) => s.error);
 
 export const useLoadOrganization = () => useOrganizeStore((s) => s.loadOrganization);
+export const useClearError = () => useOrganizeStore((s) => s.clearError);
 export const useCommitAlbumFields = () => useOrganizeStore((s) => s.commitAlbumFields);
 export const useCommitTrackOverrides = () => useOrganizeStore((s) => s.commitTrackOverrides);
 export const useReorderTracks = () => useOrganizeStore((s) => s.reorderTracks);

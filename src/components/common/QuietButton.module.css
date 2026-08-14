@@ -20,3 +20,13 @@
   background: var(--veil);
   color: var(--ink);
 }
+
+.quiet:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.quiet:disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}

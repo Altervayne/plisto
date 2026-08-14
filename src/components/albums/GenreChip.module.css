@@ -1,0 +1,35 @@
+/*
+ * The genre chip. A set genre is an accent-weak pill; an unset one is a ghost hairline ring that reads
+ * as an affordance to add. Both are quiet buttons that hand off to the inline text field on click.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast) ease;
+}
+
+.ghost:hover {
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}

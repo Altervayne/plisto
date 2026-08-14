@@ -1,0 +1,67 @@
+/*
+ * The album cover surface at the top of the drawer. The tile carries its own shadow; everything around
+ * it is plain type on the ground. The empty slot doubles as the Add control - a recess that veils on
+ * hover, not a framed dropzone.
+ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 20px;
+}
+
+.slot {
+  position: relative;
+  width: 160px;
+}
+
+.addSlot {
+  position: relative;
+  width: 160px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.addSlot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  transition: background var(--dur-fast) ease;
+  pointer-events: none;
+}
+
+.addSlot:hover::after {
+  background: var(--veil);
+}
+
+.addSlot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.addHint {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}
+
+.safety {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
