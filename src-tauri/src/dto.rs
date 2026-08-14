@@ -134,3 +134,67 @@ pub struct CoverCandidate {
     pub width: i64,
     pub height: i64,
 }
+
+/// One album shaped for the frontend, with `track_count` from a COUNT join over its membership.
+/// Nullable metadata is `Option` (NULL = unset, resolved to a display default in the UI, never an
+/// empty string); `cover_id` points into the shared `covers` manifest or is None.
+#[derive(Debug, Clone, Serialize)]
+pub struct AlbumRow {
+    pub id: i64,
+    pub title: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub genre: Option<String>,
+    pub cover_id: Option<i64>,
+    pub track_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// One membership row for the album drawer: the immutable source cache and the per-track override
+/// side by side, so the frontend resolves `override ?? raw` for display itself. The source fields
+/// join in from the track's own row; the override and numbering live on `album_tracks`.
+#[derive(Debug, Clone, Serialize)]
+pub struct AlbumTrackRow {
+    pub album_id: i64,
+    pub track_id: i64,
+    pub source_path: String,
+    pub filename: String,
+    pub duration_secs: Option<f64>,
+    pub track_no: Option<i64>,
+    pub disc_no: Option<i64>,
+    pub raw_title: Option<String>,
+    pub raw_artist: Option<String>,
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub has_embedded_cover: Option<bool>,
+    pub missing_at: Option<i64>,
+}
+
+/// The album-metadata patch: a full-set replace of the four editable fields. The frontend sends
+/// the whole current set on commit, so a None clears its column to NULL.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AlbumFields {
+    pub title: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub genre: Option<String>,
+}
+
+/// The per-track override patch for one membership row: a full-set replace of its overrides and
+/// numbering. As with album fields, a None clears its column.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrackOverride {
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub track_no: Option<i64>,
+    pub disc_no: Option<i64>,
+}
+
+/// The load-all organize payload: every album (each with its track count) and every membership
+/// row. The frontend hydrates its organize state from this in one call.
+#[derive(Debug, Clone, Serialize)]
+pub struct OrganizationSnapshot {
+    pub albums: Vec<AlbumRow>,
+    pub membership: Vec<AlbumTrackRow>,
+}

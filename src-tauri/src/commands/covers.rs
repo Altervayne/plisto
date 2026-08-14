@@ -341,7 +341,7 @@ fn candidate_from_bytes(
 /// Reads, validates and caches a picked image, returning its manifest row plus the peek-size
 /// cache path and dimensions. Validate-then-commit: this does no DB work, so a caller writes the
 /// row only once the image is known good. Errors with a plain message the UI can show quietly.
-fn import_from_disk(
+pub(super) fn import_from_disk(
     covers_dir: &Path,
     guard: &InFlightGuard,
     src_path: &str,
@@ -382,7 +382,7 @@ fn max_edge(size: CoverSize) -> u32 {
 
 /// The folder a track belongs to: the parent directory of its source path. Written and read the
 /// same way, so a folder cover set on import resolves back on read.
-fn folder_of(source_path: &str) -> String {
+pub(super) fn folder_of(source_path: &str) -> String {
     Path::new(source_path)
         .parent()
         .map(|p| p.to_string_lossy().into_owned())

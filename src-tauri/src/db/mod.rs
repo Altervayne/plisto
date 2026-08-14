@@ -14,6 +14,7 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 // -- Type Imports --
+use crate::dto::{AlbumRow, AlbumTrackRow};
 use crate::model::{CoverRecord, TrackRecord};
 
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
@@ -200,6 +201,301 @@ pub fn get_cover(
         rusqlite::Error::QueryReturnedNoRows => Ok(None),
         other => Err(other),
     })
+}
+
+// ---- Albums and membership ----
+
+// The album projection with its live track count. LEFT JOIN so an empty album still returns a row
+// with a zero count. Callers append the GROUP BY and, for a single album, a WHERE.
+const ALBUM_SELECT: &str = "
+    SELECT a.id, a.title, a.album_artist, a.year, a.genre, a.cover_id,
+           COUNT(at.track_id) AS track_count, a.created_at, a.updated_at
+    FROM albums a
+    LEFT JOIN album_tracks at ON at.album_id = a.id";
+
+// The drawer's membership projection: the immutable source fields joined from `tracks` beside the
+// per-track override and numbering held on `album_tracks`. Callers append the ORDER BY.
+const ALBUM_TRACK_SELECT: &str = "
+    SELECT at.album_id, at.track_id, t.source_path, t.filename, t.duration_secs,
+           at.track_no, at.disc_no, t.raw_title, t.raw_artist,
+           at.title_override, at.artist_override, t.has_embedded_cover, t.missing_at
+    FROM album_tracks at
+    JOIN tracks t ON t.id = at.track_id";
+
+/// Maps one result row into an AlbumRow. The column order matches ALBUM_SELECT.
+fn album_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumRow> {
+    Ok(AlbumRow {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        album_artist: r.get(2)?,
+        year: r.get(3)?,
+        genre: r.get(4)?,
+        cover_id: r.get(5)?,
+        track_count: r.get(6)?,
+        created_at: r.get(7)?,
+        updated_at: r.get(8)?,
+    })
+}
+
+/// Maps one result row into an AlbumTrackRow. The column order matches ALBUM_TRACK_SELECT.
+fn album_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumTrackRow> {
+    Ok(AlbumTrackRow {
+        album_id: r.get(0)?,
+        track_id: r.get(1)?,
+        source_path: r.get(2)?,
+        filename: r.get(3)?,
+        duration_secs: r.get(4)?,
+        track_no: r.get(5)?,
+        disc_no: r.get(6)?,
+        raw_title: r.get(7)?,
+        raw_artist: r.get(8)?,
+        title_override: r.get(9)?,
+        artist_override: r.get(10)?,
+        has_embedded_cover: r.get(11)?,
+        missing_at: r.get(12)?,
+    })
+}
+
+/// The source path of one track, or None when no row has that id. The create-time cover pre-fill
+/// derives a selection's shared folder from these.
+pub fn get_track_source_path(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT source_path FROM tracks WHERE id = ?1",
+        params![track_id],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// One album with its track count, or None when the id is absent.
+pub fn get_album(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<AlbumRow>> {
+    let sql = format!("{ALBUM_SELECT} WHERE a.id = ?1 GROUP BY a.id");
+    conn.query_row(&sql, params![album_id], album_row_from_sql)
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+}
+
+/// Every album with its track count, ordered by id. One half of the organize snapshot.
+pub fn load_albums(conn: &Connection) -> rusqlite::Result<Vec<AlbumRow>> {
+    let sql = format!("{ALBUM_SELECT} GROUP BY a.id ORDER BY a.id");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map([], album_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Every membership row across all albums, ordered by album then track number. The other half of
+/// the organize snapshot.
+pub fn load_album_tracks(conn: &Connection) -> rusqlite::Result<Vec<AlbumTrackRow>> {
+    let sql = format!("{ALBUM_TRACK_SELECT} ORDER BY at.album_id, at.track_no");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map([], album_track_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Inserts an album and appends `track_ids` as membership rows in order (track_no 1..N, disc_no 1)
+/// in one transaction, then returns the new row. `cover_id` is the caller's create-time pre-fill
+/// (a shared folder cover) or None. `created_at` and `updated_at` both take `now`.
+pub fn create_album(
+    conn: &mut Connection,
+    title: Option<String>,
+    album_artist: Option<String>,
+    year: Option<i64>,
+    genre: Option<String>,
+    cover_id: Option<i64>,
+    track_ids: &[i64],
+    now: i64,
+) -> rusqlite::Result<AlbumRow> {
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO albums (title, album_artist, year, genre, cover_id, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![title, album_artist, year, genre, cover_id, now],
+    )?;
+    let album_id = tx.last_insert_rowid();
+    for (i, &track_id) in track_ids.iter().enumerate() {
+        insert_album_track(&tx, album_id, track_id, (i as i64) + 1, 1)?;
+    }
+    tx.commit()?;
+
+    get_album(conn, album_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+}
+
+/// Deletes an album. The membership foreign keys CASCADE, so the assignment rows go with it while
+/// the track rows themselves stay.
+pub fn delete_album(conn: &Connection, album_id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
+    Ok(())
+}
+
+/// Move-or-add under single membership: each track already in this album is left untouched; each
+/// track elsewhere is unbound from its current album first; the rest are appended after the current
+/// max track_no, in the given order. All in one transaction so a half-move can never persist.
+pub fn add_tracks_to_album(
+    conn: &mut Connection,
+    album_id: i64,
+    track_ids: &[i64],
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    let mut next = max_track_no(&tx, album_id)?;
+    for &track_id in track_ids {
+        match membership_album(&tx, track_id)? {
+            Some(current) if current == album_id => continue,
+            Some(_) => remove_membership(&tx, track_id)?,
+            None => {}
+        }
+        next += 1;
+        insert_album_track(&tx, album_id, track_id, next, 1)?;
+    }
+    tx.commit()
+}
+
+/// Removes the given tracks' membership rows from one album, in one transaction. Tracks not in the
+/// album are silently skipped.
+pub fn remove_tracks_from_album(
+    conn: &mut Connection,
+    album_id: i64,
+    track_ids: &[i64],
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for &track_id in track_ids {
+        tx.execute(
+            "DELETE FROM album_tracks WHERE album_id = ?1 AND track_id = ?2",
+            params![album_id, track_id],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Rewrites the whole track order: assigns track_no 1..N in the given order, in one transaction so
+/// no intermediate numbering is ever visible. Leaves disc_no untouched.
+pub fn set_track_order(
+    conn: &mut Connection,
+    album_id: i64,
+    ordered_track_ids: &[i64],
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for (i, &track_id) in ordered_track_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE album_tracks SET track_no = ?1 WHERE album_id = ?2 AND track_id = ?3",
+            params![(i as i64) + 1, album_id, track_id],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Replaces an album's four editable fields with the given values (a None clears its column) and
+/// bumps `updated_at`.
+pub fn set_album_fields(
+    conn: &Connection,
+    album_id: i64,
+    title: Option<String>,
+    album_artist: Option<String>,
+    year: Option<i64>,
+    genre: Option<String>,
+    updated_at: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE albums SET title = ?1, album_artist = ?2, year = ?3, genre = ?4, updated_at = ?5
+         WHERE id = ?6",
+        params![title, album_artist, year, genre, updated_at, album_id],
+    )?;
+    Ok(())
+}
+
+/// Replaces one membership row's overrides and numbering with the given values (a None clears its
+/// column). The raw source cache on the track is never touched.
+pub fn set_track_overrides(
+    conn: &Connection,
+    album_id: i64,
+    track_id: i64,
+    title_override: Option<String>,
+    artist_override: Option<String>,
+    track_no: Option<i64>,
+    disc_no: Option<i64>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE album_tracks
+         SET title_override = ?1, artist_override = ?2, track_no = ?3, disc_no = ?4
+         WHERE album_id = ?5 AND track_id = ?6",
+        params![title_override, artist_override, track_no, disc_no, album_id, track_id],
+    )?;
+    Ok(())
+}
+
+/// Binds a cover to an album and bumps `updated_at`. The cover row is written through upsert_cover
+/// first, exactly as a folder cover is.
+pub fn set_album_cover(
+    conn: &Connection,
+    album_id: i64,
+    cover_id: i64,
+    updated_at: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE albums SET cover_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![cover_id, updated_at, album_id],
+    )?;
+    Ok(())
+}
+
+/// Appends one membership row with an explicit position. Private to the album writers, which own
+/// the numbering.
+fn insert_album_track(
+    conn: &Connection,
+    album_id: i64,
+    track_id: i64,
+    track_no: i64,
+    disc_no: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO album_tracks (album_id, track_id, track_no, disc_no)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![album_id, track_id, track_no, disc_no],
+    )?;
+    Ok(())
+}
+
+/// The highest track_no in an album, or 0 when it is empty. The append point is this plus one.
+fn max_track_no(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(track_no), 0) FROM album_tracks WHERE album_id = ?1",
+        params![album_id],
+        |r| r.get(0),
+    )
+}
+
+/// The album a track currently belongs to, or None when it is loose. UNIQUE(track_id) guarantees
+/// at most one.
+fn membership_album(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT album_id FROM album_tracks WHERE track_id = ?1",
+        params![track_id],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Unbinds a track from whatever album holds it. A no-op when it is loose.
+fn remove_membership(conn: &Connection, track_id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM album_tracks WHERE track_id = ?1",
+        params![track_id],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]

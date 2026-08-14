@@ -8,6 +8,7 @@
 // -- Module Declarations --
 pub mod covers;
 mod list_query;
+pub mod organize;
 
 // -- Library Imports --
 use std::path::PathBuf;

@@ -74,7 +74,16 @@ pub fn run() {
             commands::covers::read_cover,
             commands::covers::list_cover_candidates,
             commands::covers::import_folder_cover,
-            commands::covers::remove_folder_cover
+            commands::covers::remove_folder_cover,
+            commands::organize::create_album,
+            commands::organize::delete_album,
+            commands::organize::add_tracks_to_album,
+            commands::organize::remove_tracks_from_album,
+            commands::organize::set_track_order,
+            commands::organize::set_album_fields,
+            commands::organize::set_track_overrides,
+            commands::organize::set_album_cover,
+            commands::organize::load_organization
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

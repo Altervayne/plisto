@@ -93,3 +93,58 @@ export interface CoverCandidate {
   width: number;
   height: number;
 }
+
+/** One album with its track count. Mirrors AlbumRow in dto.rs; nullable metadata is null. */
+export interface AlbumRow {
+  id: number;
+  title: string | null;
+  album_artist: string | null;
+  year: number | null;
+  genre: string | null;
+  cover_id: number | null;
+  track_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/**
+ * One membership row for the album drawer: raw source cache and per-track override side by side,
+ * so the UI resolves `override ?? raw` itself. Mirrors AlbumTrackRow in dto.rs.
+ */
+export interface AlbumTrackRow {
+  album_id: number;
+  track_id: number;
+  source_path: string;
+  filename: string;
+  duration_secs: number | null;
+  track_no: number | null;
+  disc_no: number | null;
+  raw_title: string | null;
+  raw_artist: string | null;
+  title_override: string | null;
+  artist_override: string | null;
+  has_embedded_cover: boolean | null;
+  missing_at: number | null;
+}
+
+/** The album-metadata patch: a full-set replace, a null clears a column. Mirrors AlbumFields. */
+export interface AlbumFields {
+  title: string | null;
+  album_artist: string | null;
+  year: number | null;
+  genre: string | null;
+}
+
+/** The per-track override patch: a full-set replace, a null clears a column. Mirrors TrackOverride. */
+export interface TrackOverride {
+  title_override: string | null;
+  artist_override: string | null;
+  track_no: number | null;
+  disc_no: number | null;
+}
+
+/** The load-all organize payload. Mirrors OrganizationSnapshot in dto.rs. */
+export interface OrganizationSnapshot {
+  albums: AlbumRow[];
+  membership: AlbumTrackRow[];
+}
