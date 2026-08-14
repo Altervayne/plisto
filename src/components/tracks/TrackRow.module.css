@@ -28,6 +28,70 @@
   background: var(--veil-2);
 }
 
+/* A selected row carries a steadier veil so the selection reads at a glance, not only by the tick. */
+.selected,
+.selected:hover {
+  background: var(--veil-2);
+}
+
+/*
+ * The leading selection affordance: a small box floated over the empty left of the No column, so it
+ * costs no grid column and never misaligns the header. It dissolves until the row is hovered, a
+ * selection is active, or it holds focus, then fades in as a quiet control.
+ */
+.check {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+.row:hover .check,
+.selecting .check,
+.check:focus-visible {
+  opacity: 1;
+}
+
+.check:hover {
+  border-color: var(--ink-2);
+}
+
+/* A checked box fills with the accent and always shows, whatever the row's hover state. */
+.selected .check {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The check mark: a short rotated stem, revealed only when the box is checked. */
+.tick {
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0;
+}
+
+.selected .tick {
+  opacity: 1;
+}
+
 /* A single-line cell that clips overflow; the title carries the ellipsis on long text. */
 .cell {
   min-width: 0;

@@ -25,6 +25,14 @@ import {
   useSetGridSort,
   useTracks,
 } from "../../state/store";
+import {
+  useSelectRange,
+  useSelection,
+  useToggleSelect,
+} from "../../state/organize/store";
+
+// -- Type Imports --
+import type { SelectModifiers } from "./TrackRow";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
@@ -81,6 +89,27 @@ export function TrackGrid({
   });
 
   const rows = table.getRowModel().rows;
+
+  // Selection is keyed by track_id in the store, so it survives sort and filter. The anchor is a
+  // row's index in the current sorted/filtered view, so a shift-range respects the order on screen.
+  const selection = useSelection();
+  const toggleSelect = useToggleSelect();
+  const selectRange = useSelectRange();
+  const anchorRef = useRef<number | null>(null);
+  const selecting = selection.size > 0;
+
+  const handleToggle = (trackId: number, mods: SelectModifiers) => {
+    const index = rows.findIndex((r) => r.original.id === trackId);
+    if (mods.shift && anchorRef.current != null) {
+      const anchor = anchorRef.current;
+      const [lo, hi] = anchor <= index ? [anchor, index] : [index, anchor];
+      selectRange(rows.slice(lo, hi + 1).map((r) => r.original.id));
+      return;
+    }
+    toggleSelect(trackId);
+    anchorRef.current = index;
+  };
+
   // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface.
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
@@ -119,7 +148,10 @@ export function TrackGrid({
                   key={track.id}
                   track={track}
                   active={track.id === selectedId}
+                  selected={selection.has(track.id)}
+                  selecting={selecting}
                   onSelect={onSelect}
+                  onToggle={handleToggle}
                   style={{ transform: `translateY(${item.start}px)` }}
                 />
               );

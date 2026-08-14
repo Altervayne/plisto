@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
@@ -10,6 +10,12 @@ import type { TrackRow as TrackRowData } from "../../types";
 
 // -- Style Imports --
 import styles from "./TrackRow.module.css";
+
+/** How a selection click was modified: shift extends a range, meta/ctrl toggles one. */
+export interface SelectModifiers {
+  shift: boolean;
+  meta: boolean;
+}
 
 /** Resolves a cell to its display string, folding an absent tag to a deliberate dash. */
 function cellText(col: TrackColumn, track: TrackRowData): string {
@@ -31,22 +37,41 @@ function cellClass(col: TrackColumn, empty: boolean): string {
 
 /**
  * One virtualized track row, positioned by the caller. Dumb: it renders cells straight from the
- * column model and reports a click. Hover and the active peek show as a soft veil, never a border.
+ * column model and reports a click. The row body opens the read-only peek; the leading checkbox is a
+ * separate target that toggles selection and never opens it. The checkbox dissolves until the row is
+ * hovered or a selection is active, so it is a quiet affordance rather than a permanent column. Hover
+ * and the active peek show as a soft veil; a selected row carries a steadier veil.
  */
 export function TrackRow({
   track,
   active,
+  selected,
+  selecting,
   style,
   onSelect,
+  onToggle,
 }: {
   track: TrackRowData;
   active: boolean;
+  selected: boolean;
+  selecting: boolean;
   style: CSSProperties;
   onSelect: (track: TrackRowData) => void;
+  onToggle: (trackId: number, modifiers: SelectModifiers) => void;
 }) {
+  const toggle = (e: MouseEvent) => {
+    // Keep the peek from opening: the checkbox owns this click.
+    e.stopPropagation();
+    onToggle(track.id, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey });
+  };
+
+  const rowClass = [styles.row, active ? styles.active : "", selected ? styles.selected : "", selecting ? styles.selecting : ""]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
-      className={`${styles.row} ${active ? styles.active : ""}`}
+      className={rowClass}
       style={style}
       role="button"
       tabIndex={0}
@@ -59,6 +84,17 @@ export function TrackRow({
         }
       }}
     >
+      <button
+        type="button"
+        className={styles.check}
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? "Deselect track" : "Select track"}
+        onClick={toggle}
+      >
+        <span className={styles.tick} aria-hidden="true" />
+      </button>
+
       {trackColumns.map((col) => {
         const text = cellText(col, track);
         return (

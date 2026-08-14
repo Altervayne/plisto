@@ -6,6 +6,7 @@ import { AlbumGrid } from "../albums/AlbumGrid";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { ViewToggle } from "../common/ViewToggle/ViewToggle";
+import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { TopBar } from "../topbar/TopBar";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { TrackDetail } from "../tracks/TrackDetail";
@@ -26,7 +27,8 @@ import styles from "./ResultView.module.css";
  * The view over an indexed workspace: the top area above the content region. A scan that found no
  * audio is its own terminal state, not an empty grid. The view toggle switches between the album
  * grid and the track list; List keeps the read-only detail peek, so the grid narrows rather than
- * being covered. The organize projection hydrates on mount so Grid view has its albums.
+ * being covered. The organize projection hydrates on mount so Grid view has its albums. The action
+ * bar floats over the content region whenever tracks are selected, and Create flips back to Grid.
  */
 export function ResultView() {
   const summary = useScanSummary();
@@ -80,6 +82,7 @@ export function ResultView() {
             ) : null}
           </>
         )}
+        <SelectionActionBar onCreated={() => setView("grid")} />
       </div>
     </div>
   );

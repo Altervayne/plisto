@@ -1,0 +1,89 @@
+/*
+ * The add-to-album picker: a quiet floating card anchored above the action bar, with a transparent
+ * full-region backdrop behind it that only catches the dismissing click. No border - it floats on
+ * a lifted shadow like the bar itself.
+ */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+}
+
+.panel {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  width: min(320px, 80vw);
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  z-index: 7;
+}
+
+.search {
+  flex: none;
+}
+
+.scroll {
+  min-height: 0;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* One album row: name at the left, its track count trailing in quiet meta. */
+.option {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.option:hover {
+  background: var(--veil);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 550;
+}
+
+.count {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty,
+.noMatch {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}

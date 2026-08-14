@@ -1,0 +1,57 @@
+/*
+ * The selection action bar: floats centered near the bottom of the content region, lifted on a soft
+ * shadow with no border so it reads as an object on the continuous ground rather than a docked panel.
+ */
+.bar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  z-index: 5;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* The count square: an accent-weak fill with accent text, the lone accent tint when idle. */
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 650;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  color: var(--ink-2);
+  font-weight: 550;
+  font-size: 13px;
+}
+
+.error {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
