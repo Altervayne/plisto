@@ -158,6 +158,11 @@ export function saveTrackCover(trackId: number, destPath: string): Promise<void>
   return invoke("save_track_cover", { trackId, destPath });
 }
 
+/** The dotless extension of a track's cover, sniffed from its bytes, or null when it has none. */
+export function trackCoverExt(trackId: number): Promise<string | null> {
+  return invoke<string | null>("track_cover_ext", { trackId });
+}
+
 /** Creates an album from `trackIds`, seeding fields from the caller and the cover from the backend. */
 export function createAlbum(fields: AlbumFields, trackIds: number[]): Promise<AlbumRow> {
   return invoke<AlbumRow>("create_album", {

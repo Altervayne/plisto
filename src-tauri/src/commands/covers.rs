@@ -176,6 +176,30 @@ pub async fn save_track_cover(
     .map_err(|_| "cover task failed to run".to_string())?
 }
 
+/// Sniffs the leading magic bytes to name a track's full-res cover format, so a save dialog can
+/// default to the art's real extension rather than a blanket .jpg. Reads the same source
+/// save_track_cover writes, off the runtime thread. None when the track has no cover.
+#[tauri::command]
+pub async fn track_cover_ext(
+    track_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let plan = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        prepare_save(&conn, track_id)?
+    };
+
+    let covers_dir = state.covers_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        resolve_full_res(&covers_dir, &plan).map(|bytes| image_ext(&bytes).to_string())
+    })
+    .await
+    .map_err(|_| "cover task failed to run".to_string())
+}
+
 /// Resolves an album's cover at the requested size: its bound cover when set, else the art of its
 /// lowest-numbered member track, else None. A bound cover resolves straight from its cached
 /// thumbnail by hash; the member fallback runs the same resolution read_cover does, decoding off
@@ -522,6 +546,25 @@ fn resolve_full_res(covers_dir: &Path, plan: &SavePlan) -> Option<Vec<u8>> {
                 ResolvedCover::Folder | ResolvedCover::None => None,
             }
         }
+    }
+}
+
+/// Names the image format of `bytes` from its leading magic bytes, returning a lowercase extension
+/// without the dot. Unrecognized or too-short input falls back to "jpg", since embedded art is
+/// overwhelmingly JPEG and the bytes are written verbatim either way.
+fn image_ext(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        "png"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "gif"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"BM") {
+        "bmp"
+    } else {
+        "jpg"
     }
 }
 
@@ -965,6 +1008,24 @@ mod tests {
         assert!(matches!(plan, SavePlan::Derive { .. }));
         let bytes = resolve_full_res(&covers.path, &plan).expect("the adjacent image resolves");
         assert_eq!(bytes, original, "the adjacent file is read verbatim");
+    }
+
+    #[test]
+    fn image_ext_names_each_format_and_falls_back_to_jpg() {
+        assert_eq!(image_ext(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00]), "jpg");
+        assert_eq!(
+            image_ext(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00]),
+            "png"
+        );
+        assert_eq!(image_ext(b"GIF87a...."), "gif");
+        assert_eq!(image_ext(b"GIF89a...."), "gif");
+        assert_eq!(image_ext(b"RIFF\0\0\0\0WEBPVP8 "), "webp");
+        assert_eq!(image_ext(b"BM\0\0\0\0"), "bmp");
+
+        // Unrecognized leading bytes and too-short input both settle on the safe default.
+        assert_eq!(image_ext(b"\x00\x01\x02\x03"), "jpg");
+        assert_eq!(image_ext(b"RI"), "jpg");
+        assert_eq!(image_ext(&[]), "jpg");
     }
 
     #[test]

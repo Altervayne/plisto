@@ -11,6 +11,7 @@ import {
   readCover,
   removeFolderCover,
   saveTrackCover,
+  trackCoverExt,
 } from "../../lib/ipc";
 import { pickCoverSavePath, pickImageFile } from "../../lib/dialog";
 
@@ -43,7 +44,7 @@ export interface TrackCover {
   importFromDisk: () => Promise<void>;
   useCandidate: (candidate: CandidateView) => Promise<void>;
   remove: () => Promise<void>;
-  saveToDisk: (defaultName: string, failMessage: string) => Promise<void>;
+  saveToDisk: (nameFor: (ext: string) => string, failMessage: string) => Promise<void>;
 }
 
 /** Wraps a cache path for the webview, degrading to the raw path outside the desktop shell. */
@@ -147,8 +148,16 @@ export function useTrackCover(trackId: number): TrackCover {
 
   const saveToDisk = useCallback(
     // The message is passed in localized: the surface holds the translator, this hook only the IPC.
-    async (defaultName: string, failMessage: string): Promise<void> => {
-      const path = await pickCoverSavePath(defaultName);
+    // The name builder gets the art's real extension so the dialog defaults to the true format; a
+    // failed sniff falls back to jpg rather than blocking the save.
+    async (nameFor: (ext: string) => string, failMessage: string): Promise<void> => {
+      let ext = "jpg";
+      try {
+        ext = (await trackCoverExt(trackId)) ?? "jpg";
+      } catch {
+        // Keep the safe default and carry on to the picker.
+      }
+      const path = await pickCoverSavePath(nameFor(ext));
       if (!path) return;
       try {
         await saveTrackCover(trackId, path);

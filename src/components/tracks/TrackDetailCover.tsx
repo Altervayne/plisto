@@ -23,10 +23,10 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** A default save name for the cover: the track's filename stem with a .jpg suffix. */
-function coverSaveName(filename: string): string {
+/** A default save name for the cover: the track's filename stem with the art's real extension. */
+function coverSaveName(filename: string, ext: string): string {
   const stem = filename.replace(/\.[^.]+$/, "");
-  return `${stem || filename}.jpg`;
+  return `${stem || filename}.${ext}`;
 }
 
 /** The provenance line for the resolved cover, naming the folder image when one is showing. */
@@ -124,7 +124,9 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
 
       {cover ? (
         <QuietButton
-          onClick={() => void saveToDisk(coverSaveName(track.filename), t((d) => d.cover.saveError))}
+          onClick={() =>
+            void saveToDisk((ext) => coverSaveName(track.filename, ext), t((d) => d.cover.saveError))
+          }
         >
           {t((d) => d.cover.saveToDisk)}
         </QuietButton>
