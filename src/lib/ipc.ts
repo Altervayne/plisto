@@ -9,13 +9,17 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 
 // -- Type Imports --
 import type {
+  AlbumFields,
+  AlbumRow,
   CoverCandidate,
   CoverRef,
   CoverSize,
   ListTracksResponse,
+  OrganizationSnapshot,
   ScanProgress,
   ScanSummary,
   SortSpec,
+  TrackOverride,
 } from "../types";
 
 /** Wraps a progress callback in a fresh channel the scan streams ticks over. */
@@ -58,6 +62,61 @@ export function importFolderCover(trackId: number, srcPath: string): Promise<Cov
 /** Drops the folder cover and returns whatever art the folder falls back to, or null. */
 export function removeFolderCover(trackId: number): Promise<CoverRef | null> {
   return invoke<CoverRef | null>("remove_folder_cover", { trackId });
+}
+
+/** Creates an album from `trackIds`, seeding fields from the caller and the cover from the backend. */
+export function createAlbum(fields: AlbumFields, trackIds: number[]): Promise<AlbumRow> {
+  return invoke<AlbumRow>("create_album", {
+    title: fields.title,
+    albumArtist: fields.album_artist,
+    year: fields.year,
+    genre: fields.genre,
+    trackIds,
+  });
+}
+
+/** Deletes an album. Its membership cascades away; the track rows stay and fall back to loose. */
+export function deleteAlbum(albumId: number): Promise<void> {
+  return invoke("delete_album", { albumId });
+}
+
+/** Assigns tracks to an album: a track elsewhere moves here, a loose one is appended, a member stays. */
+export function addTracksToAlbum(albumId: number, trackIds: number[]): Promise<void> {
+  return invoke("add_tracks_to_album", { albumId, trackIds });
+}
+
+/** Removes tracks from an album. They become loose again; their track rows are untouched. */
+export function removeTracksFromAlbum(albumId: number, trackIds: number[]): Promise<void> {
+  return invoke("remove_tracks_from_album", { albumId, trackIds });
+}
+
+/** Rewrites an album's whole track order to `orderedTrackIds` (track_no 1..N). */
+export function setTrackOrder(albumId: number, orderedTrackIds: number[]): Promise<void> {
+  return invoke("set_track_order", { albumId, orderedTrackIds });
+}
+
+/** Replaces an album's title, artist, year and genre with the given full set (a null clears one). */
+export function setAlbumFields(albumId: number, fields: AlbumFields): Promise<void> {
+  return invoke("set_album_fields", { albumId, fields });
+}
+
+/** Replaces one membership row's overrides and numbering with the given full set (a null clears one). */
+export function setTrackOverrides(
+  albumId: number,
+  trackId: number,
+  over: TrackOverride,
+): Promise<void> {
+  return invoke("set_track_overrides", { albumId, trackId, over });
+}
+
+/** Binds a picked image as an album's cover, returning the newly resolved cover. */
+export function setAlbumCover(albumId: number, srcPath: string): Promise<CoverRef> {
+  return invoke<CoverRef>("set_album_cover", { albumId, srcPath });
+}
+
+/** Loads the whole organize state in one pass: every album with its count, and every membership row. */
+export function loadOrganization(): Promise<OrganizationSnapshot> {
+  return invoke<OrganizationSnapshot>("load_organization");
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */
