@@ -148,6 +148,32 @@ pub async fn remove_folder_cover(
     resolve_at(state.inner(), track_id, DETAIL_EDGE).await
 }
 
+/// Resolves an album's cover at the requested size: its bound cover when set, else the art of its
+/// lowest-numbered member track, else None. A bound cover resolves straight from its cached
+/// thumbnail by hash; the member fallback runs the same resolution read_cover does, decoding off
+/// the runtime thread on a miss.
+#[tauri::command]
+pub async fn album_cover(
+    album_id: i64,
+    size: CoverSize,
+    state: State<'_, AppState>,
+) -> Result<Option<CoverRef>, String> {
+    let edge = max_edge(size);
+    let decision = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        prepare_album_cover(&conn, &state.covers_dir, album_id, edge).map_err(|e| e.to_string())?
+    };
+
+    match decision {
+        AlbumCover::None => Ok(None),
+        AlbumCover::Bound(cover) => Ok(Some(cover)),
+        AlbumCover::FromTrack(track_id) => resolve_at(state.inner(), track_id, edge).await,
+    }
+}
+
 // ---- Resolution ----
 
 /// The outcome of reading the DB for a track's cover: nothing, a folder cover served straight
@@ -188,6 +214,41 @@ fn prepare_resolution(
         source_path,
         has_embedded: art == Some(true),
     })
+}
+
+/// The outcome of reading the DB for an album's cover: nothing, the album's own bound cover served
+/// from its cached thumbnail, or a member track whose own art the caller still resolves.
+enum AlbumCover {
+    None,
+    Bound(CoverRef),
+    FromTrack(i64),
+}
+
+/// Reads the DB to decide an album's cover at `max_edge`. A bound cover resolves fully here (its
+/// thumbnail already exists by hash, no decode); otherwise the lowest-numbered member track is
+/// handed back for the caller's track resolution. Sync: touches only the connection and a path.
+fn prepare_album_cover(
+    conn: &Connection,
+    covers_dir: &Path,
+    album_id: i64,
+    max_edge: u32,
+) -> rusqlite::Result<AlbumCover> {
+    if let Some(cover_id) = db::get_album_cover_id(conn, album_id)? {
+        if let Some((hash, kind, width, height)) = db::get_cover(conn, cover_id)? {
+            let path = thumb_cache_path(covers_dir, &hash, max_edge);
+            return Ok(AlbumCover::Bound(CoverRef {
+                path: path_to_string(&path),
+                width,
+                height,
+                source: cover_source_from_kind(&kind),
+            }));
+        }
+    }
+
+    match db::get_album_first_track(conn, album_id)? {
+        Some(track_id) => Ok(AlbumCover::FromTrack(track_id)),
+        None => Ok(AlbumCover::None),
+    }
 }
 
 /// Resolves a track's cover, running any decode on a blocking thread. Shared by read_cover and
@@ -557,5 +618,75 @@ mod tests {
             )
         );
         assert!(Path::new(&candidates[0].path).exists());
+    }
+
+    #[test]
+    fn album_cover_resolves_its_bound_cover() {
+        let mut conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let guard = InFlightGuard::default();
+        let track_id = insert_track(&conn, "/music/album/1.mp3");
+
+        // Bind an imported cover to the album; import writes its thumbnail by hash at both sizes.
+        let picked = covers.path.join("picked.png");
+        std::fs::write(&picked, png_bytes(64, 64, [90, 20, 20])).unwrap();
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        let album = db::create_album(
+            &mut conn,
+            Some("T".into()),
+            None,
+            None,
+            None,
+            Some(cover_id),
+            &[track_id],
+            1,
+        )
+        .unwrap();
+
+        match prepare_album_cover(&conn, &covers.path, album.id, DETAIL_EDGE).unwrap() {
+            AlbumCover::Bound(cover) => {
+                assert_eq!(cover.source, CoverSource::Imported);
+                let expected = thumb_cache_path(&covers.path, &record.content_hash, DETAIL_EDGE);
+                assert_eq!(cover.path, expected.to_string_lossy());
+                assert!(Path::new(&cover.path).exists(), "the cached thumb exists");
+            }
+            _ => panic!("expected the bound album cover to resolve"),
+        }
+    }
+
+    #[test]
+    fn album_cover_falls_back_to_a_member_tracks_art() {
+        let mut conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        // An adjacent image sits next to the member track on disk; the album has no cover of its own.
+        std::fs::write(music.path.join("cover.jpg"), png_bytes(50, 50, [20, 160, 90])).unwrap();
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+        let album =
+            db::create_album(&mut conn, None, None, None, None, None, &[track_id], 1).unwrap();
+
+        let decision = prepare_album_cover(&conn, &covers.path, album.id, DETAIL_EDGE).unwrap();
+        let AlbumCover::FromTrack(member) = decision else {
+            panic!("expected a member-track fallback");
+        };
+        assert_eq!(member, track_id);
+
+        // That member's own resolution finds the adjacent image.
+        let Resolution::Dynamic {
+            source_path: sp,
+            has_embedded,
+        } = prepare_resolution(&conn, &covers.path, member, DETAIL_EDGE).unwrap()
+        else {
+            panic!("expected a dynamic resolution for the member track");
+        };
+        let cover = generate_dynamic_ref(&covers.path, &guard, &sp, has_embedded, DETAIL_EDGE)
+            .expect("the adjacent image resolves");
+        assert_eq!(cover.source, CoverSource::Adjacent);
+        assert!(Path::new(&cover.path).exists());
     }
 }

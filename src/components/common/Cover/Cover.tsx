@@ -9,14 +9,20 @@ import styles from "./Cover.module.css";
  * the soft shadow and the inset ring that make it read as a physical tile, plus a faint grain
  * layer. Presentational only - it never touches IPC or path conversion; the caller hands it a
  * ready src. A src that fails to load folds back to the placeholder instead of a broken image.
+ *
+ * `interactive` only arms the shadow and transform transitions: the lift itself is driven by a
+ * parent through the --cover-shadow custom property, which inherits into the tile. Left off, the
+ * tile rests on --shadow-soft exactly as before.
  */
 export function Cover({
   src,
   alt = "",
+  interactive = false,
   onError,
 }: {
   src: string | null;
   alt?: string;
+  interactive?: boolean;
   onError?: () => void;
 }) {
   const [broken, setBroken] = useState(false);
@@ -27,7 +33,7 @@ export function Cover({
   const showArt = src != null && !broken;
 
   return (
-    <div className={styles.cover}>
+    <div className={interactive ? `${styles.cover} ${styles.interactive}` : styles.cover}>
       {showArt ? (
         <img
           className={styles.art}

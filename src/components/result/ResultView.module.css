@@ -5,6 +5,13 @@
   flex-direction: column;
 }
 
+/* The view controls sit just under the top bar, parted by space, aligned to the content rhythm. */
+.controls {
+  display: flex;
+  align-items: center;
+  padding: 0 30px 10px;
+}
+
 /* The grid and the detail peek sit side by side on the ground, parted by space, never a divider. */
 .content {
   flex: 1;

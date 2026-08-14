@@ -282,6 +282,35 @@ pub fn get_album(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<Al
         })
 }
 
+/// The cover bound to an album, or None when it has none set or the id is absent. The album cover
+/// resolves from this first, before falling back to a member track's own art.
+pub fn get_album_cover_id(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT cover_id FROM albums WHERE id = ?1",
+        params![album_id],
+        |r| r.get(0),
+    )
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// The lowest-numbered member track of an album, or None when it has no members. The album cover
+/// falls back to this track's own art when no cover is bound.
+pub fn get_album_first_track(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT track_id FROM album_tracks WHERE album_id = ?1 ORDER BY track_no LIMIT 1",
+        params![album_id],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
 /// Every album with its track count, ordered by id. One half of the organize snapshot.
 pub fn load_albums(conn: &Connection) -> rusqlite::Result<Vec<AlbumRow>> {
     let sql = format!("{ALBUM_SELECT} GROUP BY a.id ORDER BY a.id");

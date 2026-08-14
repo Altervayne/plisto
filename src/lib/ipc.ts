@@ -49,6 +49,11 @@ export function readCover(trackId: number, size: CoverSize): Promise<CoverRef | 
   return invoke<CoverRef | null>("read_cover", { trackId, size });
 }
 
+/** Resolves an album's cover at `size`: its bound cover, else a member track's art, else null. */
+export function albumCover(albumId: number, size: CoverSize): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("album_cover", { albumId, size });
+}
+
 /** Lists every selectable art source for a track: its embedded picture, then adjacent images. */
 export function listCoverCandidates(trackId: number): Promise<CoverCandidate[]> {
   return invoke<CoverCandidate[]>("list_cover_candidates", { trackId });

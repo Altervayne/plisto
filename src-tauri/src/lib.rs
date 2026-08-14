@@ -72,6 +72,7 @@ pub fn run() {
             commands::cancel_scan,
             commands::list_tracks,
             commands::covers::read_cover,
+            commands::covers::album_cover,
             commands::covers::list_cover_candidates,
             commands::covers::import_folder_cover,
             commands::covers::remove_folder_cover,

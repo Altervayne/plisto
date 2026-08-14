@@ -1,0 +1,13 @@
+/* Fills the content region; the ScrollArea inside owns the overflow and paints the bespoke bar. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/* An auto-filling wall of cards. Column count follows the width; the tiles carry the structure. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 26px 20px;
+  padding: 4px 10px 28px 2px;
+}

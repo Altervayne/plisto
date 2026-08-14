@@ -1,6 +1,8 @@
-/* A full-height centered composition on the ambient ground. No frame, no panel: space only. */
+/* A centered composition on the ambient ground. No frame, no panel: space only. Fills its parent
+ * (100% - the root is full height for the top-level states, a bounded content region when nested),
+ * so a nested empty state never forces the document past the viewport and leaks a native scrollbar. */
 .stage {
-  min-height: 100vh;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;

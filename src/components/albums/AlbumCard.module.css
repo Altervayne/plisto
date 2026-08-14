@@ -1,0 +1,47 @@
+/*
+ * One album tile: a reset button so the whole card is a single click target, holding the cover
+ * frame over the meta block. The cover is the only object - it carries the shadow and lifts on
+ * hover; the card stays flat. The lift and the selected ring reach the Cover atom through the
+ * --cover-shadow custom property, which inherits into it, so there is one cover implementation and
+ * no forked tile.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.frame {
+  position: relative;
+  transition: transform var(--dur-soft) var(--ease-cover);
+}
+
+.card:hover .frame {
+  transform: translateY(-4px);
+  --cover-shadow: var(--shadow-pop);
+}
+
+.card.selected .frame {
+  --cover-shadow: 0 0 0 2px var(--accent), var(--shadow-pop);
+}
+
+.card:focus-visible {
+  outline: none;
+}
+
+.card:focus-visible .frame {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame {
+    transition: none;
+  }
+}

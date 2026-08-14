@@ -2,7 +2,9 @@
  * The cover tile. It owns its own shadow and edge treatment because it is the object, not chrome:
  * the ::after inset ring (a 1px inner light edge plus a soft bottom shade) and the grain are fixed
  * over-art material, not themeable surface colors. Width comes from the parent; the tile stays
- * square. No hover-lift here.
+ * square. The resting shadow reads through --cover-shadow so a parent can swap it (a hover pop, a
+ * selected ring) across the module boundary; unset, it falls back to --shadow-soft. The lift is
+ * opt-in through .interactive, which only arms the transition.
  */
 .cover {
   position: relative;
@@ -10,7 +12,19 @@
   border-radius: var(--r-md);
   overflow: hidden;
   background: var(--sunken);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--cover-shadow, var(--shadow-soft));
+}
+
+.interactive {
+  transition:
+    transform var(--dur-soft) var(--ease-cover),
+    box-shadow var(--dur-soft) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interactive {
+    transition: none;
+  }
 }
 
 .cover::after {
