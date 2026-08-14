@@ -1,10 +1,11 @@
 /*
- * The content-addressed thumbnail cache. A generated thumb lives at
+ * The content-addressed cover cache. A generated thumb lives at
  * <covers_dir>/<content_hash>_<edge>.jpg, so a warm hit is a Path::exists with no decode and no
- * DB touch. The in-flight guard collapses a burst of identical requests to a single decode:
- * concurrent callers for the same key wait on the first instead of each re-decoding the same
- * art. Generation writes through a temp file then renames, so a reader never sees a half-written
- * thumbnail.
+ * DB touch. The original full-resolution art lives beside it at <content_hash>.orig, kept verbatim
+ * so export can embed real art even after the user moves or deletes the file they picked. The
+ * in-flight guard collapses a burst of identical requests to a single decode: concurrent callers
+ * for the same key wait on the first instead of each re-decoding the same art. Every write goes
+ * through a temp file then renames, so a reader never sees a half-written file.
  */
 
 // -- Library Imports --
@@ -58,6 +59,39 @@ pub fn thumb_cache_path(covers_dir: &Path, content_hash: &str, max_edge: u32) ->
     covers_dir.join(format!("{content_hash}_{max_edge}.jpg"))
 }
 
+/// The cache path for the verbatim full-resolution blob of the given content hash. It sits beside
+/// the thumbnails, keyed by the same hash, and keeps the original bytes and format for embedding.
+pub fn full_res_cache_path(covers_dir: &Path, content_hash: &str) -> PathBuf {
+    covers_dir.join(format!("{content_hash}.orig"))
+}
+
+/// Stores `raw_bytes` verbatim as the full-resolution blob for `content_hash`, returning its path.
+/// Content-addressed and idempotent: a blob already present is left untouched, never rewritten, so
+/// the original bytes and format are preserved for embedding. The guard serializes an identical
+/// concurrent store. Errors only when the cache cannot be written.
+pub fn ensure_full_res(
+    covers_dir: &Path,
+    content_hash: &str,
+    raw_bytes: &[u8],
+    guard: &InFlightGuard,
+) -> Result<PathBuf, String> {
+    let path = full_res_cache_path(covers_dir, content_hash);
+    if path.exists() {
+        return Ok(path);
+    }
+
+    let key = format!("{content_hash}_orig");
+    let _claim = guard.claim(&key);
+
+    // The winner of the race may have written it while this caller waited on the guard.
+    if path.exists() {
+        return Ok(path);
+    }
+
+    write_atomic(&path, raw_bytes)?;
+    Ok(path)
+}
+
 /// Ensures a thumbnail of `raw_bytes` at `max_edge` exists in the cache and returns its path. A
 /// warm file is returned untouched, without decoding or rewriting. On a miss, one caller decodes
 /// and writes while identical concurrent callers wait through the guard. Errors when the source
@@ -88,9 +122,14 @@ pub fn ensure_thumb(
 }
 
 /// Writes `bytes` to `path` by staging a temp file beside it and renaming into place, so a
-/// concurrent reader sees either the old file or the whole new one, never a partial write.
+/// concurrent reader sees either the old file or the whole new one, never a partial write. The
+/// temp name extends the target's own extension so the caller's suffix is preserved.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("jpg.tmp");
+    let tmp_ext = match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => format!("{ext}.tmp"),
+        None => "tmp".to_string(),
+    };
+    let tmp = path.with_extension(tmp_ext);
     std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
@@ -189,5 +228,37 @@ mod tests {
         let dir = TempDir::new();
         let guard = InFlightGuard::default();
         assert!(ensure_thumb(&dir.path, "deadbeef", b"not an image", 16, &guard).is_err());
+    }
+
+    #[test]
+    fn full_res_stores_the_original_bytes_verbatim() {
+        let dir = TempDir::new();
+        let guard = InFlightGuard::default();
+        // Arbitrary bytes, not an image: the full-res store never decodes, it keeps them as-is.
+        let bytes = b"\x89PNG\r\n\x1a\n and then some raw original bytes".to_vec();
+        let h = hash(&bytes);
+
+        let path = ensure_full_res(&dir.path, &h, &bytes, &guard).unwrap();
+        assert_eq!(path, full_res_cache_path(&dir.path, &h));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "the blob is byte-for-byte");
+    }
+
+    #[test]
+    fn full_res_is_content_addressed_and_not_rewritten() {
+        let dir = TempDir::new();
+        let guard = InFlightGuard::default();
+        let bytes = png_bytes(40, 40);
+        let h = hash(&bytes);
+
+        let path = ensure_full_res(&dir.path, &h, &bytes, &guard).unwrap();
+        let first_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        // A second store under the same hash is a no-op, even fed different bytes: the blob is
+        // keyed by hash and never overwritten.
+        let again = ensure_full_res(&dir.path, &h, b"different bytes", &guard).unwrap();
+        assert_eq!(again, path);
+        let second_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(first_mtime, second_mtime, "the stored blob is not rewritten");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "the original bytes stand");
     }
 }

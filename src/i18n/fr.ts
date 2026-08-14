@@ -11,6 +11,9 @@ export const fr: Dict = {
     library: "[TO COMPLETE]",
     files: "[TO COMPLETE]",
     albums: "[TO COMPLETE]",
+    singles: "[TO COMPLETE]",
+    output: "[TO COMPLETE]",
+    export: "[TO COMPLETE]",
   },
 
   common: {
@@ -72,6 +75,19 @@ export const fr: Dict = {
     revert: "[TO COMPLETE]",
     trackCount: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
     tracksMissing: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+  },
+
+  singles: {
+    emptyTitle: "[TO COMPLETE]",
+    emptyLine: "[TO COMPLETE]",
+    marker: "[TO COMPLETE]",
+    details: "[TO COMPLETE]",
+    source: "[TO COMPLETE]",
+    make: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    makeError: "[TO COMPLETE]",
+    remove: "[TO COMPLETE]",
+    removeConfirm: "[TO COMPLETE]",
+    removeAction: "[TO COMPLETE]",
   },
 
   cover: {
@@ -138,8 +154,38 @@ export const fr: Dict = {
     folderSubfolders: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
   },
 
+  export: {
+    title: "[TO COMPLETE]",
+    exporting: "[TO COMPLETE]",
+    exported: "[TO COMPLETE]",
+    chooseFolder: "[TO COMPLETE]",
+    action: "[TO COMPLETE]",
+    confirm: "[TO COMPLETE]",
+    cancel: "[TO COMPLETE]",
+    albums: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    tracks: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    singles: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    unsorted: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    missing: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    insideWorkspace: "[TO COMPLETE]",
+    nonEmpty: "[TO COMPLETE]",
+    openFolder: "[TO COMPLETE]",
+    again: "[TO COMPLETE]",
+    written: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    skipped: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    errors: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    more: "[TO COMPLETE]",
+  },
+
   resizer: {
     panel: "[TO COMPLETE]",
     folders: "[TO COMPLETE]",
+  },
+
+  window: {
+    minimize: "[TO COMPLETE]",
+    maximize: "[TO COMPLETE]",
+    restore: "[TO COMPLETE]",
+    close: "[TO COMPLETE]",
   },
 };

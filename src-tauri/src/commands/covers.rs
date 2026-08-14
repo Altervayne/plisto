@@ -18,9 +18,9 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::covers::{
-    discover_adjacent_images, ensure_thumb, normalize_cover, read_embedded_cover_bytes,
-    read_image_dimensions, resolve_track_cover, thumb_cache_path, CoverSourceKind, InFlightGuard,
-    ResolvedCover,
+    discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path, normalize_cover,
+    read_embedded_cover_bytes, read_image_dimensions, resolve_track_cover, thumb_cache_path,
+    CoverSourceKind, InFlightGuard, ResolvedCover,
 };
 use crate::db;
 use crate::dto::{CoverCandidate, CoverRef, CoverSize, CoverSource};
@@ -428,7 +428,65 @@ pub(super) fn import_from_disk(
     let detail = ensure_thumb(covers_dir, &record.content_hash, &bytes, DETAIL_EDGE, guard)
         .map_err(|_| unreadable())?;
 
+    // Keep the original bytes verbatim so export can embed full-resolution art even after the
+    // user moves or deletes the file they picked.
+    ensure_full_res(covers_dir, &record.content_hash, &bytes, guard).map_err(|_| unreadable())?;
+
     Ok((record, path_to_string(&detail), width as i64, height as i64))
+}
+
+// ---- Full-resolution store ----
+
+/// Reads the stored full-resolution bytes of an imported cover, or None when no durable blob
+/// exists or it fails its integrity check. The blob is checked against the manifest's byte length
+/// and content hash, so a truncated or swapped file reads as absent rather than corrupt art.
+/// Export uses this to embed real art; a bad blob is quiet, never a panic.
+#[allow(dead_code)]
+pub(crate) fn read_full_res(
+    conn: &Connection,
+    covers_dir: &Path,
+    cover_id: i64,
+) -> rusqlite::Result<Option<Vec<u8>>> {
+    let Some((content_hash, byte_len)) = db::get_cover_blob_key(conn, cover_id)? else {
+        return Ok(None);
+    };
+
+    let path = full_res_cache_path(covers_dir, &content_hash);
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+
+    if bytes.len() as i64 != byte_len {
+        return Ok(None);
+    }
+    if blake3::hash(&bytes).to_hex().to_string() != content_hash {
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
+
+/// Populates the full-res store for imported covers bound before the store existed. Best-effort
+/// and one-time: for each manifest entry it reads the origin image once and stores it only when
+/// the file is still present and hashes to the recorded content hash; a moved, deleted or changed
+/// origin is left alone, so export later reports that cover as unavailable. Idempotent - an entry
+/// whose blob already exists is skipped without touching the origin.
+pub fn backfill_full_res(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    entries: &[(String, String)],
+) {
+    for (content_hash, origin_path) in entries {
+        if full_res_cache_path(covers_dir, content_hash).exists() {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(origin_path) else {
+            continue;
+        };
+        if blake3::hash(&bytes).to_hex().to_string() != *content_hash {
+            continue;
+        }
+        let _ = ensure_full_res(covers_dir, content_hash, &bytes, guard);
+    }
 }
 
 // ---- Shared helpers ----
@@ -641,6 +699,7 @@ mod tests {
             None,
             Some(cover_id),
             &[track_id],
+            "album",
             1,
         )
         .unwrap();
@@ -668,7 +727,7 @@ mod tests {
         let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
         let track_id = insert_track(&conn, &source_path);
         let album =
-            db::create_album(&mut conn, None, None, None, None, None, &[track_id], 1).unwrap();
+            db::create_album(&mut conn, None, None, None, None, None, &[track_id], "album", 1).unwrap();
 
         let decision = prepare_album_cover(&conn, &covers.path, album.id, DETAIL_EDGE).unwrap();
         let AlbumCover::FromTrack(member) = decision else {
@@ -688,5 +747,102 @@ mod tests {
             .expect("the adjacent image resolves");
         assert_eq!(cover.source, CoverSource::Adjacent);
         assert!(Path::new(&cover.path).exists());
+    }
+
+    #[test]
+    fn import_stores_full_res_and_reads_it_back() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let guard = InFlightGuard::default();
+
+        let picked = covers.path.join("picked.png");
+        let original = png_bytes(64, 48, [200, 40, 40]);
+        std::fs::write(&picked, &original).unwrap();
+
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+
+        let bytes = read_full_res(&conn, &covers.path, cover_id).unwrap();
+        assert_eq!(
+            bytes.as_deref(),
+            Some(original.as_slice()),
+            "the exact original bytes come back for embedding"
+        );
+    }
+
+    #[test]
+    fn read_full_res_rejects_a_corrupt_blob() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let guard = InFlightGuard::default();
+
+        let picked = covers.path.join("picked.png");
+        let original = png_bytes(64, 48, [10, 20, 30]);
+        std::fs::write(&picked, &original).unwrap();
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+
+        // Same length so the byte-length pre-check passes; the hash mismatch is what rejects it.
+        let blob = full_res_cache_path(&covers.path, &record.content_hash);
+        std::fs::write(&blob, vec![0u8; original.len()]).unwrap();
+        assert_eq!(read_full_res(&conn, &covers.path, cover_id).unwrap(), None);
+    }
+
+    #[test]
+    fn backfill_stores_when_the_origin_is_present() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let origins = TempDir::new("origins");
+        let guard = InFlightGuard::default();
+
+        // An imported cover bound before the store existed: origin on disk, no blob yet.
+        let origin = origins.path.join("art.png");
+        let original = png_bytes(80, 60, [30, 90, 150]);
+        std::fs::write(&origin, &original).unwrap();
+        let record = normalize_cover(
+            &original,
+            80,
+            60,
+            CoverSourceKind::Imported,
+            Some(origin.to_string_lossy().into_owned()),
+            100,
+        );
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        assert!(
+            read_full_res(&conn, &covers.path, cover_id).unwrap().is_none(),
+            "no blob before the backfill"
+        );
+
+        let pending = db::imported_full_res_origins(&conn).unwrap();
+        backfill_full_res(&covers.path, &guard, &pending);
+
+        let bytes = read_full_res(&conn, &covers.path, cover_id).unwrap();
+        assert_eq!(bytes.as_deref(), Some(original.as_slice()));
+    }
+
+    #[test]
+    fn backfill_leaves_a_missing_origin() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let guard = InFlightGuard::default();
+
+        // The origin path points nowhere: nothing to copy, so the store stays empty.
+        let original = png_bytes(40, 40, [1, 2, 3]);
+        let record = normalize_cover(
+            &original,
+            40,
+            40,
+            CoverSourceKind::Imported,
+            Some("/gone/art.png".to_string()),
+            100,
+        );
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+
+        let pending = db::imported_full_res_origins(&conn).unwrap();
+        backfill_full_res(&covers.path, &guard, &pending);
+
+        assert_eq!(read_full_res(&conn, &covers.path, cover_id).unwrap(), None);
     }
 }

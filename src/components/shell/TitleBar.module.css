@@ -1,0 +1,106 @@
+/* The window chrome on the ambient ground: a fixed-height row, no border or divider, controls flush
+ * to the trailing edge. The whole bar is the drag surface; its interactive children opt out. */
+.bar {
+  --close-hover: #e5484d;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 38px;
+  padding-left: 14px;
+  user-select: none;
+}
+
+/* Brand identity: the accent square carrying the white mark, then the wordmark. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 4px;
+}
+
+.mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.mark svg {
+  display: block;
+}
+
+.name {
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+/* The active workspace: a good-status dot beside the monospaced path, truncated to one line. Shrinks
+ * before the brand and controls so a long path never pushes the controls off the edge. */
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+}
+
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+
+/* The three window controls, pinned to the trailing edge. The gap before them is the drag surface. */
+.controls {
+  margin-left: auto;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
+/* A quiet caption button: transparent at rest, warming to a veil on hover. Full bar height for a
+ * generous hit target that reaches the window corner. */
+.control {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.control:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* Close warms to a soft red with a white glyph - the expected close affordance, not the app accent. */
+.close:hover {
+  background: var(--close-hover);
+  color: #fff;
+}

@@ -21,6 +21,7 @@ import { applyCommand, commandToIpc, invertCommand } from "./orgCommands";
 // -- IPC Imports --
 import {
   createAlbum as ipcCreateAlbum,
+  createSingle as ipcCreateSingle,
   deleteAlbum as ipcDeleteAlbum,
   loadOrganization as ipcLoadOrganization,
   setAlbumCover as ipcSetAlbumCover,
@@ -50,6 +51,7 @@ interface OrganizeStore {
   redo: () => void;
 
   createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<number>;
+  createSingle: (trackId: number) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
   setAlbumCover: (albumId: number, srcPath: string) => Promise<void>;
 
@@ -247,6 +249,14 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       return row.id;
     },
 
+    createSingle: async (trackId) => {
+      const row = await ipcCreateSingle(trackId);
+      await get().loadOrganization();
+      // Promoting a loose track is structural, same as create: the future branch cannot survive it.
+      set({ past: [], future: [] });
+      return row.id;
+    },
+
     deleteAlbum: async (albumId) => {
       await ipcDeleteAlbum(albumId);
       await get().loadOrganization();
@@ -317,7 +327,14 @@ function sameOrder(a: number[], b: number[]): boolean {
 
 // -- Selectors (narrow: each returns one primitive or one stable/shallow-stable reference) --
 
-export const useAlbums = (): AlbumRow[] => useOrganizeStore((s) => s.org.albums);
+export const useAlbums = (): AlbumRow[] =>
+  useOrganizeStore(useShallow((s) => s.org.albums.filter((a) => a.kind === "album")));
+
+export const useSingles = (): AlbumRow[] =>
+  useOrganizeStore(useShallow((s) => s.org.albums.filter((a) => a.kind === "single")));
+
+export const useMembership = (): AlbumTrackRow[] =>
+  useOrganizeStore(useShallow((s) => s.org.membership));
 
 export const useAlbumTracks = (albumId: number): AlbumTrackRow[] =>
   useOrganizeStore(
@@ -343,6 +360,7 @@ export const useUnassignTracks = () => useOrganizeStore((s) => s.unassignTracks)
 export const useUndo = () => useOrganizeStore((s) => s.undo);
 export const useRedo = () => useOrganizeStore((s) => s.redo);
 export const useCreateAlbum = () => useOrganizeStore((s) => s.createAlbum);
+export const useCreateSingle = () => useOrganizeStore((s) => s.createSingle);
 export const useDeleteAlbum = () => useOrganizeStore((s) => s.deleteAlbum);
 export const useSetAlbumCover = () => useOrganizeStore((s) => s.setAlbumCover);
 export const useToggleSelect = () => useOrganizeStore((s) => s.toggleSelect);

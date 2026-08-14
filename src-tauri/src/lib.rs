@@ -3,6 +3,7 @@ mod commands;
 mod covers;
 mod db;
 mod dto;
+mod export;
 mod model;
 mod normalize;
 mod resolve;
@@ -51,10 +52,25 @@ pub fn run() {
             let db_path = data_dir.join("plisto.sqlite");
             let conn = db::open_db(&db_path)?;
 
-            // Thumbnails cache beside the index, never in the music folder. The webview reads
-            // them back through the asset protocol scoped to this directory.
+            // Thumbnails and the full-res cover blobs cache beside the index, never in the music
+            // folder. The webview reads thumbnails back through the asset protocol scoped here.
             let covers_dir = data_dir.join("covers");
             std::fs::create_dir_all(&covers_dir)?;
+
+            let covers_in_flight = Arc::new(InFlightGuard::default());
+
+            // Copy any imported cover picked before the full-res store existed into the store,
+            // once, off the launch thread. The manifest is read here so no extra connection is
+            // opened; the file work runs in the background and a missing or changed origin is
+            // left for export to report.
+            let pending = db::imported_full_res_origins(&conn).unwrap_or_default();
+            if !pending.is_empty() {
+                let covers_dir = covers_dir.clone();
+                let guard = Arc::clone(&covers_in_flight);
+                tauri::async_runtime::spawn_blocking(move || {
+                    commands::covers::backfill_full_res(&covers_dir, &guard, &pending);
+                });
+            }
 
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -62,7 +78,9 @@ pub fn run() {
                 cancel: Arc::new(AtomicBool::new(false)),
                 scan_running: AtomicBool::new(false),
                 covers_dir,
-                covers_in_flight: Arc::new(InFlightGuard::default()),
+                covers_in_flight,
+                export_cancel: Arc::new(AtomicBool::new(false)),
+                export_running: AtomicBool::new(false),
             });
             Ok(())
         })
@@ -80,6 +98,7 @@ pub fn run() {
             commands::covers::import_folder_cover,
             commands::covers::remove_folder_cover,
             commands::organize::create_album,
+            commands::organize::create_single,
             commands::organize::delete_album,
             commands::organize::add_tracks_to_album,
             commands::organize::remove_tracks_from_album,
@@ -87,7 +106,10 @@ pub fn run() {
             commands::organize::set_album_fields,
             commands::organize::set_track_overrides,
             commands::organize::set_album_cover,
-            commands::organize::load_organization
+            commands::organize::load_organization,
+            commands::export::export_library,
+            commands::export::cancel_export,
+            commands::export::validate_export_destination
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

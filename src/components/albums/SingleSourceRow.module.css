@@ -1,0 +1,51 @@
+/*
+ * The single's read-only source row: a title-over-source main column and a duration column. It mirrors
+ * the album track row's typography without the grip or number, and stays calm - no hover veil, since
+ * nothing here is interactive.
+ */
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 7px 6px;
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+/* The mono source filename beneath the clean title, the messy original kept in view. */
+.source {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.dur {
+  padding-top: 3px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A member whose file is gone still shows, its title warm-tinted to flag the gap. */
+.row[data-missing] .title {
+  color: var(--warn);
+}

@@ -1,0 +1,12 @@
+/* The window frame: the title bar over the content, filling the viewport in one column. The content
+ * region owns the remaining height so every screen scrolls within it, never past the window. */
+.frame {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+}

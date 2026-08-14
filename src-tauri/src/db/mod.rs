@@ -187,6 +187,38 @@ pub fn get_track_cover_inputs(
     })
 }
 
+/// The full-res store key for a cover: its content hash (the on-disk blob name) and the original
+/// byte length (a cheap integrity pre-check before hashing). None when the id is absent.
+pub fn get_cover_blob_key(
+    conn: &Connection,
+    cover_id: i64,
+) -> rusqlite::Result<Option<(String, i64)>> {
+    conn.query_row(
+        "SELECT content_hash, byte_len FROM covers WHERE id = ?1",
+        params![cover_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Every imported cover that could carry a durable full-res blob: its content hash and origin
+/// path. Embedded and adjacent art never reach the manifest, so this is the imported set; the
+/// origin filter drops a row whose pick path was never recorded. Feeds the one-time backfill.
+pub fn imported_full_res_origins(conn: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT content_hash, origin_path FROM covers
+         WHERE source_kind = 'imported' AND origin_path IS NOT NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// The manifest fields a resolved folder cover needs: its content hash (the on-disk thumbnail
 /// key), source kind, and pixel dimensions. None when the id is absent.
 pub fn get_cover(
@@ -248,10 +280,43 @@ pub fn get_workspace_root(conn: &Connection) -> rusqlite::Result<Option<String>>
 
 // ---- Albums and membership ----
 
+// The two album kinds. A plain album groups many tracks; a single is an album-of-one that earns
+// its own release fields and cover. Both live in `albums`, partitioned by this column.
+pub const ALBUM_KIND: &str = "album";
+pub const SINGLE_KIND: &str = "single";
+
+/// A write rejected by an album invariant the schema itself cannot express: a single is an
+/// album-of-one, so its membership is exactly one track and nothing more may be appended. Wraps a
+/// plain SQL error so a writer can fail either way through one Result.
+#[derive(Debug)]
+pub enum WriteError {
+    Sql(rusqlite::Error),
+    // A single was asked to hold other than exactly one track.
+    SingleMember,
+    // A track was assigned to an album that is a single.
+    AddToSingle,
+}
+
+impl std::fmt::Display for WriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WriteError::Sql(e) => write!(f, "{e}"),
+            WriteError::SingleMember => write!(f, "a single must hold exactly one track"),
+            WriteError::AddToSingle => write!(f, "a single cannot take another track"),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for WriteError {
+    fn from(e: rusqlite::Error) -> Self {
+        WriteError::Sql(e)
+    }
+}
+
 // The album projection with its live track count. LEFT JOIN so an empty album still returns a row
 // with a zero count. Callers append the GROUP BY and, for a single album, a WHERE.
 const ALBUM_SELECT: &str = "
-    SELECT a.id, a.title, a.album_artist, a.year, a.genre, a.cover_id,
+    SELECT a.id, a.title, a.album_artist, a.year, a.genre, a.cover_id, a.kind,
            COUNT(at.track_id) AS track_count, a.created_at, a.updated_at
     FROM albums a
     LEFT JOIN album_tracks at ON at.album_id = a.id";
@@ -265,6 +330,69 @@ const ALBUM_TRACK_SELECT: &str = "
     FROM album_tracks at
     JOIN tracks t ON t.id = at.track_id";
 
+/// One membership row shaped for export: the source paths and extension joined from `tracks`
+/// beside the per-track override and numbering held on `album_tracks`, plus the presence stamp and
+/// the tri-state art flag. `display_path` is the real-case path to open; `source_path` is the
+/// folded fallback used only when a legacy row never captured a display path. The overrides and
+/// raw fields resolve to the effective title/artist through `resolve.rs`, exactly as the read path
+/// does. Purpose-built because AlbumTrackRow carries no `ext` or `display_path`.
+#[derive(Debug, Clone)]
+pub struct ExportTrackRow {
+    pub album_id: i64,
+    pub track_id: i64,
+    pub display_path: Option<String>,
+    pub source_path: String,
+    pub ext: String,
+    pub track_no: Option<i64>,
+    pub disc_no: Option<i64>,
+    pub raw_title: Option<String>,
+    pub raw_artist: Option<String>,
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub has_embedded_cover: Option<bool>,
+    pub missing_at: Option<i64>,
+}
+
+// The export projection: the source paths, extension, presence and art flags joined from `tracks`
+// beside the per-track override and numbering on `album_tracks`. Ordered by album then track number
+// so a container's tracks arrive in play order and a null track_no lands last.
+const EXPORT_TRACK_SELECT: &str = "
+    SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext,
+           at.track_no, at.disc_no, t.raw_title, t.raw_artist,
+           at.title_override, at.artist_override, t.has_embedded_cover, t.missing_at
+    FROM album_tracks at
+    JOIN tracks t ON t.id = at.track_id
+    ORDER BY at.album_id, at.track_no";
+
+/// Maps one result row into an ExportTrackRow. The column order matches EXPORT_TRACK_SELECT.
+fn export_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportTrackRow> {
+    Ok(ExportTrackRow {
+        album_id: r.get(0)?,
+        track_id: r.get(1)?,
+        display_path: r.get(2)?,
+        source_path: r.get(3)?,
+        ext: r.get(4)?,
+        track_no: r.get(5)?,
+        disc_no: r.get(6)?,
+        raw_title: r.get(7)?,
+        raw_artist: r.get(8)?,
+        title_override: r.get(9)?,
+        artist_override: r.get(10)?,
+        has_embedded_cover: r.get(11)?,
+        missing_at: r.get(12)?,
+    })
+}
+
+/// Every membership row across all albums and singles, shaped for export and ordered by album then
+/// track number. The export plan groups these by album against the album rows.
+pub fn load_export_tracks(conn: &Connection) -> rusqlite::Result<Vec<ExportTrackRow>> {
+    let mut stmt = conn.prepare(EXPORT_TRACK_SELECT)?;
+    let rows = stmt
+        .query_map([], export_track_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Maps one result row into an AlbumRow. The column order matches ALBUM_SELECT.
 fn album_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumRow> {
     Ok(AlbumRow {
@@ -274,9 +402,10 @@ fn album_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumRow> {
         year: r.get(3)?,
         genre: r.get(4)?,
         cover_id: r.get(5)?,
-        track_count: r.get(6)?,
-        created_at: r.get(7)?,
-        updated_at: r.get(8)?,
+        kind: r.get(6)?,
+        track_count: r.get(7)?,
+        created_at: r.get(8)?,
+        updated_at: r.get(9)?,
     })
 }
 
@@ -375,9 +504,10 @@ pub fn load_album_tracks(conn: &Connection) -> rusqlite::Result<Vec<AlbumTrackRo
     Ok(rows)
 }
 
-/// Inserts an album and appends `track_ids` as membership rows in order (track_no 1..N, disc_no 1)
-/// in one transaction, then returns the new row. `cover_id` is the caller's create-time pre-fill
-/// (a shared folder cover) or None. `created_at` and `updated_at` both take `now`.
+/// Inserts an album of the given `kind` and appends `track_ids` as membership rows in order
+/// (track_no 1..N, disc_no 1) in one transaction, then returns the new row. A single is rejected
+/// unless its membership is exactly one track. `cover_id` is the caller's create-time pre-fill (a
+/// shared folder cover) or None. `created_at` and `updated_at` both take `now`.
 pub fn create_album(
     conn: &mut Connection,
     title: Option<String>,
@@ -386,13 +516,18 @@ pub fn create_album(
     genre: Option<String>,
     cover_id: Option<i64>,
     track_ids: &[i64],
+    kind: &str,
     now: i64,
-) -> rusqlite::Result<AlbumRow> {
+) -> Result<AlbumRow, WriteError> {
+    if kind == SINGLE_KIND && track_ids.len() != 1 {
+        return Err(WriteError::SingleMember);
+    }
+
     let tx = conn.transaction()?;
     tx.execute(
-        "INSERT INTO albums (title, album_artist, year, genre, cover_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![title, album_artist, year, genre, cover_id, now],
+        "INSERT INTO albums (title, album_artist, year, genre, cover_id, kind, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        params![title, album_artist, year, genre, cover_id, kind, now],
     )?;
     let album_id = tx.last_insert_rowid();
     for (i, &track_id) in track_ids.iter().enumerate() {
@@ -400,7 +535,65 @@ pub fn create_album(
     }
     tx.commit()?;
 
-    get_album(conn, album_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    Ok(get_album(conn, album_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?)
+}
+
+/// Promotes one loose track into a single: an album-of-one with kind='single', its release fields
+/// seeded from the track's raw tags. Title takes the raw title, else the filename stem, so a single
+/// always has a name; album_artist takes the raw album-artist, else the raw artist; year and genre
+/// carry over. The single's title is the SONG's title, never the track's raw album tag.
+pub fn create_single(conn: &mut Connection, track_id: i64, now: i64) -> Result<AlbumRow, WriteError> {
+    let seed = single_seed(conn, track_id)?;
+    create_album(
+        conn,
+        seed.title,
+        seed.album_artist,
+        seed.year,
+        seed.genre,
+        None,
+        &[track_id],
+        SINGLE_KIND,
+        now,
+    )
+}
+
+/// The release-field seeds a new single takes from its track's raw tags.
+struct SingleSeed {
+    title: Option<String>,
+    album_artist: Option<String>,
+    year: Option<i64>,
+    genre: Option<String>,
+}
+
+/// Reads the seed fields for a single from its track's raw tags. Title falls back to the filename
+/// stem so a single is never nameless; album_artist falls back to the raw track artist.
+fn single_seed(conn: &Connection, track_id: i64) -> rusqlite::Result<SingleSeed> {
+    conn.query_row(
+        "SELECT raw_title, raw_album_artist, raw_artist, raw_year, raw_genre, filename
+         FROM tracks WHERE id = ?1",
+        params![track_id],
+        |r| {
+            let raw_title: Option<String> = r.get(0)?;
+            let raw_album_artist: Option<String> = r.get(1)?;
+            let raw_artist: Option<String> = r.get(2)?;
+            let filename: String = r.get(5)?;
+            Ok(SingleSeed {
+                title: raw_title.or_else(|| Some(filename_stem(&filename))),
+                album_artist: raw_album_artist.or(raw_artist),
+                year: r.get(3)?,
+                genre: r.get(4)?,
+            })
+        },
+    )
+}
+
+/// The filename with its final extension dropped, or the whole name when it has none. The fallback
+/// title for a single whose track carries no raw title.
+fn filename_stem(filename: &str) -> String {
+    Path::new(filename)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| filename.to_string())
 }
 
 /// Deletes an album. The membership foreign keys CASCADE, so the assignment rows go with it while
@@ -417,8 +610,11 @@ pub fn add_tracks_to_album(
     conn: &mut Connection,
     album_id: i64,
     track_ids: &[i64],
-) -> rusqlite::Result<()> {
+) -> Result<(), WriteError> {
     let tx = conn.transaction()?;
+    if album_kind(&tx, album_id)?.as_deref() == Some(SINGLE_KIND) {
+        return Err(WriteError::AddToSingle);
+    }
     let mut next = max_track_no(&tx, album_id)?;
     for &track_id in track_ids {
         match membership_album(&tx, track_id)? {
@@ -429,7 +625,7 @@ pub fn add_tracks_to_album(
         next += 1;
         insert_album_track(&tx, album_id, track_id, next, 1)?;
     }
-    tx.commit()
+    Ok(tx.commit()?)
 }
 
 /// Removes the given tracks' membership rows from one album, in one transaction. Tracks not in the
@@ -546,6 +742,21 @@ fn max_track_no(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
     )
 }
 
+/// The kind of an album ('album' or 'single'), or None when the id is absent. The add-to-album
+/// writer reads it to reject appending to a single.
+fn album_kind(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT kind FROM albums WHERE id = ?1",
+        params![album_id],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
 /// The album a track currently belongs to, or None when it is loose. UNIQUE(track_id) guarantees
 /// at most one.
 fn membership_album(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<i64>> {
@@ -621,7 +832,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
 
         for table in [
             "tracks",
@@ -653,6 +864,16 @@ mod tests {
                 .unwrap();
             assert_eq!(has_col, 1, "tracks.{col} should exist");
         }
+
+        // The album kind partitions plain albums from singles.
+        let has_kind: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('albums') WHERE name = 'kind'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_kind, 1, "albums.kind should exist");
     }
 
     #[test]
@@ -663,7 +884,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -824,5 +1045,79 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM folder_covers", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn create_single_seeds_release_fields_from_raw_tags() {
+        let mut conn = open_in_memory().unwrap();
+        upsert_track(&conn, &sample(100)).unwrap();
+        let track_id: i64 = conn
+            .query_row("SELECT id FROM tracks", [], |r| r.get(0))
+            .unwrap();
+
+        let single = create_single(&mut conn, track_id, 200).unwrap();
+
+        assert_eq!(single.kind, "single", "a single carries kind='single'");
+        assert_eq!(single.track_count, 1, "a single holds exactly its one track");
+        assert_eq!(single.title.as_deref(), Some("Song"), "title from raw_title");
+        assert_eq!(
+            single.album_artist.as_deref(),
+            Some("Artist"),
+            "album_artist falls back to raw_artist when raw_album_artist is unset",
+        );
+        assert_eq!(single.year, Some(1997), "year carries over");
+        assert_eq!(single.genre, None, "an unset genre stays unset");
+    }
+
+    #[test]
+    fn create_single_title_falls_back_to_filename_stem() {
+        let mut conn = open_in_memory().unwrap();
+        let mut rec = sample(100);
+        rec.raw_title = None;
+        upsert_track(&conn, &rec).unwrap();
+        let track_id: i64 = conn
+            .query_row("SELECT id FROM tracks", [], |r| r.get(0))
+            .unwrap();
+
+        let single = create_single(&mut conn, track_id, 200).unwrap();
+        assert_eq!(
+            single.title.as_deref(),
+            Some("song"),
+            "a titleless track seeds the stem of song.mp3",
+        );
+    }
+
+    #[test]
+    fn create_album_rejects_a_single_without_exactly_one_member() {
+        let mut conn = open_in_memory().unwrap();
+        let mut a = sample(100);
+        a.source_path = "/music/a.mp3".to_string();
+        let mut b = sample(100);
+        b.source_path = "/music/b.mp3".to_string();
+        upsert_track(&conn, &a).unwrap();
+        upsert_track(&conn, &b).unwrap();
+        let ids: Vec<i64> = conn
+            .prepare("SELECT id FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+
+        let two = create_album(&mut conn, None, None, None, None, None, &ids, SINGLE_KIND, 1);
+        assert!(
+            matches!(two, Err(WriteError::SingleMember)),
+            "a two-track single is rejected",
+        );
+        let zero = create_album(&mut conn, None, None, None, None, None, &[], SINGLE_KIND, 1);
+        assert!(
+            matches!(zero, Err(WriteError::SingleMember)),
+            "an empty single is rejected",
+        );
+
+        let none: i64 = conn
+            .query_row("SELECT COUNT(*) FROM albums", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(none, 0, "a rejected single writes no album row");
     }
 }

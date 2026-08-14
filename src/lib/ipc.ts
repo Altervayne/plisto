@@ -14,6 +14,9 @@ import type {
   CoverCandidate,
   CoverRef,
   CoverSize,
+  DestinationCheck,
+  ExportProgress,
+  ExportSummary,
   ListTracksResponse,
   OrganizationSnapshot,
   ScanProgress,
@@ -42,6 +45,36 @@ export function scanWorkspace(
 /** Signals the running scan to stop. The backend commits its partial index and reports cancelled. */
 export function cancelScan(): Promise<void> {
   return invoke("cancel_scan");
+}
+
+/** Wraps a progress callback in a fresh channel the export streams ticks over. */
+export function createExportChannel(
+  onProgress: (progress: ExportProgress) => void,
+): Channel<ExportProgress> {
+  const channel = new Channel<ExportProgress>();
+  channel.onmessage = onProgress;
+  return channel;
+}
+
+/** Exports the organized library to `destination`, streaming progress, resolving with the report. */
+export function exportLibrary(
+  destination: string,
+  channel: Channel<ExportProgress>,
+): Promise<ExportSummary> {
+  return invoke<ExportSummary>("export_library", {
+    config: { destination },
+    onProgress: channel,
+  });
+}
+
+/** Signals the running export to stop. The backend finishes its current file and reports cancelled. */
+export function cancelExport(): Promise<void> {
+  return invoke("cancel_export");
+}
+
+/** Inspects a picked destination before a run: workspace overlap, non-empty warn, writability. */
+export function validateExportDestination(destination: string): Promise<DestinationCheck> {
+  return invoke<DestinationCheck>("validate_export_destination", { destination });
 }
 
 /** Resolves a track's single cover at `size`, or null when it has no art from any source. */
@@ -80,7 +113,12 @@ export function createAlbum(fields: AlbumFields, trackIds: number[]): Promise<Al
   });
 }
 
-/** Deletes an album. Its membership cascades away; the track rows stay and fall back to loose. */
+/** Promotes one loose track into a single: an album-of-one seeded from the track's raw tags. */
+export function createSingle(trackId: number): Promise<AlbumRow> {
+  return invoke<AlbumRow>("create_single", { trackId });
+}
+
+/** Deletes an album (or single). Its membership cascades away; the track rows fall back to loose. */
 export function deleteAlbum(albumId: number): Promise<void> {
   return invoke("delete_album", { albumId });
 }

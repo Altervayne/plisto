@@ -9,7 +9,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 4;
+const LATEST_VERSION: i64 = 5;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -115,6 +115,14 @@ CREATE TABLE settings (
 );
 ";
 
+// Version 5: the album `kind`. A Single is an album-of-one with kind='single', a plain album is
+// kind='album'; the two share every album column, override, and cover binding. DEFAULT 'album' is
+// the true state of every existing row - each was a plain album before singles existed - so the
+// ADD COLUMN backfills the whole table in place with no drain.
+const MIGRATION_V5: &str = "
+ALTER TABLE albums ADD COLUMN kind TEXT NOT NULL DEFAULT 'album';
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -126,6 +134,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             1 => conn.execute_batch(MIGRATION_V2)?,
             2 => conn.execute_batch(MIGRATION_V3)?,
             3 => conn.execute_batch(MIGRATION_V4)?,
+            4 => conn.execute_batch(MIGRATION_V5)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -249,6 +258,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(settings, 1, "the settings store exists after v4");
+    }
+
+    /// A v4 DB with an album upgrades to v5 additively: the album row survives and its new `kind`
+    /// backfills to 'album', since every pre-single album is a plain album.
+    #[test]
+    fn v4_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.pragma_update(None, "user_version", 4).unwrap();
+        conn.execute_batch("INSERT INTO albums (id, title, created_at, updated_at) VALUES (1, 'T', 0, 0);")
+            .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let (title, kind): (String, String) = conn
+            .query_row("SELECT title, kind FROM albums", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(title, "T", "the existing album survives the upgrade");
+        assert_eq!(kind, "album", "the new column backfills to 'album'");
     }
 
     /// `album_tracks.UNIQUE(track_id)` enforces single membership: a second album cannot claim a

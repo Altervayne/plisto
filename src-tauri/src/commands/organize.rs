@@ -44,12 +44,26 @@ pub fn create_album(
         genre,
         cover_id,
         &track_ids,
+        db::ALBUM_KIND,
         super::now_unix(),
     )
     .map_err(|e| e.to_string())
 }
 
+/// Promotes one loose track into a single: an album-of-one with kind='single', its release fields
+/// seeded from the track's raw tags. The single's cover resolves from the member track's own art,
+/// so no pre-fill is written here.
+#[tauri::command]
+pub fn create_single(track_id: i64, state: State<'_, AppState>) -> Result<AlbumRow, String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::create_single(&mut conn, track_id, super::now_unix()).map_err(|e| e.to_string())
+}
+
 /// Deletes an album. Membership cascades away; the tracks themselves stay and fall back to loose.
+/// A single is a plain album row, so this un-singles it too: its one member falls back to loose.
 #[tauri::command]
 pub fn delete_album(album_id: i64, state: State<'_, AppState>) -> Result<(), String> {
     let conn = state
@@ -318,7 +332,7 @@ mod tests {
 
         let cover_id = resolve_prefill_cover(&conn, &[a, b, c]).unwrap();
         let album =
-            db::create_album(&mut conn, Some("T".into()), None, None, None, cover_id, &[a, b, c], 100)
+            db::create_album(&mut conn, Some("T".into()), None, None, None, cover_id, &[a, b, c], "album", 100)
                 .unwrap();
 
         assert_eq!(album.track_count, 3);
@@ -341,7 +355,7 @@ mod tests {
 
         let cover_id = resolve_prefill_cover(&conn, &[a, b]).unwrap();
         assert_eq!(cover_id, None);
-        let album = db::create_album(&mut conn, None, None, None, None, cover_id, &[a, b], 100).unwrap();
+        let album = db::create_album(&mut conn, None, None, None, None, cover_id, &[a, b], "album", 100).unwrap();
         assert_eq!(album.cover_id, None);
     }
 
@@ -349,8 +363,8 @@ mod tests {
     fn add_tracks_moves_single_membership_and_is_a_noop_when_present() {
         let mut conn = db::open_in_memory().unwrap();
         let t = insert_track(&conn, "/music/a/1.mp3");
-        let album_a = db::create_album(&mut conn, None, None, None, None, None, &[t], 1).unwrap();
-        let album_b = db::create_album(&mut conn, None, None, None, None, None, &[], 1).unwrap();
+        let album_a = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+        let album_b = db::create_album(&mut conn, None, None, None, None, None, &[], "album", 1).unwrap();
 
         // Moving t into B leaves it in B only: A's membership is gone.
         db::add_tracks_to_album(&mut conn, album_b.id, &[t]).unwrap();
@@ -374,7 +388,7 @@ mod tests {
         let a = insert_track(&conn, "/m/1.mp3");
         let b = insert_track(&conn, "/m/2.mp3");
         let c = insert_track(&conn, "/m/3.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[a, b, c], 1).unwrap();
+        let album = db::create_album(&mut conn, None, None, None, None, None, &[a, b, c], "album", 1).unwrap();
 
         db::set_track_order(&mut conn, album.id, &[c, a, b]).unwrap();
         let expected = vec![(c, Some(1)), (a, Some(2)), (b, Some(3))];
@@ -389,7 +403,7 @@ mod tests {
     fn delete_album_drops_membership_but_keeps_tracks() {
         let mut conn = db::open_in_memory().unwrap();
         let t = insert_track(&conn, "/m/1.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], 1).unwrap();
+        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
 
         db::delete_album(&conn, album.id).unwrap();
 
@@ -405,7 +419,7 @@ mod tests {
         let mut conn = db::open_in_memory().unwrap();
         let a = insert_track(&conn, "/m/1.mp3");
         let b = insert_track(&conn, "/m/2.mp3");
-        let album = db::create_album(&mut conn, Some("T".into()), None, None, None, None, &[a, b], 1)
+        let album = db::create_album(&mut conn, Some("T".into()), None, None, None, None, &[a, b], "album", 1)
             .unwrap();
 
         let albums = db::load_albums(&conn).unwrap();
@@ -416,12 +430,68 @@ mod tests {
     }
 
     #[test]
+    fn add_tracks_to_a_single_is_rejected() {
+        let mut conn = db::open_in_memory().unwrap();
+        let one = insert_track(&conn, "/music/a/1.mp3");
+        let two = insert_track(&conn, "/music/a/2.mp3");
+        let single = db::create_single(&mut conn, one, 1).unwrap();
+
+        let result = db::add_tracks_to_album(&mut conn, single.id, &[two]);
+        assert!(matches!(result, Err(db::WriteError::AddToSingle)));
+
+        // The single still holds only its one member; the guard rolled the add back.
+        let rows = db::load_album_tracks(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].track_id, one);
+    }
+
+    #[test]
+    fn delete_album_on_a_single_returns_its_track_to_unsorted() {
+        let mut conn = db::open_in_memory().unwrap();
+        let t = insert_track(&conn, "/music/loose/hit.mp3");
+        let single = db::create_single(&mut conn, t, 1).unwrap();
+        assert_eq!(single.kind, "single");
+
+        db::delete_album(&conn, single.id).unwrap();
+
+        assert!(
+            db::load_album_tracks(&conn).unwrap().is_empty(),
+            "the single's membership is cascaded away",
+        );
+        let tracks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tracks, 1, "the track row survives, now loose again");
+    }
+
+    #[test]
+    fn load_organization_returns_albums_and_singles_each_with_kind() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/music/album/1.mp3");
+        let b = insert_track(&conn, "/music/album/2.mp3");
+        let s = insert_track(&conn, "/music/loose/hit.mp3");
+        let album =
+            db::create_album(&mut conn, Some("T".into()), None, None, None, None, &[a, b], "album", 1)
+                .unwrap();
+        let single = db::create_single(&mut conn, s, 1).unwrap();
+
+        let albums = db::load_albums(&conn).unwrap();
+        assert_eq!(albums.len(), 2, "both buckets load in one snapshot");
+        let album_row = albums.iter().find(|r| r.id == album.id).unwrap();
+        let single_row = albums.iter().find(|r| r.id == single.id).unwrap();
+        assert_eq!(album_row.kind, "album");
+        assert_eq!(album_row.track_count, 2);
+        assert_eq!(single_row.kind, "single");
+        assert_eq!(single_row.track_count, 1);
+    }
+
+    #[test]
     fn set_album_cover_binds_and_caches_the_thumb() {
         let mut conn = db::open_in_memory().unwrap();
         let covers = TempDir::new("covers");
         let guard = InFlightGuard::default();
         let t = insert_track(&conn, "/m/1.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], 1).unwrap();
+        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
 
         // The picked image lives outside the music folder; import only reads it.
         let picked = covers.path.join("picked.png");

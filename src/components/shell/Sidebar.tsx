@@ -3,7 +3,7 @@ import { NavItem } from "./NavItem";
 import { QuietButton } from "../common/QuietButton";
 
 // -- State Imports --
-import { useChangeWorkspace, useRescan, useWorkspace } from "../../state/store";
+import { useChangeWorkspace, useRescan } from "../../state/store";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -11,25 +11,8 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./Sidebar.module.css";
 
-/** The library mode showing in the main region: the folder tree or the album wall. */
-type Mode = "files" | "albums";
-
-/** The brand mark: a note stem over two record dots, white on the accent square. */
-function BrandMark() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M9 18V6l10-2v12"
-        stroke="#fff"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="6.5" cy="18" r="2.6" stroke="#fff" strokeWidth="2" />
-      <circle cx="16.5" cy="16" r="2.6" stroke="#fff" strokeWidth="2" />
-    </svg>
-  );
-}
+/** The region showing in the main pane: a library wall, or the export screen. */
+type Mode = "files" | "albums" | "singles" | "export";
 
 /** The grid-of-squares icon for Files. */
 function FilesIcon() {
@@ -73,43 +56,71 @@ function AlbumsIcon() {
   );
 }
 
+/** The single-disc icon for Singles: one ring with a solid center, distinct from Albums' two rings. */
+function SinglesIcon() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** The down-arrow-to-baseline icon for Export: art landing onto disk. */
+function ExportIcon() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 4 v10" />
+      <path d="M7 11 l5 5 l5 -5" />
+      <path d="M5 20 h14" />
+    </svg>
+  );
+}
+
 /**
- * The library sidebar: brand identity, the workspace path with a live status dot, the two mode
- * switches (Files, Albums), and the workspace actions pinned to the bottom. Transparent ground -
- * it flows into the main region with no divider between them.
+ * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
+ * the workspace actions pinned to the bottom. Transparent ground - it flows into the main region with
+ * no divider between them. Brand and workspace identity now live in the window title bar.
  */
 export function Sidebar({
   mode,
   onModeChange,
   filesCount,
   albumsCount,
+  singlesCount,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   filesCount: number;
   albumsCount: number;
+  singlesCount: number;
 }) {
-  const workspace = useWorkspace();
   const rescan = useRescan();
   const changeWorkspace = useChangeWorkspace();
   const t = useT();
 
   return (
     <aside className={styles.side}>
-      <div className={styles.brand}>
-        <span className={styles.mark}>
-          <BrandMark />
-        </span>
-        <span className={styles.name}>Plisto</span>
-      </div>
-
-      {workspace ? (
-        <div className={styles.workspace} title={workspace}>
-          <span className={styles.dot} aria-hidden="true" />
-          <span className={styles.path}>{workspace}</span>
-        </div>
-      ) : null}
-
       <div className={styles.navgroup}>
         <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
         <NavItem
@@ -125,6 +136,23 @@ export function Sidebar({
           count={albumsCount}
           active={mode === "albums"}
           onClick={() => onModeChange("albums")}
+        />
+        <NavItem
+          icon={<SinglesIcon />}
+          label={t((d) => d.nav.singles)}
+          count={singlesCount}
+          active={mode === "singles"}
+          onClick={() => onModeChange("singles")}
+        />
+      </div>
+
+      <div className={styles.navgroup}>
+        <div className={styles.navlabel}>{t((d) => d.nav.output)}</div>
+        <NavItem
+          icon={<ExportIcon />}
+          label={t((d) => d.nav.export)}
+          active={mode === "export"}
+          onClick={() => onModeChange("export")}
         />
       </div>
 

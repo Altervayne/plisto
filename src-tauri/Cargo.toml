@@ -30,4 +30,6 @@ lofty = "0.25"
 crossbeam-channel = "0.5"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 blake3 = "1"
+dunce = "1"
+unicode-normalization = "0.1"
 

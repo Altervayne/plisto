@@ -1,0 +1,149 @@
+/* The export screen: one centered column across idle, running, and done, mirroring the scan view.
+ * No frame, no card - the states differ only in what fills the column. */
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 460px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+/* The destination path: mono meta ink, truncated to one line with the full path on hover. */
+.path {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The idle destination row: the picked path over its picker. */
+.dest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* The good-tone status dot, reused from the empty-state vocabulary. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+/* The readiness line: the good dot beside the disclosing counts. */
+.readiness {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.readinessLine {
+  margin: 0;
+}
+
+/* A warn-tone line: the unsorted clause, a workspace refusal, a non-empty caution, or a missing tally. */
+.warn {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+/* The non-empty confirm: the caution beside its two-step action. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Live export counts; digits align via tabular-nums, the line stays quiet meta ink. */
+.counters {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.tally {
+  color: var(--warn);
+}
+
+/* The done report: the counts stacked over the collapsed skip/error list. */
+.report {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.written {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.skipped {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.errors {
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+/* The collapsed list of skipped and failed items: mono container plus its plain-language note. */
+.items {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.item {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.container {
+  font-family: var(--font-mono);
+}
+
+.note {
+  color: var(--ink-2);
+}
+
+.more {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* Both done actions stay quiet - the good dot is the signal, no solid accent here. */
+.actions {
+  margin-top: 4px;
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* A hair of breathing room under the running Cancel and the idle CTA. */
+.foot {
+  margin-top: 4px;
+}

@@ -36,6 +36,7 @@ function album(id: number, trackCount: number, over: Partial<AlbumRow> = {}): Al
     year: null,
     genre: null,
     cover_id: null,
+    kind: "album",
     track_count: trackCount,
     created_at: 1,
     updated_at: 1,

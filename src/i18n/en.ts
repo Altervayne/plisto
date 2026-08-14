@@ -11,6 +11,9 @@ export const en = {
     library: "Library",
     files: "Files",
     albums: "Albums",
+    singles: "Singles",
+    output: "Output",
+    export: "Export",
   },
 
   common: {
@@ -72,6 +75,19 @@ export const en = {
     revert: "revert",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
+  },
+
+  singles: {
+    emptyTitle: "No singles yet",
+    emptyLine: "Pick a standalone track in Files and mark it a single.",
+    marker: "Single",
+    details: "Single details",
+    source: "Source",
+    make: { one: "Make single", other: "Make {{n}} singles" },
+    makeError: "Could not make the single.",
+    remove: "Remove single",
+    removeConfirm: "Remove this single?",
+    removeAction: "Remove",
   },
 
   cover: {
@@ -138,9 +154,39 @@ export const en = {
     folderSubfolders: { one: "{{n}} folder", other: "{{n}} folders" },
   },
 
+  export: {
+    title: "Export library",
+    exporting: "Exporting",
+    exported: "Exported",
+    chooseFolder: "Choose folder...",
+    action: "Export",
+    confirm: "Export anyway",
+    cancel: "Cancel",
+    albums: { one: "{{n}} album", other: "{{n}} albums" },
+    tracks: { one: "{{n}} track", other: "{{n}} tracks" },
+    singles: { one: "{{n}} single", other: "{{n}} singles" },
+    unsorted: { one: "{{n}} unsorted (won't export)", other: "{{n}} unsorted (won't export)" },
+    missing: { one: "{{n}} track missing its source", other: "{{n}} tracks missing their source" },
+    insideWorkspace: "This folder is inside your music library. Choose one outside it.",
+    nonEmpty: "This folder already holds files. Export writes into it.",
+    openFolder: "Open destination folder",
+    again: "Export again",
+    written: { one: "{{n}} exported", other: "{{n}} exported" },
+    skipped: { one: "{{n}} skipped", other: "{{n}} skipped" },
+    errors: { one: "{{n}} error", other: "{{n}} errors" },
+    more: "and {{n}} more",
+  },
+
   resizer: {
     panel: "Resize panel",
     folders: "Resize folders",
+  },
+
+  window: {
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore",
+    close: "Close",
   },
 };
 

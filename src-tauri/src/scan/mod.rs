@@ -9,7 +9,7 @@
  */
 
 // -- Module Declarations --
-mod progress;
+pub mod progress;
 mod tags;
 
 // -- Library Imports --

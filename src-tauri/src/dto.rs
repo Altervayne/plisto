@@ -140,7 +140,8 @@ pub struct CoverCandidate {
 
 /// One album shaped for the frontend, with `track_count` from a COUNT join over its membership.
 /// Nullable metadata is `Option` (NULL = unset, resolved to a display default in the UI, never an
-/// empty string); `cover_id` points into the shared `covers` manifest or is None.
+/// empty string); `cover_id` points into the shared `covers` manifest or is None. `kind` is
+/// 'album' for a plain album or 'single' for an album-of-one; the frontend splits buckets on it.
 #[derive(Debug, Clone, Serialize)]
 pub struct AlbumRow {
     pub id: i64,
@@ -149,6 +150,7 @@ pub struct AlbumRow {
     pub year: Option<i64>,
     pub genre: Option<String>,
     pub cover_id: Option<i64>,
+    pub kind: String,
     pub track_count: i64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -200,4 +202,81 @@ pub struct TrackOverride {
 pub struct OrganizationSnapshot {
     pub albums: Vec<AlbumRow>,
     pub membership: Vec<AlbumTrackRow>,
+}
+
+/// The one choice export asks at MVP: where to write. The filename template and cover mode are
+/// hardcoded, so this is the whole config surface until Phase 5.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportConfig {
+    pub destination: String,
+}
+
+/// The stage a running export is in. `preparing` while the plan is snapshotted and the
+/// destination validated, `copying` while files are written, `done` on the single terminal emit.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportPhase {
+    Preparing,
+    Copying,
+    Done,
+}
+
+/// A progress tick sent over the invocation's channel. `exported` is monotonic and never exceeds
+/// `total`; `errors` counts tracks that failed to write. `done` marks the guaranteed final tick.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportProgress {
+    pub phase: ExportPhase,
+    pub exported: u32,
+    pub total: u32,
+    pub errors: u32,
+    pub done: bool,
+}
+
+/// The fate of one track in an export. `exported` landed (even when its art could not be
+/// embedded); `skipped` was never attempted (a missing source); `failed` was attempted and could
+/// not be written.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportItemStatus {
+    Exported,
+    Skipped,
+    Failed,
+}
+
+/// One row of the export report: which track, in which container folder, and how it landed.
+/// `note` carries the plain-language reason for a skip or failure, or a caveat on an exported
+/// track (art could not be embedded, or no art was available).
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportItem {
+    pub track_id: i64,
+    pub container: String,
+    pub status: ExportItemStatus,
+    pub note: Option<String>,
+}
+
+/// The result of a finished (or cancelled) export. `total` counts every member track considered;
+/// `exported`/`skipped`/`errors` partition it. `containers_written` is how many folders were
+/// created. `items` is the per-track detail the done screen reads.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportSummary {
+    pub total: u32,
+    pub exported: u32,
+    pub skipped: u32,
+    pub errors: u32,
+    pub cancelled: bool,
+    pub containers_written: u32,
+    pub items: Vec<ExportItem>,
+}
+
+/// The up-front verdict on a picked destination, so the UI can gate and warn before a run.
+/// `inside_workspace` is the hard refusal (a dest overlapping the source folder); `non_empty` is
+/// the soft warn (a destination that already holds files); `writable` proves a probe write
+/// succeeded. `ok` is true only when the destination is usable: writable and not inside the
+/// workspace.
+#[derive(Debug, Clone, Serialize)]
+pub struct DestinationCheck {
+    pub ok: bool,
+    pub inside_workspace: bool,
+    pub non_empty: bool,
+    pub writable: bool,
 }

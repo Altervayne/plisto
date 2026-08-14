@@ -95,6 +95,9 @@ export interface CoverCandidate {
   height: number;
 }
 
+/** The bucket an album row belongs to: a plain album, or an album-of-one single. Mirrors the Rust `kind`. */
+export type AlbumKind = 'album' | 'single';
+
 /** One album with its track count. Mirrors AlbumRow in dto.rs; nullable metadata is null. */
 export interface AlbumRow {
   id: number;
@@ -103,6 +106,7 @@ export interface AlbumRow {
   year: number | null;
   genre: string | null;
   cover_id: number | null;
+  kind: AlbumKind;
   track_count: number;
   created_at: number;
   updated_at: number;
@@ -148,4 +152,51 @@ export interface TrackOverride {
 export interface OrganizationSnapshot {
   albums: AlbumRow[];
   membership: AlbumTrackRow[];
+}
+
+/** The one choice export asks: the destination. Mirrors ExportConfig in dto.rs. */
+export interface ExportConfig {
+  destination: string;
+}
+
+/** The stage a running export is in. Mirrors ExportPhase in dto.rs. */
+export type ExportPhase = 'preparing' | 'copying' | 'done';
+
+/** A progress tick over the export channel. `exported` is monotonic. Mirrors ExportProgress. */
+export interface ExportProgress {
+  phase: ExportPhase;
+  exported: number;
+  total: number;
+  errors: number;
+  done: boolean;
+}
+
+/** How one track landed in an export. Mirrors ExportItemStatus in dto.rs. */
+export type ExportItemStatus = 'exported' | 'skipped' | 'failed';
+
+/** One report row: which track, in which container, how it landed, and why. Mirrors ExportItem. */
+export interface ExportItem {
+  track_id: number;
+  container: string;
+  status: ExportItemStatus;
+  note: string | null;
+}
+
+/** The result of a finished or cancelled export. Mirrors ExportSummary in dto.rs. */
+export interface ExportSummary {
+  total: number;
+  exported: number;
+  skipped: number;
+  errors: number;
+  cancelled: boolean;
+  containers_written: number;
+  items: ExportItem[];
+}
+
+/** The up-front verdict on a picked destination. Mirrors DestinationCheck in dto.rs. */
+export interface DestinationCheck {
+  ok: boolean;
+  inside_workspace: boolean;
+  non_empty: boolean;
+  writable: boolean;
 }

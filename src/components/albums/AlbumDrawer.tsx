@@ -8,6 +8,7 @@ import { EditableField } from "../common/EditableField/EditableField";
 import { AlbumCoverField } from "./AlbumCoverField";
 import { AlbumMetaFields } from "./AlbumMetaFields";
 import { AlbumTrackList } from "./AlbumTrackList";
+import { SingleSourceRow } from "./SingleSourceRow";
 import { AlbumDeleteControl } from "./AlbumDeleteControl";
 
 // -- State Imports --
@@ -38,11 +39,13 @@ function editingField(): boolean {
  * The album edit drawer: the cover slot, the title hero, the metadata fields, and the track list, held
  * on the continuous ground by the edge veil like the read-only track peek. Fields auto-commit on blur
  * through the command engine. Escape closes the drawer, unless a field is focused - then it reverts the
- * field and the drawer stays open.
+ * field and the drawer stays open. A single reuses the same shell with its multi-track region traded for
+ * one read-only source row, and its delete relabelled to "Remove single".
  */
 export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () => void }) {
   const commit = useCommitAlbumFields();
   const t = useT();
+  const single = album.kind === "single";
   const fields = {
     title: album.title,
     album_artist: album.album_artist,
@@ -61,7 +64,10 @@ export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () =
   }, [onClose]);
 
   return (
-    <aside className={styles.drawer} aria-label={t((d) => d.albums.details)}>
+    <aside
+      className={styles.drawer}
+      aria-label={single ? t((d) => d.singles.details) : t((d) => d.albums.details)}
+    >
       <ScrollArea className={styles.scroll} contentClassName={styles.inner}>
         <div className={styles.head}>
           <div className={styles.titleWrap}>
@@ -82,11 +88,20 @@ export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () =
         <AlbumMetaFields album={album} />
 
         <div className={styles.tracks}>
-          <p className={styles.section}>{t((d) => d.albums.tracks)}</p>
-          <AlbumTrackList albumId={album.id} />
+          {single ? (
+            <>
+              <p className={styles.section}>{t((d) => d.singles.source)}</p>
+              <SingleSourceRow albumId={album.id} />
+            </>
+          ) : (
+            <>
+              <p className={styles.section}>{t((d) => d.albums.tracks)}</p>
+              <AlbumTrackList albumId={album.id} />
+            </>
+          )}
         </div>
 
-        <AlbumDeleteControl albumId={album.id} onDeleted={onClose} />
+        <AlbumDeleteControl albumId={album.id} onDeleted={onClose} single={single} />
       </ScrollArea>
     </aside>
   );

@@ -18,9 +18,9 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./AlbumCard.module.css";
 
-/** The sub line: the album's track-count phrase, plus its year when one is set. */
-function subLine(album: AlbumRow, tracks: string): string {
-  return album.year != null ? `${tracks} - ${album.year}` : tracks;
+/** The sub line: the lead phrase (track count for an album, "Single" for a single), plus its year. */
+function subLine(album: AlbumRow, lead: string): string {
+  return album.year != null ? `${lead} - ${album.year}` : lead;
 }
 
 /**
@@ -42,6 +42,10 @@ export function AlbumCard({
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();
+  const lead =
+    album.kind === "single"
+      ? t((d) => d.singles.marker)
+      : t((d) => d.albums.trackCount, { n: album.track_count });
 
   return (
     <button
@@ -59,7 +63,7 @@ export function AlbumCard({
       <CardMeta
         title={album.title ?? t((d) => d.albums.untitled)}
         secondary={album.album_artist ?? ""}
-        sub={subLine(album, t((d) => d.albums.trackCount, { n: album.track_count }))}
+        sub={subLine(album, lead)}
       />
     </button>
   );

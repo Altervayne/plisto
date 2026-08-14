@@ -1,6 +1,7 @@
-/* Sidebar and main on one continuous ground: a fixed rail, then the region, with no divider. */
+/* Sidebar and main on one continuous ground: a fixed rail, then the region, with no divider. Fills
+ * the frame's content region (below the title bar), not the whole viewport. */
 .shell {
-  height: 100vh;
+  height: 100%;
   display: grid;
   grid-template-columns: 236px 1fr;
 }

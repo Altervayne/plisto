@@ -13,18 +13,23 @@ import { useT } from "../../i18n";
 import styles from "./AlbumGrid.module.css";
 
 /**
- * The album grid: an auto-filling wall of cards on the bespoke scroll surface. With no albums yet it
- * shows the quiet on-ramp pointing at Files, where albums are made from a track selection.
+ * The album grid: an auto-filling wall of cards on the bespoke scroll surface. With no cards yet it
+ * shows the quiet on-ramp pointing at Files, where albums and singles are made from a track selection.
+ * The empty copy defaults to the album on-ramp; the singles wall reuses the same layout with its own.
  * Selection and the drawer are the parent's concern; this lays out the cards and reports opens.
  */
 export function AlbumGrid({
   albums,
   selectedAlbumId,
   onOpen,
+  emptyTitle,
+  emptyLine,
 }: {
   albums: AlbumRow[];
   selectedAlbumId: number | null;
   onOpen: (albumId: number) => void;
+  emptyTitle?: string;
+  emptyLine?: string;
 }) {
   const t = useT();
 
@@ -33,8 +38,8 @@ export function AlbumGrid({
       <div className={styles.empty}>
         <EmptyState
           tone="idle"
-          title={t((d) => d.albums.emptyTitle)}
-          line={t((d) => d.albums.emptyLine)}
+          title={emptyTitle ?? t((d) => d.albums.emptyTitle)}
+          line={emptyLine ?? t((d) => d.albums.emptyLine)}
         />
       </div>
     );

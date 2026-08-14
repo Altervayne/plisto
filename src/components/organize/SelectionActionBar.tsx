@@ -13,6 +13,7 @@ import {
   useAssignTracks,
   useClearSelection,
   useCreateAlbum,
+  useCreateSingle,
   useSelection,
 } from "../../state/organize/store";
 
@@ -28,21 +29,25 @@ import styles from "./SelectionActionBar.module.css";
 /**
  * The floating action bar over a track selection. It shows only while tracks are selected: a quiet
  * count summary at the left, and at the right the one solid-accent Create album beside the quiet
- * Add-to-album and Clear. Create seeds the album from the selection's shared raw tags, then clears the
- * selection and hands the new album id up so the shell can open it; on failure it keeps the selection
- * and says so. Add-to-album opens a picker of existing albums. Both reach the backend through the
- * store, which the native side confirms - here the selection, the count, and the suggested fields are
- * what render.
+ * Make-single, Add-to-album and Clear. Create seeds the album from the selection's shared raw tags,
+ * then clears the selection and hands the new album id up so the shell can open it; on failure it keeps
+ * the selection and says so. Make single fans the selection out one-to-one - N tracks become N standalone
+ * singles - then hands the new ids up. Add-to-album opens a picker of existing albums. All three reach
+ * the backend through the store, which the native side confirms - here the selection, the count, and the
+ * suggested fields are what render.
  */
 export function SelectionActionBar({
   onCreated,
+  onMadeSingles,
 }: {
   onCreated: (albumId: number) => void;
+  onMadeSingles: (ids: number[]) => void;
 }) {
   const selection = useSelection();
   const tracks = useTracks();
   const albums = useAlbums();
   const createAlbum = useCreateAlbum();
+  const createSingle = useCreateSingle();
   const assignTracks = useAssignTracks();
   const clearSelection = useClearSelection();
   const t = useT();
@@ -65,6 +70,22 @@ export function SelectionActionBar({
       onCreated(albumId);
     } catch {
       setError(t((d) => d.selection.createError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onMakeSingles = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      // One-to-one fan-out: each selected track becomes its own standalone single, in selection order.
+      const ids: number[] = [];
+      for (const trackId of selectedIds) ids.push(await createSingle(trackId));
+      clearSelection();
+      onMadeSingles(ids);
+    } catch {
+      setError(t((d) => d.singles.makeError));
     } finally {
       setBusy(false);
     }
@@ -94,6 +115,9 @@ export function SelectionActionBar({
           <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
             {t((d) => d.selection.createAlbum)}
           </PrimaryButton>
+          <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
+            {t((d) => d.singles.make, { n: selection.size })}
+          </QuietButton>
           <QuietButton onClick={() => setPickerOpen((open) => !open)}>
             {t((d) => d.selection.addToAlbum)}
           </QuietButton>

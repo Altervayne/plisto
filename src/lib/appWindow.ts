@@ -1,0 +1,54 @@
+/*
+ * The window controls, guarded for the no-shell case. Outside the desktop runtime (a plain browser
+ * preview) getCurrentWindow throws, so the window resolves lazily and every call no-ops when it is
+ * absent. Keeps the Tauri coupling out of the title bar view.
+ */
+
+// -- Library Imports --
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+// -- Type Imports --
+import type { Window } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+
+/** The current window, or null outside the desktop shell where the runtime is missing. */
+function appWindow(): Window | null {
+  try {
+    return getCurrentWindow();
+  } catch {
+    return null;
+  }
+}
+
+/** Sends the window to the taskbar. */
+export function minimizeWindow(): void {
+  void appWindow()?.minimize();
+}
+
+/** Toggles between maximized and the prior size. */
+export function toggleMaximizeWindow(): void {
+  void appWindow()?.toggleMaximize();
+}
+
+/** Closes the window, ending the app. */
+export function closeWindow(): void {
+  void appWindow()?.close();
+}
+
+/** The maximized state, false when there is no window. */
+export async function isWindowMaximized(): Promise<boolean> {
+  const w = appWindow();
+  if (!w) return false;
+  try {
+    return await w.isMaximized();
+  } catch {
+    return false;
+  }
+}
+
+/** Subscribes to resize events; the returned unlisten is a no-op when there is no window. */
+export async function onWindowResized(handler: () => void): Promise<UnlistenFn> {
+  const w = appWindow();
+  if (!w) return () => {};
+  return w.onResized(() => handler());
+}
