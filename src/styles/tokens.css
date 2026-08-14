@@ -20,6 +20,11 @@
   --accent: #1e9cc0;
   --accent-ink: #ffffff;
   --accent-weak: rgba(30, 156, 192, 0.12);
+  /* Solid-button fill + its ink: deliberately theme-invariant (deep cyan, white text), so a
+   * primary never reads like a highlighter tag on the brighter dark-theme --accent. --accent
+   * still drives thin strokes, the nav indicator, focus rings, chips and the play glyph. */
+  --accent-solid: #1e9cc0;
+  --on-solid: #ffffff;
 
   /* -- Semantic (never used as the accent) -- */
   --warn: #b4780f;
@@ -72,6 +77,8 @@
     --accent: #4fb8d4;
     --accent-ink: #08222b;
     --accent-weak: rgba(79, 184, 212, 0.16);
+    --accent-solid: #1e9cc0;
+    --on-solid: #ffffff;
 
     --warn: #e0a83a;
     --good: #5fbb8b;
@@ -106,6 +113,8 @@
   --accent: #4fb8d4;
   --accent-ink: #08222b;
   --accent-weak: rgba(79, 184, 212, 0.16);
+  --accent-solid: #1e9cc0;
+  --on-solid: #ffffff;
 
   --warn: #e0a83a;
   --good: #5fbb8b;

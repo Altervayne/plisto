@@ -58,7 +58,7 @@ export function WorkspacePicker() {
           </ol>
 
           <div className={styles.action}>
-            <PrimaryButton onClick={() => void addRoot()}>
+            <PrimaryButton cta block onClick={() => void addRoot()}>
               <FolderPlus size={18} strokeWidth={1.9} aria-hidden="true" />
               {t((d) => d.scan.chooseFolder)}
             </PrimaryButton>
