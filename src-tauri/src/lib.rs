@@ -5,6 +5,7 @@ mod db;
 mod dto;
 mod model;
 mod normalize;
+mod resolve;
 mod scan;
 mod state;
 

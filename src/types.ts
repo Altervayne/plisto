@@ -27,6 +27,7 @@ export interface TrackRow {
   raw_year: number | null;
   raw_genre: string | null;
   scanned_at: number;
+  missing_at: number | null;
 }
 
 /** The stage a running scan is in. Mirrors ScanPhase in dto.rs. */
@@ -49,6 +50,8 @@ export interface ScanSummary {
   updated: number;
   skipped: number;
   removed: number;
+  missing: number;
+  returned: number;
   errors: number;
   cancelled: boolean;
 }

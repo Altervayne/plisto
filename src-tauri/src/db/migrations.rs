@@ -9,7 +9,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 2;
+const LATEST_VERSION: i64 = 3;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -67,6 +67,39 @@ CREATE TABLE folder_covers (
 );
 ";
 
+// Version 3: albums and single-membership assignment. `missing_at` on tracks is NULL for a
+// present file and a timestamp for a file gone since that scan; the ADD COLUMN NULL default is
+// the true state of every existing row, so no drain is needed. `albums` metadata is all
+// nullable (NULL = unset, resolved to a display default, never an empty string), with the cover
+// reusing the content-hash `covers` manifest. `album_tracks` carries the per-track ordering and
+// non-destructive overrides; UNIQUE(track_id) enforces that a track belongs to at most one
+// album, and both foreign keys CASCADE so deleting an album drops its membership, not the tracks.
+const MIGRATION_V3: &str = "
+ALTER TABLE tracks ADD COLUMN missing_at INTEGER;
+
+CREATE TABLE albums (
+    id           INTEGER PRIMARY KEY,
+    title        TEXT,
+    album_artist TEXT,
+    year         INTEGER,
+    genre        TEXT,
+    cover_id     INTEGER REFERENCES covers(id),
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+
+CREATE TABLE album_tracks (
+    album_id        INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    track_id        INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    track_no        INTEGER,
+    disc_no         INTEGER,
+    title_override  TEXT,
+    artist_override TEXT,
+    PRIMARY KEY (album_id, track_id),
+    UNIQUE (track_id)
+);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -76,6 +109,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         match version {
             0 => conn.execute_batch(MIGRATION_V1)?,
             1 => conn.execute_batch(MIGRATION_V2)?,
+            2 => conn.execute_batch(MIGRATION_V3)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -89,8 +123,8 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 mod tests {
     use super::*;
 
-    /// A v1 DB with a row upgrades to v2 without losing data: the row survives and its new
-    /// `has_embedded_cover` reads NULL, the drain sentinel.
+    /// A v1 DB with a row upgrades to the latest version without losing data: the row survives
+    /// and its new `has_embedded_cover` reads NULL, the drain sentinel.
     #[test]
     fn v1_db_with_rows_migrates_additively() {
         let conn = Connection::open_in_memory().unwrap();
@@ -107,7 +141,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, LATEST_VERSION);
 
         let (filename, art): (String, Option<i64>) = conn
             .query_row(
@@ -118,5 +152,94 @@ mod tests {
             .unwrap();
         assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
         assert_eq!(art, None, "the new column is NULL, the drain sentinel");
+    }
+
+    /// A v2 DB with a row upgrades to v3 additively: the row survives and its new `missing_at`
+    /// reads NULL, which already means present.
+    #[test]
+    fn v2_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES ('/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+
+        let (filename, missing): (String, Option<i64>) = conn
+            .query_row("SELECT filename, missing_at FROM tracks", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
+        assert_eq!(missing, None, "missing_at defaults to NULL, meaning present");
+
+        for table in ["albums", "album_tracks"] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "table {table} should exist after v3");
+        }
+    }
+
+    /// `album_tracks.UNIQUE(track_id)` enforces single membership: a second album cannot claim a
+    /// track already assigned to one.
+    #[test]
+    fn album_tracks_rejects_a_second_membership() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0), (2, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id) VALUES (1, 1);",
+        )
+        .unwrap();
+
+        let second = conn.execute(
+            "INSERT INTO album_tracks (album_id, track_id) VALUES (2, 1)",
+            [],
+        );
+        assert!(second.is_err(), "a track cannot join a second album");
+    }
+
+    /// Deleting an album cascades to its membership only: the assigned track's own row stays.
+    #[test]
+    fn deleting_an_album_cascades_membership_not_tracks() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id) VALUES (1, 1);",
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM albums WHERE id = 1", []).unwrap();
+
+        let memberships: i64 = conn
+            .query_row("SELECT COUNT(*) FROM album_tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(memberships, 0, "the membership is cascaded away");
+        let tracks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tracks, 1, "the track row itself survives");
     }
 }

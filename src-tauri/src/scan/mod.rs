@@ -4,7 +4,8 @@
  * and commit batched upserts. A dedicated thread samples an atomic counter and emits throttled
  * progress with a guaranteed terminal tick. Cancellation is an atomic flag checked between walk
  * entries and at the top of each worker, so a cancelled scan leaves a valid partial index and
- * never sweeps. Vanished rows are removed only after a complete pass.
+ * never reconciles. A vanished file is flagged missing, never deleted, only after a complete
+ * pass, and a returned file's flag is cleared there too.
  */
 
 // -- Module Declarations --
@@ -47,7 +48,7 @@ const PROGRESS_INTERVAL_MS: u64 = 100;
 /// Runs a full scan of `root`, writing into the database at `db_path`. `cancel` stops the walk
 /// and the workers; `scanned_at` stamps every row written this pass; `emit` receives throttled
 /// progress ticks. Returns the counts once the writer has drained and (on a complete pass)
-/// swept vanished rows.
+/// reconciled presence: vanished files flagged missing, returned files cleared.
 pub fn run_scan<E>(
     root: &Path,
     db_path: &Path,
@@ -90,7 +91,7 @@ where
 
     let (tx, rx) = bounded::<TrackRecord>(CHANNEL_CAP);
 
-    let removed: u32 = std::thread::scope(|s| -> Result<u32, String> {
+    let (missing, returned) = std::thread::scope(|s| -> Result<(u32, u32), String> {
         // The progress emitter: samples the counters and emits throttled ticks until the walk
         // finishes, then fires the single terminal tick.
         let progress_handle = s.spawn(|| {
@@ -121,7 +122,7 @@ where
 
         // The single writer, owning the write connection.
         let writer_cancel = Arc::clone(cancel);
-        let writer_handle = s.spawn(move || writer_loop(conn, rx, seen, writer_cancel));
+        let writer_handle = s.spawn(move || writer_loop(conn, rx, seen, scanned_at, writer_cancel));
 
         // Fan out the reads. Each worker classifies against the pre-scan stats, so the writer
         // stays a pure sink.
@@ -157,7 +158,7 @@ where
 
         // Closing the channel lets the writer finish its drain.
         drop(tx);
-        let removed = writer_handle
+        let counts = writer_handle
             .join()
             .map_err(|_| "scan writer thread panicked".to_string())??;
 
@@ -166,7 +167,7 @@ where
             .join()
             .map_err(|_| "scan progress thread panicked".to_string())?;
 
-        Ok(removed)
+        Ok(counts)
     })?;
 
     Ok(ScanSummary {
@@ -175,7 +176,10 @@ where
         inserted: inserted.load(Ordering::Relaxed) as u32,
         updated: updated.load(Ordering::Relaxed) as u32,
         skipped: skipped.load(Ordering::Relaxed) as u32,
-        removed,
+        // Reserved for a future confirmation-gated purge; a scan never deletes.
+        removed: 0,
+        missing,
+        returned,
         errors: errors.load(Ordering::Relaxed) as u32,
         cancelled: cancel.load(Ordering::Relaxed),
     })
@@ -240,14 +244,15 @@ fn file_stats(path: &Path) -> Option<(i64, i64)> {
     Some((md.len() as i64, mtime))
 }
 
-/// Drains the channel, committing batched upserts, then sweeps vanished rows on a complete
-/// pass. Owns its connection for the whole scan. Returns the number of rows removed.
+/// Drains the channel, committing batched upserts, then reconciles presence on a complete pass.
+/// Owns its connection for the whole scan. Returns `(missing, returned)`.
 fn writer_loop(
     conn: Connection,
     rx: Receiver<TrackRecord>,
     seen: HashSet<String>,
+    scanned_at: i64,
     cancel: Arc<AtomicBool>,
-) -> Result<u32, String> {
+) -> Result<(u32, u32), String> {
     let to_msg = |e: rusqlite::Error| e.to_string();
 
     conn.execute_batch("BEGIN").map_err(to_msg)?;
@@ -262,36 +267,61 @@ fn writer_loop(
     }
     conn.execute_batch("COMMIT").map_err(to_msg)?;
 
-    // A cancelled walk has an incomplete seen set, so deleting "unseen" rows would drop present
-    // files. Only a complete pass sweeps.
+    // A cancelled walk has an incomplete seen set, so flagging "unseen" rows would mark present
+    // files missing. Only a complete pass reconciles.
     if cancel.load(Ordering::Relaxed) {
-        return Ok(0);
+        return Ok((0, 0));
     }
-    sweep_vanished(&conn, &seen).map_err(to_msg)
+    reconcile_presence(&conn, &seen, scanned_at).map_err(to_msg)
 }
 
-/// Deletes indexed rows whose canonical path is no longer on disk (not in the seen set). Single
-/// active workspace, so every row belongs to the current root.
-fn sweep_vanished(conn: &Connection, seen: &HashSet<String>) -> rusqlite::Result<u32> {
-    let existing: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT source_path FROM tracks")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-        rows.collect::<rusqlite::Result<_>>()?
+/// Reconciles each indexed row against the seen set, never deleting (a delete would orphan album
+/// membership). A row absent from disk and not yet flagged is stamped `missing_at = scanned_at`;
+/// a row back on disk that still carries a stamp is cleared to NULL. The clear must happen here:
+/// a returned-unchanged file is skipped by the incremental check, so its upsert never fires.
+/// Returns `(missing, returned)`. Single active workspace, so every row belongs to the current
+/// root.
+fn reconcile_presence(
+    conn: &Connection,
+    seen: &HashSet<String>,
+    scanned_at: i64,
+) -> rusqlite::Result<(u32, u32)> {
+    let rows: Vec<(String, Option<i64>)> = {
+        let mut stmt = conn.prepare("SELECT source_path, missing_at FROM tracks")?;
+        let mapped = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?)))?;
+        mapped.collect::<rusqlite::Result<_>>()?
     };
-    let gone: Vec<&String> = existing.iter().filter(|p| !seen.contains(*p)).collect();
-    if gone.is_empty() {
-        return Ok(0);
+
+    let to_flag: Vec<&String> = rows
+        .iter()
+        .filter(|(path, missing_at)| missing_at.is_none() && !seen.contains(path))
+        .map(|(path, _)| path)
+        .collect();
+    let to_clear: Vec<&String> = rows
+        .iter()
+        .filter(|(path, missing_at)| missing_at.is_some() && seen.contains(path))
+        .map(|(path, _)| path)
+        .collect();
+
+    if to_flag.is_empty() && to_clear.is_empty() {
+        return Ok((0, 0));
     }
 
     conn.execute_batch("BEGIN")?;
     {
-        let mut del = conn.prepare("DELETE FROM tracks WHERE source_path = ?1")?;
-        for path in &gone {
-            del.execute(params![path])?;
+        let mut flag =
+            conn.prepare("UPDATE tracks SET missing_at = ?1 WHERE source_path = ?2")?;
+        for path in &to_flag {
+            flag.execute(params![scanned_at, path])?;
+        }
+        let mut clear =
+            conn.prepare("UPDATE tracks SET missing_at = NULL WHERE source_path = ?1")?;
+        for path in &to_clear {
+            clear.execute(params![path])?;
         }
     }
     conn.execute_batch("COMMIT")?;
-    Ok(gone.len() as u32)
+    Ok((to_flag.len() as u32, to_clear.len() as u32))
 }
 
 #[cfg(test)]
@@ -377,8 +407,19 @@ mod tests {
         assert_eq!(second.errors, 0, "skipped files are not re-read");
     }
 
+    // The missing_at stamp for one filename, read straight from the db.
+    fn missing_at_of(db_path: &Path, filename: &str) -> Option<i64> {
+        let conn = Connection::open(db_path).unwrap();
+        conn.query_row(
+            "SELECT missing_at FROM tracks WHERE filename = ?1",
+            params![filename],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn deleting_a_file_removes_its_row_on_rescan() {
+    fn vanished_file_is_flagged_missing_then_cleared_on_return() {
         let music = TempDir::new("scan_music");
         let store = TempDir::new("scan_db");
         let db_path = store.path.join("plisto.sqlite");
@@ -387,11 +428,35 @@ mod tests {
         fs::write(music.path.join("b.flac"), b"").unwrap();
         scan(&music.path, &db_path);
 
+        // A deleted file keeps its row (album membership must not be orphaned): flagged, never
+        // swept.
         fs::remove_file(music.path.join("b.flac")).unwrap();
-        let sum = scan(&music.path, &db_path);
-        assert_eq!(sum.total, 1);
-        assert_eq!(sum.skipped, 1, "the surviving file is unchanged");
-        assert_eq!(sum.removed, 1, "the deleted file's row is swept");
+        let gone = scan(&music.path, &db_path);
+        assert_eq!(gone.total, 1);
+        assert_eq!(gone.skipped, 1, "the surviving file is unchanged");
+        assert_eq!(gone.removed, 0, "a scan never deletes");
+        assert_eq!(gone.missing, 1, "the vanished file is flagged missing");
+        assert_eq!(gone.returned, 0);
+        assert!(
+            missing_at_of(&db_path, "b.flac").is_some(),
+            "the row survives with a missing stamp",
+        );
+
+        // A second pass while it is still gone does not re-stamp it.
+        let still_gone = scan(&music.path, &db_path);
+        assert_eq!(still_gone.missing, 0, "an existing stamp is not overwritten");
+        assert_eq!(still_gone.returned, 0);
+
+        // Restoring the file clears the flag on the next pass.
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        let back = scan(&music.path, &db_path);
+        assert_eq!(back.missing, 0);
+        assert_eq!(back.returned, 1, "the returned file is cleared");
+        assert_eq!(
+            missing_at_of(&db_path, "b.flac"),
+            None,
+            "missing_at is back to NULL",
+        );
     }
 
     // Count rows on the db whose has_embedded_cover is still NULL.

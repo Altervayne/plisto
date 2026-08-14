@@ -246,15 +246,22 @@ mod tests {
     }
 
     #[test]
-    fn fresh_db_is_at_version_two_with_tables() {
+    fn fresh_db_is_at_latest_version_with_tables() {
         let conn = open_in_memory().unwrap();
 
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
-        for table in ["tracks", "meta", "covers", "folder_covers"] {
+        for table in [
+            "tracks",
+            "meta",
+            "covers",
+            "folder_covers",
+            "albums",
+            "album_tracks",
+        ] {
             let found: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -265,15 +272,17 @@ mod tests {
             assert_eq!(found, 1, "table {table} should exist");
         }
 
-        // The tri-state art column lands on tracks.
-        let has_col: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'has_embedded_cover'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(has_col, 1, "tracks.has_embedded_cover should exist");
+        // The tri-state art column and the presence stamp land on tracks.
+        for col in ["has_embedded_cover", "missing_at"] {
+            let has_col: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = ?1",
+                    params![col],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(has_col, 1, "tracks.{col} should exist");
+        }
     }
 
     #[test]
@@ -284,7 +293,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]

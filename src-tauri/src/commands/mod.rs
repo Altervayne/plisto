@@ -124,6 +124,7 @@ fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         raw_year: r.get(13)?,
         raw_genre: r.get(14)?,
         scanned_at: r.get(15)?,
+        missing_at: r.get(16)?,
     })
 }
 

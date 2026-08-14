@@ -26,6 +26,7 @@ const SORTABLE: &[&str] = &[
     "raw_year",
     "raw_genre",
     "scanned_at",
+    "missing_at",
 ];
 
 // The columns the free-text filter searches.
@@ -41,7 +42,7 @@ const FILTER_COLUMNS: &[&str] = &[
 // The row projection, in TrackRow field order.
 const ROW_COLUMNS: &str = "id, source_path, filename, ext, size_bytes, mtime, duration_secs, \
      raw_title, raw_artist, raw_album, raw_album_artist, raw_track_no, raw_disc_no, raw_year, \
-     raw_genre, scanned_at";
+     raw_genre, scanned_at, missing_at";
 
 /// A built query: the row select, the matching count select, and the LIKE term to bind when a
 /// filter is present. Both statements share the term as `?1`.

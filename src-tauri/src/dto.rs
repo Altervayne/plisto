@@ -27,6 +27,8 @@ pub struct TrackRow {
     pub raw_year: Option<i64>,
     pub raw_genre: Option<String>,
     pub scanned_at: i64,
+    // NULL while the file is present; a timestamp of the scan that first found it gone.
+    pub missing_at: Option<i64>,
 }
 
 /// The stage a running scan is in. `enumerating` while the folder is walked, `reading` while
@@ -53,6 +55,8 @@ pub struct ScanProgress {
 /// The result of a finished (or cancelled) scan. `seen` is how many files were actually
 /// processed; on a full pass it equals `total`, on a cancel it is lower. `errors` counts
 /// files whose tags could not be read but were still indexed from their path and stats.
+/// `missing`/`returned` are rows flagged gone and rows cleared as returned this pass; `removed`
+/// is reserved for a future purge command and reads 0 during a scan.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanSummary {
     pub total: u32,
@@ -61,6 +65,8 @@ pub struct ScanSummary {
     pub updated: u32,
     pub skipped: u32,
     pub removed: u32,
+    pub missing: u32,
+    pub returned: u32,
     pub errors: u32,
     pub cancelled: bool,
 }
