@@ -25,11 +25,13 @@ export function AlbumGrid({
 }) {
   if (albums.length === 0) {
     return (
-      <EmptyState
-        tone="idle"
-        title="No albums yet"
-        line="Switch to List, select tracks, and Create album."
-      />
+      <div className={styles.empty}>
+        <EmptyState
+          tone="idle"
+          title="No albums yet"
+          line="Switch to List, select tracks, and Create album."
+        />
+      </div>
     );
   }
 

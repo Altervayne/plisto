@@ -4,10 +4,21 @@
   min-height: 0;
 }
 
-/* An auto-filling wall of cards. Column count follows the width; the tiles carry the structure. */
+/* Fills the content region so the empty on-ramp centers, rather than collapsing to its text width
+ * against the left edge when the drawer opens beside it. */
+.empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* An auto-filling wall of cards at a FIXED tile width: the column count follows the width, but a
+ * tile never resizes - so opening the detail drawer beside the grid drops a column instead of
+ * squishing every card. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  grid-template-columns: repeat(auto-fill, 168px);
+  justify-content: start;
   gap: 26px 20px;
   padding: 4px 10px 28px 2px;
 }

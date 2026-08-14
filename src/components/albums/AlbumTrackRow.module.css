@@ -4,9 +4,9 @@
  */
 .row {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 16px 26px 1fr auto;
   align-items: start;
-  gap: 12px;
+  gap: 10px;
   padding: 7px 6px;
   border-radius: var(--r-sm);
   transition: background var(--dur-fast) ease;
@@ -14,6 +14,51 @@
 
 .row:hover {
   background: var(--veil);
+}
+
+/* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
+.row[data-dragging] {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+/*
+ * The reorder grip: its column is always reserved so the reveal never reflows the row. It dissolves at rest
+ * and surfaces on row hover or when the handle takes keyboard focus.
+ */
+.handle {
+  align-self: start;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.row:hover .handle,
+.handle:focus-visible {
+  opacity: 0.65;
+}
+
+.handle:hover {
+  color: var(--ink-2);
+  opacity: 1;
+}
+
+.handle:active,
+.row[data-dragging] .handle {
+  cursor: grabbing;
 }
 
 .no {

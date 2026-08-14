@@ -1,3 +1,7 @@
+// -- Library Imports --
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 
@@ -13,16 +17,38 @@ import type { AlbumTrackRow as AlbumTrackRowData, TrackOverride } from "../../ty
 // -- Style Imports --
 import styles from "./AlbumTrackRow.module.css";
 
+/** Six grip dots: the quiet reorder affordance, distinct from the editable title so a drag never fights an edit. */
+function GripDots() {
+  return (
+    <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" focusable="false">
+      <g fill="currentColor">
+        <circle cx="2.5" cy="3" r="1.2" />
+        <circle cx="7.5" cy="3" r="1.2" />
+        <circle cx="2.5" cy="8" r="1.2" />
+        <circle cx="7.5" cy="8" r="1.2" />
+        <circle cx="2.5" cy="13" r="1.2" />
+        <circle cx="7.5" cy="13" r="1.2" />
+      </g>
+    </svg>
+  );
+}
+
 /**
- * One track row in the drawer: the number, the clean title over its mono source filename, and the
- * duration. The clean title edits `title_override ?? raw_title`; committing empty or the raw value
- * itself clears the override back to raw, so the edited marker only shows a real change. The raw
- * filename stays beneath as the messy original, with a quiet revert-to-raw when an override is set.
+ * One track row in the drawer: a grip handle, the number, the clean title over its mono source filename, and
+ * the duration. The handle carries the drag listeners so the title's `EditableField` stays independently
+ * editable. The clean title edits `title_override ?? raw_title`; committing empty or the raw value itself
+ * clears the override back to raw, so the edited marker only shows a real change. The raw filename stays
+ * beneath as the messy original, with a quiet revert-to-raw when an override is set.
  */
 export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
   const commit = useCommitTrackOverrides();
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.track_id,
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition };
 
   const override: TrackOverride = {
     title_override: row.title_override,
@@ -39,7 +65,23 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
   const revert = () => commit(row.album_id, row.track_id, { ...override, title_override: null });
 
   return (
-    <div className={styles.row} data-missing={row.missing_at != null ? "" : undefined}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={styles.row}
+      data-missing={row.missing_at != null ? "" : undefined}
+      data-dragging={isDragging ? "" : undefined}
+    >
+      <button
+        type="button"
+        className={styles.handle}
+        aria-label="Reorder track"
+        {...attributes}
+        {...listeners}
+      >
+        <GripDots />
+      </button>
+
       <span className={styles.no}>{row.track_no ?? "-"}</span>
 
       <div className={styles.main}>
