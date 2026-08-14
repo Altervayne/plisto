@@ -3,6 +3,7 @@ import { CenteredStage } from "../common/CenteredStage";
 import { QuietButton } from "../common/QuietButton";
 import { ProgressLine } from "./ProgressLine";
 import { ScanCounters } from "./ScanCounters";
+import { StaffSpinner } from "./StaffSpinner";
 
 // -- State Imports --
 import { useCancelScan, useLibraryLabel, useScanProgress } from "../../state/store";
@@ -34,6 +35,7 @@ export function ScanProgress() {
   return (
     <CenteredStage>
       <div className={styles.body}>
+        <StaffSpinner />
         <h1 className={styles.title}>{t((d) => d.scan.scanningTitle)}</h1>
         {path ? <p className={styles.path}>{path}</p> : null}
         <ProgressLine value={value} />

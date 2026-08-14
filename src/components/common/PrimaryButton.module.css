@@ -17,7 +17,14 @@
     transform var(--dur-fast) ease;
 }
 
-.primary:hover {
+.primary:not(:disabled):hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
+}
+
+/* Clearly inert when disabled: the accent fades, the lift shadow drops, the cursor refuses. */
+.primary:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+  cursor: not-allowed;
 }

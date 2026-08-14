@@ -12,6 +12,8 @@ import { GripVertical } from "lucide-react";
 import { useCommitTrackOverrides } from "../../state/organize/store";
 
 // -- Utils Imports --
+import { discOf } from "./albumLayout";
+import { parseDisc } from "./discField";
 import { formatDuration } from "../../lib/format";
 
 // -- Type Imports --
@@ -24,13 +26,22 @@ import { useT } from "../../i18n";
 import styles from "./AlbumTrackRow.module.css";
 
 /**
- * One track row in the drawer: a grip handle, the number, the clean title over its mono source filename, and
- * the duration. The handle carries the drag listeners so the title's `EditableField` stays independently
- * editable. The clean title edits `title_override ?? raw_title`; committing empty or the raw value itself
- * clears the override back to raw, so the edited marker only shows a real change. The raw filename stays
- * beneath as the messy original, with a quiet revert-to-raw when an override is set.
+ * One track row in the drawer: a grip handle, a quiet disc field, the per-disc number, the clean title
+ * over its mono source filename, and the duration. The handle carries the drag listeners so the title's
+ * `EditableField` stays independently editable. The clean title edits `title_override ?? raw_title`;
+ * committing empty or the raw value itself clears the override back to raw, so the edited marker only
+ * shows a real change. The disc field dissolves until touched: typing a disc moves the track there and
+ * renumbers, leaving the album's other discs in place. `displayNo` is the row's position on its disc.
  */
-export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
+export function AlbumTrackRow({
+  row,
+  displayNo,
+  onSetDisc,
+}: {
+  row: AlbumTrackRowData;
+  displayNo: number;
+  onSetDisc: (disc: number | null) => void;
+}) {
   const commit = useCommitTrackOverrides();
   const t = useT();
   const raw = row.raw_title ?? "";
@@ -55,6 +66,13 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
 
   const revert = () => commit(row.album_id, row.track_id, { ...override, title_override: null });
 
+  // A typed disc that lands on the track's current disc changes nothing; only a real move renumbers.
+  const onDisc = (next: string) => {
+    const disc = parseDisc(next);
+    if ((disc ?? 1) === discOf(row)) return;
+    onSetDisc(disc);
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -73,7 +91,15 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
         <GripVertical size={16} strokeWidth={1.8} />
       </button>
 
-      <span className={styles.no}>{row.track_no ?? "-"}</span>
+      <div className={styles.disc}>
+        <EditableField
+          value={String(discOf(row))}
+          ariaLabel={t((d) => d.tracks.fields.discNo)}
+          onCommit={onDisc}
+        />
+      </div>
+
+      <span className={styles.no}>{displayNo}</span>
 
       <div className={styles.main}>
         <EditableField

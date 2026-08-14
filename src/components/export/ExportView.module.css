@@ -1,5 +1,227 @@
-/* The export screen: one centered column across idle, running, and done, mirroring the scan view.
- * No frame, no card - the states differ only in what fills the column. */
+/* The export screen. Running and done stay one centered column (.body); idle is a titled region
+ * (.view) on the continuous surface - no frame, no card, sections parted by space. */
+
+/* -- Idle region -- */
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 30px 24px;
+}
+
+/* The title over the readiness summary, shown upfront regardless of destination. */
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The sections scroll against the footer so a tall layout never grows the region past the CTA. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  max-width: 560px;
+  /* Clear of the scrollbar overlay on the right edge. */
+  padding-right: 14px;
+}
+
+/* A quiet labelled block: a micro-label over its control, stacked with space - no box, no divider. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* -- Destination control -- */
+
+.destination {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
+/* A real button, not a quiet text link: a subtle edge fill and border with the folder glyph, warming
+ * on hover. It reads plainly as the affordance to pick a destination. */
+.destButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--edge);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.destButton:hover {
+  background: var(--veil);
+  border-color: var(--ink-3);
+}
+
+/* The chosen path: a good-tone dot beside the mono path, truncated to one line, full on hover. */
+.chosen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chosenDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+.chosenPath {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* -- Layout templating -- */
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The preset picker: a wrapping row of quiet chips. The selected one carries accent linework only -
+ * never a fill, so the Export CTA keeps the sole solid accent. */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset {
+  padding: 7px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.preset:not(.presetActive):hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.presetActive {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The Custom pair: two token fields over the quiet token help. */
+.customFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A soft-recess field, deepening on focus - the pattern reads as code, so it is set in mono. */
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: background var(--dur-fast) ease;
+}
+
+.input:focus {
+  background: var(--veil-2);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The token help under the fields: quiet mono, wrapping so the full list stays readable. */
+.tokens {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+/* The live example: the sample path the current template would write, from the real derivation. */
+.preview {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* The footer: the one solid Export CTA, or the two-step confirm when the destination is non-empty. */
+.cta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* -- Running and done: one centered column, mirroring the scan view -- */
+
 .body {
   display: flex;
   flex-direction: column;
@@ -16,7 +238,7 @@
   color: var(--ink);
 }
 
-/* The destination path: mono meta ink, truncated to one line with the full path on hover. */
+/* The destination path on the running screen: mono meta ink, truncated with the full path on hover. */
 .path {
   margin: 0;
   max-width: 100%;
@@ -26,15 +248,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The idle destination row: the picked path over its picker. */
-.dest {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
 }
 
 /* The good-tone status dot, reused from the empty-state vocabulary. */
@@ -65,10 +278,16 @@
   color: var(--warn);
 }
 
-/* The non-empty confirm: the caution beside its two-step action. */
+/* The non-empty confirm: the caution over its two-step action. */
 .confirm {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.confirmActions {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
@@ -143,7 +362,7 @@
   gap: 4px;
 }
 
-/* A hair of breathing room under the running Cancel and the idle CTA. */
+/* A hair of breathing room under the running Cancel. */
 .foot {
   margin-top: 4px;
 }

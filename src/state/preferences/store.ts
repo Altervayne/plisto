@@ -16,6 +16,9 @@ export const PREF_KEYS = {
   drawerWidth: "drawer_width",
   bandHeight: "band_height",
   locale: "locale",
+  theme: "theme",
+  exportFolderPattern: "export_folder_pattern",
+  exportFilePattern: "export_file_pattern",
 } as const;
 
 interface PreferencesStore {

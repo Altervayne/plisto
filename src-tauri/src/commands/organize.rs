@@ -16,7 +16,10 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::db;
-use crate::dto::{AlbumFields, AlbumRow, CoverRef, CoverSource, OrganizationSnapshot, TrackOverride};
+use crate::dto::{
+    AlbumFields, AlbumRow, CoverRef, CoverSource, GenreRemovalImpact, GenreRow, OrganizationSnapshot,
+    TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
+};
 use crate::state::AppState;
 
 /// Creates an album from a track selection: inserts the album, appends the tracks in order, and
@@ -204,8 +207,167 @@ pub async fn set_album_cover(
     })
 }
 
-/// Loads the whole organize state in one lock: every album with its track count, and every
-/// membership row. Mirrors the list_tracks load-all shape.
+/// The whole genre vocabulary, each entry with its usage count.
+#[tauri::command]
+pub fn list_genres(state: State<'_, AppState>) -> Result<Vec<GenreRow>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::list_genres(&conn).map_err(|e| e.to_string())
+}
+
+/// Creates a genre, or returns the existing row when its folded spelling already exists.
+#[tauri::command]
+pub fn create_genre(name: String, state: State<'_, AppState>) -> Result<GenreRow, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::create_genre(&conn, &name, super::now_unix()).map_err(|e| e.to_string())
+}
+
+/// Renames a genre; a rename that collides with another genre's folded key is rejected.
+#[tauri::command]
+pub fn rename_genre(id: i64, name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::rename_genre(&conn, id, &name).map_err(|e| e.to_string())
+}
+
+/// Deletes a genre; it cascades off every track that carried it.
+#[tauri::command]
+pub fn delete_genre(id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::delete_genre(&conn, id).map_err(|e| e.to_string())
+}
+
+/// How many distinct tracks carry a genre, for the counted confirm before deleting it.
+#[tauri::command]
+pub fn genre_removal_impact(
+    id: i64,
+    state: State<'_, AppState>,
+) -> Result<GenreRemovalImpact, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    let tracks = db::genre_removal_impact(&conn, id).map_err(|e| e.to_string())?;
+    Ok(GenreRemovalImpact { tracks })
+}
+
+/// Folds one genre into another: source-carrying tracks keep the target, then the source is deleted.
+#[tauri::command]
+pub fn merge_genres(
+    source_id: i64,
+    target_id: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::merge_genres(&mut conn, source_id, target_id).map_err(|e| e.to_string())
+}
+
+/// Replaces one track's whole genre list with `genre_ids`, in order. Works for a loose track too.
+#[tauri::command]
+pub fn set_track_genres(
+    track_id: i64,
+    genre_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_track_genres(&conn, track_id, &genre_ids).map_err(|e| e.to_string())
+}
+
+/// Bulk-adds a genre to every member of an album, skipping members that already carry it.
+#[tauri::command]
+pub fn add_album_genre(
+    album_id: i64,
+    genre_id: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::add_album_genre(&mut conn, album_id, genre_id).map_err(|e| e.to_string())
+}
+
+/// Bulk-removes a genre from every member of an album.
+#[tauri::command]
+pub fn remove_album_genre(
+    album_id: i64,
+    genre_id: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::remove_album_genre(&mut conn, album_id, genre_id).map_err(|e| e.to_string())
+}
+
+/// Replaces one track's whole edit-layer metadata with the given full set (a null clears one). The
+/// Files-view full editor's write; works for a loose track too.
+#[tauri::command]
+pub fn set_track_edit(
+    track_id: i64,
+    fields: TrackEditFields,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_track_edit(
+        &conn,
+        track_id,
+        fields.title,
+        fields.artist,
+        fields.album,
+        fields.album_artist,
+        fields.year,
+        fields.disc_no,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Reads one track's raw edit-layer overrides and its genres, to hydrate the Files-view editor.
+#[tauri::command]
+pub fn get_track_edit(track_id: i64, state: State<'_, AppState>) -> Result<TrackEdit, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::get_track_edit(&conn, track_id).map_err(|e| e.to_string())
+}
+
+/// Applies a whole album layout atomically: each member's disc and its per-disc track number.
+#[tauri::command]
+pub fn set_album_layout(
+    album_id: i64,
+    placements: Vec<TrackPlacement>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_album_layout(&mut conn, album_id, &placements).map_err(|e| e.to_string())
+}
+
+/// Loads the whole organize state in one lock: every album with its track count, every membership
+/// row with its per-track genres, and the genre vocabulary. Mirrors the list_tracks load-all shape.
 #[tauri::command]
 pub fn load_organization(state: State<'_, AppState>) -> Result<OrganizationSnapshot, String> {
     let conn = state
@@ -213,8 +375,25 @@ pub fn load_organization(state: State<'_, AppState>) -> Result<OrganizationSnaps
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     let albums = db::load_albums(&conn).map_err(|e| e.to_string())?;
-    let membership = db::load_album_tracks(&conn).map_err(|e| e.to_string())?;
-    Ok(OrganizationSnapshot { albums, membership })
+    let mut membership = db::load_album_tracks(&conn).map_err(|e| e.to_string())?;
+    let genres = db::list_genres(&conn).map_err(|e| e.to_string())?;
+
+    // Group each track's genres from the vocabulary join (position order) and attach them to the
+    // flat membership rows, so the drawer hydrates per-track genres in the same load-all call.
+    let pairs = db::load_track_genre_ids(&conn).map_err(|e| e.to_string())?;
+    let mut by_track: std::collections::HashMap<i64, Vec<i64>> = std::collections::HashMap::new();
+    for (track_id, genre_id) in pairs {
+        by_track.entry(track_id).or_default().push(genre_id);
+    }
+    for row in &mut membership {
+        row.genre_ids = by_track.remove(&row.track_id).unwrap_or_default();
+    }
+
+    Ok(OrganizationSnapshot {
+        albums,
+        membership,
+        genres,
+    })
 }
 
 /// The create-time cover pre-fill: the folder cover shared by the whole selection, or None when

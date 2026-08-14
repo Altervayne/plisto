@@ -1,7 +1,7 @@
 /*
- * The settings region: a titled header over the scrolling folder list, with the folder actions footed
- * below. It fills the main region like Export, but left-aligned on the ambient ground - no frame, no
- * card, parted from its neighbors by space.
+ * The settings region: a titled header over the scrolling sections. It fills the main region like
+ * Export, but left-aligned on the ambient ground - no frame, no card. The sections part from each
+ * other by space and a dimmed micro-label alone, keeping the surface continuous.
  */
 .view {
   flex: 1;
@@ -32,17 +32,38 @@
   color: var(--ink-3);
 }
 
-/* The list bounds itself against the footer so its overflow scrolls rather than growing the region. */
+/* The sections bound themselves against the header so their overflow scrolls rather than growing. */
 .scroll {
   flex: 1;
   min-height: 0;
 }
 
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  /* Clear of the scrollbar overlay on the right edge. */
+  padding-right: 14px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.label {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 .list {
   display: flex;
   flex-direction: column;
-  /* Clear of the scrollbar overlay on the right edge. */
-  padding-right: 14px;
 }
 
 .empty {
@@ -56,4 +77,25 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: 2px;
+}
+
+/* The genre add field holds a modest width rather than stretching the whole foot. */
+.genreAdd {
+  width: min(280px, 100%);
+  padding: 0 8px;
+}
+
+/* A preference row: its readable label leading, the control trailing on the same line. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rowLabel {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
 }

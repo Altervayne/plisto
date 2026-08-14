@@ -1,29 +1,102 @@
-/* The first-run welcome: the mark over a title, a quiet safety line, and the one accent action. */
-.body {
-  display: flex;
-  flex-direction: column;
+/* The first-run welcome: two columns on the ambient ground - the mark + greeting, then the steps + CTA.
+ * The columns stack under a narrow viewport so the welcome never overflows the window. */
+.welcome {
+  display: grid;
+  grid-template-columns: auto minmax(0, 340px);
+  gap: 60px;
   align-items: center;
-  gap: 12px;
-  max-width: 460px;
 }
 
-/* A little more air below the mark than between the lines of copy. */
+.left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 22px;
+}
+
 .title {
-  margin: 6px 0 0;
-  font-size: 21px;
-  font-weight: 660;
-  letter-spacing: -0.025em;
+  margin: 0;
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
-.safety {
+.right {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+/* The three steps, each a soft recess (no shadow - it is chrome, not a cover), with a down-arrow to
+ * the next. */
+.steps {
+  list-style: none;
   margin: 0;
-  max-width: 380px;
-  font-size: 12.5px;
-  line-height: 1.5;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border-radius: var(--r-md);
+  background: var(--edge);
+}
+
+.num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--veil-2);
   color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepText {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.arrow {
+  align-self: center;
+  color: var(--ink-3);
 }
 
 .action {
-  margin-top: 8px;
+  margin-top: 6px;
+}
+
+.safety {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* Stack the columns and center them when the window is too narrow for a comfortable two-column row. */
+@media (max-width: 760px) {
+  .welcome {
+    grid-template-columns: minmax(0, 340px);
+    justify-items: center;
+    gap: 32px;
+  }
+
+  .left {
+    align-items: center;
+  }
+
+  .title {
+    text-align: center;
+  }
 }

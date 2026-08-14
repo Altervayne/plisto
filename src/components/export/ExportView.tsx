@@ -5,13 +5,17 @@ import { useCallback, useMemo, useState } from "react";
 import { CenteredStage } from "../common/CenteredStage";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
+import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { ProgressLine } from "../scan/ProgressLine";
+import { ExportDestination } from "./ExportDestination";
+import { ExportLayout } from "./ExportLayout";
 import { ExportReadiness } from "./ExportReadiness";
 import { ExportReport } from "./ExportReport";
 
 // -- State Imports --
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
 import { useTracks } from "../../state/store";
+import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
 
 // -- IPC Imports --
 import {
@@ -25,10 +29,14 @@ import {
 import { pickFolder } from "../../lib/dialog";
 import { openFolder } from "../../lib/opener";
 
+// -- Local Imports --
+import { DEFAULT_PRESET, presetIdFor } from "./templates";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Type Imports --
+import type { ExportPreset } from "./templates";
 import type { DestinationCheck, ExportProgress, ExportSummary } from "../../types";
 
 // -- Style Imports --
@@ -38,11 +46,12 @@ import styles from "./ExportView.module.css";
 type Phase = "idle" | "running" | "done";
 
 /**
- * The export screen: a three-state centered column twinning the scan view. Idle picks and validates a
- * destination and discloses readiness; running streams determinate progress off the export channel;
- * done reads a persistent report. The single solid accent moves with the state - the idle Export CTA,
- * then the progress fill, then nothing (the good dot carries done). A destination inside the workspace
- * is refused; a non-empty one takes a two-step confirm before writing.
+ * The export screen. Idle is a titled region: the readiness summary upfront, a destination control, the
+ * layout template picker, and the one solid Export CTA footed and dead until a valid destination holds
+ * exportable tracks. Running and done stay a centered column - determinate progress, then the report.
+ * The single solid accent moves with the state: the idle CTA, the progress fill, then nothing (the good
+ * dot carries done). A destination inside the workspace is refused; a non-empty one takes a two-step
+ * confirm before writing.
  */
 export function ExportView() {
   const albums = useAlbums();
@@ -57,6 +66,17 @@ export function ExportView() {
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // Custom mode is a UI intent: the picker holds Custom even while its patterns still spell a preset, so
+  // the fields stay open until the user leaves them. The persisted patterns remain the source of truth.
+  const [customMode, setCustomMode] = useState(false);
+
+  const setPreference = useSetPreference();
+  // The template is the two persisted album patterns; absent, the Artist/Album default stands in. An
+  // empty folder is a real value (the Flat preset), so only a missing key falls to the default.
+  const folder = usePreference(PREF_KEYS.exportFolderPattern) ?? DEFAULT_PRESET.folder;
+  const file = usePreference(PREF_KEYS.exportFilePattern) ?? DEFAULT_PRESET.file;
+  const derivedId = presetIdFor(folder, file);
+  const selectedPreset = customMode || derivedId === null ? "custom" : derivedId;
 
   // Readiness counts derive from the organize projection: album members are the exportable tracks,
   // singles are their own bucket, unsorted is a track with no membership, missing is a gone source.
@@ -88,6 +108,23 @@ export function ExportView() {
     }
   }, []);
 
+  const onSelectPreset = useCallback(
+    (preset: ExportPreset) => {
+      setCustomMode(false);
+      setPreference(PREF_KEYS.exportFolderPattern, preset.folder);
+      setPreference(PREF_KEYS.exportFilePattern, preset.file);
+    },
+    [setPreference],
+  );
+
+  const onCustomPatterns = useCallback(
+    (nextFolder: string, nextFile: string) => {
+      setPreference(PREF_KEYS.exportFolderPattern, nextFolder);
+      setPreference(PREF_KEYS.exportFilePattern, nextFile);
+    },
+    [setPreference],
+  );
+
   const runExport = useCallback(async () => {
     if (!destination) return;
     setConfirming(false);
@@ -104,13 +141,13 @@ export function ExportView() {
     });
 
     try {
-      setSummary(await exportLibrary(destination, channel));
+      setSummary(await exportLibrary(destination, channel, folder, file));
       setPhase("done");
     } catch {
       // A destination that went invalid mid-run drops back to idle; the source is untouched.
       setPhase("idle");
     }
-  }, [destination]);
+  }, [destination, folder, file]);
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
@@ -183,55 +220,62 @@ export function ExportView() {
 
   const canExport = !!destination && !!check?.ok && counts.exportable > 0;
   return (
-    <CenteredStage>
-      <div className={styles.body}>
+    <div className={styles.view}>
+      <div className={styles.head}>
         <h1 className={styles.title}>{t((d) => d.export.title)}</h1>
-        <div className={styles.dest}>
-          {destination ? (
-            <p className={styles.path} title={destination}>
-              {destination}
-            </p>
+        <ExportReadiness
+          albums={counts.albums}
+          tracks={counts.tracks}
+          singles={counts.singles}
+          unsorted={counts.unsorted}
+          missing={counts.missing}
+        />
+      </div>
+
+      <ScrollArea className={styles.scroll} contentClassName={styles.sections}>
+        <section className={styles.section}>
+          <span className={styles.label}>{t((d) => d.export.destination)}</span>
+          <ExportDestination destination={destination} onPick={() => void onPick()} />
+          {check?.inside_workspace ? (
+            <p className={styles.warn}>{t((d) => d.export.insideWorkspace)}</p>
           ) : null}
-          <QuietButton onClick={() => void onPick()}>{t((d) => d.export.chooseFolder)}</QuietButton>
-        </div>
+          {check?.ok && check.non_empty ? (
+            <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
+          ) : null}
+        </section>
 
-        {check?.inside_workspace ? (
-          <p className={styles.warn}>{t((d) => d.export.insideWorkspace)}</p>
-        ) : null}
-
-        {check?.ok ? (
-          <ExportReadiness
-            albums={counts.albums}
-            tracks={counts.tracks}
-            singles={counts.singles}
-            unsorted={counts.unsorted}
-            missing={counts.missing}
+        <section className={styles.section}>
+          <span className={styles.label}>{t((d) => d.export.layout)}</span>
+          <ExportLayout
+            folder={folder}
+            file={file}
+            selected={selectedPreset}
+            onSelectPreset={onSelectPreset}
+            onSelectCustom={() => setCustomMode(true)}
+            onCustomPatterns={onCustomPatterns}
           />
-        ) : null}
+        </section>
+      </ScrollArea>
 
+      <div className={styles.cta}>
         {confirming ? (
           <div className={styles.confirm}>
             <span className={styles.warn}>{t((d) => d.export.nonEmpty)}</span>
-            <PrimaryButton onClick={() => void runExport()}>
-              {t((d) => d.export.confirm)}
-            </PrimaryButton>
-            <QuietButton onClick={() => setConfirming(false)}>
-              {t((d) => d.export.cancel)}
-            </QuietButton>
+            <div className={styles.confirmActions}>
+              <PrimaryButton onClick={() => void runExport()}>
+                {t((d) => d.export.confirm)}
+              </PrimaryButton>
+              <QuietButton onClick={() => setConfirming(false)}>
+                {t((d) => d.export.cancel)}
+              </QuietButton>
+            </div>
           </div>
         ) : (
-          <>
-            {check?.ok && check.non_empty ? (
-              <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
-            ) : null}
-            <div className={styles.foot}>
-              <PrimaryButton onClick={onExport} disabled={!canExport}>
-                {t((d) => d.export.action)}
-              </PrimaryButton>
-            </div>
-          </>
+          <PrimaryButton onClick={onExport} disabled={!canExport}>
+            {t((d) => d.export.action)}
+          </PrimaryButton>
         )}
       </div>
-    </CenteredStage>
+    </div>
   );
 }

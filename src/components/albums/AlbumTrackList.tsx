@@ -1,16 +1,19 @@
+// -- Framework Imports --
+import { useEffect, useMemo, useState } from "react";
+
 // -- Library Imports --
 import {
   DndContext,
   KeyboardSensor,
   MeasuringStrategy,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  arrayMove,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -19,7 +22,13 @@ import {
 import { AlbumTrackRow } from "./AlbumTrackRow";
 
 // -- State Imports --
-import { useAlbumTracks, useReorderTracks } from "../../state/organize/store";
+import { useAlbumTracks, useSetAlbumLayout } from "../../state/organize/store";
+
+// -- Utils Imports --
+import { discOf, groupByDisc, moveToDisc, placeAt } from "./albumLayout";
+
+// -- Type Imports --
+import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -27,38 +36,97 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./AlbumTrackList.module.css";
 
+/** The droppable id an empty disc zone carries, its disc number trailing so a drop can read it back. */
+const EMPTY_DISC = "empty-disc-";
+
 /**
- * The album's tracks in order, sortable by drag. Empty is offered plainly - an album can hold no tracks
- * (delete or keep). Each row carries a dedicated grip handle; the title field stays independently editable
- * because the drag listeners live on the handle, not the row. Dropping rewrites the numbering in the store,
- * and the list re-sorts into place.
+ * The album's tracks in the drawer, grouped by disc and sortable by drag across the whole set. A
+ * single-disc album (every track on disc 1, an unset disc counting as one) renders as one bare list,
+ * no separators - pristine. Spanning more than one disc parts the list into "Disc n" groups, each
+ * numbered 1..n on its own. One context spans every disc, so a drag crosses disc lines: the drop
+ * resolves its target disc and the index within it from live geometry, then recomputes the full
+ * atomic layout so the stored track_no is always the per-disc position. A quiet foot reveals an empty
+ * disc as a drop target; nothing persists until a track lands there.
  */
 export function AlbumTrackList({ albumId }: { albumId: number }) {
   const tracks = useAlbumTracks(albumId);
-  const reorder = useReorderTracks();
+  const setLayout = useSetAlbumLayout();
   const t = useT();
 
+  // A revealed-but-empty extra disc, held here alone: it is only a drop zone, never persisted, so it
+  // drops away when the drawer moves to another album.
+  const [addedDisc, setAddedDisc] = useState<number | null>(null);
+  useEffect(() => setAddedDisc(null), [albumId]);
+
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the title edits
-  // rather than jitters into a reorder. Keyboard sensor drives the accessible reorder.
+  // rather than jitters into a reorder. Keyboard sensor drives the accessible reorder across discs.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const groups = useMemo(() => groupByDisc(tracks), [tracks]);
+
+  // The rendered groups: the real discs plus, when revealed and not already real, one empty target disc.
+  const displayGroups = useMemo(() => {
+    if (addedDisc == null || groups.some((g) => g.disc === addedDisc)) return groups;
+    return [...groups, { disc: addedDisc, rows: [] as AlbumTrackRowData[] }];
+  }, [groups, addedDisc]);
+
+  // Every row id in visual order feeds the one spanning context, so a reorder shifts and settles across
+  // disc lines as a single list.
+  const ids = useMemo(
+    () => displayGroups.flatMap((g) => g.rows.map((r) => r.track_id)),
+    [displayGroups],
   );
 
   if (tracks.length === 0) {
     return <p className={styles.empty}>{t((d) => d.albums.noTracks)}</p>;
   }
 
-  const ids = tracks.map((row) => row.track_id);
+  // Reveal an empty disc one past the highest real one; a still-open empty disc keeps the same number.
+  const addDisc = () => {
+    const highest = groups.length ? groups[groups.length - 1].disc : 1;
+    setAddedDisc(highest + 1);
+  };
+
+  // A per-row disc field moves one track to the typed disc, appended there, then renumbers every disc.
+  const onSetDisc = (trackId: number, disc: number | null) => {
+    setLayout(albumId, moveToDisc(tracks, trackId, disc));
+  };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    // A drop outside any row, or back onto the source, leaves the order untouched.
+    // A drop outside any target, or back onto the source, leaves the layout untouched.
     if (!over || over.id === active.id) return;
-    const from = ids.indexOf(Number(active.id));
-    const to = ids.indexOf(Number(over.id));
-    if (from === -1 || to === -1) return;
-    reorder(albumId, arrayMove(ids, from, to));
+    const trackId = Number(active.id);
+
+    // Resolve the target disc and the index within it from live geometry. An empty disc zone seeds
+    // the track first; a drop onto a row takes that row's disc and slots before or after it by which
+    // half the dragged row's center has crossed.
+    let disc: number;
+    let index: number;
+    if (typeof over.id === "string" && over.id.startsWith(EMPTY_DISC)) {
+      disc = Number(over.id.slice(EMPTY_DISC.length));
+      index = 0;
+    } else {
+      const overRow = tracks.find((r) => r.track_id === Number(over.id));
+      if (!overRow) return;
+      disc = discOf(overRow);
+      const run = tracks.filter((r) => discOf(r) === disc && r.track_id !== trackId);
+      const at = run.findIndex((r) => r.track_id === overRow.track_id);
+      const dragged = active.rect.current.translated;
+      const below =
+        dragged != null &&
+        dragged.top + dragged.height / 2 > over.rect.top + over.rect.height / 2;
+      index = at + (below ? 1 : 0);
+    }
+
+    setLayout(albumId, placeAt(tracks, trackId, disc, index));
+    // A track now backs the once-empty disc, so shed the transient state and let the real group stand.
+    if (disc === addedDisc) setAddedDisc(null);
   };
+
+  const multi = displayGroups.length > 1;
 
   return (
     <DndContext
@@ -69,12 +137,78 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
       onDragEnd={onDragEnd}
     >
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <div className={styles.list}>
-          {tracks.map((row) => (
-            <AlbumTrackRow key={row.track_id} row={row} />
-          ))}
-        </div>
+        {multi ? (
+          <div className={styles.discs}>
+            {displayGroups.map((g) => (
+              <div key={g.disc}>
+                <div className={styles.discLabel}>
+                  <span>{t((d) => d.albums.discLabel, { n: g.disc })}</span>
+                  {g.rows.length === 0 ? (
+                    <button
+                      type="button"
+                      className={styles.removeDisc}
+                      onClick={() => setAddedDisc(null)}
+                    >
+                      {t((d) => d.albums.removeDisc)}
+                    </button>
+                  ) : null}
+                </div>
+                {g.rows.length === 0 ? (
+                  <EmptyDisc disc={g.disc} hint={t((d) => d.albums.discEmpty)} />
+                ) : (
+                  <DiscRows rows={g.rows} onSetDisc={onSetDisc} />
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <DiscRows rows={displayGroups[0].rows} onSetDisc={onSetDisc} />
+        )}
       </SortableContext>
+
+      <div className={styles.foot}>
+        <button type="button" className={styles.addDisc} onClick={addDisc}>
+          {t((d) => d.albums.addDisc)}
+        </button>
+      </div>
     </DndContext>
+  );
+}
+
+/**
+ * One disc's rows, numbered 1..n by their position here so numbering restarts per disc. Presentational:
+ * the parent's single context owns the drag, so these rows sort within and across every disc alike.
+ */
+function DiscRows({
+  rows,
+  onSetDisc,
+}: {
+  rows: AlbumTrackRowData[];
+  onSetDisc: (trackId: number, disc: number | null) => void;
+}) {
+  return (
+    <div className={styles.list}>
+      {rows.map((row, i) => (
+        <AlbumTrackRow
+          key={row.track_id}
+          row={row}
+          displayNo={i + 1}
+          onSetDisc={(disc) => onSetDisc(row.track_id, disc)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The empty target under a revealed disc: a quiet hint line that also is the disc's droppable, so a
+ * track dragged onto it lands there first. It warms as the drag hovers, then vanishes once filled.
+ */
+function EmptyDisc({ disc, hint }: { disc: number; hint: string }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${EMPTY_DISC}${disc}` });
+  return (
+    <div ref={setNodeRef} className={styles.discEmpty} data-over={isOver ? "" : undefined}>
+      {hint}
+    </div>
   );
 }

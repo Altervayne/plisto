@@ -44,6 +44,13 @@ pub struct ExportTrack {
     pub ext: String,
     pub title: Option<String>,
     pub artist: Option<String>,
+    // Per-track album-field overrides, resolved at write time as override ?? the container's value.
+    pub album_override: Option<String>,
+    pub album_artist_override: Option<String>,
+    pub year_override: Option<i64>,
+    // The track's managed genres in position order: a filename's `{genre}` reads the first, and the
+    // tag writer lays them all down as a multi-value genre.
+    pub genres: Vec<String>,
     pub track_no: Option<i64>,
     pub disc_no: Option<i64>,
     pub has_embedded: bool,
@@ -59,7 +66,6 @@ pub struct ExportContainer {
     pub album_artist: Option<String>,
     pub title: Option<String>,
     pub year: Option<i64>,
-    pub genre: Option<String>,
     pub cover: CoverPlan,
     pub tracks: Vec<ExportTrack>,
     pub skipped: Vec<i64>,
@@ -85,6 +91,13 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
         by_album.entry(row.album_id).or_default().push(row);
     }
 
+    // Each track's managed genres, grouped in the query's per-track position order. Read once here so
+    // the worker stays DB-free; a filename's `{genre}` reads the first, the tag writer lays all down.
+    let mut genres_by_track: HashMap<i64, Vec<String>> = HashMap::new();
+    for (track_id, name) in db::load_export_track_genres(conn)? {
+        genres_by_track.entry(track_id).or_default().push(name);
+    }
+
     let mut containers = Vec::with_capacity(albums.len());
     for album in &albums {
         let members = by_album.remove(&album.id).unwrap_or_default();
@@ -108,6 +121,10 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
                 ext: row.ext.clone(),
                 title: effective_title(&row.raw_title, &row.title_override),
                 artist: effective_artist(&row.raw_artist, &row.artist_override),
+                album_override: row.album_override.clone(),
+                album_artist_override: row.album_artist_override.clone(),
+                year_override: row.year_override,
+                genres: genres_by_track.remove(&row.track_id).unwrap_or_default(),
                 track_no: row.track_no,
                 disc_no: row.disc_no,
                 has_embedded: row.has_embedded_cover == Some(true),
@@ -127,7 +144,6 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
             album_artist: album.album_artist.clone(),
             title: album.title.clone(),
             year: album.year,
-            genre: album.genre.clone(),
             cover,
             tracks,
             skipped,

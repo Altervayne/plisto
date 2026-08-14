@@ -9,7 +9,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 6;
+const LATEST_VERSION: i64 = 7;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -150,6 +150,57 @@ WHERE id = 1 AND workspace_root IS NOT NULL;
 UPDATE tracks SET root_id = (SELECT id FROM roots LIMIT 1);
 ";
 
+// Version 7: the per-track edit layer and a managed genre vocabulary. All three tables are new and
+// nothing existing is touched - `albums.genre` and the `album_tracks` overrides stay in place and
+// keep serving the read path until a later step retires them. `track_edits` is 1:1 with `tracks`,
+// keyed on track_id alone and independent of album membership, so a loose track can carry edits and
+// an edit survives an album move; an ABSENT row means a pristine track that falls through to its raw
+// scan values, and every value column is nullable so a present row still means "no edit" per unset
+// field. `genres.name` is the real-case display form and `name_key` the folded identity and UNIQUE
+// dedup key - left NULL-free but filled by the Rust-side seed, never SQL lower(), which is ASCII-only
+// and would break fold-parity on accented names (the same reason root_key is filled on load).
+// `track_genres.position` is the deterministic 1..N display and export order, mirroring
+// album_tracks.track_no. All three CASCADE from tracks(id)/genres(id) so deleting a root, track, or
+// genre cleans up with no orphans (PRAGMA foreign_keys is already ON). The in-migration backfill
+// carries the real user overrides forward into track_edits so no edit is lost; it needs no
+// case-folding, so it is safe in raw SQL. album_tracks.disc_no is deliberately NOT migrated: every
+// stored value is the hard-coded default 1, never a user edit, and materializing it would pollute
+// the "a track_edits row means a real edit" meaning - disc resolves from track_edits.disc_no ??
+// raw_disc_no later, so existing members keep their raw disc through that fallback. The album-level
+// `albums.genre` values are seeded into the vocabulary Rust-side on load, not here, because folding
+// each to its identity key needs the real Unicode case-fold that SQL lower() cannot do.
+const MIGRATION_V7: &str = "
+CREATE TABLE track_edits (
+    track_id     INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    title        TEXT,
+    artist       TEXT,
+    album        TEXT,
+    album_artist TEXT,
+    year         INTEGER,
+    disc_no      INTEGER,
+    updated_at   INTEGER NOT NULL
+);
+
+CREATE TABLE genres (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL,
+    name_key   TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE track_genres (
+    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    genre_id  INTEGER NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    position  INTEGER NOT NULL,
+    PRIMARY KEY (track_id, genre_id)
+);
+
+INSERT INTO track_edits (track_id, title, artist, updated_at)
+SELECT track_id, title_override, artist_override, strftime('%s', 'now')
+FROM album_tracks
+WHERE title_override IS NOT NULL OR artist_override IS NOT NULL;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -163,6 +214,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             3 => conn.execute_batch(MIGRATION_V4)?,
             4 => conn.execute_batch(MIGRATION_V5)?,
             5 => conn.execute_batch(MIGRATION_V6)?,
+            6 => conn.execute_batch(MIGRATION_V7)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -355,6 +407,59 @@ mod tests {
             .query_row("SELECT root_id FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stamped, Some(root_id), "the existing track backfills to the seeded root");
+    }
+
+    /// A v6 DB with an album_tracks override upgrades to v7 additively: the three per-track edit
+    /// tables exist and the stored `title_override` is carried into `track_edits`.
+    #[test]
+    fn v6_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no, disc_no, title_override)
+             VALUES (1, 1, 1, 1, 'Edited Title');",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        for table in ["track_edits", "genres", "track_genres"] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "table {table} should exist after v7");
+        }
+
+        let title: Option<String> = conn
+            .query_row(
+                "SELECT title FROM track_edits WHERE track_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            title.as_deref(),
+            Some("Edited Title"),
+            "the stored override carried into track_edits"
+        );
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

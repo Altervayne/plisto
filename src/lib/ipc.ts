@@ -17,6 +17,8 @@ import type {
   DestinationCheck,
   ExportProgress,
   ExportSummary,
+  GenreRemovalImpact,
+  GenreRow,
   ListTracksResponse,
   OrganizationSnapshot,
   Root,
@@ -24,7 +26,10 @@ import type {
   ScanProgress,
   ScanSummary,
   SortSpec,
+  TrackEdit,
+  TrackEditFields,
   TrackOverride,
+  TrackPlacement,
 } from "../types";
 
 /** Wraps a progress callback in a fresh channel the scan streams ticks over. */
@@ -88,15 +93,29 @@ export function createExportChannel(
   return channel;
 }
 
-/** Exports the organized library to `destination`, streaming progress, resolving with the report. */
+/**
+ * Exports the organized library to `destination`, streaming progress, resolving with the report.
+ * The album layout follows `folderPattern`/`filePattern` (token language); left empty, the backend
+ * falls back to the shipped default layout. Singles ignore the template.
+ */
 export function exportLibrary(
   destination: string,
   channel: Channel<ExportProgress>,
+  folderPattern = "",
+  filePattern = "",
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
-    config: { destination },
+    config: { destination, folder_pattern: folderPattern, file_pattern: filePattern },
     onProgress: channel,
   });
+}
+
+/** Renders a sample export path for the album templates, using the backend's real derivation. */
+export function exportTemplatePreview(
+  folderPattern: string,
+  filePattern: string,
+): Promise<string> {
+  return invoke<string>("export_template_preview", { folderPattern, filePattern });
 }
 
 /** Signals the running export to stop. The backend finishes its current file and reports cancelled. */
@@ -170,6 +189,11 @@ export function setTrackOrder(albumId: number, orderedTrackIds: number[]): Promi
   return invoke("set_track_order", { albumId, orderedTrackIds });
 }
 
+/** Rewrites an album's disc grouping and per-disc numbering atomically (disc + track_no together). */
+export function setAlbumLayout(albumId: number, placements: TrackPlacement[]): Promise<void> {
+  return invoke("set_album_layout", { albumId, placements });
+}
+
 /** Replaces an album's title, artist, year and genre with the given full set (a null clears one). */
 export function setAlbumFields(albumId: number, fields: AlbumFields): Promise<void> {
   return invoke("set_album_fields", { albumId, fields });
@@ -184,6 +208,19 @@ export function setTrackOverrides(
   return invoke("set_track_overrides", { albumId, trackId, over });
 }
 
+/**
+ * Replaces one track's whole edit-layer metadata with the given full set (a null clears one). The
+ * Files-view full editor's write; works for a loose track too.
+ */
+export function setTrackEdit(trackId: number, fields: TrackEditFields): Promise<void> {
+  return invoke("set_track_edit", { trackId, fields });
+}
+
+/** Reads one track's raw edit-layer overrides and its genres, to hydrate the Files-view editor. */
+export function getTrackEdit(trackId: number): Promise<TrackEdit> {
+  return invoke<TrackEdit>("get_track_edit", { trackId });
+}
+
 /** Binds a picked image as an album's cover, returning the newly resolved cover. */
 export function setAlbumCover(albumId: number, srcPath: string): Promise<CoverRef> {
   return invoke<CoverRef>("set_album_cover", { albumId, srcPath });
@@ -192,6 +229,51 @@ export function setAlbumCover(albumId: number, srcPath: string): Promise<CoverRe
 /** Loads the whole organize state in one pass: every album with its count, and every membership row. */
 export function loadOrganization(): Promise<OrganizationSnapshot> {
   return invoke<OrganizationSnapshot>("load_organization");
+}
+
+/** The whole genre vocabulary, each entry with its usage count. */
+export function listGenres(): Promise<GenreRow[]> {
+  return invoke<GenreRow[]>("list_genres");
+}
+
+/** Creates a genre, or returns the existing row when its folded spelling already exists. */
+export function createGenre(name: string): Promise<GenreRow> {
+  return invoke<GenreRow>("create_genre", { name });
+}
+
+/** Renames a genre; a rename that collides with another genre's folded key is rejected. */
+export function renameGenre(id: number, name: string): Promise<void> {
+  return invoke("rename_genre", { id, name });
+}
+
+/** Deletes a genre; it cascades off every track that carried it. */
+export function deleteGenre(id: number): Promise<void> {
+  return invoke("delete_genre", { id });
+}
+
+/** How many distinct tracks carry a genre, for the counted confirm before deleting it. */
+export function genreRemovalImpact(id: number): Promise<GenreRemovalImpact> {
+  return invoke<GenreRemovalImpact>("genre_removal_impact", { id });
+}
+
+/** Folds one genre into another: source-carrying tracks keep the target, then the source is deleted. */
+export function mergeGenres(sourceId: number, targetId: number): Promise<void> {
+  return invoke("merge_genres", { sourceId, targetId });
+}
+
+/** Replaces one track's whole genre list with `genreIds`, in order. Works for a loose track too. */
+export function setTrackGenres(trackId: number, genreIds: number[]): Promise<void> {
+  return invoke("set_track_genres", { trackId, genreIds });
+}
+
+/** Bulk-adds a genre to every member of an album, skipping members that already carry it. */
+export function addAlbumGenre(albumId: number, genreId: number): Promise<void> {
+  return invoke("add_album_genre", { albumId, genreId });
+}
+
+/** Bulk-removes a genre from every member of an album. */
+export function removeAlbumGenre(albumId: number, genreId: number): Promise<void> {
+  return invoke("remove_album_genre", { albumId, genreId });
 }
 
 /** Reads the persisted workspace root (real-case, as first picked), or null when none is set. */

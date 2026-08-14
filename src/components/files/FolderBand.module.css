@@ -52,13 +52,14 @@
   color: var(--ink-3);
 }
 
+/* Medium weight, not semibold: at near-black on the light ground, 550 read as aggressively bold. */
 .name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
   font-size: 13.5px;
-  font-weight: 550;
+  font-weight: 480;
   white-space: nowrap;
   text-overflow: ellipsis;
 }

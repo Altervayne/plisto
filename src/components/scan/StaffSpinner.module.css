@@ -1,0 +1,55 @@
+.spinner {
+  display: block;
+  width: 132px;
+  height: 44px;
+}
+
+/* The staff is quiet chrome; the notes carry the one accent of the scanning view. */
+.staff line {
+  stroke: var(--edge);
+  stroke-width: 1;
+}
+
+.note ellipse {
+  fill: var(--accent);
+}
+
+.note line {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* Each note pops in at its staggered delay, holds, then clears - the group loops so the notes run
+ * across the staff one after another. */
+.note {
+  opacity: 0;
+  animation: notePop 2.2s ease-in-out infinite;
+}
+
+@keyframes notePop {
+  0% {
+    opacity: 0;
+    transform: translateY(3px) scale(0.6);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  76%,
+  100% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note {
+    opacity: 1;
+    animation: none;
+  }
+}

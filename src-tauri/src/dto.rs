@@ -32,6 +32,17 @@ pub struct TrackRow {
     // The real-case absolute path, for display. NULL on a legacy row until the next scan
     // captures it; identity and grouping stay on the folded `source_path`.
     pub display_path: Option<String>,
+    // The edit-layer overrides from `track_edits`, each None when the track has no edit for that
+    // field. The grid shows the resolved `edit ?? raw`; the Files-view editor keeps the raw fields
+    // above as its revert reference.
+    pub title_edit: Option<String>,
+    pub artist_edit: Option<String>,
+    pub album_edit: Option<String>,
+    pub album_artist_edit: Option<String>,
+    pub year_edit: Option<i64>,
+    pub disc_edit: Option<i64>,
+    // The track's managed genres, as vocabulary ids in position order; empty when it carries none.
+    pub genre_ids: Vec<i64>,
 }
 
 /// One library root shaped for the frontend: the real-case folder path and how many indexed
@@ -51,6 +62,23 @@ pub struct RootRemovalImpact {
     pub tracks: i64,
     pub albums_losing_members: i64,
     pub albums_emptied: i64,
+}
+
+/// One vocabulary genre shaped for the frontend: its display name and how many tracks carry it,
+/// from a COUNT join over `track_genres`. Genre is per-track and multi-valued behind this managed
+/// vocabulary, so a row here is a vocabulary entry, not a per-track membership. Mirrors GenreRow.
+#[derive(Debug, Clone, Serialize)]
+pub struct GenreRow {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+}
+
+/// The blast radius of removing one genre, for the counted confirm: how many distinct tracks carry
+/// it and would lose it when it is deleted. Mirrors GenreRemovalImpact.
+#[derive(Debug, Clone, Serialize)]
+pub struct GenreRemovalImpact {
+    pub tracks: i64,
 }
 
 /// The stage a running scan is in. `enumerating` while the folder is walked, `reading` while
@@ -193,6 +221,10 @@ pub struct AlbumTrackRow {
     pub artist_override: Option<String>,
     pub has_embedded_cover: Option<bool>,
     pub missing_at: Option<i64>,
+    // The track's genres, as vocabulary ids in position order. Genre is per-track and multi-valued,
+    // so this carries each row's own list; empty when the track has none. The album view derives its
+    // union from these across members.
+    pub genre_ids: Vec<i64>,
 }
 
 /// The album-metadata patch: a full-set replace of the four editable fields. The frontend sends
@@ -215,19 +247,66 @@ pub struct TrackOverride {
     pub disc_no: Option<i64>,
 }
 
+/// One track's spot in an atomic album layout: its disc and its per-disc position. A None disc_no
+/// falls back to disc 1 through the resolver; a None track_no sorts the row last. Named apart from
+/// the frontend's own Placement, a membership-at-rest snapshot, to avoid the collision. Mirrors
+/// TrackPlacement in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrackPlacement {
+    pub track_id: i64,
+    pub disc_no: Option<i64>,
+    pub track_no: Option<i64>,
+}
+
+/// The Files-view full-edit patch: every editable field of `track_edits` a track carries. A
+/// full-set replace, so a None clears its column. This is the raw edit-layer value, NOT resolved
+/// against the track's raw scan cache; the frontend already holds the raw fields and resolves
+/// `edit ?? raw` itself, the way the album drawer does.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrackEditFields {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub disc_no: Option<i64>,
+}
+
+/// The Files-view editor's hydration read: a track's raw edit-layer overrides plus its managed
+/// genres, so the editor renders the edited value, the revert affordance, and the genre pills. All
+/// value fields are None when the track has no `track_edits` row (a pristine track); `genre_ids` is
+/// the ordered vocabulary list, empty when it carries none. Mirrors TrackEdit in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackEdit {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub disc_no: Option<i64>,
+    pub genre_ids: Vec<i64>,
+}
+
 /// The load-all organize payload: every album (each with its track count) and every membership
 /// row. The frontend hydrates its organize state from this in one call.
 #[derive(Debug, Clone, Serialize)]
 pub struct OrganizationSnapshot {
     pub albums: Vec<AlbumRow>,
     pub membership: Vec<AlbumTrackRow>,
+    pub genres: Vec<GenreRow>,
 }
 
-/// The one choice export asks at MVP: where to write. The filename template and cover mode are
-/// hardcoded, so this is the whole config surface until Phase 5.
+/// The export config: where to write and the album layout template. `folder_pattern` is the
+/// slash-separated folder tree (empty = flat, no album subfolders); `file_pattern` is the filename,
+/// both in the token language. A pre-template caller sending only `destination` leaves both empty
+/// and the backend falls back to the shipped default layout. Singles ignore the template.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportConfig {
     pub destination: String,
+    #[serde(default)]
+    pub folder_pattern: String,
+    #[serde(default)]
+    pub file_pattern: String,
 }
 
 /// The stage a running export is in. `preparing` while the plan is snapshotted and the

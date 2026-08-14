@@ -1,0 +1,51 @@
+/*
+ * A segmented control: a soft recess track holding chips. The active chip raises onto a --surface
+ * fill with the soft shadow in light, a --veil-2 fill in dark - never the accent, so the raised chip
+ * alone signals the choice. Inactive chips veil on hover.
+ */
+.control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--pill);
+  background: var(--veil);
+}
+
+.segment {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.segment:not(.active):hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Dark drops the raised surface for a veil fill: a lift by shadow reads wrong on the dark ground. */
+:root[data-theme="dark"] .active {
+  background: var(--veil-2);
+  box-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .active {
+    background: var(--veil-2);
+    box-shadow: none;
+  }
+}

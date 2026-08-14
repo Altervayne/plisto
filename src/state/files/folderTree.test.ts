@@ -40,6 +40,13 @@ function track(id: number, source: string, display: string | null): TrackRow {
     scanned_at: 0,
     missing_at: null,
     display_path: display,
+    title_edit: null,
+    artist_edit: null,
+    album_edit: null,
+    album_artist_edit: null,
+    year_edit: null,
+    disc_edit: null,
+    genre_ids: [],
   };
 }
 

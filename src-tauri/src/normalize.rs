@@ -7,6 +7,8 @@
 // -- Library Imports --
 use std::path::Path;
 
+use unicode_normalization::UnicodeNormalization;
+
 // -- Type Imports --
 use crate::model::{RawTags, TrackRecord};
 
@@ -72,6 +74,16 @@ pub fn normalize_path_key(path: &str) -> String {
     {
         path.to_string()
     }
+}
+
+/// The folded identity key for a genre name, the sibling of normalize_path_key for genre dedup.
+/// Collapses the display text to its comparison form: internal whitespace runs squeeze to a single
+/// space, ends are trimmed, the text is NFC-normalized so accents compare by content not encoding,
+/// and it lowercases. Slashes are left alone - unlike a path, a genre may legitimately contain one.
+/// So "  Rock  ", "rock", and "ROCK" fold together, as do "Hip Hop" and "hip  hop". Idempotent.
+pub fn normalize_genre_key(name: &str) -> String {
+    let collapsed = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.nfc().collect::<String>().to_lowercase()
 }
 
 /// True when `ext` is one of the audio extensions we index. Case-insensitive and tolerant of
@@ -212,6 +224,47 @@ mod tests {
         } else {
             assert_ne!(a, b);
         }
+    }
+
+    #[test]
+    fn genre_key_folds_case_and_surrounding_whitespace() {
+        let a = normalize_genre_key("  Rock  ");
+        let b = normalize_genre_key("rock");
+        let c = normalize_genre_key("ROCK");
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+    }
+
+    #[test]
+    fn genre_key_collapses_internal_whitespace() {
+        assert_eq!(
+            normalize_genre_key("Hip Hop"),
+            normalize_genre_key("hip  hop")
+        );
+    }
+
+    #[test]
+    fn genre_key_folds_non_ascii_case() {
+        assert_eq!(
+            normalize_genre_key("Éléctro"),
+            normalize_genre_key("éléctro")
+        );
+    }
+
+    #[test]
+    fn genre_key_keeps_slashes() {
+        // A path key would fold a slash; a genre must keep it, so these stay distinct.
+        assert_ne!(
+            normalize_genre_key("rock/pop"),
+            normalize_genre_key("rock pop")
+        );
+    }
+
+    #[test]
+    fn genre_key_is_idempotent() {
+        let once = normalize_genre_key("  Drum & Bass  ");
+        let twice = normalize_genre_key(&once);
+        assert_eq!(once, twice);
     }
 
     #[test]

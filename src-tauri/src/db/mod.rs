@@ -14,9 +14,9 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 // -- Type Imports --
-use crate::dto::{AlbumRow, AlbumTrackRow, Root};
+use crate::dto::{AlbumRow, AlbumTrackRow, GenreRow, Root, TrackEdit, TrackPlacement};
 use crate::model::{CoverRecord, TrackRecord};
-use crate::normalize::normalize_path_key;
+use crate::normalize::{normalize_genre_key, normalize_path_key};
 
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
 /// current. This is the connection the app owns in managed state.
@@ -386,12 +386,14 @@ pub fn all_root_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 /// The first root's real-case path, or None when the library is empty. The interim single-folder
 /// reader until the frontend reads the whole root list.
 pub fn first_root_path(conn: &Connection) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT path FROM roots ORDER BY id LIMIT 1", [], |r| r.get(0))
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })
+    conn.query_row("SELECT path FROM roots ORDER BY id LIMIT 1", [], |r| {
+        r.get(0)
+    })
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
 }
 
 /// Fills the folded `root_key` of any root that still has NULL, from its real-case path. The
@@ -476,6 +478,315 @@ pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<
     Ok((tracks, losing, emptied))
 }
 
+// ---- Genre vocabulary ----
+
+// The one-time marker that the album-genre vocabulary seed has run. Its presence in `settings`
+// short-circuits the backfill on every later launch, so the seed happens exactly once.
+const GENRE_BACKFILL_DONE: &str = "genre_backfill_done";
+
+/// The genre row for `name`, creating it when absent, returning its id. Keyed on the folded
+/// `name_key` (UNIQUE), so two spellings that fold together share one row and the first real-case
+/// `name` seen wins as the display form. Mirrors get_or_create_root's fold-first identity; the key
+/// is computed with normalize_genre_key so folding stays Unicode-correct, not ASCII-only SQL lower().
+pub(crate) fn get_or_create_genre(
+    conn: &Connection,
+    name: &str,
+    created_at: i64,
+) -> rusqlite::Result<i64> {
+    let key = normalize_genre_key(name);
+    if let Some(id) = get_genre_by_key(conn, &key)? {
+        return Ok(id);
+    }
+    conn.execute(
+        "INSERT INTO genres (name, name_key, created_at) VALUES (?1, ?2, ?3)",
+        params![name, key, created_at],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// The id of the genre with this folded key, or None when none matches. Backs the idempotent
+/// get-or-create so a fold-equal spelling reuses its row.
+fn get_genre_by_key(conn: &Connection, name_key: &str) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM genres WHERE name_key = ?1",
+        params![name_key],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Seeds the genre vocabulary from the pre-existing album-level `albums.genre` values, once, so
+/// export output is unchanged after the per-track edit layer lands: every album genre becomes a real
+/// per-track genre on each of that album's members, at position 1. Runs Rust-side on load rather than
+/// in the migration because folding each genre to its identity key needs the real Unicode case-fold,
+/// which SQL lower() cannot do - the same reason root_key is filled here. Only `albums.genre` seeds
+/// the vocabulary; the junky `raw_genre` tags are deliberately left out so the curated list stays
+/// clean. Guarded idempotent by a settings marker, so a second launch is a no-op; the whole seed runs
+/// in one transaction under the single writer during hydration, so no partial state is ever visible.
+pub fn backfill_genres_from_albums(conn: &mut Connection, now: i64) -> rusqlite::Result<()> {
+    if get_setting(conn, GENRE_BACKFILL_DONE)?.is_some() {
+        return Ok(());
+    }
+
+    let tx = conn.transaction()?;
+    {
+        // Each album carrying a real, non-blank genre: its display text drives the vocabulary.
+        let albums: Vec<(i64, String)> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, genre FROM albums WHERE genre IS NOT NULL AND TRIM(genre) <> ''",
+            )?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+
+        for (album_id, genre) in albums {
+            let genre_id = get_or_create_genre(&tx, &genre, now)?;
+            let members: Vec<i64> = {
+                let mut stmt =
+                    tx.prepare("SELECT track_id FROM album_tracks WHERE album_id = ?1")?;
+                let rows = stmt
+                    .query_map(params![album_id], |r| r.get(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+            // Seed each member at position 1; OR IGNORE skips a pair the loop has already placed.
+            for track_id in members {
+                tx.execute(
+                    "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position)
+                     VALUES (?1, ?2, 1)",
+                    params![track_id, genre_id],
+                )?;
+            }
+        }
+    }
+    set_setting(&tx, GENRE_BACKFILL_DONE, "1")?;
+    tx.commit()
+}
+
+/// Every vocabulary genre with how many tracks carry it, ordered by the folded key so the list is
+/// stable and case-consistent whatever the display spelling. The LEFT JOIN keeps a never-used genre
+/// in the list at a zero count. This is the whole managed vocabulary, the pool a per-track editor
+/// picks from.
+pub fn list_genres(conn: &Connection) -> rusqlite::Result<Vec<GenreRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT g.id, g.name, COUNT(tg.track_id)
+         FROM genres g
+         LEFT JOIN track_genres tg ON tg.genre_id = g.id
+         GROUP BY g.id
+         ORDER BY g.name_key",
+    )?;
+    let rows = stmt
+        .query_map([], genre_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Maps one result row into a GenreRow: id, display name, usage count in that order.
+fn genre_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<GenreRow> {
+    Ok(GenreRow {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        track_count: r.get(2)?,
+    })
+}
+
+/// One vocabulary genre with its usage count, by id. The single-row twin of list_genres, so a
+/// writer can hand back the full row it just created or matched.
+fn genre_row(conn: &Connection, id: i64) -> rusqlite::Result<GenreRow> {
+    conn.query_row(
+        "SELECT g.id, g.name, COUNT(tg.track_id)
+         FROM genres g
+         LEFT JOIN track_genres tg ON tg.genre_id = g.id
+         WHERE g.id = ?1
+         GROUP BY g.id",
+        params![id],
+        genre_row_from_sql,
+    )
+}
+
+/// Creates a vocabulary genre from `name`, or returns the existing row when its folded key already
+/// exists, so re-creating a known spelling reuses the row rather than duplicating. A blank or
+/// whitespace-only name is rejected - the vocabulary holds no nameless entry. The count is 0 for a
+/// fresh row, or the real usage count when the fold matched an existing genre.
+pub fn create_genre(
+    conn: &Connection,
+    name: &str,
+    created_at: i64,
+) -> Result<GenreRow, WriteError> {
+    if name.trim().is_empty() {
+        return Err(WriteError::BlankGenre);
+    }
+    let id = get_or_create_genre(conn, name, created_at)?;
+    Ok(genre_row(conn, id)?)
+}
+
+/// Renames a vocabulary genre, recomputing its folded key. When a DIFFERENT genre already owns that
+/// key the rename is rejected as a collision, never silently folding the two together - merging is a
+/// deliberate, separate command. A rename that folds to the row's own key (a pure case or spacing
+/// change) is allowed and just refreshes the display name.
+pub fn rename_genre(conn: &Connection, id: i64, name: &str) -> Result<(), WriteError> {
+    if name.trim().is_empty() {
+        return Err(WriteError::BlankGenre);
+    }
+    let key = normalize_genre_key(name);
+    if let Some(existing) = get_genre_by_key(conn, &key)? {
+        if existing != id {
+            return Err(WriteError::GenreExists);
+        }
+    }
+    conn.execute(
+        "UPDATE genres SET name = ?1, name_key = ?2 WHERE id = ?3",
+        params![name, key, id],
+    )?;
+    Ok(())
+}
+
+/// Deletes a vocabulary genre. Its `track_genres` rows CASCADE away, so it vanishes from every track
+/// that carried it - a vocabulary-wide removal, distinct from unbinding it from one album's members.
+pub fn delete_genre(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM genres WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// How many distinct tracks carry `id`, for the counted confirm before a vocabulary-wide delete.
+/// Mirrors root_removal_impact's read-only shape. Read-only.
+pub fn genre_removal_impact(conn: &Connection, id: i64) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT track_id) FROM track_genres WHERE genre_id = ?1",
+        params![id],
+        |r| r.get(0),
+    )
+}
+
+/// Folds `source_id` into `target_id`: repoints every track carrying the source onto the target,
+/// then drops the source genre. A track already carrying the target keeps its existing row (OR
+/// IGNORE), so no track ends up with the target twice; the leftover positions may be non-contiguous,
+/// which the order-by-position reads tolerate. One transaction so a half-merge never persists; a
+/// merge into itself is a no-op guard.
+pub fn merge_genres(conn: &mut Connection, source_id: i64, target_id: i64) -> rusqlite::Result<()> {
+    if source_id == target_id {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position)
+         SELECT track_id, ?1, position FROM track_genres WHERE genre_id = ?2",
+        params![target_id, source_id],
+    )?;
+    tx.execute(
+        "DELETE FROM track_genres WHERE genre_id = ?1",
+        params![source_id],
+    )?;
+    tx.execute("DELETE FROM genres WHERE id = ?1", params![source_id])?;
+    tx.commit()
+}
+
+/// Replaces one track's whole genre list with `genre_ids`, inserting each at position 1..N in the
+/// given order. Keyed on the track alone, so it edits a loose track's genres too and the list
+/// follows the track across an album move. One transaction so no partial list is ever visible. This
+/// is the per-track editor's write; the album view's bulk add/remove are the other two primitives.
+pub fn set_track_genres(
+    conn: &Connection,
+    track_id: i64,
+    genre_ids: &[i64],
+) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM track_genres WHERE track_id = ?1",
+        params![track_id],
+    )?;
+    for (i, &genre_id) in genre_ids.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO track_genres (track_id, genre_id, position) VALUES (?1, ?2, ?3)",
+            params![track_id, genre_id, (i as i64) + 1],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Bulk-adds `genre_id` to every member of an album, appending it after each member's existing
+/// genres (position = that member's current max + 1) and skipping any member that already carries it
+/// (OR IGNORE). The album view offers this as an explicit add-to-all; per-track divergence is edited
+/// on the track. One transaction so the whole album lands together.
+pub fn add_album_genre(
+    conn: &mut Connection,
+    album_id: i64,
+    genre_id: i64,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position)
+         SELECT at.track_id, ?1,
+                (SELECT COALESCE(MAX(position), 0) + 1
+                 FROM track_genres WHERE track_id = at.track_id)
+         FROM album_tracks at WHERE at.album_id = ?2",
+        params![genre_id, album_id],
+    )?;
+    tx.commit()
+}
+
+/// Bulk-removes `genre_id` from every member of an album. The remove-from-all counterpart to
+/// add_album_genre; a member that never carried it is left untouched. One transaction.
+pub fn remove_album_genre(
+    conn: &mut Connection,
+    album_id: i64,
+    genre_id: i64,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute(
+        "DELETE FROM track_genres
+         WHERE genre_id = ?1
+           AND track_id IN (SELECT track_id FROM album_tracks WHERE album_id = ?2)",
+        params![genre_id, album_id],
+    )?;
+    tx.commit()
+}
+
+/// Every managed genre membership across the whole library as `(track_id, genre_id)`, ordered by
+/// track then position so a track's genres arrive in their display order. load_organization groups
+/// these into a per-track list and attaches them to the flat membership rows, keeping the SQL
+/// projection free of a joined-array column. Deterministic order, never HashMap iteration.
+pub fn load_track_genre_ids(conn: &Connection) -> rusqlite::Result<Vec<(i64, i64)>> {
+    let mut stmt =
+        conn.prepare("SELECT track_id, genre_id FROM track_genres ORDER BY track_id, position")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The managed genre memberships for a set of tracks as `(track_id, genre_id)`, ordered by track
+/// then position so each track's genres arrive in display order. list_tracks attaches these to the
+/// window it just read, scoping the read to the returned ids rather than the whole library. An empty
+/// `track_ids` returns nothing without touching the database. Deterministic order, never HashMap
+/// iteration.
+pub fn load_track_genre_ids_for(
+    conn: &Connection,
+    track_ids: &[i64],
+) -> rusqlite::Result<Vec<(i64, i64)>> {
+    if track_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = vec!["?"; track_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT track_id, genre_id FROM track_genres WHERE track_id IN ({placeholders}) \
+         ORDER BY track_id, position"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(track_ids.iter()), |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 // ---- Albums and membership ----
 
 // The two album kinds. A plain album groups many tracks; a single is an album-of-one that earns
@@ -493,6 +804,10 @@ pub enum WriteError {
     SingleMember,
     // A track was assigned to an album that is a single.
     AddToSingle,
+    // A genre was created or renamed to a blank name; the vocabulary holds no nameless entry.
+    BlankGenre,
+    // A rename would fold to a key another genre already owns; merging is a separate, explicit act.
+    GenreExists,
 }
 
 impl std::fmt::Display for WriteError {
@@ -501,6 +816,8 @@ impl std::fmt::Display for WriteError {
             WriteError::Sql(e) => write!(f, "{e}"),
             WriteError::SingleMember => write!(f, "a single must hold exactly one track"),
             WriteError::AddToSingle => write!(f, "a single cannot take another track"),
+            WriteError::BlankGenre => write!(f, "a genre name cannot be blank"),
+            WriteError::GenreExists => write!(f, "a genre with that name already exists"),
         }
     }
 }
@@ -520,20 +837,30 @@ const ALBUM_SELECT: &str = "
     LEFT JOIN album_tracks at ON at.album_id = a.id";
 
 // The drawer's membership projection: the immutable source fields joined from `tracks` beside the
-// per-track override and numbering held on `album_tracks`. Callers append the ORDER BY.
+// per-track edits, which now live on `track_edits` (keyed on the track alone) rather than the old
+// `album_tracks` override columns. The title/artist edits fill the `title_override`/`artist_override`
+// slots the frontend already resolves against; disc is coalesced in SQL to `track_edits.disc_no ??
+// raw_disc_no`, so the flat row exposes the resolved disc with no extra column. Only `track_no` still
+// comes from `album_tracks`, since numbering is membership position, not an edit. Callers append the
+// ORDER BY.
 const ALBUM_TRACK_SELECT: &str = "
     SELECT at.album_id, at.track_id, t.source_path, t.filename, t.duration_secs,
-           at.track_no, at.disc_no, t.raw_title, t.raw_artist,
-           at.title_override, at.artist_override, t.has_embedded_cover, t.missing_at
+           at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
+           te.title, te.artist, t.has_embedded_cover, t.missing_at
     FROM album_tracks at
-    JOIN tracks t ON t.id = at.track_id";
+    JOIN tracks t ON t.id = at.track_id
+    LEFT JOIN track_edits te ON te.track_id = at.track_id";
 
 /// One membership row shaped for export: the source paths and extension joined from `tracks`
-/// beside the per-track override and numbering held on `album_tracks`, plus the presence stamp and
-/// the tri-state art flag. `display_path` is the real-case path to open; `source_path` is the
-/// folded fallback used only when a legacy row never captured a display path. The overrides and
-/// raw fields resolve to the effective title/artist through `resolve.rs`, exactly as the read path
-/// does. Purpose-built because AlbumTrackRow carries no `ext` or `display_path`.
+/// beside the per-track edits from `track_edits` and the membership numbering from `album_tracks`,
+/// plus the presence stamp and the tri-state art flag. `display_path` is the real-case path to
+/// open; `source_path` is the folded fallback used only when a legacy row never captured a display
+/// path. The edit-layer title/artist land in the `title_override`/`artist_override` slots and
+/// resolve to the effective value through `resolve.rs`, exactly as the read path does; `disc_no` is
+/// already the resolved `track_edits.disc_no ?? raw_disc_no`, coalesced in SQL. The album,
+/// album_artist and year edits ride along raw as `*_override`: the plan resolves each against its
+/// container's value, so an un-edited track inherits the album's while an edited one wins. Purpose-
+/// built because AlbumTrackRow carries no `ext` or `display_path`.
 #[derive(Debug, Clone)]
 pub struct ExportTrackRow {
     pub album_id: i64,
@@ -547,19 +874,28 @@ pub struct ExportTrackRow {
     pub raw_artist: Option<String>,
     pub title_override: Option<String>,
     pub artist_override: Option<String>,
+    pub album_override: Option<String>,
+    pub album_artist_override: Option<String>,
+    pub year_override: Option<i64>,
     pub has_embedded_cover: Option<bool>,
     pub missing_at: Option<i64>,
 }
 
 // The export projection: the source paths, extension, presence and art flags joined from `tracks`
-// beside the per-track override and numbering on `album_tracks`. Ordered by album then track number
-// so a container's tracks arrive in play order and a null track_no lands last.
+// beside the per-track edits from `track_edits` and the membership numbering from `album_tracks`.
+// The title/artist edits fill the override slots the plan resolves against; disc is coalesced in
+// SQL to `track_edits.disc_no ?? raw_disc_no`, so the exported disc follows the edit layer over the
+// raw scan value. The album/album_artist/year edits ride along raw so the plan can resolve each
+// against its container's value. Ordered by album then track number so a container's tracks arrive
+// in play order and a null track_no lands last.
 const EXPORT_TRACK_SELECT: &str = "
     SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext,
-           at.track_no, at.disc_no, t.raw_title, t.raw_artist,
-           at.title_override, at.artist_override, t.has_embedded_cover, t.missing_at
+           at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
+           te.title, te.artist, te.album, te.album_artist, te.year,
+           t.has_embedded_cover, t.missing_at
     FROM album_tracks at
     JOIN tracks t ON t.id = at.track_id
+    LEFT JOIN track_edits te ON te.track_id = at.track_id
     ORDER BY at.album_id, at.track_no";
 
 /// Maps one result row into an ExportTrackRow. The column order matches EXPORT_TRACK_SELECT.
@@ -576,8 +912,11 @@ fn export_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportTr
         raw_artist: r.get(8)?,
         title_override: r.get(9)?,
         artist_override: r.get(10)?,
-        has_embedded_cover: r.get(11)?,
-        missing_at: r.get(12)?,
+        album_override: r.get(11)?,
+        album_artist_override: r.get(12)?,
+        year_override: r.get(13)?,
+        has_embedded_cover: r.get(14)?,
+        missing_at: r.get(15)?,
     })
 }
 
@@ -587,6 +926,24 @@ pub fn load_export_tracks(conn: &Connection) -> rusqlite::Result<Vec<ExportTrack
     let mut stmt = conn.prepare(EXPORT_TRACK_SELECT)?;
     let rows = stmt
         .query_map([], export_track_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Every managed genre membership across the whole library as `(track_id, genre_name)`, ordered by
+/// track then position so a track's genres arrive in their display order. The export plan groups
+/// these into a per-track list; the deterministic order is what keeps a re-export byte-identical, so
+/// this never leans on HashMap iteration order. The join drops any dangling membership whose genre
+/// row is gone, though the CASCADE should leave none.
+pub fn load_export_track_genres(conn: &Connection) -> rusqlite::Result<Vec<(i64, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT tg.track_id, g.name
+         FROM track_genres tg
+         JOIN genres g ON g.id = tg.genre_id
+         ORDER BY tg.track_id, tg.position",
+    )?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
@@ -623,6 +980,9 @@ fn album_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumTrac
         artist_override: r.get(10)?,
         has_embedded_cover: r.get(11)?,
         missing_at: r.get(12)?,
+        // The flat projection stays genre-free; load_organization attaches the ordered ids from
+        // load_track_genre_ids, so an unattached row reads as no genres rather than a wrong list.
+        genre_ids: Vec::new(),
     })
 }
 
@@ -740,7 +1100,11 @@ pub fn create_album(
 /// seeded from the track's raw tags. Title takes the raw title, else the filename stem, so a single
 /// always has a name; album_artist takes the raw album-artist, else the raw artist; year and genre
 /// carry over. The single's title is the SONG's title, never the track's raw album tag.
-pub fn create_single(conn: &mut Connection, track_id: i64, now: i64) -> Result<AlbumRow, WriteError> {
+pub fn create_single(
+    conn: &mut Connection,
+    track_id: i64,
+    now: i64,
+) -> Result<AlbumRow, WriteError> {
     let seed = single_seed(conn, track_id)?;
     create_album(
         conn,
@@ -860,6 +1224,36 @@ pub fn set_track_order(
     tx.commit()
 }
 
+/// Rewrites an album's disc grouping and per-disc numbering in one atomic pass. For each placement,
+/// sets the membership position on `album_tracks` and upserts the disc into `track_edits`, keyed on
+/// the track alone so it follows the track across an album move. The disc upsert touches only
+/// disc_no, leaving title/artist/album/etc. intact, the way set_track_overrides and set_track_edit
+/// coexist. A None disc_no clears back to the raw scan through the resolver; a None track_no sorts
+/// last. All in one transaction so a disc change and its renumbering are never seen half-applied.
+/// `strftime` stamps each edit's `updated_at` the way the migration does.
+pub fn set_album_layout(
+    conn: &mut Connection,
+    album_id: i64,
+    placements: &[TrackPlacement],
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for p in placements {
+        tx.execute(
+            "UPDATE album_tracks SET track_no = ?1 WHERE album_id = ?2 AND track_id = ?3",
+            params![p.track_no, album_id, p.track_id],
+        )?;
+        tx.execute(
+            "INSERT INTO track_edits (track_id, disc_no, updated_at)
+             VALUES (?1, ?2, strftime('%s', 'now'))
+             ON CONFLICT(track_id) DO UPDATE SET
+                 disc_no = excluded.disc_no,
+                 updated_at = excluded.updated_at",
+            params![p.track_id, p.disc_no],
+        )?;
+    }
+    tx.commit()
+}
+
 /// Replaces an album's four editable fields with the given values (a None clears its column) and
 /// bumps `updated_at`.
 pub fn set_album_fields(
@@ -879,8 +1273,13 @@ pub fn set_album_fields(
     Ok(())
 }
 
-/// Replaces one membership row's overrides and numbering with the given values (a None clears its
-/// column). The raw source cache on the track is never touched.
+/// Splits one membership edit across the two layers it now lives in. The title, artist and disc
+/// edits upsert into `track_edits`, keyed on the track alone so they follow it across an album move;
+/// `track_no` stays the membership position on `album_tracks`, since numbering is not an edit. A
+/// None clears its column (title/artist/disc then fall back to the raw scan through the resolver, a
+/// null track_no sorts last). The raw source cache on the track is never touched. Both writes run in
+/// one transaction so a half-applied edit is never visible, and `strftime` stamps the edit's
+/// `updated_at` the way the migration does, keeping the signature free of a clock parameter.
 pub fn set_track_overrides(
     conn: &Connection,
     album_id: i64,
@@ -890,13 +1289,104 @@ pub fn set_track_overrides(
     track_no: Option<i64>,
     disc_no: Option<i64>,
 ) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "INSERT INTO track_edits (track_id, title, artist, disc_no, updated_at)
+         VALUES (?1, ?2, ?3, ?4, strftime('%s', 'now'))
+         ON CONFLICT(track_id) DO UPDATE SET
+             title = excluded.title,
+             artist = excluded.artist,
+             disc_no = excluded.disc_no,
+             updated_at = excluded.updated_at",
+        params![track_id, title_override, artist_override, disc_no],
+    )?;
+    tx.execute(
+        "UPDATE album_tracks SET track_no = ?1 WHERE album_id = ?2 AND track_id = ?3",
+        params![track_no, album_id, track_id],
+    )?;
+    tx.commit()
+}
+
+/// The Files-view full edit of one track: a full-set upsert of all six value columns on
+/// `track_edits`, keyed on the track alone. A None clears its column, so an edit falls back to the
+/// raw scan through the resolver. Unlike set_track_overrides, this owns album/album_artist/year too
+/// and never touches `album_tracks`: it edits a loose track just as well as a member, and numbering
+/// is not part of a metadata edit. The two writers of `track_edits` coexist by design - the album
+/// drawer's set_track_overrides updates only title/artist/disc and leaves album/album_artist/year
+/// intact, while this Files-view edit sets the whole row. `strftime` stamps `updated_at` the way the
+/// migration does, keeping the signature free of a clock parameter.
+#[allow(clippy::too_many_arguments)]
+pub fn set_track_edit(
+    conn: &Connection,
+    track_id: i64,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    album_artist: Option<String>,
+    year: Option<i64>,
+    disc_no: Option<i64>,
+) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE album_tracks
-         SET title_override = ?1, artist_override = ?2, track_no = ?3, disc_no = ?4
-         WHERE album_id = ?5 AND track_id = ?6",
-        params![title_override, artist_override, track_no, disc_no, album_id, track_id],
+        "INSERT INTO track_edits (track_id, title, artist, album, album_artist, year, disc_no, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%s', 'now'))
+         ON CONFLICT(track_id) DO UPDATE SET
+             title = excluded.title,
+             artist = excluded.artist,
+             album = excluded.album,
+             album_artist = excluded.album_artist,
+             year = excluded.year,
+             disc_no = excluded.disc_no,
+             updated_at = excluded.updated_at",
+        params![track_id, title, artist, album, album_artist, year, disc_no],
     )?;
     Ok(())
+}
+
+/// Hydrates the Files-view editor for one track: its raw edit-layer overrides beside its ordered
+/// genres. The `track_edits` row supplies the value fields, all None when the track has no row (a
+/// pristine track); the genres come from `track_genres` in position order, empty when it carries
+/// none. These are the raw edit values, not resolved against the raw scan - the frontend holds raw
+/// already and resolves for display itself.
+pub fn get_track_edit(conn: &Connection, track_id: i64) -> rusqlite::Result<TrackEdit> {
+    let edit = conn
+        .query_row(
+            "SELECT title, artist, album, album_artist, year, disc_no
+             FROM track_edits WHERE track_id = ?1",
+            params![track_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })?;
+    let (title, artist, album, album_artist, year, disc_no) =
+        edit.unwrap_or((None, None, None, None, None, None));
+
+    let mut stmt =
+        conn.prepare("SELECT genre_id FROM track_genres WHERE track_id = ?1 ORDER BY position")?;
+    let genre_ids = stmt
+        .query_map(params![track_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<i64>>>()?;
+
+    Ok(TrackEdit {
+        title,
+        artist,
+        album,
+        album_artist,
+        year,
+        disc_no,
+        genre_ids,
+    })
 }
 
 /// Binds a cover to an album and bumps `updated_at`. The cover row is written through upsert_cover
@@ -1030,7 +1520,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         for table in [
             "tracks",
@@ -1041,6 +1531,9 @@ mod tests {
             "album_tracks",
             "settings",
             "roots",
+            "track_edits",
+            "genres",
+            "track_genres",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -1054,7 +1547,12 @@ mod tests {
 
         // The tri-state art column, the presence stamp, the real-case path, and the origin root
         // land on tracks.
-        for col in ["has_embedded_cover", "missing_at", "display_path", "root_id"] {
+        for col in [
+            "has_embedded_cover",
+            "missing_at",
+            "display_path",
+            "root_id",
+        ] {
             let has_col: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = ?1",
@@ -1084,7 +1582,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -1241,14 +1739,19 @@ mod tests {
         let key: Option<String> = conn
             .query_row("SELECT root_key FROM roots", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(key.as_deref(), Some(normalize_path_key("C:\\Music").as_str()));
+        assert_eq!(
+            key.as_deref(),
+            Some(normalize_path_key("C:\\Music").as_str())
+        );
 
         // Idempotent: a second run leaves the already-filled key untouched.
         fill_root_keys(&conn).unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM roots WHERE root_key IS NULL", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM roots WHERE root_key IS NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -1323,8 +1826,15 @@ mod tests {
         let single = create_single(&mut conn, track_id, 200).unwrap();
 
         assert_eq!(single.kind, "single", "a single carries kind='single'");
-        assert_eq!(single.track_count, 1, "a single holds exactly its one track");
-        assert_eq!(single.title.as_deref(), Some("Song"), "title from raw_title");
+        assert_eq!(
+            single.track_count, 1,
+            "a single holds exactly its one track"
+        );
+        assert_eq!(
+            single.title.as_deref(),
+            Some("Song"),
+            "title from raw_title"
+        );
         assert_eq!(
             single.album_artist.as_deref(),
             Some("Artist"),
@@ -1369,7 +1879,17 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
 
-        let two = create_album(&mut conn, None, None, None, None, None, &ids, SINGLE_KIND, 1);
+        let two = create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &ids,
+            SINGLE_KIND,
+            1,
+        );
         assert!(
             matches!(two, Err(WriteError::SingleMember)),
             "a two-track single is rejected",
@@ -1411,11 +1931,27 @@ mod tests {
 
         // One album mixes both roots; one is built entirely from root A.
         let shared = create_album(
-            &mut conn, Some("shared".into()), None, None, None, None, &[a1, b1], ALBUM_KIND, 1,
+            &mut conn,
+            Some("shared".into()),
+            None,
+            None,
+            None,
+            None,
+            &[a1, b1],
+            ALBUM_KIND,
+            1,
         )
         .unwrap();
         let a_only = create_album(
-            &mut conn, Some("a only".into()), None, None, None, None, &[a2], ALBUM_KIND, 1,
+            &mut conn,
+            Some("a only".into()),
+            None,
+            None,
+            None,
+            None,
+            &[a2],
+            ALBUM_KIND,
+            1,
         )
         .unwrap();
 
@@ -1457,12 +1993,302 @@ mod tests {
         let b1 = track_under(&conn, "/music/b/1.mp3", b);
 
         // shared is partly from A; a_only is entirely from A.
-        create_album(&mut conn, None, None, None, None, None, &[a1, b1], ALBUM_KIND, 1).unwrap();
-        create_album(&mut conn, None, None, None, None, None, &[a2, a3], ALBUM_KIND, 1).unwrap();
+        create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[a1, b1],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
+        create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[a2, a3],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
 
         let (tracks, losing, emptied) = root_removal_impact(&conn, a).unwrap();
         assert_eq!(tracks, 3, "root A holds three tracks");
         assert_eq!(losing, 1, "one album is built partly from A");
         assert_eq!(emptied, 1, "one album is built entirely from A");
+    }
+
+    #[test]
+    fn backfill_genres_seeds_deduped_vocabulary_and_is_idempotent() {
+        let mut conn = open_in_memory().unwrap();
+        let mut a = sample(1);
+        a.source_path = "/music/a.mp3".to_string();
+        upsert_track(&conn, &a, None).unwrap();
+        let mut b = sample(1);
+        b.source_path = "/music/b.mp3".to_string();
+        upsert_track(&conn, &b, None).unwrap();
+        let ids: Vec<i64> = conn
+            .prepare("SELECT id FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        let (t1, t2) = (ids[0], ids[1]);
+
+        // Two albums whose genres are case-variants that fold to one identity.
+        create_album(
+            &mut conn,
+            Some("A".into()),
+            None,
+            None,
+            Some("Rock".into()),
+            None,
+            &[t1],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
+        create_album(
+            &mut conn,
+            Some("B".into()),
+            None,
+            None,
+            Some("rock".into()),
+            None,
+            &[t2],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
+
+        backfill_genres_from_albums(&mut conn, 100).unwrap();
+
+        // The vocabulary deduped to the one folded genre.
+        let genres: i64 = conn
+            .query_row("SELECT COUNT(*) FROM genres", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(genres, 1, "the two case-variants fold to one genre");
+        let gid: i64 = conn
+            .query_row("SELECT id FROM genres", [], |r| r.get(0))
+            .unwrap();
+
+        // Every member got its genre row at position 1, pointing at the deduped genre.
+        let rows: Vec<(i64, i64, i64)> = conn
+            .prepare("SELECT track_id, genre_id, position FROM track_genres ORDER BY track_id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(rows.len(), 2, "each album member got a genre row");
+        assert!(rows.iter().all(|&(_, g, pos)| g == gid && pos == 1));
+
+        // Idempotent: a second run adds nothing, the marker short-circuits it.
+        backfill_genres_from_albums(&mut conn, 200).unwrap();
+        let genres_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM genres", [], |r| r.get(0))
+            .unwrap();
+        let memberships_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM track_genres", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(genres_after, 1, "a second run adds no genre");
+        assert_eq!(memberships_after, 2, "a second run adds no membership");
+    }
+
+    // Inserts a bare track at `path` and returns its id, for the per-track genre tests.
+    fn genre_track(conn: &Connection, path: &str) -> i64 {
+        let mut rec = sample(1);
+        rec.source_path = path.to_string();
+        upsert_track(conn, &rec, None).unwrap();
+        conn.query_row(
+            "SELECT id FROM tracks WHERE source_path = ?1",
+            params![path],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    // A track's genre ids in stored position order.
+    fn genre_ids_of(conn: &Connection, track_id: i64) -> Vec<i64> {
+        conn.prepare("SELECT genre_id FROM track_genres WHERE track_id = ?1 ORDER BY position")
+            .unwrap()
+            .query_map(params![track_id], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn create_genre_dedups_on_the_folded_key() {
+        let conn = open_in_memory().unwrap();
+        let first = create_genre(&conn, "Rock", 1).unwrap();
+        // A case-variant folds to the same key and returns the existing row, not a duplicate.
+        let again = create_genre(&conn, "rock", 2).unwrap();
+        assert_eq!(first.id, again.id);
+        assert_eq!(
+            again.name, "Rock",
+            "the first spelling stays the display form"
+        );
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM genres", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn create_genre_rejects_a_blank_name() {
+        let conn = open_in_memory().unwrap();
+        assert!(matches!(
+            create_genre(&conn, "   ", 1),
+            Err(WriteError::BlankGenre)
+        ));
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM genres", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "a blank name writes no row");
+    }
+
+    #[test]
+    fn rename_genre_rejects_a_collision_but_allows_a_case_change() {
+        let conn = open_in_memory().unwrap();
+        let rock = create_genre(&conn, "Rock", 1).unwrap();
+        let pop = create_genre(&conn, "Pop", 1).unwrap();
+
+        // Renaming Pop to a spelling that folds onto Rock is rejected, never a silent merge.
+        assert!(matches!(
+            rename_genre(&conn, pop.id, "rock"),
+            Err(WriteError::GenreExists)
+        ));
+
+        // Renaming Rock to its own case-variant is allowed and just refreshes the display name.
+        rename_genre(&conn, rock.id, "ROCK").unwrap();
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM genres WHERE id = ?1",
+                params![rock.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "ROCK");
+    }
+
+    #[test]
+    fn delete_genre_cascades_off_every_track() {
+        let conn = open_in_memory().unwrap();
+        let t = genre_track(&conn, "/music/1.mp3");
+        let g = create_genre(&conn, "Rock", 1).unwrap();
+        set_track_genres(&conn, t, &[g.id]).unwrap();
+        assert_eq!(genre_ids_of(&conn, t), vec![g.id]);
+
+        delete_genre(&conn, g.id).unwrap();
+        assert!(
+            genre_ids_of(&conn, t).is_empty(),
+            "the membership cascades away with the genre",
+        );
+    }
+
+    #[test]
+    fn merge_genres_repoints_tracks_and_dedups() {
+        let mut conn = open_in_memory().unwrap();
+        let t1 = genre_track(&conn, "/music/1.mp3");
+        let t2 = genre_track(&conn, "/music/2.mp3");
+        let src = create_genre(&conn, "Hip Hop", 1).unwrap();
+        let dst = create_genre(&conn, "Rap", 1).unwrap();
+
+        // t1 carries only the source; t2 already carries the target beside the source.
+        set_track_genres(&conn, t1, &[src.id]).unwrap();
+        set_track_genres(&conn, t2, &[dst.id, src.id]).unwrap();
+
+        merge_genres(&mut conn, src.id, dst.id).unwrap();
+
+        // t1 now carries the target; t2 keeps its single target row, no duplicate.
+        assert_eq!(genre_ids_of(&conn, t1), vec![dst.id]);
+        assert_eq!(genre_ids_of(&conn, t2), vec![dst.id]);
+        let source_left: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM genres WHERE id = ?1",
+                params![src.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(source_left, 0, "the source genre is deleted");
+    }
+
+    #[test]
+    fn set_track_genres_replaces_the_whole_list() {
+        let conn = open_in_memory().unwrap();
+        let t = genre_track(&conn, "/music/1.mp3");
+        let a = create_genre(&conn, "A", 1).unwrap();
+        let b = create_genre(&conn, "B", 1).unwrap();
+        let c = create_genre(&conn, "C", 1).unwrap();
+
+        set_track_genres(&conn, t, &[a.id, b.id]).unwrap();
+        assert_eq!(genre_ids_of(&conn, t), vec![a.id, b.id]);
+
+        // A second set replaces rather than appends, and keeps the given order.
+        set_track_genres(&conn, t, &[c.id, a.id]).unwrap();
+        assert_eq!(genre_ids_of(&conn, t), vec![c.id, a.id]);
+    }
+
+    #[test]
+    fn add_and_remove_album_genre_hit_all_members() {
+        let mut conn = open_in_memory().unwrap();
+        let t1 = genre_track(&conn, "/music/1.mp3");
+        let t2 = genre_track(&conn, "/music/2.mp3");
+        let album = create_album(
+            &mut conn,
+            Some("T".into()),
+            None,
+            None,
+            None,
+            None,
+            &[t1, t2],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
+        let g = create_genre(&conn, "Rock", 1).unwrap();
+
+        add_album_genre(&mut conn, album.id, g.id).unwrap();
+        assert_eq!(genre_ids_of(&conn, t1), vec![g.id]);
+        assert_eq!(genre_ids_of(&conn, t2), vec![g.id]);
+
+        // Adding again is a no-op on members that already carry it.
+        add_album_genre(&mut conn, album.id, g.id).unwrap();
+        assert_eq!(genre_ids_of(&conn, t1), vec![g.id]);
+
+        remove_album_genre(&mut conn, album.id, g.id).unwrap();
+        assert!(genre_ids_of(&conn, t1).is_empty());
+        assert!(genre_ids_of(&conn, t2).is_empty());
+    }
+
+    #[test]
+    fn list_genres_reports_usage_counts_ordered_by_key() {
+        let conn = open_in_memory().unwrap();
+        let t1 = genre_track(&conn, "/music/1.mp3");
+        let t2 = genre_track(&conn, "/music/2.mp3");
+        let rock = create_genre(&conn, "Rock", 1).unwrap();
+        let jazz = create_genre(&conn, "Jazz", 1).unwrap();
+
+        set_track_genres(&conn, t1, &[rock.id]).unwrap();
+        set_track_genres(&conn, t2, &[rock.id]).unwrap();
+
+        let genres = list_genres(&conn).unwrap();
+        assert_eq!(genres.len(), 2);
+        let rock_row = genres.iter().find(|g| g.id == rock.id).unwrap();
+        let jazz_row = genres.iter().find(|g| g.id == jazz.id).unwrap();
+        assert_eq!(rock_row.track_count, 2, "two tracks carry Rock");
+        assert_eq!(jazz_row.track_count, 0, "an unused genre stays at zero");
+        assert_eq!(
+            genres[0].id, jazz.id,
+            "the list is ordered by the folded key, so Jazz precedes Rock",
+        );
     }
 }

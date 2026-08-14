@@ -20,9 +20,10 @@ export interface SelectModifiers {
   meta: boolean;
 }
 
-/** Resolves a cell to its display string, folding an absent tag to a deliberate dash. */
+/** Resolves a cell to its display string, folding an absent tag to a deliberate dash. An edited
+ *  column reads its effective `edit ?? raw` value through the column's resolver. */
 function cellText(col: TrackColumn, track: TrackRowData): string {
-  const raw = track[col.id];
+  const raw = col.resolve ? col.resolve(track) : track[col.id];
   if (col.format) return col.format(raw);
   if (raw == null || raw === "") return "-";
   return String(raw);

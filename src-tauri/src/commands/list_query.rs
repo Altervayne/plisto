@@ -39,10 +39,20 @@ const FILTER_COLUMNS: &[&str] = &[
     "filename",
 ];
 
-// The row projection, in TrackRow field order.
-const ROW_COLUMNS: &str = "id, source_path, filename, ext, size_bytes, mtime, duration_secs, \
-     raw_title, raw_artist, raw_album, raw_album_artist, raw_track_no, raw_disc_no, raw_year, \
-     raw_genre, scanned_at, missing_at, display_path";
+// The row source: `tracks` with its edit layer joined in. A LEFT JOIN so a track with no
+// `track_edits` row still returns, its edit columns NULL. The join is 1:1 on the track's id, so it
+// never fans a track out into more than one row.
+const FROM_CLAUSE: &str = "tracks LEFT JOIN track_edits te ON te.track_id = tracks.id";
+
+// The row projection, in TrackRow field order. Columns are qualified with `tracks.` so the join
+// stays unambiguous; the edit layer follows as aliased `*_edit` columns the frontend resolves
+// against the raw fields.
+const ROW_COLUMNS: &str = "tracks.id, tracks.source_path, tracks.filename, tracks.ext, \
+     tracks.size_bytes, tracks.mtime, tracks.duration_secs, tracks.raw_title, tracks.raw_artist, \
+     tracks.raw_album, tracks.raw_album_artist, tracks.raw_track_no, tracks.raw_disc_no, \
+     tracks.raw_year, tracks.raw_genre, tracks.scanned_at, tracks.missing_at, tracks.display_path, \
+     te.title AS title_edit, te.artist AS artist_edit, te.album AS album_edit, \
+     te.album_artist AS album_artist_edit, te.year AS year_edit, te.disc_no AS disc_edit";
 
 /// A built query: the row select, the matching count select, and the LIKE term to bind when a
 /// filter is present. Both statements share the term as `?1`.
@@ -103,7 +113,11 @@ pub fn build_list_query(
         }
     };
 
-    let rows_sql = format!("SELECT {ROW_COLUMNS} FROM tracks{where_clause}{order_clause}{window_clause}");
+    let rows_sql = format!(
+        "SELECT {ROW_COLUMNS} FROM {FROM_CLAUSE}{where_clause}{order_clause}{window_clause}"
+    );
+    // The count stays on the bare table: a per-track count needs no join, and the LEFT JOIN would
+    // not change it (one row per track) even if it were present.
     let count_sql = format!("SELECT COUNT(*) FROM tracks{where_clause}");
 
     Ok(ListQuery {
@@ -120,9 +134,23 @@ mod tests {
     #[test]
     fn no_filter_no_sort_no_window_selects_all() {
         let q = build_list_query(None, None, None, None).unwrap();
-        assert_eq!(q.rows_sql, format!("SELECT {ROW_COLUMNS} FROM tracks"));
+        assert_eq!(
+            q.rows_sql,
+            format!("SELECT {ROW_COLUMNS} FROM {FROM_CLAUSE}")
+        );
         assert_eq!(q.count_sql, "SELECT COUNT(*) FROM tracks");
         assert!(q.like_term.is_none());
+    }
+
+    #[test]
+    fn projection_joins_the_edit_layer() {
+        let q = build_list_query(None, None, None, None).unwrap();
+        assert!(q
+            .rows_sql
+            .contains("LEFT JOIN track_edits te ON te.track_id = tracks.id"));
+        assert!(q.rows_sql.contains("te.title AS title_edit"));
+        // The count is not joined; it stays a per-track count over the bare table.
+        assert_eq!(q.count_sql, "SELECT COUNT(*) FROM tracks");
     }
 
     #[test]

@@ -13,12 +13,19 @@ import {
   addTracksToAlbum,
   removeTracksFromAlbum,
   setAlbumFields as ipcSetAlbumFields,
+  setAlbumLayout as ipcSetAlbumLayout,
   setTrackOrder,
   setTrackOverrides as ipcSetTrackOverrides,
 } from "../../lib/ipc";
 
 // -- Type Imports --
-import type { AlbumFields, AlbumRow, AlbumTrackRow, TrackOverride } from "../../types";
+import type {
+  AlbumFields,
+  AlbumRow,
+  AlbumTrackRow,
+  TrackOverride,
+  TrackPlacement,
+} from "../../types";
 
 /** The projection the reducer transforms: albums with their counts, and every membership row. */
 export type OrgState = { albums: AlbumRow[]; membership: AlbumTrackRow[] };
@@ -54,6 +61,18 @@ export interface ReorderTracks {
 }
 
 /**
+ * Rewrites an album's whole disc layout: each member's disc and per-disc position together. `next`
+ * and `prev` each carry a placement per member, so the inverse restores the exact prior grouping and
+ * numbering. A within-disc reorder or a disc reassignment both route through one layout.
+ */
+export interface SetAlbumLayout {
+  kind: "setAlbumLayout";
+  albumId: number;
+  next: TrackPlacement[];
+  prev: TrackPlacement[];
+}
+
+/**
  * Moves tracks into `albumId`. `before`/`after` hold each affected track's full placement on either
  * side, so the inverse (an unassign carrying the swapped sides) restores prior album, numbering and
  * overrides exactly. Assign and unassign are one reversible transition under two names.
@@ -75,11 +94,12 @@ export interface UnassignTracks {
   after: Placement[];
 }
 
-/** The five undoable in-place edits. Create, delete and cover-set are structural, not on this stack. */
+/** The six undoable in-place edits. Create, delete and cover-set are structural, not on this stack. */
 export type Command =
   | SetAlbumFields
   | SetTrackOverrides
   | ReorderTracks
+  | SetAlbumLayout
   | AssignTracks
   | UnassignTracks;
 
@@ -128,6 +148,15 @@ export function applyCommand(state: OrgState, cmd: Command): OrgState {
       return { albums: state.albums, membership: sortMembership(membership) };
     }
 
+    case "setAlbumLayout": {
+      const byId = new Map(cmd.next.map((p) => [p.track_id, p]));
+      const membership = state.membership.map((r) => {
+        const p = r.album_id === cmd.albumId ? byId.get(r.track_id) : undefined;
+        return p ? { ...r, disc_no: p.disc_no, track_no: p.track_no } : r;
+      });
+      return { albums: state.albums, membership: sortMembership(membership) };
+    }
+
     case "assign":
     case "unassign":
       return applyTransition(state, cmd.after);
@@ -156,6 +185,9 @@ export function invertCommand(cmd: Command): Command {
         nextOrder: cmd.prevOrder,
         prevOrder: cmd.nextOrder,
       };
+
+    case "setAlbumLayout":
+      return { kind: "setAlbumLayout", albumId: cmd.albumId, next: cmd.prev, prev: cmd.next };
 
     case "assign":
       return {
@@ -190,6 +222,10 @@ export async function commandToIpc(cmd: Command): Promise<void> {
 
     case "reorderTracks":
       await setTrackOrder(cmd.albumId, cmd.nextOrder);
+      return;
+
+    case "setAlbumLayout":
+      await ipcSetAlbumLayout(cmd.albumId, cmd.next);
       return;
 
     case "assign":
@@ -246,9 +282,14 @@ const placementTrackId = (p: Placement): number => (p.assigned ? p.row.track_id 
 // Loose rows never sort in; MAX_SAFE_INTEGER parks a null track_no last, matching the backend order.
 const trackNoKey = (r: AlbumTrackRow): number => r.track_no ?? Number.MAX_SAFE_INTEGER;
 
-/** Orders membership by album then track number, the same shape load_organization returns. */
+// An unset disc numbers with disc 1, so it sorts there rather than parking a null last.
+const discKey = (r: AlbumTrackRow): number => r.disc_no ?? 1;
+
+/** Orders membership by album, then disc, then track number, grouping each album's discs in turn. */
 function sortMembership(rows: AlbumTrackRow[]): AlbumTrackRow[] {
-  return [...rows].sort((a, b) => a.album_id - b.album_id || trackNoKey(a) - trackNoKey(b));
+  return [...rows].sort(
+    (a, b) => a.album_id - b.album_id || discKey(a) - discKey(b) || trackNoKey(a) - trackNoKey(b),
+  );
 }
 
 /** Recomputes each album's track_count from the membership, reusing the album ref when unchanged. */

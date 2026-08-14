@@ -74,13 +74,21 @@ pub async fn export_library(
     }
 
     let destination = PathBuf::from(config.destination);
+    let template = export::AlbumTemplate::resolve(&config.folder_pattern, &config.file_pattern);
     let covers_dir = state.covers_dir.clone();
     let cancel = Arc::clone(&state.export_cancel);
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        export::run_export(&plan, &destination, &covers_dir, &cancel, move |p| {
-            let _ = on_progress.send(p);
-        })
+        export::run_export(
+            &plan,
+            &destination,
+            &template,
+            &covers_dir,
+            &cancel,
+            move |p| {
+                let _ = on_progress.send(p);
+            },
+        )
     })
     .await;
 
@@ -98,6 +106,14 @@ pub async fn export_library(
 pub fn cancel_export(state: State<'_, AppState>) -> Result<(), String> {
     state.export_cancel.store(true, Ordering::SeqCst);
     Ok(())
+}
+
+/// Renders a sample export path for the given album templates using the real derivation, so the UI
+/// live-preview matches actual output (sanitization included). Runs over a synthetic sample album
+/// track and returns the relative path with forward slashes. Pure: touches neither disk nor DB.
+#[tauri::command]
+pub fn export_template_preview(folder_pattern: String, file_pattern: String) -> String {
+    export::template_preview(&folder_pattern, &file_pattern)
 }
 
 /// Inspects a picked destination before a run so the UI can gate and warn: whether it overlaps any

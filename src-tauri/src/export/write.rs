@@ -16,7 +16,7 @@ use lofty::config::WriteOptions;
 use lofty::file::FileType;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::{Accessor, ItemKey, TagExt, TaggedFileExt};
-use lofty::tag::{Tag, TagType};
+use lofty::tag::{ItemValue, Tag, TagItem, TagType};
 
 // -- Local Imports --
 use super::plan::CoverPlan;
@@ -50,15 +50,15 @@ pub enum ExportError {
 }
 
 /// The resolved tag values to write into one exported file. Borrowed from the plan so nothing is
-/// cloned per track. Release-level fields (album, album_artist, year, genre) repeat across a
-/// container; the rest are per track.
+/// cloned per track. Album, album_artist and year are resolved per track (an override over the
+/// container's value); `genres` is the track's whole managed list, written as a multi-value tag.
 pub struct TrackTags<'a> {
     pub title: Option<&'a str>,
     pub artist: Option<&'a str>,
     pub album: Option<&'a str>,
     pub album_artist: Option<&'a str>,
     pub year: Option<i64>,
-    pub genre: Option<&'a str>,
+    pub genres: &'a [String],
     pub track_no: Option<i64>,
     pub disc_no: Option<i64>,
 }
@@ -130,6 +130,7 @@ fn retag(path: &Path, tags: &TrackTags<'_>, cover: Option<&[u8]>) -> Result<Embe
         .unwrap_or_else(|| Tag::new(tag_type));
 
     write_accessor(&mut tag, tags);
+    write_genres(&mut tag, tags.genres);
     set_text(&mut tag, ItemKey::AlbumArtist, tags.album_artist.map(str::to_string));
     set_text(&mut tag, ItemKey::TrackNumber, tags.track_no.map(|n| n.to_string()));
     set_text(&mut tag, ItemKey::DiscNumber, tags.disc_no.map(|n| n.to_string()));
@@ -142,8 +143,9 @@ fn retag(path: &Path, tags: &TrackTags<'_>, cover: Option<&[u8]>) -> Result<Embe
     Ok(embed)
 }
 
-/// Writes the four accessor fields (title, artist, album, genre), clearing any the plan resolved to
-/// None so a stale value never survives into the export.
+/// Writes the three accessor fields (title, artist, album), clearing any the plan resolved to None
+/// so a stale value never survives into the export. Genre is multi-valued now and written through
+/// `write_genres`, not the single-value accessor.
 fn write_accessor(tag: &mut Tag, tags: &TrackTags<'_>) {
     match tags.title {
         Some(v) => tag.set_title(v.to_string()),
@@ -157,9 +159,17 @@ fn write_accessor(tag: &mut Tag, tags: &TrackTags<'_>) {
         Some(v) => tag.set_album(v.to_string()),
         None => tag.remove_album(),
     }
-    match tags.genre {
-        Some(v) => tag.set_genre(v.to_string()),
-        None => tag.remove_genre(),
+}
+
+/// Writes the track's genres as multiple values, clearing any existing genre first so a re-export
+/// never stacks a value onto a stale one. lofty maps `ItemKey::Genre` to each format's native
+/// multi-value slot - a null-separated TCON on ID3v2.4, one `GENRE` field per value on Vorbis, a
+/// repeated `©gen` atom on MP4 - so pushing each in order lands a real multi-genre tag. An empty
+/// slice clears genre entirely, matching the clear-on-None discipline the accessor fields keep.
+fn write_genres(tag: &mut Tag, genres: &[String]) {
+    tag.remove_key(ItemKey::Genre);
+    for genre in genres {
+        tag.push(TagItem::new(ItemKey::Genre, ItemValue::Text(genre.clone())));
     }
 }
 
@@ -335,13 +345,14 @@ mod tests {
         fs::write(&source, minimal_flac()).unwrap();
 
         let jpeg = encode_jpeg(&jpeg_bytes()).unwrap();
+        let genres = vec!["Ambient".to_string(), "Downtempo".to_string()];
         let tags = TrackTags {
             title: Some("Exported Title"),
             artist: Some("Exported Artist"),
             album: Some("Exported Album"),
             album_artist: Some("Exported AA"),
             year: Some(2021),
-            genre: Some("Ambient"),
+            genres: &genres,
             track_no: Some(4),
             disc_no: Some(1),
         };
@@ -370,6 +381,8 @@ mod tests {
         assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Exported AA"));
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("4"));
         assert_eq!(tag.get_string(ItemKey::Year), Some("2021"));
+        let read_genres: Vec<&str> = tag.get_strings(ItemKey::Genre).collect();
+        assert_eq!(read_genres, vec!["Ambient", "Downtempo"], "both genres round-trip");
         assert!(
             tag.pictures().iter().any(|p| p.pic_type() == PictureType::CoverFront),
             "a front cover is embedded",
@@ -389,7 +402,7 @@ mod tests {
             album: None,
             album_artist: None,
             year: None,
-            genre: None,
+            genres: &[],
             track_no: Some(1),
             disc_no: None,
         };
@@ -433,7 +446,7 @@ mod tests {
             album: None,
             album_artist: None,
             year: None,
-            genre: None,
+            genres: &[],
             track_no: None,
             disc_no: None,
         };

@@ -14,6 +14,7 @@ pub mod roots;
 pub mod settings;
 
 // -- Library Imports --
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -53,7 +54,8 @@ pub async fn scan_workspace(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        let (id, real) = db::get_or_create_root(&conn, &path, scanned_at).map_err(|e| e.to_string())?;
+        let (id, real) =
+            db::get_or_create_root(&conn, &path, scanned_at).map_err(|e| e.to_string())?;
         Ok(scan::ScanRoot {
             id,
             path: PathBuf::from(real),
@@ -121,11 +123,27 @@ pub fn list_tracks(
         .map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(&query.rows_sql).map_err(|e| e.to_string())?;
-    let rows = stmt
+    let mut rows = stmt
         .query_map(rusqlite::params_from_iter(bind.iter()), row_from_sql)
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<TrackRow>>>()
         .map_err(|e| e.to_string())?;
+
+    // Genre is per-track and multi-valued, so it rides beside the flat projection: a second grouped
+    // read scoped to just the ids this window returned. The rows arrive ordered by position, so
+    // grouping keeps display order; a track with none keeps its empty vec.
+    let track_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    let mut by_track: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (track_id, genre_id) in
+        db::load_track_genre_ids_for(&conn, &track_ids).map_err(|e| e.to_string())?
+    {
+        by_track.entry(track_id).or_default().push(genre_id);
+    }
+    for row in &mut rows {
+        if let Some(ids) = by_track.remove(&row.id) {
+            row.genre_ids = ids;
+        }
+    }
 
     Ok(ListTracksResponse { rows, total })
 }
@@ -152,6 +170,14 @@ fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         scanned_at: r.get(15)?,
         missing_at: r.get(16)?,
         display_path: r.get(17)?,
+        title_edit: r.get(18)?,
+        artist_edit: r.get(19)?,
+        album_edit: r.get(20)?,
+        album_artist_edit: r.get(21)?,
+        year_edit: r.get(22)?,
+        disc_edit: r.get(23)?,
+        // Attached after the window is read, scoped to just these track ids.
+        genre_ids: Vec::new(),
     })
 }
 

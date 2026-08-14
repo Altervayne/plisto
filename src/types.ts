@@ -29,6 +29,13 @@ export interface TrackRow {
   scanned_at: number;
   missing_at: number | null;
   display_path: string | null;
+  title_edit: string | null;
+  artist_edit: string | null;
+  album_edit: string | null;
+  album_artist_edit: string | null;
+  year_edit: number | null;
+  disc_edit: number | null;
+  genre_ids: number[];
 }
 
 /** The stage a running scan is in. Mirrors ScanPhase in dto.rs. */
@@ -69,6 +76,21 @@ export interface RootRemovalImpact {
   tracks: number;
   albums_losing_members: number;
   albums_emptied: number;
+}
+
+/**
+ * One vocabulary genre: its display name and how many tracks carry it. Genre is per-track and
+ * multi-valued behind this managed vocabulary. Mirrors GenreRow in dto.rs.
+ */
+export interface GenreRow {
+  id: number;
+  name: string;
+  track_count: number;
+}
+
+/** The blast radius of deleting a genre: how many distinct tracks lose it. Mirrors GenreRemovalImpact. */
+export interface GenreRemovalImpact {
+  tracks: number;
 }
 
 /** Sort direction for `list_tracks`. Mirrors SortDir in dto.rs. */
@@ -144,6 +166,7 @@ export interface AlbumTrackRow {
   artist_override: string | null;
   has_embedded_cover: boolean | null;
   missing_at: number | null;
+  genre_ids: number[];
 }
 
 /** The album-metadata patch: a full-set replace, a null clears a column. Mirrors AlbumFields. */
@@ -162,15 +185,61 @@ export interface TrackOverride {
   disc_no: number | null;
 }
 
+/**
+ * One track's spot in an atomic album layout: its disc and its per-disc position. A null disc_no
+ * falls back to disc 1; a null track_no sorts the row last. Named apart from the store's own
+ * Placement, a membership-at-rest snapshot. Mirrors TrackPlacement in dto.rs.
+ */
+export interface TrackPlacement {
+  track_id: number;
+  disc_no: number | null;
+  track_no: number | null;
+}
+
+/**
+ * The Files-view full-edit patch: every editable `track_edits` field, a full-set replace where a
+ * null clears a column. The raw edit-layer value, not resolved against raw. Mirrors TrackEditFields.
+ */
+export interface TrackEditFields {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  album_artist: string | null;
+  year: number | null;
+  disc_no: number | null;
+}
+
+/**
+ * The Files-view editor's hydration read: a track's raw edit-layer overrides plus its ordered
+ * genres. All value fields are null when the track has no edit row; `genre_ids` is empty when it
+ * carries none. Raw edit values, resolved against raw by the UI itself. Mirrors TrackEdit in dto.rs.
+ */
+export interface TrackEdit {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  album_artist: string | null;
+  year: number | null;
+  disc_no: number | null;
+  genre_ids: number[];
+}
+
 /** The load-all organize payload. Mirrors OrganizationSnapshot in dto.rs. */
 export interface OrganizationSnapshot {
   albums: AlbumRow[];
   membership: AlbumTrackRow[];
+  genres: GenreRow[];
 }
 
-/** The one choice export asks: the destination. Mirrors ExportConfig in dto.rs. */
+/**
+ * The export config: the destination plus the album layout template. `folder_pattern` is the
+ * slash-separated folder tree (empty = flat, no album subfolders); `file_pattern` is the filename,
+ * both in the token language. Singles ignore the template. Mirrors ExportConfig in dto.rs.
+ */
 export interface ExportConfig {
   destination: string;
+  folder_pattern: string;
+  file_pattern: string;
 }
 
 /** The stage a running export is in. Mirrors ExportPhase in dto.rs. */

@@ -49,15 +49,53 @@ export interface TrackColumn {
   format?: (value: TrackRow[keyof TrackRow]) => string;
   /** Whether the global search reaches this column. Only the text tags and filename do. */
   searchable?: boolean;
+  /**
+   * Pulls the effective value from the whole row, resolving `edit ?? raw` for the edited columns.
+   * Absent columns read their plain `id` field. The cell, the sort, and the search all read through
+   * this, so the grid shows and acts on the edited value, not the raw tag.
+   */
+  resolve?: (track: TrackRow) => TrackRow[keyof TrackRow];
 }
 
 /** Left-to-right column order for the default row. Album artist, disc, and genre live in the peek. */
 export const trackColumns: TrackColumn[] = [
   { id: "raw_track_no", width: 52, grow: 0, align: "right", ink: "meta", tabular: true },
-  { id: "raw_title", width: null, grow: 2, align: "left", ink: "primary", searchable: true },
-  { id: "raw_artist", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
-  { id: "raw_album", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
-  { id: "raw_year", width: 60, grow: 0, align: "right", ink: "meta", tabular: true },
+  {
+    id: "raw_title",
+    width: null,
+    grow: 2,
+    align: "left",
+    ink: "primary",
+    searchable: true,
+    resolve: (t) => t.title_edit ?? t.raw_title,
+  },
+  {
+    id: "raw_artist",
+    width: null,
+    grow: 1.4,
+    align: "left",
+    ink: "secondary",
+    searchable: true,
+    resolve: (t) => t.artist_edit ?? t.raw_artist,
+  },
+  {
+    id: "raw_album",
+    width: null,
+    grow: 1.4,
+    align: "left",
+    ink: "secondary",
+    searchable: true,
+    resolve: (t) => t.album_edit ?? t.raw_album,
+  },
+  {
+    id: "raw_year",
+    width: 60,
+    grow: 0,
+    align: "right",
+    ink: "meta",
+    tabular: true,
+    resolve: (t) => t.year_edit ?? t.raw_year,
+  },
   {
     id: "duration_secs",
     width: 72,
@@ -87,12 +125,18 @@ export const trackGlobalFilter: FilterFn<TrackRow> = (row, columnId, value) => {
 
 /** Derives the TanStack column defs from the visible columns: sorting on all, search on the text tags. */
 export function toColumnDefs(columns: TrackColumn[] = trackColumns): ColumnDef<TrackRow>[] {
-  return columns.map((col) => ({
-    id: col.id,
-    accessorKey: col.id,
-    // The visible label is rendered from the dict in the header; the id is the stable column key.
-    header: col.id,
-    enableSorting: true,
-    enableGlobalFilter: col.searchable ?? false,
-  }));
+  return columns.map((col) => {
+    // The id stays the stable column key and the header's dict lookup; only the accessor differs. An
+    // edited column resolves `edit ?? raw` so sort and search read the effective value the cell
+    // shows, while a plain column keeps its raw field key.
+    const shared = {
+      id: col.id,
+      header: col.id,
+      enableSorting: true,
+      enableGlobalFilter: col.searchable ?? false,
+    };
+    return col.resolve
+      ? { ...shared, accessorFn: col.resolve }
+      : { ...shared, accessorKey: col.id };
+  });
 }

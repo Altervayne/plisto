@@ -1,0 +1,96 @@
+/*
+ * The album genre aggregate: a wrapped row of pills over the continuous surface, no frame. A full pill
+ * (every member carries it) is the accent-weak solid; a partial pill (only some do) drops to a dimmed
+ * neutral with a hairline ring, so full versus partial reads at a glance. Every pill's controls dissolve
+ * at rest and surface on hover: an x that removes from all, and on a partial pill a check that promotes
+ * it to all. The adder trails, taking the remaining width and wrapping when the pills fill the row.
+ */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 7px 4px 11px;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+/* A genre on only some members: quieter neutral fill and ring, waiting to be completed or dropped. */
+.partial {
+  background: var(--veil);
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The partial pill's body doubles as apply-to-all; the check reveals to name that on hover. */
+.apply {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.applyIcon {
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.pill:hover .applyIcon,
+.apply:focus-visible .applyIcon {
+  opacity: 1;
+}
+
+/* The remove control holds its slot but dissolves at rest, surfacing on hover or focus. */
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.pill:hover .remove,
+.remove:focus-visible {
+  opacity: 0.7;
+}
+
+.remove:hover {
+  opacity: 1;
+  color: var(--warn);
+}
+
+/* The adder sits inline after the pills, filling the rest of the row and dropping below when tight. */
+.adder {
+  flex: 1 1 120px;
+  min-width: 120px;
+}

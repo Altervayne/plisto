@@ -51,12 +51,22 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("plisto.sqlite");
-            let conn = db::open_db(&db_path)?;
+            let mut conn = db::open_db(&db_path)?;
 
             // Fill any root's folded key left NULL by the migration, using the real normalize (SQL
             // lower() is ASCII-only and would break fold-parity). Idempotent, and cheap enough to
             // run inline before managed state takes the connection.
             db::fill_root_keys(&conn)?;
+
+            // Seed the genre vocabulary from the pre-existing album-level genres, once, so export
+            // output is unchanged after the per-track edit layer lands. Needs the real Unicode
+            // case-fold (SQL lower() is ASCII-only), so it runs here like the root_key fill; a
+            // settings marker makes it a no-op on every later launch.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            db::backfill_genres_from_albums(&mut conn, now)?;
 
             // Thumbnails and the full-res cover blobs cache beside the index, never in the music
             // folder. The webview reads thumbnails back through the asset protocol scoped here.
@@ -109,12 +119,25 @@ pub fn run() {
             commands::organize::add_tracks_to_album,
             commands::organize::remove_tracks_from_album,
             commands::organize::set_track_order,
+            commands::organize::set_album_layout,
             commands::organize::set_album_fields,
             commands::organize::set_track_overrides,
+            commands::organize::set_track_edit,
+            commands::organize::get_track_edit,
             commands::organize::set_album_cover,
             commands::organize::load_organization,
+            commands::organize::list_genres,
+            commands::organize::create_genre,
+            commands::organize::rename_genre,
+            commands::organize::delete_genre,
+            commands::organize::genre_removal_impact,
+            commands::organize::merge_genres,
+            commands::organize::set_track_genres,
+            commands::organize::add_album_genre,
+            commands::organize::remove_album_genre,
             commands::export::export_library,
             commands::export::cancel_export,
+            commands::export::export_template_preview,
             commands::export::validate_export_destination,
             commands::roots::list_roots,
             commands::roots::add_root,

@@ -55,10 +55,14 @@ function candidateLabelOf(candidate: CandidateView, t: Translate): string {
  * user added. All cover logic lives in the hook; this only renders and wires the actions.
  */
 export function TrackDetailCover({ track }: { track: TrackRow }) {
-  const { cover, candidates, error, importFromDisk, useCandidate, remove } = useTrackCover(
+  const { cover, candidates, loading, error, importFromDisk, useCandidate, remove } = useTrackCover(
     track.id,
   );
   const t = useT();
+
+  // Loading has its own surface: a quiet, non-interactive slot while the resolve is in flight, so the
+  // peek never claims "no cover found" before the cover has had a chance to arrive.
+  const showLoading = loading && !cover;
 
   return (
     <section className={styles.section} aria-label={t((d) => d.cover.trackLabel)}>
@@ -68,6 +72,10 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
           <CoverActions
             actions={[{ label: t((d) => d.cover.replace), onClick: () => void importFromDisk() }]}
           />
+        </div>
+      ) : showLoading ? (
+        <div className={styles.slot} aria-busy="true">
+          <Cover src={null} />
         </div>
       ) : (
         <button
@@ -83,6 +91,8 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
 
       {cover ? (
         <p className={styles.provenance}>{provenanceOf(cover, candidates, t)}</p>
+      ) : showLoading ? (
+        <p className={styles.provenance}>{t((d) => d.cover.loading)}</p>
       ) : (
         <p className={styles.provenance}>{t((d) => d.cover.none)}</p>
       )}

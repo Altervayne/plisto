@@ -1,6 +1,6 @@
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
-import { GenreChip } from "./GenreChip";
+import { GenrePills } from "./GenrePills";
 
 // -- State Imports --
 import { useCommitAlbumFields } from "../../state/organize/store";
@@ -18,9 +18,10 @@ import { useT } from "../../i18n";
 import styles from "./AlbumMetaFields.module.css";
 
 /**
- * The album's editable metadata under the cover: artist, year, and the genre chip. Each field commits
- * the full field set with its one column replaced, so a null clears a column and the DB never stores an
- * empty string. Year maps between its numeric column and the text field.
+ * The album's editable metadata under the cover: artist, year, and the genre aggregate. Artist and year
+ * commit the full field set with their one column replaced, so a null clears a column and the DB never
+ * stores an empty string; the vestigial `genre` column rides along untouched. Genre is now per-track,
+ * shown and bulk-edited through the pills. Year maps between its numeric column and the text field.
  */
 export function AlbumMetaFields({ album }: { album: AlbumRow }) {
   const commit = useCommitAlbumFields();
@@ -61,12 +62,9 @@ export function AlbumMetaFields({ album }: { album: AlbumRow }) {
       </div>
 
       <div className={styles.field}>
-        <dt className={styles.label}>{t((d) => d.albums.genre)}</dt>
+        <dt className={styles.label}>{t((d) => d.albums.genres)}</dt>
         <dd className={styles.value}>
-          <GenreChip
-            value={album.genre}
-            onCommit={(next) => commit(album.id, { ...fields, genre: next })}
-          />
+          <GenrePills albumId={album.id} />
         </dd>
       </div>
     </dl>

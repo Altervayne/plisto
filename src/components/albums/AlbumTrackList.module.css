@@ -4,6 +4,100 @@
   flex-direction: column;
 }
 
+/* Multi-disc: the groups stack, parted by space rather than a rule, so the surface stays continuous. */
+.discs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/*
+ * One disc's micro-label above its rows, dimmed the way the drawer's section labels are. The row grip
+ * column reserves its own inset, so the label aligns to the disc field rather than the grip.
+ */
+.discLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding-left: 32px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The dismiss on a still-empty added disc: dissolved at rest, surfacing on hover like the row controls. */
+.removeDisc {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.discLabel:hover .removeDisc,
+.removeDisc:focus-visible {
+  opacity: 0.7;
+}
+
+.removeDisc:hover {
+  opacity: 1;
+  color: var(--ink-2);
+}
+
+/* An empty disc's drop hint: a quiet line aligned under the disc column, warming as a drag hovers it. */
+.discEmpty {
+  padding: 8px 6px 8px 32px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--ink-3);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.discEmpty[data-over] {
+  background: var(--veil);
+  color: var(--ink-2);
+}
+
+/* The add-disc foot: a quiet text control mirroring the drawer's other "+ add" idioms. */
+.foot {
+  margin-top: 6px;
+  padding-left: 26px;
+}
+
+.addDisc {
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.addDisc:hover {
+  background: var(--veil);
+  color: var(--ink-2);
+}
+
 .empty {
   margin: 0;
   font-size: 12.5px;

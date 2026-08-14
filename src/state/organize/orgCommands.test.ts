@@ -24,6 +24,7 @@ function row(albumId: number, trackId: number, trackNo: number, over: Partial<Al
     artist_override: null,
     has_embedded_cover: null,
     missing_at: null,
+    genre_ids: [],
     ...over,
   };
 }

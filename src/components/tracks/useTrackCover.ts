@@ -61,7 +61,8 @@ function toSrc(path: string): string {
 export function useTrackCover(trackId: number): TrackCover {
   const [cover, setCover] = useState<CoverView | null>(null);
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Start loading: a load always fires on mount, so the surface never flashes "no cover" first.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
 

@@ -31,6 +31,7 @@ use derive::derive_layout;
 use plan::{CoverPlan, ExportPlan};
 use write::{cover_jpeg, export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
 
+pub use derive::{template_preview, AlbumTemplate};
 pub use plan::build_plan;
 
 // The progress cadence, matched to the scan: sample faster than the emit interval so a finished
@@ -54,6 +55,7 @@ const NOTE_COVER_UNAVAILABLE: &str = "cover art unavailable";
 pub fn run_export<E>(
     plan: &ExportPlan,
     destination: &Path,
+    template: &AlbumTemplate,
     covers_dir: &Path,
     cancel: &Arc<AtomicBool>,
     emit: E,
@@ -62,7 +64,7 @@ where
     E: Fn(ExportProgress) + Sync,
 {
     let dest_len = destination.to_string_lossy().chars().count();
-    let layout = derive_layout(&plan.containers, dest_len);
+    let layout = derive_layout(&plan.containers, dest_len, template);
 
     let present: usize = plan.containers.iter().map(|c| c.tracks.len()).sum();
     let skipped: usize = plan.containers.iter().map(|c| c.skipped.len()).sum();
@@ -78,7 +80,13 @@ where
     for (container, clayout) in plan.containers.iter().zip(&layout) {
         let name = container_name(clayout.rel_dir.as_path());
         for &track_id in &container.skipped {
-            record(&items, track_id, &name, ExportItemStatus::Skipped, Some(NOTE_MISSING));
+            record(
+                &items,
+                track_id,
+                &name,
+                ExportItemStatus::Skipped,
+                Some(NOTE_MISSING),
+            );
         }
     }
 
@@ -122,7 +130,13 @@ where
             if fs::create_dir_all(&dir).is_err() {
                 for track in &container.tracks {
                     errors.fetch_add(1, Ordering::Relaxed);
-                    record(&items, track.track_id, &name, ExportItemStatus::Failed, Some(NOTE_MKDIR));
+                    record(
+                        &items,
+                        track.track_id,
+                        &name,
+                        ExportItemStatus::Failed,
+                        Some(NOTE_MKDIR),
+                    );
                 }
                 continue;
             }
@@ -145,22 +159,44 @@ where
                     if cancel.load(Ordering::Relaxed) {
                         return;
                     }
+                    // Album, album_artist and year resolve per track: the track's own edit wins,
+                    // else it inherits the container's value. Two tiers only - every track sits in
+                    // a container, so the fallback is always defined and an un-edited track lands
+                    // exactly the container value it did before. Folder derivation still keys off
+                    // the container fields in derive.rs; only the written tags are per-track here.
                     let tags = TrackTags {
                         title: track.title.as_deref(),
                         artist: track.artist.as_deref(),
-                        album: container.title.as_deref(),
-                        album_artist: container.album_artist.as_deref(),
-                        year: container.year,
-                        genre: container.genre.as_deref(),
+                        album: track
+                            .album_override
+                            .as_deref()
+                            .or(container.title.as_deref()),
+                        album_artist: track
+                            .album_artist_override
+                            .as_deref()
+                            .or(container.album_artist.as_deref()),
+                        year: track.year_override.or(container.year),
+                        genres: &track.genres,
                         track_no: track.track_no,
                         disc_no: track.disc_no,
                     };
-                    match export_track(&track.source, &dir, &track_layout.filename, &tags, cover_bytes)
-                    {
+                    match export_track(
+                        &track.source,
+                        &dir,
+                        &track_layout.filename,
+                        &tags,
+                        cover_bytes,
+                    ) {
                         Ok(embed) => {
                             exported.fetch_add(1, Ordering::Relaxed);
                             let note = embed_note(embed, cover_expected);
-                            record(&items, track_layout.track_id, &name, ExportItemStatus::Exported, note);
+                            record(
+                                &items,
+                                track_layout.track_id,
+                                &name,
+                                ExportItemStatus::Exported,
+                                note,
+                            );
                         }
                         Err(reason) => {
                             errors.fetch_add(1, Ordering::Relaxed);
@@ -168,7 +204,13 @@ where
                                 ExportError::CopyFailed => NOTE_COPY,
                                 ExportError::RetagFailed => NOTE_RETAG,
                             };
-                            record(&items, track_layout.track_id, &name, ExportItemStatus::Failed, Some(note));
+                            record(
+                                &items,
+                                track_layout.track_id,
+                                &name,
+                                ExportItemStatus::Failed,
+                                Some(note),
+                            );
                         }
                     }
                 });
@@ -230,7 +272,9 @@ fn container_name(rel_dir: &Path) -> String {
 /// read.
 pub fn check_destination(destination: &str, roots: &[String]) -> DestinationCheck {
     let dest = Path::new(destination);
-    let inside = roots.iter().any(|root| paths_overlap(dest, Path::new(root)));
+    let inside = roots
+        .iter()
+        .any(|root| paths_overlap(dest, Path::new(root)));
 
     if inside {
         return DestinationCheck {
@@ -275,6 +319,11 @@ fn probe_writable(dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
+    use lofty::prelude::{ItemKey, TaggedFileExt};
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::sync::atomic::AtomicU32;
 
     #[test]
     fn check_destination_refuses_inside_any_root() {
@@ -285,5 +334,131 @@ mod tests {
         assert!(inside.inside_workspace, "a dest inside a root is refused");
         assert!(!inside.ok);
         assert!(!inside.writable);
+    }
+
+    // A unique throwaway directory under the system temp dir, removed on drop.
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "plisto_exp_{tag}_{}_{n}_{nanos}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    // A minimal valid FLAC: the stream marker and a lone STREAMINFO block, enough for lofty to open
+    // and rewrite. No audio frames are needed to parse.
+    fn minimal_flac() -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"fLaC");
+        v.push(0x80);
+        v.extend_from_slice(&[0x00, 0x00, 0x22]);
+        v.extend_from_slice(&[0u8; 34]);
+        v
+    }
+
+    // Inserts a track row whose display_path is a real FLAC on disk, so the worker can copy it.
+    fn insert_flac_track(conn: &Connection, path: &str, title: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO tracks (source_path, display_path, filename, ext, size_bytes, mtime,
+                                 raw_title, raw_artist, has_embedded_cover, scanned_at)
+             VALUES (?1, ?1, 'f.flac', 'flac', 10, 20, ?2, 'Raw Artist', 0, 30)",
+            rusqlite::params![path, title],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    // The AlbumArtist tag of an exported file, or None when it carries none.
+    fn read_album_artist(path: &Path) -> Option<String> {
+        let tagged = lofty::read_from_path(path).unwrap();
+        tagged
+            .primary_tag()
+            .and_then(|t| t.get_string(ItemKey::AlbumArtist).map(str::to_string))
+    }
+
+    #[test]
+    fn album_artist_override_wins_while_a_sibling_inherits_the_album() {
+        let sources = TempDir::new("src");
+        let dest = TempDir::new("dest");
+        let covers = TempDir::new("covers");
+
+        let a_path = sources.path.join("a.flac");
+        let b_path = sources.path.join("b.flac");
+        fs::write(&a_path, minimal_flac()).unwrap();
+        fs::write(&b_path, minimal_flac()).unwrap();
+
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_flac_track(&conn, &a_path.to_string_lossy(), "T1");
+        let b = insert_flac_track(&conn, &b_path.to_string_lossy(), "T2");
+        db::create_album(
+            &mut conn,
+            Some("Rec".into()),
+            Some("Album AA".into()),
+            None,
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
+
+        // Only the first member carries an album_artist edit; the second stays pristine.
+        db::set_track_edit(
+            &conn,
+            a,
+            None,
+            None,
+            None,
+            Some("Solo AA".into()),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let plan = build_plan(&conn).unwrap();
+        let template = AlbumTemplate::resolve("", "");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let summary = run_export(
+            &plan,
+            dest.path.as_path(),
+            &template,
+            covers.path.as_path(),
+            &cancel,
+            |_| {},
+        );
+        assert_eq!(summary.exported, 2);
+
+        // The folder still keys off the container's album artist, not the per-track override.
+        let container = dest.path.join("Album AA").join("Rec");
+        assert_eq!(
+            read_album_artist(&container.join("01 - T1.flac")).as_deref(),
+            Some("Solo AA"),
+            "the edited track exports its own album_artist",
+        );
+        assert_eq!(
+            read_album_artist(&container.join("02 - T2.flac")).as_deref(),
+            Some("Album AA"),
+            "the untouched sibling inherits the album's album_artist",
+        );
     }
 }

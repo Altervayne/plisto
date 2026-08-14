@@ -1,10 +1,11 @@
 /*
- * One track row: a number column, the title-over-source main column, and a duration column. The row
- * veils on hover like the rest of the surface. Numbers and duration are tabular so they line up.
+ * One track row: a grip, a quiet disc field, a number column, the title-over-source main column, and a
+ * duration column. The row veils on hover like the rest of the surface. Numbers and duration are
+ * tabular so they line up.
  */
 .row {
   display: grid;
-  grid-template-columns: 16px 26px 1fr auto;
+  grid-template-columns: 16px 28px 26px 1fr auto;
   align-items: start;
   gap: 10px;
   padding: 7px 6px;
@@ -59,6 +60,34 @@
 .handle:active,
 .row[data-dragging] .handle {
   cursor: grabbing;
+}
+
+/*
+ * The disc field: its column is always reserved so the reveal never reflows the row. It dissolves at
+ * rest, matching the grip, and surfaces on row hover or when the field takes focus, so the split-into-
+ * discs affordance stays out of the way until wanted.
+ */
+.disc {
+  align-self: start;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.row:hover .disc,
+.disc:focus-within {
+  opacity: 0.65;
+}
+
+.disc:focus-within {
+  opacity: 1;
+}
+
+.disc input {
+  padding-top: 3px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .no {
