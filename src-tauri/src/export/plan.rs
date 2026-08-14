@@ -201,15 +201,28 @@ mod tests {
         let a = insert_track(&conn, "/m/album/1.mp3", "One");
         let b = insert_track(&conn, "/m/album/2.mp3", "Two");
         let s = insert_track(&conn, "/m/loose/hit.mp3", "Hit");
-        let album =
-            db::create_album(&mut conn, Some("Rec".into()), Some("AA".into()), Some(2020), None, None, &[a, b], "album", 1)
-                .unwrap();
+        let album = db::create_album(
+            &mut conn,
+            Some("Rec".into()),
+            Some("AA".into()),
+            Some(2020),
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
         let single = db::create_single(&mut conn, s, 1).unwrap();
 
         let plan = build_plan(&conn).unwrap();
         assert_eq!(plan.containers.len(), 2);
 
-        let album_c = plan.containers.iter().find(|c| c.album_id == album.id).unwrap();
+        let album_c = plan
+            .containers
+            .iter()
+            .find(|c| c.album_id == album.id)
+            .unwrap();
         assert_eq!(album_c.kind, ContainerKind::Album);
         assert_eq!(album_c.title.as_deref(), Some("Rec"));
         assert_eq!(album_c.album_artist.as_deref(), Some("AA"));
@@ -218,7 +231,11 @@ mod tests {
         assert_eq!(album_c.tracks[0].title.as_deref(), Some("One"));
         assert_eq!(album_c.tracks[0].track_no, Some(1));
 
-        let single_c = plan.containers.iter().find(|c| c.album_id == single.id).unwrap();
+        let single_c = plan
+            .containers
+            .iter()
+            .find(|c| c.album_id == single.id)
+            .unwrap();
         assert_eq!(single_c.kind, ContainerKind::Single);
         assert_eq!(single_c.tracks.len(), 1);
         assert_eq!(single_c.tracks[0].title.as_deref(), Some("Hit"));
@@ -228,9 +245,18 @@ mod tests {
     fn override_beats_raw_in_the_plan() {
         let mut conn = db::open_in_memory().unwrap();
         let t = insert_track(&conn, "/m/album/1.mp3", "Raw Title");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
-        db::set_track_overrides(&conn, album.id, t, Some("Edited".into()), Some("Edited Artist".into()), Some(3), None)
-            .unwrap();
+        let album =
+            db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+        db::set_track_overrides(
+            &conn,
+            album.id,
+            t,
+            Some("Edited".into()),
+            Some("Edited Artist".into()),
+            Some(3),
+            None,
+        )
+        .unwrap();
 
         let plan = build_plan(&conn).unwrap();
         let track = &plan.containers[0].tracks[0];
@@ -244,15 +270,22 @@ mod tests {
         let mut conn = db::open_in_memory().unwrap();
         let a = insert_track(&conn, "/m/album/1.mp3", "Present");
         let b = insert_track(&conn, "/m/album/2.mp3", "Gone");
-        conn.execute("UPDATE tracks SET missing_at = 99 WHERE id = ?1", rusqlite::params![b])
-            .unwrap();
+        conn.execute(
+            "UPDATE tracks SET missing_at = 99 WHERE id = ?1",
+            rusqlite::params![b],
+        )
+        .unwrap();
         db::create_album(&mut conn, None, None, None, None, None, &[a, b], "album", 1).unwrap();
 
         let plan = build_plan(&conn).unwrap();
         let c = &plan.containers[0];
         assert_eq!(c.tracks.len(), 1, "only the present track is staged");
         assert_eq!(c.tracks[0].track_id, a);
-        assert_eq!(c.skipped, vec![b], "the missing track is recorded as a skip");
+        assert_eq!(
+            c.skipped,
+            vec![b],
+            "the missing track is recorded as a skip"
+        );
     }
 
     #[test]
@@ -263,7 +296,10 @@ mod tests {
 
         let plan = build_plan(&conn).unwrap();
         match &plan.containers[0].cover {
-            CoverPlan::Member { source, has_embedded } => {
+            CoverPlan::Member {
+                source,
+                has_embedded,
+            } => {
                 assert_eq!(source, "/m/album/1.mp3");
                 assert!(*has_embedded);
             }

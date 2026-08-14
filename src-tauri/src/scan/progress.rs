@@ -60,7 +60,10 @@ mod tests {
         }
         // Emits land at 0, 100, 200, 300, 400: six boundaries at most across the span.
         assert!(emits <= 6, "expected coalesced emits, got {emits}");
-        assert!(emits >= 5, "expected steady emits across the span, got {emits}");
+        assert!(
+            emits >= 5,
+            "expected steady emits across the span, got {emits}"
+        );
     }
 
     #[test]

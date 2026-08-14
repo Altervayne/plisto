@@ -105,7 +105,10 @@ mod tests {
     fn same_bytes_hash_the_same() {
         let a = normalize_cover(b"art-bytes", 10, 20, CoverSourceKind::Embedded, None, 1);
         let b = normalize_cover(b"art-bytes", 10, 20, CoverSourceKind::Adjacent, None, 2);
-        assert_eq!(a.content_hash, b.content_hash, "the hash is over bytes only");
+        assert_eq!(
+            a.content_hash, b.content_hash,
+            "the hash is over bytes only"
+        );
     }
 
     #[test]
@@ -136,7 +139,10 @@ mod tests {
     #[test]
     fn precedence_folder_over_all() {
         assert_eq!(resolve_track_cover(true, true, true), ResolvedCover::Folder);
-        assert_eq!(resolve_track_cover(true, false, false), ResolvedCover::Folder);
+        assert_eq!(
+            resolve_track_cover(true, false, false),
+            ResolvedCover::Folder
+        );
     }
 
     #[test]
@@ -153,6 +159,9 @@ mod tests {
             resolve_track_cover(false, false, true),
             ResolvedCover::Adjacent
         );
-        assert_eq!(resolve_track_cover(false, false, false), ResolvedCover::None);
+        assert_eq!(
+            resolve_track_cover(false, false, false),
+            ResolvedCover::None
+        );
     }
 }

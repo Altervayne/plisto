@@ -169,7 +169,8 @@ pub async fn save_track_cover(
 
     let covers_dir = state.covers_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let bytes = resolve_full_res(&covers_dir, &plan).ok_or("this track has no cover to save")?;
+        let bytes =
+            resolve_full_res(&covers_dir, &plan).ok_or("this track has no cover to save")?;
         std::fs::write(&dest_path, &bytes).map_err(|_| "couldn't write the cover".to_string())
     })
     .await
@@ -233,7 +234,10 @@ pub async fn album_cover(
 enum Resolution {
     None,
     Folder(CoverRef),
-    Dynamic { source_path: String, has_embedded: bool },
+    Dynamic {
+        source_path: String,
+        has_embedded: bool,
+    },
 }
 
 /// Reads the DB to decide a track's cover at `max_edge`. A folder cover resolves fully here (its
@@ -315,7 +319,8 @@ async fn resolve_at(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        prepare_resolution(&conn, &state.covers_dir, track_id, max_edge).map_err(|e| e.to_string())?
+        prepare_resolution(&conn, &state.covers_dir, track_id, max_edge)
+            .map_err(|e| e.to_string())?
     };
 
     match resolution {
@@ -493,8 +498,14 @@ pub(super) fn import_from_disk(
 /// runtime thread. A bound folder cover carries its store key; otherwise the track's own art is
 /// re-derived from its source path.
 enum SavePlan {
-    Store { content_hash: String, byte_len: i64 },
-    Derive { source_path: String, has_embedded: bool },
+    Store {
+        content_hash: String,
+        byte_len: i64,
+    },
+    Derive {
+        source_path: String,
+        has_embedded: bool,
+    },
 }
 
 /// Reads the DB to decide where a track's full-res cover comes from. A folder cover resolves to
@@ -591,11 +602,7 @@ pub(crate) fn read_full_res(
 /// the file is still present and hashes to the recorded content hash; a moved, deleted or changed
 /// origin is left alone, so export later reports that cover as unavailable. Idempotent - an entry
 /// whose blob already exists is skipped without touching the origin.
-pub fn backfill_full_res(
-    covers_dir: &Path,
-    guard: &InFlightGuard,
-    entries: &[(String, String)],
-) {
+pub fn backfill_full_res(covers_dir: &Path, guard: &InFlightGuard, entries: &[(String, String)]) {
     for (content_hash, origin_path) in entries {
         if full_res_cache_path(covers_dir, content_hash).exists() {
             continue;
@@ -665,8 +672,10 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("plisto_cmd_{tag}_{}_{n}_{nanos}", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "plisto_cmd_{tag}_{}_{n}_{nanos}",
+                std::process::id()
+            ));
             std::fs::create_dir_all(&path).unwrap();
             Self { path }
         }
@@ -720,8 +729,7 @@ mod tests {
         assert_eq!((width, height), (64, 48));
 
         // Reading the track now resolves to that imported cover at the peek size.
-        let resolution =
-            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
+        let resolution = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
         match resolution {
             Resolution::Folder(cover) => {
                 assert_eq!(cover.source, CoverSource::Imported);
@@ -741,7 +749,11 @@ mod tests {
         let guard = InFlightGuard::default();
 
         // An adjacent cover sits next to the track on disk.
-        std::fs::write(music.path.join("cover.jpg"), png_bytes(50, 50, [20, 160, 90])).unwrap();
+        std::fs::write(
+            music.path.join("cover.jpg"),
+            png_bytes(50, 50, [20, 160, 90]),
+        )
+        .unwrap();
         let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
         let track_id = insert_track(&conn, &source_path);
 
@@ -759,8 +771,7 @@ mod tests {
 
         // Removing it drops back to the adjacent image.
         db::remove_folder_cover(&conn, &folder_of(&source_path)).unwrap();
-        let resolution =
-            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
+        let resolution = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
         let Resolution::Dynamic {
             source_path: sp,
             has_embedded,
@@ -788,13 +799,7 @@ mod tests {
         assert_eq!(candidates[0].source, CoverSource::Adjacent);
         assert_eq!(
             candidates[0].origin_path.as_deref(),
-            Some(
-                music
-                    .path
-                    .join("folder.png")
-                    .to_string_lossy()
-                    .as_ref()
-            )
+            Some(music.path.join("folder.png").to_string_lossy().as_ref())
         );
         assert!(Path::new(&candidates[0].path).exists());
     }
@@ -844,11 +849,25 @@ mod tests {
         let guard = InFlightGuard::default();
 
         // An adjacent image sits next to the member track on disk; the album has no cover of its own.
-        std::fs::write(music.path.join("cover.jpg"), png_bytes(50, 50, [20, 160, 90])).unwrap();
+        std::fs::write(
+            music.path.join("cover.jpg"),
+            png_bytes(50, 50, [20, 160, 90]),
+        )
+        .unwrap();
         let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
         let track_id = insert_track(&conn, &source_path);
-        let album =
-            db::create_album(&mut conn, None, None, None, None, None, &[track_id], "album", 1).unwrap();
+        let album = db::create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[track_id],
+            "album",
+            1,
+        )
+        .unwrap();
 
         let decision = prepare_album_cover(&conn, &covers.path, album.id, DETAIL_EDGE).unwrap();
         let AlbumCover::FromTrack(member) = decision else {
@@ -932,7 +951,9 @@ mod tests {
         );
         let cover_id = db::upsert_cover(&conn, &record).unwrap();
         assert!(
-            read_full_res(&conn, &covers.path, cover_id).unwrap().is_none(),
+            read_full_res(&conn, &covers.path, cover_id)
+                .unwrap()
+                .is_none(),
             "no blob before the backfill"
         );
 
@@ -1038,6 +1059,9 @@ mod tests {
         let track_id = insert_track(&conn, &source_path);
 
         let plan = prepare_save(&conn, track_id).unwrap();
-        assert!(resolve_full_res(&covers.path, &plan).is_none(), "no art to save");
+        assert!(
+            resolve_full_res(&covers.path, &plan).is_none(),
+            "no art to save"
+        );
     }
 }

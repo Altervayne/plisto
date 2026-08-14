@@ -17,8 +17,8 @@ use tauri::State;
 // -- Local Imports --
 use crate::db;
 use crate::dto::{
-    AlbumFields, AlbumRow, CoverRef, CoverSource, GenreRemovalImpact, GenreRow, OrganizationSnapshot,
-    TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
+    AlbumFields, AlbumRow, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
+    OrganizationSnapshot, TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
 };
 use crate::state::AppState;
 
@@ -442,8 +442,10 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("plisto_org_{tag}_{}_{n}_{nanos}", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "plisto_org_{tag}_{}_{n}_{nanos}",
+                std::process::id()
+            ));
             std::fs::create_dir_all(&path).unwrap();
             Self { path }
         }
@@ -510,9 +512,18 @@ mod tests {
         db::set_folder_cover(&conn, "/music/album", cover, 5).unwrap();
 
         let cover_id = resolve_prefill_cover(&conn, &[a, b, c]).unwrap();
-        let album =
-            db::create_album(&mut conn, Some("T".into()), None, None, None, cover_id, &[a, b, c], "album", 100)
-                .unwrap();
+        let album = db::create_album(
+            &mut conn,
+            Some("T".into()),
+            None,
+            None,
+            None,
+            cover_id,
+            &[a, b, c],
+            "album",
+            100,
+        )
+        .unwrap();
 
         assert_eq!(album.track_count, 3);
         assert_eq!(album.cover_id, Some(cover));
@@ -534,7 +545,18 @@ mod tests {
 
         let cover_id = resolve_prefill_cover(&conn, &[a, b]).unwrap();
         assert_eq!(cover_id, None);
-        let album = db::create_album(&mut conn, None, None, None, None, cover_id, &[a, b], "album", 100).unwrap();
+        let album = db::create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            cover_id,
+            &[a, b],
+            "album",
+            100,
+        )
+        .unwrap();
         assert_eq!(album.cover_id, None);
     }
 
@@ -542,8 +564,10 @@ mod tests {
     fn add_tracks_moves_single_membership_and_is_a_noop_when_present() {
         let mut conn = db::open_in_memory().unwrap();
         let t = insert_track(&conn, "/music/a/1.mp3");
-        let album_a = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
-        let album_b = db::create_album(&mut conn, None, None, None, None, None, &[], "album", 1).unwrap();
+        let album_a =
+            db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+        let album_b =
+            db::create_album(&mut conn, None, None, None, None, None, &[], "album", 1).unwrap();
 
         // Moving t into B leaves it in B only: A's membership is gone.
         db::add_tracks_to_album(&mut conn, album_b.id, &[t]).unwrap();
@@ -567,7 +591,18 @@ mod tests {
         let a = insert_track(&conn, "/m/1.mp3");
         let b = insert_track(&conn, "/m/2.mp3");
         let c = insert_track(&conn, "/m/3.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[a, b, c], "album", 1).unwrap();
+        let album = db::create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[a, b, c],
+            "album",
+            1,
+        )
+        .unwrap();
 
         db::set_track_order(&mut conn, album.id, &[c, a, b]).unwrap();
         let expected = vec![(c, Some(1)), (a, Some(2)), (b, Some(3))];
@@ -582,7 +617,8 @@ mod tests {
     fn delete_album_drops_membership_but_keeps_tracks() {
         let mut conn = db::open_in_memory().unwrap();
         let t = insert_track(&conn, "/m/1.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+        let album =
+            db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
 
         db::delete_album(&conn, album.id).unwrap();
 
@@ -598,8 +634,18 @@ mod tests {
         let mut conn = db::open_in_memory().unwrap();
         let a = insert_track(&conn, "/m/1.mp3");
         let b = insert_track(&conn, "/m/2.mp3");
-        let album = db::create_album(&mut conn, Some("T".into()), None, None, None, None, &[a, b], "album", 1)
-            .unwrap();
+        let album = db::create_album(
+            &mut conn,
+            Some("T".into()),
+            None,
+            None,
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
 
         let albums = db::load_albums(&conn).unwrap();
         assert_eq!(albums.len(), 1);
@@ -649,9 +695,18 @@ mod tests {
         let a = insert_track(&conn, "/music/album/1.mp3");
         let b = insert_track(&conn, "/music/album/2.mp3");
         let s = insert_track(&conn, "/music/loose/hit.mp3");
-        let album =
-            db::create_album(&mut conn, Some("T".into()), None, None, None, None, &[a, b], "album", 1)
-                .unwrap();
+        let album = db::create_album(
+            &mut conn,
+            Some("T".into()),
+            None,
+            None,
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
         let single = db::create_single(&mut conn, s, 1).unwrap();
 
         let albums = db::load_albums(&conn).unwrap();
@@ -670,7 +725,8 @@ mod tests {
         let covers = TempDir::new("covers");
         let guard = InFlightGuard::default();
         let t = insert_track(&conn, "/m/1.mp3");
-        let album = db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+        let album =
+            db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
 
         // The picked image lives outside the music folder; import only reads it.
         let picked = covers.path.join("picked.png");
@@ -690,6 +746,9 @@ mod tests {
         assert_eq!(reloaded.cover_id, Some(cover_id));
         assert_eq!(reloaded.updated_at, 200);
         assert_eq!((width, height), (64, 64));
-        assert!(Path::new(&detail_path).exists(), "the cached detail thumb exists");
+        assert!(
+            Path::new(&detail_path).exists(),
+            "the cached detail thumb exists"
+        );
     }
 }

@@ -75,8 +75,10 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("plisto_adjacent_{}_{n}_{nanos}", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "plisto_adjacent_{}_{n}_{nanos}",
+                std::process::id()
+            ));
             fs::create_dir_all(&path).unwrap();
             Self { path }
         }

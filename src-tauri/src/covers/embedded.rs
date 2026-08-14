@@ -46,8 +46,10 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("plisto_embedded_{}_{n}_{nanos}.mp3", std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "plisto_embedded_{}_{n}_{nanos}.mp3",
+                std::process::id()
+            ));
             fs::write(&path, bytes).unwrap();
             Self { path }
         }

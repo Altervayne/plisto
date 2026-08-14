@@ -65,7 +65,10 @@ mod tests {
     fn nested_paths_overlap_both_directions() {
         let root = Path::new("/music/library");
         let inside = Path::new("/music/library/export");
-        assert!(paths_overlap(inside, root), "a dest inside the root overlaps");
+        assert!(
+            paths_overlap(inside, root),
+            "a dest inside the root overlaps"
+        );
         assert!(paths_overlap(root, inside), "and the check is symmetric");
     }
 

@@ -254,7 +254,11 @@ mod tests {
 
         let path = ensure_full_res(&dir.path, &h, &bytes, &guard).unwrap();
         assert_eq!(path, full_res_cache_path(&dir.path, &h));
-        assert_eq!(std::fs::read(&path).unwrap(), bytes, "the blob is byte-for-byte");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "the blob is byte-for-byte"
+        );
     }
 
     #[test]
@@ -272,7 +276,14 @@ mod tests {
         let again = ensure_full_res(&dir.path, &h, b"different bytes", &guard).unwrap();
         assert_eq!(again, path);
         let second_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
-        assert_eq!(first_mtime, second_mtime, "the stored blob is not rewritten");
-        assert_eq!(std::fs::read(&path).unwrap(), bytes, "the original bytes stand");
+        assert_eq!(
+            first_mtime, second_mtime,
+            "the stored blob is not rewritten"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "the original bytes stand"
+        );
     }
 }

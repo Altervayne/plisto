@@ -249,11 +249,9 @@ mod tests {
         assert_eq!(version, LATEST_VERSION);
 
         let (filename, art): (String, Option<i64>) = conn
-            .query_row(
-                "SELECT filename, has_embedded_cover FROM tracks",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT filename, has_embedded_cover FROM tracks", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
         assert_eq!(art, None, "the new column is NULL, the drain sentinel");
@@ -286,7 +284,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
-        assert_eq!(missing, None, "missing_at defaults to NULL, meaning present");
+        assert_eq!(
+            missing, None,
+            "missing_at defaults to NULL, meaning present"
+        );
 
         for table in ["albums", "album_tracks"] {
             let found: i64 = conn
@@ -328,7 +329,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
-        assert_eq!(display, None, "display_path is NULL until a scan captures it");
+        assert_eq!(
+            display, None,
+            "display_path is NULL until a scan captures it"
+        );
 
         let settings: i64 = conn
             .query_row(
@@ -350,8 +354,10 @@ mod tests {
         conn.execute_batch(MIGRATION_V3).unwrap();
         conn.execute_batch(MIGRATION_V4).unwrap();
         conn.pragma_update(None, "user_version", 4).unwrap();
-        conn.execute_batch("INSERT INTO albums (id, title, created_at, updated_at) VALUES (1, 'T', 0, 0);")
-            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO albums (id, title, created_at, updated_at) VALUES (1, 'T', 0, 0);",
+        )
+        .unwrap();
 
         migrate(&conn).unwrap();
 
@@ -401,12 +407,19 @@ mod tests {
             })
             .unwrap();
         assert_eq!(path, "/music", "the workspace seeds the first root");
-        assert_eq!(key, None, "root_key is filled Rust-side, not in the migration");
+        assert_eq!(
+            key, None,
+            "root_key is filled Rust-side, not in the migration"
+        );
 
         let stamped: Option<i64> = conn
             .query_row("SELECT root_id FROM tracks", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(stamped, Some(root_id), "the existing track backfills to the seeded root");
+        assert_eq!(
+            stamped,
+            Some(root_id),
+            "the existing track backfills to the seeded root"
+        );
     }
 
     /// A v6 DB with an album_tracks override upgrades to v7 additively: the three per-track edit

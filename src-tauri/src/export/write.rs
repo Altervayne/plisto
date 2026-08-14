@@ -120,7 +120,11 @@ pub fn export_track(
 /// Retags the copy at `path` in place with `tags`, embedding `cover` when the format supports it.
 /// Starts from the copy's own primary tag (preserving fields export does not manage), or a fresh
 /// native tag when it has none. Writes the same ItemKeys the scan reads.
-fn retag(path: &Path, tags: &TrackTags<'_>, cover: Option<&[u8]>) -> Result<EmbedResult, ExportError> {
+fn retag(
+    path: &Path,
+    tags: &TrackTags<'_>,
+    cover: Option<&[u8]>,
+) -> Result<EmbedResult, ExportError> {
     let tagged = lofty::read_from_path(path).map_err(|_| ExportError::RetagFailed)?;
     let file_type = tagged.file_type();
     let tag_type = tagged.primary_tag_type();
@@ -131,9 +135,21 @@ fn retag(path: &Path, tags: &TrackTags<'_>, cover: Option<&[u8]>) -> Result<Embe
 
     write_accessor(&mut tag, tags);
     write_genres(&mut tag, tags.genres);
-    set_text(&mut tag, ItemKey::AlbumArtist, tags.album_artist.map(str::to_string));
-    set_text(&mut tag, ItemKey::TrackNumber, tags.track_no.map(|n| n.to_string()));
-    set_text(&mut tag, ItemKey::DiscNumber, tags.disc_no.map(|n| n.to_string()));
+    set_text(
+        &mut tag,
+        ItemKey::AlbumArtist,
+        tags.album_artist.map(str::to_string),
+    );
+    set_text(
+        &mut tag,
+        ItemKey::TrackNumber,
+        tags.track_no.map(|n| n.to_string()),
+    );
+    set_text(
+        &mut tag,
+        ItemKey::DiscNumber,
+        tags.disc_no.map(|n| n.to_string()),
+    );
     set_text(&mut tag, ItemKey::Year, tags.year.map(|n| n.to_string()));
 
     let embed = embed_cover(&mut tag, file_type, tag_type, cover);
@@ -252,7 +268,12 @@ fn encode_jpeg(raw: &[u8]) -> Option<Vec<u8>> {
     let rgb = image::load_from_memory(raw).ok()?.to_rgb8();
     let mut out = Vec::new();
     JpegEncoder::new_with_quality(&mut out, COVER_JPEG_QUALITY)
-        .encode(rgb.as_raw(), rgb.width(), rgb.height(), ExtendedColorType::Rgb8)
+        .encode(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            ExtendedColorType::Rgb8,
+        )
         .ok()?;
     Some(out)
 }
@@ -370,7 +391,10 @@ mod tests {
         // The final file exists, the temp is gone, and the source is untouched.
         let out = dir.path.join("04 - Exported Title.flac");
         assert!(out.exists());
-        assert!(!dir.path.join(".plisto-tmp-04 - Exported Title.flac").exists());
+        assert!(!dir
+            .path
+            .join(".plisto-tmp-04 - Exported Title.flac")
+            .exists());
 
         // Reopen and confirm the tags and the embedded front cover landed.
         let reopened = lofty::read_from_path(&out).unwrap();
@@ -382,9 +406,15 @@ mod tests {
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("4"));
         assert_eq!(tag.get_string(ItemKey::Year), Some("2021"));
         let read_genres: Vec<&str> = tag.get_strings(ItemKey::Genre).collect();
-        assert_eq!(read_genres, vec!["Ambient", "Downtempo"], "both genres round-trip");
+        assert_eq!(
+            read_genres,
+            vec!["Ambient", "Downtempo"],
+            "both genres round-trip"
+        );
         assert!(
-            tag.pictures().iter().any(|p| p.pic_type() == PictureType::CoverFront),
+            tag.pictures()
+                .iter()
+                .any(|p| p.pic_type() == PictureType::CoverFront),
             "a front cover is embedded",
         );
     }
@@ -422,10 +452,7 @@ mod tests {
         let reopened = lofty::read_from_path(&out).unwrap();
         let tag = reopened.primary_tag().unwrap();
         assert_eq!(tag.title().as_deref(), Some("Wav Title"));
-        assert!(
-            tag.pictures().is_empty(),
-            "no art is embedded in a WAV",
-        );
+        assert!(tag.pictures().is_empty(), "no art is embedded in a WAV",);
     }
 
     #[test]

@@ -309,11 +309,7 @@ fn reconcile_presence(
         return Ok((0, 0));
     }
 
-    let placeholders = walked_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(",");
+    let placeholders = walked_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!(
         "SELECT source_path, missing_at, display_path FROM tracks WHERE root_id IN ({placeholders})"
     );
@@ -348,8 +344,7 @@ fn reconcile_presence(
 
     conn.execute_batch("BEGIN")?;
     {
-        let mut flag =
-            conn.prepare("UPDATE tracks SET missing_at = ?1 WHERE source_path = ?2")?;
+        let mut flag = conn.prepare("UPDATE tracks SET missing_at = ?1 WHERE source_path = ?2")?;
         for path in &to_flag {
             flag.execute(params![scanned_at, path])?;
         }
@@ -387,10 +382,8 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "plisto_{tag}_{}_{n}_{nanos}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("plisto_{tag}_{}_{n}_{nanos}", std::process::id()));
             fs::create_dir_all(&path).unwrap();
             Self { path }
         }
@@ -499,7 +492,10 @@ mod tests {
 
         // A second pass while it is still gone does not re-stamp it.
         let still_gone = scan(&music.path, &db_path);
-        assert_eq!(still_gone.missing, 0, "an existing stamp is not overwritten");
+        assert_eq!(
+            still_gone.missing, 0,
+            "an existing stamp is not overwritten"
+        );
         assert_eq!(still_gone.returned, 0);
 
         // Restoring the file clears the flag on the next pass.
@@ -664,7 +660,11 @@ mod tests {
             None,
             "root A's row is untouched by a root-B-only scan",
         );
-        assert_eq!(missing_at_of(&db_path, "b.mp3"), None, "root B's file is present");
+        assert_eq!(
+            missing_at_of(&db_path, "b.mp3"),
+            None,
+            "root B's file is present"
+        );
     }
 
     #[test]
@@ -678,9 +678,11 @@ mod tests {
 
         let conn = Connection::open(&db_path).unwrap();
         let stamped: Option<i64> = conn
-            .query_row("SELECT root_id FROM tracks WHERE filename = 'a.mp3'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT root_id FROM tracks WHERE filename = 'a.mp3'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let root_id: i64 = conn
             .query_row("SELECT id FROM roots", [], |r| r.get(0))
