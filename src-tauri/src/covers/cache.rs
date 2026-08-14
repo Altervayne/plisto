@@ -65,6 +65,20 @@ pub fn full_res_cache_path(covers_dir: &Path, content_hash: &str) -> PathBuf {
     covers_dir.join(format!("{content_hash}.orig"))
 }
 
+/// Reads the verbatim full-resolution blob for `content_hash`, integrity-checked against the
+/// recorded byte length then the content hash, so a truncated or swapped file reads as absent
+/// rather than corrupt art. None when the blob is missing or fails either check.
+pub fn read_full_res_blob(covers_dir: &Path, content_hash: &str, byte_len: i64) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(full_res_cache_path(covers_dir, content_hash)).ok()?;
+    if bytes.len() as i64 != byte_len {
+        return None;
+    }
+    if blake3::hash(&bytes).to_hex().to_string() != content_hash {
+        return None;
+    }
+    Some(bytes)
+}
+
 /// Stores `raw_bytes` verbatim as the full-resolution blob for `content_hash`, returning its path.
 /// Content-addressed and idempotent: a blob already present is left untouched, never rewritten, so
 /// the original bytes and format are preserved for embedding. The guard serializes an identical

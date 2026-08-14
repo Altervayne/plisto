@@ -5,7 +5,7 @@
  */
 
 // -- Library Imports --
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 /** Opens the folder picker, resolving with the chosen path or null when nothing is picked. */
 export async function pickFolder(): Promise<string | null> {
@@ -23,6 +23,19 @@ export async function pickImageFile(): Promise<string | null> {
     const selected = await open({
       multiple: false,
       filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Opens the save-file picker for a cover image, seeded with `defaultName`, resolving path or null. */
+export async function pickCoverSavePath(defaultName: string): Promise<string | null> {
+  try {
+    const selected = await save({
+      defaultPath: defaultName,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp"] }],
     });
     return typeof selected === "string" ? selected : null;
   } catch {

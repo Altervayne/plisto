@@ -10,8 +10,9 @@ import {
   listCoverCandidates,
   readCover,
   removeFolderCover,
+  saveTrackCover,
 } from "../../lib/ipc";
-import { pickImageFile } from "../../lib/dialog";
+import { pickCoverSavePath, pickImageFile } from "../../lib/dialog";
 
 // -- Type Imports --
 import type { CoverSource } from "../../types";
@@ -42,6 +43,7 @@ export interface TrackCover {
   importFromDisk: () => Promise<void>;
   useCandidate: (candidate: CandidateView) => Promise<void>;
   remove: () => Promise<void>;
+  saveToDisk: (defaultName: string, failMessage: string) => Promise<void>;
 }
 
 /** Wraps a cache path for the webview, degrading to the raw path outside the desktop shell. */
@@ -143,5 +145,19 @@ export function useTrackCover(trackId: number): TrackCover {
     await load();
   }, [trackId, load]);
 
-  return { cover, candidates, loading, error, importFromDisk, useCandidate, remove };
+  const saveToDisk = useCallback(
+    // The message is passed in localized: the surface holds the translator, this hook only the IPC.
+    async (defaultName: string, failMessage: string): Promise<void> => {
+      const path = await pickCoverSavePath(defaultName);
+      if (!path) return;
+      try {
+        await saveTrackCover(trackId, path);
+      } catch {
+        setError(failMessage);
+      }
+    },
+    [trackId],
+  );
+
+  return { cover, candidates, loading, error, importFromDisk, useCandidate, remove, saveToDisk };
 }

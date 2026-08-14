@@ -23,6 +23,12 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** A default save name for the cover: the track's filename stem with a .jpg suffix. */
+function coverSaveName(filename: string): string {
+  const stem = filename.replace(/\.[^.]+$/, "");
+  return `${stem || filename}.jpg`;
+}
+
 /** The provenance line for the resolved cover, naming the folder image when one is showing. */
 function provenanceOf(cover: CoverView, candidates: CandidateView[], t: Translate): string {
   switch (cover.source) {
@@ -55,9 +61,8 @@ function candidateLabelOf(candidate: CandidateView, t: Translate): string {
  * user added. All cover logic lives in the hook; this only renders and wires the actions.
  */
 export function TrackDetailCover({ track }: { track: TrackRow }) {
-  const { cover, candidates, loading, error, importFromDisk, useCandidate, remove } = useTrackCover(
-    track.id,
-  );
+  const { cover, candidates, loading, error, importFromDisk, useCandidate, remove, saveToDisk } =
+    useTrackCover(track.id);
   const t = useT();
 
   // Loading has its own surface: a quiet, non-interactive slot while the resolve is in flight, so the
@@ -115,6 +120,14 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {cover ? (
+        <QuietButton
+          onClick={() => void saveToDisk(coverSaveName(track.filename), t((d) => d.cover.saveError))}
+        >
+          {t((d) => d.cover.saveToDisk)}
+        </QuietButton>
       ) : null}
 
       {cover?.source === "imported" ? (

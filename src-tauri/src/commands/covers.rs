@@ -19,8 +19,8 @@ use tauri::State;
 // -- Local Imports --
 use crate::covers::{
     discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path, normalize_cover,
-    read_embedded_cover_bytes, read_image_dimensions, resolve_track_cover, thumb_cache_path,
-    CoverSourceKind, InFlightGuard, ResolvedCover,
+    read_embedded_cover_bytes, read_full_res_blob, read_image_dimensions, resolve_track_cover,
+    thumb_cache_path, CoverSourceKind, InFlightGuard, ResolvedCover,
 };
 use crate::db;
 use crate::dto::{CoverCandidate, CoverRef, CoverSize, CoverSource};
@@ -146,6 +146,34 @@ pub async fn remove_folder_cover(
     }
 
     resolve_at(state.inner(), track_id, DETAIL_EDGE).await
+}
+
+/// Writes the track's resolved cover to `dest_path` at full resolution, verbatim. Resolves the
+/// same source read_cover would (folder cover, else embedded art, else the first adjacent image),
+/// but hands over the original bytes rather than a thumbnail, so the user keeps the art untouched.
+/// The source and the destination are the only disk touch; the audio file and source image are
+/// only read. Errors when the track has no cover or the destination cannot be written.
+#[tauri::command]
+pub async fn save_track_cover(
+    track_id: i64,
+    dest_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let plan = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        prepare_save(&conn, track_id)?
+    };
+
+    let covers_dir = state.covers_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = resolve_full_res(&covers_dir, &plan).ok_or("this track has no cover to save")?;
+        std::fs::write(&dest_path, &bytes).map_err(|_| "couldn't write the cover".to_string())
+    })
+    .await
+    .map_err(|_| "cover task failed to run".to_string())?
 }
 
 /// Resolves an album's cover at the requested size: its bound cover when set, else the art of its
@@ -435,6 +463,68 @@ pub(super) fn import_from_disk(
     Ok((record, path_to_string(&detail), width as i64, height as i64))
 }
 
+// ---- Full-resolution save ----
+
+/// The source a track's cover saves from, decided under the DB lock so the file work runs off the
+/// runtime thread. A bound folder cover carries its store key; otherwise the track's own art is
+/// re-derived from its source path.
+enum SavePlan {
+    Store { content_hash: String, byte_len: i64 },
+    Derive { source_path: String, has_embedded: bool },
+}
+
+/// Reads the DB to decide where a track's full-res cover comes from. A folder cover resolves to
+/// its integrity-checked store blob; otherwise the track's own embedded or adjacent art is left to
+/// the blocking stage. Errors only when the track row is absent. Sync: touches only the connection.
+fn prepare_save(conn: &Connection, track_id: i64) -> Result<SavePlan, String> {
+    let Some((source_path, art)) =
+        db::get_track_cover_inputs(conn, track_id).map_err(|e| e.to_string())?
+    else {
+        return Err("track not found".to_string());
+    };
+
+    let folder = folder_of(&source_path);
+    if let Some(cover_id) = db::get_folder_cover(conn, &folder).map_err(|e| e.to_string())? {
+        if let Some((content_hash, byte_len)) =
+            db::get_cover_blob_key(conn, cover_id).map_err(|e| e.to_string())?
+        {
+            return Ok(SavePlan::Store {
+                content_hash,
+                byte_len,
+            });
+        }
+    }
+
+    Ok(SavePlan::Derive {
+        source_path,
+        has_embedded: art == Some(true),
+    })
+}
+
+/// Produces the full-resolution cover bytes for a save plan, or None when the source yields no
+/// readable art. The imported blob comes straight from the store (integrity-checked); embedded and
+/// adjacent art are re-derived on the same precedence read_cover uses. Read-only over the source.
+fn resolve_full_res(covers_dir: &Path, plan: &SavePlan) -> Option<Vec<u8>> {
+    match plan {
+        SavePlan::Store {
+            content_hash,
+            byte_len,
+        } => read_full_res_blob(covers_dir, content_hash, *byte_len),
+        SavePlan::Derive {
+            source_path,
+            has_embedded,
+        } => {
+            let path = Path::new(source_path);
+            let adjacents = discover_adjacent_images(path);
+            match resolve_track_cover(false, *has_embedded, !adjacents.is_empty()) {
+                ResolvedCover::Embedded => read_embedded_cover_bytes(path),
+                ResolvedCover::Adjacent => std::fs::read(adjacents.first()?).ok(),
+                ResolvedCover::Folder | ResolvedCover::None => None,
+            }
+        }
+    }
+}
+
 // ---- Full-resolution store ----
 
 /// Reads the stored full-resolution bytes of an imported cover, or None when no durable blob
@@ -450,19 +540,7 @@ pub(crate) fn read_full_res(
     let Some((content_hash, byte_len)) = db::get_cover_blob_key(conn, cover_id)? else {
         return Ok(None);
     };
-
-    let path = full_res_cache_path(covers_dir, &content_hash);
-    let Ok(bytes) = std::fs::read(&path) else {
-        return Ok(None);
-    };
-
-    if bytes.len() as i64 != byte_len {
-        return Ok(None);
-    }
-    if blake3::hash(&bytes).to_hex().to_string() != content_hash {
-        return Ok(None);
-    }
-    Ok(Some(bytes))
+    Ok(read_full_res_blob(covers_dir, &content_hash, byte_len))
 }
 
 /// Populates the full-res store for imported covers bound before the store existed. Best-effort
@@ -844,5 +922,61 @@ mod tests {
         backfill_full_res(&covers.path, &guard, &pending);
 
         assert_eq!(read_full_res(&conn, &covers.path, cover_id).unwrap(), None);
+    }
+
+    #[test]
+    fn save_resolves_a_folder_cover_to_its_verbatim_bytes() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+
+        // A picked image bound as the folder cover; the store keeps the original bytes.
+        let picked = covers.path.join("picked.png");
+        let original = png_bytes(64, 48, [200, 40, 40]);
+        std::fs::write(&picked, &original).unwrap();
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        db::set_folder_cover(&conn, &folder_of(&source_path), cover_id, 100).unwrap();
+
+        let plan = prepare_save(&conn, track_id).unwrap();
+        assert!(matches!(plan, SavePlan::Store { .. }));
+        let bytes = resolve_full_res(&covers.path, &plan).expect("the stored blob resolves");
+        assert_eq!(bytes, original, "the verbatim original bytes come back");
+    }
+
+    #[test]
+    fn save_resolves_adjacent_art_to_its_file_bytes() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+
+        // An adjacent image sits next to the track; no folder cover is bound.
+        let original = png_bytes(50, 50, [20, 160, 90]);
+        std::fs::write(music.path.join("cover.jpg"), &original).unwrap();
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+
+        let plan = prepare_save(&conn, track_id).unwrap();
+        assert!(matches!(plan, SavePlan::Derive { .. }));
+        let bytes = resolve_full_res(&covers.path, &plan).expect("the adjacent image resolves");
+        assert_eq!(bytes, original, "the adjacent file is read verbatim");
+    }
+
+    #[test]
+    fn save_yields_none_when_the_track_has_no_cover() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+
+        let plan = prepare_save(&conn, track_id).unwrap();
+        assert!(resolve_full_res(&covers.path, &plan).is_none(), "no art to save");
     }
 }

@@ -32,7 +32,7 @@ export const en = {
 
   scan: {
     pickerTitle: "Welcome to Plisto",
-    pickerSafety: "Your files stay read only - Plisto never moves, renames, or changes them.",
+    pickerSafety: "Plisto does not alter the files or folders you point it to. It only reads and indexes them to bring them to your workspace. Any modifications have to be exported.",
     chooseFolder: "Pick my first folder",
     step1: "Pick one or more folders with music",
     step2: "Organize your music into albums and add metadata",
@@ -114,6 +114,8 @@ export const en = {
     addedByYou: "Added by you",
     useThis: "Use this",
     removeAdded: "Remove the cover you added",
+    saveToDisk: "Save to disk",
+    saveError: "Could not save the cover.",
   },
 
   tracks: {

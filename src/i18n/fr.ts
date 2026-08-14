@@ -114,6 +114,8 @@ export const fr: Dict = {
     addedByYou: "[TO COMPLETE]",
     useThis: "[TO COMPLETE]",
     removeAdded: "[TO COMPLETE]",
+    saveToDisk: "[TO COMPLETE]",
+    saveError: "[TO COMPLETE]",
   },
 
   tracks: {

@@ -16,7 +16,10 @@ mod thumbnail;
 use crate::model::CoverRecord;
 
 pub use adjacent::discover_adjacent_images;
-pub use cache::{ensure_full_res, ensure_thumb, full_res_cache_path, thumb_cache_path, InFlightGuard};
+pub use cache::{
+    ensure_full_res, ensure_thumb, full_res_cache_path, read_full_res_blob, thumb_cache_path,
+    InFlightGuard,
+};
 pub use embedded::read_embedded_cover_bytes;
 pub use thumbnail::read_image_dimensions;
 

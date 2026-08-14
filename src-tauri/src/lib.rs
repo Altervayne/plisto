@@ -113,6 +113,7 @@ pub fn run() {
             commands::covers::list_cover_candidates,
             commands::covers::import_folder_cover,
             commands::covers::remove_folder_cover,
+            commands::covers::save_track_cover,
             commands::organize::create_album,
             commands::organize::create_single,
             commands::organize::delete_album,
