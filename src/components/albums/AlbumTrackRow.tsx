@@ -112,9 +112,9 @@ export function AlbumTrackRow({
           <span className={styles.source}>{row.filename}</span>
           {edited ? (
             <>
-              <span className={styles.editedMark}>{t((d) => d.albums.edited)}</span>
+              <span className={styles.editedMark}>{t((d) => d.common.edited)}</span>
               <button type="button" className={styles.revert} onClick={revert}>
-                {t((d) => d.albums.revert)}
+                {t((d) => d.common.revert)}
               </button>
             </>
           ) : null}

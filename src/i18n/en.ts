@@ -26,6 +26,8 @@ export const en = {
     closeDetails: "Close details",
     rescan: "Re-scan",
     changeFolder: "Change folder",
+    edited: "edited",
+    revert: "revert",
   },
 
   scan: {
@@ -79,8 +81,6 @@ export const en = {
     addDisc: "+ add disc",
     discEmpty: "Drop a track here",
     removeDisc: "remove disc",
-    edited: "edited",
-    revert: "revert",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
   },
@@ -124,6 +124,8 @@ export const en = {
     selectTrack: "Select track",
     deselectTrack: "Deselect track",
     details: "Track details",
+    sectionTags: "Tags",
+    sectionFile: "File",
     columns: {
       raw_track_no: "No",
       raw_title: "Title",

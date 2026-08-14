@@ -26,6 +26,8 @@ export const fr: Dict = {
     closeDetails: "[TO COMPLETE]",
     rescan: "[TO COMPLETE]",
     changeFolder: "[TO COMPLETE]",
+    edited: "[TO COMPLETE]",
+    revert: "[TO COMPLETE]",
   },
 
   scan: {
@@ -79,8 +81,6 @@ export const fr: Dict = {
     addDisc: "[TO COMPLETE]",
     discEmpty: "[TO COMPLETE]",
     removeDisc: "[TO COMPLETE]",
-    edited: "[TO COMPLETE]",
-    revert: "[TO COMPLETE]",
     trackCount: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
     tracksMissing: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
   },
@@ -124,6 +124,8 @@ export const fr: Dict = {
     selectTrack: "[TO COMPLETE]",
     deselectTrack: "[TO COMPLETE]",
     details: "[TO COMPLETE]",
+    sectionTags: "[TO COMPLETE]",
+    sectionFile: "[TO COMPLETE]",
     columns: {
       raw_track_no: "[TO COMPLETE]",
       raw_title: "[TO COMPLETE]",

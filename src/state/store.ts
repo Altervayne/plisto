@@ -19,12 +19,20 @@ import {
   removeRoot as removeRootCmd,
   rescanAll as rescanAllCmd,
   rescanRoot as rescanRootCmd,
+  setTrackEdit as setTrackEditCmd,
+  setTrackGenres as setTrackGenresCmd,
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
 
 // -- Type Imports --
 import type { Channel } from "@tauri-apps/api/core";
-import type { Root, ScanProgress, ScanSummary, TrackRow } from "../types";
+import type {
+  Root,
+  ScanProgress,
+  ScanSummary,
+  TrackEditFields,
+  TrackRow,
+} from "../types";
 
 /** Where a scan is in its life: never started, running, finished, or failed. */
 export type ScanStatus = "idle" | "scanning" | "done" | "error";
@@ -61,6 +69,8 @@ interface AppStore {
   rescanAll: () => Promise<void>;
   cancel: () => Promise<void>;
   loadTracks: () => Promise<void>;
+  editTrack: (trackId: number, fields: TrackEditFields) => Promise<void>;
+  setTrackGenres: (trackId: number, genreIds: number[]) => Promise<void>;
   setGridSort: (sort: GridSort) => void;
   setGridFilter: (filter: string) => void;
   reset: () => void;
@@ -162,6 +172,44 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
 
+    // The Files-view detail peek edits a track's tags and genres straight from the grid, on its own
+    // optimistic path: patch the row, fire the write, and on a failed persist reload from truth. The
+    // album drawer edits the same track_edits/track_genres through the organize store; both hit the
+    // same commands, and either surface's next reload reconciles the two views.
+    editTrack: async (trackId, fields) => {
+      set((s) => ({
+        tracks: s.tracks.map((r) =>
+          r.id === trackId
+            ? {
+                ...r,
+                title_edit: fields.title,
+                artist_edit: fields.artist,
+                album_edit: fields.album,
+                album_artist_edit: fields.album_artist,
+                year_edit: fields.year,
+                disc_edit: fields.disc_no,
+              }
+            : r,
+        ),
+      }));
+      try {
+        await setTrackEditCmd(trackId, fields);
+      } catch {
+        await get().loadTracks();
+      }
+    },
+
+    setTrackGenres: async (trackId, genreIds) => {
+      set((s) => ({
+        tracks: s.tracks.map((r) => (r.id === trackId ? { ...r, genre_ids: genreIds } : r)),
+      }));
+      try {
+        await setTrackGenresCmd(trackId, genreIds);
+      } catch {
+        await get().loadTracks();
+      }
+    },
+
     setGridSort: (gridSort) => set({ gridSort }),
     setGridFilter: (gridFilter) => set({ gridFilter }),
 
@@ -202,6 +250,15 @@ export const useScanSummary = (): ScanSummary | null =>
 export const useScanError = (): string | null => useAppStore((s) => s.scan.error);
 
 export const useTracks = (): TrackRow[] => useAppStore((s) => s.tracks);
+
+/**
+ * The live row for one track id, or undefined when it is gone. Returns the stored row reference
+ * itself, so a subscriber re-renders only when that row is patched - the detail peek reads through
+ * this to see its own optimistic edits, rather than the stale snapshot held at select time.
+ */
+export const useTrack = (id: number): TrackRow | undefined =>
+  useAppStore((s) => s.tracks.find((r) => r.id === id));
+
 export const useGridSort = (): GridSort => useAppStore((s) => s.gridSort);
 export const useGridFilter = (): string => useAppStore((s) => s.gridFilter);
 
@@ -215,3 +272,5 @@ export const useRemoveRoot = () => useAppStore((s) => s.removeRoot);
 export const useRescanRoot = () => useAppStore((s) => s.rescanRoot);
 export const useRescanAll = () => useAppStore((s) => s.rescanAll);
 export const useCancelScan = () => useAppStore((s) => s.cancel);
+export const useEditTrack = () => useAppStore((s) => s.editTrack);
+export const useSetTrackGenres = () => useAppStore((s) => s.setTrackGenres);
