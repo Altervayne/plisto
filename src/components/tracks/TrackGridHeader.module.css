@@ -4,9 +4,9 @@
  * the header separates from the body by the space below it.
  */
 .header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  /* Positioned for the absolute select-all box; it sits above the scroll body (not inside it), so the
+   * list's scrollbar spans the rows only and never starts under this header. */
+  position: relative;
   display: grid;
   grid-template-columns: var(--track-cols);
   align-items: center;

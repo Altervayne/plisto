@@ -14,6 +14,9 @@ import { formatDuration } from "../../lib/format";
 // -- Type Imports --
 import type { AlbumTrackRow as AlbumTrackRowData, TrackOverride } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumTrackRow.module.css";
 
@@ -42,6 +45,7 @@ function GripDots() {
  */
 export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
   const commit = useCommitTrackOverrides();
+  const t = useT();
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
 
@@ -75,7 +79,7 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
       <button
         type="button"
         className={styles.handle}
-        aria-label="Reorder track"
+        aria-label={t((d) => d.albums.reorderTrack)}
         {...attributes}
         {...listeners}
       >
@@ -87,7 +91,7 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
       <div className={styles.main}>
         <EditableField
           value={row.title_override ?? row.raw_title ?? ""}
-          ariaLabel="Track title"
+          ariaLabel={t((d) => d.albums.trackTitle)}
           placeholder={row.filename}
           onCommit={onTitle}
         />
@@ -95,9 +99,9 @@ export function AlbumTrackRow({ row }: { row: AlbumTrackRowData }) {
           <span className={styles.source}>{row.filename}</span>
           {edited ? (
             <>
-              <span className={styles.editedMark}>edited</span>
+              <span className={styles.editedMark}>{t((d) => d.albums.edited)}</span>
               <button type="button" className={styles.revert} onClick={revert}>
-                revert
+                {t((d) => d.albums.revert)}
               </button>
             </>
           ) : null}

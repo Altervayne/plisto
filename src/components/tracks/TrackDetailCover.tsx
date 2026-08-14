@@ -10,6 +10,10 @@ import { useTrackCover } from "./useTrackCover";
 import type { TrackRow } from "../../types";
 import type { CandidateView, CoverView } from "./useTrackCover";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+import type { Translate } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./TrackDetailCover.module.css";
 
@@ -20,28 +24,29 @@ function fileName(path: string): string {
 }
 
 /** The provenance line for the resolved cover, naming the folder image when one is showing. */
-function provenanceOf(cover: CoverView, candidates: CandidateView[]): string {
+function provenanceOf(cover: CoverView, candidates: CandidateView[], t: Translate): string {
   switch (cover.source) {
     case "embedded":
-      return "Embedded in file";
+      return t((d) => d.cover.embedded);
     case "adjacent": {
       const adjacent = candidates.find((c) => c.source === "adjacent");
-      return adjacent?.originPath
-        ? `In this folder: ${fileName(adjacent.originPath)}`
-        : "In this folder";
+      const origin = adjacent?.originPath;
+      return origin
+        ? t((d) => d.cover.inFolder, { name: fileName(origin) })
+        : t((d) => d.cover.inFolderPlain);
     }
     case "imported":
-      return "Added by you (cached) - not written to your files";
+      return t((d) => d.cover.imported);
   }
 }
 
 /** A short label for a candidate in the strip: the source, or the adjacent image's filename. */
-function candidateLabelOf(candidate: CandidateView): string {
-  if (candidate.source === "embedded") return "Embedded in file";
+function candidateLabelOf(candidate: CandidateView, t: Translate): string {
+  if (candidate.source === "embedded") return t((d) => d.cover.embedded);
   if (candidate.source === "adjacent" && candidate.originPath) {
     return fileName(candidate.originPath);
   }
-  return "Added by you";
+  return t((d) => d.cover.addedByYou);
 }
 
 /**
@@ -53,30 +58,33 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
   const { cover, candidates, error, importFromDisk, useCandidate, remove } = useTrackCover(
     track.id,
   );
+  const t = useT();
 
   return (
-    <section className={styles.section} aria-label="Cover">
+    <section className={styles.section} aria-label={t((d) => d.cover.trackLabel)}>
       {cover ? (
         <div className={styles.slot}>
           <Cover src={cover.src} alt="" />
-          <CoverActions actions={[{ label: "Replace cover", onClick: () => void importFromDisk() }]} />
+          <CoverActions
+            actions={[{ label: t((d) => d.cover.replace), onClick: () => void importFromDisk() }]}
+          />
         </div>
       ) : (
         <button
           type="button"
           className={styles.addSlot}
           onClick={() => void importFromDisk()}
-          aria-label="Add cover"
+          aria-label={t((d) => d.cover.add)}
         >
           <Cover src={null} />
-          <span className={styles.addHint}>Add cover</span>
+          <span className={styles.addHint}>{t((d) => d.cover.add)}</span>
         </button>
       )}
 
       {cover ? (
-        <p className={styles.provenance}>{provenanceOf(cover, candidates)}</p>
+        <p className={styles.provenance}>{provenanceOf(cover, candidates, t)}</p>
       ) : (
-        <p className={styles.provenance}>No cover found</p>
+        <p className={styles.provenance}>{t((d) => d.cover.none)}</p>
       )}
 
       {error ? <p className={styles.error}>{error}</p> : null}
@@ -88,9 +96,11 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
               <span className={styles.candidateThumb}>
                 <Cover src={candidate.src} alt="" />
               </span>
-              <span className={styles.candidateLabel}>{candidateLabelOf(candidate)}</span>
+              <span className={styles.candidateLabel}>{candidateLabelOf(candidate, t)}</span>
               {candidate.source === "adjacent" && candidate.originPath ? (
-                <QuietButton onClick={() => void useCandidate(candidate)}>Use this</QuietButton>
+                <QuietButton onClick={() => void useCandidate(candidate)}>
+                  {t((d) => d.cover.useThis)}
+                </QuietButton>
               ) : null}
             </li>
           ))}
@@ -98,10 +108,10 @@ export function TrackDetailCover({ track }: { track: TrackRow }) {
       ) : null}
 
       {cover?.source === "imported" ? (
-        <QuietButton onClick={() => void remove()}>Remove the cover you added</QuietButton>
+        <QuietButton onClick={() => void remove()}>{t((d) => d.cover.removeAdded)}</QuietButton>
       ) : null}
 
-      <p className={styles.safety}>covers embed into the exported copy, never your originals</p>
+      <p className={styles.safety}>{t((d) => d.cover.embedNote)}</p>
     </section>
   );
 }

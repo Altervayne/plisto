@@ -19,10 +19,20 @@ export type CellInk = "primary" | "secondary" | "meta";
 /** How a column's text sits horizontally. Numerics align right so digits stack. */
 export type CellAlign = "left" | "right";
 
-/** One visible column: its row key, label, track width, and how its cell reads. */
+/** The visible columns, by row key. Doubles as the key into the localized header labels. */
+export type TrackColumnId =
+  | "raw_track_no"
+  | "raw_title"
+  | "raw_artist"
+  | "raw_album"
+  | "raw_year"
+  | "duration_secs"
+  | "ext"
+  | "filename";
+
+/** One visible column: its row key, track width, and how its cell reads. Labels live in the dict. */
 export interface TrackColumn {
-  id: keyof TrackRow;
-  header: string;
+  id: TrackColumnId;
   /** Fixed track width in px for meta and numeric columns; null lets a text column flex. */
   width: number | null;
   /** Flex weight when width is null, so title claims more room than artist or album. */
@@ -43,14 +53,13 @@ export interface TrackColumn {
 
 /** Left-to-right column order for the default row. Album artist, disc, and genre live in the peek. */
 export const trackColumns: TrackColumn[] = [
-  { id: "raw_track_no", header: "No", width: 52, grow: 0, align: "right", ink: "meta", tabular: true },
-  { id: "raw_title", header: "Title", width: null, grow: 2, align: "left", ink: "primary", searchable: true },
-  { id: "raw_artist", header: "Artist", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
-  { id: "raw_album", header: "Album", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
-  { id: "raw_year", header: "Year", width: 60, grow: 0, align: "right", ink: "meta", tabular: true },
+  { id: "raw_track_no", width: 52, grow: 0, align: "right", ink: "meta", tabular: true },
+  { id: "raw_title", width: null, grow: 2, align: "left", ink: "primary", searchable: true },
+  { id: "raw_artist", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
+  { id: "raw_album", width: null, grow: 1.4, align: "left", ink: "secondary", searchable: true },
+  { id: "raw_year", width: 60, grow: 0, align: "right", ink: "meta", tabular: true },
   {
     id: "duration_secs",
-    header: "Length",
     width: 72,
     grow: 0,
     align: "right",
@@ -58,8 +67,8 @@ export const trackColumns: TrackColumn[] = [
     tabular: true,
     format: (value) => formatDuration(value as number | null),
   },
-  { id: "ext", header: "Format", width: 78, grow: 0, align: "left", ink: "meta", upper: true },
-  { id: "filename", header: "File", width: null, grow: 1.6, align: "left", ink: "meta", mono: true, searchable: true },
+  { id: "ext", width: 78, grow: 0, align: "left", ink: "meta", upper: true },
+  { id: "filename", width: null, grow: 1.6, align: "left", ink: "meta", mono: true, searchable: true },
 ];
 
 /** The shared `grid-template-columns` value: fixed px for meta, `fr` weights for flexing text. */
@@ -81,7 +90,8 @@ export function toColumnDefs(columns: TrackColumn[] = trackColumns): ColumnDef<T
   return columns.map((col) => ({
     id: col.id,
     accessorKey: col.id,
-    header: col.header,
+    // The visible label is rendered from the dict in the header; the id is the stable column key.
+    header: col.id,
     enableSorting: true,
     enableGlobalFilter: col.searchable ?? false,
   }));

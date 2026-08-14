@@ -5,6 +5,9 @@ import { QuietButton } from "../common/QuietButton";
 // -- State Imports --
 import { useChangeWorkspace, useRescan, useWorkspace } from "../../state/store";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./Sidebar.module.css";
 
@@ -89,6 +92,7 @@ export function Sidebar({
   const workspace = useWorkspace();
   const rescan = useRescan();
   const changeWorkspace = useChangeWorkspace();
+  const t = useT();
 
   return (
     <aside className={styles.side}>
@@ -107,17 +111,17 @@ export function Sidebar({
       ) : null}
 
       <div className={styles.navgroup}>
-        <div className={styles.navlabel}>Library</div>
+        <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
         <NavItem
           icon={<FilesIcon />}
-          label="Files"
+          label={t((d) => d.nav.files)}
           count={filesCount}
           active={mode === "files"}
           onClick={() => onModeChange("files")}
         />
         <NavItem
           icon={<AlbumsIcon />}
-          label="Albums"
+          label={t((d) => d.nav.albums)}
           count={albumsCount}
           active={mode === "albums"}
           onClick={() => onModeChange("albums")}
@@ -127,8 +131,10 @@ export function Sidebar({
       <div className={styles.spacer} />
 
       <div className={styles.actions}>
-        <QuietButton onClick={() => void rescan()}>Re-scan</QuietButton>
-        <QuietButton onClick={() => void changeWorkspace()}>Change folder</QuietButton>
+        <QuietButton onClick={() => void rescan()}>{t((d) => d.common.rescan)}</QuietButton>
+        <QuietButton onClick={() => void changeWorkspace()}>
+          {t((d) => d.common.changeFolder)}
+        </QuietButton>
       </div>
     </aside>
   );

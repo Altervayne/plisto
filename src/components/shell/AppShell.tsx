@@ -29,6 +29,9 @@ import {
 } from "../../state/organize/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AppShell.module.css";
 
@@ -54,6 +57,7 @@ export function AppShell() {
   const canRedo = useCanRedo();
   const error = useOrgError();
   const clearError = useClearError();
+  const t = useT();
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
@@ -91,10 +95,12 @@ export function AppShell() {
     return (
       <EmptyState
         tone="warn"
-        title="No audio files here"
-        line="This folder holds no tracks Plisto can read. Try another one."
+        title={t((d) => d.scan.emptyTitle)}
+        line={t((d) => d.scan.emptyLine)}
         action={
-          <QuietButton onClick={() => void changeWorkspace()}>Change folder</QuietButton>
+          <QuietButton onClick={() => void changeWorkspace()}>
+            {t((d) => d.common.changeFolder)}
+          </QuietButton>
         }
       />
     );
@@ -111,18 +117,26 @@ export function AppShell() {
       <main className={styles.main}>
         <div className={styles.controls}>
           <div className={styles.history}>
-            <QuietButton onClick={() => undo()} disabled={!canUndo} aria-label="Undo">
-              Undo
+            <QuietButton
+              onClick={() => undo()}
+              disabled={!canUndo}
+              aria-label={t((d) => d.common.undo)}
+            >
+              {t((d) => d.common.undo)}
             </QuietButton>
-            <QuietButton onClick={() => redo()} disabled={!canRedo} aria-label="Redo">
-              Redo
+            <QuietButton
+              onClick={() => redo()}
+              disabled={!canRedo}
+              aria-label={t((d) => d.common.redo)}
+            >
+              {t((d) => d.common.redo)}
             </QuietButton>
           </div>
           {error ? (
             <div className={styles.error} role="status">
               <span>{error}</span>
-              <QuietButton onClick={() => clearError()} aria-label="Dismiss">
-                Dismiss
+              <QuietButton onClick={() => clearError()} aria-label={t((d) => d.common.dismiss)}>
+                {t((d) => d.common.dismiss)}
               </QuietButton>
             </div>
           ) : null}

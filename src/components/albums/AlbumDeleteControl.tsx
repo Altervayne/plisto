@@ -7,6 +7,9 @@ import { QuietButton } from "../common/QuietButton";
 // -- State Imports --
 import { useDeleteAlbum } from "../../state/organize/store";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumDeleteControl.module.css";
 
@@ -24,6 +27,7 @@ export function AlbumDeleteControl({
 }) {
   const deleteAlbum = useDeleteAlbum();
   const [confirming, setConfirming] = useState(false);
+  const t = useT();
 
   const onDelete = async () => {
     try {
@@ -37,16 +41,16 @@ export function AlbumDeleteControl({
   if (!confirming) {
     return (
       <div className={styles.wrap}>
-        <QuietButton onClick={() => setConfirming(true)}>Delete album</QuietButton>
+        <QuietButton onClick={() => setConfirming(true)}>{t((d) => d.albums.delete)}</QuietButton>
       </div>
     );
   }
 
   return (
     <div className={styles.wrap}>
-      <span className={styles.prompt}>Delete this album?</span>
-      <QuietButton onClick={() => void onDelete()}>Delete</QuietButton>
-      <QuietButton onClick={() => setConfirming(false)}>Cancel</QuietButton>
+      <span className={styles.prompt}>{t((d) => d.albums.deleteConfirm)}</span>
+      <QuietButton onClick={() => void onDelete()}>{t((d) => d.albums.deleteAction)}</QuietButton>
+      <QuietButton onClick={() => setConfirming(false)}>{t((d) => d.common.cancel)}</QuietButton>
     </div>
   );
 }

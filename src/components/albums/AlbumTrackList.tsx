@@ -21,6 +21,9 @@ import { AlbumTrackRow } from "./AlbumTrackRow";
 // -- State Imports --
 import { useAlbumTracks, useReorderTracks } from "../../state/organize/store";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumTrackList.module.css";
 
@@ -33,6 +36,7 @@ import styles from "./AlbumTrackList.module.css";
 export function AlbumTrackList({ albumId }: { albumId: number }) {
   const tracks = useAlbumTracks(albumId);
   const reorder = useReorderTracks();
+  const t = useT();
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the title edits
   // rather than jitters into a reorder. Keyboard sensor drives the accessible reorder.
@@ -42,7 +46,7 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
   );
 
   if (tracks.length === 0) {
-    return <p className={styles.empty}>No tracks in this album.</p>;
+    return <p className={styles.empty}>{t((d) => d.albums.noTracks)}</p>;
   }
 
   const ids = tracks.map((row) => row.track_id);

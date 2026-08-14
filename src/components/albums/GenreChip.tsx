@@ -4,6 +4,9 @@ import { useState } from "react";
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./GenreChip.module.css";
 
@@ -20,13 +23,14 @@ export function GenreChip({
   onCommit: (next: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const t = useT();
 
   if (editing) {
     return (
       <EditableField
         value={value ?? ""}
-        ariaLabel="Genre"
-        placeholder="Genre"
+        ariaLabel={t((d) => d.albums.genre)}
+        placeholder={t((d) => d.albums.genre)}
         autoFocus
         onDone={() => setEditing(false)}
         onCommit={(next) => onCommit(next === "" ? null : next)}
@@ -37,7 +41,7 @@ export function GenreChip({
   if (value == null) {
     return (
       <button type="button" className={styles.ghost} onClick={() => setEditing(true)}>
-        + add genre
+        {t((d) => d.albums.addGenre)}
       </button>
     );
   }

@@ -11,6 +11,9 @@ import { formatYear, parseYear } from "./yearField";
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumMetaFields.module.css";
 
@@ -21,6 +24,7 @@ import styles from "./AlbumMetaFields.module.css";
  */
 export function AlbumMetaFields({ album }: { album: AlbumRow }) {
   const commit = useCommitAlbumFields();
+  const t = useT();
   const fields = {
     title: album.title,
     album_artist: album.album_artist,
@@ -31,12 +35,12 @@ export function AlbumMetaFields({ album }: { album: AlbumRow }) {
   return (
     <dl className={styles.fields}>
       <div className={styles.field}>
-        <dt className={styles.label}>Album artist</dt>
+        <dt className={styles.label}>{t((d) => d.albums.albumArtist)}</dt>
         <dd className={styles.value}>
           <EditableField
             value={album.album_artist ?? ""}
-            ariaLabel="Album artist"
-            placeholder="Unknown artist"
+            ariaLabel={t((d) => d.albums.albumArtist)}
+            placeholder={t((d) => d.albums.unknownArtist)}
             onCommit={(next) =>
               commit(album.id, { ...fields, album_artist: next === "" ? null : next })
             }
@@ -45,19 +49,19 @@ export function AlbumMetaFields({ album }: { album: AlbumRow }) {
       </div>
 
       <div className={`${styles.field} ${styles.year}`}>
-        <dt className={styles.label}>Year</dt>
+        <dt className={styles.label}>{t((d) => d.albums.year)}</dt>
         <dd className={styles.value}>
           <EditableField
             value={formatYear(album.year)}
-            ariaLabel="Year"
-            placeholder="Year"
+            ariaLabel={t((d) => d.albums.year)}
+            placeholder={t((d) => d.albums.year)}
             onCommit={(next) => commit(album.id, { ...fields, year: parseYear(next) })}
           />
         </dd>
       </div>
 
       <div className={styles.field}>
-        <dt className={styles.label}>Genre</dt>
+        <dt className={styles.label}>{t((d) => d.albums.genre)}</dt>
         <dd className={styles.value}>
           <GenreChip
             value={album.genre}

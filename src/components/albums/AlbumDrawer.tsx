@@ -16,6 +16,9 @@ import { useCommitAlbumFields } from "../../state/organize/store";
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumDrawer.module.css";
 
@@ -39,6 +42,7 @@ function editingField(): boolean {
  */
 export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () => void }) {
   const commit = useCommitAlbumFields();
+  const t = useT();
   const fields = {
     title: album.title,
     album_artist: album.album_artist,
@@ -57,20 +61,20 @@ export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () =
   }, [onClose]);
 
   return (
-    <aside className={styles.drawer} aria-label="Album details">
+    <aside className={styles.drawer} aria-label={t((d) => d.albums.details)}>
       <ScrollArea className={styles.scroll} contentClassName={styles.inner}>
         <div className={styles.head}>
           <div className={styles.titleWrap}>
             <EditableField
               value={album.title ?? ""}
-              ariaLabel="Album title"
-              placeholder="Untitled"
+              ariaLabel={t((d) => d.albums.albumTitle)}
+              placeholder={t((d) => d.albums.untitled)}
               big
               onCommit={(next) => commit(album.id, { ...fields, title: next === "" ? null : next })}
             />
           </div>
-          <QuietButton onClick={onClose} aria-label="Close details">
-            Close
+          <QuietButton onClick={onClose} aria-label={t((d) => d.common.closeDetails)}>
+            {t((d) => d.common.close)}
           </QuietButton>
         </div>
 
@@ -78,7 +82,7 @@ export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () =
         <AlbumMetaFields album={album} />
 
         <div className={styles.tracks}>
-          <p className={styles.section}>Tracks</p>
+          <p className={styles.section}>{t((d) => d.albums.tracks)}</p>
           <AlbumTrackList albumId={album.id} />
         </div>
 

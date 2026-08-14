@@ -1,6 +1,9 @@
 // -- Type Imports --
 import type { ResizerControl } from "./resizerTypes";
 
+// -- i18n Imports --
+import { useT } from "../../../i18n";
+
 // -- Style Imports --
 import styles from "./Resizer.module.css";
 
@@ -17,13 +20,15 @@ export function Resizer({
   resizer: ResizerControl;
   orientation?: "vertical" | "horizontal";
 }) {
+  const t = useT();
+
   return (
     <div
       className={styles.handle}
       data-orientation={orientation}
       role="separator"
       aria-orientation={orientation}
-      aria-label={orientation === "vertical" ? "Resize panel" : "Resize folders"}
+      aria-label={orientation === "vertical" ? t((d) => d.resizer.panel) : t((d) => d.resizer.folders)}
       tabIndex={0}
       aria-valuenow={resizer.valueNow}
       aria-valuemin={resizer.valueMin}

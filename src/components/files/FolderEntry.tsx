@@ -1,8 +1,8 @@
-// -- Utils Imports --
-import { formatCount } from "../../lib/format";
-
 // -- Type Imports --
 import type { FolderNode } from "../../state/files/folderTree";
+
+// -- i18n Imports --
+import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./FolderBand.module.css";
@@ -26,16 +26,6 @@ function FolderIcon() {
   );
 }
 
-/** The track-count phrase, singular-aware. */
-function tracksLabel(n: number): string {
-  return `${formatCount(n)} ${n === 1 ? "track" : "tracks"}`;
-}
-
-/** The subfolder-count phrase, singular-aware. */
-function foldersLabel(n: number): string {
-  return `${formatCount(n)} ${n === 1 ? "folder" : "folders"}`;
-}
-
 /**
  * One folder as a quiet row, never a tile: a folder glyph, the real-case name, and a trailing count
  * summary. No card chrome - covers are the only objects that carry shadow. Clicking drills into it.
@@ -47,6 +37,8 @@ export function FolderEntry({
   folder: FolderNode;
   onOpen: (id: string) => void;
 }) {
+  const t = useT();
+
   return (
     <button type="button" className={styles.entry} onClick={() => onOpen(folder.id)}>
       <span className={styles.glyph}>
@@ -54,9 +46,11 @@ export function FolderEntry({
       </span>
       <span className={styles.name}>{folder.name}</span>
       <span className={styles.count}>
-        <span>{tracksLabel(folder.trackCount)}</span>
+        <span>{t((d) => d.files.folderTracks, { n: folder.trackCount })}</span>
         {folder.subfolderCount > 0 ? (
-          <span className={styles.more}>{foldersLabel(folder.subfolderCount)}</span>
+          <span className={styles.more}>
+            {t((d) => d.files.folderSubfolders, { n: folder.subfolderCount })}
+          </span>
         ) : null}
       </span>
     </button>

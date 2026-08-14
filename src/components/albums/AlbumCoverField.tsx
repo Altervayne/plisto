@@ -14,6 +14,9 @@ import { useSetAlbumCover } from "../../state/organize/store";
 // -- Utils Imports --
 import { pickImageFile } from "../../lib/dialog";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumCoverField.module.css";
 
@@ -27,6 +30,7 @@ export function AlbumCoverField({ albumId }: { albumId: number }) {
   const { src, reload } = useAlbumCover(albumId, "detail");
   const setAlbumCover = useSetAlbumCover();
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   const replace = async () => {
     const path = await pickImageFile();
@@ -35,32 +39,34 @@ export function AlbumCoverField({ albumId }: { albumId: number }) {
       await setAlbumCover(albumId, path);
       reload();
     } catch {
-      setError("Could not set the cover.");
+      setError(t((d) => d.cover.setError));
     }
   };
 
   return (
-    <section className={styles.section} aria-label="Album cover">
+    <section className={styles.section} aria-label={t((d) => d.cover.albumLabel)}>
       {src ? (
         <div className={styles.slot}>
           <Cover src={src} alt="" />
-          <CoverActions actions={[{ label: "Replace cover", onClick: () => void replace() }]} />
+          <CoverActions
+            actions={[{ label: t((d) => d.cover.replace), onClick: () => void replace() }]}
+          />
         </div>
       ) : (
         <button
           type="button"
           className={styles.addSlot}
           onClick={() => void replace()}
-          aria-label="Add cover"
+          aria-label={t((d) => d.cover.add)}
         >
           <Cover src={null} />
-          <span className={styles.addHint}>Add cover</span>
+          <span className={styles.addHint}>{t((d) => d.cover.add)}</span>
         </button>
       )}
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      <p className={styles.safety}>covers embed into the exported copy, never your originals</p>
+      <p className={styles.safety}>{t((d) => d.cover.embedNote)}</p>
     </section>
   );
 }

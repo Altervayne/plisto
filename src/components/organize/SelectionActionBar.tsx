@@ -19,6 +19,9 @@ import {
 // -- Utils Imports --
 import { suggestAlbumFields } from "../../state/organize/suggestFields";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./SelectionActionBar.module.css";
 
@@ -42,6 +45,7 @@ export function SelectionActionBar({
   const createAlbum = useCreateAlbum();
   const assignTracks = useAssignTracks();
   const clearSelection = useClearSelection();
+  const t = useT();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +64,7 @@ export function SelectionActionBar({
       clearSelection();
       onCreated(albumId);
     } catch {
-      setError("Could not create the album.");
+      setError(t((d) => d.selection.createError));
     } finally {
       setBusy(false);
     }
@@ -78,20 +82,22 @@ export function SelectionActionBar({
         <AlbumPicker albums={albums} onChoose={onChoose} onClose={() => setPickerOpen(false)} />
       ) : null}
 
-      <div className={styles.bar} role="toolbar" aria-label="Selection actions">
+      <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
         <div className={styles.summary}>
           <span className={styles.count}>{selection.size}</span>
-          <span className={styles.label}>selected</span>
+          <span className={styles.label}>{t((d) => d.selection.selected)}</span>
         </div>
 
         {error ? <span className={styles.error}>{error}</span> : null}
 
         <div className={styles.actions}>
           <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
-            Create album
+            {t((d) => d.selection.createAlbum)}
           </PrimaryButton>
-          <QuietButton onClick={() => setPickerOpen((open) => !open)}>Add to album...</QuietButton>
-          <QuietButton onClick={() => clearSelection()}>Clear</QuietButton>
+          <QuietButton onClick={() => setPickerOpen((open) => !open)}>
+            {t((d) => d.selection.addToAlbum)}
+          </QuietButton>
+          <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
         </div>
       </div>
     </>

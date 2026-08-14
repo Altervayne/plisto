@@ -1,3 +1,6 @@
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./LensToggle.module.css";
 
@@ -5,10 +8,7 @@ import styles from "./LensToggle.module.css";
 export type Lens = "folders" | "all-files";
 
 /** The two segments, in display order. */
-const SEGMENTS: { value: Lens; label: string }[] = [
-  { value: "folders", label: "Folders" },
-  { value: "all-files", label: "All files" },
-];
+const SEGMENTS: Lens[] = ["folders", "all-files"];
 
 /**
  * A segmented Folders/All-files control: a soft recess holding two chips, the active one raised. The
@@ -22,17 +22,19 @@ export function LensToggle({
   value: Lens;
   onChange: (value: Lens) => void;
 }) {
+  const t = useT();
+
   return (
-    <div className={styles.toggle} role="group" aria-label="File view">
+    <div className={styles.toggle} role="group" aria-label={t((d) => d.files.fileView)}>
       {SEGMENTS.map((segment) => (
         <button
-          key={segment.value}
+          key={segment}
           type="button"
-          className={`${styles.segment} ${value === segment.value ? styles.active : ""}`}
-          aria-pressed={value === segment.value}
-          onClick={() => onChange(segment.value)}
+          className={`${styles.segment} ${value === segment ? styles.active : ""}`}
+          aria-pressed={value === segment}
+          onClick={() => onChange(segment)}
         >
-          {segment.label}
+          {segment === "folders" ? t((d) => d.files.folders) : t((d) => d.files.allFiles)}
         </button>
       ))}
     </div>

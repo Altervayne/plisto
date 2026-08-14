@@ -42,6 +42,9 @@ import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
 // -- Type Imports --
 import type { TrackRow as TrackRowData } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./TrackGrid.module.css";
 
@@ -66,6 +69,7 @@ export function TrackGrid({
   onSelect: (track: TrackRowData) => void;
 }) {
   const allTracks = useTracks();
+  const t = useT();
   const data = tracks ?? allTracks;
   const columns = useMemo(() => toColumnDefs(), []);
   const template = useMemo(() => gridTemplate(), []);
@@ -152,16 +156,19 @@ export function TrackGrid({
           <SearchField
             value={globalFilter}
             onChange={setGlobalFilter}
-            placeholder="Search tracks"
+            placeholder={t((d) => d.tracks.search)}
           />
         </div>
         {summary ? <div className={styles.summary}>{summary}</div> : null}
       </div>
 
+      <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
+
       <ScrollArea className={styles.scroll} viewportRef={scrollRef}>
-        <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
         {noMatch ? (
-          <p className={styles.noMatch}>No tracks match "{globalFilter.trim()}"</p>
+          <p className={styles.noMatch}>
+            {t((d) => d.tracks.noMatch, { q: globalFilter.trim() })}
+          </p>
         ) : (
           <div className={styles.body} style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {

@@ -15,6 +15,7 @@ import { getSetting, setSetting } from "../../lib/ipc";
 export const PREF_KEYS = {
   drawerWidth: "drawer_width",
   bandHeight: "band_height",
+  locale: "locale",
 } as const;
 
 interface PreferencesStore {

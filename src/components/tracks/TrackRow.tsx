@@ -8,6 +8,9 @@ import type { TrackColumn } from "./trackColumns";
 // -- Type Imports --
 import type { TrackRow as TrackRowData } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./TrackRow.module.css";
 
@@ -59,6 +62,8 @@ export function TrackRow({
   onSelect: (track: TrackRowData) => void;
   onToggle: (trackId: number, modifiers: SelectModifiers) => void;
 }) {
+  const t = useT();
+
   const toggle = (e: MouseEvent) => {
     // Keep the peek from opening: the checkbox owns this click.
     e.stopPropagation();
@@ -89,7 +94,7 @@ export function TrackRow({
         className={styles.check}
         role="checkbox"
         aria-checked={selected}
-        aria-label={selected ? "Deselect track" : "Select track"}
+        aria-label={selected ? t((d) => d.tracks.deselectTrack) : t((d) => d.tracks.selectTrack)}
         onClick={toggle}
       >
         <span className={styles.tick} aria-hidden="true" />

@@ -1,6 +1,9 @@
 // -- Utils Imports --
 import { formatCount } from "../../lib/format";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./ScanCounters.module.css";
 
@@ -17,13 +20,17 @@ export function ScanCounters({
   total: number;
   errors: number;
 }) {
+  const t = useT();
+
   return (
     <div className={`${styles.counters} tabular`}>
       <span>
         {total > 0 ? `${formatCount(scanned)} / ${formatCount(total)}` : formatCount(scanned)}
       </span>
       {errors > 0 ? (
-        <span className={styles.errors}>{formatCount(errors)} unreadable</span>
+        <span className={styles.errors}>
+          {formatCount(errors)} {t((d) => d.scan.unreadable)}
+        </span>
       ) : null}
     </div>
   );

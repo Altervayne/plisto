@@ -12,12 +12,14 @@ import { useAlbumTracks } from "../../state/organize/store";
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumCard.module.css";
 
-/** The sub line: the album's track count, plus its year when one is set. */
-function subLine(album: AlbumRow): string {
-  const tracks = `${album.track_count} ${album.track_count === 1 ? "track" : "tracks"}`;
+/** The sub line: the album's track-count phrase, plus its year when one is set. */
+function subLine(album: AlbumRow, tracks: string): string {
   return album.year != null ? `${tracks} - ${album.year}` : tracks;
 }
 
@@ -38,7 +40,8 @@ export function AlbumCard({
 }) {
   const { src } = useAlbumCover(album.id);
   const tracks = useAlbumTracks(album.id);
-  const missing = tracks.filter((t) => t.missing_at != null).length;
+  const missing = tracks.filter((track) => track.missing_at != null).length;
+  const t = useT();
 
   return (
     <button
@@ -50,16 +53,13 @@ export function AlbumCard({
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />
         {missing > 0 ? (
-          <CoverBadge
-            tone="warn"
-            label={`${missing} ${missing === 1 ? "track" : "tracks"} missing`}
-          />
+          <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
         ) : null}
       </div>
       <CardMeta
-        title={album.title ?? "Untitled"}
+        title={album.title ?? t((d) => d.albums.untitled)}
         secondary={album.album_artist ?? ""}
-        sub={subLine(album)}
+        sub={subLine(album, t((d) => d.albums.trackCount, { n: album.track_count }))}
       />
     </button>
   );

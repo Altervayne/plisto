@@ -6,6 +6,9 @@ import { AlbumCard } from "./AlbumCard";
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./AlbumGrid.module.css";
 
@@ -23,13 +26,15 @@ export function AlbumGrid({
   selectedAlbumId: number | null;
   onOpen: (albumId: number) => void;
 }) {
+  const t = useT();
+
   if (albums.length === 0) {
     return (
       <div className={styles.empty}>
         <EmptyState
           tone="idle"
-          title="No albums yet"
-          line="Open Files, select tracks, and Create album."
+          title={t((d) => d.albums.emptyTitle)}
+          line={t((d) => d.albums.emptyLine)}
         />
       </div>
     );

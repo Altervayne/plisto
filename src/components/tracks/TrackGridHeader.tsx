@@ -8,6 +8,9 @@ import type { TrackColumn } from "./trackColumns";
 // -- Type Imports --
 import type { TrackRow } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./TrackGridHeader.module.css";
 
@@ -31,6 +34,8 @@ export function TrackGridHeader({
   selectAll: SelectAllState;
   onToggleAll: () => void;
 }) {
+  const t = useT();
+
   return (
     <div className={styles.header}>
       <button
@@ -39,7 +44,9 @@ export function TrackGridHeader({
         data-state={selectAll}
         role="checkbox"
         aria-checked={selectAll === "all" ? true : selectAll === "some" ? "mixed" : false}
-        aria-label={selectAll === "all" ? "Clear selection" : "Select all"}
+        aria-label={
+          selectAll === "all" ? t((d) => d.tracks.clearSelection) : t((d) => d.tracks.selectAll)
+        }
         onClick={onToggleAll}
       >
         {selectAll === "all" ? <span className={styles.tick} aria-hidden="true" /> : null}
@@ -50,6 +57,7 @@ export function TrackGridHeader({
         const col = byId.get(header.column.id);
         const sorted = header.column.getIsSorted();
         const align = col?.align === "right" ? styles.right : styles.left;
+        const label = col ? t((d) => d.tracks.columns[col.id]) : header.column.id;
 
         return (
           <button
@@ -58,7 +66,7 @@ export function TrackGridHeader({
             className={`${styles.label} ${align}`}
             onClick={header.column.getToggleSortingHandler()}
           >
-            <span>{col?.header ?? header.column.id}</span>
+            <span>{label}</span>
             {sorted ? (
               <span
                 className={`${styles.mark} ${sorted === "asc" ? styles.asc : styles.desc}`}
