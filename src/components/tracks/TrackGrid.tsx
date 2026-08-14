@@ -12,6 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Component Imports --
+import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
@@ -80,7 +81,8 @@ export function TrackGrid({
   });
 
   const rows = table.getRowModel().rows;
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -104,7 +106,7 @@ export function TrackGrid({
         {summary ? <div className={styles.summary}>{summary}</div> : null}
       </div>
 
-      <div className={styles.scroll} ref={scrollRef}>
+      <ScrollArea className={styles.scroll} viewportRef={scrollRef}>
         <TrackGridHeader headers={headers} />
         {noMatch ? (
           <p className={styles.noMatch}>No tracks match "{globalFilter.trim()}"</p>
@@ -124,7 +126,7 @@ export function TrackGrid({
             })}
           </div>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }

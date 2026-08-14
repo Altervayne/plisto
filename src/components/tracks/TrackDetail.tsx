@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 
 // -- Component Imports --
+import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { TrackDetailCover } from "./TrackDetailCover";
 
@@ -64,21 +65,23 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
 
   return (
     <aside className={styles.drawer} aria-label="Track details">
-      <div className={styles.head}>
-        <h2 className={styles.title}>{track.raw_title ?? track.filename}</h2>
-        <QuietButton onClick={onClose} aria-label="Close details">
-          Close
-        </QuietButton>
-      </div>
-      <TrackDetailCover track={track} />
-      <dl className={styles.fields}>
-        {fieldsOf(track).map((field) => (
-          <div className={styles.field} key={field.label}>
-            <dt className={styles.label}>{field.label}</dt>
-            <dd className={`${styles.value} ${field.mono ? styles.mono : ""}`}>{field.value}</dd>
-          </div>
-        ))}
-      </dl>
+      <ScrollArea className={styles.scroll} contentClassName={styles.inner}>
+        <div className={styles.head}>
+          <h2 className={styles.title}>{track.raw_title ?? track.filename}</h2>
+          <QuietButton onClick={onClose} aria-label="Close details">
+            Close
+          </QuietButton>
+        </div>
+        <TrackDetailCover track={track} />
+        <dl className={styles.fields}>
+          {fieldsOf(track).map((field) => (
+            <div className={styles.field} key={field.label}>
+              <dt className={styles.label}>{field.label}</dt>
+              <dd className={`${styles.value} ${field.mono ? styles.mono : ""}`}>{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </ScrollArea>
     </aside>
   );
 }

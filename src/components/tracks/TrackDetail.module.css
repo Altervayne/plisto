@@ -7,10 +7,17 @@
   flex: 0 0 340px;
   align-self: stretch;
   min-height: 0;
-  overflow-y: auto;
-  padding: 4px 20px 24px;
   border-radius: var(--r-md);
   background: var(--edge);
+}
+
+/* The ScrollArea fills the drawer and scrolls; the inner pad keeps the content off the edges. */
+.scroll {
+  height: 100%;
+}
+
+.inner {
+  padding: 4px 20px 24px;
 }
 
 .head {

@@ -28,11 +28,10 @@
   margin-left: auto;
 }
 
+/* Fills the grid; the ScrollArea inside owns the overflow and paints the bespoke bar. */
 .scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 /* The virtualized rows are absolutely placed inside this measured-height spacer. */

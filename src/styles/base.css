@@ -42,6 +42,20 @@ body {
   outline-offset: 3px;
 }
 
+/*
+ * Native scrollbars are hidden everywhere: the app renders its OWN scrollbar as DOM (a bespoke
+ * scroll component), so nothing depends on the OS/webview or its version. Scroll containers stay
+ * scrollable; only the engine's scrollbar chrome is suppressed. The bespoke thumb uses
+ * --scroll-thumb / --scroll-thumb-hover.
+ */
+.hide-native-scrollbar {
+  scrollbar-width: none;
+}
+
+.hide-native-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

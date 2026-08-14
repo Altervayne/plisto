@@ -1,0 +1,59 @@
+/*
+ * The bespoke scroll container: a real overflow viewport with the native bar hidden, and a DOM track
+ * and thumb overlaid on the right edge. The overlay floats on the continuous surface, so it never
+ * steals layout width from the content, and only the thumb takes pointer events. Quiet at rest, the
+ * thumb surfaces on hover or drag. Transitions ride the global reduced-motion rule.
+ */
+.wrapper {
+  position: relative;
+  min-height: 0;
+}
+
+.viewport {
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.content {
+  min-width: 0;
+}
+
+/* Transparent track inset from the edges: part of the surface, and it lets clicks fall through. */
+.scrollbar {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  bottom: 4px;
+  width: 8px;
+  pointer-events: none;
+}
+
+.thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--thumb-size);
+  transform: translateY(var(--thumb-offset));
+  border-radius: var(--pill);
+  background: var(--scroll-thumb);
+  pointer-events: auto;
+  opacity: 0;
+  transition:
+    opacity var(--dur-soft) ease,
+    background var(--dur-fast) ease;
+}
+
+/* Dissolve until touched: surface when the area is hovered or while the thumb is dragged. */
+.wrapper:hover .thumb,
+.thumb:hover,
+.thumb[data-dragging] {
+  opacity: 1;
+}
+
+.thumb:hover,
+.thumb[data-dragging] {
+  background: var(--scroll-thumb-hover);
+}

@@ -29,6 +29,8 @@
   --veil: rgba(28, 26, 64, 0.045);
   --veil-2: rgba(28, 26, 64, 0.085);
   --edge: rgba(40, 40, 70, 0.05);
+  --scroll-thumb: rgba(28, 26, 64, 0.2);
+  --scroll-thumb-hover: rgba(28, 26, 64, 0.38);
   --shadow-soft: 0 6px 20px -14px rgba(20, 20, 45, 0.3);
   --shadow-pop: 0 18px 40px -20px rgba(20, 20, 45, 0.35);
 
@@ -77,6 +79,8 @@
     --veil: rgba(255, 255, 255, 0.05);
     --veil-2: rgba(255, 255, 255, 0.09);
     --edge: rgba(255, 255, 255, 0.032);
+    --scroll-thumb: rgba(255, 255, 255, 0.16);
+    --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
     --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
     --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
 
@@ -109,6 +113,8 @@
   --veil: rgba(255, 255, 255, 0.05);
   --veil-2: rgba(255, 255, 255, 0.09);
   --edge: rgba(255, 255, 255, 0.032);
+  --scroll-thumb: rgba(255, 255, 255, 0.16);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
   --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
   --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
 
