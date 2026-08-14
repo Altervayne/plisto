@@ -9,6 +9,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* Feeds the header's select-all box its quiet-until-hover signal, the same manner as the row checks. */
+  --head-check: 0;
+}
+
+.grid:hover {
+  --head-check: 1;
 }
 
 /* Search at the left, the persistent scan summary trailing at the right. */

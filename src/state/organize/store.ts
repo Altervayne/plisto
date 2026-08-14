@@ -49,13 +49,15 @@ interface OrganizeStore {
   undo: () => void;
   redo: () => void;
 
-  createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<void>;
+  createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
   setAlbumCover: (albumId: number, srcPath: string) => Promise<void>;
 
   toggleSelect: (trackId: number) => void;
   selectOnly: (trackId: number) => void;
   selectRange: (trackIds: number[]) => void;
+  addSelection: (trackIds: number[]) => void;
+  removeSelection: (trackIds: number[]) => void;
   clearSelection: () => void;
 }
 
@@ -238,10 +240,11 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     createAlbum: async (fields, trackIds) => {
-      await ipcCreateAlbum(fields, trackIds);
+      const row = await ipcCreateAlbum(fields, trackIds);
       await get().loadOrganization();
       // A new album is a structural change: past references stay valid, but the future branch cannot.
       set({ past: [], future: [] });
+      return row.id;
     },
 
     deleteAlbum: async (albumId) => {
@@ -266,6 +269,22 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     selectOnly: (trackId) => set({ selection: new Set([trackId]) }),
 
     selectRange: (trackIds) => set({ selection: new Set(trackIds) }),
+
+    // Union in, leaving selections held elsewhere untouched - a scoped select-all only adds its view.
+    addSelection: (trackIds) =>
+      set((s) => {
+        const selection = new Set(s.selection);
+        for (const id of trackIds) selection.add(id);
+        return { selection };
+      }),
+
+    // Difference out, leaving selections held elsewhere untouched - a scoped clear only drops its view.
+    removeSelection: (trackIds) =>
+      set((s) => {
+        const selection = new Set(s.selection);
+        for (const id of trackIds) selection.delete(id);
+        return { selection };
+      }),
 
     clearSelection: () => set({ selection: new Set<number>() }),
   };
@@ -329,4 +348,6 @@ export const useSetAlbumCover = () => useOrganizeStore((s) => s.setAlbumCover);
 export const useToggleSelect = () => useOrganizeStore((s) => s.toggleSelect);
 export const useSelectOnly = () => useOrganizeStore((s) => s.selectOnly);
 export const useSelectRange = () => useOrganizeStore((s) => s.selectRange);
+export const useAddSelection = () => useOrganizeStore((s) => s.addSelection);
+export const useRemoveSelection = () => useOrganizeStore((s) => s.removeSelection);
 export const useClearSelection = () => useOrganizeStore((s) => s.clearSelection);

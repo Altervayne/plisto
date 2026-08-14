@@ -11,7 +11,7 @@ import styles from "./AlbumGrid.module.css";
 
 /**
  * The album grid: an auto-filling wall of cards on the bespoke scroll surface. With no albums yet it
- * shows the quiet on-ramp pointing at the List view, where albums are made from a track selection.
+ * shows the quiet on-ramp pointing at Files, where albums are made from a track selection.
  * Selection and the drawer are the parent's concern; this lays out the cards and reports opens.
  */
 export function AlbumGrid({
@@ -29,7 +29,7 @@ export function AlbumGrid({
         <EmptyState
           tone="idle"
           title="No albums yet"
-          line="Switch to List, select tracks, and Create album."
+          line="Open Files, select tracks, and Create album."
         />
       </div>
     );

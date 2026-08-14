@@ -9,7 +9,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 3;
+const LATEST_VERSION: i64 = 4;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -100,6 +100,21 @@ CREATE TABLE album_tracks (
 );
 ";
 
+// Version 4: real-case display path and a key-value settings store. `source_path` is the
+// case-folded dedup key and loses the path's real casing; `display_path` keeps it so folder
+// names and full paths render correctly while identity stays on the folded key. It is NULL
+// until a scan captures it, and the next scan drains legacy rows from the walk's real path -
+// no tag re-read. `settings` is a small kv store for client prefs, so every future pref is a
+// new key rather than a new migration.
+const MIGRATION_V4: &str = "
+ALTER TABLE tracks ADD COLUMN display_path TEXT;
+
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -110,6 +125,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             0 => conn.execute_batch(MIGRATION_V1)?,
             1 => conn.execute_batch(MIGRATION_V2)?,
             2 => conn.execute_batch(MIGRATION_V3)?,
+            3 => conn.execute_batch(MIGRATION_V4)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -173,7 +189,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, LATEST_VERSION);
 
         let (filename, missing): (String, Option<i64>) = conn
             .query_row("SELECT filename, missing_at FROM tracks", [], |r| {
@@ -193,6 +209,46 @@ mod tests {
                 .unwrap();
             assert_eq!(found, 1, "table {table} should exist after v3");
         }
+    }
+
+    /// A v3 DB with a row upgrades to v4 additively: the row survives and its new `display_path`
+    /// reads NULL until a scan captures it, and the empty `settings` store is created.
+    #[test]
+    fn v3_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES ('/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let (filename, display): (String, Option<String>) = conn
+            .query_row("SELECT filename, display_path FROM tracks", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
+        assert_eq!(display, None, "display_path is NULL until a scan captures it");
+
+        let settings: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(settings, 1, "the settings store exists after v4");
     }
 
     /// `album_tracks.UNIQUE(track_id)` enforces single membership: a second album cannot claim a

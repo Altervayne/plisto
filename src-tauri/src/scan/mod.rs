@@ -13,7 +13,7 @@ mod progress;
 mod tags;
 
 // -- Library Imports --
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -78,7 +78,8 @@ where
 
     let stats_map = load_stats(&conn).map_err(|e| e.to_string())?;
 
-    // One walk yields the exact total and the seen-key set the sweep needs.
+    // One walk yields the exact total and the seen map (folded key -> real-case path) the sweep
+    // needs, both to reconcile presence and to drain display_path.
     let (paths, seen) = enumerate(root, cancel);
     let total = paths.len() as u32;
 
@@ -203,12 +204,12 @@ fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64, 
     Ok(map)
 }
 
-/// Walks `root` once, keeping only audio files. Returns the paths to read and the set of their
-/// canonical keys for the sweep. Cancellation stops the walk, which leaves the seen set partial
-/// and is why the sweep is skipped on cancel.
-fn enumerate(root: &Path, cancel: &Arc<AtomicBool>) -> (Vec<PathBuf>, HashSet<String>) {
+/// Walks `root` once, keeping only audio files. Returns the paths to read and a map from each
+/// file's canonical key to its real-case path, for the sweep. Cancellation stops the walk, which
+/// leaves the seen map partial and is why the sweep is skipped on cancel.
+fn enumerate(root: &Path, cancel: &Arc<AtomicBool>) -> (Vec<PathBuf>, HashMap<String, String>) {
     let mut paths = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashMap::new();
     for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -225,7 +226,8 @@ fn enumerate(root: &Path, cancel: &Arc<AtomicBool>) -> (Vec<PathBuf>, HashSet<St
             continue;
         }
         let path = entry.into_path();
-        seen.insert(normalize_path_key(&path.to_string_lossy()));
+        let real = path.to_string_lossy().into_owned();
+        seen.insert(normalize_path_key(&real), real);
         paths.push(path);
     }
     (paths, seen)
@@ -249,7 +251,7 @@ fn file_stats(path: &Path) -> Option<(i64, i64)> {
 fn writer_loop(
     conn: Connection,
     rx: Receiver<TrackRecord>,
-    seen: HashSet<String>,
+    seen: HashMap<String, String>,
     scanned_at: i64,
     cancel: Arc<AtomicBool>,
 ) -> Result<(u32, u32), String> {
@@ -275,35 +277,43 @@ fn writer_loop(
     reconcile_presence(&conn, &seen, scanned_at).map_err(to_msg)
 }
 
-/// Reconciles each indexed row against the seen set, never deleting (a delete would orphan album
+/// Reconciles each indexed row against the seen map, never deleting (a delete would orphan album
 /// membership). A row absent from disk and not yet flagged is stamped `missing_at = scanned_at`;
 /// a row back on disk that still carries a stamp is cleared to NULL. The clear must happen here:
-/// a returned-unchanged file is skipped by the incremental check, so its upsert never fires.
-/// Returns `(missing, returned)`. Single active workspace, so every row belongs to the current
-/// root.
+/// a returned-unchanged file is skipped by the incremental check, so its upsert never fires. A
+/// legacy row with a NULL `display_path` is filled here too, from the walk's real-case path, so
+/// no file is re-read to capture it. Returns `(missing, returned)`. Single active workspace, so
+/// every row belongs to the current root.
 fn reconcile_presence(
     conn: &Connection,
-    seen: &HashSet<String>,
+    seen: &HashMap<String, String>,
     scanned_at: i64,
 ) -> rusqlite::Result<(u32, u32)> {
-    let rows: Vec<(String, Option<i64>)> = {
-        let mut stmt = conn.prepare("SELECT source_path, missing_at FROM tracks")?;
-        let mapped = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?)))?;
+    let rows: Vec<(String, Option<i64>, Option<String>)> = {
+        let mut stmt = conn.prepare("SELECT source_path, missing_at, display_path FROM tracks")?;
+        let mapped =
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)))?;
         mapped.collect::<rusqlite::Result<_>>()?
     };
 
     let to_flag: Vec<&String> = rows
         .iter()
-        .filter(|(path, missing_at)| missing_at.is_none() && !seen.contains(path))
-        .map(|(path, _)| path)
+        .filter(|(path, missing_at, _)| missing_at.is_none() && !seen.contains_key(path))
+        .map(|(path, _, _)| path)
         .collect();
     let to_clear: Vec<&String> = rows
         .iter()
-        .filter(|(path, missing_at)| missing_at.is_some() && seen.contains(path))
-        .map(|(path, _)| path)
+        .filter(|(path, missing_at, _)| missing_at.is_some() && seen.contains_key(path))
+        .map(|(path, _, _)| path)
+        .collect();
+    // A row still on disk whose display_path was never captured: fill it from the walk's real path.
+    let to_fill: Vec<(&String, &String)> = rows
+        .iter()
+        .filter(|(_, _, display)| display.is_none())
+        .filter_map(|(path, _, _)| seen.get(path).map(|real| (path, real)))
         .collect();
 
-    if to_flag.is_empty() && to_clear.is_empty() {
+    if to_flag.is_empty() && to_clear.is_empty() && to_fill.is_empty() {
         return Ok((0, 0));
     }
 
@@ -318,6 +328,11 @@ fn reconcile_presence(
             conn.prepare("UPDATE tracks SET missing_at = NULL WHERE source_path = ?1")?;
         for path in &to_clear {
             clear.execute(params![path])?;
+        }
+        let mut fill =
+            conn.prepare("UPDATE tracks SET display_path = ?1 WHERE source_path = ?2")?;
+        for (path, real) in &to_fill {
+            fill.execute(params![real, path])?;
         }
     }
     conn.execute_batch("COMMIT")?;
@@ -506,6 +521,60 @@ mod tests {
         let third = scan(&music.path, &db_path);
         assert_eq!(third.skipped, 2);
         assert_eq!(third.updated, 0);
+    }
+
+    // The display_path stored for one filename, read straight from the db.
+    fn display_path_of(db_path: &Path, filename: &str) -> Option<String> {
+        let conn = Connection::open(db_path).unwrap();
+        conn.query_row(
+            "SELECT display_path FROM tracks WHERE filename = ?1",
+            params![filename],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn scan_captures_and_drains_display_path() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        // A mixed-case folder and file, so folding vs display is visible where the OS folds case.
+        let sub = music.path.join("MixedCase");
+        fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("Song.Mp3");
+        fs::write(&file, b"").unwrap();
+        let real = file.to_string_lossy().into_owned();
+
+        scan(&music.path, &db_path);
+        assert_eq!(
+            display_path_of(&db_path, "Song.Mp3").as_deref(),
+            Some(real.as_str()),
+            "the scan captures the file's real-case path",
+        );
+
+        // Reset display_path to the drain sentinel, as a legacy row reads after the migration.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET display_path = NULL WHERE filename = 'Song.Mp3'",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(display_path_of(&db_path, "Song.Mp3"), None);
+
+        // An unchanged re-scan skips the file (its mtime is unchanged, so needs_reread is false and
+        // the upsert never fires), yet the walk refills display_path in the seen pass.
+        let second = scan(&music.path, &db_path);
+        assert_eq!(second.skipped, 1, "the unchanged file is not re-read");
+        assert_eq!(second.updated, 0);
+        assert_eq!(
+            display_path_of(&db_path, "Song.Mp3").as_deref(),
+            Some(real.as_str()),
+            "the drain refills display_path from the walk, not a tag re-read",
+        );
     }
 
     #[test]

@@ -4,7 +4,8 @@
  * micro-labels; values carry the ink; raw filename and path stay mono.
  */
 .drawer {
-  flex: 0 0 340px;
+  flex: 1 1 auto;
+  min-width: 0;
   align-self: stretch;
   min-height: 0;
   border-radius: var(--r-md);

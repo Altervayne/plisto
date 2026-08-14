@@ -26,11 +26,16 @@ import styles from "./SelectionActionBar.module.css";
  * The floating action bar over a track selection. It shows only while tracks are selected: a quiet
  * count summary at the left, and at the right the one solid-accent Create album beside the quiet
  * Add-to-album and Clear. Create seeds the album from the selection's shared raw tags, then clears the
- * selection and flips to the grid so the new card shows; on failure it keeps the selection and says so.
- * Add-to-album opens a picker of existing albums. Both reach the backend through the store, which the
- * native side confirms - here the selection, the count, and the suggested fields are what render.
+ * selection and hands the new album id up so the shell can open it; on failure it keeps the selection
+ * and says so. Add-to-album opens a picker of existing albums. Both reach the backend through the
+ * store, which the native side confirms - here the selection, the count, and the suggested fields are
+ * what render.
  */
-export function SelectionActionBar({ onCreated }: { onCreated: () => void }) {
+export function SelectionActionBar({
+  onCreated,
+}: {
+  onCreated: (albumId: number) => void;
+}) {
   const selection = useSelection();
   const tracks = useTracks();
   const albums = useAlbums();
@@ -51,9 +56,9 @@ export function SelectionActionBar({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     try {
       const rows = tracks.filter((t) => selection.has(t.id));
-      await createAlbum(suggestAlbumFields(rows), selectedIds);
+      const albumId = await createAlbum(suggestAlbumFields(rows), selectedIds);
       clearSelection();
-      onCreated();
+      onCreated(albumId);
     } catch {
       setError("Could not create the album.");
     } finally {

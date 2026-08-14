@@ -1,0 +1,90 @@
+/*
+ * The subfolder band and its rows. The band caps at a few rows and hands overflow to its own
+ * ScrollArea, so a scope with many folders keeps the track grid in view. Rows are quiet: no border,
+ * no shadow, no card - only album covers carry depth. A row warms with the veil on hover.
+ */
+/* A flex column capped at the user-set band height: the cap makes the height definite, so the
+ * ScrollArea inside resolves its own 100% height and scrolls its overflow instead of growing past the
+ * cap. Shrinks to fit when the folders are few, holds the cap and scrolls when many. Positioned so the
+ * bottom-edge resize handle rides its cap. */
+.band {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: var(--band-height, 216px);
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px 4px 2px;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.entry:hover {
+  background: var(--veil);
+}
+
+.glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--ink-3);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.count {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The subfolder tally trails the track count, set back and parted by a small drawn dot. */
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+}
+
+.more::before {
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}

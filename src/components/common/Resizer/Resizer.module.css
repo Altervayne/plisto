@@ -1,0 +1,65 @@
+/*
+ * The region resize handle: a slim hit area on the continuous ground, a grab affordance rather than a
+ * divider. Transparent at rest so no line parts the surface; a short centered bar fades in on hover or
+ * focus and deepens while dragging. No border, no shadow - covers are the only objects that carry
+ * depth. The fade rides the global reduced-motion rule.
+ */
+/* Absolute, pinned to a positioned parent's edge by orientation. The vertical variant straddles the
+ * parent's LEFT edge (the panel's border); the horizontal variant straddles its BOTTOM edge (the
+ * band's cap). Out of flow, so it never widens the gap it sits over, and it tracks the edge live as
+ * the parent's size var moves mid-drag. */
+.handle {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Claim the pointer gestures so a touch drag never scrolls the surface underneath. */
+  touch-action: none;
+}
+
+.handle[data-orientation="vertical"] {
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  cursor: col-resize;
+}
+
+.handle[data-orientation="horizontal"] {
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 16px;
+  cursor: row-resize;
+}
+
+/* The visible bar: short, centered, quiet. Dissolved until the handle is hovered, focused, or dragged. */
+.bar {
+  border-radius: var(--pill);
+  background: var(--edge);
+  opacity: 0;
+  transition:
+    opacity var(--dur-soft) ease,
+    background var(--dur-fast) ease;
+}
+
+.handle[data-orientation="vertical"] .bar {
+  width: 2px;
+  height: 48%;
+}
+
+.handle[data-orientation="horizontal"] .bar {
+  height: 2px;
+  width: 48%;
+}
+
+.handle:hover .bar,
+.handle:focus-visible .bar,
+.handle[data-dragging] .bar {
+  opacity: 1;
+}
+
+.handle[data-dragging] .bar {
+  background: var(--veil-2);
+}

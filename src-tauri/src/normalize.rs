@@ -19,6 +19,7 @@ const AUDIO_EXTS: &[&str] = &[
 /// the on-disk path; `size_bytes`/`mtime` come from the file, `scanned_at` from the caller's
 /// clock. Empty or whitespace tags collapse to None, numerics are parsed from their leading
 /// integer, `ext` is lowercased and `source_path` is stored as its canonical dedup key.
+/// `display_path` keeps the same input with its real case, for display.
 pub fn normalize_track(
     source_path: &str,
     size_bytes: i64,
@@ -38,6 +39,8 @@ pub fn normalize_track(
 
     TrackRecord {
         source_path: normalize_path_key(source_path),
+        // The real-case input, before folding: what filename and ext are derived from.
+        display_path: source_path.to_string(),
         filename,
         ext,
         size_bytes,
@@ -181,6 +184,16 @@ mod tests {
         let rec = normalize_track("/music/Folder/Song.FLAC", 10, 20, 99, &tags());
         assert_eq!(rec.ext, "flac");
         assert_eq!(rec.filename, "Song.FLAC");
+    }
+
+    #[test]
+    fn display_path_keeps_the_real_input() {
+        let rec = normalize_track("/Music/Folder/Song.FLAC", 10, 20, 99, &tags());
+        assert_eq!(rec.display_path, "/Music/Folder/Song.FLAC");
+        // On Windows the dedup key folds case while display_path does not.
+        if cfg!(windows) {
+            assert_ne!(rec.source_path, rec.display_path);
+        }
     }
 
     #[test]

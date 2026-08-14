@@ -27,12 +27,14 @@ pub struct RawTags {
 
 /// A normalized, persistable row matching the `tracks` schema one-to-one. Absent tags are
 /// None (never an empty string), numerics are parsed integers, `source_path` is the canonical
-/// dedup key and `ext` is lowercased. The DB assigns `id`, so it is not carried here.
-/// `has_embedded_cover` is tri-state: None means the file was never examined for art (the
-/// drain sentinel), Some(false) examined with none, Some(true) examined with art.
+/// dedup key and `ext` is lowercased. `display_path` is the same path with its real case kept,
+/// for display. The DB assigns `id`, so it is not carried here. `has_embedded_cover` is
+/// tri-state: None means the file was never examined for art (the drain sentinel), Some(false)
+/// examined with none, Some(true) examined with art.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackRecord {
     pub source_path: String,
+    pub display_path: String,
     pub filename: String,
     pub ext: String,
     pub size_bytes: i64,

@@ -1,0 +1,60 @@
+/* Sidebar and main on one continuous ground: a fixed rail, then the region, with no divider. */
+.shell {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 236px 1fr;
+}
+
+/* The main region: a slim controls strip over the mode content. Top padding stands in for the
+ * retired top bar so the controls are not jammed to the window edge. */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding-top: 16px;
+}
+
+/* Undo/redo and the persist-error line sit above the content, aligned to its rhythm. */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 30px 10px;
+}
+
+.history {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* A quiet warn line for a failed persist, pushed to the trailing edge with its dismiss control. */
+.error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
+/* The mode content and the floating action bar share the region, parted by space, never a divider.
+ * Carries --drawer-width so the panel wrapper's flex-basis (and its child handle) follow a drag. */
+.content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  padding: 4px 30px 24px;
+}
+
+/* The right panel's positioned wrapper: it holds the var width, and the resize handle rides its left
+ * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
+.panel {
+  position: relative;
+  flex: 0 0 var(--drawer-width);
+  min-height: 0;
+  display: flex;
+}

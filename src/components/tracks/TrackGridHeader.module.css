@@ -16,6 +16,68 @@
   background-attachment: fixed;
 }
 
+/*
+ * The select-all box mirrors the row checkbox: a small box floated over the empty left of the No
+ * column, so it costs no grid column and lands dead-on with the row checks below (the sticky header is
+ * its containing block). Quiet until the grid is hovered (--head-check), it holds focus, or the view
+ * carries a selection.
+ */
+.check {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: var(--head-check, 0);
+  transition:
+    opacity var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+.check:hover {
+  border-color: var(--ink-2);
+}
+
+.check:focus-visible,
+.check[data-state="some"],
+.check[data-state="all"] {
+  opacity: 1;
+}
+
+/* A full or partial selection fills the box with the accent, matching the row checks. */
+.check[data-state="some"],
+.check[data-state="all"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The full-selection mark: the row's short rotated stem. */
+.tick {
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+/* The partial-selection mark: a horizontal minus bar in place of the tick. */
+.dash {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-ink);
+}
+
 /* Each label is a quiet button: no fill, veil ink on hover, the micro-label face. */
 .label {
   display: inline-flex;

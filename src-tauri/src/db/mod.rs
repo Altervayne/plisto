@@ -52,13 +52,14 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO tracks (
-            source_path, filename, ext, size_bytes, mtime, duration_secs,
+            source_path, display_path, filename, ext, size_bytes, mtime, duration_secs,
             raw_title, raw_artist, raw_album, raw_album_artist,
             raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at
          ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
          )
          ON CONFLICT(source_path) DO UPDATE SET
+            display_path = excluded.display_path,
             filename = excluded.filename,
             ext = excluded.ext,
             size_bytes = excluded.size_bytes,
@@ -76,6 +77,7 @@ pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()
             scanned_at = excluded.scanned_at",
         params![
             rec.source_path,
+            rec.display_path,
             rec.filename,
             rec.ext,
             rec.size_bytes,
@@ -197,6 +199,47 @@ pub fn get_cover(
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )
     .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+// ---- Settings and workspace ----
+
+/// The value stored under `key`, or None when the key is absent. A client pref falls back to its
+/// own default when this is None.
+pub fn get_setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Stores `value` under `key`, replacing any prior value. The kv store behind every client pref,
+/// so a new pref is a new key rather than a schema change.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value)
+         VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// The active workspace root the picker stored, or None before any scan has set one. The folder
+/// tree anchors on this.
+pub fn get_workspace_root(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT workspace_root FROM meta WHERE id = 1", [], |r| {
+        r.get(0)
+    })
     .or_else(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => Ok(None),
         other => Err(other),
@@ -535,6 +578,7 @@ mod tests {
     fn sample(scanned_at: i64) -> TrackRecord {
         TrackRecord {
             source_path: "/music/song.mp3".to_string(),
+            display_path: "/music/song.mp3".to_string(),
             filename: "song.mp3".to_string(),
             ext: "mp3".to_string(),
             size_bytes: 1000,
@@ -577,7 +621,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         for table in [
             "tracks",
@@ -586,6 +630,7 @@ mod tests {
             "folder_covers",
             "albums",
             "album_tracks",
+            "settings",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -597,8 +642,8 @@ mod tests {
             assert_eq!(found, 1, "table {table} should exist");
         }
 
-        // The tri-state art column and the presence stamp land on tracks.
-        for col in ["has_embedded_cover", "missing_at"] {
+        // The tri-state art column, the presence stamp, and the real-case path land on tracks.
+        for col in ["has_embedded_cover", "missing_at", "display_path"] {
             let has_col: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = ?1",
@@ -618,7 +663,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -684,6 +729,64 @@ mod tests {
             .query_row("SELECT has_embedded_cover FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, Some(1), "Some(true) persists as 1");
+    }
+
+    #[test]
+    fn upsert_track_writes_the_real_case_display_path() {
+        let conn = open_in_memory().unwrap();
+        upsert_track(&conn, &sample(100)).unwrap();
+
+        let stored: Option<String> = conn
+            .query_row("SELECT display_path FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("/music/song.mp3"));
+    }
+
+    #[test]
+    fn settings_round_trip_and_overwrite() {
+        let conn = open_in_memory().unwrap();
+        assert_eq!(
+            get_setting(&conn, "drawer_width").unwrap(),
+            None,
+            "an absent key reads None",
+        );
+
+        set_setting(&conn, "drawer_width", "420").unwrap();
+        assert_eq!(
+            get_setting(&conn, "drawer_width").unwrap(),
+            Some("420".to_string()),
+        );
+
+        // A second set on the same key replaces the value, not appends a row.
+        set_setting(&conn, "drawer_width", "500").unwrap();
+        assert_eq!(
+            get_setting(&conn, "drawer_width").unwrap(),
+            Some("500".to_string()),
+        );
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn workspace_root_reads_stored_root_or_none() {
+        let conn = open_in_memory().unwrap();
+        assert_eq!(
+            get_workspace_root(&conn).unwrap(),
+            None,
+            "a fresh db has no workspace root",
+        );
+
+        conn.execute(
+            "UPDATE meta SET workspace_root = ?1 WHERE id = 1",
+            params!["C:\\Music"],
+        )
+        .unwrap();
+        assert_eq!(
+            get_workspace_root(&conn).unwrap(),
+            Some("C:\\Music".to_string()),
+        );
     }
 
     #[test]

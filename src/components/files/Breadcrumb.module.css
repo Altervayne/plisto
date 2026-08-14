@@ -1,0 +1,96 @@
+/*
+ * The breadcrumb: an up control and a row of path steps on the continuous surface, no frame. Steps
+ * render in the UI sans. Ancestors are quiet --ink-2 buttons that warm on hover; the current folder
+ * carries --ink and is inert; the slash separators sit back at --ink-3.
+ */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.up {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.up:hover:not(:disabled) {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.up:disabled {
+  color: var(--ink-3);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.crumb {
+  max-width: 220px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--dur-fast) ease;
+}
+
+.crumb:hover {
+  color: var(--ink);
+}
+
+.current {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ellipsis {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.sep {
+  color: var(--ink-3);
+  font-size: 13px;
+  user-select: none;
+}

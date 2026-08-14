@@ -4,7 +4,8 @@
  * track peek's shell.
  */
 .drawer {
-  flex: 0 0 380px;
+  flex: 1 1 auto;
+  min-width: 0;
   align-self: stretch;
   min-height: 0;
   border-radius: var(--r-md);

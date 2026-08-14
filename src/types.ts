@@ -28,6 +28,7 @@ export interface TrackRow {
   raw_genre: string | null;
   scanned_at: number;
   missing_at: number | null;
+  display_path: string | null;
 }
 
 /** The stage a running scan is in. Mirrors ScanPhase in dto.rs. */

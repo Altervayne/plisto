@@ -124,6 +124,21 @@ export function loadOrganization(): Promise<OrganizationSnapshot> {
   return invoke<OrganizationSnapshot>("load_organization");
 }
 
+/** Reads the persisted workspace root (real-case, as first picked), or null when none is set. */
+export function workspaceRoot(): Promise<string | null> {
+  return invoke<string | null>("workspace_root");
+}
+
+/** Reads one setting from the kv table, or null when the key was never written. */
+export function getSetting(key: string): Promise<string | null> {
+  return invoke<string | null>("get_setting", { key });
+}
+
+/** Writes one setting into the kv table, inserting or replacing the key. */
+export function setSetting(key: string, value: string): Promise<void> {
+  return invoke("set_setting", { key, value });
+}
+
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */
 export function listTracks(args: {
   filter?: string;

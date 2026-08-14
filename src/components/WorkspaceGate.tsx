@@ -1,7 +1,7 @@
 // -- Component Imports --
+import { AppShell } from "./shell/AppShell";
 import { EmptyState } from "./common/EmptyState";
 import { QuietButton } from "./common/QuietButton";
-import { ResultView } from "./result/ResultView";
 import { ScanProgress } from "./scan/ScanProgress";
 import { WorkspacePicker } from "./workspace/WorkspacePicker";
 
@@ -10,7 +10,7 @@ import { useRescan, useScanError, useScanStatus, useWorkspace } from "../state/s
 
 /**
  * The top-level switch. Reads scan and workspace state and picks the view: the picker when there
- * is no workspace, the scanning view mid-scan, an error state on failure, and the result view
+ * is no workspace, the scanning view mid-scan, an error state on failure, and the app shell
  * once a workspace is indexed.
  */
 export function WorkspaceGate() {
@@ -32,7 +32,7 @@ export function WorkspaceGate() {
     );
   }
 
-  if (workspace) return <ResultView />;
+  if (workspace) return <AppShell />;
 
   return <WorkspacePicker />;
 }

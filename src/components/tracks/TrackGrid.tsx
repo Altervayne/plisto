@@ -26,6 +26,8 @@ import {
   useTracks,
 } from "../../state/store";
 import {
+  useAddSelection,
+  useRemoveSelection,
   useSelectRange,
   useSelection,
   useToggleSelect,
@@ -49,18 +51,22 @@ const ROW_HEIGHT = 40;
  * The track grid: TanStack Table holds the sorted and filtered row model over the loaded rows,
  * TanStack Virtual windows the DOM to the visible slice. Sort and search state live here; the
  * search pill and the persistent summary share the toolbar above the header. A row click reports
- * its track up for the detail peek.
+ * its track up for the detail peek. A `tracks` list scopes the grid to a subset (a folder view);
+ * without it the grid spans the whole index.
  */
 export function TrackGrid({
+  tracks,
   summary,
   selectedId,
   onSelect,
 }: {
+  tracks?: TrackRowData[];
   summary?: ReactNode;
   selectedId: number | null;
   onSelect: (track: TrackRowData) => void;
 }) {
-  const tracks = useTracks();
+  const allTracks = useTracks();
+  const data = tracks ?? allTracks;
   const columns = useMemo(() => toColumnDefs(), []);
   const template = useMemo(() => gridTemplate(), []);
 
@@ -71,7 +77,7 @@ export function TrackGrid({
   const setGlobalFilter = useSetGridFilter();
 
   const table = useReactTable({
-    data: tracks,
+    data,
     columns,
     state: { sorting, globalFilter },
     onSortingChange: (updater) =>
@@ -95,8 +101,25 @@ export function TrackGrid({
   const selection = useSelection();
   const toggleSelect = useToggleSelect();
   const selectRange = useSelectRange();
+  const addSelection = useAddSelection();
+  const removeSelection = useRemoveSelection();
   const anchorRef = useRef<number | null>(null);
   const selecting = selection.size > 0;
+
+  // The tri-state over the current view: every row selected, some, or none. The select-all control
+  // adds or removes only these rows, so selections held in other folders ride through untouched.
+  const rowIds = rows.map((r) => r.original.id);
+  const selectedInView = rowIds.reduce((n, id) => (selection.has(id) ? n + 1 : n), 0);
+  const selectAll =
+    rowIds.length > 0 && selectedInView === rowIds.length
+      ? "all"
+      : selectedInView > 0
+        ? "some"
+        : "none";
+  const onToggleAll = () => {
+    if (selectAll === "all") removeSelection(rowIds);
+    else addSelection(rowIds);
+  };
 
   const handleToggle = (trackId: number, mods: SelectModifiers) => {
     const index = rows.findIndex((r) => r.original.id === trackId);
@@ -136,7 +159,7 @@ export function TrackGrid({
       </div>
 
       <ScrollArea className={styles.scroll} viewportRef={scrollRef}>
-        <TrackGridHeader headers={headers} />
+        <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
         {noMatch ? (
           <p className={styles.noMatch}>No tracks match "{globalFilter.trim()}"</p>
         ) : (

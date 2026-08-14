@@ -15,10 +15,13 @@
 /* An auto-filling wall of cards at a FIXED tile width: the column count follows the width, but a
  * tile never resizes - so opening the detail drawer beside the grid drops a column instead of
  * squishing every card. */
+/* The padding is the breathing room for the hover lift: a card rises and casts --shadow-pop, and the
+ * ScrollArea viewport clips its overflow, so the tiles sit far enough off every edge that the raised
+ * cover and its shadow fall inside the padded content rather than being shorn at the container edge. */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 168px);
   justify-content: start;
   gap: 26px 20px;
-  padding: 4px 10px 28px 2px;
+  padding: 18px 22px 40px;
 }

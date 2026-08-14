@@ -29,6 +29,9 @@ pub struct TrackRow {
     pub scanned_at: i64,
     // NULL while the file is present; a timestamp of the scan that first found it gone.
     pub missing_at: Option<i64>,
+    // The real-case absolute path, for display. NULL on a legacy row until the next scan
+    // captures it; identity and grouping stay on the folded `source_path`.
+    pub display_path: Option<String>,
 }
 
 /// The stage a running scan is in. `enumerating` while the folder is walked, `reading` while

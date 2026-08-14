@@ -27,6 +27,7 @@ function track(id: number, raw: Partial<TrackRow> = {}): TrackRow {
     raw_genre: null,
     scanned_at: 1,
     missing_at: null,
+    display_path: `/m/${id}.mp3`,
     ...raw,
   };
 }
