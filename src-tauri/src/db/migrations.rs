@@ -9,7 +9,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 5;
+const LATEST_VERSION: i64 = 6;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -123,6 +123,33 @@ const MIGRATION_V5: &str = "
 ALTER TABLE albums ADD COLUMN kind TEXT NOT NULL DEFAULT 'album';
 ";
 
+// Version 6: the library of roots. `roots` holds each scanned folder; `root_key` is the folded
+// identity (UNIQUE, so a re-add is idempotent) and `path` the real-case walk anchor and display,
+// mirroring the source_path/display_path split. `tracks.root_id` stamps each track's origin once
+// at index time, CASCADE so removing a root drops its tracks; the index keeps the per-root
+// presence sweep to one predicate. The one prior workspace seeds the first root (root_key left
+// NULL for the ASCII-safe Rust-side fill on load), and every existing track backfills to it - the
+// true prior state, since a single workspace held them all. A NULL workspace seeds no root, which
+// is the fresh-install onboarding state.
+const MIGRATION_V6: &str = "
+CREATE TABLE roots (
+    id       INTEGER PRIMARY KEY,
+    root_key TEXT UNIQUE,
+    path     TEXT NOT NULL,
+    added_at INTEGER NOT NULL
+);
+
+ALTER TABLE tracks ADD COLUMN root_id INTEGER REFERENCES roots(id) ON DELETE CASCADE;
+
+CREATE INDEX idx_tracks_root ON tracks(root_id);
+
+INSERT INTO roots (path, added_at)
+SELECT workspace_root, strftime('%s', 'now') FROM meta
+WHERE id = 1 AND workspace_root IS NOT NULL;
+
+UPDATE tracks SET root_id = (SELECT id FROM roots LIMIT 1);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -135,6 +162,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             2 => conn.execute_batch(MIGRATION_V3)?,
             3 => conn.execute_batch(MIGRATION_V4)?,
             4 => conn.execute_batch(MIGRATION_V5)?,
+            5 => conn.execute_batch(MIGRATION_V6)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -287,6 +315,65 @@ mod tests {
             .unwrap();
         assert_eq!(title, "T", "the existing album survives the upgrade");
         assert_eq!(kind, "album", "the new column backfills to 'album'");
+    }
+
+    /// A v5 DB with a workspace and a track upgrades to v6 additively: the one workspace seeds a
+    /// root (its `root_key` left NULL for the Rust-side fill), and the existing track backfills to
+    /// that root's id, the true prior state of a single-workspace index.
+    #[test]
+    fn v5_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.execute_batch(
+            "UPDATE meta SET workspace_root = '/music' WHERE id = 1;
+             INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES ('/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let (root_id, path, key): (i64, String, Option<String>) = conn
+            .query_row("SELECT id, path, root_key FROM roots", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(path, "/music", "the workspace seeds the first root");
+        assert_eq!(key, None, "root_key is filled Rust-side, not in the migration");
+
+        let stamped: Option<i64> = conn
+            .query_row("SELECT root_id FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamped, Some(root_id), "the existing track backfills to the seeded root");
+    }
+
+    /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.
+    #[test]
+    fn v6_seeds_no_root_without_a_workspace() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.pragma_update(None, "user_version", 5).unwrap();
+
+        migrate(&conn).unwrap();
+
+        let roots: i64 = conn
+            .query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(roots, 0, "a NULL workspace seeds no root");
     }
 
     /// `album_tracks.UNIQUE(track_id)` enforces single membership: a second album cannot claim a

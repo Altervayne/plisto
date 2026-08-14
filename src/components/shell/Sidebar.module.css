@@ -25,15 +25,8 @@
   color: var(--ink-3);
 }
 
-/* Pushes the workspace actions to the bottom of the column. */
+/* Pushes Settings to the bottom of the column, parting it from the content nav. */
 .spacer {
   flex: 1 1 auto;
   min-height: 8px;
-}
-
-.actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
 }

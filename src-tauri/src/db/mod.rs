@@ -14,8 +14,9 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 // -- Type Imports --
-use crate::dto::{AlbumRow, AlbumTrackRow};
+use crate::dto::{AlbumRow, AlbumTrackRow, Root};
 use crate::model::{CoverRecord, TrackRecord};
+use crate::normalize::normalize_path_key;
 
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
 /// current. This is the connection the app owns in managed state.
@@ -49,14 +50,20 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// Inserts a track, or updates the existing row when `source_path` already exists. Keying on
 /// the UNIQUE path means a re-scan updates in place under the same `id` rather than
 /// duplicating; every column but the key and `id` is refreshed from the incoming record.
-pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()> {
+/// `root_id` stamps the track's origin root and is re-stamped on every pass, so a re-scan keeps
+/// the association current.
+pub fn upsert_track(
+    conn: &Connection,
+    rec: &TrackRecord,
+    root_id: Option<i64>,
+) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO tracks (
             source_path, display_path, filename, ext, size_bytes, mtime, duration_secs,
             raw_title, raw_artist, raw_album, raw_album_artist,
-            raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at
+            raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at, root_id
          ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
          )
          ON CONFLICT(source_path) DO UPDATE SET
             display_path = excluded.display_path,
@@ -74,7 +81,8 @@ pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()
             raw_year = excluded.raw_year,
             raw_genre = excluded.raw_genre,
             has_embedded_cover = excluded.has_embedded_cover,
-            scanned_at = excluded.scanned_at",
+            scanned_at = excluded.scanned_at,
+            root_id = excluded.root_id",
         params![
             rec.source_path,
             rec.display_path,
@@ -93,6 +101,7 @@ pub fn upsert_track(conn: &Connection, rec: &TrackRecord) -> rusqlite::Result<()
             rec.raw_genre,
             rec.has_embedded_cover,
             rec.scanned_at,
+            root_id,
         ],
     )?;
     Ok(())
@@ -266,16 +275,205 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Resul
     Ok(())
 }
 
-/// The active workspace root the picker stored, or None before any scan has set one. The folder
-/// tree anchors on this.
-pub fn get_workspace_root(conn: &Connection) -> rusqlite::Result<Option<String>> {
-    conn.query_row("SELECT workspace_root FROM meta WHERE id = 1", [], |r| {
-        r.get(0)
-    })
+// ---- Roots ----
+
+/// Inserts a root and returns its new id. `root_key` is the folded identity (UNIQUE), `path` the
+/// real-case walk anchor. The caller computes `root_key` with normalize_path_key so folding stays
+/// ASCII-parity-safe.
+pub fn insert_root(
+    conn: &Connection,
+    root_key: &str,
+    path: &str,
+    added_at: i64,
+) -> rusqlite::Result<i64> {
+    conn.execute(
+        "INSERT INTO roots (root_key, path, added_at) VALUES (?1, ?2, ?3)",
+        params![root_key, path, added_at],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// The (id, real-case path) of the root with this folded key, or None when none matches. Backs the
+/// idempotent get-or-create so a re-add of the same folder reuses its row.
+pub fn get_root_by_key(
+    conn: &Connection,
+    root_key: &str,
+) -> rusqlite::Result<Option<(i64, String)>> {
+    conn.query_row(
+        "SELECT id, path FROM roots WHERE root_key = ?1",
+        params![root_key],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map(Some)
     .or_else(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => Ok(None),
         other => Err(other),
     })
+}
+
+/// The root for `path`, creating it when absent. Returns its (id, real-case path). Idempotent: a
+/// folder already in the library returns its existing row. The single-root scan entry leans on
+/// this so a re-scan of the same path never duplicates a root.
+pub fn get_or_create_root(
+    conn: &Connection,
+    path: &str,
+    added_at: i64,
+) -> rusqlite::Result<(i64, String)> {
+    let key = normalize_path_key(path);
+    if let Some(found) = get_root_by_key(conn, &key)? {
+        return Ok(found);
+    }
+    let id = insert_root(conn, &key, path, added_at)?;
+    Ok((id, path.to_string()))
+}
+
+/// Every root with its live track count, ordered by id. The count is a LEFT JOIN so a root with no
+/// indexed tracks still returns a row with a zero count.
+pub fn list_roots(conn: &Connection) -> rusqlite::Result<Vec<Root>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.path, COUNT(t.id) AS track_count
+         FROM roots r
+         LEFT JOIN tracks t ON t.root_id = r.id
+         GROUP BY r.id
+         ORDER BY r.id",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(Root {
+                id: r.get(0)?,
+                path: r.get(1)?,
+                track_count: r.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The (id, real-case path) of one root, or None when the id is absent. The walk anchor for a
+/// single-root rescan.
+pub fn root_target(conn: &Connection, root_id: i64) -> rusqlite::Result<Option<(i64, String)>> {
+    conn.query_row(
+        "SELECT id, path FROM roots WHERE id = ?1",
+        params![root_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Every root as (id, real-case path), ordered by id. The walk set for a rescan-all.
+pub fn root_targets(conn: &Connection) -> rusqlite::Result<Vec<(i64, String)>> {
+    let mut stmt = conn.prepare("SELECT id, path FROM roots ORDER BY id")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Every root's real-case path, ordered by id. The overlap guard and the export destination check
+/// compare a candidate against all of these.
+pub fn all_root_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT path FROM roots ORDER BY id")?;
+    let rows = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The first root's real-case path, or None when the library is empty. The interim single-folder
+/// reader until the frontend reads the whole root list.
+pub fn first_root_path(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT path FROM roots ORDER BY id LIMIT 1", [], |r| r.get(0))
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+}
+
+/// Fills the folded `root_key` of any root that still has NULL, from its real-case path. The
+/// migration seeds the first root's path in SQL but leaves its key NULL, because SQL lower() is
+/// ASCII-only and would break fold-parity on non-ASCII paths; this runs the real normalize on
+/// load. Idempotent: a root whose key is already set is skipped.
+pub fn fill_root_keys(conn: &Connection) -> rusqlite::Result<()> {
+    let pending: Vec<(i64, String)> = {
+        let mut stmt = conn.prepare("SELECT id, path FROM roots WHERE root_key IS NULL")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    for (id, path) in pending {
+        conn.execute(
+            "UPDATE roots SET root_key = ?1 WHERE id = ?2",
+            params![normalize_path_key(&path), id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Removes a root and everything that hung off it, in one transaction. Deleting the root CASCADEs
+/// to its tracks (root_id FK), and each dropped track CASCADEs to its album membership (track_id
+/// FK). Any album or single gutted to zero members by that cascade is then deleted, restoring the
+/// "every container holds at least one member" invariant.
+pub fn remove_root(conn: &mut Connection, root_id: i64) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM roots WHERE id = ?1", params![root_id])?;
+    delete_emptied_albums(&tx)?;
+    tx.commit()
+}
+
+/// Deletes every album or single left with no members. The emptied-container cleanup a cascade
+/// needs so it never leaves a zero-track shell.
+fn delete_emptied_albums(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "DELETE FROM albums
+         WHERE NOT EXISTS (SELECT 1 FROM album_tracks WHERE album_tracks.album_id = albums.id)",
+        [],
+    )
+}
+
+/// The blast radius of removing `root_id`, for the counted confirm. Returns
+/// `(tracks, albums_losing_members, albums_emptied)`: how many indexed tracks the root holds; how
+/// many albums are built partly from it (>=1 member under it and >=1 not - they shrink); and how
+/// many are built entirely from it (every member under it - they get deleted). Read-only.
+pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<(i64, i64, i64)> {
+    let tracks: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE root_id = ?1",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+
+    // Albums with at least one member under this root and at least one member not under it.
+    let losing: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM albums a
+         WHERE EXISTS (
+             SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+             WHERE at.album_id = a.id AND t.root_id = ?1)
+           AND EXISTS (
+             SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+             WHERE at.album_id = a.id AND t.root_id IS NOT ?1)",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+
+    // Albums with at least one member under this root and none outside it.
+    let emptied: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM albums a
+         WHERE EXISTS (
+             SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+             WHERE at.album_id = a.id AND t.root_id = ?1)
+           AND NOT EXISTS (
+             SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+             WHERE at.album_id = a.id AND t.root_id IS NOT ?1)",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+
+    Ok((tracks, losing, emptied))
 }
 
 // ---- Albums and membership ----
@@ -832,7 +1030,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         for table in [
             "tracks",
@@ -842,6 +1040,7 @@ mod tests {
             "albums",
             "album_tracks",
             "settings",
+            "roots",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -853,8 +1052,9 @@ mod tests {
             assert_eq!(found, 1, "table {table} should exist");
         }
 
-        // The tri-state art column, the presence stamp, and the real-case path land on tracks.
-        for col in ["has_embedded_cover", "missing_at", "display_path"] {
+        // The tri-state art column, the presence stamp, the real-case path, and the origin root
+        // land on tracks.
+        for col in ["has_embedded_cover", "missing_at", "display_path", "root_id"] {
             let has_col: i64 = conn
                 .query_row(
                     "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = ?1",
@@ -884,7 +1084,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -892,8 +1092,8 @@ mod tests {
         let conn = open_in_memory().unwrap();
         let rec = sample(100);
 
-        upsert_track(&conn, &rec).unwrap();
-        upsert_track(&conn, &rec).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
 
         assert_eq!(count_rows(&conn), 1);
     }
@@ -903,7 +1103,7 @@ mod tests {
         let conn = open_in_memory().unwrap();
 
         let first = sample(100);
-        upsert_track(&conn, &first).unwrap();
+        upsert_track(&conn, &first, None).unwrap();
         let id_before: i64 = conn
             .query_row("SELECT id FROM tracks", [], |r| r.get(0))
             .unwrap();
@@ -911,7 +1111,7 @@ mod tests {
         // Same path, changed mtime and a later scan clock: one row, same id, fields advance.
         let mut second = sample(200);
         second.mtime = 3000;
-        upsert_track(&conn, &second).unwrap();
+        upsert_track(&conn, &second, None).unwrap();
 
         assert_eq!(count_rows(&conn), 1);
 
@@ -931,21 +1131,21 @@ mod tests {
 
         let mut rec = sample(100);
         rec.has_embedded_cover = None;
-        upsert_track(&conn, &rec).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
         let stored: Option<i64> = conn
             .query_row("SELECT has_embedded_cover FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, None, "None persists as NULL");
 
         rec.has_embedded_cover = Some(false);
-        upsert_track(&conn, &rec).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
         let stored: Option<i64> = conn
             .query_row("SELECT has_embedded_cover FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, Some(0), "Some(false) persists as 0");
 
         rec.has_embedded_cover = Some(true);
-        upsert_track(&conn, &rec).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
         let stored: Option<i64> = conn
             .query_row("SELECT has_embedded_cover FROM tracks", [], |r| r.get(0))
             .unwrap();
@@ -955,7 +1155,7 @@ mod tests {
     #[test]
     fn upsert_track_writes_the_real_case_display_path() {
         let conn = open_in_memory().unwrap();
-        upsert_track(&conn, &sample(100)).unwrap();
+        upsert_track(&conn, &sample(100), None).unwrap();
 
         let stored: Option<String> = conn
             .query_row("SELECT display_path FROM tracks", [], |r| r.get(0))
@@ -991,23 +1191,88 @@ mod tests {
     }
 
     #[test]
-    fn workspace_root_reads_stored_root_or_none() {
+    fn first_root_path_reads_the_first_root_or_none() {
         let conn = open_in_memory().unwrap();
         assert_eq!(
-            get_workspace_root(&conn).unwrap(),
+            first_root_path(&conn).unwrap(),
             None,
-            "a fresh db has no workspace root",
+            "a fresh db has no roots",
         );
 
-        conn.execute(
-            "UPDATE meta SET workspace_root = ?1 WHERE id = 1",
-            params!["C:\\Music"],
-        )
-        .unwrap();
+        let (_, path) = get_or_create_root(&conn, "C:\\Music", 10).unwrap();
+        assert_eq!(path, "C:\\Music");
         assert_eq!(
-            get_workspace_root(&conn).unwrap(),
+            first_root_path(&conn).unwrap(),
             Some("C:\\Music".to_string()),
         );
+    }
+
+    #[test]
+    fn get_or_create_root_is_idempotent_on_the_folded_key() {
+        let conn = open_in_memory().unwrap();
+        let (first, _) = get_or_create_root(&conn, "C:\\Music", 10).unwrap();
+
+        // A re-add under different casing folds to the same key and reuses the row on Windows.
+        let (again, _) = get_or_create_root(&conn, "c:\\music", 20).unwrap();
+        if cfg!(windows) {
+            assert_eq!(first, again, "a case-different re-add reuses the root");
+        }
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))
+            .unwrap();
+        if cfg!(windows) {
+            assert_eq!(count, 1);
+        }
+    }
+
+    #[test]
+    fn fill_root_keys_fills_null_keys_from_the_path() {
+        let conn = open_in_memory().unwrap();
+        // A migration-seeded root has a path but a NULL key.
+        conn.execute(
+            "INSERT INTO roots (root_key, path, added_at) VALUES (NULL, 'C:\\Music', 5)",
+            [],
+        )
+        .unwrap();
+
+        fill_root_keys(&conn).unwrap();
+
+        let key: Option<String> = conn
+            .query_row("SELECT root_key FROM roots", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(key.as_deref(), Some(normalize_path_key("C:\\Music").as_str()));
+
+        // Idempotent: a second run leaves the already-filled key untouched.
+        fill_root_keys(&conn).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM roots WHERE root_key IS NULL", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn list_roots_reports_per_root_track_counts() {
+        let conn = open_in_memory().unwrap();
+        let (a, _) = get_or_create_root(&conn, "/music/a", 1).unwrap();
+        let (b, _) = get_or_create_root(&conn, "/music/b", 1).unwrap();
+
+        let mut ra = sample(1);
+        ra.source_path = "/music/a/1.mp3".to_string();
+        upsert_track(&conn, &ra, Some(a)).unwrap();
+        let mut ra2 = sample(1);
+        ra2.source_path = "/music/a/2.mp3".to_string();
+        upsert_track(&conn, &ra2, Some(a)).unwrap();
+        let mut rb = sample(1);
+        rb.source_path = "/music/b/1.mp3".to_string();
+        upsert_track(&conn, &rb, Some(b)).unwrap();
+
+        let roots = list_roots(&conn).unwrap();
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].track_count, 2, "root a holds two tracks");
+        assert_eq!(roots[1].track_count, 1, "root b holds one track");
     }
 
     #[test]
@@ -1050,7 +1315,7 @@ mod tests {
     #[test]
     fn create_single_seeds_release_fields_from_raw_tags() {
         let mut conn = open_in_memory().unwrap();
-        upsert_track(&conn, &sample(100)).unwrap();
+        upsert_track(&conn, &sample(100), None).unwrap();
         let track_id: i64 = conn
             .query_row("SELECT id FROM tracks", [], |r| r.get(0))
             .unwrap();
@@ -1074,7 +1339,7 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         let mut rec = sample(100);
         rec.raw_title = None;
-        upsert_track(&conn, &rec).unwrap();
+        upsert_track(&conn, &rec, None).unwrap();
         let track_id: i64 = conn
             .query_row("SELECT id FROM tracks", [], |r| r.get(0))
             .unwrap();
@@ -1094,8 +1359,8 @@ mod tests {
         a.source_path = "/music/a.mp3".to_string();
         let mut b = sample(100);
         b.source_path = "/music/b.mp3".to_string();
-        upsert_track(&conn, &a).unwrap();
-        upsert_track(&conn, &b).unwrap();
+        upsert_track(&conn, &a, None).unwrap();
+        upsert_track(&conn, &b, None).unwrap();
         let ids: Vec<i64> = conn
             .prepare("SELECT id FROM tracks ORDER BY id")
             .unwrap()
@@ -1119,5 +1384,85 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM albums", [], |r| r.get(0))
             .unwrap();
         assert_eq!(none, 0, "a rejected single writes no album row");
+    }
+
+    // Inserts a track at `path` stamped with `root_id` and returns its id.
+    fn track_under(conn: &Connection, path: &str, root_id: i64) -> i64 {
+        let mut rec = sample(1);
+        rec.source_path = path.to_string();
+        upsert_track(conn, &rec, Some(root_id)).unwrap();
+        conn.query_row(
+            "SELECT id FROM tracks WHERE source_path = ?1",
+            params![path],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn remove_root_drops_tracks_and_empties_or_shrinks_albums() {
+        let mut conn = open_in_memory().unwrap();
+        let (a, _) = get_or_create_root(&conn, "/music/a", 1).unwrap();
+        let (b, _) = get_or_create_root(&conn, "/music/b", 1).unwrap();
+
+        let a1 = track_under(&conn, "/music/a/1.mp3", a);
+        let a2 = track_under(&conn, "/music/a/2.mp3", a);
+        let b1 = track_under(&conn, "/music/b/1.mp3", b);
+
+        // One album mixes both roots; one is built entirely from root A.
+        let shared = create_album(
+            &mut conn, Some("shared".into()), None, None, None, None, &[a1, b1], ALBUM_KIND, 1,
+        )
+        .unwrap();
+        let a_only = create_album(
+            &mut conn, Some("a only".into()), None, None, None, None, &[a2], ALBUM_KIND, 1,
+        )
+        .unwrap();
+
+        remove_root(&mut conn, a).unwrap();
+
+        // Root A's tracks are cascaded away; root B's survives.
+        let remaining: Vec<i64> = conn
+            .prepare("SELECT id FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(remaining, vec![b1], "only root B's track survives");
+
+        // The all-from-A album is deleted; the shared album survives, shrunk to its B member.
+        assert!(
+            get_album(&conn, a_only.id).unwrap().is_none(),
+            "the emptied album is deleted",
+        );
+        let shared_row = get_album(&conn, shared.id)
+            .unwrap()
+            .expect("the shared album survives");
+        assert_eq!(
+            shared_row.track_count, 1,
+            "the shared album shrinks to its surviving member",
+        );
+    }
+
+    #[test]
+    fn root_removal_impact_counts_partial_and_entire_albums() {
+        let mut conn = open_in_memory().unwrap();
+        let (a, _) = get_or_create_root(&conn, "/music/a", 1).unwrap();
+        let (b, _) = get_or_create_root(&conn, "/music/b", 1).unwrap();
+
+        let a1 = track_under(&conn, "/music/a/1.mp3", a);
+        let a2 = track_under(&conn, "/music/a/2.mp3", a);
+        let a3 = track_under(&conn, "/music/a/3.mp3", a);
+        let b1 = track_under(&conn, "/music/b/1.mp3", b);
+
+        // shared is partly from A; a_only is entirely from A.
+        create_album(&mut conn, None, None, None, None, None, &[a1, b1], ALBUM_KIND, 1).unwrap();
+        create_album(&mut conn, None, None, None, None, None, &[a2, a3], ALBUM_KIND, 1).unwrap();
+
+        let (tracks, losing, emptied) = root_removal_impact(&conn, a).unwrap();
+        assert_eq!(tracks, 3, "root A holds three tracks");
+        assert_eq!(losing, 1, "one album is built partly from A");
+        assert_eq!(emptied, 1, "one album is built entirely from A");
     }
 }

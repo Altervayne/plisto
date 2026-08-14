@@ -14,7 +14,7 @@ mod write;
 
 // -- Library Imports --
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -25,7 +25,7 @@ use rayon::prelude::*;
 use crate::dto::{
     DestinationCheck, ExportItem, ExportItemStatus, ExportPhase, ExportProgress, ExportSummary,
 };
-use crate::normalize::normalize_path_key;
+use crate::paths::paths_overlap;
 use crate::scan::progress::ProgressThrottle;
 use derive::derive_layout;
 use plan::{CoverPlan, ExportPlan};
@@ -225,14 +225,12 @@ fn container_name(rel_dir: &Path) -> String {
 // ---- Destination validation ----
 
 /// Inspects a picked destination up front so the UI can gate and warn before a run. Refuses a
-/// destination that overlaps the workspace (both directions), reports whether it already holds
-/// files, and proves a probe write. Never probes inside the workspace, so a refused destination is
-/// only read.
-pub fn check_destination(destination: &str, workspace_root: Option<&str>) -> DestinationCheck {
+/// destination that overlaps any library root (both directions), reports whether it already holds
+/// files, and proves a probe write. Never probes inside a root, so a refused destination is only
+/// read.
+pub fn check_destination(destination: &str, roots: &[String]) -> DestinationCheck {
     let dest = Path::new(destination);
-    let inside = workspace_root
-        .map(|root| paths_overlap(dest, Path::new(root)))
-        .unwrap_or(false);
+    let inside = roots.iter().any(|root| paths_overlap(dest, Path::new(root)));
 
     if inside {
         return DestinationCheck {
@@ -251,43 +249,6 @@ pub fn check_destination(destination: &str, workspace_root: Option<&str>) -> Des
         non_empty,
         writable,
     }
-}
-
-/// Whether two paths overlap in either direction: one contains the other. Compared component-wise
-/// on folded keys, not by raw string prefix, so `/musicX` never matches `/music`. Resolves symlinks
-/// and `..` through canonicalization where the path exists, falling back to a lexical normalize.
-pub fn paths_overlap(a: &Path, b: &Path) -> bool {
-    let ka = path_keys(a);
-    let kb = path_keys(b);
-    ka.starts_with(&kb) || kb.starts_with(&ka)
-}
-
-/// The folded component keys of a path, canonicalized where it exists so `..`, symlinks and casing
-/// resolve, else lexically normalized so a not-yet-created destination still compares.
-fn path_keys(path: &Path) -> Vec<String> {
-    let resolved = dunce::canonicalize(path).unwrap_or_else(|_| lexical_normalize(path));
-    let folded = normalize_path_key(&resolved.to_string_lossy());
-    folded
-        .split(['/', '\\'])
-        .filter(|c| !c.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// Lexically resolves `.` and `..` without touching disk, so a destination that does not yet exist
-/// can still be compared against the workspace root.
-fn lexical_normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
 }
 
 /// Whether a directory exists and holds at least one entry. A missing directory reads as empty.
@@ -316,36 +277,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_paths_overlap_both_directions() {
-        let root = Path::new("/music/library");
-        let inside = Path::new("/music/library/export");
-        assert!(paths_overlap(inside, root), "a dest inside the root overlaps");
-        assert!(paths_overlap(root, inside), "and the check is symmetric");
-    }
+    fn check_destination_refuses_inside_any_root() {
+        let roots = vec!["/music/one".to_string(), "/music/two".to_string()];
 
-    #[test]
-    fn identical_paths_overlap() {
-        assert!(paths_overlap(Path::new("/music"), Path::new("/music")));
-    }
-
-    #[test]
-    fn sibling_prefixes_do_not_overlap() {
-        // A raw string prefix would falsely match; the component-wise check does not.
-        assert!(!paths_overlap(Path::new("/musicX"), Path::new("/music")));
-        assert!(!paths_overlap(Path::new("/music"), Path::new("/musicX")));
-    }
-
-    #[test]
-    fn unrelated_paths_do_not_overlap() {
-        assert!(!paths_overlap(Path::new("/music"), Path::new("/pictures")));
-    }
-
-    #[test]
-    fn parent_dot_dot_resolves_before_comparing() {
-        // /music/library/../export normalizes to /music/export, a sibling of the library root.
-        assert!(!paths_overlap(
-            Path::new("/music/library/../export"),
-            Path::new("/music/library"),
-        ));
+        // A dest inside the second root is refused and returns before any disk probe.
+        let inside = check_destination("/music/two/export", &roots);
+        assert!(inside.inside_workspace, "a dest inside a root is refused");
+        assert!(!inside.ok);
+        assert!(!inside.writable);
     }
 }

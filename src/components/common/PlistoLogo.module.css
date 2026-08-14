@@ -1,0 +1,43 @@
+/* The mark holds the height its caller sets; each img fills it and keeps the aspect. Display lives on
+ * the variants (not `.logo img`) so the theme toggle below is never out-specified. */
+.logo {
+  flex: none;
+  display: inline-flex;
+}
+
+.logo img {
+  width: auto;
+  height: 100%;
+}
+
+/* Platinum glows on the dark ground, steel reads on the light one - swap by theme. Default (light
+ * system, no explicit choice) shows steel; the dark rules below reveal platinum instead. */
+.platinum {
+  display: none;
+}
+
+.steel {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .platinum {
+    display: block;
+  }
+  :global(:root:not([data-theme="light"])) .steel {
+    display: none;
+  }
+}
+
+:global(:root[data-theme="dark"]) .platinum {
+  display: block;
+}
+:global(:root[data-theme="dark"]) .steel {
+  display: none;
+}
+:global(:root[data-theme="light"]) .platinum {
+  display: none;
+}
+:global(:root[data-theme="light"]) .steel {
+  display: block;
+}

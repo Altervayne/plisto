@@ -57,6 +57,20 @@ export interface ScanSummary {
   cancelled: boolean;
 }
 
+/** One library root: its folder path and indexed track count. Mirrors Root in dto.rs. */
+export interface Root {
+  id: number;
+  path: string;
+  track_count: number;
+}
+
+/** The blast radius of removing a root, for the counted confirm. Mirrors RootRemovalImpact. */
+export interface RootRemovalImpact {
+  tracks: number;
+  albums_losing_members: number;
+  albums_emptied: number;
+}
+
 /** Sort direction for `list_tracks`. Mirrors SortDir in dto.rs. */
 export type SortDir = 'asc' | 'desc';
 

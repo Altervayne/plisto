@@ -11,15 +11,15 @@ use tauri::State;
 use crate::db;
 use crate::state::AppState;
 
-/// The active workspace root, or None before any scan has stored one. The folder tree anchors on
-/// this.
+/// The first library root's path, or None when the library is empty. The interim single-folder
+/// reader until the frontend reads the whole root list.
 #[tauri::command]
 pub fn workspace_root(state: State<'_, AppState>) -> Result<Option<String>, String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::get_workspace_root(&conn).map_err(|e| e.to_string())
+    db::first_root_path(&conn).map_err(|e| e.to_string())
 }
 
 /// The value stored under `key`, or None when it is unset. A client pref falls back to its own

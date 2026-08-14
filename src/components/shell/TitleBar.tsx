@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 // -- State Imports --
-import { useWorkspace } from "../../state/store";
+import { useLibraryLabel } from "../../state/store";
 
 // -- Window Imports --
 import {
@@ -16,14 +16,11 @@ import {
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
+// -- Component Imports --
+import { PlistoLogo } from "../common/PlistoLogo";
+
 // -- Icon Imports --
 import { Minus, Square, Copy, X } from "lucide-react";
-
-// -- Asset Imports --
-// The mark is the same P + spectrum staff in both; only the notes change - platinum glows on the dark
-// ground, steel reads on the light one. The theme picks which renders (see the module CSS).
-import logoPlatinum from "../../assets/plisto-logo-final.svg";
-import logoSteel from "../../assets/plisto-logo-steel.svg";
 
 // -- Style Imports --
 import styles from "./TitleBar.module.css";
@@ -41,7 +38,7 @@ function folderName(path: string): string {
  * are guarded so the bar still renders outside the desktop shell.
  */
 export function TitleBar() {
-  const workspace = useWorkspace();
+  const label = useLibraryLabel();
   const t = useT();
   const [maximized, setMaximized] = useState(false);
 
@@ -69,16 +66,22 @@ export function TitleBar() {
   return (
     <div className={styles.bar} data-tauri-drag-region>
       <div className={styles.brand}>
-        <img src={logoPlatinum} alt="" aria-hidden="true" className={`${styles.logo} ${styles.platinum}`} />
-        <img src={logoSteel} alt="" aria-hidden="true" className={`${styles.logo} ${styles.steel}`} />
+        <PlistoLogo height={32} />
         <span className={styles.name}>Plisto</span>
       </div>
 
-      {workspace ? (
-        <div className={styles.workspace} title={workspace}>
+      {label ? (
+        <div
+          className={styles.workspace}
+          title={label.kind === "single" ? label.path : undefined}
+        >
           <span className={styles.dot} aria-hidden="true" />
-          {/* The folder name reads lighter than the full path; the path stays on hover. */}
-          <span className={styles.path}>{folderName(workspace)}</span>
+          {/* One root reads as its folder name (full path on hover); several as a plain count. */}
+          <span className={styles.path}>
+            {label.kind === "single"
+              ? folderName(label.path)
+              : t((d) => d.window.folders, { n: label.count })}
+          </span>
         </div>
       ) : null}
 

@@ -8,11 +8,15 @@ import {
   descendantTracks,
   foldId,
   immediateTracks,
+  isLibraryScope,
+  LIBRARY_SCOPE,
+  libraryBreadcrumb,
   parentId,
+  rootFolders,
 } from "./folderTree";
 
 // -- Type Imports --
-import type { TrackRow } from "../../types";
+import type { Root, TrackRow } from "../../types";
 
 // A scanned row with only the fields the tree reads. source_path is the folded identity, as the
 // backend stores it; display_path is the real-case path, or null before a scan drains it.
@@ -37,6 +41,11 @@ function track(id: number, source: string, display: string | null): TrackRow {
     missing_at: null,
     display_path: display,
   };
+}
+
+// A library root: real-case path plus the count the backend reports (unused by the tree engine).
+function root(id: number, path: string): Root {
+  return { id, path, track_count: 0 };
 }
 
 describe("foldId", () => {
@@ -152,5 +161,78 @@ describe("parentId", () => {
     expect(parentId("f:/music/lib/artist")).toBe("f:/music/lib");
     expect(parentId("/music")).toBe("/");
     expect(parentId("f:")).toBe("f:");
+  });
+});
+
+describe("rootFolders", () => {
+  const roots = [root(1, "F:\\Mobile Music"), root(2, "D:\\Archive")];
+  const tracks = [
+    track(1, "f:\\mobile music\\artist\\01.mp3", "F:\\Mobile Music\\Artist\\01.mp3"),
+    track(2, "f:\\mobile music\\artist\\02.mp3", "F:\\Mobile Music\\Artist\\02.mp3"),
+    track(3, "f:\\mobile music\\loose.mp3", "F:\\Mobile Music\\loose.mp3"),
+    track(4, "d:\\archive\\old\\03.mp3", "D:\\Archive\\Old\\03.mp3"),
+  ];
+
+  it("makes one node per root with its rolled-up count and immediate subfolders", () => {
+    const nodes = rootFolders(tracks, roots);
+    const mobile = nodes.find((n) => n.id === "f:/mobile music");
+    const archive = nodes.find((n) => n.id === "d:/archive");
+    expect(mobile).toMatchObject({ name: "Mobile Music", trackCount: 3, subfolderCount: 1 });
+    expect(archive).toMatchObject({ name: "Archive", trackCount: 1, subfolderCount: 1 });
+  });
+
+  it("sorts the roots by name, case-insensitive", () => {
+    expect(rootFolders(tracks, roots).map((n) => n.name)).toEqual(["Archive", "Mobile Music"]);
+  });
+
+  it("names an empty root from its own path, not a descendant", () => {
+    const nodes = rootFolders([], [root(1, "F:\\Mobile Music")]);
+    expect(nodes[0]).toMatchObject({ name: "Mobile Music", trackCount: 0, subfolderCount: 0 });
+  });
+
+  it("keeps a root's tracks reachable through its node and after drilling in", () => {
+    const bNode = rootFolders(tracks, roots).find((n) => n.id === "d:/archive");
+    expect(bNode?.trackCount).toBe(1);
+    // Drilling to root B, the existing prefix engine surfaces its subfolder and its track.
+    expect(childFolders(tracks, "d:/archive").map((f) => f.name)).toEqual(["Old"]);
+    expect(descendantTracks(tracks, "d:/archive").map((t) => t.id)).toEqual([4]);
+  });
+});
+
+describe("libraryBreadcrumb", () => {
+  const roots = [root(1, "F:\\Mobile Music"), root(2, "D:\\Archive")];
+  const tracks = [
+    track(1, "f:\\mobile music\\artist\\album\\01.mp3", "F:\\Mobile Music\\Artist\\Album\\01.mp3"),
+    track(2, "d:\\archive\\03.mp3", "D:\\Archive\\03.mp3"),
+  ];
+
+  it("is a single Library crumb at the library level", () => {
+    const crumbs = libraryBreadcrumb(tracks, roots, LIBRARY_SCOPE, "Library");
+    expect(crumbs.map((c) => c.name)).toEqual(["Library"]);
+    expect(crumbs[0].id).toBe(LIBRARY_SCOPE);
+  });
+
+  it("heads the chain with Library then the root at a root scope", () => {
+    const crumbs = libraryBreadcrumb(tracks, roots, "f:/mobile music", "Library");
+    expect(crumbs.map((c) => c.name)).toEqual(["Library", "Mobile Music"]);
+    expect(crumbs.map((c) => c.id)).toEqual([LIBRARY_SCOPE, "f:/mobile music"]);
+  });
+
+  it("runs Library through the containing root down to a deep scope", () => {
+    const crumbs = libraryBreadcrumb(tracks, roots, "f:/mobile music/artist/album", "Library");
+    expect(crumbs.map((c) => c.name)).toEqual(["Library", "Mobile Music", "Artist", "Album"]);
+  });
+
+  it("keeps a single root anchored with no Library crumb", () => {
+    const one = [root(1, "F:\\Mobile Music")];
+    const crumbs = libraryBreadcrumb(tracks, one, "f:/mobile music/artist", "Library");
+    expect(crumbs.map((c) => c.name)).toEqual(["Mobile Music", "Artist"]);
+  });
+});
+
+describe("isLibraryScope", () => {
+  it("holds for the sentinel and never for a real folded path", () => {
+    expect(isLibraryScope(LIBRARY_SCOPE)).toBe(true);
+    expect(isLibraryScope("f:/mobile music")).toBe(false);
   });
 });

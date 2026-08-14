@@ -19,6 +19,8 @@ import type {
   ExportSummary,
   ListTracksResponse,
   OrganizationSnapshot,
+  Root,
+  RootRemovalImpact,
   ScanProgress,
   ScanSummary,
   SortSpec,
@@ -45,6 +47,36 @@ export function scanWorkspace(
 /** Signals the running scan to stop. The backend commits its partial index and reports cancelled. */
 export function cancelScan(): Promise<void> {
   return invoke("cancel_scan");
+}
+
+/** Every library root with its live track count. */
+export function listRoots(): Promise<Root[]> {
+  return invoke<Root[]>("list_roots");
+}
+
+/** Adds `path` as a new root and scans just it, streaming progress, resolving with the summary. */
+export function addRoot(path: string, channel: Channel<ScanProgress>): Promise<ScanSummary> {
+  return invoke<ScanSummary>("add_root", { path, onProgress: channel });
+}
+
+/** Removes a root: its tracks and their memberships are dropped and emptied albums deleted. */
+export function removeRoot(id: number): Promise<void> {
+  return invoke("remove_root", { id });
+}
+
+/** Rescans one root incrementally, streaming progress, resolving with the summary. */
+export function rescanRoot(id: number, channel: Channel<ScanProgress>): Promise<ScanSummary> {
+  return invoke<ScanSummary>("rescan_root", { id, onProgress: channel });
+}
+
+/** Rescans every root (the global refresh), streaming progress, resolving with the summary. */
+export function rescanAll(channel: Channel<ScanProgress>): Promise<ScanSummary> {
+  return invoke<ScanSummary>("rescan_all", { onProgress: channel });
+}
+
+/** The blast radius of removing a root: tracks dropped, albums shrunk, albums deleted. */
+export function rootRemovalImpact(id: number): Promise<RootRemovalImpact> {
+  return invoke<RootRemovalImpact>("root_removal_impact", { id });
 }
 
 /** Wraps a progress callback in a fresh channel the export streams ticks over. */

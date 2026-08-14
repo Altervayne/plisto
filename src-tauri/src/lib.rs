@@ -6,6 +6,7 @@ mod dto;
 mod export;
 mod model;
 mod normalize;
+mod paths;
 mod resolve;
 mod scan;
 mod state;
@@ -51,6 +52,11 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db_path = data_dir.join("plisto.sqlite");
             let conn = db::open_db(&db_path)?;
+
+            // Fill any root's folded key left NULL by the migration, using the real normalize (SQL
+            // lower() is ASCII-only and would break fold-parity). Idempotent, and cheap enough to
+            // run inline before managed state takes the connection.
+            db::fill_root_keys(&conn)?;
 
             // Thumbnails and the full-res cover blobs cache beside the index, never in the music
             // folder. The webview reads thumbnails back through the asset protocol scoped here.
@@ -109,7 +115,13 @@ pub fn run() {
             commands::organize::load_organization,
             commands::export::export_library,
             commands::export::cancel_export,
-            commands::export::validate_export_destination
+            commands::export::validate_export_destination,
+            commands::roots::list_roots,
+            commands::roots::add_root,
+            commands::roots::remove_root,
+            commands::roots::rescan_root,
+            commands::roots::rescan_all,
+            commands::roots::root_removal_impact
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

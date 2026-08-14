@@ -20,43 +20,6 @@
   gap: 14px;
 }
 
-/* The mark: the same P + staff in both lockups, one shown per theme. Sized to hold its own against the
- * full-height window controls. */
-.logo {
-  flex: none;
-  display: block;
-  width: auto;
-  height: 32px;
-}
-
-/* Platinum glows on the dark ground, steel reads on the light one - swap by theme. Default (light
- * system, no explicit choice) shows steel; the dark rules below reveal platinum instead. */
-.platinum {
-  display: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  :global(:root:not([data-theme="light"])) .platinum {
-    display: block;
-  }
-  :global(:root:not([data-theme="light"])) .steel {
-    display: none;
-  }
-}
-
-:global(:root[data-theme="dark"]) .platinum {
-  display: block;
-}
-:global(:root[data-theme="dark"]) .steel {
-  display: none;
-}
-:global(:root[data-theme="light"]) .platinum {
-  display: none;
-}
-:global(:root[data-theme="light"]) .steel {
-  display: block;
-}
-
 .name {
   font-size: 16px;
   font-weight: 650;

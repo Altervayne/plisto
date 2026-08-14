@@ -15,15 +15,21 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useBandResize } from "../common/Resizer/useBandResize";
 
 // -- State Imports --
-import { useTracks, useWorkspace } from "../../state/store";
+import { useRoots, useTracks } from "../../state/store";
 import {
-  breadcrumb,
   childFolders,
   descendantTracks,
   foldId,
   immediateTracks,
+  isLibraryScope,
+  LIBRARY_SCOPE,
+  libraryBreadcrumb,
   parentId,
+  rootFolders,
 } from "../../state/files/folderTree";
+
+// -- i18n Imports --
+import { useT } from "../../i18n";
 
 // -- Type Imports --
 import type { Lens } from "./LensToggle";
@@ -40,34 +46,64 @@ import styles from "./FilesView.module.css";
  */
 export function FilesView() {
   const tracks = useTracks();
-  const workspace = useWorkspace();
-  const rootId = useMemo(() => foldId(workspace ?? ""), [workspace]);
+  const roots = useRoots();
+  const t = useT();
 
-  const [scope, setScope] = useState(rootId);
+  // One root anchors the tree at that folder; several anchor at the library level above them all.
+  const initialScope = useMemo(
+    () => (roots.length > 1 ? LIBRARY_SCOPE : foldId(roots[0]?.path ?? "")),
+    [roots],
+  );
+  // A fold-stable signature of the root set, so an add or remove resets the scope below.
+  const rootsKey = useMemo(() => roots.map((r) => foldId(r.path)).join("|"), [roots]);
+
+  const [scope, setScope] = useState(initialScope);
   const [lens, setLens] = useState<Lens>("folders");
   const [selected, setSelected] = useState<TrackRow | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
   const band = useBandResize();
 
-  // A new workspace root (a different folder scanned) resets the scope back to it, so the view never
-  // strands on a path that no longer exists.
-  const [knownRoot, setKnownRoot] = useState(rootId);
-  if (knownRoot !== rootId) {
-    setKnownRoot(rootId);
-    setScope(rootId);
+  // A changed root set (a folder added or removed) resets the scope to its anchor, so the view
+  // never strands on a path that no longer exists.
+  const [knownRoots, setKnownRoots] = useState(rootsKey);
+  if (knownRoots !== rootsKey) {
+    setKnownRoots(rootsKey);
+    setScope(initialScope);
     setSelected(null);
   }
 
-  const crumbs = useMemo(() => breadcrumb(tracks, rootId, scope), [tracks, rootId, scope]);
-  const folders = useMemo(() => childFolders(tracks, scope), [tracks, scope]);
-  const immediate = useMemo(() => immediateTracks(tracks, scope), [tracks, scope]);
-  const descendant = useMemo(() => descendantTracks(tracks, scope), [tracks, scope]);
+  const atLibrary = isLibraryScope(scope);
+  const libraryName = t((d) => d.files.library);
+
+  const crumbs = useMemo(
+    () => libraryBreadcrumb(tracks, roots, scope, libraryName),
+    [tracks, roots, scope, libraryName],
+  );
+  // At the library level the rows are the roots; below it the scope's subfolders. No immediate
+  // tracks sit at the library level, so its grid stays quietly empty in the Folders lens.
+  const folders = useMemo(
+    () => (atLibrary ? rootFolders(tracks, roots) : childFolders(tracks, scope)),
+    [atLibrary, tracks, roots, scope],
+  );
+  const immediate = useMemo(
+    () => (atLibrary ? [] : immediateTracks(tracks, scope)),
+    [atLibrary, tracks, scope],
+  );
+  const descendant = useMemo(
+    () => (atLibrary ? tracks : descendantTracks(tracks, scope)),
+    [atLibrary, tracks, scope],
+  );
 
   // Drilling drops the open peek: the track may not sit in the folder just entered.
   const navigate = (id: string) => {
     setScope(id);
     setSelected(null);
   };
+
+  // Up from a root returns to the library; from a subfolder it climbs one folder as usual.
+  const scopeIsRoot = roots.some((r) => foldId(r.path) === scope);
+  const onUp = () =>
+    navigate(roots.length > 1 && scopeIsRoot ? LIBRARY_SCOPE : parentId(scope));
 
   const scoped = lens === "folders" ? immediate : descendant;
 
@@ -77,9 +113,9 @@ export function FilesView() {
         <div className={styles.path}>
           <Breadcrumb
             crumbs={crumbs}
-            atRoot={scope === rootId}
+            atRoot={scope === initialScope}
             onNavigate={navigate}
-            onUp={() => navigate(parentId(scope))}
+            onUp={onUp}
           />
         </div>
         <LensToggle value={lens} onChange={setLens} />

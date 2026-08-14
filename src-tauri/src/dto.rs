@@ -34,6 +34,25 @@ pub struct TrackRow {
     pub display_path: Option<String>,
 }
 
+/// One library root shaped for the frontend: the real-case folder path and how many indexed
+/// tracks it holds, from a COUNT join over its tracks. Mirrors Root in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct Root {
+    pub id: i64,
+    pub path: String,
+    pub track_count: i64,
+}
+
+/// The blast radius of removing one root, for the counted confirm. `tracks` is how many indexed
+/// tracks the root holds; `albums_losing_members` is albums built partly from it that will shrink;
+/// `albums_emptied` is albums built entirely from it that will be deleted. Mirrors RootRemovalImpact.
+#[derive(Debug, Clone, Serialize)]
+pub struct RootRemovalImpact {
+    pub tracks: i64,
+    pub albums_losing_members: i64,
+    pub albums_emptied: i64,
+}
+
 /// The stage a running scan is in. `enumerating` while the folder is walked, `reading` while
 /// tags are parsed, `done` on the single terminal emit.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -269,10 +288,9 @@ pub struct ExportSummary {
 }
 
 /// The up-front verdict on a picked destination, so the UI can gate and warn before a run.
-/// `inside_workspace` is the hard refusal (a dest overlapping the source folder); `non_empty` is
+/// `inside_workspace` is the hard refusal (a dest overlapping any library root); `non_empty` is
 /// the soft warn (a destination that already holds files); `writable` proves a probe write
-/// succeeded. `ok` is true only when the destination is usable: writable and not inside the
-/// workspace.
+/// succeeded. `ok` is true only when the destination is usable: writable and not inside any root.
 #[derive(Debug, Clone, Serialize)]
 pub struct DestinationCheck {
     pub ok: bool,

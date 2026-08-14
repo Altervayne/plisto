@@ -1,0 +1,59 @@
+/*
+ * The settings region: a titled header over the scrolling folder list, with the folder actions footed
+ * below. It fills the main region like Export, but left-aligned on the ambient ground - no frame, no
+ * card, parted from its neighbors by space.
+ */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 30px 24px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* The list bounds itself against the footer so its overflow scrolls rather than growing the region. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  /* Clear of the scrollbar overlay on the right edge. */
+  padding-right: 14px;
+}
+
+.empty {
+  margin: 0;
+  padding: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

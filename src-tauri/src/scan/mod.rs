@@ -45,12 +45,21 @@ const CHANNEL_CAP: usize = 1024;
 const PROGRESS_POLL: Duration = Duration::from_millis(50);
 const PROGRESS_INTERVAL_MS: u64 = 100;
 
-/// Runs a full scan of `root`, writing into the database at `db_path`. `cancel` stops the walk
-/// and the workers; `scanned_at` stamps every row written this pass; `emit` receives throttled
-/// progress ticks. Returns the counts once the writer has drained and (on a complete pass)
-/// reconciled presence: vanished files flagged missing, returned files cleared.
+/// One root to walk this pass: its id and its real-case anchor path. The writer stamps every track
+/// it upserts with this id, and reconcile scopes to the set of ids walked.
+pub struct ScanRoot {
+    pub id: i64,
+    pub path: PathBuf,
+}
+
+/// Runs a scan over `roots`, writing into the database at `db_path`. Each root is walked in turn,
+/// `seen` is the union of every walk, and each upserted track is stamped with its own root's id.
+/// `cancel` stops the walk and the workers; `scanned_at` stamps every row written this pass; `emit`
+/// receives throttled progress ticks. Returns the counts once the writer has drained and (on a
+/// complete pass) reconciled presence, scoped to the roots walked: vanished files under those roots
+/// flagged missing, returned ones cleared. Scanning one root never touches another root's rows.
 pub fn run_scan<E>(
-    root: &Path,
+    roots: &[ScanRoot],
     db_path: &Path,
     cancel: &Arc<AtomicBool>,
     scanned_at: i64,
@@ -70,18 +79,21 @@ where
     // The writer's own connection: open_db applies the pragmas and ensures the schema, so a
     // fresh db_path is created here and an existing one is a no-op migration.
     let conn = db::open_db(db_path).map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE meta SET workspace_root = ?1 WHERE id = 1",
-        params![root.to_string_lossy()],
-    )
-    .map_err(|e| e.to_string())?;
 
     let stats_map = load_stats(&conn).map_err(|e| e.to_string())?;
 
-    // One walk yields the exact total and the seen map (folded key -> real-case path) the sweep
-    // needs, both to reconcile presence and to drain display_path.
-    let (paths, seen) = enumerate(root, cancel);
-    let total = paths.len() as u32;
+    // Walk each root once, tagging every path with its root id. `seen` (folded key -> real-case
+    // path) is the union the sweep needs, both to reconcile presence and to drain display_path;
+    // `walked_ids` is the reconcile scope.
+    let mut work: Vec<(PathBuf, i64)> = Vec::new();
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for root in roots {
+        let (paths, sub_seen) = enumerate(&root.path, cancel);
+        work.extend(paths.into_iter().map(|p| (p, root.id)));
+        seen.extend(sub_seen);
+    }
+    let walked_ids: Vec<i64> = roots.iter().map(|r| r.id).collect();
+    let total = work.len() as u32;
 
     let scanned = AtomicUsize::new(0);
     let inserted = AtomicUsize::new(0);
@@ -90,7 +102,7 @@ where
     let errors = AtomicUsize::new(0);
     let done = AtomicBool::new(false);
 
-    let (tx, rx) = bounded::<TrackRecord>(CHANNEL_CAP);
+    let (tx, rx) = bounded::<(TrackRecord, i64)>(CHANNEL_CAP);
 
     let (missing, returned) = std::thread::scope(|s| -> Result<(u32, u32), String> {
         // The progress emitter: samples the counters and emits throttled ticks until the walk
@@ -123,11 +135,12 @@ where
 
         // The single writer, owning the write connection.
         let writer_cancel = Arc::clone(cancel);
-        let writer_handle = s.spawn(move || writer_loop(conn, rx, seen, scanned_at, writer_cancel));
+        let writer_handle =
+            s.spawn(move || writer_loop(conn, rx, seen, scanned_at, walked_ids, writer_cancel));
 
         // Fan out the reads. Each worker classifies against the pre-scan stats, so the writer
-        // stays a pure sink.
-        paths.par_iter().for_each(|path| {
+        // stays a pure sink, and carries its path's root id so the writer stamps it.
+        work.par_iter().for_each(|(path, root_id)| {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
@@ -153,7 +166,7 @@ where
                 errors.fetch_add(1, Ordering::Relaxed);
             }
             let rec = normalize_track(&path_str, stat.0, stat.1, scanned_at, &raw);
-            let _ = tx.send(rec);
+            let _ = tx.send((rec, *root_id));
             scanned.fetch_add(1, Ordering::Relaxed);
         });
 
@@ -246,21 +259,23 @@ fn file_stats(path: &Path) -> Option<(i64, i64)> {
     Some((md.len() as i64, mtime))
 }
 
-/// Drains the channel, committing batched upserts, then reconciles presence on a complete pass.
-/// Owns its connection for the whole scan. Returns `(missing, returned)`.
+/// Drains the channel, committing batched upserts stamped with each track's root id, then
+/// reconciles presence on a complete pass. Owns its connection for the whole scan. Returns
+/// `(missing, returned)`.
 fn writer_loop(
     conn: Connection,
-    rx: Receiver<TrackRecord>,
+    rx: Receiver<(TrackRecord, i64)>,
     seen: HashMap<String, String>,
     scanned_at: i64,
+    walked_ids: Vec<i64>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(u32, u32), String> {
     let to_msg = |e: rusqlite::Error| e.to_string();
 
     conn.execute_batch("BEGIN").map_err(to_msg)?;
     let mut in_batch = 0u32;
-    while let Ok(rec) = rx.recv() {
-        db::upsert_track(&conn, &rec).map_err(to_msg)?;
+    while let Ok((rec, root_id)) = rx.recv() {
+        db::upsert_track(&conn, &rec, Some(root_id)).map_err(to_msg)?;
         in_batch += 1;
         if in_batch >= WRITE_BATCH {
             conn.execute_batch("COMMIT; BEGIN").map_err(to_msg)?;
@@ -274,25 +289,39 @@ fn writer_loop(
     if cancel.load(Ordering::Relaxed) {
         return Ok((0, 0));
     }
-    reconcile_presence(&conn, &seen, scanned_at).map_err(to_msg)
+    reconcile_presence(&conn, &seen, scanned_at, &walked_ids).map_err(to_msg)
 }
 
-/// Reconciles each indexed row against the seen map, never deleting (a delete would orphan album
-/// membership). A row absent from disk and not yet flagged is stamped `missing_at = scanned_at`;
-/// a row back on disk that still carries a stamp is cleared to NULL. The clear must happen here:
-/// a returned-unchanged file is skipped by the incremental check, so its upsert never fires. A
-/// legacy row with a NULL `display_path` is filled here too, from the walk's real-case path, so
-/// no file is re-read to capture it. Returns `(missing, returned)`. Single active workspace, so
-/// every row belongs to the current root.
+/// Reconciles each indexed row under the walked roots against the seen map, never deleting (a
+/// delete would orphan album membership). The scope is `root_id IN (walked_ids)`, so scanning one
+/// root never flags another root's rows. A row absent from disk and not yet flagged is stamped
+/// `missing_at = scanned_at`; a row back on disk that still carries a stamp is cleared to NULL. The
+/// clear must happen here: a returned-unchanged file is skipped by the incremental check, so its
+/// upsert never fires. A legacy row with a NULL `display_path` is filled here too, from the walk's
+/// real-case path, so no file is re-read to capture it. Returns `(missing, returned)`.
 fn reconcile_presence(
     conn: &Connection,
     seen: &HashMap<String, String>,
     scanned_at: i64,
+    walked_ids: &[i64],
 ) -> rusqlite::Result<(u32, u32)> {
+    if walked_ids.is_empty() {
+        return Ok((0, 0));
+    }
+
+    let placeholders = walked_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT source_path, missing_at, display_path FROM tracks WHERE root_id IN ({placeholders})"
+    );
     let rows: Vec<(String, Option<i64>, Option<String>)> = {
-        let mut stmt = conn.prepare("SELECT source_path, missing_at, display_path FROM tracks")?;
-        let mapped =
-            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)))?;
+        let mut stmt = conn.prepare(&sql)?;
+        let mapped = stmt.query_map(rusqlite::params_from_iter(walked_ids.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?))
+        })?;
         mapped.collect::<rusqlite::Result<_>>()?
     };
 
@@ -377,7 +406,18 @@ mod tests {
 
     fn scan(root: &Path, db_path: &Path) -> ScanSummary {
         let cancel = Arc::new(AtomicBool::new(false));
-        run_scan(root, db_path, &cancel, 1000, no_progress).unwrap()
+        // Get-or-create the root row so the writer has an id to stamp, exactly as the command does.
+        let id = {
+            let conn = db::open_db(db_path).unwrap();
+            db::get_or_create_root(&conn, &root.to_string_lossy(), 1000)
+                .unwrap()
+                .0
+        };
+        let roots = [ScanRoot {
+            id,
+            path: root.to_path_buf(),
+        }];
+        run_scan(&roots, db_path, &cancel, 1000, no_progress).unwrap()
     }
 
     #[test]
@@ -575,6 +615,77 @@ mod tests {
             Some(real.as_str()),
             "the drain refills display_path from the walk, not a tag re-read",
         );
+    }
+
+    #[test]
+    fn scanning_one_root_does_not_flag_another_missing() {
+        let a = TempDir::new("root_a");
+        let b = TempDir::new("root_b");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        fs::write(a.path.join("a.mp3"), b"").unwrap();
+        fs::write(b.path.join("b.mp3"), b"").unwrap();
+
+        // Index both roots in one pass.
+        let (id_a, id_b) = {
+            let conn = db::open_db(&db_path).unwrap();
+            let ida = db::get_or_create_root(&conn, &a.path.to_string_lossy(), 1)
+                .unwrap()
+                .0;
+            let idb = db::get_or_create_root(&conn, &b.path.to_string_lossy(), 1)
+                .unwrap()
+                .0;
+            (ida, idb)
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let both = [
+            ScanRoot {
+                id: id_a,
+                path: a.path.clone(),
+            },
+            ScanRoot {
+                id: id_b,
+                path: b.path.clone(),
+            },
+        ];
+        run_scan(&both, &db_path, &cancel, 1000, no_progress).unwrap();
+
+        // Rescan only root B. Root A is not walked, so its row must not be flagged missing even
+        // though it is outside this pass's seen set.
+        let only_b = [ScanRoot {
+            id: id_b,
+            path: b.path.clone(),
+        }];
+        run_scan(&only_b, &db_path, &cancel, 2000, no_progress).unwrap();
+
+        assert_eq!(
+            missing_at_of(&db_path, "a.mp3"),
+            None,
+            "root A's row is untouched by a root-B-only scan",
+        );
+        assert_eq!(missing_at_of(&db_path, "b.mp3"), None, "root B's file is present");
+    }
+
+    #[test]
+    fn scan_stamps_each_track_with_its_root_id() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+
+        scan(&music.path, &db_path);
+
+        let conn = Connection::open(&db_path).unwrap();
+        let stamped: Option<i64> = conn
+            .query_row("SELECT root_id FROM tracks WHERE filename = 'a.mp3'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let root_id: i64 = conn
+            .query_row("SELECT id FROM roots", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stamped, Some(root_id), "the track carries its root's id");
     }
 
     #[test]

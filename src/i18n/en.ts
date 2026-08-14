@@ -29,16 +29,17 @@ export const en = {
   },
 
   scan: {
-    pickerTitle: "Choose your music folder",
-    pickerSafety: "Your files are read only. Plisto never moves, renames, or changes them.",
+    pickerTitle: "Add your first folder",
+    pickerSafety:
+      "Point Plisto at a folder and it scans your music. Your files stay read only - Plisto never moves, renames, or changes them, and builds a separate copy only when you export.",
     chooseFolder: "Choose folder...",
     scanningTitle: "Scanning your library",
     unreadable: "unreadable",
     failedTitle: "Scan failed",
     failedLine: "The scan could not finish. Your files are untouched.",
     tryAgain: "Try again",
-    emptyTitle: "No audio files here",
-    emptyLine: "This folder holds no tracks Plisto can read. Try another one.",
+    emptyTitle: "No music yet",
+    emptyLine: "None of your folders hold music Plisto can read. Add another folder to get started.",
   },
 
   selection: {
@@ -148,10 +149,31 @@ export const en = {
     folders: "Folders",
     allFiles: "All files",
     fileView: "File view",
+    library: "Library",
     folderPath: "Folder path",
     upOneLevel: "Up one level",
     folderTracks: { one: "{{n}} track", other: "{{n}} tracks" },
     folderSubfolders: { one: "{{n}} folder", other: "{{n}} folders" },
+  },
+
+  settings: {
+    nav: "Settings",
+    title: "Your folders",
+    sub: "Plisto scans these folders into your library.",
+    empty: "No folders yet. Add one to build your library.",
+    addFolder: "Add folder",
+    rescanAll: "Re-scan all",
+    rescan: "Re-scan folder",
+    remove: "Remove folder",
+    trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
+    removeConfirm: "Remove this folder?",
+    removeDrops: { one: "This drops {{n}} track.", other: "This drops {{n}} tracks." },
+    removeLosing: { one: "{{n}} album loses members.", other: "{{n}} albums lose members." },
+    removeEmptied: {
+      one: "{{n}} album is emptied and removed.",
+      other: "{{n}} albums are emptied and removed.",
+    },
+    removeAction: "Remove",
   },
 
   export: {
@@ -187,6 +209,7 @@ export const en = {
     maximize: "Maximize",
     restore: "Restore",
     close: "Close",
+    folders: { one: "{{n}} folder", other: "{{n}} folders" },
   },
 };
 

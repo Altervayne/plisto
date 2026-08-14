@@ -8,6 +8,7 @@ import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { FilesView } from "../files/FilesView";
 import { ExportView } from "../export/ExportView";
+import { SettingsView } from "../settings/SettingsView";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { Resizer } from "../common/Resizer/Resizer";
@@ -17,7 +18,7 @@ import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 
 // -- State Imports --
-import { useChangeWorkspace, useScanSummary } from "../../state/store";
+import { useAddRoot, useTracks } from "../../state/store";
 import {
   useAlbums,
   useCanRedo,
@@ -37,20 +38,20 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./AppShell.module.css";
 
-/** The region showing in the main pane: a library wall, or the export screen. */
-type Mode = "files" | "albums" | "singles" | "export";
+/** The region showing in the main pane: a library wall, the export screen, or settings. */
+type Mode = "files" | "albums" | "singles" | "export" | "settings";
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
  * ground, parted by space. The sidebar owns the mode switch; a library mode shows that wall plus the
- * slim undo/redo controls and the floating action bar, while Export owns the whole region and drops
- * both (they are library chrome). A scan that found no audio is its own terminal state, not an empty
+ * slim undo/redo controls and the floating action bar, while Export and Settings own the whole region
+ * and drop both (they are library chrome). A scan that found no audio is its own terminal state, not an empty
  * shell. The organize projection and the preferences cache hydrate on mount, and Create from anywhere
  * lands on Albums with the new drawer open.
  */
 export function AppShell() {
-  const summary = useScanSummary();
-  const changeWorkspace = useChangeWorkspace();
+  const tracks = useTracks();
+  const addRoot = useAddRoot();
   const albums = useAlbums();
   const singles = useSingles();
   const loadOrganization = useLoadOrganization();
@@ -65,7 +66,9 @@ export function AppShell() {
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
-  const count = summary?.total ?? 0;
+  // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
+  // hydration (no fresh scan summary) as well as after a scan.
+  const count = tracks.length;
   // One selection id serves both walls; each mode resolves it against its own bucket, so a stale id from
   // the other wall never opens a drawer here.
   const selectedAlbum = albums.find((a) => a.id === selectedAlbumId) ?? null;
@@ -105,8 +108,8 @@ export function AppShell() {
         title={t((d) => d.scan.emptyTitle)}
         line={t((d) => d.scan.emptyLine)}
         action={
-          <QuietButton onClick={() => void changeWorkspace()}>
-            {t((d) => d.common.changeFolder)}
+          <QuietButton onClick={() => void addRoot()}>
+            {t((d) => d.settings.addFolder)}
           </QuietButton>
         }
       />
@@ -125,6 +128,8 @@ export function AppShell() {
       <main className={styles.main}>
         {mode === "export" ? (
           <ExportView />
+        ) : mode === "settings" ? (
+          <SettingsView />
         ) : (
           <>
             <div className={styles.controls}>

@@ -44,17 +44,17 @@ pub async fn export_library(
         done: false,
     });
 
-    // Snapshot the plan and read the workspace root under one lock, then drop it.
+    // Snapshot the plan and read every root path under one lock, then drop it.
     let prepared = (|| -> Result<_, String> {
         let conn = state
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
         let plan = export::build_plan(&conn).map_err(|e| e.to_string())?;
-        let workspace_root = db::get_workspace_root(&conn).map_err(|e| e.to_string())?;
-        Ok((plan, workspace_root))
+        let roots = db::all_root_paths(&conn).map_err(|e| e.to_string())?;
+        Ok((plan, roots))
     })();
-    let (plan, workspace_root) = match prepared {
+    let (plan, roots) = match prepared {
         Ok(v) => v,
         Err(e) => {
             state.export_running.store(false, Ordering::SeqCst);
@@ -62,11 +62,11 @@ pub async fn export_library(
         }
     };
 
-    // Refuse a destination inside the workspace or one that is not writable, before any write.
-    let check = export::check_destination(&config.destination, workspace_root.as_deref());
+    // Refuse a destination inside any root or one that is not writable, before any write.
+    let check = export::check_destination(&config.destination, &roots);
     if check.inside_workspace {
         state.export_running.store(false, Ordering::SeqCst);
-        return Err("the destination is inside the workspace folder".to_string());
+        return Err("the destination is inside a library folder".to_string());
     }
     if !check.writable {
         state.export_running.store(false, Ordering::SeqCst);
@@ -100,20 +100,20 @@ pub fn cancel_export(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Inspects a picked destination before a run so the UI can gate and warn: whether it overlaps the
-/// workspace (a hard refusal), already holds files (a soft warn), and is writable. Never writes
-/// inside the workspace.
+/// Inspects a picked destination before a run so the UI can gate and warn: whether it overlaps any
+/// library root (a hard refusal), already holds files (a soft warn), and is writable. Never writes
+/// inside a root.
 #[tauri::command]
 pub fn validate_export_destination(
     destination: String,
     state: State<'_, AppState>,
 ) -> Result<DestinationCheck, String> {
-    let workspace_root = {
+    let roots = {
         let conn = state
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        db::get_workspace_root(&conn).map_err(|e| e.to_string())?
+        db::all_root_paths(&conn).map_err(|e| e.to_string())?
     };
-    Ok(export::check_destination(&destination, workspace_root.as_deref()))
+    Ok(export::check_destination(&destination, &roots))
 }

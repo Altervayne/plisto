@@ -10,6 +10,7 @@ pub mod covers;
 pub mod export;
 mod list_query;
 pub mod organize;
+pub mod roots;
 pub mod settings;
 
 // -- Library Imports --
@@ -21,6 +22,7 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 // -- Local Imports --
+use crate::db;
 use crate::dto::{ListTracksResponse, ScanProgress, ScanSummary, SortSpec, TrackRow};
 use crate::scan;
 use crate::state::AppState;
@@ -28,7 +30,8 @@ use list_query::build_list_query;
 
 /// Scans `path` into the index, streaming progress over `on_progress` and returning the summary.
 /// Rejects while another scan is running. Resets the cancel flag at the start so a prior cancel
-/// does not stop this run.
+/// does not stop this run. The single-root entry: it gets-or-creates a root for `path`, then runs
+/// the root-aware scan over just it, so the current single-folder frontend keeps working.
 #[tauri::command]
 pub async fn scan_workspace(
     path: String,
@@ -42,11 +45,31 @@ pub async fn scan_workspace(
 
     let db_path = state.db_path.clone();
     let cancel = Arc::clone(&state.cancel);
+    let scanned_at = now_unix();
+
+    // Get-or-create the root for this path under the write lock, then walk just it.
+    let prepared = (|| -> Result<scan::ScanRoot, String> {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        let (id, real) = db::get_or_create_root(&conn, &path, scanned_at).map_err(|e| e.to_string())?;
+        Ok(scan::ScanRoot {
+            id,
+            path: PathBuf::from(real),
+        })
+    })();
+    let root = match prepared {
+        Ok(r) => r,
+        Err(e) => {
+            state.scan_running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let root = PathBuf::from(path);
-        let scanned_at = now_unix();
-        scan::run_scan(&root, &db_path, &cancel, scanned_at, move |p| {
+        let roots = [root];
+        scan::run_scan(&roots, &db_path, &cancel, scanned_at, move |p| {
             let _ = on_progress.send(p);
         })
     })

@@ -1,12 +1,8 @@
 // -- Component Imports --
 import { NavItem } from "./NavItem";
-import { QuietButton } from "../common/QuietButton";
 
 // -- Icon Imports --
-import { LayoutGrid, Disc, Disc3, Download } from "lucide-react";
-
-// -- State Imports --
-import { useChangeWorkspace, useRescan } from "../../state/store";
+import { LayoutGrid, Disc, Disc3, Download, Settings } from "lucide-react";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -14,13 +10,14 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./Sidebar.module.css";
 
-/** The region showing in the main pane: a library wall, or the export screen. */
-type Mode = "files" | "albums" | "singles" | "export";
+/** The region showing in the main pane: a library wall, the export screen, or settings. */
+type Mode = "files" | "albums" | "singles" | "export" | "settings";
 
 /**
  * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
- * the workspace actions pinned to the bottom. Transparent ground - it flows into the main region with
- * no divider between them. Brand and workspace identity now live in the window title bar.
+ * Settings pinned to the bottom past the spacer - app-level, apart from the content nav. Transparent
+ * ground - it flows into the main region with no divider between them. Brand and library identity live
+ * in the window title bar; folder actions live inside Settings.
  */
 export function Sidebar({
   mode,
@@ -35,8 +32,6 @@ export function Sidebar({
   albumsCount: number;
   singlesCount: number;
 }) {
-  const rescan = useRescan();
-  const changeWorkspace = useChangeWorkspace();
   const t = useT();
 
   return (
@@ -78,12 +73,12 @@ export function Sidebar({
 
       <div className={styles.spacer} />
 
-      <div className={styles.actions}>
-        <QuietButton onClick={() => void rescan()}>{t((d) => d.common.rescan)}</QuietButton>
-        <QuietButton onClick={() => void changeWorkspace()}>
-          {t((d) => d.common.changeFolder)}
-        </QuietButton>
-      </div>
+      <NavItem
+        icon={<Settings size={17} strokeWidth={1.8} />}
+        label={t((d) => d.settings.nav)}
+        active={mode === "settings"}
+        onClick={() => onModeChange("settings")}
+      />
     </aside>
   );
 }

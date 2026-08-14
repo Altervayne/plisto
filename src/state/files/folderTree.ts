@@ -8,7 +8,7 @@
  */
 
 // -- Type Imports --
-import type { TrackRow } from "../../types";
+import type { Root, TrackRow } from "../../types";
 
 /** One folder in the tree at a given scope. `id` is folded; `name` is the real-case segment. */
 export interface FolderNode {
@@ -22,6 +22,17 @@ export interface FolderNode {
 export interface Crumb {
   id: string;
   name: string;
+}
+
+/**
+ * The scope one level above the roots, used only when the library holds more than one folder. The
+ * empty string can never be a real folded path, so it never collides with a folder scope.
+ */
+export const LIBRARY_SCOPE = "";
+
+/** True when the scope sits at the library level, above every root. */
+export function isLibraryScope(scope: string): boolean {
+  return scope === LIBRARY_SCOPE;
 }
 
 /** Folds any path to the client-side identity: lowercase, forward slashes, no trailing slash. */
@@ -42,6 +53,12 @@ export function parentId(id: string): string {
 function lastSegment(id: string): string {
   const cut = id.lastIndexOf("/");
   return cut < 0 ? id : id.slice(cut + 1);
+}
+
+/** The trailing real-case segment of a real path, for a library root's display name. */
+function pathName(path: string): string {
+  const segs = path.split(/[\\/]/).filter(Boolean);
+  return segs.length > 0 ? segs[segs.length - 1] : path;
 }
 
 /** The zero-based segment index of a folder's own name within a split path. */
@@ -141,4 +158,58 @@ export function breadcrumb(tracks: TrackRow[], rootId: string, scopeId: string):
   }
   chain.reverse();
   return chain.map((id) => ({ id, name: nameAt(tracks, id) }));
+}
+
+/**
+ * The library level's top rows: one node per root, each anchored at the root's folded path. Its
+ * count rolls up every track beneath the root; its subfolder count is the root's immediate children.
+ * The name is the root's own trailing real-case segment, so an empty root still reads true. Sorted
+ * by name, case-insensitive.
+ */
+export function rootFolders(tracks: TrackRow[], roots: Root[]): FolderNode[] {
+  const nodes = roots.map((root) => {
+    const id = foldId(root.path);
+    const members = descendantTracks(tracks, id);
+    return {
+      id,
+      name: pathName(root.path),
+      trackCount: members.length,
+      subfolderCount: immediateSubfolderCount(members, id),
+    };
+  });
+  nodes.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return nodes;
+}
+
+/**
+ * The breadcrumb over a multi-root library. One root keeps the plain root-anchored chain, with no
+ * Library step. Several roots prepend a Library crumb: at the library level that crumb stands alone;
+ * under a root it heads the chain from the containing root (found by folded-prefix match) down to the
+ * scope, the root crumb carrying its real-case name. `libraryName` is the injected home label.
+ */
+export function libraryBreadcrumb(
+  tracks: TrackRow[],
+  roots: Root[],
+  scopeId: string,
+  libraryName: string,
+): Crumb[] {
+  if (roots.length <= 1) {
+    return breadcrumb(tracks, foldId(roots[0]?.path ?? ""), scopeId);
+  }
+
+  const library: Crumb = { id: LIBRARY_SCOPE, name: libraryName };
+  if (isLibraryScope(scopeId)) return [library];
+
+  const root = roots.find((r) => {
+    const rid = foldId(r.path);
+    return scopeId === rid || scopeId.startsWith(rid + "/");
+  });
+  // A scope stranded outside every root (mid roots change) falls back to the library home.
+  if (!root) return [library];
+
+  const rootId = foldId(root.path);
+  const chain = breadcrumb(tracks, rootId, scopeId).map((crumb) =>
+    crumb.id === rootId ? { id: crumb.id, name: pathName(root.path) } : crumb,
+  );
+  return [library, ...chain];
 }

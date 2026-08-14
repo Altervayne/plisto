@@ -148,10 +148,28 @@ export const fr: Dict = {
     folders: "[TO COMPLETE]",
     allFiles: "[TO COMPLETE]",
     fileView: "[TO COMPLETE]",
+    library: "[TO COMPLETE]",
     folderPath: "[TO COMPLETE]",
     upOneLevel: "[TO COMPLETE]",
     folderTracks: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
     folderSubfolders: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+  },
+
+  settings: {
+    nav: "[TO COMPLETE]",
+    title: "[TO COMPLETE]",
+    sub: "[TO COMPLETE]",
+    empty: "[TO COMPLETE]",
+    addFolder: "[TO COMPLETE]",
+    rescanAll: "[TO COMPLETE]",
+    rescan: "[TO COMPLETE]",
+    remove: "[TO COMPLETE]",
+    trackCount: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    removeConfirm: "[TO COMPLETE]",
+    removeDrops: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    removeLosing: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    removeEmptied: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    removeAction: "[TO COMPLETE]",
   },
 
   export: {
@@ -187,5 +205,6 @@ export const fr: Dict = {
     maximize: "[TO COMPLETE]",
     restore: "[TO COMPLETE]",
     close: "[TO COMPLETE]",
+    folders: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
   },
 };
