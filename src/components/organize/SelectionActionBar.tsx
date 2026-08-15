@@ -16,6 +16,7 @@ import {
   useCreateAlbum,
   useCreateSingle,
   useLoadOrganization,
+  useResetHistory,
   useSelection,
 } from "../../state/organize/store";
 
@@ -56,6 +57,7 @@ export function SelectionActionBar({
   const assignTracks = useAssignTracks();
   const clearSelection = useClearSelection();
   const loadOrganization = useLoadOrganization();
+  const resetHistory = useResetHistory();
   const t = useT();
 
   const [busy, setBusy] = useState(false);
@@ -122,10 +124,12 @@ export function SelectionActionBar({
     );
   };
 
-  // After a bulk apply, pull the fresh tracks and membership so the new tags show, then clear.
+  // After a bulk apply, pull the fresh tracks and membership so the new tags show, drop the undo stack
+  // (the apply wrote outside the command engine, so a stale inverse must never replay), then clear.
   const onExtractApplied = () => {
     void useAppStore.getState().loadTracks();
     void loadOrganization();
+    resetHistory();
     clearSelection();
   };
 

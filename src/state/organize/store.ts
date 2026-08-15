@@ -61,6 +61,7 @@ interface OrganizeStore {
   loadOrganization: () => Promise<void>;
   loadGenres: () => Promise<void>;
   clearError: () => void;
+  resetHistory: () => void;
 
   commitAlbumFields: (albumId: number, next: AlbumFields) => void;
   commitTrackOverrides: (albumId: number, trackId: number, next: TrackOverride) => void;
@@ -194,6 +195,12 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     clearError: () => set({ error: null }),
+
+    // Drops the undo/redo stack, making the current projection the new baseline. A bulk write that
+    // lands outside the command engine - the filename extractor's apply - calls this after its reload,
+    // the same undo boundary create/delete/cover-set draw, so an undo can never replay a pre-write
+    // inverse against rows the extractor has since changed.
+    resetHistory: () => set({ past: [], future: [] }),
 
     commitAlbumFields: (albumId, next) => {
       const album = get().org.albums.find((a) => a.id === albumId);
@@ -616,6 +623,7 @@ export const useCanRedo = (): boolean => useOrganizeStore((s) => s.future.length
 export const useOrgError = (): string | null => useOrganizeStore((s) => s.error);
 
 export const useLoadOrganization = () => useOrganizeStore((s) => s.loadOrganization);
+export const useResetHistory = () => useOrganizeStore((s) => s.resetHistory);
 export const useLoadGenres = () => useOrganizeStore((s) => s.loadGenres);
 export const useClearError = () => useOrganizeStore((s) => s.clearError);
 export const useCommitAlbumFields = () => useOrganizeStore((s) => s.commitAlbumFields);
