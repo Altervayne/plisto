@@ -78,7 +78,8 @@ export function AlbumTrackRow({
 
   // The resolved title for browse mode's static label; a blank override and blank raw fall to the filename.
   const resolved = row.title_override ?? row.raw_title;
-  const displayTitle = resolved != null && resolved !== "" ? resolved : row.filename;
+  const untitled = resolved == null || resolved === "";
+  const displayTitle = untitled ? row.filename : resolved;
 
   // The checkbox owns its click: keep it from starting a drag or opening the title field.
   const onCheck = (e: MouseEvent) => {
@@ -165,8 +166,14 @@ export function AlbumTrackRow({
 
       {onOpen ? (
         <div className={`${styles.main} ${styles.openMain}`} onClick={onOpen}>
-          <button type="button" className={styles.openTitle} onClick={onOpen}>
-            {displayTitle}
+          <button
+            type="button"
+            className={styles.openTitle}
+            data-untitled={untitled ? "" : undefined}
+            aria-label={untitled ? row.filename : undefined}
+            onClick={onOpen}
+          >
+            {untitled ? <span className={styles.streak} aria-hidden="true" /> : displayTitle}
           </button>
           <div className={styles.rawline}>
             <Tooltip label={row.filename}>

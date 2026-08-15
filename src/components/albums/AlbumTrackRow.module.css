@@ -206,7 +206,7 @@
  * opens the peek instead of editing in place. Truncates rather than wrapping so the row height holds. */
 .openTitle {
   align-self: flex-start;
-  max-width: 100%;
+  width: 100%;
   margin: 0;
   padding: 2px 0 3px;
   border: 0;
@@ -224,6 +224,24 @@
 
 .openTitle:hover {
   color: var(--accent);
+}
+
+/* Empty-title marker: a short, faint bar where the title would sit. A tag-less track reads at a glance
+ * without echoing the filename already shown on the line beneath, so the row stays quick to scan. */
+.streak {
+  display: inline-block;
+  width: 512px;
+  max-width: 50%;
+  height: 2px;
+  border-radius: var(--pill);
+  background: var(--ink-3);
+  opacity: 0.32;
+  vertical-align: middle;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.row:hover .streak {
+  opacity: 0.45;
 }
 
 /* The raw original beneath the clean title: mono filename, an edited marker, and the revert link. */

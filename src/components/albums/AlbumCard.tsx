@@ -41,7 +41,9 @@ export function AlbumCard({
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
 }) {
-  const { src } = useAlbumCover(album.id);
+  // Detail res, not thumb: the tile is 168px (more on hi-DPI) and the source cover is often larger, so a
+  // 128px thumb reads crunchy against the sharp drawer and folder-view covers, which already use detail.
+  const { src } = useAlbumCover(album.id, "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();

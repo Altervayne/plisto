@@ -42,6 +42,9 @@ export function Cover({
           className={styles.art}
           src={src}
           alt={alt}
+          // Decode off the main thread so a wall of full-res covers never janks the scroll; the browser
+          // still only decodes tiles it paints, so an off-screen cover costs nothing until it scrolls in.
+          decoding="async"
           onError={() => {
             setBroken(true);
             onError?.();
