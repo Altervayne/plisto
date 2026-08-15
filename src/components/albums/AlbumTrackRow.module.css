@@ -5,12 +5,18 @@
  */
 .row {
   display: grid;
-  grid-template-columns: 16px 28px 26px 1fr auto;
+  grid-template-columns: 16px 26px 1fr auto;
   align-items: start;
   gap: 10px;
   padding: 7px 6px;
   border-radius: var(--r-sm);
   transition: background var(--dur-fast) ease;
+}
+
+/* A multi-disc album reserves the per-row disc column; a single-disc album drops it entirely so the
+ * common case stays pristine and the title is not pushed right by a field it never needs. */
+.row.withDisc {
+  grid-template-columns: 16px 28px 26px 1fr auto;
 }
 
 .row:hover {
@@ -30,8 +36,7 @@
  * and surfaces on row hover or when the handle takes keyboard focus.
  */
 .handle {
-  align-self: start;
-  margin-top: 3px;
+  align-self: center;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -36,10 +36,12 @@ import styles from "./AlbumTrackRow.module.css";
 export function AlbumTrackRow({
   row,
   displayNo,
+  showDisc,
   onSetDisc,
 }: {
   row: AlbumTrackRowData;
   displayNo: number;
+  showDisc: boolean;
   onSetDisc: (disc: number | null) => void;
 }) {
   const commit = useCommitTrackOverrides();
@@ -77,7 +79,7 @@ export function AlbumTrackRow({
     <div
       ref={setNodeRef}
       style={style}
-      className={styles.row}
+      className={showDisc ? `${styles.row} ${styles.withDisc}` : styles.row}
       data-missing={row.missing_at != null ? "" : undefined}
       data-dragging={isDragging ? "" : undefined}
     >
@@ -91,13 +93,15 @@ export function AlbumTrackRow({
         <GripVertical size={16} strokeWidth={1.8} />
       </button>
 
-      <div className={styles.disc}>
-        <EditableField
-          value={String(discOf(row))}
-          ariaLabel={t((d) => d.tracks.fields.discNo)}
-          onCommit={onDisc}
-        />
-      </div>
+      {showDisc ? (
+        <div className={styles.disc}>
+          <EditableField
+            value={String(discOf(row))}
+            ariaLabel={t((d) => d.tracks.fields.discNo)}
+            onCommit={onDisc}
+          />
+        </div>
+      ) : null}
 
       <span className={styles.no}>{displayNo}</span>
 

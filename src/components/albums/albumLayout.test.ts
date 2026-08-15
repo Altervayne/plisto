@@ -2,7 +2,14 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { discOf, groupByDisc, layoutInOrder, moveToDisc, placeAt } from "./albumLayout";
+import {
+  discOf,
+  groupByDisc,
+  layoutInOrder,
+  moveToDisc,
+  placeAt,
+  reorderOnto,
+} from "./albumLayout";
 
 // -- Type Imports --
 import type { AlbumTrackRow } from "../../types";
@@ -170,5 +177,51 @@ describe("placeAt", () => {
       { track_id: 1, disc_no: 1, track_no: 1 },
       { track_id: 2, disc_no: 1, track_no: 2 },
     ]);
+  });
+});
+
+describe("reorderOnto", () => {
+  const four = [row(1, 1, 1), row(2, 1, 2), row(3, 1, 3), row(4, 1, 4)];
+
+  // The regression: dragging a track UP onto an earlier row must land it exactly there, not one below.
+  it("drops an upward move onto the target row, not one past it", () => {
+    expect(reorderOnto(four, 3, 1).map((p) => p.track_id)).toEqual([3, 1, 2, 4]);
+  });
+
+  it("drops an upward move into the middle exactly before the target", () => {
+    expect(reorderOnto(four, 4, 2).map((p) => p.track_id)).toEqual([1, 4, 2, 3]);
+  });
+
+  it("drops a downward move after the target row", () => {
+    expect(reorderOnto(four, 1, 3).map((p) => p.track_id)).toEqual([2, 3, 1, 4]);
+  });
+
+  it("moving a row onto its own neighbour swaps the two", () => {
+    expect(reorderOnto(four, 1, 2).map((p) => p.track_id)).toEqual([2, 1, 3, 4]);
+    expect(reorderOnto(four, 2, 1).map((p) => p.track_id)).toEqual([2, 1, 3, 4]);
+  });
+
+  it("a downward cross-disc drop joins the target disc after the over row", () => {
+    const spanning = [row(1, 1, 1), row(2, 1, 2), row(3, 2, 1), row(4, 2, 2)];
+    expect(reorderOnto(spanning, 1, 4)).toEqual([
+      { track_id: 2, disc_no: 1, track_no: 1 },
+      { track_id: 3, disc_no: 2, track_no: 1 },
+      { track_id: 4, disc_no: 2, track_no: 2 },
+      { track_id: 1, disc_no: 2, track_no: 3 },
+    ]);
+  });
+
+  it("an upward cross-disc drop joins the target disc before the over row", () => {
+    const spanning = [row(1, 1, 1), row(2, 1, 2), row(3, 2, 1), row(4, 2, 2)];
+    expect(reorderOnto(spanning, 4, 1)).toEqual([
+      { track_id: 4, disc_no: 1, track_no: 1 },
+      { track_id: 1, disc_no: 1, track_no: 2 },
+      { track_id: 2, disc_no: 1, track_no: 3 },
+      { track_id: 3, disc_no: 2, track_no: 1 },
+    ]);
+  });
+
+  it("leaves the layout numbered when a row is unknown", () => {
+    expect(reorderOnto(four, 99, 1).map((p) => p.track_id)).toEqual([1, 2, 3, 4]);
   });
 });

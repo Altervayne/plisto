@@ -25,7 +25,7 @@ import { AlbumTrackRow } from "./AlbumTrackRow";
 import { useAlbumTracks, useSetAlbumLayout } from "../../state/organize/store";
 
 // -- Utils Imports --
-import { discOf, groupByDisc, moveToDisc, placeAt } from "./albumLayout";
+import { groupByDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 
 // -- Type Imports --
 import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
@@ -100,30 +100,19 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
     if (!over || over.id === active.id) return;
     const trackId = Number(active.id);
 
-    // Resolve the target disc and the index within it from live geometry. An empty disc zone seeds
-    // the track first; a drop onto a row takes that row's disc and slots before or after it by which
-    // half the dragged row's center has crossed.
-    let disc: number;
-    let index: number;
+    // An empty disc zone seeds the track there first and sheds its transient state. Otherwise the
+    // drop reorders onto a row: `reorderOnto` takes that row's disc and slots before or after it by
+    // the DIRECTION of travel, not a mid-drag pointer read (which drifts by one on an upward move).
     if (typeof over.id === "string" && over.id.startsWith(EMPTY_DISC)) {
-      disc = Number(over.id.slice(EMPTY_DISC.length));
-      index = 0;
-    } else {
-      const overRow = tracks.find((r) => r.track_id === Number(over.id));
-      if (!overRow) return;
-      disc = discOf(overRow);
-      const run = tracks.filter((r) => discOf(r) === disc && r.track_id !== trackId);
-      const at = run.findIndex((r) => r.track_id === overRow.track_id);
-      const dragged = active.rect.current.translated;
-      const below =
-        dragged != null &&
-        dragged.top + dragged.height / 2 > over.rect.top + over.rect.height / 2;
-      index = at + (below ? 1 : 0);
+      const disc = Number(over.id.slice(EMPTY_DISC.length));
+      setLayout(albumId, placeAt(tracks, trackId, disc, 0));
+      setAddedDisc(null);
+      return;
     }
 
-    setLayout(albumId, placeAt(tracks, trackId, disc, index));
-    // A track now backs the once-empty disc, so shed the transient state and let the real group stand.
-    if (disc === addedDisc) setAddedDisc(null);
+    const overId = Number(over.id);
+    if (!tracks.some((r) => r.track_id === overId)) return;
+    setLayout(albumId, reorderOnto(tracks, trackId, overId));
   };
 
   const multi = displayGroups.length > 1;
@@ -156,13 +145,13 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
                 {g.rows.length === 0 ? (
                   <EmptyDisc disc={g.disc} hint={t((d) => d.albums.discEmpty)} />
                 ) : (
-                  <DiscRows rows={g.rows} onSetDisc={onSetDisc} />
+                  <DiscRows rows={g.rows} showDisc onSetDisc={onSetDisc} />
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <DiscRows rows={displayGroups[0].rows} onSetDisc={onSetDisc} />
+          <DiscRows rows={displayGroups[0].rows} showDisc={false} onSetDisc={onSetDisc} />
         )}
       </SortableContext>
 
@@ -181,9 +170,11 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
  */
 function DiscRows({
   rows,
+  showDisc,
   onSetDisc,
 }: {
   rows: AlbumTrackRowData[];
+  showDisc: boolean;
   onSetDisc: (trackId: number, disc: number | null) => void;
 }) {
   return (
@@ -193,6 +184,7 @@ function DiscRows({
           key={row.track_id}
           row={row}
           displayNo={i + 1}
+          showDisc={showDisc}
           onSetDisc={(disc) => onSetDisc(row.track_id, disc)}
         />
       ))}

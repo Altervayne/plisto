@@ -109,3 +109,27 @@ export function moveToDisc(
   }
   return layoutInOrder(ordered);
 }
+
+/**
+ * Resolves a drop of one member onto another into the full re-numbered layout. The drop takes the
+ * over-row's disc and slots before or after it by the DIRECTION of travel: a track dragged downward
+ * (it started above the over) lands after it, one dragged upward lands before it. Direction is what
+ * dnd-kit's own arrayMove keys on, and it stays correct both ways where a mid-drag pointer-vs-row
+ * geometry read drifts by one on an upward move. Members must arrive sorted by (disc, track_no).
+ */
+export function reorderOnto(
+  members: AlbumTrackRow[],
+  movedId: number,
+  overId: number,
+): TrackPlacement[] {
+  const from = members.findIndex((r) => r.track_id === movedId);
+  const overIndex = members.findIndex((r) => r.track_id === overId);
+  if (from === -1 || overIndex === -1) return layoutInOrder(members);
+
+  const disc = discOf(members[overIndex]);
+  const run = members.filter((r) => discOf(r) === disc && r.track_id !== movedId);
+  const at = run.findIndex((r) => r.track_id === overId);
+  // Downward (the moved row sat above the over) lands after it; upward lands before it.
+  const after = from < overIndex;
+  return placeAt(members, movedId, disc, at + (after ? 1 : 0));
+}
