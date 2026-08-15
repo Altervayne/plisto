@@ -1,0 +1,41 @@
+/*
+ * The playlists region: a titled header over the scrolling list, left-aligned on the ambient ground
+ * like Settings - no frame, no card. It owns the whole main region, so it carries its own horizontal
+ * inset to match the other full-region screens.
+ */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 30px 24px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+/* The list bounds itself against the header so its overflow scrolls rather than growing. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  /* Clear of the scrollbar overlay on the right edge. */
+  padding-right: 14px;
+}

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { AlbumPicker } from "./AlbumPicker";
+import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { ExtractPanel } from "../extract/ExtractPanel";
 
 // -- State Imports --
@@ -19,6 +20,11 @@ import {
   useResetHistory,
   useSelection,
 } from "../../state/organize/store";
+import {
+  useAddTracksToPlaylist,
+  useCreatePlaylist,
+  usePlaylists,
+} from "../../state/playlists/store";
 
 // -- Type Imports --
 import type { ExtractTrack } from "../extract/ExtractPanel";
@@ -58,11 +64,15 @@ export function SelectionActionBar({
   const clearSelection = useClearSelection();
   const loadOrganization = useLoadOrganization();
   const resetHistory = useResetHistory();
+  const playlists = usePlaylists();
+  const createPlaylist = useCreatePlaylist();
+  const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
   // The extractor opens over a snapshot of the selection, so it holds its result even after the apply
   // clears the selection out from under the bar.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
@@ -110,6 +120,22 @@ export function SelectionActionBar({
     setPickerOpen(false);
   };
 
+  // Add the selection to an existing playlist, then clear it. The picker holds a snapshot of the ids, so
+  // clearing after does not undo the add.
+  const onChoosePlaylist = (playlistId: number) => {
+    void addTracksToPlaylist(playlistId, selectedIds);
+    clearSelection();
+    setPlaylistPickerOpen(false);
+  };
+
+  // Create a playlist from the typed name, add the selection to it, then clear.
+  const onCreatePlaylist = async (name: string) => {
+    const playlistId = await createPlaylist(name);
+    await addTracksToPlaylist(playlistId, selectedIds);
+    clearSelection();
+    setPlaylistPickerOpen(false);
+  };
+
   // Snapshots the selection into the extractor: each track keyed by id, its display path preferred over
   // the source path for the hover.
   const openExtract = () => {
@@ -141,6 +167,15 @@ export function SelectionActionBar({
             <AlbumPicker albums={albums} onChoose={onChoose} onClose={() => setPickerOpen(false)} />
           ) : null}
 
+          {playlistPickerOpen ? (
+            <PlaylistPicker
+              playlists={playlists}
+              onChoose={onChoosePlaylist}
+              onCreate={(name) => void onCreatePlaylist(name)}
+              onClose={() => setPlaylistPickerOpen(false)}
+            />
+          ) : null}
+
           <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
             <div className={styles.summary}>
               <span className={styles.count}>{selection.size}</span>
@@ -156,8 +191,21 @@ export function SelectionActionBar({
               <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
                 {t((d) => d.singles.make, { n: selection.size })}
               </QuietButton>
-              <QuietButton onClick={() => setPickerOpen((open) => !open)}>
+              <QuietButton
+                onClick={() => {
+                  setPlaylistPickerOpen(false);
+                  setPickerOpen((open) => !open);
+                }}
+              >
                 {t((d) => d.selection.addToAlbum)}
+              </QuietButton>
+              <QuietButton
+                onClick={() => {
+                  setPickerOpen(false);
+                  setPlaylistPickerOpen((open) => !open);
+                }}
+              >
+                {t((d) => d.playlists.addTo)}
               </QuietButton>
               <QuietButton onClick={openExtract}>{t((d) => d.extract.action)}</QuietButton>
               <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>

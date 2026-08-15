@@ -1,0 +1,39 @@
+/*
+ * The full-pane playlist header: the cover holds its width on the left, the name over its description and
+ * meta line fill the rest on the right - the album folder header's wide shape, now with a cover a playlist
+ * carries too.
+ */
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 8px 0 20px;
+}
+
+/* The cover keeps a fixed column so the meta gets the remaining width; PlaylistCoverField fills it. */
+.cover {
+  flex: 0 0 200px;
+  max-width: 200px;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* The count leads the meta line, the delete control sitting to its right, parted by space. */
+.line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.count {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}

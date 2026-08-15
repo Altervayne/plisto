@@ -11,9 +11,11 @@
 mod derive;
 pub mod extract;
 pub mod plan;
+pub mod playlist;
 mod write;
 
 // -- Library Imports --
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -30,10 +32,14 @@ use crate::paths::paths_overlap;
 use crate::scan::progress::ProgressThrottle;
 use derive::derive_layout;
 use plan::{CoverPlan, ExportPlan};
-use write::{cover_jpeg, export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
+use write::{export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
 
-pub use derive::{template_preview, AlbumTemplate};
-pub use plan::build_plan;
+pub use derive::{safe_component, template_preview, AlbumTemplate};
+pub use plan::{build_plan, playlist_folder_plan};
+pub use playlist::{
+    playlist_cover_plan, playlist_export_plan, render_m3u, render_rich_m3u8, PlaylistExportPlan,
+};
+pub use write::cover_jpeg;
 
 // The progress cadence, matched to the scan: sample faster than the emit interval so a finished
 // run is noticed quickly, and let the throttle coalesce the wakeups into steady ticks.
@@ -231,6 +237,91 @@ where
     }
 }
 
+/// Runs the album-structured folder export of a playlist into `destination`: the same run_export the
+/// library uses, over a playlist-scoped `plan` (each album and single the playlist touches, plus one
+/// Unsorted bag of its loose tracks), then the playlist's own `cover.jpg`, a `.nomedia`, and a
+/// bundled `.m3u8` at the root. `cover` is the playlist's own art, written once at the root; the
+/// per-album covers ride inside their containers through run_export. `m3u` is the play-order slot
+/// snapshot the bundled playlist lists. A cancelled or container-less run skips the three root files.
+/// Sources and the cover store are read-only; nothing is written outside `destination`.
+pub fn run_playlist_folder<E>(
+    plan: &ExportPlan,
+    m3u: &PlaylistExportPlan,
+    cover: &CoverPlan,
+    destination: &Path,
+    covers_dir: &Path,
+    cancel: &Arc<AtomicBool>,
+    emit: E,
+) -> ExportSummary
+where
+    E: Fn(ExportProgress) + Sync,
+{
+    // A playlist folder always lays its albums out with the shipped default template.
+    let template = AlbumTemplate::resolve("", "");
+    let summary = run_export(plan, destination, &template, covers_dir, cancel, emit);
+
+    // The root files land beside the copies once at least one container was written and the run was
+    // not cancelled - the same gate the bundle used, and enough to know the destination exists.
+    if !summary.cancelled && summary.containers_written > 0 {
+        if let Some(jpeg) = cover_jpeg(cover, covers_dir) {
+            write_root_file(destination, "cover.jpg", &jpeg);
+        }
+        // The empty .nomedia keeps the exported cover out of gallery scanners.
+        write_root_file(destination, ".nomedia", b"");
+        write_bundled_m3u(plan, m3u, destination, &template);
+    }
+
+    summary
+}
+
+/// Writes one file at the destination root through a temp-then-rename, so a reader never sees a
+/// half-written file. A failed write is quiet - the copies still landed.
+fn write_root_file(destination: &Path, name: &str, bytes: &[u8]) {
+    let final_path = destination.join(name);
+    let tmp = destination.join(format!(".plisto-tmp-{name}"));
+    if fs::write(&tmp, bytes).is_ok() {
+        let _ = fs::rename(&tmp, &final_path);
+    }
+}
+
+/// Writes the bundled `.m3u8` at the destination root, listing each present slot in play order by its
+/// relative exported path (`Artist/Album/file` or `Unsorted/file`), so the playlist sits beside the
+/// files it names. The name is the playlist's, or `Playlist` when unset, sanitized to a safe
+/// component. Staged to a temp and atomically renamed; a failed write is quiet, the copies landed.
+fn write_bundled_m3u(
+    plan: &ExportPlan,
+    m3u: &PlaylistExportPlan,
+    destination: &Path,
+    template: &AlbumTemplate,
+) {
+    let dest_len = destination.to_string_lossy().chars().count();
+    let content = bundled_m3u_content(plan, m3u, dest_len, template);
+
+    let stem = safe_component(m3u.name.as_deref().unwrap_or("Playlist"), "Playlist");
+    write_root_file(destination, &format!("{stem}.m3u8"), content.as_bytes());
+}
+
+/// The bundled playlist body: each present slot mapped to its track's relative exported path, in play
+/// order. The path map is re-derived from the same layout run_export wrote - pure and deterministic,
+/// so it matches byte-for-byte - and keyed by track id, so a slot the playlist holds twice points at
+/// the one copy. A missing-source slot is dropped by render_m3u, matching the copy's skip.
+fn bundled_m3u_content(
+    plan: &ExportPlan,
+    m3u: &PlaylistExportPlan,
+    dest_len: usize,
+    template: &AlbumTemplate,
+) -> String {
+    let layout = derive_layout(&plan.containers, dest_len, template);
+    let mut rel: HashMap<i64, String> = HashMap::new();
+    for clayout in &layout {
+        for track in &clayout.tracks {
+            let path = clayout.rel_dir.join(&track.filename);
+            rel.insert(track.track_id, path.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    render_m3u(m3u, |t| rel.get(&t.track_id).cloned().unwrap_or_default())
+}
+
 /// The note for an exported track: none when its art embedded, a caveat when the format could not
 /// carry it, or when a planned cover could not be resolved. A track with no planned art is clean.
 fn embed_note(embed: EmbedResult, cover_expected: bool) -> Option<&'static str> {
@@ -325,6 +416,80 @@ mod tests {
     use rusqlite::Connection;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicU32;
+
+    // One album ExportTrack for the bundled-path test.
+    fn album_track(track_id: i64, title: &str, artist: &str, track_no: Option<i64>) -> plan::ExportTrack {
+        plan::ExportTrack {
+            track_id,
+            source: format!("/m/{track_id}.mp3"),
+            ext: "mp3".into(),
+            title: Some(title.into()),
+            artist: Some(artist.into()),
+            album_override: None,
+            album_artist_override: None,
+            year_override: None,
+            genres: Vec::new(),
+            track_no,
+            disc_no: None,
+            has_embedded: false,
+        }
+    }
+
+    // One play-order slot, carrying only what render_m3u reads for its label and duration.
+    fn slot(track_id: i64, artist: &str, title: &str) -> playlist::PlaylistExportTrack {
+        playlist::PlaylistExportTrack {
+            track_id,
+            source_path: format!("/m/{track_id}.mp3"),
+            duration_secs: Some(10.0),
+            missing_at: None,
+            title: Some(title.into()),
+            artist: Some(artist.into()),
+        }
+    }
+
+    #[test]
+    fn bundled_m3u_references_relative_exported_paths() {
+        // An album member and a loose track: the bundle points each slot at its container-relative
+        // path - Artist/Album for the member, Unsorted for the loose one - in play order.
+        let album = plan::ExportContainer {
+            album_id: 1,
+            kind: plan::ContainerKind::Album,
+            album_artist: Some("AA".into()),
+            title: Some("Rec".into()),
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![album_track(10, "Song", "Art", Some(1))],
+            skipped: Vec::new(),
+        };
+        let unsorted = plan::ExportContainer {
+            album_id: 0,
+            kind: plan::ContainerKind::Unsorted,
+            album_artist: None,
+            title: None,
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![album_track(20, "Loose", "Solo", None)],
+            skipped: Vec::new(),
+        };
+        let export_plan = ExportPlan {
+            containers: vec![album, unsorted],
+        };
+        let m3u = PlaylistExportPlan {
+            name: Some("Mix".into()),
+            tracks: vec![slot(10, "Art", "Song"), slot(20, "Solo", "Loose")],
+        };
+
+        let content = bundled_m3u_content(&export_plan, &m3u, 0, &AlbumTemplate::resolve("", ""));
+        assert_eq!(
+            content,
+            "#EXTM3U\n\
+             #EXTINF:10,Art - Song\n\
+             AA/Rec/01 - Song.mp3\n\
+             #EXTINF:10,Solo - Loose\n\
+             Unsorted/Solo - Loose.mp3\n",
+            "each slot points at its relative exported path in play order",
+        );
+    }
 
     #[test]
     fn check_destination_refuses_inside_any_root() {

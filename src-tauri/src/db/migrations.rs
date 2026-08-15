@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 8;
+const LATEST_VERSION: i64 = 10;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -214,6 +214,46 @@ ALTER TABLE album_tracks DROP COLUMN artist_override;
 ALTER TABLE album_tracks DROP COLUMN disc_no;
 ";
 
+// Version 9: playlists, the one multi-membership container. A playlist is an ordered list of tracks
+// where the SAME track may sit more than once, so a membership's identity is its slot - the
+// `playlist_tracks.id` synthetic row - not its track_id. That is the deliberate break from albums and
+// genres, which stay single-membership: there is no UNIQUE(track_id) and no UNIQUE(playlist_id,
+// track_id) here, and `position` is a plain 1..N order that tolerates duplicates and gaps. Both
+// foreign keys CASCADE, so deleting a playlist drops its slots and deleting a track (or its root)
+// drops the slots that pointed at it while the playlist row stays. `name` is nullable like
+// albums.title - NULL means unset, resolved to a display default in the frontend, never an empty
+// string. The index keys the per-playlist ordered read to one predicate.
+const MIGRATION_V9: &str = "
+CREATE TABLE playlists (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE playlist_tracks (
+    id          INTEGER PRIMARY KEY,
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id    INTEGER NOT NULL REFERENCES tracks(id)    ON DELETE CASCADE,
+    position    INTEGER NOT NULL
+);
+
+CREATE INDEX idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
+";
+
+// Version 10: playlist metadata. Two additive columns on `playlists`, both NULL for every existing
+// row - the true prior state, since no playlist carried either before. `description` is free text,
+// NULL meaning unset (resolved to a display default in the frontend, never an empty string).
+// `cover_id` is the playlist's bound cover, reusing the content-hash `covers` manifest exactly as
+// `albums.cover_id` does - a plain REFERENCES with no ON DELETE, matching the album binding, so the
+// column carries the same shape the album cover already does. The ADD COLUMN keeps its implicit NULL
+// default, which the REFERENCES clause requires. A playlist cover is only ever the one the user set:
+// there is no member-track fallback the way an album's cover falls back to a member's art.
+const MIGRATION_V10: &str = "
+ALTER TABLE playlists ADD COLUMN description TEXT;
+ALTER TABLE playlists ADD COLUMN cover_id INTEGER REFERENCES covers(id);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -229,6 +269,8 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             5 => conn.execute_batch(MIGRATION_V6)?,
             6 => conn.execute_batch(MIGRATION_V7)?,
             7 => conn.execute_batch(MIGRATION_V8)?,
+            8 => conn.execute_batch(MIGRATION_V9)?,
+            9 => conn.execute_batch(MIGRATION_V10)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -539,6 +581,128 @@ mod tests {
                 .unwrap();
             assert_eq!(present, 0, "column {col} should be dropped after v8");
         }
+    }
+
+    /// A v8 DB upgrades to v9 with the playlist tables: a track indexed at v8 survives, the same
+    /// track sits in one playlist twice as two distinct slots (duplicates are intentional), deleting
+    /// the track cascades its slots while the playlist stays, and deleting the playlist cascades the
+    /// rest. The playlist rows are inserted after the migrate, since the tables do not exist at v8.
+    #[test]
+    fn v8_db_migrates_to_playlists_allowing_duplicate_slots() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.execute_batch(MIGRATION_V8).unwrap();
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        for table in ["playlists", "playlist_tracks"] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "table {table} should exist after v9");
+        }
+
+        // The same track sits in one playlist twice: two rows keyed on distinct slot ids.
+        conn.execute_batch(
+            "INSERT INTO playlists (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 1, 1);
+             INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 1, 2);",
+        )
+        .unwrap();
+        let slots: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = 1 AND track_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(slots, 2, "the same track sits twice as two distinct slots");
+
+        // Deleting the track cascades its slots but leaves the playlist row.
+        conn.execute("DELETE FROM tracks WHERE id = 1", []).unwrap();
+        let after_track: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after_track, 0, "deleting a track cascades its slots");
+        let playlists: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlists", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(playlists, 1, "the playlist row survives a track delete");
+
+        // A fresh slot, then deleting the playlist cascades it away.
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (2, '/music/b.mp3', 'b.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 2, 1);",
+        )
+        .unwrap();
+        conn.execute("DELETE FROM playlists WHERE id = 1", [])
+            .unwrap();
+        let after_playlist: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after_playlist, 0, "deleting a playlist cascades its slots");
+    }
+
+    /// A v9 DB with a playlist upgrades to v10 additively: the playlist row survives and its new
+    /// `description` and `cover_id` both read NULL, unset until the user sets them.
+    #[test]
+    fn v9_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.execute_batch(MIGRATION_V8).unwrap();
+        conn.execute_batch(MIGRATION_V9).unwrap();
+        conn.pragma_update(None, "user_version", 9).unwrap();
+        conn.execute_batch(
+            "INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'Mix', 0, 0);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let (name, description, cover): (String, Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT name, description, cover_id FROM playlists",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Mix", "the existing playlist survives the upgrade");
+        assert_eq!(description, None, "description defaults to NULL, unset");
+        assert_eq!(cover, None, "cover_id defaults to NULL, unset");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

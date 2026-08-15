@@ -1,0 +1,38 @@
+/*
+ * The description as text, not a box: transparent with no border at rest, a hairline underline on hover,
+ * an accent underline on focus that replaces the global ring - the textarea reading of EditableField. It
+ * sits under the name as secondary meta, so it runs a touch smaller and quieter, and never resizes by
+ * hand: the two rows hold and the field scrolls past them.
+ */
+.field {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0 3px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  resize: none;
+  transition: border-color var(--dur-fast) ease;
+}
+
+.field::placeholder {
+  color: var(--ink-3);
+}
+
+.field:hover {
+  border-bottom-color: var(--hairline);
+}
+
+.field:focus {
+  outline: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid var(--accent);
+}

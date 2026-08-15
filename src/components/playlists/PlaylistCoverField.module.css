@@ -1,0 +1,60 @@
+/*
+ * The playlist cover surface in the header. The tile carries its own shadow; the empty slot doubles as
+ * the Add control - a recess that veils on hover, not a framed dropzone. Trimmed from the album field:
+ * no provenance/safety line, since a playlist cover is only ever the one you import.
+ */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot {
+  position: relative;
+  width: 100%;
+}
+
+.addSlot {
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  cursor: pointer;
+}
+
+.addSlot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  transition: background var(--dur-fast) ease;
+  pointer-events: none;
+}
+
+.addSlot:hover::after {
+  background: var(--veil);
+}
+
+.addSlot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.addHint {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}

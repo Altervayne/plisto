@@ -23,6 +23,9 @@ import type {
   GenreRow,
   ListTracksResponse,
   OrganizationSnapshot,
+  PlaylistM3uSummary,
+  PlaylistRow,
+  PlaylistSnapshot,
   Root,
   RootRemovalImpact,
   ScanProgress,
@@ -323,6 +326,102 @@ export function extractApply(
   applyFields: string[],
 ): Promise<ExtractResult> {
   return invoke<ExtractResult>("extract_apply", { pattern, trackIds, applyFields });
+}
+
+/** Loads every playlist with its slot count and every slot across all playlists, in one pass. */
+export function loadPlaylists(): Promise<PlaylistSnapshot> {
+  return invoke<PlaylistSnapshot>("load_playlists");
+}
+
+/** Creates an empty playlist, seeded with `name` (a null name reads as the untitled default). */
+export function createPlaylist(name: string | null): Promise<PlaylistRow> {
+  return invoke<PlaylistRow>("create_playlist", { name });
+}
+
+/** Renames a playlist; a null name clears it back to the untitled default. */
+export function renamePlaylist(id: number, name: string | null): Promise<void> {
+  return invoke("rename_playlist", { id, name });
+}
+
+/** Deletes a playlist and its slots. The track rows are untouched. */
+export function deletePlaylist(id: number): Promise<void> {
+  return invoke("delete_playlist", { id });
+}
+
+/** Appends tracks to a playlist as new slots. Duplicates are intended - a track may repeat. */
+export function addTracksToPlaylist(playlistId: number, trackIds: number[]): Promise<void> {
+  return invoke("add_tracks_to_playlist", { playlistId, trackIds });
+}
+
+/** Removes slots by their slot id, not their track id, so a repeated track drops one copy at a time. */
+export function removePlaylistSlots(slotIds: number[]): Promise<void> {
+  return invoke("remove_playlist_slots", { slotIds });
+}
+
+/** Rewrites a playlist's whole slot order to `orderedSlotIds` (positions 1..N). */
+export function setPlaylistOrder(playlistId: number, orderedSlotIds: number[]): Promise<void> {
+  return invoke("set_playlist_order", { playlistId, orderedSlotIds });
+}
+
+/** Sets a playlist's description; a null clears it back to unset. */
+export function setPlaylistDescription(id: number, description: string | null): Promise<void> {
+  return invoke("set_playlist_description", { id, description });
+}
+
+/** Binds a picked image as a playlist's cover, returning the newly resolved cover. */
+export function setPlaylistCover(id: number, srcPath: string): Promise<CoverRef> {
+  return invoke<CoverRef>("set_playlist_cover", { id, srcPath });
+}
+
+/** Drops a playlist's bound cover. Unlike an album, a playlist has no art to fall back to. */
+export function removePlaylistCover(id: number): Promise<void> {
+  return invoke("remove_playlist_cover", { id });
+}
+
+/** Resolves a playlist's bound cover at `size`, or null when none is set - no track fallback. */
+export function playlistCover(playlistId: number, size: CoverSize): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("playlist_cover", { playlistId, size });
+}
+
+/**
+ * Writes a plain .m3u for the playlist at the chosen file `path`, its entries pointing at the original
+ * source files. No copies, no cover - instant, resolving with the written/skipped counts.
+ */
+export function exportPlaylistM3u(playlistId: number, path: string): Promise<PlaylistM3uSummary> {
+  return invoke<PlaylistM3uSummary>("export_playlist_m3u", { playlistId, path });
+}
+
+/**
+ * Copies the playlist's tracks into `destination`, album-structured (loose tracks under Unsorted), with
+ * the cover image, streaming progress over `channel` and resolving with the report. Cancellable through
+ * `cancelPlaylistExport`. Mirrors the library export's channel wiring.
+ */
+export function exportPlaylistFolder(
+  playlistId: number,
+  destination: string,
+  channel: Channel<ExportProgress>,
+): Promise<ExportSummary> {
+  return invoke<ExportSummary>("export_playlist_folder", {
+    playlistId,
+    destination,
+    onProgress: channel,
+  });
+}
+
+/**
+ * Writes a re-openable folder into `destination`: the .m3u8, its cover.jpg, and a .nomedia. No track
+ * copies - instant, resolving with the written/skipped counts.
+ */
+export function exportPlaylistRichM3u8(
+  playlistId: number,
+  destination: string,
+): Promise<PlaylistM3uSummary> {
+  return invoke<PlaylistM3uSummary>("export_playlist_rich_m3u8", { playlistId, destination });
+}
+
+/** Signals the running folder export to stop. The backend finishes its current file and reports cancelled. */
+export function cancelPlaylistExport(): Promise<void> {
+  return invoke("cancel_playlist_export");
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

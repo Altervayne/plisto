@@ -21,7 +21,9 @@ use crate::covers::InFlightGuard;
 /// `covers_dir` is where thumbnails are cached; `covers_in_flight` collapses concurrent
 /// identical thumbnail generations to one decode. `export_cancel`/`export_running` are the
 /// export's own cancel flag and overlap guard, kept separate from the scan pair so cancelling
-/// one never touches the other.
+/// one never touches the other. `playlist_export_cancel`/`playlist_export_running` are the
+/// self-contained playlist folder export's own pair, kept separate again so a playlist export and a
+/// library export never cancel or block each other.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -31,4 +33,6 @@ pub struct AppState {
     pub covers_in_flight: Arc<InFlightGuard>,
     pub export_cancel: Arc<AtomicBool>,
     pub export_running: AtomicBool,
+    pub playlist_export_cancel: Arc<AtomicBool>,
+    pub playlist_export_running: AtomicBool,
 }

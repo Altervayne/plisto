@@ -310,6 +310,59 @@ export interface ExtractRow {
 }
 
 /**
+ * One playlist with its live slot count. A null name reads as the untitled default; `description` is
+ * its optional blurb, null when unset. `cover_id` points into the shared covers manifest or is null,
+ * the way `albums.cover_id` does. Mirrors PlaylistRow in dto.rs.
+ */
+export interface PlaylistRow {
+  id: number;
+  name: string | null;
+  description: string | null;
+  cover_id: number | null;
+  created_at: number;
+  updated_at: number;
+  track_count: number;
+}
+
+/**
+ * One slot in a playlist: a track at a position. `id` is the SLOT identity, not the track - a playlist
+ * may hold the same track more than once, so the slot id is what keys, removes, and reorders a row.
+ * `title`/`artist` are the track_edits values; `raw_title`/`raw_artist` the scanned tags. Mirrors
+ * PlaylistTrackRow in dto.rs.
+ */
+export interface PlaylistTrackRow {
+  id: number;
+  playlist_id: number;
+  track_id: number;
+  position: number;
+  source_path: string;
+  display_path: string | null;
+  filename: string;
+  duration_secs: number | null;
+  raw_title: string | null;
+  raw_artist: string | null;
+  title: string | null;
+  artist: string | null;
+  missing_at: number | null;
+}
+
+/** The load-all playlists payload: every playlist and every slot across them. Mirrors PlaylistSnapshot. */
+export interface PlaylistSnapshot {
+  playlists: PlaylistRow[];
+  tracks: PlaylistTrackRow[];
+}
+
+/**
+ * The result of a playlist file export - the plain .m3u and the rich .m3u8. `written` counts the tracks
+ * that made it into the file; `skipped_missing` the slots dropped because their source is gone. The folder
+ * export reports the fuller ExportSummary instead. Mirrors PlaylistM3uSummary in dto.rs.
+ */
+export interface PlaylistM3uSummary {
+  written: number;
+  skipped_missing: number;
+}
+
+/**
  * The outcome of an apply: how many tracks took a write, how many filenames did not match, and how
  * many track numbers were dropped because their track is loose (no album position). Mirrors ExtractResult.
  */

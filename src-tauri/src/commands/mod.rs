@@ -11,6 +11,8 @@ pub mod export;
 pub mod extract;
 mod list_query;
 pub mod organize;
+pub mod playlist_export;
+pub mod playlists;
 pub mod roots;
 pub mod settings;
 

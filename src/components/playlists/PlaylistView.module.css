@@ -1,0 +1,55 @@
+/*
+ * The full-pane playlist view fills the main region as a column: a breadcrumb row over a body row. It
+ * owns the whole region, so it carries its own horizontal inset like the other full-region screens. The
+ * body splits into the scrolling main column (the header over the slot list) and, when a slot is peeked,
+ * the detail beside it - mirroring the album full-pane view's header-over-body split.
+ */
+.view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 30px 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 10px 12px;
+}
+
+/* Carries --drawer-width so the peek panel's flex-basis (and its child handle) follow a drag. */
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+}
+
+/* The main column scrolls the header over its slot list; the peek holds its own scroll. */
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.mainInner {
+  /* Right inset clears the overlay scrollbar so a slot row's veil stops short of the bar. */
+  padding: 0 16px 24px 10px;
+}
+
+.tracks {
+  padding-top: 4px;
+}
+
+/* The peek panel's positioned wrapper: it holds the var width, and the resize handle rides its left
+ * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
+.panel {
+  position: relative;
+  flex: 0 0 var(--drawer-width);
+  min-height: 0;
+  display: flex;
+}

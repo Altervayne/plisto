@@ -42,3 +42,16 @@ export async function pickCoverSavePath(defaultName: string): Promise<string | n
     return null;
   }
 }
+
+/** Opens the save-file picker for a playlist file, seeded with `defaultName`, resolving path or null. */
+export async function pickPlaylistSavePath(defaultName: string): Promise<string | null> {
+  try {
+    const selected = await save({
+      defaultPath: defaultName,
+      filters: [{ name: "Playlist", extensions: ["m3u", "m3u8"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch {
+    return null;
+  }
+}

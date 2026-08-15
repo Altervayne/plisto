@@ -24,6 +24,9 @@ const UNTITLED: &str = "Untitled";
 // The literal parent every single's subfolder sits under.
 const SINGLES_ROOT: &str = "Singles";
 
+// The one flat folder a playlist's loose tracks land in, beside its album subfolders.
+const UNSORTED_ROOT: &str = "Unsorted";
+
 // The characters Windows forbids in a path component, plus control chars stripped separately.
 const ILLEGAL: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
@@ -133,6 +136,7 @@ fn container_components(container: &ExportContainer, template: &AlbumTemplate) -
             let name = sanitize_or(&format!("{artist} - {title}"), UNTITLED);
             vec![SINGLES_ROOT.to_string(), name]
         }
+        ContainerKind::Unsorted => vec![UNSORTED_ROOT.to_string()],
     }
 }
 
@@ -169,7 +173,9 @@ fn track_filenames(
                 ContainerKind::Album => {
                     album_filename(&template.file, container, track, i, prefix_len, &ext)
                 }
-                ContainerKind::Single => {
+                // A single names its lone file, and each loose Unsorted track its own, by
+                // `<artist> - <title>` - a number is meaningless in a folder that never groups them.
+                ContainerKind::Single | ContainerKind::Unsorted => {
                     let artist = value_or(track.artist.as_deref(), UNKNOWN_ARTIST);
                     let title = value_or(track.title.as_deref(), UNTITLED);
                     let stem = sanitize_or(&format!("{artist} - {title}"), UNTITLED);
@@ -464,6 +470,12 @@ fn suffix_filename(filename: &str, n: usize) -> String {
         Some((stem, ext)) => format!("{stem} ({n}).{ext}"),
         None => format!("{filename} ({n})"),
     }
+}
+
+/// Sanitizes a chosen name into one safe path component, falling back to `label` when it reduces to
+/// nothing. The bundled playlist filename reads its name through this.
+pub fn safe_component(raw: &str, label: &str) -> String {
+    sanitize_or(raw, label)
 }
 
 /// The sample path a live preview shows: the real derivation over one synthetic album track,
@@ -938,5 +950,25 @@ mod tests {
     fn preview_reflects_a_flat_pattern() {
         let path = template_preview("", "{albumartist} - {title}");
         assert_eq!(path, "Radiohead - 15 Step.mp3");
+    }
+
+    #[test]
+    fn unsorted_lands_flat_files_under_one_folder() {
+        // A loose track's container is the shared Unsorted folder, its file named artist - title with
+        // no track number, and a second loose track sits beside it rather than in its own subfolder.
+        let c = ExportContainer {
+            album_id: 0,
+            kind: ContainerKind::Unsorted,
+            album_artist: None,
+            title: None,
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![track(1, "Loose", "Artist", None), track(2, "Other", "Band", None)],
+            skipped: Vec::new(),
+        };
+        let out = derive_layout(&[c], 0, &default_tpl());
+        assert_eq!(rel(&out[0]), "Unsorted");
+        assert_eq!(out[0].tracks[0].filename, "Artist - Loose.mp3");
+        assert_eq!(out[0].tracks[1].filename, "Band - Other.mp3");
     }
 }

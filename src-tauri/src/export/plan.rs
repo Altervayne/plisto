@@ -9,19 +9,25 @@
  */
 
 // -- Library Imports --
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
 
 // -- Local Imports --
-use crate::db::{self, ExportTrackRow};
+use crate::db::{self, ExportTrackRow, PlaylistExportRow};
 use crate::resolve::{effective_artist, effective_title};
 
-/// A container's bucket: a plain album folder or a single's own subfolder under `/Singles`.
+// The synthetic album id the Unsorted container carries. Real album ids start at 1, so 0 never
+// clashes with one; the container's own folder name is distinct anyway, so dedupe never leans on it.
+const UNSORTED_ALBUM_ID: i64 = 0;
+
+/// A container's bucket: a plain album folder, a single's own subfolder under `/Singles`, or the
+/// playlist Unsorted bag that gathers a playlist's loose slots into one flat folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerKind {
     Album,
     Single,
+    Unsorted,
 }
 
 /// Where a container's full-res cover bytes come from at write time. The worker reads them off the
@@ -178,6 +184,107 @@ fn resolve_cover(
     Ok(CoverPlan::None)
 }
 
+/// Snapshots one playlist into the library ExportPlan shape, so the structured folder export drives
+/// the same run_export the library does. Each album or single the playlist touches becomes a
+/// container holding only that playlist's members, retagged and covered exactly as build_plan
+/// resolves them; every loose slot - in no album - falls into one synthetic Unsorted container with
+/// a flat `Artist - Title` layout. A slot the playlist holds twice contributes one copy: the folder
+/// is a set of files, and the bundled m3u references each by track id. The only DB touch after this
+/// returns is none: the worker owns the plan.
+pub fn playlist_folder_plan(conn: &Connection, playlist_id: i64) -> rusqlite::Result<ExportPlan> {
+    let slots = db::load_playlist_export_tracks(conn, playlist_id)?;
+
+    // The album and single containers come from the library plan, kept to the playlist's own members.
+    // Membership by track id folds a slot the playlist holds twice down to the one copy on disk.
+    let members: HashSet<i64> = slots
+        .iter()
+        .filter(|s| s.in_album)
+        .map(|s| s.track_id)
+        .collect();
+
+    let mut containers: Vec<ExportContainer> = build_plan(conn)?
+        .containers
+        .into_iter()
+        .filter_map(|mut c| {
+            c.tracks.retain(|t| members.contains(&t.track_id));
+            c.skipped.retain(|id| members.contains(id));
+            (!c.tracks.is_empty() || !c.skipped.is_empty()).then_some(c)
+        })
+        .collect();
+
+    if let Some(unsorted) = unsorted_container(conn, &slots)? {
+        containers.push(unsorted);
+    }
+
+    Ok(ExportPlan { containers })
+}
+
+/// Gathers a playlist's loose slots - the ones in no album - into one Unsorted container, deduped to
+/// one copy each in first-seen play order. The container carries no release identity of its own, so
+/// each track's resolved album/album_artist/year ride along as its per-track override: the retag
+/// reads `override ?? container`, and with a null container that lands the track's own resolved value,
+/// so a loose track keeps its release tags. Numbering is dropped (a loose track has no album track
+/// number) and the container is art-less, since unrelated loose tracks share no cover. None when the
+/// playlist has no loose slots. Genres reuse the library-wide loader, in position order.
+fn unsorted_container(
+    conn: &Connection,
+    slots: &[PlaylistExportRow],
+) -> rusqlite::Result<Option<ExportContainer>> {
+    let mut genres_by_track: HashMap<i64, Vec<String>> = HashMap::new();
+    for (track_id, name) in db::load_export_track_genres(conn)? {
+        genres_by_track.entry(track_id).or_default().push(name);
+    }
+
+    let mut tracks = Vec::new();
+    let mut skipped = Vec::new();
+    let mut seen: HashSet<i64> = HashSet::new();
+    for slot in slots.iter().filter(|s| !s.in_album) {
+        if !seen.insert(slot.track_id) {
+            continue;
+        }
+        if slot.missing_at.is_some() {
+            skipped.push(slot.track_id);
+            continue;
+        }
+        // Open the file by its real-case path; the folded key stands in only for a legacy row.
+        let source = slot
+            .display_path
+            .clone()
+            .unwrap_or_else(|| slot.source_path.clone());
+        tracks.push(ExportTrack {
+            track_id: slot.track_id,
+            source,
+            ext: slot.ext.clone(),
+            title: effective_title(&slot.raw_title, &slot.title_override),
+            artist: effective_artist(&slot.raw_artist, &slot.artist_override),
+            album_override: slot.album_override.clone().or_else(|| slot.raw_album.clone()),
+            album_artist_override: slot
+                .album_artist_override
+                .clone()
+                .or_else(|| slot.raw_album_artist.clone()),
+            year_override: slot.year_override.or(slot.raw_year),
+            genres: genres_by_track.remove(&slot.track_id).unwrap_or_default(),
+            track_no: None,
+            disc_no: None,
+            has_embedded: slot.has_embedded,
+        });
+    }
+
+    if tracks.is_empty() && skipped.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(ExportContainer {
+        album_id: UNSORTED_ALBUM_ID,
+        kind: ContainerKind::Unsorted,
+        album_artist: None,
+        title: None,
+        year: None,
+        cover: CoverPlan::None,
+        tracks,
+        skipped,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +393,70 @@ mod tests {
             vec![b],
             "the missing track is recorded as a skip"
         );
+    }
+
+    #[test]
+    fn playlist_folder_plan_groups_members_and_gathers_loose_tracks() {
+        use crate::export::derive::{derive_layout, AlbumTemplate};
+
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let b = insert_track(&conn, "/m/album/2.mp3", "Two");
+        let s = insert_track(&conn, "/m/loose/hit.mp3", "Hit");
+        let loose = insert_track(&conn, "/m/loose/free.mp3", "Free");
+        db::create_album(
+            &mut conn,
+            Some("Rec".into()),
+            Some("AA".into()),
+            Some(2020),
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
+        db::create_single(&mut conn, s, 1).unwrap();
+
+        let pl = db::create_playlist(&conn, Some("Mix".into()), 100).unwrap();
+        // A subset: album member a (never b), the single, the loose track, and a a second time.
+        db::add_tracks_to_playlist(&mut conn, pl.id, &[a, s, loose, a], 100).unwrap();
+
+        let plan = playlist_folder_plan(&conn, pl.id).unwrap();
+        let layout = derive_layout(&plan.containers, 0, &AlbumTemplate::resolve("", ""));
+
+        // A track's relative exported path across the containers, keyed by track id.
+        let path_of = |track_id: i64| -> Option<String> {
+            plan.containers.iter().zip(&layout).find_map(|(_, l)| {
+                l.tracks.iter().find(|t| t.track_id == track_id).map(|t| {
+                    let rel = l.rel_dir.to_string_lossy().replace('\\', "/");
+                    if rel.is_empty() {
+                        t.filename.clone()
+                    } else {
+                        format!("{rel}/{}", t.filename)
+                    }
+                })
+            })
+        };
+
+        // A member lands in Artist/Album; a single in its Singles subfolder; a loose track flat in
+        // Unsorted. The non-member album track b is never exported.
+        assert_eq!(path_of(a).as_deref(), Some("AA/Rec/01 - One.mp3"));
+        assert_eq!(path_of(b), None, "a non-member album track is left out");
+        assert_eq!(
+            path_of(s).as_deref(),
+            Some("Singles/Raw Artist - Hit/Raw Artist - Hit.mp3")
+        );
+        assert_eq!(path_of(loose).as_deref(), Some("Unsorted/Raw Artist - Free.mp3"));
+
+        // The duplicate slot folds to the one copy on disk.
+        let copies = plan
+            .containers
+            .iter()
+            .flat_map(|c| &c.tracks)
+            .filter(|t| t.track_id == a)
+            .count();
+        assert_eq!(copies, 1, "a slot held twice is one file");
     }
 
     #[test]

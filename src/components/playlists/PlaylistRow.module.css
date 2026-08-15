@@ -1,0 +1,135 @@
+/*
+ * One playlist row on the continuous surface, twin to the folder and genre rows: no card, no divider -
+ * parted by space and warm with the veil on hover. The name-over-count main column leads, the reveal
+ * glyphs trail. The delete confirm drops beneath the row.
+ */
+.rowWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+/* A small square cover leading the row, or the playlist glyph in a sunken tile when none is set. */
+.thumb {
+  width: 40px;
+  flex: 0 0 40px;
+}
+
+.thumbGlyph {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--ink-3);
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The name as a display button: reads as a heading, opens the playlist, warms to the accent on hover. */
+.name {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 550;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--dur-fast) ease;
+}
+
+.name:hover {
+  color: var(--accent);
+}
+
+/* An untitled playlist reads quieter, marking it as unnamed rather than a real title. */
+.name[data-untitled] {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+.count {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The glyph controls hold their slot but dissolve at rest, surfacing on row hover or focus. */
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.row:hover .glyph,
+.glyph:focus-visible {
+  opacity: 0.7;
+}
+
+.glyph:hover {
+  opacity: 1;
+  color: var(--ink-2);
+}
+
+/* Delete warms toward the warn tone as it surfaces, marking the destructive control apart. */
+.remove:hover {
+  color: var(--warn);
+}
+
+/* The counted confirm sits under the row, its prompt beside the two-step action. */
+.confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 8px 8px;
+}
+
+.prompt {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}

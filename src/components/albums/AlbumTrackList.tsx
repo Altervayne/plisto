@@ -21,6 +21,7 @@ import {
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
 import { AlbumTrackRow } from "./AlbumTrackRow";
+import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { ExtractPanel } from "../extract/ExtractPanel";
 
 // -- State Imports --
@@ -32,6 +33,11 @@ import {
   useSetAlbumLayout,
   useUnassignTracks,
 } from "../../state/organize/store";
+import {
+  useAddTracksToPlaylist,
+  useCreatePlaylist,
+  usePlaylists,
+} from "../../state/playlists/store";
 
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
@@ -73,10 +79,14 @@ export function AlbumTrackList({
   const unassignTracks = useUnassignTracks();
   const loadOrganization = useLoadOrganization();
   const resetHistory = useResetHistory();
+  const playlists = usePlaylists();
+  const createPlaylist = useCreatePlaylist();
+  const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
 
   // A revealed-but-empty extra disc, held here alone: it is only a drop zone, never persisted, so it
   // drops away when the drawer moves to another album.
@@ -173,6 +183,22 @@ export function AlbumTrackList({
     clearSelection();
   };
 
+  // Adds the selection to an existing playlist, then clears. The backdrop blocks selection changes while
+  // the picker is open, so the live selection is the snapshot.
+  const onChoosePlaylist = (playlistId: number) => {
+    void addTracksToPlaylist(playlistId, [...selected]);
+    setPlaylistPickerOpen(false);
+    clearSelection();
+  };
+
+  // Creates a playlist from the typed name, adds the selection to it, then clears.
+  const onCreatePlaylist = async (name: string) => {
+    const playlistId = await createPlaylist(name);
+    await addTracksToPlaylist(playlistId, [...selected]);
+    setPlaylistPickerOpen(false);
+    clearSelection();
+  };
+
   // Opens the extractor over the current selection. Album rows carry no display_path, so the source
   // path is the one shown on hover.
   const openExtract = () => {
@@ -227,8 +253,18 @@ export function AlbumTrackList({
           onSelectAll={selectAll}
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}
+          onAddToPlaylist={() => setPlaylistPickerOpen(true)}
           onRemove={removeSelected}
           onClear={clearSelection}
+        />
+      ) : null}
+
+      {playlistPickerOpen ? (
+        <PlaylistPicker
+          playlists={playlists}
+          onChoose={onChoosePlaylist}
+          onCreate={(name) => void onCreatePlaylist(name)}
+          onClose={() => setPlaylistPickerOpen(false)}
         />
       ) : null}
 

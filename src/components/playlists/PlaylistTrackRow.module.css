@@ -1,0 +1,187 @@
+/*
+ * One slot row: a grip, a number column, the title-over-filename main column, and a hover-revealed
+ * remove. The row veils on hover like the rest of the surface. The number is tabular so the column lines
+ * up.
+ */
+.row {
+  display: grid;
+  grid-template-columns: 16px 24px 1fr 26px;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+/* The peeked row: the slot whose detail is open beside the list. An accent hairline down its left edge
+ * and a faint accent wash read it as active. */
+.row[data-peeked],
+.row[data-peeked]:hover {
+  background: var(--accent-weak);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
+.row[data-dragging] {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+/*
+ * The reorder grip: its column is always reserved so the reveal never reflows the row. It dissolves at
+ * rest and surfaces on row hover or when the handle takes keyboard focus.
+ */
+.handle {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.row:hover .handle,
+.handle:focus-visible {
+  opacity: 0.65;
+}
+
+.handle:hover {
+  color: var(--ink-2);
+  opacity: 1;
+}
+
+.handle:active,
+.row[data-dragging] .handle {
+  cursor: grabbing;
+}
+
+.no {
+  align-self: center;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+/* A slot whose file is gone still holds its place, marked by a quieter, warn-tinted number. */
+.row[data-missing] .no {
+  color: var(--warn);
+}
+
+/* The main column opens the peek, so the region reads as one click target. */
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+
+/* The title: reads as title typography but inert text that opens the peek. Truncates rather than
+ * wrapping so the row height holds. */
+.title {
+  align-self: flex-start;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.title:hover {
+  color: var(--accent);
+}
+
+/* Empty-title marker: a short, faint bar where the title would sit, so a tag-less slot reads at a glance
+ * without echoing the filename on the line beneath. */
+.streak {
+  display: inline-block;
+  width: 512px;
+  max-width: 50%;
+  height: 2px;
+  border-radius: var(--pill);
+  background: var(--ink-3);
+  opacity: 0.32;
+  vertical-align: middle;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.row:hover .streak {
+  opacity: 0.45;
+}
+
+.source {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* Hovering the row lifts the truncation so the whole filename is legible - the row grows to fit, then
+ * settles back once the pointer leaves. */
+.row:hover .source {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/*
+ * The remove: its column is always reserved so the reveal never reflows the row. It dissolves at rest,
+ * surfaces on row hover or focus, and warms toward the warn tone as the destructive control.
+ */
+.remove {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.row:hover .remove,
+.remove:focus-visible {
+  opacity: 0.7;
+}
+
+.remove:hover {
+  opacity: 1;
+  color: var(--warn);
+}

@@ -227,6 +227,23 @@ pub async fn album_cover(
     }
 }
 
+/// Resolves a playlist's cover at the requested size: the cover the user bound to it, served
+/// straight from its cached thumbnail by hash, or None when it has none set. Mirrors album_cover
+/// minus the member fallback - a playlist cover is only ever the one the user set.
+#[tauri::command]
+pub async fn playlist_cover(
+    playlist_id: i64,
+    size: CoverSize,
+    state: State<'_, AppState>,
+) -> Result<Option<CoverRef>, String> {
+    let edge = max_edge(size);
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    prepare_playlist_cover(&conn, &state.covers_dir, playlist_id, edge).map_err(|e| e.to_string())
+}
+
 // ---- Resolution ----
 
 /// The outcome of reading the DB for a track's cover: nothing, a folder cover served straight
@@ -305,6 +322,29 @@ fn prepare_album_cover(
         Some(track_id) => Ok(AlbumCover::FromTrack(track_id)),
         None => Ok(AlbumCover::None),
     }
+}
+
+/// Reads the DB to resolve a playlist's cover at `max_edge`: the bound cover served from its cached
+/// thumbnail by hash, or None. No decode and no fallback - a playlist cover is only ever the bound
+/// one, so this resolves fully here. Sync: touches only the connection and a cache path.
+fn prepare_playlist_cover(
+    conn: &Connection,
+    covers_dir: &Path,
+    playlist_id: i64,
+    max_edge: u32,
+) -> rusqlite::Result<Option<CoverRef>> {
+    if let Some(cover_id) = db::get_playlist_cover_id(conn, playlist_id)? {
+        if let Some((hash, kind, width, height)) = db::get_cover(conn, cover_id)? {
+            let path = thumb_cache_path(covers_dir, &hash, max_edge);
+            return Ok(Some(CoverRef {
+                path: path_to_string(&path),
+                width,
+                height,
+                source: cover_source_from_kind(&kind),
+            }));
+        }
+    }
+    Ok(None)
 }
 
 /// Resolves a track's cover, running any decode on a blocking thread. Shared by read_cover and

@@ -9,6 +9,8 @@ import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { FilesView } from "../files/FilesView";
 import { UnsortedView } from "../files/UnsortedView";
+import { PlaylistsView } from "../playlists/PlaylistsView";
+import { PlaylistView } from "../playlists/PlaylistView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
 import { EmptyState } from "../common/EmptyState";
@@ -33,6 +35,7 @@ import {
   useUndo,
   useUnsortedTracks,
 } from "../../state/organize/store";
+import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 
 // -- i18n Imports --
@@ -42,7 +45,7 @@ import { useT } from "../../i18n";
 import styles from "./AppShell.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode = "files" | "unsorted" | "albums" | "singles" | "export" | "settings";
+type Mode = "files" | "unsorted" | "albums" | "singles" | "playlists" | "export" | "settings";
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
@@ -58,7 +61,9 @@ export function AppShell() {
   const albums = useAlbums();
   const singles = useSingles();
   const unsorted = useUnsortedTracks();
+  const playlists = usePlaylists();
   const loadOrganization = useLoadOrganization();
+  const loadPlaylists = useLoadPlaylists();
   const loadPreferences = useLoadPreferences();
   const undo = useUndo();
   const redo = useRedo();
@@ -70,6 +75,7 @@ export function AppShell() {
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
+  const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.
@@ -84,6 +90,12 @@ export function AppShell() {
   if (openAlbumId != null && openAlbum == null) {
     setOpenAlbumId(null);
   }
+  // The full-pane playlist, scoped like the album pane: a deleted id no longer resolves, so the pane
+  // falls back to the list rather than stranding on it.
+  const openPlaylist = playlists.find((p) => p.id === openPlaylistId) ?? null;
+  if (openPlaylistId != null && openPlaylist == null) {
+    setOpenPlaylistId(null);
+  }
 
   // Entering the full pane closes the drawer: the two album surfaces never show at once.
   const openFull = (albumId: number) => {
@@ -93,8 +105,9 @@ export function AppShell() {
 
   useEffect(() => {
     void loadOrganization();
+    void loadPlaylists();
     void loadPreferences();
-  }, [loadOrganization, loadPreferences]);
+  }, [loadOrganization, loadPlaylists, loadPreferences]);
 
   // Global undo/redo, but only when focus is not in a field - a field keeps its own text undo.
   useEffect(() => {
@@ -142,12 +155,22 @@ export function AppShell() {
         unsortedCount={unsorted.length}
         albumsCount={albums.length}
         singlesCount={singles.length}
+        playlistsCount={playlists.length}
       />
       <main className={styles.main}>
         {mode === "export" ? (
           <ExportView />
         ) : mode === "settings" ? (
           <SettingsView />
+        ) : mode === "playlists" ? (
+          openPlaylist ? (
+            <PlaylistView
+              playlistId={openPlaylist.id}
+              onBack={() => setOpenPlaylistId(null)}
+            />
+          ) : (
+            <PlaylistsView onOpen={setOpenPlaylistId} />
+          )
         ) : (
           <>
             <div className={styles.controls}>

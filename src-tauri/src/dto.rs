@@ -296,6 +296,62 @@ pub struct OrganizationSnapshot {
     pub genres: Vec<GenreRow>,
 }
 
+/// One playlist shaped for the frontend, with `track_count` from a COUNT join over its slots. `name`
+/// is nullable (NULL = unset, resolved to a display default in the UI like albums.title, never an
+/// empty string); `description` is the same, its optional blurb. `cover_id` points into the shared
+/// `covers` manifest or is None, the way `albums.cover_id` does. Mirrors PlaylistRow in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaylistRow {
+    pub id: i64,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub cover_id: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub track_count: i64,
+}
+
+/// One playlist slot shaped for the frontend: a `playlist_tracks` row joined to its track's source
+/// cache and edit layer, carrying enough to render the row and identify the slot. `id` is the SLOT
+/// id, not the track id, since a playlist may hold the same track more than once and each occurrence
+/// is its own slot; `position` is the 1..N order. The source fields join in from the track's own row;
+/// `title`/`artist` are the edit-layer overrides from `track_edits`, each None when the track has no
+/// edit, and the frontend resolves `edit ?? raw` for display itself. Mirrors PlaylistTrackRow.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaylistTrackRow {
+    pub id: i64,
+    pub playlist_id: i64,
+    pub track_id: i64,
+    pub position: i64,
+    pub source_path: String,
+    pub display_path: Option<String>,
+    pub filename: String,
+    pub duration_secs: Option<f64>,
+    pub raw_title: Option<String>,
+    pub raw_artist: Option<String>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub missing_at: Option<i64>,
+}
+
+/// The load-all playlist payload: every playlist (each with its slot count) and every slot across
+/// them in playlist-then-position order. The frontend hydrates its playlist state from this in one
+/// call, the way OrganizationSnapshot feeds the organize view. Mirrors PlaylistSnapshot in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaylistSnapshot {
+    pub playlists: Vec<PlaylistRow>,
+    pub tracks: Vec<PlaylistTrackRow>,
+}
+
+/// The result of writing an in-place playlist `.m3u8`: `written` is how many slots the file lists,
+/// `skipped_missing` how many were left out because their source is gone. Mirrors PlaylistM3uSummary
+/// in types.ts. The self-contained folder export reuses ExportSummary instead.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaylistM3uSummary {
+    pub written: i64,
+    pub skipped_missing: i64,
+}
+
 /// The export config: where to write and the album layout template. `folder_pattern` is the
 /// slash-separated folder tree (empty = flat, no album subfolders); `file_pattern` is the filename,
 /// both in the token language. A pre-template caller sending only `destination` leaves both empty

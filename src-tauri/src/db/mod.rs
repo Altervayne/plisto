@@ -14,7 +14,10 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 // -- Type Imports --
-use crate::dto::{AlbumRow, AlbumTrackRow, GenreRow, Root, TrackEdit, TrackPlacement};
+use crate::dto::{
+    AlbumRow, AlbumTrackRow, GenreRow, PlaylistRow, PlaylistSnapshot, PlaylistTrackRow, Root,
+    TrackEdit, TrackPlacement,
+};
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{normalize_genre_key, normalize_path_key};
 
@@ -1493,6 +1496,381 @@ fn remove_membership(conn: &Connection, track_id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+// ---- Playlists ----
+
+// The playlist projection with its live slot count. LEFT JOIN so an empty playlist still returns a
+// row with a zero count. Callers append the GROUP BY and, for a single playlist, a WHERE.
+const PLAYLIST_SELECT: &str = "
+    SELECT p.id, p.name, p.description, p.cover_id, p.created_at, p.updated_at,
+           COUNT(pt.id) AS track_count
+    FROM playlists p
+    LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id";
+
+// The slot projection: the source fields joined from `tracks` beside the edit-layer title/artist from
+// `track_edits`, keyed on the track, plus the slot id and its position. The slot `id` is the row's
+// identity, not the track_id, so a track sitting in the playlist twice is two rows here. Mirrors
+// ALBUM_TRACK_SELECT minus the album fields, plus the slot id, playlist_id and position. Callers
+// append the ORDER BY.
+const PLAYLIST_TRACK_SELECT: &str = "
+    SELECT pt.id, pt.playlist_id, pt.track_id, pt.position,
+           t.source_path, t.display_path, t.filename, t.duration_secs,
+           t.raw_title, t.raw_artist, te.title, te.artist, t.missing_at
+    FROM playlist_tracks pt
+    JOIN tracks t ON t.id = pt.track_id
+    LEFT JOIN track_edits te ON te.track_id = pt.track_id";
+
+/// Maps one result row into a PlaylistRow. The column order matches PLAYLIST_SELECT.
+fn playlist_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaylistRow> {
+    Ok(PlaylistRow {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        description: r.get(2)?,
+        cover_id: r.get(3)?,
+        created_at: r.get(4)?,
+        updated_at: r.get(5)?,
+        track_count: r.get(6)?,
+    })
+}
+
+/// Maps one result row into a PlaylistTrackRow. The column order matches PLAYLIST_TRACK_SELECT.
+fn playlist_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaylistTrackRow> {
+    Ok(PlaylistTrackRow {
+        id: r.get(0)?,
+        playlist_id: r.get(1)?,
+        track_id: r.get(2)?,
+        position: r.get(3)?,
+        source_path: r.get(4)?,
+        display_path: r.get(5)?,
+        filename: r.get(6)?,
+        duration_secs: r.get(7)?,
+        raw_title: r.get(8)?,
+        raw_artist: r.get(9)?,
+        title: r.get(10)?,
+        artist: r.get(11)?,
+        missing_at: r.get(12)?,
+    })
+}
+
+/// One playlist with its slot count, or None when the id is absent. The single-row twin of
+/// load_playlists, so a writer can hand back the full row it just created.
+fn get_playlist(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistRow>> {
+    let sql = format!("{PLAYLIST_SELECT} WHERE p.id = ?1 GROUP BY p.id");
+    conn.query_row(&sql, params![playlist_id], playlist_row_from_sql)
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+}
+
+/// The load-all playlist snapshot: every playlist with its slot count, ordered by creation, and every
+/// slot across them via PLAYLIST_TRACK_SELECT, ordered by playlist then position so a playlist's slots
+/// arrive in play order. The frontend hydrates its playlist state from this in one call.
+pub fn load_playlists(conn: &Connection) -> rusqlite::Result<PlaylistSnapshot> {
+    let playlists = {
+        let sql = format!("{PLAYLIST_SELECT} GROUP BY p.id ORDER BY p.created_at, p.id");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], playlist_row_from_sql)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    let tracks = {
+        let sql = format!("{PLAYLIST_TRACK_SELECT} ORDER BY pt.playlist_id, pt.position");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], playlist_track_row_from_sql)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    Ok(PlaylistSnapshot { playlists, tracks })
+}
+
+/// One playlist slot shaped for export: the real-case source and extension, the duration for the
+/// #EXTINF line, the presence stamp, and the fields the m3u snapshot and the Unsorted container read.
+/// The title/artist edits land in the override slots and resolve through `resolve.rs`, exactly as the
+/// album export does. The album/album_artist/year edits ride along beside the track's own raw scan
+/// value, so a loose slot dropped into the Unsorted bag keeps its resolved release tags. `in_album`
+/// says whether the slot belongs to an album (a LEFT JOIN, so a loose slot reads false): a member is
+/// exported through the library plan, a loose slot through the Unsorted container. Purpose-built
+/// because a slot is not scoped to an album the way ExportTrackRow is.
+#[derive(Debug, Clone)]
+pub struct PlaylistExportRow {
+    pub track_id: i64,
+    pub display_path: Option<String>,
+    pub source_path: String,
+    pub ext: String,
+    pub duration_secs: Option<f64>,
+    pub missing_at: Option<i64>,
+    pub raw_title: Option<String>,
+    pub raw_artist: Option<String>,
+    pub title_override: Option<String>,
+    pub artist_override: Option<String>,
+    pub album_override: Option<String>,
+    pub album_artist_override: Option<String>,
+    pub year_override: Option<i64>,
+    pub raw_album: Option<String>,
+    pub raw_album_artist: Option<String>,
+    pub raw_year: Option<i64>,
+    pub in_album: bool,
+    pub has_embedded: bool,
+}
+
+// The playlist export projection: every slot joined to its track's source cache and edit layer, plus
+// a LEFT JOIN to its album so `a.id IS NOT NULL` flags membership - a member routes through the
+// library plan, a loose slot into the Unsorted bag. Ordered by slot position so the snapshot and the
+// #EXTINF list arrive in play order.
+const PLAYLIST_EXPORT_SELECT: &str = "
+    SELECT pt.track_id,
+           t.display_path, t.source_path, t.ext, t.duration_secs, t.missing_at,
+           t.raw_title, t.raw_artist,
+           te.title, te.artist, te.album, te.album_artist, te.year,
+           t.raw_album, t.raw_album_artist, t.raw_year,
+           a.id IS NOT NULL, t.has_embedded_cover
+    FROM playlist_tracks pt
+    JOIN tracks t ON t.id = pt.track_id
+    LEFT JOIN track_edits te ON te.track_id = pt.track_id
+    LEFT JOIN album_tracks am ON am.track_id = pt.track_id
+    LEFT JOIN albums a ON a.id = am.album_id
+    WHERE pt.playlist_id = ?1
+    ORDER BY pt.position";
+
+/// Maps one result row into a PlaylistExportRow. The column order matches PLAYLIST_EXPORT_SELECT.
+fn playlist_export_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaylistExportRow> {
+    Ok(PlaylistExportRow {
+        track_id: r.get(0)?,
+        display_path: r.get(1)?,
+        source_path: r.get(2)?,
+        ext: r.get(3)?,
+        duration_secs: r.get(4)?,
+        missing_at: r.get(5)?,
+        raw_title: r.get(6)?,
+        raw_artist: r.get(7)?,
+        title_override: r.get(8)?,
+        artist_override: r.get(9)?,
+        album_override: r.get(10)?,
+        album_artist_override: r.get(11)?,
+        year_override: r.get(12)?,
+        raw_album: r.get(13)?,
+        raw_album_artist: r.get(14)?,
+        raw_year: r.get(15)?,
+        in_album: r.get(16)?,
+        has_embedded: r.get::<_, Option<bool>>(17)? == Some(true),
+    })
+}
+
+/// Every slot of one playlist, shaped for export and ordered by position. The playlist export plan
+/// resolves each slot's tags from these rows.
+pub fn load_playlist_export_tracks(
+    conn: &Connection,
+    playlist_id: i64,
+) -> rusqlite::Result<Vec<PlaylistExportRow>> {
+    let mut stmt = conn.prepare(PLAYLIST_EXPORT_SELECT)?;
+    let rows = stmt
+        .query_map(params![playlist_id], playlist_export_row_from_sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// One playlist's name, or None when the playlist is absent or its name is unset. The name feeds the
+/// bundled playlist filename an export writes; an empty playlist still has one, so it is read apart
+/// from the slot rows.
+pub fn playlist_name(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT name FROM playlists WHERE id = ?1",
+        params![playlist_id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// One playlist's description, or None when unset or the playlist is absent. The rich m3u8 export
+/// writes it as its `#DESCRIPTION` directive; read apart from the slot rows, the blurb twin of
+/// playlist_name.
+pub fn playlist_description(
+    conn: &Connection,
+    playlist_id: i64,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT description FROM playlists WHERE id = ?1",
+        params![playlist_id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Creates an empty playlist with an optional name, both timestamps taking `now`, and returns the
+/// fresh row (its slot count is 0).
+pub fn create_playlist(
+    conn: &Connection,
+    name: Option<String>,
+    now: i64,
+) -> rusqlite::Result<PlaylistRow> {
+    conn.execute(
+        "INSERT INTO playlists (name, created_at, updated_at) VALUES (?1, ?2, ?2)",
+        params![name, now],
+    )?;
+    let id = conn.last_insert_rowid();
+    get_playlist(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+}
+
+/// Renames a playlist (a None clears its name back to unset) and bumps `updated_at`.
+pub fn rename_playlist(
+    conn: &Connection,
+    id: i64,
+    name: Option<String>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE playlists SET name = ?1, updated_at = ?2 WHERE id = ?3",
+        params![name, now, id],
+    )?;
+    Ok(())
+}
+
+/// Sets a playlist's description (a None clears it back to unset) and bumps `updated_at`. The blurb
+/// twin of rename_playlist.
+pub fn set_playlist_description(
+    conn: &Connection,
+    id: i64,
+    description: Option<String>,
+    now: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE playlists SET description = ?1, updated_at = ?2 WHERE id = ?3",
+        params![description, now, id],
+    )?;
+    Ok(())
+}
+
+/// Binds a cover to a playlist and bumps `updated_at`. The cover row is written through upsert_cover
+/// first, exactly as an album cover is. The playlist analog of set_album_cover.
+pub fn set_playlist_cover(
+    conn: &Connection,
+    id: i64,
+    cover_id: i64,
+    updated_at: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE playlists SET cover_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![cover_id, updated_at, id],
+    )?;
+    Ok(())
+}
+
+/// Clears a playlist's bound cover back to none and bumps `updated_at`. Unlike an album, a playlist
+/// has no member fallback, so a cleared cover leaves it with nothing rather than a member's art.
+pub fn remove_playlist_cover(conn: &Connection, id: i64, now: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE playlists SET cover_id = NULL, updated_at = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
+    Ok(())
+}
+
+/// The cover bound to a playlist, or None when it has none set or the id is absent. The playlist
+/// cover resolves from this alone - there is no member-track fallback. Mirrors get_album_cover_id.
+pub fn get_playlist_cover_id(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT cover_id FROM playlists WHERE id = ?1",
+        params![playlist_id],
+        |r| r.get(0),
+    )
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Deletes a playlist. Its slots CASCADE away; the track rows themselves stay.
+pub fn delete_playlist(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM playlists WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Appends each track in `track_ids` as a new slot after the playlist's current last position, in the
+/// given order, in one transaction. A track already in the playlist is appended again, not skipped -
+/// duplicates are the whole point, and each occurrence is its own slot. Bumps `updated_at` to `now`.
+pub fn add_tracks_to_playlist(
+    conn: &mut Connection,
+    playlist_id: i64,
+    track_ids: &[i64],
+    now: i64,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    let mut next: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(position), 0) FROM playlist_tracks WHERE playlist_id = ?1",
+        params![playlist_id],
+        |r| r.get(0),
+    )?;
+    for &track_id in track_ids {
+        next += 1;
+        tx.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+            params![playlist_id, track_id, next],
+        )?;
+    }
+    tx.execute(
+        "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+        params![now, playlist_id],
+    )?;
+    tx.commit()
+}
+
+/// Removes slots by their slot id, in one transaction, bumping the `updated_at` of every playlist that
+/// owned one. The bump runs before the delete, while the slots still resolve their parents. Remaining
+/// slots keep their positions - gaps are fine, the order-by-position read tolerates them. `strftime`
+/// stamps the bump the way the edit-layer writers do, keeping the signature free of a clock parameter.
+pub fn remove_playlist_slots(conn: &mut Connection, slot_ids: &[i64]) -> rusqlite::Result<()> {
+    if slot_ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?"; slot_ids.len()].join(", ");
+    let tx = conn.transaction()?;
+    tx.execute(
+        &format!(
+            "UPDATE playlists SET updated_at = strftime('%s', 'now')
+             WHERE id IN (SELECT DISTINCT playlist_id FROM playlist_tracks WHERE id IN ({placeholders}))"
+        ),
+        rusqlite::params_from_iter(slot_ids.iter()),
+    )?;
+    tx.execute(
+        &format!("DELETE FROM playlist_tracks WHERE id IN ({placeholders})"),
+        rusqlite::params_from_iter(slot_ids.iter()),
+    )?;
+    tx.commit()
+}
+
+/// Rewrites a playlist's slot order: assigns position 1..N to `ordered_slot_ids` in the given order,
+/// scoped to `playlist_id` so a stray slot from another playlist is ignored, in one transaction so no
+/// intermediate numbering is ever visible. Keyed on the slot id, not the track_id, since a duplicated
+/// track has two slots that must order independently. Bumps `updated_at` to `now`.
+pub fn set_playlist_order(
+    conn: &mut Connection,
+    playlist_id: i64,
+    ordered_slot_ids: &[i64],
+    now: i64,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for (i, &slot_id) in ordered_slot_ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE playlist_tracks SET position = ?1 WHERE id = ?2 AND playlist_id = ?3",
+            params![(i as i64) + 1, slot_id, playlist_id],
+        )?;
+    }
+    tx.execute(
+        "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+        params![now, playlist_id],
+    )?;
+    tx.commit()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1544,7 +1922,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 10);
 
         for table in [
             "tracks",
@@ -1558,6 +1936,8 @@ mod tests {
             "track_edits",
             "genres",
             "track_genres",
+            "playlists",
+            "playlist_tracks",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -1606,7 +1986,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -2314,5 +2694,159 @@ mod tests {
             genres[0].id, jazz.id,
             "the list is ordered by the folded key, so Jazz precedes Rock",
         );
+    }
+
+    #[test]
+    fn create_and_rename_playlist_tracks_name_and_updated_at() {
+        let conn = open_in_memory().unwrap();
+        let playlist = create_playlist(&conn, None, 100).unwrap();
+        assert_eq!(playlist.name, None, "a nameless playlist stays unset");
+        assert_eq!(playlist.created_at, 100);
+        assert_eq!(playlist.updated_at, 100);
+        assert_eq!(playlist.track_count, 0, "a fresh playlist holds nothing");
+
+        rename_playlist(&conn, playlist.id, Some("Favourites".into()), 200).unwrap();
+        let snap = load_playlists(&conn).unwrap();
+        assert_eq!(snap.playlists.len(), 1);
+        assert_eq!(snap.playlists[0].name.as_deref(), Some("Favourites"));
+        assert_eq!(
+            snap.playlists[0].updated_at, 200,
+            "the rename bumps updated_at"
+        );
+        assert_eq!(
+            snap.playlists[0].created_at, 100,
+            "created_at is left untouched"
+        );
+    }
+
+    #[test]
+    fn set_playlist_description_round_trips_and_bumps_updated_at() {
+        let conn = open_in_memory().unwrap();
+        let playlist = create_playlist(&conn, Some("Mix".into()), 100).unwrap();
+        assert_eq!(
+            playlist.description, None,
+            "a fresh playlist has no description"
+        );
+
+        set_playlist_description(&conn, playlist.id, Some("Late-night driving".into()), 200)
+            .unwrap();
+        let snap = load_playlists(&conn).unwrap();
+        assert_eq!(
+            snap.playlists[0].description.as_deref(),
+            Some("Late-night driving"),
+        );
+        assert_eq!(
+            snap.playlists[0].updated_at, 200,
+            "the write bumps updated_at"
+        );
+
+        // A None clears it back to unset.
+        set_playlist_description(&conn, playlist.id, None, 300).unwrap();
+        let cleared = load_playlists(&conn).unwrap();
+        assert_eq!(
+            cleared.playlists[0].description, None,
+            "None clears the description"
+        );
+        assert_eq!(cleared.playlists[0].updated_at, 300);
+    }
+
+    #[test]
+    fn set_then_remove_playlist_cover_binds_and_clears_cover_id() {
+        let conn = open_in_memory().unwrap();
+        let playlist = create_playlist(&conn, None, 100).unwrap();
+        // A cover row through the shared manifest; no image on disk is needed for the binding.
+        let cover_id = upsert_cover(&conn, &sample_cover("abc123")).unwrap();
+
+        set_playlist_cover(&conn, playlist.id, cover_id, 200).unwrap();
+        let bound = load_playlists(&conn).unwrap();
+        assert_eq!(
+            bound.playlists[0].cover_id,
+            Some(cover_id),
+            "the cover binds"
+        );
+        assert_eq!(
+            bound.playlists[0].updated_at, 200,
+            "the bind bumps updated_at"
+        );
+        assert_eq!(
+            get_playlist_cover_id(&conn, playlist.id).unwrap(),
+            Some(cover_id)
+        );
+
+        remove_playlist_cover(&conn, playlist.id, 300).unwrap();
+        let cleared = load_playlists(&conn).unwrap();
+        assert_eq!(
+            cleared.playlists[0].cover_id, None,
+            "removal clears the cover"
+        );
+        assert_eq!(
+            cleared.playlists[0].updated_at, 300,
+            "the removal bumps updated_at"
+        );
+        assert_eq!(get_playlist_cover_id(&conn, playlist.id).unwrap(), None);
+    }
+
+    #[test]
+    fn playlist_add_load_reorder_remove_and_delete() {
+        let mut conn = open_in_memory().unwrap();
+        let t1 = genre_track(&conn, "/music/1.mp3");
+        let t2 = genre_track(&conn, "/music/2.mp3");
+        // An edit-layer title resolves over the raw tag on the projection.
+        set_track_edit(&conn, t1, Some("Edited One".into()), None, None, None, None, None).unwrap();
+
+        let playlist = create_playlist(&conn, Some("Road Trip".into()), 100).unwrap();
+
+        // The same track twice plus a second track: three appends, three slots at 1..3.
+        add_tracks_to_playlist(&mut conn, playlist.id, &[t1, t1, t2], 200).unwrap();
+
+        let snap = load_playlists(&conn).unwrap();
+        assert_eq!(snap.playlists[0].track_count, 3);
+        assert_eq!(
+            snap.playlists[0].updated_at, 200,
+            "the append bumps updated_at"
+        );
+        assert_eq!(snap.tracks.len(), 3, "the duplicate is its own slot");
+        assert_eq!(
+            snap.tracks.iter().map(|r| r.position).collect::<Vec<_>>(),
+            vec![1, 2, 3],
+        );
+        // The two occurrences of t1 are distinct slots sharing one track_id.
+        assert_ne!(
+            snap.tracks[0].id, snap.tracks[1].id,
+            "duplicates produce distinct slot ids",
+        );
+        assert_eq!(snap.tracks[0].track_id, t1);
+        assert_eq!(snap.tracks[1].track_id, t1);
+        assert_eq!(
+            snap.tracks[0].title.as_deref(),
+            Some("Edited One"),
+            "the edit-layer title resolves on the slot projection",
+        );
+
+        // Reorder by slot id: the last slot moves to the front.
+        let (slot_a, slot_b, slot_c) = (snap.tracks[0].id, snap.tracks[1].id, snap.tracks[2].id);
+        set_playlist_order(&mut conn, playlist.id, &[slot_c, slot_a, slot_b], 300).unwrap();
+        let reordered = load_playlists(&conn).unwrap();
+        assert_eq!(
+            reordered
+                .tracks
+                .iter()
+                .map(|r| (r.id, r.position))
+                .collect::<Vec<_>>(),
+            vec![(slot_c, 1), (slot_a, 2), (slot_b, 3)],
+        );
+
+        // Remove one slot by its id: the row goes, the rest stay (a gap is fine).
+        remove_playlist_slots(&mut conn, &[slot_a]).unwrap();
+        let after_remove = load_playlists(&conn).unwrap();
+        assert_eq!(after_remove.tracks.len(), 2);
+        assert!(after_remove.tracks.iter().all(|r| r.id != slot_a));
+        assert_eq!(after_remove.playlists[0].track_count, 2);
+
+        // Delete the playlist: its remaining slots cascade away.
+        delete_playlist(&conn, playlist.id).unwrap();
+        let empty = load_playlists(&conn).unwrap();
+        assert!(empty.playlists.is_empty());
+        assert!(empty.tracks.is_empty());
     }
 }
