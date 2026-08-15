@@ -45,6 +45,7 @@ import type {
   GenreRow,
   TrackOverride,
   TrackPlacement,
+  TrackRow,
 } from "../../types";
 import type { Command, OrgState, Placement } from "./orgCommands";
 
@@ -488,6 +489,21 @@ export const useSingles = (): AlbumRow[] =>
 
 export const useMembership = (): AlbumTrackRow[] =>
   useOrganizeStore(useShallow((s) => s.org.membership));
+
+/**
+ * The loose tracks: every scanned row with no album or single membership, in scan order. Reads the
+ * shallow-stable tracks and membership references, then derives the filtered list with useMemo - the
+ * fresh array each run would churn under useShallow alone, so the derivation hangs off stable inputs.
+ * The Unsorted workspace reads this, and it shrinks as tracks are organized.
+ */
+export const useUnsortedTracks = (): TrackRow[] => {
+  const tracks = useAppStore((s) => s.tracks);
+  const membership = useOrganizeStore(useShallow((s) => s.org.membership));
+  return useMemo(() => {
+    const assigned = new Set(membership.map((r) => r.track_id));
+    return tracks.filter((t) => !assigned.has(t.id));
+  }, [tracks, membership]);
+};
 
 export const useGenres = (): GenreRow[] => useOrganizeStore(useShallow((s) => s.genres));
 

@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // -- Library Imports --
 import {
@@ -19,13 +19,18 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Component Imports --
+import { AlbumSelectionBar } from "./AlbumSelectionBar";
 import { AlbumTrackRow } from "./AlbumTrackRow";
 
 // -- State Imports --
-import { useAlbumTracks, useSetAlbumLayout } from "../../state/organize/store";
+import {
+  useAlbumTracks,
+  useSetAlbumLayout,
+  useUnassignTracks,
+} from "../../state/organize/store";
 
 // -- Utils Imports --
-import { groupByDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
+import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 
 // -- Type Imports --
 import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
@@ -51,12 +56,22 @@ const EMPTY_DISC = "empty-disc-";
 export function AlbumTrackList({ albumId }: { albumId: number }) {
   const tracks = useAlbumTracks(albumId);
   const setLayout = useSetAlbumLayout();
+  const unassignTracks = useUnassignTracks();
   const t = useT();
 
   // A revealed-but-empty extra disc, held here alone: it is only a drop zone, never persisted, so it
   // drops away when the drawer moves to another album.
   const [addedDisc, setAddedDisc] = useState<number | null>(null);
-  useEffect(() => setAddedDisc(null), [albumId]);
+
+  // The track selection is scoped to this album alone, kept off the global selection slice, and reset
+  // whenever the drawer moves on. The anchor holds the last click's index in visual order for a range.
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const anchorRef = useRef<number | null>(null);
+  useEffect(() => {
+    setAddedDisc(null);
+    setSelected(new Set());
+    anchorRef.current = null;
+  }, [albumId]);
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the title edits
   // rather than jitters into a reorder. Keyboard sensor drives the accessible reorder across discs.
@@ -95,6 +110,50 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
     setLayout(albumId, moveToDisc(tracks, trackId, disc));
   };
 
+  const clearSelection = () => {
+    setSelected(new Set());
+    anchorRef.current = null;
+  };
+
+  // Toggles one track, or, on a shift-click with a live anchor, adds the inclusive visual-order range
+  // between the anchor and this track to the current selection. A plain click reseats the anchor.
+  const onToggleSelect = (trackId: number, mods: { shift: boolean; meta: boolean }) => {
+    const index = ids.indexOf(trackId);
+    if (mods.shift && anchorRef.current != null) {
+      const anchor = anchorRef.current;
+      const [lo, hi] = anchor <= index ? [anchor, index] : [index, anchor];
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of ids.slice(lo, hi + 1)) next.add(id);
+        return next;
+      });
+      return;
+    }
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(trackId)) next.add(trackId);
+      return next;
+    });
+    anchorRef.current = index;
+  };
+
+  const selectAll = () => {
+    setSelected(new Set(ids));
+    anchorRef.current = null;
+  };
+
+  // Lays every selected track onto `disc`, appended there in their current order, then clears.
+  const moveSelectedToDisc = (disc: number) => {
+    setLayout(albumId, moveManyToDisc(tracks, [...selected], disc));
+    clearSelection();
+  };
+
+  // The undoable remove-from-album, then clears.
+  const removeSelected = () => {
+    unassignTracks(albumId, [...selected]);
+    clearSelection();
+  };
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     // A drop outside any target, or back onto the source, leaves the layout untouched.
     if (!over || over.id === active.id) return;
@@ -116,51 +175,82 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
   };
 
   const multi = displayGroups.length > 1;
+  const selecting = selected.size > 0;
+  // The next new disc sits one past the highest real disc, mirroring the add-disc foot.
+  const nextDisc = (groups.length ? groups[groups.length - 1].disc : 1) + 1;
 
   return (
-    <DndContext
-      sensors={sensors}
-      // Resolve drops against live row geometry, never a drag-start snapshot: an optimistic reorder
-      // renumbers and remounts the rows mid-interaction.
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-      onDragEnd={onDragEnd}
-    >
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        {multi ? (
-          <div className={styles.discs}>
-            {displayGroups.map((g) => (
-              <div key={g.disc}>
-                <div className={styles.discLabel}>
-                  <span>{t((d) => d.albums.discLabel, { n: g.disc })}</span>
-                  {g.rows.length === 0 ? (
-                    <button
-                      type="button"
-                      className={styles.removeDisc}
-                      onClick={() => setAddedDisc(null)}
-                    >
-                      {t((d) => d.albums.removeDisc)}
-                    </button>
-                  ) : null}
-                </div>
-                {g.rows.length === 0 ? (
-                  <EmptyDisc disc={g.disc} hint={t((d) => d.albums.discEmpty)} />
-                ) : (
-                  <DiscRows rows={g.rows} showDisc onSetDisc={onSetDisc} />
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <DiscRows rows={displayGroups[0].rows} showDisc={false} onSetDisc={onSetDisc} />
-        )}
-      </SortableContext>
+    <>
+      {selecting ? (
+        <AlbumSelectionBar
+          count={selected.size}
+          discs={groups.map((g) => g.disc)}
+          newDisc={nextDisc}
+          onSelectAll={selectAll}
+          onMoveToDisc={moveSelectedToDisc}
+          onRemove={removeSelected}
+          onClear={clearSelection}
+        />
+      ) : null}
 
-      <div className={styles.foot}>
-        <button type="button" className={styles.addDisc} onClick={addDisc}>
-          {t((d) => d.albums.addDisc)}
-        </button>
-      </div>
-    </DndContext>
+      <DndContext
+        sensors={sensors}
+        // Resolve drops against live row geometry, never a drag-start snapshot: an optimistic reorder
+        // renumbers and remounts the rows mid-interaction.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        onDragEnd={onDragEnd}
+      >
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          {multi ? (
+            <div className={styles.discs}>
+              {displayGroups.map((g) => (
+                <div key={g.disc}>
+                  <div className={styles.discLabel}>
+                    <span>{t((d) => d.albums.discLabel, { n: g.disc })}</span>
+                    {g.rows.length === 0 ? (
+                      <button
+                        type="button"
+                        className={styles.removeDisc}
+                        onClick={() => setAddedDisc(null)}
+                      >
+                        {t((d) => d.albums.removeDisc)}
+                      </button>
+                    ) : null}
+                  </div>
+                  {g.rows.length === 0 ? (
+                    <EmptyDisc disc={g.disc} hint={t((d) => d.albums.discEmpty)} />
+                  ) : (
+                    <DiscRows
+                      rows={g.rows}
+                      showDisc
+                      onSetDisc={onSetDisc}
+                      selected={selected}
+                      selecting={selecting}
+                      onToggleSelect={onToggleSelect}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <DiscRows
+              rows={displayGroups[0].rows}
+              showDisc={false}
+              onSetDisc={onSetDisc}
+              selected={selected}
+              selecting={selecting}
+              onToggleSelect={onToggleSelect}
+            />
+          )}
+        </SortableContext>
+
+        <div className={styles.foot}>
+          <button type="button" className={styles.addDisc} onClick={addDisc}>
+            {t((d) => d.albums.addDisc)}
+          </button>
+        </div>
+      </DndContext>
+    </>
   );
 }
 
@@ -172,10 +262,16 @@ function DiscRows({
   rows,
   showDisc,
   onSetDisc,
+  selected,
+  selecting,
+  onToggleSelect,
 }: {
   rows: AlbumTrackRowData[];
   showDisc: boolean;
   onSetDisc: (trackId: number, disc: number | null) => void;
+  selected: Set<number>;
+  selecting: boolean;
+  onToggleSelect: (trackId: number, mods: { shift: boolean; meta: boolean }) => void;
 }) {
   return (
     <div className={styles.list}>
@@ -186,6 +282,9 @@ function DiscRows({
           displayNo={i + 1}
           showDisc={showDisc}
           onSetDisc={(disc) => onSetDisc(row.track_id, disc)}
+          selected={selected.has(row.track_id)}
+          selecting={selecting}
+          onToggleSelect={(mods) => onToggleSelect(row.track_id, mods)}
         />
       ))}
     </div>

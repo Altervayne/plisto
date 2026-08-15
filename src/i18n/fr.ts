@@ -10,6 +10,7 @@ export const fr: Dict = {
   nav: {
     library: "[TO COMPLETE]",
     files: "[TO COMPLETE]",
+    unsorted: "[TO COMPLETE]",
     albums: "[TO COMPLETE]",
     singles: "[TO COMPLETE]",
     output: "[TO COMPLETE]",
@@ -81,6 +82,11 @@ export const fr: Dict = {
     addDisc: "[TO COMPLETE]",
     discEmpty: "[TO COMPLETE]",
     removeDisc: "[TO COMPLETE]",
+    selected: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    selectAll: "[TO COMPLETE]",
+    moveToDisc: "[TO COMPLETE]",
+    newDisc: "[TO COMPLETE]",
+    removeFromAlbum: "[TO COMPLETE]",
     trackCount: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
     tracksMissing: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
   },
@@ -96,6 +102,11 @@ export const fr: Dict = {
     remove: "[TO COMPLETE]",
     removeConfirm: "[TO COMPLETE]",
     removeAction: "[TO COMPLETE]",
+  },
+
+  unsorted: {
+    emptyTitle: "[TO COMPLETE]",
+    emptyLine: "[TO COMPLETE]",
   },
 
   cover: {
@@ -128,6 +139,7 @@ export const fr: Dict = {
     details: "[TO COMPLETE]",
     sectionTags: "[TO COMPLETE]",
     sectionFile: "[TO COMPLETE]",
+    useFilenameAsTitle: "[TO COMPLETE]",
     columns: {
       raw_track_no: "[TO COMPLETE]",
       raw_title: "[TO COMPLETE]",

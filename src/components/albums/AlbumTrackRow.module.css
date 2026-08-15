@@ -23,6 +23,12 @@
   background: var(--veil);
 }
 
+/* A selected row carries a steadier veil so the selection reads at a glance, not only by the tick. */
+.row[data-selected],
+.row[data-selected]:hover {
+  background: var(--veil-2);
+}
+
 /* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
 .row[data-dragging] {
   position: relative;
@@ -95,12 +101,83 @@
   text-align: center;
 }
 
+/*
+ * The number cell holds both the per-disc number and its selection checkbox, one over the other. At
+ * rest the number shows; on row hover or while a selection is active the two swap, so the checkbox is a
+ * quiet affordance rather than a permanent column.
+ */
+.numCell {
+  position: relative;
+  align-self: start;
+  height: 18px;
+}
+
 .no {
   padding-top: 3px;
   font-size: 12.5px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.row:hover .no,
+.row[data-selecting] .no {
+  opacity: 0;
+}
+
+/* The selection checkbox: overlaid on the number, dissolved until the row is hovered or a selection is
+ * active, then swapped in as the number fades. */
+.check {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+.row:hover .check,
+.row[data-selecting] .check,
+.check:focus-visible {
+  opacity: 1;
+}
+
+.check:hover {
+  border-color: var(--ink-2);
+}
+
+/* A checked box fills with the accent and always shows, whatever the row's hover state. */
+.row[data-selected] .check {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The check mark: a short rotated stem, revealed only when the box is checked. */
+.tick {
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0;
+}
+
+.row[data-selected] .tick {
+  opacity: 1;
 }
 
 .main {

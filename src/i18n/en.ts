@@ -10,6 +10,7 @@ export const en = {
   nav: {
     library: "Library",
     files: "Files",
+    unsorted: "Unsorted",
     albums: "Albums",
     singles: "Singles",
     output: "Output",
@@ -81,6 +82,11 @@ export const en = {
     addDisc: "+ add disc",
     discEmpty: "Drop a track here",
     removeDisc: "remove disc",
+    selected: { one: "{{n}} selected", other: "{{n}} selected" },
+    selectAll: "Select all",
+    moveToDisc: "Move to disc...",
+    newDisc: "New disc {n}",
+    removeFromAlbum: "Remove from album",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
   },
@@ -96,6 +102,11 @@ export const en = {
     remove: "Remove single",
     removeConfirm: "Remove this single?",
     removeAction: "Remove",
+  },
+
+  unsorted: {
+    emptyTitle: "Everything's sorted.",
+    emptyLine: "Every track sits in an album or single.",
   },
 
   cover: {
@@ -128,6 +139,7 @@ export const en = {
     details: "Track details",
     sectionTags: "Tags",
     sectionFile: "File",
+    useFilenameAsTitle: "Use filename as title",
     columns: {
       raw_track_no: "No",
       raw_title: "Title",

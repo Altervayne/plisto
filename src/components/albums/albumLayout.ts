@@ -111,6 +111,35 @@ export function moveToDisc(
 }
 
 /**
+ * Moves every member in `trackIds` onto `disc`, appended after that disc's non-moving members and
+ * keeping the movers' current relative order among themselves, then returns the whole re-numbered
+ * layout. The rest keep their disc and relative order. A mover already on `disc` folds into the same
+ * appended run. Members must arrive sorted by (disc, track_no).
+ */
+export function moveManyToDisc(
+  members: AlbumTrackRow[],
+  trackIds: number[],
+  disc: number,
+): TrackPlacement[] {
+  const moving = new Set(trackIds);
+  const movers = members
+    .filter((r) => moving.has(r.track_id))
+    .map((r) => ({ ...r, disc_no: disc }));
+  if (movers.length === 0) return layoutInOrder(members);
+  const others = members.filter((r) => !moving.has(r.track_id));
+
+  // Rebuild the order disc by disc so the movers land last on the target disc, in their own order.
+  const discs = new Set<number>(others.map(discOf));
+  discs.add(disc);
+  const ordered: AlbumTrackRow[] = [];
+  for (const d of [...discs].sort((a, b) => a - b)) {
+    for (const r of others) if (discOf(r) === d) ordered.push(r);
+    if (d === disc) ordered.push(...movers);
+  }
+  return layoutInOrder(ordered);
+}
+
+/**
  * Resolves a drop of one member onto another into the full re-numbered layout. The drop takes the
  * over-row's disc and slots before or after it by the DIRECTION of travel: a track dragged downward
  * (it started above the over) lands after it, one dragged upward lands before it. Direction is what

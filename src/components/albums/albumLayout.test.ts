@@ -6,6 +6,7 @@ import {
   discOf,
   groupByDisc,
   layoutInOrder,
+  moveManyToDisc,
   moveToDisc,
   placeAt,
   reorderOnto,
@@ -119,6 +120,71 @@ describe("moveToDisc", () => {
       { track_id: 1, disc_no: 1, track_no: 1 },
       { track_id: 2, disc_no: 1, track_no: 2 },
       { track_id: 3, disc_no: 1, track_no: 3 },
+    ]);
+  });
+});
+
+describe("moveManyToDisc", () => {
+  it("moves a subset to another disc, renumbering both discs", () => {
+    const spanning = [row(1, 1, 1), row(2, 1, 2), row(3, 1, 3), row(4, 1, 4), row(5, 2, 1)];
+    const layout = moveManyToDisc(spanning, [1, 3], 2);
+    expect(layout).toEqual([
+      { track_id: 2, disc_no: 1, track_no: 1 },
+      { track_id: 4, disc_no: 1, track_no: 2 },
+      { track_id: 5, disc_no: 2, track_no: 1 },
+      { track_id: 1, disc_no: 2, track_no: 2 },
+      { track_id: 3, disc_no: 2, track_no: 3 },
+    ]);
+  });
+
+  it("moves a subset onto a brand-new disc", () => {
+    const single = [row(1, 1, 1), row(2, 1, 2), row(3, 1, 3)];
+    const layout = moveManyToDisc(single, [2, 3], 2);
+    expect(layout).toEqual([
+      { track_id: 1, disc_no: 1, track_no: 1 },
+      { track_id: 2, disc_no: 2, track_no: 1 },
+      { track_id: 3, disc_no: 2, track_no: 2 },
+    ]);
+  });
+
+  it("preserves the movers' relative order regardless of the id list order", () => {
+    const four = [row(1, 1, 1), row(2, 1, 2), row(3, 1, 3), row(4, 1, 4)];
+    const layout = moveManyToDisc(four, [3, 1], 2);
+    expect(layout).toEqual([
+      { track_id: 2, disc_no: 1, track_no: 1 },
+      { track_id: 4, disc_no: 1, track_no: 2 },
+      { track_id: 1, disc_no: 2, track_no: 1 },
+      { track_id: 3, disc_no: 2, track_no: 2 },
+    ]);
+  });
+
+  it("splits a single-disc album when a subset moves to disc 2", () => {
+    const single = [row(1, 1, 1), row(2, 1, 2), row(3, 1, 3), row(4, 1, 4)];
+    const layout = moveManyToDisc(single, [2, 4], 2);
+    expect(layout).toEqual([
+      { track_id: 1, disc_no: 1, track_no: 1 },
+      { track_id: 3, disc_no: 1, track_no: 2 },
+      { track_id: 2, disc_no: 2, track_no: 1 },
+      { track_id: 4, disc_no: 2, track_no: 2 },
+    ]);
+  });
+
+  it("is stable when a mover already sits on the target disc", () => {
+    const spanning = [row(1, 1, 1), row(2, 2, 1), row(3, 2, 2)];
+    const layout = moveManyToDisc(spanning, [1, 2], 2);
+    expect(layout).toEqual([
+      { track_id: 3, disc_no: 2, track_no: 1 },
+      { track_id: 1, disc_no: 2, track_no: 2 },
+      { track_id: 2, disc_no: 2, track_no: 3 },
+    ]);
+  });
+
+  it("leaves the layout numbered when none of the ids are members", () => {
+    const single = [row(1, 1, 1), row(2, 1, 2)];
+    const layout = moveManyToDisc(single, [98, 99], 2);
+    expect(layout).toEqual([
+      { track_id: 1, disc_no: 1, track_no: 1 },
+      { track_id: 2, disc_no: 1, track_no: 2 },
     ]);
   });
 });

@@ -1,3 +1,6 @@
+// -- Framework Imports --
+import type { MouseEvent } from "react";
+
 // -- Library Imports --
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -32,22 +35,36 @@ import styles from "./AlbumTrackRow.module.css";
  * committing empty or the raw value itself clears the override back to raw, so the edited marker only
  * shows a real change. The disc field dissolves until touched: typing a disc moves the track there and
  * renumbers, leaving the album's other discs in place. `displayNo` is the row's position on its disc.
+ * The number cell doubles as the selection affordance: it swaps to a checkbox on row hover, or whenever
+ * the album has a selection active, so a multi-select never adds a permanent column.
  */
 export function AlbumTrackRow({
   row,
   displayNo,
   showDisc,
+  selected,
+  selecting,
   onSetDisc,
+  onToggleSelect,
 }: {
   row: AlbumTrackRowData;
   displayNo: number;
   showDisc: boolean;
+  selected: boolean;
+  selecting: boolean;
   onSetDisc: (disc: number | null) => void;
+  onToggleSelect: (mods: { shift: boolean; meta: boolean }) => void;
 }) {
   const commit = useCommitTrackOverrides();
   const t = useT();
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
+
+  // The checkbox owns its click: keep it from starting a drag or opening the title field.
+  const onCheck = (e: MouseEvent) => {
+    e.stopPropagation();
+    onToggleSelect({ shift: e.shiftKey, meta: e.metaKey || e.ctrlKey });
+  };
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.track_id,
@@ -82,6 +99,8 @@ export function AlbumTrackRow({
       className={showDisc ? `${styles.row} ${styles.withDisc}` : styles.row}
       data-missing={row.missing_at != null ? "" : undefined}
       data-dragging={isDragging ? "" : undefined}
+      data-selected={selected ? "" : undefined}
+      data-selecting={selecting ? "" : undefined}
     >
       <button
         type="button"
@@ -103,7 +122,19 @@ export function AlbumTrackRow({
         </div>
       ) : null}
 
-      <span className={styles.no}>{displayNo}</span>
+      <div className={styles.numCell}>
+        <span className={styles.no}>{displayNo}</span>
+        <button
+          type="button"
+          className={styles.check}
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={selected ? t((d) => d.tracks.deselectTrack) : t((d) => d.tracks.selectTrack)}
+          onClick={onCheck}
+        >
+          <span className={styles.tick} aria-hidden="true" />
+        </button>
+      </div>
 
       <div className={styles.main}>
         <EditableField
@@ -113,7 +144,9 @@ export function AlbumTrackRow({
           onCommit={onTitle}
         />
         <div className={styles.rawline}>
-          <span className={styles.source}>{row.filename}</span>
+          <span className={styles.source} title={row.filename}>
+            {row.filename}
+          </span>
           {edited ? (
             <>
               <span className={styles.editedMark}>{t((d) => d.common.edited)}</span>

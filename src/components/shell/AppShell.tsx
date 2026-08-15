@@ -7,6 +7,7 @@ import { Sidebar } from "./Sidebar";
 import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { FilesView } from "../files/FilesView";
+import { UnsortedView } from "../files/UnsortedView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
 import { EmptyState } from "../common/EmptyState";
@@ -29,6 +30,7 @@ import {
   useRedo,
   useSingles,
   useUndo,
+  useUnsortedTracks,
 } from "../../state/organize/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 
@@ -39,7 +41,7 @@ import { useT } from "../../i18n";
 import styles from "./AppShell.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode = "files" | "albums" | "singles" | "export" | "settings";
+type Mode = "files" | "unsorted" | "albums" | "singles" | "export" | "settings";
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
@@ -54,6 +56,7 @@ export function AppShell() {
   const addRoot = useAddRoot();
   const albums = useAlbums();
   const singles = useSingles();
+  const unsorted = useUnsortedTracks();
   const loadOrganization = useLoadOrganization();
   const loadPreferences = useLoadPreferences();
   const undo = useUndo();
@@ -122,6 +125,7 @@ export function AppShell() {
         mode={mode}
         onModeChange={setMode}
         filesCount={count}
+        unsortedCount={unsorted.length}
         albumsCount={albums.length}
         singlesCount={singles.length}
       />
@@ -199,6 +203,8 @@ export function AppShell() {
                     </div>
                   ) : null}
                 </>
+              ) : mode === "unsorted" ? (
+                <UnsortedView />
               ) : (
                 <FilesView />
               )}

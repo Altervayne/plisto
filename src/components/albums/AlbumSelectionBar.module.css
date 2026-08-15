@@ -1,0 +1,75 @@
+/*
+ * The album-track selection bar: a quiet header row above the list while tracks are selected. The count
+ * sits at the left, the actions trail at the right. No border - it reads as part of the continuous
+ * surface, parted from the rows by space alone.
+ */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 6px 6px 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+}
+
+.count {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The move-to-disc anchor: the menu floats from here, so it sits relative to the button. */
+.moveWrap {
+  position: relative;
+}
+
+/* A transparent full-region catch behind the open menu, so an outside click dismisses it. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+}
+
+/* The disc menu: a quiet floating card under the move button, lifted on a shadow like the app's other
+ * popovers. */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 9;
+  min-width: 140px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.option {
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.option:hover {
+  background: var(--veil);
+}

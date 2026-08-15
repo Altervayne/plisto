@@ -2,7 +2,7 @@
 import { NavItem } from "./NavItem";
 
 // -- Icon Imports --
-import { LayoutGrid, Disc, Disc3, Download, Settings } from "lucide-react";
+import { LayoutGrid, Inbox, Disc, Disc3, Download, Settings } from "lucide-react";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -11,7 +11,7 @@ import { useT } from "../../i18n";
 import styles from "./Sidebar.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode = "files" | "albums" | "singles" | "export" | "settings";
+type Mode = "files" | "unsorted" | "albums" | "singles" | "export" | "settings";
 
 /**
  * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
@@ -23,12 +23,14 @@ export function Sidebar({
   mode,
   onModeChange,
   filesCount,
+  unsortedCount,
   albumsCount,
   singlesCount,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   filesCount: number;
+  unsortedCount: number;
   albumsCount: number;
   singlesCount: number;
 }) {
@@ -44,6 +46,13 @@ export function Sidebar({
           count={filesCount}
           active={mode === "files"}
           onClick={() => onModeChange("files")}
+        />
+        <NavItem
+          icon={<Inbox size={17} strokeWidth={1.8} />}
+          label={t((d) => d.nav.unsorted)}
+          count={unsortedCount}
+          active={mode === "unsorted"}
+          onClick={() => onModeChange("unsorted")}
         />
         <NavItem
           icon={<Disc size={17} strokeWidth={1.8} />}

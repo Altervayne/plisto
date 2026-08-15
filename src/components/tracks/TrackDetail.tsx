@@ -39,6 +39,12 @@ function show(value: string | number | null): string {
   return String(value);
 }
 
+/** The filename without its extension: everything before the last dot, or the whole name when it has none. */
+function filenameStem(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
+
 /** The immutable file facts, in reading order: the container, then the paths Plisto never rewrites. */
 function fileFactsOf(track: TrackRow, t: Translate): FileFact[] {
   return [
@@ -155,6 +161,11 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
   const revertYear = () => void editTrack(live.id, { ...edits, year: null });
   const revertDisc = () => void editTrack(live.id, { ...edits, disc_no: null });
 
+  // Seeds the title from the filename with its extension stripped, through the same edit path as a
+  // typed title, so it reflects at once and reverts like any other edit.
+  const applyFilenameAsTitle = () =>
+    void editTrack(live.id, { ...edits, title: filenameStem(live.filename) });
+
   // A field reads as edited only when its edit is set and truly differs from raw, so the marker never
   // shows for an edit that merely echoes the source.
   const changed = <T,>(edit: T | null, raw: T | null): boolean => edit != null && edit !== raw;
@@ -173,6 +184,11 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
               onCommit={commitText("title", live.raw_title)}
               onRevert={revertText("title")}
             />
+            <div className={styles.fromFilename}>
+              <QuietButton onClick={applyFilenameAsTitle}>
+                {t((d) => d.tracks.useFilenameAsTitle)}
+              </QuietButton>
+            </div>
           </div>
           <QuietButton onClick={onClose} aria-label={t((d) => d.common.closeDetails)}>
             {t((d) => d.common.close)}
