@@ -91,15 +91,17 @@ export function AlbumDrawer({
               onCommit={(next) => commit(album.id, { ...fields, title: next === "" ? null : next })}
             />
           </div>
-          {onOpenFull && !single ? (
-            <QuietButton onClick={() => onOpenFull(album.id)} aria-label={t((d) => d.albums.open)}>
-              <Maximize2 size={15} strokeWidth={1.8} />
-              <span>{t((d) => d.albums.open)}</span>
+          <div className={styles.actions}>
+            {onOpenFull && !single ? (
+              <QuietButton onClick={() => onOpenFull(album.id)} aria-label={t((d) => d.albums.open)}>
+                <Maximize2 size={15} strokeWidth={1.8} />
+                <span>{t((d) => d.albums.open)}</span>
+              </QuietButton>
+            ) : null}
+            <QuietButton onClick={onClose} aria-label={t((d) => d.common.closeDetails)}>
+              {t((d) => d.common.close)}
             </QuietButton>
-          ) : null}
-          <QuietButton onClick={onClose} aria-label={t((d) => d.common.closeDetails)}>
-            {t((d) => d.common.close)}
-          </QuietButton>
+          </div>
         </div>
 
         <AlbumCoverField albumId={album.id} />

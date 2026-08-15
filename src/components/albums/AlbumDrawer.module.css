@@ -22,16 +22,25 @@
 
 .head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 8px 0 12px;
 }
 
-/* The title field flexes to fill the header; the close button holds its own width. */
+/* The title field flexes to fill the header; the actions hold their own width. */
 .titleWrap {
   flex: 1;
   min-width: 0;
+}
+
+/* Open and Close ride together on one centered line, so the icon-plus-label Open sits level with the
+ * text-only Close - a baseline row would drop the iconless button, since an icon carries no text baseline. */
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tracks {
