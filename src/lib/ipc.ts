@@ -16,6 +16,7 @@ import type {
   CoverSize,
   DestinationCheck,
   ExportProgress,
+  ExportStatus,
   ExportSummary,
   ExtractResult,
   ExtractRow,
@@ -131,6 +132,21 @@ export function cancelExport(): Promise<void> {
 /** Inspects a picked destination before a run: workspace overlap, non-empty warn, writability. */
 export function validateExportDestination(destination: string): Promise<DestinationCheck> {
   return invoke<DestinationCheck>("validate_export_destination", { destination });
+}
+
+/** The app-global export snapshot, for the tray popup opening mid-run: running flag and latest tick. */
+export function getExportStatus(): Promise<ExportStatus> {
+  return invoke<ExportStatus>("get_export_status");
+}
+
+/** Brings the main window back from the tray: shows, unminimizes and focuses it. */
+export function showMainWindow(): Promise<void> {
+  return invoke("show_main_window");
+}
+
+/** Quits the app from the tray popup. */
+export function quitApp(): Promise<void> {
+  return invoke("quit_app");
 }
 
 /** Resolves a track's single cover at `size`, or null when it has no art from any source. */

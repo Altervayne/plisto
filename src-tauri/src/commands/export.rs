@@ -12,22 +12,28 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 // -- Local Imports --
 use crate::db;
-use crate::dto::{DestinationCheck, ExportConfig, ExportPhase, ExportProgress, ExportSummary};
+use crate::dto::{
+    DestinationCheck, ExportConfig, ExportPhase, ExportProgress, ExportStatus, ExportSummary,
+};
 use crate::export;
 use crate::state::AppState;
 
 /// Exports the organized library to `config.destination`, streaming progress over `on_progress`
 /// and returning the report. Rejects while another export runs. Snapshots the plan under a brief
 /// lock, then releases it; validates the destination before any write (refusing one inside the
-/// workspace or not writable); runs the worker on a blocking thread and awaits it.
+/// workspace or not writable); runs the worker on a blocking thread and awaits it. Alongside the
+/// per-invocation channel it drives the app-global export events (`export:started`/`:progress`/
+/// `:finished`/`:failed`) and the shared `export_status`, so the tray popup and the notification
+/// listener follow the same run without touching the channel path the export view uses.
 #[tauri::command]
 pub async fn export_library(
     config: ExportConfig,
     on_progress: Channel<ExportProgress>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
     if state.export_running.swap(true, Ordering::SeqCst) {
@@ -78,6 +84,18 @@ pub async fn export_library(
     let covers_dir = state.covers_dir.clone();
     let cancel = Arc::clone(&state.export_cancel);
 
+    // The run begins here, past every validation, so a started event always pairs with a terminal
+    // one. Mark the shared status running and announce it before the first copy.
+    if let Ok(mut status) = state.export_status.lock() {
+        *status = ExportStatus {
+            running: true,
+            progress: None,
+        };
+    }
+    let _ = app.emit("export:started", ());
+
+    let status = Arc::clone(&state.export_status);
+    let worker_app = app.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         export::run_export(
             &plan,
@@ -86,6 +104,10 @@ pub async fn export_library(
             &covers_dir,
             &cancel,
             move |p| {
+                if let Ok(mut status) = status.lock() {
+                    status.progress = Some(p.clone());
+                }
+                let _ = worker_app.emit("export:progress", &p);
                 let _ = on_progress.send(p);
             },
         )
@@ -93,11 +115,35 @@ pub async fn export_library(
     .await;
 
     state.export_running.store(false, Ordering::SeqCst);
+    if let Ok(mut status) = state.export_status.lock() {
+        *status = ExportStatus {
+            running: false,
+            progress: None,
+        };
+    }
 
     match outcome {
-        Ok(summary) => Ok(summary),
-        Err(_) => Err("export task failed to run".to_string()),
+        Ok(summary) => {
+            let _ = app.emit("export:finished", &summary);
+            Ok(summary)
+        }
+        Err(_) => {
+            let message = "export task failed to run".to_string();
+            let _ = app.emit("export:failed", &message);
+            Err(message)
+        }
     }
+}
+
+/// The current app-global export snapshot, for the tray popup opening mid-run. Reads the shared
+/// status the running export keeps live; idle otherwise.
+#[tauri::command]
+pub fn get_export_status(state: State<'_, AppState>) -> Result<ExportStatus, String> {
+    let status = state
+        .export_status
+        .lock()
+        .map_err(|_| "export status is unavailable".to_string())?;
+    Ok(status.clone())
 }
 
 /// Signals a running export to stop. The worker finishes the file it is on, skips the rest, and

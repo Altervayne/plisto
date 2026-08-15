@@ -15,6 +15,7 @@ pub mod playlist_export;
 pub mod playlists;
 pub mod roots;
 pub mod settings;
+pub mod window;
 
 // -- Library Imports --
 use std::collections::HashMap;

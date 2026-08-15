@@ -46,6 +46,17 @@ export async function isWindowMaximized(): Promise<boolean> {
   }
 }
 
+/** The window's visibility, true when there is no window so a preview never reads as hidden. */
+export async function isWindowVisible(): Promise<boolean> {
+  const w = appWindow();
+  if (!w) return true;
+  try {
+    return await w.isVisible();
+  } catch {
+    return true;
+  }
+}
+
 /** Subscribes to resize events; the returned unlisten is a no-op when there is no window. */
 export async function onWindowResized(handler: () => void): Promise<UnlistenFn> {
   const w = appWindow();

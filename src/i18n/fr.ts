@@ -352,4 +352,18 @@ export const fr: Dict = {
     close: "Fermer",
     folders: { one: "{{n}} répertoire", other: "{{n}} répertoires" },
   },
+
+  tray: {
+    exporting: "Exportation {exported}/{total}",
+    idle: "Aucune exportation en cours",
+    show: "Afficher Plisto",
+    quit: "Quitter",
+  },
+
+  notify: {
+    finishedTitle: "Exportation terminée",
+    finishedBody: { one: "{{n}} piste exportée.", other: "{{n}} pistes exportées." },
+    failedTitle: "Exportation échouée",
+    failedBody: "L'exportation n'a pas pu aboutir.",
+  },
 };

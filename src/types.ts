@@ -277,6 +277,16 @@ export interface ExportSummary {
   items: ExportItem[];
 }
 
+/**
+ * The app-global snapshot of the current export, read by the tray popup when it opens mid-run.
+ * `running` spans the worker's first tick to its terminal event; `progress` is the latest tick while
+ * running, null otherwise. Mirrors ExportStatus in dto.rs.
+ */
+export interface ExportStatus {
+  running: boolean;
+  progress: ExportProgress | null;
+}
+
 /** The up-front verdict on a picked destination. Mirrors DestinationCheck in dto.rs. */
 export interface DestinationCheck {
   ok: boolean;

@@ -425,6 +425,16 @@ pub struct ExportSummary {
     pub items: Vec<ExportItem>,
 }
 
+/// The shared, app-global snapshot of the current export, read by the tray popup when it opens
+/// mid-run. `running` is true from the worker's first tick to its terminal event; `progress` is the
+/// latest tick while running, None otherwise. It rides alongside the per-invocation progress channel,
+/// which the export view keeps using unchanged. Mirrors ExportStatus in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportStatus {
+    pub running: bool,
+    pub progress: Option<ExportProgress>,
+}
+
 /// The up-front verdict on a picked destination, so the UI can gate and warn before a run.
 /// `inside_workspace` is the hard refusal (a dest overlapping any library root); `non_empty` is
 /// the soft warn (a destination that already holds files); `writable` proves a probe write

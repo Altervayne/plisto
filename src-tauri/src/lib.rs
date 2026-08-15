@@ -10,17 +10,20 @@ mod paths;
 mod resolve;
 mod scan;
 mod state;
+mod tray;
 
 // -- Library Imports --
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 // -- State Imports --
 use covers::InFlightGuard;
+use dto::ExportStatus;
 use state::AppState;
+use tray::TrayState;
 
 // Mirrors AppInfo in the frontend's types.ts. Any change here changes the IPC
 // contract, so the two move together.
@@ -45,6 +48,22 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .on_window_event(|window, event| match event {
+            // The main window's close (the X, native or the custom titlebar's JS close()) hides to
+            // tray instead of exiting; the app keeps running behind the tray icon. Minimize is left
+            // to its normal behavior. The tray popup's own close is never intercepted.
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            // The popup dismisses itself when it loses focus, like a native popover.
+            WindowEvent::Focused(false) if window.label() == "tray" => {
+                let _ = window.hide();
+                tray::stamp_hidden(window.app_handle());
+            }
+            _ => {}
+        })
         .setup(|app| {
             // The index lives in the app data dir, never the music folder. Open it once on
             // launch and hand ownership to managed state.
@@ -99,7 +118,16 @@ pub fn run() {
                 export_running: AtomicBool::new(false),
                 playlist_export_cancel: Arc::new(AtomicBool::new(false)),
                 playlist_export_running: AtomicBool::new(false),
+                export_status: Arc::new(Mutex::new(ExportStatus {
+                    running: false,
+                    progress: None,
+                })),
             });
+
+            // The tray icon and its popup toggle guard, once the state it reads is managed.
+            app.manage(TrayState::default());
+            tray::build_tray(app.handle())?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -156,6 +184,7 @@ pub fn run() {
             commands::export::cancel_export,
             commands::export::export_template_preview,
             commands::export::validate_export_destination,
+            commands::export::get_export_status,
             commands::playlist_export::export_playlist_m3u,
             commands::playlist_export::export_playlist_rich_m3u8,
             commands::playlist_export::export_playlist_folder,
@@ -167,7 +196,9 @@ pub fn run() {
             commands::roots::remove_root,
             commands::roots::rescan_root,
             commands::roots::rescan_all,
-            commands::roots::root_removal_impact
+            commands::roots::root_removal_impact,
+            commands::window::show_main_window,
+            commands::window::quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Plisto",
         "width": 1200,
         "height": 800,
@@ -19,6 +20,19 @@
         "minHeight": 600,
         "decorations": false,
         "resizable": true
+      },
+      {
+        "label": "tray",
+        "url": "index.html?window=tray",
+        "title": "Plisto",
+        "width": 300,
+        "height": 188,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {

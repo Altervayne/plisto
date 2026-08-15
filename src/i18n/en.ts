@@ -351,6 +351,20 @@ export const en = {
     close: "Close",
     folders: { one: "{{n}} folder", other: "{{n}} folders" },
   },
+
+  tray: {
+    exporting: "Exporting {exported}/{total}",
+    idle: "Nothing exporting",
+    show: "Show Plisto",
+    quit: "Quit",
+  },
+
+  notify: {
+    finishedTitle: "Export complete",
+    finishedBody: { one: "{{n}} track exported.", other: "{{n}} tracks exported." },
+    failedTitle: "Export failed",
+    failedBody: "The export could not finish.",
+  },
 };
 
 /** The full dictionary shape, derived from the English source. The French scaffold is typed to it. */

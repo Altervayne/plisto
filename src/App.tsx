@@ -8,6 +8,9 @@ import { WorkspaceGate } from "./components/WorkspaceGate";
 // -- State Imports --
 import { useLoadPreferences } from "./state/preferences/store";
 
+// -- Hook Imports --
+import { useExportNotifications } from "./hooks/useExportNotifications";
+
 // -- Theme Imports --
 import { useApplyTheme } from "./theme";
 
@@ -26,6 +29,9 @@ function App() {
 
   // Stamp the document root from the theme pref on every screen, not just inside the shell.
   useApplyTheme();
+
+  // Notify on a finished or failed export while the window is hidden to tray.
+  useExportNotifications();
 
   return (
     <div className={styles.frame}>
