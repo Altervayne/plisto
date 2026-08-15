@@ -5,9 +5,9 @@
  */
 .row {
   display: grid;
-  grid-template-columns: 16px 26px 1fr auto;
+  grid-template-columns: 16px 20px 1fr auto;
   align-items: start;
-  gap: 10px;
+  gap: 8px;
   padding: 7px 6px;
   border-radius: var(--r-sm);
   transition: background var(--dur-fast) ease;
@@ -16,7 +16,7 @@
 /* A multi-disc album reserves the per-row disc column; a single-disc album drops it entirely so the
  * common case stays pristine and the title is not pushed right by a field it never needs. */
 .row.withDisc {
-  grid-template-columns: 16px 28px 26px 1fr auto;
+  grid-template-columns: 16px 26px 20px 1fr auto;
 }
 
 .row:hover {
@@ -79,7 +79,7 @@
  * discs affordance stays out of the way until wanted.
  */
 .disc {
-  align-self: start;
+  align-self: center;
   opacity: 0;
   transition: opacity var(--dur-fast) ease;
 }
@@ -94,7 +94,6 @@
 }
 
 .disc input {
-  padding-top: 3px;
   font-size: 12.5px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
@@ -108,16 +107,17 @@
  */
 .numCell {
   position: relative;
-  align-self: start;
-  height: 18px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  min-height: 16px;
 }
 
 .no {
-  padding-top: 3px;
   font-size: 12.5px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: left;
   transition: opacity var(--dur-fast) ease;
 }
 
@@ -126,12 +126,14 @@
   opacity: 0;
 }
 
-/* The selection checkbox: overlaid on the number, dissolved until the row is hovered or a selection is
- * active, then swapped in as the number fades. */
+/* The selection checkbox: overlaid on the number at the cell's left so it sits close to the grip, not
+ * marooned mid-gutter. Dissolved until the row is hovered or a selection is active, then swapped in as
+ * the number fades. */
 .check {
   position: absolute;
-  top: 1px;
-  right: 0;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
   width: 16px;
   height: 16px;
   padding: 0;
@@ -196,6 +198,7 @@
 }
 
 .source {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -203,6 +206,39 @@
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--ink-3);
+}
+
+/* Hovering the row lifts the truncation so the whole filename is legible - the one place it is most
+ * needed. The row grows to fit, then settles back once the pointer leaves. */
+.row:hover .source {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/* Pull the filename up as the track's title. Dissolved until the row is hovered, then a quiet accent
+ * action beside the source, so a filename-only track earns a title in one click. */
+.useName {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.row:hover .useName,
+.useName:focus-visible {
+  opacity: 1;
+}
+
+.useName:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .editedMark {

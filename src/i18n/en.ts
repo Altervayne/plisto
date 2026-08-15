@@ -9,7 +9,7 @@
 export const en = {
   nav: {
     library: "Library",
-    files: "Files",
+    files: "All Tracks",
     unsorted: "Unsorted",
     albums: "Albums",
     singles: "Singles",

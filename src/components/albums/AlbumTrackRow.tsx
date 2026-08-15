@@ -9,7 +9,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { EditableField } from "../common/EditableField/EditableField";
 
 // -- Icon Imports --
-import { GripVertical } from "lucide-react";
+import { ArrowUpToLine, GripVertical } from "lucide-react";
 
 // -- State Imports --
 import { useCommitTrackOverrides } from "../../state/organize/store";
@@ -27,6 +27,12 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./AlbumTrackRow.module.css";
+
+/** The filename without its extension: everything before the last dot, or the whole name when it has none. */
+function filenameStem(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
 
 /**
  * One track row in the drawer: a grip handle, a quiet disc field, the per-disc number, the clean title
@@ -84,6 +90,12 @@ export function AlbumTrackRow({
   };
 
   const revert = () => commit(row.album_id, row.track_id, { ...override, title_override: null });
+
+  // Seeds the clean title from the filename with its extension stripped, through the same override path
+  // as a typed title - so it reflects at once and reverts like any other edit. This is the album-list
+  // reach for the filename, the place it is most often the only source of a real title.
+  const useFilenameAsTitle = () =>
+    commit(row.album_id, row.track_id, { ...override, title_override: filenameStem(row.filename) });
 
   // A typed disc that lands on the track's current disc changes nothing; only a real move renumbers.
   const onDisc = (next: string) => {
@@ -155,6 +167,15 @@ export function AlbumTrackRow({
               </button>
             </>
           ) : null}
+          <button
+            type="button"
+            className={styles.useName}
+            onClick={useFilenameAsTitle}
+            aria-label={t((d) => d.tracks.useFilenameAsTitle)}
+            title={t((d) => d.tracks.useFilenameAsTitle)}
+          >
+            <ArrowUpToLine size={13} strokeWidth={1.8} />
+          </button>
         </div>
       </div>
 
