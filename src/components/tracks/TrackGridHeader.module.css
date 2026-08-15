@@ -11,7 +11,9 @@
   grid-template-columns: var(--track-cols);
   align-items: center;
   column-gap: 18px;
-  padding: 6px 10px 10px;
+  /* Right inset matches the scroll body's (row padding 10 + its 16 gutter) so the labels stay aligned
+   * with the row cells while the rows clear the overlay scrollbar below. */
+  padding: 6px 26px 10px 10px;
   background: var(--ambient);
   background-attachment: fixed;
 }

@@ -35,7 +35,8 @@
 }
 
 .mainInner {
-  padding: 0 10px 24px;
+  /* Right inset clears the overlay scrollbar so a track row's veil stops short of the bar. */
+  padding: 0 16px 24px 10px;
 }
 
 .tracks {

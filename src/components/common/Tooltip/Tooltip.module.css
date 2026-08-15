@@ -17,7 +17,10 @@
   font-family: var(--font-ui);
   font-size: 12px;
   line-height: 1.35;
-  white-space: nowrap;
+  /* Wrap within the max-width rather than spilling past it: a long filename becomes a few lines, not an
+   * off-screen streak. `anywhere` also lets an unbroken path break so it never forces the box wider. */
+  white-space: normal;
+  overflow-wrap: anywhere;
   pointer-events: none;
   visibility: hidden;
 }

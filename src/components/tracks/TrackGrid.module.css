@@ -40,6 +40,13 @@
   min-height: 0;
 }
 
+/* The scroll body's right inset clears the overlay scrollbar, so a row's hover veil stops short of the
+ * bar rather than sliding under it. The header carries a matching right inset (its own padding) so the
+ * labels stay column-aligned with the rows below. */
+.scrollInner {
+  padding-right: 16px;
+}
+
 /* The virtualized rows are absolutely placed inside this measured-height spacer. */
 .body {
   position: relative;

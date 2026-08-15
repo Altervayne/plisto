@@ -164,7 +164,7 @@ export function TrackGrid({
 
       <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
 
-      <ScrollArea className={styles.scroll} viewportRef={scrollRef}>
+      <ScrollArea className={styles.scroll} contentClassName={styles.scrollInner} viewportRef={scrollRef}>
         {noMatch ? (
           <p className={styles.noMatch}>
             {t((d) => d.tracks.noMatch, { q: globalFilter.trim() })}

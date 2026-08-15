@@ -25,7 +25,9 @@
 .list {
   display: flex;
   flex-direction: column;
-  padding: 0 10px 4px 2px;
+  /* Extra right inset clears the overlay scrollbar, so a row's hover veil stops short of the bar rather
+   * than sliding under it. */
+  padding: 0 16px 4px 2px;
 }
 
 .entry {
