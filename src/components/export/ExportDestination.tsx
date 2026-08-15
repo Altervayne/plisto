@@ -1,3 +1,6 @@
+// -- Component Imports --
+import { Tooltip } from "../common/Tooltip/Tooltip";
+
 // -- Icon Imports --
 import { FolderOpen } from "lucide-react";
 
@@ -28,10 +31,12 @@ export function ExportDestination({
         {destination ? t((d) => d.export.changeDestination) : t((d) => d.export.chooseDestination)}
       </button>
       {destination ? (
-        <span className={styles.chosen} title={destination}>
-          <span className={styles.chosenDot} aria-hidden="true" />
-          <span className={styles.chosenPath}>{destination}</span>
-        </span>
+        <Tooltip label={destination}>
+          <span className={styles.chosen}>
+            <span className={styles.chosenDot} aria-hidden="true" />
+            <span className={styles.chosenPath}>{destination}</span>
+          </span>
+        </Tooltip>
       ) : null}
     </div>
   );

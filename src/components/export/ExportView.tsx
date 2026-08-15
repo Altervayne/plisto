@@ -6,6 +6,7 @@ import { CenteredStage } from "../common/CenteredStage";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { ExportDestination } from "./ExportDestination";
 import { ExportLayout } from "./ExportLayout";
@@ -175,9 +176,9 @@ export function ExportView() {
         <div className={styles.body}>
           <h1 className={styles.title}>{t((d) => d.export.exporting)}</h1>
           {destination ? (
-            <p className={styles.path} title={destination}>
-              {destination}
-            </p>
+            <Tooltip label={destination}>
+              <p className={styles.path}>{destination}</p>
+            </Tooltip>
           ) : null}
           <ProgressLine value={value} />
           <div className={`${styles.counters} tabular`}>

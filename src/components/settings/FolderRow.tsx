@@ -3,6 +3,7 @@ import { useState } from "react";
 
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Icon Imports --
 import { RotateCw, X } from "lucide-react";
@@ -83,9 +84,9 @@ export function FolderRow({ root }: { root: Root }) {
       <div className={styles.row}>
         <div className={styles.main}>
           <span className={styles.name}>{folderName(root.path)}</span>
-          <span className={styles.path} title={root.path}>
-            {root.path}
-          </span>
+          <Tooltip label={root.path}>
+            <span className={styles.path}>{root.path}</span>
+          </Tooltip>
         </div>
         <span className={styles.count}>
           {t((d) => d.settings.trackCount, { n: root.track_count })}

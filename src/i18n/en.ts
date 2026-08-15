@@ -272,6 +272,30 @@ export const en = {
     more: "and {{n}} more",
   },
 
+  extract: {
+    action: "Extract from filename",
+    title: "Extract from filename",
+    caveat: "Reads fields from each filename by your pattern, best-effort. It does not recover exactly what an export wrote.",
+    patternLabel: "Pattern",
+    patternPlaceholder: "{track_no} - {artist} - {title}",
+    pathHint: "Leading folders are ignored. Use * to skip a folder segment.",
+    presetsLabel: "Starters",
+    columnFile: "File",
+    columnFields: "Extracted",
+    noMatch: "no match",
+    matched: "{{matched}} of {{total}} matched",
+    fieldsLabel: "Write",
+    apply: "Apply",
+    applying: "Applying...",
+    applyError: "Could not apply the changes.",
+    resultUpdated: { one: "{{n}} track updated", other: "{{n}} tracks updated" },
+    resultUnmatched: { one: "{{n}} didn't match", other: "{{n}} didn't match" },
+    resultLooseSkipped: {
+      one: "{{n}} track number skipped - loose tracks have no album position",
+      other: "{{n}} track numbers skipped - loose tracks have no album position",
+    },
+  },
+
   resizer: {
     panel: "Resize panel",
     folders: "Resize folders",

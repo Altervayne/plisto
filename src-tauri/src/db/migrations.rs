@@ -1,15 +1,16 @@
 /*
  * The schema migration runner, keyed on PRAGMA user_version. Each step bumps the version once
- * its statements land, so migrate() is idempotent: an already-current DB runs nothing. Every
- * step is additive: columns and tables are added, nothing existing is dropped or rewritten, so
- * a running index survives an upgrade with its rows intact.
+ * its statements land, so migrate() is idempotent: an already-current DB runs nothing. Steps are
+ * additive - columns and tables are added - save for the deliberate retirement of a dead column
+ * once nothing reads it (v8), which still preserves every row. So a running index survives an
+ * upgrade with its rows intact.
  */
 
 // -- Library Imports --
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 7;
+const LATEST_VERSION: i64 = 8;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -201,6 +202,18 @@ FROM album_tracks
 WHERE title_override IS NOT NULL OR artist_override IS NOT NULL;
 ";
 
+// Version 8: retires the now-dead album_tracks override columns. Since v7 all three have been written
+// never and read never - the real title/artist overrides were backfilled into track_edits, and disc_no
+// only ever held the hard-coded default 1 (disc resolves through track_edits.disc_no ?? raw_disc_no), so
+// dropping them loses nothing. The membership row keeps album_id, track_id, and track_no. None of the
+// three sit in the primary key, the UNIQUE, or any FK or index, so a plain DROP COLUMN is safe - the one
+// deliberate exception to this file's otherwise additive history.
+const MIGRATION_V8: &str = "
+ALTER TABLE album_tracks DROP COLUMN title_override;
+ALTER TABLE album_tracks DROP COLUMN artist_override;
+ALTER TABLE album_tracks DROP COLUMN disc_no;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -215,6 +228,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             4 => conn.execute_batch(MIGRATION_V5)?,
             5 => conn.execute_batch(MIGRATION_V6)?,
             6 => conn.execute_batch(MIGRATION_V7)?,
+            7 => conn.execute_batch(MIGRATION_V8)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -473,6 +487,58 @@ mod tests {
             Some("Edited Title"),
             "the stored override carried into track_edits"
         );
+    }
+
+    /// A v7 DB upgrades to v8 by dropping the dead album_tracks override columns: the membership row
+    /// survives with its track_no, and title_override/artist_override/disc_no are gone from the table.
+    #[test]
+    fn v7_db_drops_dead_album_track_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no, disc_no, title_override)
+             VALUES (1, 1, 5, 1, 'Stale Override');",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        // The membership row survives the drop with its position intact.
+        let track_no: i64 = conn
+            .query_row(
+                "SELECT track_no FROM album_tracks WHERE track_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(track_no, 5, "the membership row survives with its track_no");
+
+        // The three retired columns are gone.
+        for col in ["title_override", "artist_override", "disc_no"] {
+            let present: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('album_tracks') WHERE name = ?1",
+                    [col],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(present, 0, "column {col} should be dropped after v8");
+        }
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

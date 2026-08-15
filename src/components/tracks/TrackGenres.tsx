@@ -63,7 +63,7 @@ export function TrackGenres({ trackId, genreIds }: { trackId: number; genreIds: 
             aria-label={t((d) => d.genre.pillRemove)}
             onClick={() => commit(genreIds.filter((id) => id !== genre.id))}
           >
-            <X size={12} strokeWidth={2.2} />
+            <X size={12} strokeWidth={3} />
           </button>
         </span>
       ))}

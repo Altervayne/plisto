@@ -4,8 +4,9 @@
  * the previous state to build a clean inverse. applyCommand is the pure reducer, invertCommand builds
  * the exact reverse, and commandToIpc is the thin write sink an undo reuses (the inverse is itself a
  * Command). The membership moves (assign/unassign) carry the full before/after rows so a single inverse
- * Command restores a moved track exactly - the backend resets numbering and clears overrides on a move,
- * so the prior row must travel with the command, not be recomputed.
+ * Command restores a moved track exactly - a move renumbers the album (track_no is a per-disc position
+ * that shifts), so the prior row must travel with the command, not be recomputed. A track's own tag
+ * edits live in track_edits keyed by track_id and survive a move untouched.
  */
 
 // -- IPC Imports --
@@ -249,7 +250,8 @@ function applyTransition(state: OrgState, after: Placement[]): OrgState {
 /**
  * Realizes an `after` placement set against the backend, reading `before` for where a track leaves
  * from. A track going loose is removed from its prior album; a track landing in one is moved there,
- * then its exact numbering and overrides are stamped (a move alone appends and clears them).
+ * then its exact per-disc numbering is stamped (a move alone appends it last). Its tag edits ride in
+ * track_edits, keyed by track_id, and are untouched by the move, so restamping them here is a no-op.
  */
 async function transitionToIpc(before: Placement[], after: Placement[]): Promise<void> {
   const priorAlbum = new Map<number, number>();

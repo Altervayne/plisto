@@ -263,6 +263,27 @@ export const fr: Dict = {
     more: "[TO COMPLETE]",
   },
 
+  extract: {
+    action: "[TO COMPLETE]",
+    title: "[TO COMPLETE]",
+    caveat: "[TO COMPLETE]",
+    patternLabel: "[TO COMPLETE]",
+    patternPlaceholder: "[TO COMPLETE]",
+    pathHint: "[TO COMPLETE]",
+    presetsLabel: "[TO COMPLETE]",
+    columnFile: "[TO COMPLETE]",
+    columnFields: "[TO COMPLETE]",
+    noMatch: "[TO COMPLETE]",
+    matched: "[TO COMPLETE]",
+    fieldsLabel: "[TO COMPLETE]",
+    apply: "[TO COMPLETE]",
+    applying: "[TO COMPLETE]",
+    applyError: "[TO COMPLETE]",
+    resultUpdated: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    resultUnmatched: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+    resultLooseSkipped: { one: "[TO COMPLETE]", other: "[TO COMPLETE]" },
+  },
+
   resizer: {
     panel: "[TO COMPLETE]",
     folders: "[TO COMPLETE]",

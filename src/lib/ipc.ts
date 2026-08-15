@@ -17,6 +17,8 @@ import type {
   DestinationCheck,
   ExportProgress,
   ExportSummary,
+  ExtractResult,
+  ExtractRow,
   GenreRemovalImpact,
   GenreRow,
   ListTracksResponse,
@@ -299,6 +301,28 @@ export function getSetting(key: string): Promise<string | null> {
 /** Writes one setting into the kv table, inserting or replacing the key. */
 export function setSetting(key: string, value: string): Promise<void> {
   return invoke("set_setting", { key, value });
+}
+
+/**
+ * Previews what each track's filename parses to under `pattern`, read-only and order-preserving. A
+ * filename that does not fit the pattern, or a track that is not indexed, comes back matched:false
+ * with empty fields.
+ */
+export function extractPreview(pattern: string, trackIds: number[]): Promise<ExtractRow[]> {
+  return invoke<ExtractRow[]>("extract_preview", { pattern, trackIds });
+}
+
+/**
+ * Writes the parsed values back onto the tracks, but only the fields named in `applyFields` (snake_case
+ * keys) and only where they parsed - an unextracted field is never cleared. Genre appends to the track's
+ * list; track_no lands on album members only, and loose tracks are skipped and counted in the result.
+ */
+export function extractApply(
+  pattern: string,
+  trackIds: number[],
+  applyFields: string[],
+): Promise<ExtractResult> {
+  return invoke<ExtractResult>("extract_apply", { pattern, trackIds, applyFields });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

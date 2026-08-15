@@ -9,6 +9,7 @@
 
 // -- Module Declarations --
 mod derive;
+pub mod extract;
 pub mod plan;
 mod write;
 

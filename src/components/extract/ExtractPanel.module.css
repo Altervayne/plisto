@@ -1,0 +1,299 @@
+/*
+ * The filename extractor modal. Unlike the app's floating popovers, this is a true dialog: a dimmed
+ * scrim behind a lifted card, portalled to the body so it clears every stacking context. The scrim is
+ * a single translucent black on purpose - it dims the light ground and deepens the dark one alike, so
+ * it stays theme-invariant rather than reading from a per-theme token.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(640px, 92vw);
+  max-height: 86vh;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.caveat {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* -- Pattern field -- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A soft-recess field, deepening on focus - the pattern reads as code, so it is set in mono. */
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: background var(--dur-fast) ease;
+}
+
+.input:focus {
+  background: var(--veil-2);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tokens {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.pathHint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* -- Preset chips -- */
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset {
+  padding: 6px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.preset:hover {
+  background: var(--veil);
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+/* -- Preview -- */
+
+.summary {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview {
+  flex: 1;
+  min-height: 120px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+}
+
+.list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* One preview row: the filename over its parsed chips, or a quiet no-match at the right. */
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.filename {
+  flex: 0 0 38%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+.chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* A compact key-value chip: the field name in accent tint beside its parsed value. */
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  font-size: 11px;
+}
+
+.chipKey {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chipValue {
+  color: var(--ink);
+}
+
+.noMatch {
+  flex: 1;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+/* -- Footer: field toggles over the apply action -- */
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* One field toggle; a token-less field greys out but stays visible so the set reads whole. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.toggle[data-off] {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.check {
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.error {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* -- Result -- */
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.resultLine {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.resultSkip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn);
+}

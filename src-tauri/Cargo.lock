@@ -2758,6 +2758,7 @@ dependencies = [
  "image",
  "lofty",
  "rayon",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { GenreAdder } from "../common/GenreAdder";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Icon Imports --
 import { Check, X } from "lucide-react";
@@ -56,33 +57,34 @@ export function GenrePills({ albumId }: { albumId: number }) {
               aria-label={t((d) => d.genre.pillRemove)}
               onClick={() => removeAlbumGenre(albumId, genre.id)}
             >
-              <X size={12} strokeWidth={2.2} />
+              <X size={12} strokeWidth={3} />
             </button>
           </span>
         ) : (
-          <span
+          <Tooltip
             key={genre.id}
-            className={`${styles.pill} ${styles.partial}`}
-            title={t((d) => d.genre.onSome, { k: count, n: memberCount })}
+            label={t((d) => d.genre.onSome, { k: count, n: memberCount })}
           >
-            <button
-              type="button"
-              className={styles.apply}
-              aria-label={t((d) => d.genre.applyToAll)}
-              onClick={() => addAlbumGenre(albumId, genre.id)}
-            >
-              <span className={styles.name}>{genre.name}</span>
-              <Check className={styles.applyIcon} size={12} strokeWidth={2.2} />
-            </button>
-            <button
-              type="button"
-              className={styles.remove}
-              aria-label={t((d) => d.genre.removeFromAll)}
-              onClick={() => removeAlbumGenre(albumId, genre.id)}
-            >
-              <X size={10} strokeWidth={2.2} />
-            </button>
-          </span>
+            <span className={`${styles.pill} ${styles.partial}`}>
+              <button
+                type="button"
+                className={styles.apply}
+                aria-label={t((d) => d.genre.applyToAll)}
+                onClick={() => addAlbumGenre(albumId, genre.id)}
+              >
+                <span className={styles.name}>{genre.name}</span>
+                <Check className={styles.applyIcon} size={12} strokeWidth={2.2} />
+              </button>
+              <button
+                type="button"
+                className={styles.remove}
+                aria-label={t((d) => d.genre.removeFromAll)}
+                onClick={() => removeAlbumGenre(albumId, genre.id)}
+              >
+                <X size={12} strokeWidth={3} />
+              </button>
+            </span>
+          </Tooltip>
         ),
       )}
 

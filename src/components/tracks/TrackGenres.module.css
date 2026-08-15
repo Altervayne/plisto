@@ -34,13 +34,16 @@
 .remove {
   position: absolute;
   top: 50%;
-  right: 2px;
+  right: 6px;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  /* Even box against the 12px glyph: a 4px difference halves to a whole 2px, so the icon centers on the
+   * pixel grid instead of on a 1.5px seam that rounds unevenly and skews the X. translateY(-50%) also
+   * lands on a whole -8px. */
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   border-radius: var(--pill);
@@ -56,11 +59,6 @@
 
 .pill:hover .remove,
 .remove:focus-visible {
-  opacity: 1;
-}
-
-/* Pressing toward the delete: the chip fills solid red so the destructive intent is unmistakable. */
-.remove:hover {
   opacity: 1;
   background: var(--danger);
   color: var(--on-solid);

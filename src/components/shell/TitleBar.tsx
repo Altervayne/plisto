@@ -18,6 +18,7 @@ import { useT } from "../../i18n";
 
 // -- Component Imports --
 import { PlistoLogo } from "../common/PlistoLogo";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Icon Imports --
 import { Minus, Square, Copy, X } from "lucide-react";
@@ -71,18 +72,17 @@ export function TitleBar() {
       </div>
 
       {label ? (
-        <div
-          className={styles.workspace}
-          title={label.kind === "single" ? label.path : undefined}
-        >
-          <span className={styles.dot} aria-hidden="true" />
-          {/* One root reads as its folder name (full path on hover); several as a plain count. */}
-          <span className={styles.path}>
-            {label.kind === "single"
-              ? folderName(label.path)
-              : t((d) => d.window.folders, { n: label.count })}
-          </span>
-        </div>
+        <Tooltip label={label.kind === "single" ? label.path : undefined}>
+          <div className={styles.workspace}>
+            <span className={styles.dot} aria-hidden="true" />
+            {/* One root reads as its folder name (full path on hover); several as a plain count. */}
+            <span className={styles.path}>
+              {label.kind === "single"
+                ? folderName(label.path)
+                : t((d) => d.window.folders, { n: label.count })}
+            </span>
+          </div>
+        </Tooltip>
       ) : null}
 
       <div className={styles.controls}>

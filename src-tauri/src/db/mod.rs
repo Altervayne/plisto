@@ -1001,6 +1001,31 @@ pub fn get_track_source_path(conn: &Connection, track_id: i64) -> rusqlite::Resu
     })
 }
 
+/// The export path of each given track as `(track_id, path)`: its real-case `display_path`, falling
+/// back to the folded `source_path` for a legacy row that never captured one, the way the export
+/// planner resolves a track's file. Scopes the read to the requested ids; an empty `track_ids`
+/// returns nothing without touching the database. Only present ids come back, so a caller keying a
+/// map by id learns which tracks are gone. The filename extractor reads a selection's paths here.
+pub fn load_track_export_paths(
+    conn: &Connection,
+    track_ids: &[i64],
+) -> rusqlite::Result<Vec<(i64, String)>> {
+    if track_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = vec!["?"; track_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT id, COALESCE(display_path, source_path) FROM tracks WHERE id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(track_ids.iter()), |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// One album with its track count, or None when the id is absent.
 pub fn get_album(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<AlbumRow>> {
     let sql = format!("{ALBUM_SELECT} WHERE a.id = ?1 GROUP BY a.id");
@@ -1089,7 +1114,7 @@ pub fn create_album(
     )?;
     let album_id = tx.last_insert_rowid();
     for (i, &track_id) in track_ids.iter().enumerate() {
-        insert_album_track(&tx, album_id, track_id, (i as i64) + 1, 1)?;
+        insert_album_track(&tx, album_id, track_id, (i as i64) + 1)?;
     }
     tx.commit()?;
 
@@ -1185,7 +1210,7 @@ pub fn add_tracks_to_album(
             None => {}
         }
         next += 1;
-        insert_album_track(&tx, album_id, track_id, next, 1)?;
+        insert_album_track(&tx, album_id, track_id, next)?;
     }
     Ok(tx.commit()?)
 }
@@ -1411,12 +1436,11 @@ fn insert_album_track(
     album_id: i64,
     track_id: i64,
     track_no: i64,
-    disc_no: i64,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO album_tracks (album_id, track_id, track_no, disc_no)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![album_id, track_id, track_no, disc_no],
+        "INSERT INTO album_tracks (album_id, track_id, track_no)
+         VALUES (?1, ?2, ?3)",
+        params![album_id, track_id, track_no],
     )?;
     Ok(())
 }
@@ -1447,7 +1471,7 @@ fn album_kind(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<Strin
 
 /// The album a track currently belongs to, or None when it is loose. UNIQUE(track_id) guarantees
 /// at most one.
-fn membership_album(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<i64>> {
+pub fn membership_album(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
         "SELECT album_id FROM album_tracks WHERE track_id = ?1",
         params![track_id],
@@ -1520,7 +1544,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         for table in [
             "tracks",
@@ -1582,7 +1606,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]

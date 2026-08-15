@@ -8,6 +8,7 @@
 // -- Module Declarations --
 pub mod covers;
 pub mod export;
+pub mod extract;
 mod list_query;
 pub mod organize;
 pub mod roots;

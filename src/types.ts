@@ -283,3 +283,38 @@ export interface DestinationCheck {
   non_empty: boolean;
   writable: boolean;
 }
+
+/**
+ * The fields one filename parsed into, under the active pattern. Every field is optional: a token the
+ * pattern never captured, or captured empty, is absent. Numbers stay numbers. Mirrors ExtractedFields.
+ */
+export interface ExtractedFields {
+  title?: string;
+  artist?: string;
+  album?: string;
+  album_artist?: string;
+  year?: number;
+  disc_no?: number;
+  track_no?: number;
+  genre?: string;
+}
+
+/**
+ * One preview row: a track and what its filename parsed to. `matched` is false for a filename the
+ * pattern did not fit or a track that is not indexed, and `fields` is then empty. Mirrors ExtractRow.
+ */
+export interface ExtractRow {
+  track_id: number;
+  matched: boolean;
+  fields: ExtractedFields;
+}
+
+/**
+ * The outcome of an apply: how many tracks took a write, how many filenames did not match, and how
+ * many track numbers were dropped because their track is loose (no album position). Mirrors ExtractResult.
+ */
+export interface ExtractResult {
+  applied: number;
+  unmatched: number;
+  track_no_skipped_loose: number;
+}

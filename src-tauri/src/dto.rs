@@ -377,3 +377,39 @@ pub struct DestinationCheck {
     pub non_empty: bool,
     pub writable: bool,
 }
+
+/// The fields recovered from one track's path by the filename extractor: the inverse of the export
+/// tokens. Every field is None when its token was absent from the pattern, a numeric token whose
+/// text will not parse, or the whole row is unmatched. Mirrors ExtractedFields in types.ts.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ExtractedFields {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub disc_no: Option<i64>,
+    pub track_no: Option<i64>,
+    pub genre: Option<String>,
+}
+
+/// One track's extraction preview: whether its path matched the pattern and the fields that came
+/// out. An unmatched row carries `matched: false` and an all-None `fields`, so the frontend can grey
+/// it in the same list. Mirrors ExtractRow in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractRow {
+    pub track_id: i64,
+    pub matched: bool,
+    pub fields: ExtractedFields,
+}
+
+/// The tally of an extract-apply run. `applied` is how many tracks had at least one field written;
+/// `unmatched` is how many did not match the pattern; `track_no_skipped_loose` counts matched loose
+/// tracks whose extracted track number was skipped because a track number is album-scoped. Mirrors
+/// ExtractResult in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtractResult {
+    pub applied: i64,
+    pub unmatched: i64,
+    pub track_no_skipped_loose: i64,
+}

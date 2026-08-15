@@ -5,17 +5,22 @@ import { useState } from "react";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { AlbumPicker } from "./AlbumPicker";
+import { ExtractPanel } from "../extract/ExtractPanel";
 
 // -- State Imports --
-import { useTracks } from "../../state/store";
+import { useAppStore, useTracks } from "../../state/store";
 import {
   useAlbums,
   useAssignTracks,
   useClearSelection,
   useCreateAlbum,
   useCreateSingle,
+  useLoadOrganization,
   useSelection,
 } from "../../state/organize/store";
+
+// -- Type Imports --
+import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- Utils Imports --
 import { suggestAlbumFields } from "../../state/organize/suggestFields";
@@ -50,13 +55,19 @@ export function SelectionActionBar({
   const createSingle = useCreateSingle();
   const assignTracks = useAssignTracks();
   const clearSelection = useClearSelection();
+  const loadOrganization = useLoadOrganization();
   const t = useT();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The extractor opens over a snapshot of the selection, so it holds its result even after the apply
+  // clears the selection out from under the bar.
+  const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
 
-  if (selection.size === 0) return null;
+  // Stays mounted while the extractor is open, so the bar itself hides on a cleared selection but the
+  // modal keeps its summary.
+  if (selection.size === 0 && !extractTracks) return null;
 
   const selectedIds = [...selection];
 
@@ -97,33 +108,67 @@ export function SelectionActionBar({
     setPickerOpen(false);
   };
 
+  // Snapshots the selection into the extractor: each track keyed by id, its display path preferred over
+  // the source path for the hover.
+  const openExtract = () => {
+    setExtractTracks(
+      tracks
+        .filter((track) => selection.has(track.id))
+        .map((track) => ({
+          id: track.id,
+          filename: track.filename,
+          path: track.display_path ?? track.source_path,
+        })),
+    );
+  };
+
+  // After a bulk apply, pull the fresh tracks and membership so the new tags show, then clear.
+  const onExtractApplied = () => {
+    void useAppStore.getState().loadTracks();
+    void loadOrganization();
+    clearSelection();
+  };
+
   return (
     <>
-      {pickerOpen ? (
-        <AlbumPicker albums={albums} onChoose={onChoose} onClose={() => setPickerOpen(false)} />
+      {selection.size > 0 ? (
+        <>
+          {pickerOpen ? (
+            <AlbumPicker albums={albums} onChoose={onChoose} onClose={() => setPickerOpen(false)} />
+          ) : null}
+
+          <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
+            <div className={styles.summary}>
+              <span className={styles.count}>{selection.size}</span>
+              <span className={styles.label}>{t((d) => d.selection.selected)}</span>
+            </div>
+
+            {error ? <span className={styles.error}>{error}</span> : null}
+
+            <div className={styles.actions}>
+              <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
+                {t((d) => d.selection.createAlbum)}
+              </PrimaryButton>
+              <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
+                {t((d) => d.singles.make, { n: selection.size })}
+              </QuietButton>
+              <QuietButton onClick={() => setPickerOpen((open) => !open)}>
+                {t((d) => d.selection.addToAlbum)}
+              </QuietButton>
+              <QuietButton onClick={openExtract}>{t((d) => d.extract.action)}</QuietButton>
+              <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
+            </div>
+          </div>
+        </>
       ) : null}
 
-      <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
-        <div className={styles.summary}>
-          <span className={styles.count}>{selection.size}</span>
-          <span className={styles.label}>{t((d) => d.selection.selected)}</span>
-        </div>
-
-        {error ? <span className={styles.error}>{error}</span> : null}
-
-        <div className={styles.actions}>
-          <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
-            {t((d) => d.selection.createAlbum)}
-          </PrimaryButton>
-          <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
-            {t((d) => d.singles.make, { n: selection.size })}
-          </QuietButton>
-          <QuietButton onClick={() => setPickerOpen((open) => !open)}>
-            {t((d) => d.selection.addToAlbum)}
-          </QuietButton>
-          <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
-        </div>
-      </div>
+      {extractTracks ? (
+        <ExtractPanel
+          tracks={extractTracks}
+          onClose={() => setExtractTracks(null)}
+          onApplied={onExtractApplied}
+        />
+      ) : null}
     </>
   );
 }

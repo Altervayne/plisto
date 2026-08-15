@@ -73,8 +73,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  /* Even box against the 12px glyph: a 4px difference halves to a whole 2px, so the icon centers on the
+   * pixel grid instead of on a 1.5px seam that rounds unevenly and skews the X. */
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   border-radius: var(--pill);

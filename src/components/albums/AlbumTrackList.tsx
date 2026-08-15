@@ -21,10 +21,13 @@ import {
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
 import { AlbumTrackRow } from "./AlbumTrackRow";
+import { ExtractPanel } from "../extract/ExtractPanel";
 
 // -- State Imports --
+import { useAppStore } from "../../state/store";
 import {
   useAlbumTracks,
+  useLoadOrganization,
   useSetAlbumLayout,
   useUnassignTracks,
 } from "../../state/organize/store";
@@ -34,6 +37,7 @@ import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from ".
 
 // -- Type Imports --
 import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
+import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -66,7 +70,11 @@ export function AlbumTrackList({
   const tracks = useAlbumTracks(albumId);
   const setLayout = useSetAlbumLayout();
   const unassignTracks = useUnassignTracks();
+  const loadOrganization = useLoadOrganization();
   const t = useT();
+
+  // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
+  const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
 
   // A revealed-but-empty extra disc, held here alone: it is only a drop zone, never persisted, so it
   // drops away when the drawer moves to another album.
@@ -163,6 +171,23 @@ export function AlbumTrackList({
     clearSelection();
   };
 
+  // Opens the extractor over the current selection. Album rows carry no display_path, so the source
+  // path is the one shown on hover.
+  const openExtract = () => {
+    setExtractTracks(
+      tracks
+        .filter((r) => selected.has(r.track_id))
+        .map((r) => ({ id: r.track_id, filename: r.filename, path: r.source_path })),
+    );
+  };
+
+  // After a bulk apply, pull the fresh tracks and membership so the new tags show, then clear.
+  const onExtractApplied = () => {
+    void useAppStore.getState().loadTracks();
+    void loadOrganization();
+    clearSelection();
+  };
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     // A drop outside any target, or back onto the source, leaves the layout untouched.
     if (!over || over.id === active.id) return;
@@ -197,8 +222,17 @@ export function AlbumTrackList({
           newDisc={nextDisc}
           onSelectAll={selectAll}
           onMoveToDisc={moveSelectedToDisc}
+          onExtract={openExtract}
           onRemove={removeSelected}
           onClear={clearSelection}
+        />
+      ) : null}
+
+      {extractTracks ? (
+        <ExtractPanel
+          tracks={extractTracks}
+          onClose={() => setExtractTracks(null)}
+          onApplied={onExtractApplied}
         />
       ) : null}
 

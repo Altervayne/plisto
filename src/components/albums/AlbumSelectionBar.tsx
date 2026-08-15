@@ -22,6 +22,7 @@ export function AlbumSelectionBar({
   newDisc,
   onSelectAll,
   onMoveToDisc,
+  onExtract,
   onRemove,
   onClear,
 }: {
@@ -30,6 +31,7 @@ export function AlbumSelectionBar({
   newDisc: number;
   onSelectAll: () => void;
   onMoveToDisc: (disc: number) => void;
+  onExtract: () => void;
   onRemove: () => void;
   onClear: () => void;
 }) {
@@ -83,6 +85,7 @@ export function AlbumSelectionBar({
           ) : null}
         </div>
 
+        <QuietButton onClick={onExtract}>{t((d) => d.extract.action)}</QuietButton>
         <QuietButton onClick={onRemove}>{t((d) => d.albums.removeFromAlbum)}</QuietButton>
         <QuietButton onClick={onClear}>{t((d) => d.common.clear)}</QuietButton>
       </div>
