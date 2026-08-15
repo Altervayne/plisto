@@ -34,6 +34,16 @@
   min-height: 0;
 }
 
+/*
+ * The list caps here and scrolls past it. The cap has to sit on the real scroll viewport (ScrollArea's
+ * global hide-native-scrollbar element) and be a definite length: a percentage height cannot resolve
+ * against the panel's max-height, so without this the list grows to its full content and spills out of
+ * the card. A definite cap clips and scrolls, and still shrinks to content when only a few albums match.
+ */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 240px;
+}
+
 .list {
   margin: 0;
   padding: 0;
