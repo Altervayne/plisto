@@ -26,10 +26,12 @@
   flex-direction: column;
   gap: 14px;
   width: min(640px, 92vw);
-  max-height: 86vh;
-  /* The modal sizes to its content but never past the screen: once it would, it scrolls as a whole,
-     so the header and the sticky footer below stay reachable no matter how tall the content grows. */
-  overflow-y: auto;
+  /* A definite height (capped, and never past the screen) so the match list below can flex-fill it and
+     scroll through its own ScrollArea - a percentage height only resolves against a definite parent.
+     The header and footer hold their size; the list takes the rest. overflow stays hidden: the list
+     owns the scroll, so the panel never grows a native bar of its own. */
+  height: min(760px, 86vh);
+  overflow: hidden;
   padding: 20px 22px;
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -158,22 +160,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Fills the space the header and footer leave, and scrolls its overflow through its own custom
+   scrollbar. min-height 0 lets it shrink on a short screen rather than push the footer off. */
 .preview {
-  flex: none;
+  flex: 1;
   min-height: 0;
   border-radius: var(--r-md);
   background: var(--veil);
-}
-
-/*
- * The list is capped in its own right and scrolls past that cap. The cap has to land on the real
- * scroll viewport (the global hide-native-scrollbar element ScrollArea renders) and be a definite
- * length: a percentage height cannot resolve against the panel's max-height, so it would never clip.
- * A vh cap does, and the list still shrinks to its content when there are only a few rows.
- */
-.preview :global(.hide-native-scrollbar) {
-  min-height: 120px;
-  max-height: 40vh;
 }
 
 .list {
@@ -246,17 +239,10 @@
 
 /* -- Footer: field toggles over the apply action -- */
 
-/* Pinned to the modal's bottom edge: when the panel scrolls, the toggles and Apply stay in reach,
-   the content sliding under a matching surface fill rather than past a floating bar. */
 .footer {
-  position: sticky;
-  bottom: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline);
-  background: var(--surface);
 }
 
 .fields {
@@ -300,15 +286,10 @@
 /* -- Result -- */
 
 .result {
-  position: sticky;
-  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline);
-  background: var(--surface);
 }
 
 .resultLine {
