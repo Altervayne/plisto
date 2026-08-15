@@ -29,6 +29,14 @@
   background: var(--veil-2);
 }
 
+/* The peeked row: the track whose detail is open beside the list. An accent hairline down its left edge
+ * and a faint accent wash read it as active, apart from the checkbox selection. */
+.row[data-peeked],
+.row[data-peeked]:hover {
+  background: var(--accent-weak);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 /* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
 .row[data-dragging] {
   position: relative;
@@ -187,6 +195,35 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Browse mode: the whole main column opens the peek, so the region reads as one click target. */
+.openMain {
+  cursor: pointer;
+}
+
+/* The browse-mode title: reads as the same title typography as the editable field, but inert text that
+ * opens the peek instead of editing in place. Truncates rather than wrapping so the row height holds. */
+.openTitle {
+  align-self: flex-start;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.openTitle:hover {
+  color: var(--accent);
 }
 
 /* The raw original beneath the clean title: mono filename, an edited marker, and the revert link. */

@@ -1,0 +1,160 @@
+/*
+ * The right-click menu: a quiet token surface floating over the app. It is fixed and portalled, at
+ * coordinates the component computes, and separates its regions by space rather than lines. The top
+ * bar holds icon-only actions; the body holds the vertical list. Hover and focus fill an entry with a
+ * soft veil; destructive entries carry the danger-red tint. Hidden until placed, then it fades in; a
+ * reduced-motion preference drops the fade.
+ */
+.menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 196px;
+  max-width: 320px;
+  padding: 5px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  visibility: hidden;
+}
+
+.menu[data-ready] {
+  visibility: visible;
+  animation: menu-in var(--dur-fast) var(--ease-cover) both;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The icon-only action bar. A row of quiet targets, spaced off the list below rather than ruled from it. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px;
+  margin-bottom: 3px;
+}
+
+.topbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.topbtn:not([aria-disabled]):hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* A vertical hairline between grouped icon actions in the top bar. */
+.vsep {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--hairline);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* A horizontal separator between list rows: a hairline set off by its own margin, not a full-bleed rule. */
+.hsep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.item:not([aria-disabled]):hover {
+  background: var(--veil);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-2);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Destructive intent: danger-red label and icon; hover fills a faint red so the risk reads on approach. */
+.destructive {
+  color: var(--danger);
+}
+
+.destructive .icon {
+  color: var(--danger);
+}
+
+.destructive:not([aria-disabled]):hover {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+/* A disabled entry stays visible and announced, but quiet and inert. */
+.topbtn[aria-disabled],
+.item[aria-disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.topbtn:focus-visible,
+.item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu[data-ready] {
+    animation: none;
+  }
+}

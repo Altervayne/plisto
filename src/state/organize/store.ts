@@ -87,6 +87,11 @@ interface OrganizeStore {
   removeAlbumGenre: (albumId: number, genreId: number) => void;
   setTrackGenres: (trackId: number, genreIds: number[]) => void;
 
+  // Re-derives a member row's projected tags from the live app-store track. The Files-view peek edits
+  // through the app store (`editTrack`/`setTrackGenres`), which the membership projection does not see;
+  // the folder view shows both at once, so the peek calls this to keep the drawer row in step.
+  reprojectTrackFromApp: (trackId: number) => void;
+
   toggleSelect: (trackId: number) => void;
   selectOnly: (trackId: number) => void;
   selectRange: (trackIds: number[]) => void;
@@ -201,6 +206,34 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       };
       if (sameAlbumFields(prev, next)) return;
       commit({ kind: "setAlbumFields", albumId, next, prev });
+    },
+
+    // Reflects an app-store track edit into the membership projection: the row's projected title/artist
+    // (te.*), its resolved disc (te.disc_no ?? raw), and its genres. A track sits in at most one album,
+    // but this maps all matching rows to stay total. Not an undo step - it mirrors an edit the app store
+    // already committed, so it never touches the command stack.
+    reprojectTrackFromApp: (trackId) => {
+      const t = useAppStore.getState().tracks.find((r) => r.id === trackId);
+      if (!t) return;
+      set((s) => {
+        if (!s.org.membership.some((r) => r.track_id === trackId)) return s;
+        return {
+          org: {
+            ...s.org,
+            membership: s.org.membership.map((r) =>
+              r.track_id === trackId
+                ? {
+                    ...r,
+                    title_override: t.title_edit,
+                    artist_override: t.artist_edit,
+                    disc_no: t.disc_edit ?? t.raw_disc_no,
+                    genre_ids: t.genre_ids,
+                  }
+                : r,
+            ),
+          },
+        };
+      });
     },
 
     commitTrackOverrides: (albumId, trackId, next) => {

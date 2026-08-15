@@ -6,6 +6,7 @@ import type { CSSProperties } from "react";
 import { Sidebar } from "./Sidebar";
 import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
+import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { FilesView } from "../files/FilesView";
 import { UnsortedView } from "../files/UnsortedView";
 import { ExportView } from "../export/ExportView";
@@ -68,6 +69,7 @@ export function AppShell() {
   const t = useT();
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
+  const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.
@@ -76,6 +78,18 @@ export function AppShell() {
   // the other wall never opens a drawer here.
   const selectedAlbum = albums.find((a) => a.id === selectedAlbumId) ?? null;
   const selectedSingle = singles.find((a) => a.id === selectedAlbumId) ?? null;
+  // The full-pane album, scoped to albums alone. A deleted id no longer resolves, so the pane falls
+  // back to the grid rather than stranding on it.
+  const openAlbum = albums.find((a) => a.id === openAlbumId) ?? null;
+  if (openAlbumId != null && openAlbum == null) {
+    setOpenAlbumId(null);
+  }
+
+  // Entering the full pane closes the drawer: the two album surfaces never show at once.
+  const openFull = (albumId: number) => {
+    setOpenAlbumId(albumId);
+    setSelectedAlbumId(null);
+  };
 
   useEffect(() => {
     void loadOrganization();
@@ -168,22 +182,28 @@ export function AppShell() {
               style={{ "--drawer-width": `${width}px` } as CSSProperties}
             >
               {mode === "albums" ? (
-                <>
-                  <AlbumGrid
-                    albums={albums}
-                    selectedAlbumId={selectedAlbumId}
-                    onOpen={setSelectedAlbumId}
-                  />
-                  {selectedAlbum ? (
-                    <div className={styles.panel}>
-                      <Resizer resizer={resizer} />
-                      <AlbumDrawer
-                        album={selectedAlbum}
-                        onClose={() => setSelectedAlbumId(null)}
-                      />
-                    </div>
-                  ) : null}
-                </>
+                openAlbum ? (
+                  <AlbumFolderView album={openAlbum} onBack={() => setOpenAlbumId(null)} />
+                ) : (
+                  <>
+                    <AlbumGrid
+                      albums={albums}
+                      selectedAlbumId={selectedAlbumId}
+                      onOpen={setSelectedAlbumId}
+                      onOpenFull={openFull}
+                    />
+                    {selectedAlbum ? (
+                      <div className={styles.panel}>
+                        <Resizer resizer={resizer} />
+                        <AlbumDrawer
+                          album={selectedAlbum}
+                          onClose={() => setSelectedAlbumId(null)}
+                          onOpenFull={openFull}
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                )
               ) : mode === "singles" ? (
                 <>
                   <AlbumGrid

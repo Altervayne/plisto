@@ -114,8 +114,22 @@ function TagField({
  * and committed through the track's own optimistic edit path. The lower zone is the immutable file
  * facts, deliberately inert: Plisto never rewrites the user's files. Dismiss with the close button or
  * Escape. Reads the live store row, not the select-time snapshot, so an edit shows at once.
+ *
+ * `albumFallback` is the album container's own album/album_artist/year, passed when the peek opens from
+ * an album. The three fields then resolve `edit ?? container ?? raw`, so the preview matches what an
+ * export writes (export takes the container, not the raw tag). The edited marker stays keyed on the
+ * edit differing from its own raw, so the container never lights it. Absent, the fields resolve as
+ * `edit ?? raw`, the Files behavior.
  */
-export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () => void }) {
+export function TrackDetail({
+  track,
+  onClose,
+  albumFallback,
+}: {
+  track: TrackRow;
+  onClose: () => void;
+  albumFallback?: { album: string | null; album_artist: string | null; year: number | null };
+}) {
   const live = useTrack(track.id) ?? track;
   const editTrack = useEditTrack();
   const t = useT();
@@ -210,7 +224,7 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
             />
             <TagField
               label={t((d) => d.tracks.fields.album)}
-              value={live.album_edit ?? live.raw_album ?? ""}
+              value={live.album_edit ?? albumFallback?.album ?? live.raw_album ?? ""}
               ariaLabel={t((d) => d.tracks.fields.album)}
               edited={changed(live.album_edit, live.raw_album)}
               onCommit={commitText("album", live.raw_album)}
@@ -218,7 +232,7 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
             />
             <TagField
               label={t((d) => d.tracks.fields.albumArtist)}
-              value={live.album_artist_edit ?? live.raw_album_artist ?? ""}
+              value={live.album_artist_edit ?? albumFallback?.album_artist ?? live.raw_album_artist ?? ""}
               ariaLabel={t((d) => d.tracks.fields.albumArtist)}
               edited={changed(live.album_artist_edit, live.raw_album_artist)}
               onCommit={commitText("album_artist", live.raw_album_artist)}
@@ -226,7 +240,7 @@ export function TrackDetail({ track, onClose }: { track: TrackRow; onClose: () =
             />
             <TagField
               label={t((d) => d.tracks.fields.year)}
-              value={formatYear(live.year_edit ?? live.raw_year)}
+              value={formatYear(live.year_edit ?? albumFallback?.year ?? live.raw_year)}
               ariaLabel={t((d) => d.tracks.fields.year)}
               edited={changed(live.year_edit, live.raw_year)}
               onCommit={commitYear}

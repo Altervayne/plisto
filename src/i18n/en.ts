@@ -65,6 +65,7 @@ export const en = {
     untitled: "Untitled",
     unknownArtist: "Unknown artist",
     details: "Album details",
+    open: "Open",
     albumTitle: "Album title",
     albumArtist: "Album artist",
     year: "Year",

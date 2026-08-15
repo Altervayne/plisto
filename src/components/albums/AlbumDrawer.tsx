@@ -11,6 +11,9 @@ import { AlbumTrackList } from "./AlbumTrackList";
 import { SingleSourceRow } from "./SingleSourceRow";
 import { AlbumDeleteControl } from "./AlbumDeleteControl";
 
+// -- Icon Imports --
+import { Maximize2 } from "lucide-react";
+
 // -- State Imports --
 import { useCommitAlbumFields } from "../../state/organize/store";
 
@@ -40,9 +43,18 @@ function editingField(): boolean {
  * on the continuous ground by the edge veil like the read-only track peek. Fields auto-commit on blur
  * through the command engine. Escape closes the drawer, unless a field is focused - then it reverts the
  * field and the drawer stays open. A single reuses the same shell with its multi-track region traded for
- * one read-only source row, and its delete relabelled to "Remove single".
+ * one read-only source row, and its delete relabelled to "Remove single". An album drawer also offers
+ * Open, which hands the album up to the full-pane view; a single has no such view.
  */
-export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () => void }) {
+export function AlbumDrawer({
+  album,
+  onClose,
+  onOpenFull,
+}: {
+  album: AlbumRow;
+  onClose: () => void;
+  onOpenFull?: (albumId: number) => void;
+}) {
   const commit = useCommitAlbumFields();
   const t = useT();
   const single = album.kind === "single";
@@ -79,6 +91,12 @@ export function AlbumDrawer({ album, onClose }: { album: AlbumRow; onClose: () =
               onCommit={(next) => commit(album.id, { ...fields, title: next === "" ? null : next })}
             />
           </div>
+          {onOpenFull && !single ? (
+            <QuietButton onClick={() => onOpenFull(album.id)} aria-label={t((d) => d.albums.open)}>
+              <Maximize2 size={15} strokeWidth={1.8} />
+              <span>{t((d) => d.albums.open)}</span>
+            </QuietButton>
+          ) : null}
           <QuietButton onClick={onClose} aria-label={t((d) => d.common.closeDetails)}>
             {t((d) => d.common.close)}
           </QuietButton>

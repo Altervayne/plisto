@@ -1,0 +1,43 @@
+/*
+ * The tooltip bubble: a quiet token surface that floats over anything. It is fixed and portalled, so
+ * it lives at viewport coordinates the component computes. It never takes the pointer, so it cannot
+ * steal the hover that summoned it. Hidden until the component has measured and placed it, then it
+ * fades in; a reduced-motion preference drops the fade.
+ */
+.bubble {
+  position: fixed;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.bubble[data-ready] {
+  visibility: visible;
+  animation: tooltip-in var(--dur-fast) var(--ease-cover) both;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble[data-ready] {
+    animation: none;
+  }
+}

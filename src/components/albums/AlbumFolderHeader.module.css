@@ -1,0 +1,25 @@
+/*
+ * The full-pane album header: the cover holds its width on the left, the title and metadata fill the
+ * rest on the right. The drawer stacks the same pieces; here they sit side by side for the wide pane.
+ */
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 8px 0 20px;
+}
+
+/* The cover keeps a fixed column so the meta gets the remaining width; AlbumCoverField fills it. */
+.cover {
+  flex: 0 0 200px;
+  max-width: 200px;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}

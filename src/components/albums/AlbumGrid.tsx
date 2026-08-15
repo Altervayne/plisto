@@ -22,12 +22,14 @@ export function AlbumGrid({
   albums,
   selectedAlbumId,
   onOpen,
+  onOpenFull,
   emptyTitle,
   emptyLine,
 }: {
   albums: AlbumRow[];
   selectedAlbumId: number | null;
   onOpen: (albumId: number) => void;
+  onOpenFull?: (albumId: number) => void;
   emptyTitle?: string;
   emptyLine?: string;
 }) {
@@ -53,6 +55,7 @@ export function AlbumGrid({
           album={album}
           selected={album.id === selectedAlbumId}
           onOpen={onOpen}
+          onOpenFull={onOpenFull}
         />
       ))}
     </ScrollArea>

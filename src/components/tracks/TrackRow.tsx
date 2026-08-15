@@ -1,6 +1,9 @@
 // -- Framework Imports --
 import type { CSSProperties, MouseEvent } from "react";
 
+// -- Component Imports --
+import { Tooltip } from "../common/Tooltip/Tooltip";
+
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
 import type { TrackColumn } from "./trackColumns";
@@ -103,10 +106,19 @@ export function TrackRow({
 
       {trackColumns.map((col) => {
         const text = cellText(col, track);
-        return (
-          <span key={col.id} className={cellClass(col, text === "-")} title={text}>
+        const empty = text === "-";
+        const cell = (
+          <span key={col.id} className={cellClass(col, empty)}>
             {text}
           </span>
+        );
+        // A dash is a deliberate absence, not a truncation, so it earns no tooltip.
+        return empty ? (
+          cell
+        ) : (
+          <Tooltip key={col.id} label={text}>
+            {cell}
+          </Tooltip>
         );
       })}
     </div>

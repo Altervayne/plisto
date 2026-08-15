@@ -12,10 +12,10 @@
 }
 
 .pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 4px 7px 4px 11px;
+  padding: 4px 10px;
   border-radius: var(--pill);
   background: var(--accent-weak);
   color: var(--accent);
@@ -28,8 +28,14 @@
   align-items: center;
 }
 
-/* The remove control holds its slot but dissolves at rest, surfacing on hover or focus. */
+/* The remove control overlays the pill's trailing edge rather than holding a slot, so a pill reads as
+ * clean text at rest and never shows a gap where an unhovered control would sit. It dissolves at rest
+ * and surfaces on hover or focus, sitting over the text - which is only ever obscured while removing. */
 .remove {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -38,23 +44,26 @@
   padding: 0;
   border: 0;
   border-radius: var(--pill);
-  background: transparent;
-  color: inherit;
+  background: var(--danger-weak);
+  color: var(--danger);
   cursor: pointer;
   opacity: 0;
   transition:
     opacity var(--dur-fast) ease,
-    color var(--dur-fast) ease;
+    color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
 }
 
 .pill:hover .remove,
 .remove:focus-visible {
-  opacity: 0.7;
+  opacity: 1;
 }
 
+/* Pressing toward the delete: the chip fills solid red so the destructive intent is unmistakable. */
 .remove:hover {
   opacity: 1;
-  color: var(--warn);
+  background: var(--danger);
+  color: var(--on-solid);
 }
 
 /* The adder sits inline after the pills, filling the rest of the row and dropping below when tight. */

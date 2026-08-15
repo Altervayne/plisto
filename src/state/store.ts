@@ -24,6 +24,11 @@ import {
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
 
+// -- State Imports --
+// The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
+// touched solely inside actions, to mirror a peek edit into the album membership projection.
+import { useOrganizeStore } from "./organize/store";
+
 // -- Type Imports --
 import type { Channel } from "@tauri-apps/api/core";
 import type {
@@ -192,6 +197,8 @@ export const useAppStore = create<AppStore>((set, get) => {
             : r,
         ),
       }));
+      // Mirror the edit into the album membership projection so the folder view's row updates with the peek.
+      useOrganizeStore.getState().reprojectTrackFromApp(trackId);
       try {
         await setTrackEditCmd(trackId, fields);
       } catch {
@@ -203,6 +210,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       set((s) => ({
         tracks: s.tracks.map((r) => (r.id === trackId ? { ...r, genre_ids: genreIds } : r)),
       }));
+      useOrganizeStore.getState().reprojectTrackFromApp(trackId);
       try {
         await setTrackGenresCmd(trackId, genreIds);
       } catch {

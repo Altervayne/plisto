@@ -65,6 +65,7 @@ export const fr: Dict = {
     untitled: "[TO COMPLETE]",
     unknownArtist: "[TO COMPLETE]",
     details: "[TO COMPLETE]",
+    open: "[TO COMPLETE]",
     albumTitle: "[TO COMPLETE]",
     albumArtist: "[TO COMPLETE]",
     year: "[TO COMPLETE]",

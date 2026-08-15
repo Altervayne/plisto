@@ -28,6 +28,8 @@
 
   /* -- Semantic (never used as the accent) -- */
   --warn: #b4780f;
+  --danger: #cf3b30;
+  --danger-weak: rgba(207, 59, 48, 0.12);
   --good: #2f855a;
 
   /* -- Surfaces and depth (near-threshold materials) -- */
@@ -81,6 +83,8 @@
     --on-solid: #ffffff;
 
     --warn: #e0a83a;
+    --danger: #f2685f;
+    --danger-weak: rgba(242, 104, 95, 0.16);
     --good: #5fbb8b;
 
     --veil: rgba(255, 255, 255, 0.05);
@@ -117,6 +121,8 @@
   --on-solid: #ffffff;
 
   --warn: #e0a83a;
+  --danger: #f2685f;
+  --danger-weak: rgba(242, 104, 95, 0.16);
   --good: #5fbb8b;
 
   --veil: rgba(255, 255, 255, 0.05);

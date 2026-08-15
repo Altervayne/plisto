@@ -80,7 +80,7 @@ export function GenrePills({ albumId }: { albumId: number }) {
               aria-label={t((d) => d.genre.removeFromAll)}
               onClick={() => removeAlbumGenre(albumId, genre.id)}
             >
-              <X size={12} strokeWidth={2.2} />
+              <X size={10} strokeWidth={2.2} />
             </button>
           </span>
         ),

@@ -27,16 +27,19 @@ function subLine(album: AlbumRow, lead: string): string {
  * One album tile: the cover as the object, an optional warn badge over it when a member file is
  * gone, and the meta block below. The cover lifts to the pop shadow on hover and carries the accent
  * ring when selected, both driven here through the --cover-shadow hook the Cover atom reads across
- * the module boundary. A click reports the album up; opening the drawer is a later concern.
+ * the module boundary. A single click reports the album up for the drawer; a double-click reports it
+ * for the full-pane view.
  */
 export function AlbumCard({
   album,
   selected,
   onOpen,
+  onOpenFull,
 }: {
   album: AlbumRow;
   selected: boolean;
   onOpen: (albumId: number) => void;
+  onOpenFull?: (albumId: number) => void;
 }) {
   const { src } = useAlbumCover(album.id);
   const tracks = useAlbumTracks(album.id);
@@ -53,6 +56,7 @@ export function AlbumCard({
       className={`${styles.card} ${selected ? styles.selected : ""}`}
       aria-pressed={selected}
       onClick={() => onOpen(album.id)}
+      onDoubleClick={() => onOpenFull?.(album.id)}
     >
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />

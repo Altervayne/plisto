@@ -51,9 +51,18 @@ const EMPTY_DISC = "empty-disc-";
  * numbered 1..n on its own. One context spans every disc, so a drag crosses disc lines: the drop
  * resolves its target disc and the index within it from live geometry, then recomputes the full
  * atomic layout so the stored track_no is always the per-disc position. A quiet foot reveals an empty
- * disc as a drop target; nothing persists until a track lands there.
+ * disc as a drop target; nothing persists until a track lands there. The same list serves the full-pane
+ * view: passing `onOpenTrack` puts the rows in browse mode, and `openTrackId` marks the peeked one.
  */
-export function AlbumTrackList({ albumId }: { albumId: number }) {
+export function AlbumTrackList({
+  albumId,
+  onOpenTrack,
+  openTrackId,
+}: {
+  albumId: number;
+  onOpenTrack?: (trackId: number) => void;
+  openTrackId?: number | null;
+}) {
   const tracks = useAlbumTracks(albumId);
   const setLayout = useSetAlbumLayout();
   const unassignTracks = useUnassignTracks();
@@ -227,6 +236,8 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
                       selected={selected}
                       selecting={selecting}
                       onToggleSelect={onToggleSelect}
+                      onOpenTrack={onOpenTrack}
+                      openTrackId={openTrackId}
                     />
                   )}
                 </div>
@@ -240,6 +251,8 @@ export function AlbumTrackList({ albumId }: { albumId: number }) {
               selected={selected}
               selecting={selecting}
               onToggleSelect={onToggleSelect}
+              onOpenTrack={onOpenTrack}
+              openTrackId={openTrackId}
             />
           )}
         </SortableContext>
@@ -265,6 +278,8 @@ function DiscRows({
   selected,
   selecting,
   onToggleSelect,
+  onOpenTrack,
+  openTrackId,
 }: {
   rows: AlbumTrackRowData[];
   showDisc: boolean;
@@ -272,6 +287,8 @@ function DiscRows({
   selected: Set<number>;
   selecting: boolean;
   onToggleSelect: (trackId: number, mods: { shift: boolean; meta: boolean }) => void;
+  onOpenTrack?: (trackId: number) => void;
+  openTrackId?: number | null;
 }) {
   return (
     <div className={styles.list}>
@@ -284,7 +301,9 @@ function DiscRows({
           onSetDisc={(disc) => onSetDisc(row.track_id, disc)}
           selected={selected.has(row.track_id)}
           selecting={selecting}
+          peeked={openTrackId != null && row.track_id === openTrackId}
           onToggleSelect={(mods) => onToggleSelect(row.track_id, mods)}
+          onOpen={onOpenTrack ? () => onOpenTrack(row.track_id) : undefined}
         />
       ))}
     </div>

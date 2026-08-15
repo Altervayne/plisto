@@ -13,6 +13,7 @@
 }
 
 .pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -22,6 +23,13 @@
   color: var(--accent);
   font-size: 12px;
   font-weight: 550;
+}
+
+/* A full pill carries only a remove x, so it overlays that control on the trailing edge and pads
+ * evenly - no reserved slot sitting empty at rest. A partial pill keeps its slot: it also holds the
+ * apply-to-all control, so the two share the trailing run rather than stacking. */
+.pill:not(.partial) {
+  padding: 4px 10px;
 }
 
 /* A genre on only some members: quieter neutral fill and ring, waiting to be completed or dropped. */
@@ -62,7 +70,7 @@
 
 /* The remove control holds its slot but dissolves at rest, surfacing on hover or focus. */
 .remove {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 15px;
@@ -70,23 +78,29 @@
   padding: 0;
   border: 0;
   border-radius: var(--pill);
-  background: transparent;
-  color: inherit;
+  background: var(--danger-weak);
+  color: var(--danger);
   cursor: pointer;
   opacity: 0;
   transition:
     opacity var(--dur-fast) ease,
-    color var(--dur-fast) ease;
+    color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+/* On a full pill the remove overlays the trailing edge instead of holding a slot. */
+.pill:not(.partial) .remove {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
 }
 
 .pill:hover .remove,
 .remove:focus-visible {
-  opacity: 0.7;
-}
-
-.remove:hover {
   opacity: 1;
-  color: var(--warn);
+  background: var(--danger);
+  color: var(--on-solid);
 }
 
 /* The adder sits inline after the pills, filling the rest of the row and dropping below when tight. */
