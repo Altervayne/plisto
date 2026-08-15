@@ -8,6 +8,7 @@ import { QuietButton } from "../common/QuietButton";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
+import { StaffSpinner } from "../scan/StaffSpinner";
 import { ExportDestination } from "./ExportDestination";
 import { ExportLayout } from "./ExportLayout";
 import { ExportReadiness } from "./ExportReadiness";
@@ -174,6 +175,7 @@ export function ExportView() {
     return (
       <CenteredStage>
         <div className={styles.body}>
+          <StaffSpinner />
           <h1 className={styles.title}>{t((d) => d.export.exporting)}</h1>
           {destination ? (
             <Tooltip label={destination}>

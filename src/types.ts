@@ -166,6 +166,7 @@ export interface AlbumTrackRow {
   artist_override: string | null;
   has_embedded_cover: boolean | null;
   missing_at: number | null;
+  keep_own_cover: boolean;
   genre_ids: number[];
 }
 

@@ -104,7 +104,7 @@ export function AlbumDrawer({
           </div>
         </div>
 
-        <AlbumCoverField albumId={album.id} />
+        <AlbumCoverField albumId={album.id} hasCover={album.cover_id != null} />
         <AlbumMetaFields album={album} />
 
         <div className={styles.tracks}>

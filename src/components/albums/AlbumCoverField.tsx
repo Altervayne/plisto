@@ -9,7 +9,7 @@ import { CoverActions } from "../common/CoverActions/CoverActions";
 import { useAlbumCover } from "./useAlbumCover";
 
 // -- State Imports --
-import { useSetAlbumCover } from "../../state/organize/store";
+import { useRemoveAlbumCover, useSetAlbumCover } from "../../state/organize/store";
 
 // -- Utils Imports --
 import { pickImageFile } from "../../lib/dialog";
@@ -24,11 +24,13 @@ import styles from "./AlbumCoverField.module.css";
  * The album cover slot at the top of the drawer: the resolved art with a glass Replace on hover, or a
  * sunken Add-cover recess when the album has none. Picking an image binds it through the store and
  * reloads the tile. The resolved cover is the bound one, else a member track's art - the backend
- * decides; this only renders and wires Replace.
+ * decides; this only renders and wires Replace. Remove shows only when a cover is actually bound
+ * (`hasCover`), never over a member-track fallback, and drops the album back to that fallback.
  */
-export function AlbumCoverField({ albumId }: { albumId: number }) {
+export function AlbumCoverField({ albumId, hasCover }: { albumId: number; hasCover: boolean }) {
   const { src, reload } = useAlbumCover(albumId, "detail");
   const setAlbumCover = useSetAlbumCover();
+  const removeAlbumCover = useRemoveAlbumCover();
   const [error, setError] = useState<string | null>(null);
   const t = useT();
 
@@ -43,13 +45,27 @@ export function AlbumCoverField({ albumId }: { albumId: number }) {
     }
   };
 
+  const remove = async () => {
+    try {
+      await removeAlbumCover(albumId);
+      reload();
+    } catch {
+      setError(t((d) => d.cover.setError));
+    }
+  };
+
   return (
     <section className={styles.section} aria-label={t((d) => d.cover.albumLabel)}>
       {src ? (
         <div className={styles.slot}>
           <Cover src={src} alt="" />
           <CoverActions
-            actions={[{ label: t((d) => d.cover.replace), onClick: () => void replace() }]}
+            actions={[
+              { label: t((d) => d.cover.replace), onClick: () => void replace() },
+              ...(hasCover
+                ? [{ label: t((d) => d.cover.remove), onClick: () => void remove() }]
+                : []),
+            ]}
           />
         </div>
       ) : (

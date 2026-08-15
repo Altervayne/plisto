@@ -241,6 +241,20 @@ export function setAlbumCover(albumId: number, srcPath: string): Promise<CoverRe
   return invoke<CoverRef>("set_album_cover", { albumId, srcPath });
 }
 
+/** Clears an album's bound cover; it falls back to a member track's art. */
+export function removeAlbumCover(albumId: number): Promise<void> {
+  return invoke("remove_album_cover", { albumId });
+}
+
+/** Flags the given album memberships to keep each track's own art on export, or clears the flag. */
+export function setTrackKeepOwnCover(
+  albumId: number,
+  trackIds: number[],
+  value: boolean,
+): Promise<void> {
+  return invoke("set_track_keep_own_cover", { albumId, trackIds, value });
+}
+
 /** Loads the whole organize state in one pass: every album with its count, and every membership row. */
 export function loadOrganization(): Promise<OrganizationSnapshot> {
   return invoke<OrganizationSnapshot>("load_organization");

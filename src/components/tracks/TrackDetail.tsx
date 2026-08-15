@@ -7,6 +7,7 @@ import { QuietButton } from "../common/QuietButton";
 import { EditableField } from "../common/EditableField/EditableField";
 import { TrackDetailCover } from "./TrackDetailCover";
 import { TrackGenres } from "./TrackGenres";
+import { KeepOwnCoverToggle } from "./KeepOwnCoverToggle";
 
 // -- State Imports --
 import { useEditTrack, useTrack } from "../../state/store";
@@ -120,15 +121,21 @@ function TagField({
  * export writes (export takes the container, not the raw tag). The edited marker stays keyed on the
  * edit differing from its own raw, so the container never lights it. Absent, the fields resolve as
  * `edit ?? raw`, the Files behavior.
+ *
+ * `keepOwnCover` carries the membership's keep-own-cover flag and its setter, passed only when the peek
+ * opens from an album - the flag is an album_tracks concern, so a loose or Files-view peek never shows
+ * the toggle.
  */
 export function TrackDetail({
   track,
   onClose,
   albumFallback,
+  keepOwnCover,
 }: {
   track: TrackRow;
   onClose: () => void;
   albumFallback?: { album: string | null; album_artist: string | null; year: number | null };
+  keepOwnCover?: { value: boolean; onChange: (next: boolean) => void };
 }) {
   const live = useTrack(track.id) ?? track;
   const editTrack = useEditTrack();
@@ -258,6 +265,13 @@ export function TrackDetail({
               <span className={styles.label}>{t((d) => d.tracks.fields.genre)}</span>
               <TrackGenres trackId={live.id} genreIds={live.genre_ids} />
             </div>
+            {keepOwnCover ? (
+              <KeepOwnCoverToggle
+                trackId={live.id}
+                keepOwnCover={keepOwnCover.value}
+                onChange={keepOwnCover.onChange}
+              />
+            ) : null}
           </div>
         </section>
 

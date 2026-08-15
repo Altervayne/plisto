@@ -31,6 +31,7 @@ import {
   useLoadOrganization,
   useResetHistory,
   useSetAlbumLayout,
+  useSetTrackKeepOwnCover,
   useUnassignTracks,
 } from "../../state/organize/store";
 import {
@@ -77,6 +78,7 @@ export function AlbumTrackList({
   const tracks = useAlbumTracks(albumId);
   const setLayout = useSetAlbumLayout();
   const unassignTracks = useUnassignTracks();
+  const setTrackKeepOwnCover = useSetTrackKeepOwnCover();
   const loadOrganization = useLoadOrganization();
   const resetHistory = useResetHistory();
   const playlists = usePlaylists();
@@ -183,6 +185,13 @@ export function AlbumTrackList({
     clearSelection();
   };
 
+  // Flags every selected membership to keep (or drop) its own cover on export, then clears. A track
+  // with no art of its own falls back to the album cover regardless, so the flag is safe to set en masse.
+  const setSelectedKeepOwnCover = (value: boolean) => {
+    void setTrackKeepOwnCover(albumId, [...selected], value);
+    clearSelection();
+  };
+
   // Adds the selection to an existing playlist, then clears. The backdrop blocks selection changes while
   // the picker is open, so the live selection is the snapshot.
   const onChoosePlaylist = (playlistId: number) => {
@@ -254,6 +263,8 @@ export function AlbumTrackList({
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}
           onAddToPlaylist={() => setPlaylistPickerOpen(true)}
+          onKeepOwnCover={() => setSelectedKeepOwnCover(true)}
+          onUseAlbumCover={() => setSelectedKeepOwnCover(false)}
           onRemove={removeSelected}
           onClear={clearSelection}
         />

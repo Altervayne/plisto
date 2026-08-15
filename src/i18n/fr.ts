@@ -88,6 +88,8 @@ export const fr: Dict = {
     selectAll: "Tout sélectionner",
     moveToDisc: "Déplacer vers le disque...",
     newDisc: "Nouveau disque {n}",
+    keepOwnCover: "Conserver sa propre pochette",
+    useAlbumCover: "Utiliser la pochette de l'album",
     removeFromAlbum: "Retirer de l'album",
     trackCount: { one: "{{n}} piste", other: "{{n}} pistes" },
     tracksMissing: { one: "{{n}} piste manquante", other: "{{n}} pistes manquantes" },
@@ -168,6 +170,8 @@ export const fr: Dict = {
     removeAdded: "Retirer la pochette que vous avez ajoutée",
     saveToDisk: "Enregistrer sur le disque",
     saveError: "Impossible d'enregistrer la pochette.",
+    keepOwnCover: "Conserver sa propre pochette",
+    keepOwnCoverHint: "Cette piste n'a pas de pochette propre.",
   },
 
   tracks: {

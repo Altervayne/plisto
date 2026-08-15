@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 10;
+const LATEST_VERSION: i64 = 11;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -254,6 +254,15 @@ ALTER TABLE playlists ADD COLUMN description TEXT;
 ALTER TABLE playlists ADD COLUMN cover_id INTEGER REFERENCES covers(id);
 ";
 
+// Version 11: the per-membership keep-own-cover flag. One additive column on `album_tracks`, DEFAULT
+// 0 for every existing row - the true prior state, since every member took the container cover before
+// the flag existed. A 1 opts one membership out: the export embeds that track's own embedded or
+// adjacent art instead of the album's, falling back to the container cover when the track has none.
+// The ADD COLUMN backfills the whole table in place with no drain, the same shape albums.kind took.
+const MIGRATION_V11: &str = "
+ALTER TABLE album_tracks ADD COLUMN keep_own_cover INTEGER NOT NULL DEFAULT 0;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -271,6 +280,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             7 => conn.execute_batch(MIGRATION_V8)?,
             8 => conn.execute_batch(MIGRATION_V9)?,
             9 => conn.execute_batch(MIGRATION_V10)?,
+            10 => conn.execute_batch(MIGRATION_V11)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -703,6 +713,48 @@ mod tests {
         assert_eq!(name, "Mix", "the existing playlist survives the upgrade");
         assert_eq!(description, None, "description defaults to NULL, unset");
         assert_eq!(cover, None, "cover_id defaults to NULL, unset");
+    }
+
+    /// A v10 DB with an album membership upgrades to v11 additively: the membership row survives and
+    /// its new `keep_own_cover` backfills to 0, the container-cover default every member had before.
+    #[test]
+    fn v10_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.execute_batch(MIGRATION_V8).unwrap();
+        conn.execute_batch(MIGRATION_V9).unwrap();
+        conn.execute_batch(MIGRATION_V10).unwrap();
+        conn.pragma_update(None, "user_version", 10).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no) VALUES (1, 1, 1);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let (track_no, keep): (i64, i64) = conn
+            .query_row(
+                "SELECT track_no, keep_own_cover FROM album_tracks WHERE track_id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(track_no, 1, "the membership row survives the upgrade");
+        assert_eq!(keep, 0, "keep_own_cover defaults to 0, the container cover");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

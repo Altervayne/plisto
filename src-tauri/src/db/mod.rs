@@ -849,7 +849,7 @@ const ALBUM_SELECT: &str = "
 const ALBUM_TRACK_SELECT: &str = "
     SELECT at.album_id, at.track_id, t.source_path, t.filename, t.duration_secs,
            at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
-           te.title, te.artist, t.has_embedded_cover, t.missing_at
+           te.title, te.artist, t.has_embedded_cover, t.missing_at, at.keep_own_cover
     FROM album_tracks at
     JOIN tracks t ON t.id = at.track_id
     LEFT JOIN track_edits te ON te.track_id = at.track_id";
@@ -882,6 +882,8 @@ pub struct ExportTrackRow {
     pub year_override: Option<i64>,
     pub has_embedded_cover: Option<bool>,
     pub missing_at: Option<i64>,
+    // Whether this membership keeps the track's own art on export instead of the container cover.
+    pub keep_own_cover: bool,
 }
 
 // The export projection: the source paths, extension, presence and art flags joined from `tracks`
@@ -895,7 +897,7 @@ const EXPORT_TRACK_SELECT: &str = "
     SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext,
            at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
            te.title, te.artist, te.album, te.album_artist, te.year,
-           t.has_embedded_cover, t.missing_at
+           t.has_embedded_cover, t.missing_at, at.keep_own_cover
     FROM album_tracks at
     JOIN tracks t ON t.id = at.track_id
     LEFT JOIN track_edits te ON te.track_id = at.track_id
@@ -920,6 +922,7 @@ fn export_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportTr
         year_override: r.get(13)?,
         has_embedded_cover: r.get(14)?,
         missing_at: r.get(15)?,
+        keep_own_cover: r.get(16)?,
     })
 }
 
@@ -983,6 +986,7 @@ fn album_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumTrac
         artist_override: r.get(10)?,
         has_embedded_cover: r.get(11)?,
         missing_at: r.get(12)?,
+        keep_own_cover: r.get(13)?,
         // The flat projection stays genre-free; load_organization attaches the ordered ids from
         // load_track_genre_ids, so an unattached row reads as no genres rather than a wrong list.
         genre_ids: Vec::new(),
@@ -1430,6 +1434,41 @@ pub fn set_album_cover(
         params![cover_id, updated_at, album_id],
     )?;
     Ok(())
+}
+
+/// Clears an album's bound cover back to none and bumps `updated_at`. Unlike a playlist, an album
+/// then falls back to a member track's art on both display and export, so a cleared cover leaves the
+/// album covered by its members rather than art-less. The album analog of remove_playlist_cover.
+pub fn remove_album_cover(
+    conn: &Connection,
+    album_id: i64,
+    updated_at: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE albums SET cover_id = NULL, updated_at = ?1 WHERE id = ?2",
+        params![updated_at, album_id],
+    )?;
+    Ok(())
+}
+
+/// Sets the keep-own-cover flag on the given memberships of one album in a single transaction. A
+/// flagged membership embeds the track's own embedded/adjacent art on export instead of the album
+/// cover, falling back to the album cover when the track has none. Scoped to `album_id` so it never
+/// touches the same track's membership in another album; a track_id not in this album matches nothing.
+pub fn set_track_keep_own_cover(
+    conn: &mut Connection,
+    album_id: i64,
+    track_ids: &[i64],
+    value: bool,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for &track_id in track_ids {
+        tx.execute(
+            "UPDATE album_tracks SET keep_own_cover = ?1 WHERE album_id = ?2 AND track_id = ?3",
+            params![value, album_id, track_id],
+        )?;
+    }
+    tx.commit()
 }
 
 /// Appends one membership row with an explicit position. Private to the album writers, which own
@@ -1922,7 +1961,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
 
         for table in [
             "tracks",
@@ -1976,6 +2015,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_kind, 1, "albums.kind should exist");
+
+        // The per-membership keep-own-cover flag lands on album_tracks.
+        let has_keep: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('album_tracks') WHERE name = 'keep_own_cover'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_keep, 1, "album_tracks.keep_own_cover should exist");
     }
 
     #[test]
@@ -1986,7 +2035,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
     }
 
     #[test]
@@ -2784,6 +2833,56 @@ mod tests {
             "the removal bumps updated_at"
         );
         assert_eq!(get_playlist_cover_id(&conn, playlist.id).unwrap(), None);
+    }
+
+    #[test]
+    fn set_then_remove_album_cover_binds_and_clears_cover_id() {
+        let mut conn = open_in_memory().unwrap();
+        let t = genre_track(&conn, "/music/a.mp3");
+        let album = create_album(&mut conn, None, None, None, None, None, &[t], "album", 100).unwrap();
+        let cover_id = upsert_cover(&conn, &sample_cover("abc123")).unwrap();
+
+        set_album_cover(&conn, album.id, cover_id, 200).unwrap();
+        let bound = get_album(&conn, album.id).unwrap().unwrap();
+        assert_eq!(bound.cover_id, Some(cover_id), "the cover binds");
+        assert_eq!(bound.updated_at, 200, "the bind bumps updated_at");
+
+        remove_album_cover(&conn, album.id, 300).unwrap();
+        let cleared = get_album(&conn, album.id).unwrap().unwrap();
+        assert_eq!(cleared.cover_id, None, "removal clears the cover");
+        assert_eq!(cleared.updated_at, 300, "the removal bumps updated_at");
+    }
+
+    #[test]
+    fn set_track_keep_own_cover_flags_only_the_listed_members() {
+        let mut conn = open_in_memory().unwrap();
+        let a = genre_track(&conn, "/music/a.mp3");
+        let b = genre_track(&conn, "/music/b.mp3");
+        let album = create_album(&mut conn, None, None, None, None, None, &[a, b], "album", 100)
+            .unwrap();
+
+        // Every membership starts at the container-cover default.
+        let before = load_album_tracks(&conn).unwrap();
+        assert!(
+            before.iter().all(|r| !r.keep_own_cover),
+            "keep_own_cover defaults off"
+        );
+
+        set_track_keep_own_cover(&mut conn, album.id, &[a], true).unwrap();
+        let after = load_album_tracks(&conn).unwrap();
+        let flag_of = |rows: &[AlbumTrackRow], id: i64| {
+            rows.iter().find(|r| r.track_id == id).unwrap().keep_own_cover
+        };
+        assert!(flag_of(&after, a), "the listed member is flagged");
+        assert!(!flag_of(&after, b), "an unlisted member stays at the default");
+
+        // Clearing it back returns the membership to the container cover.
+        set_track_keep_own_cover(&mut conn, album.id, &[a], false).unwrap();
+        let reverted = load_album_tracks(&conn).unwrap();
+        assert!(
+            reverted.iter().all(|r| !r.keep_own_cover),
+            "the flag clears back off"
+        );
     }
 
     #[test]

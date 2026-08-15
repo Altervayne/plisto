@@ -87,6 +87,8 @@ export const en = {
     selectAll: "Select all",
     moveToDisc: "Move to disc...",
     newDisc: "New disc {n}",
+    keepOwnCover: "Keep own cover",
+    useAlbumCover: "Use album cover",
     removeFromAlbum: "Remove from album",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
@@ -167,6 +169,8 @@ export const en = {
     removeAdded: "Remove the cover you added",
     saveToDisk: "Save to disk",
     saveError: "Could not save the cover.",
+    keepOwnCover: "Keep own cover",
+    keepOwnCoverHint: "This track has no cover of its own.",
   },
 
   tracks: {

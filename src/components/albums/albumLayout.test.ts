@@ -31,6 +31,7 @@ function row(track_id: number, disc_no: number | null, track_no: number | null):
     artist_override: null,
     has_embedded_cover: null,
     missing_at: null,
+    keep_own_cover: false,
     genre_ids: [],
   };
 }

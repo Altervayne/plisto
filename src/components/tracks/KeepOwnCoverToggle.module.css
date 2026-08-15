@@ -1,0 +1,70 @@
+/*
+ * The keep-own-cover switch row in the peek: a labelled control that sits among the tag fields. The
+ * switch is the one chromatic affordance here, cyan when on, and dims to inert when the track has no
+ * art of its own. The hint drops beneath, explaining why it cannot take effect.
+ */
+.tag {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The track: a pill that fills cyan when on, sunken and quiet when off. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--sunken);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The knob rides from left to right as the switch flips. */
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] .knob {
+  transform: translateX(16px);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--ink-3);
+}

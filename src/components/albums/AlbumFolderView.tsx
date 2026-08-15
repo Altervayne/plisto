@@ -15,6 +15,7 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 
 // -- State Imports --
 import { useTrack } from "../../state/store";
+import { useAlbumTracks, useSetTrackKeepOwnCover } from "../../state/organize/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -48,6 +49,12 @@ export function AlbumFolderView({ album, onBack }: { album: AlbumRow; onBack: ()
   }, [album.id]);
 
   const trackRow = useTrack(openTrackId ?? -1);
+
+  // The peek's keep-own-cover toggle reads the membership's flag, not the library track: the flag is
+  // album-scoped. The open track's membership carries it; a write applies to just this one track here.
+  const albumTracks = useAlbumTracks(album.id);
+  const setTrackKeepOwnCover = useSetTrackKeepOwnCover();
+  const openMembership = albumTracks.find((r) => r.track_id === openTrackId);
 
   const title = album.title ?? t((d) => d.albums.untitled);
   const crumbs: Crumb[] = [
@@ -95,6 +102,15 @@ export function AlbumFolderView({ album, onBack }: { album: AlbumRow; onBack: ()
                 album_artist: album.album_artist,
                 year: album.year,
               }}
+              keepOwnCover={
+                openMembership
+                  ? {
+                      value: openMembership.keep_own_cover,
+                      onChange: (next) =>
+                        void setTrackKeepOwnCover(album.id, [trackRow.id], next),
+                    }
+                  : undefined
+              }
             />
           </div>
         ) : null}

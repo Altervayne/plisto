@@ -130,6 +130,8 @@ pub fn run() {
             commands::organize::set_track_edit,
             commands::organize::get_track_edit,
             commands::organize::set_album_cover,
+            commands::organize::remove_album_cover,
+            commands::organize::set_track_keep_own_cover,
             commands::organize::load_organization,
             commands::organize::list_genres,
             commands::organize::create_genre,

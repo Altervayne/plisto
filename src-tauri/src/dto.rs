@@ -221,6 +221,9 @@ pub struct AlbumTrackRow {
     pub artist_override: Option<String>,
     pub has_embedded_cover: Option<bool>,
     pub missing_at: Option<i64>,
+    // Whether this membership keeps the track's own embedded/adjacent art on export instead of the
+    // album cover. Per-membership, so a track flagged in one album carries no flag as a loose track.
+    pub keep_own_cover: bool,
     // The track's genres, as vocabulary ids in position order. Genre is per-track and multi-valued,
     // so this carries each row's own list; empty when the track has none. The album view derives its
     // union from these across members.

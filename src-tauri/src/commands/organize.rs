@@ -207,6 +207,33 @@ pub async fn set_album_cover(
     })
 }
 
+/// Clears the cover the user bound to an album and bumps updated_at. An album falls back to a member
+/// track's art, so it stays covered by its members rather than art-less.
+#[tauri::command]
+pub fn remove_album_cover(album_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::remove_album_cover(&conn, album_id, super::now_unix()).map_err(|e| e.to_string())
+}
+
+/// Sets the keep-own-cover flag on the given memberships of one album. The list serves single-track
+/// and multi-select alike. A flagged track embeds its own art on export instead of the album cover.
+#[tauri::command]
+pub fn set_track_keep_own_cover(
+    album_id: i64,
+    track_ids: Vec<i64>,
+    value: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_track_keep_own_cover(&mut conn, album_id, &track_ids, value).map_err(|e| e.to_string())
+}
+
 /// The whole genre vocabulary, each entry with its usage count.
 #[tauri::command]
 pub fn list_genres(state: State<'_, AppState>) -> Result<Vec<GenreRow>, String> {

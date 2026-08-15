@@ -60,6 +60,9 @@ pub struct ExportTrack {
     pub track_no: Option<i64>,
     pub disc_no: Option<i64>,
     pub has_embedded: bool,
+    // When set, the writer embeds this track's own embedded/adjacent art instead of the container
+    // cover, falling back to the container cover when the track has none.
+    pub keep_own_cover: bool,
 }
 
 /// One export container: an album folder or a single's subfolder, with its resolved release fields
@@ -134,6 +137,7 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
                 track_no: row.track_no,
                 disc_no: row.disc_no,
                 has_embedded: row.has_embedded_cover == Some(true),
+                keep_own_cover: row.keep_own_cover,
             });
         }
 
@@ -267,6 +271,9 @@ fn unsorted_container(
             track_no: None,
             disc_no: None,
             has_embedded: slot.has_embedded,
+            // The Unsorted bag is already art-less and its loose tracks carry their own cover, so the
+            // album-scoped flag has no bearing here.
+            keep_own_cover: false,
         });
     }
 

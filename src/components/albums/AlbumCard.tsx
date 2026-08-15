@@ -1,3 +1,7 @@
+// -- Framework Imports --
+import { useEffect, useRef } from "react";
+import type { MouseEvent } from "react";
+
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { CoverBadge } from "../common/CoverBadge/CoverBadge";
@@ -29,18 +33,57 @@ function subLine(album: AlbumRow, lead: string): string {
  * ring when selected, both driven here through the --cover-shadow hook the Cover atom reads across
  * the module boundary. A single click reports the album up for the drawer; a double-click reports it
  * for the full-pane view.
+ *
+ * The single click is held for a double-click window before it opens the drawer, but only when it would
+ * matter: with no drawer open yet, opening one reflows the grid, so an eager first click would shift the
+ * second click of a double onto another card. Once a drawer is open (opening won't reflow), on keyboard
+ * activation, or where there is no full-pane action at all, the click acts at once.
  */
+const OPEN_DELAY_MS = 200;
+
 export function AlbumCard({
   album,
   selected,
+  drawerOpen,
   onOpen,
   onOpenFull,
 }: {
   album: AlbumRow;
   selected: boolean;
+  drawerOpen: boolean;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
 }) {
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (openTimer.current) clearTimeout(openTimer.current);
+    },
+    [],
+  );
+
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    // Keyboard activation (detail 0, no double-click concept), no full-pane action, or a drawer already
+    // open (opening won't reflow the grid) — act at once. Otherwise wait out the double-click window so a
+    // double-click is recognized before the first click opens the drawer and shifts the grid.
+    if (event.detail === 0 || !onOpenFull || drawerOpen) {
+      onOpen(album.id);
+      return;
+    }
+    if (openTimer.current) clearTimeout(openTimer.current);
+    openTimer.current = setTimeout(() => {
+      openTimer.current = null;
+      onOpen(album.id);
+    }, OPEN_DELAY_MS);
+  };
+
+  const handleDoubleClick = () => {
+    if (openTimer.current) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+    onOpenFull?.(album.id);
+  };
   // Detail res, not thumb: the tile is 168px (more on hi-DPI) and the source cover is often larger, so a
   // 128px thumb reads crunchy against the sharp drawer and folder-view covers, which already use detail.
   const { src } = useAlbumCover(album.id, "detail");
@@ -57,8 +100,8 @@ export function AlbumCard({
       type="button"
       className={`${styles.card} ${selected ? styles.selected : ""}`}
       aria-pressed={selected}
-      onClick={() => onOpen(album.id)}
-      onDoubleClick={() => onOpenFull?.(album.id)}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />

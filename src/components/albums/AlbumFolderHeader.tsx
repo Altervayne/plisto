@@ -33,7 +33,7 @@ export function AlbumFolderHeader({ album }: { album: AlbumRow }) {
   return (
     <header className={styles.header}>
       <div className={styles.cover}>
-        <AlbumCoverField albumId={album.id} />
+        <AlbumCoverField albumId={album.id} hasCover={album.cover_id != null} />
       </div>
       <div className={styles.meta}>
         <EditableField

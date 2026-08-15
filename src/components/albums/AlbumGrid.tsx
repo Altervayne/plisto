@@ -33,6 +33,9 @@ export function AlbumGrid({
   emptyTitle?: string;
   emptyLine?: string;
 }) {
+  // A drawer being open means opening another won't reflow the grid, so the cards can skip the
+  // double-click hold and act on the first click.
+  const drawerOpen = selectedAlbumId != null;
   const t = useT();
 
   if (albums.length === 0) {
@@ -54,6 +57,7 @@ export function AlbumGrid({
           key={album.id}
           album={album}
           selected={album.id === selectedAlbumId}
+          drawerOpen={drawerOpen}
           onOpen={onOpen}
           onOpenFull={onOpenFull}
         />

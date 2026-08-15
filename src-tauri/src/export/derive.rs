@@ -496,6 +496,7 @@ pub fn template_preview(folder: &str, file: &str) -> String {
         disc_no: Some(1),
         genres: vec!["Alternative".to_string()],
         has_embedded: false,
+        keep_own_cover: false,
     };
     let container = ExportContainer {
         album_id: 1,
@@ -536,6 +537,7 @@ mod tests {
             disc_no: None,
             genres: Vec::new(),
             has_embedded: false,
+            keep_own_cover: false,
         }
     }
 

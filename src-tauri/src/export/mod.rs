@@ -187,12 +187,28 @@ where
                         track_no: track.track_no,
                         disc_no: track.disc_no,
                     };
+                    // A membership flagged keep-own-cover embeds the track's own embedded/adjacent
+                    // art in place of the container cover; a flagged track with no art of its own
+                    // falls back to the shared container cover, never coverless. Decoded and encoded
+                    // at most once here, per track.
+                    let own_art = if track.keep_own_cover {
+                        cover_jpeg(
+                            &CoverPlan::Member {
+                                source: track.source.clone(),
+                                has_embedded: track.has_embedded,
+                            },
+                            covers_dir,
+                        )
+                    } else {
+                        None
+                    };
+                    let track_cover = own_art.as_deref().or(cover_bytes);
                     match export_track(
                         &track.source,
                         &dir,
                         &track_layout.filename,
                         &tags,
-                        cover_bytes,
+                        track_cover,
                     ) {
                         Ok(embed) => {
                             exported.fetch_add(1, Ordering::Relaxed);
@@ -432,6 +448,7 @@ mod tests {
             track_no,
             disc_no: None,
             has_embedded: false,
+            keep_own_cover: false,
         }
     }
 

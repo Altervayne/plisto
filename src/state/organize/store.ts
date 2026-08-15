@@ -31,10 +31,12 @@ import {
   listGenres as ipcListGenres,
   loadOrganization as ipcLoadOrganization,
   mergeGenres as ipcMergeGenres,
+  removeAlbumCover as ipcRemoveAlbumCover,
   removeAlbumGenre as ipcRemoveAlbumGenre,
   renameGenre as ipcRenameGenre,
   setAlbumCover as ipcSetAlbumCover,
   setTrackGenres as ipcSetTrackGenres,
+  setTrackKeepOwnCover as ipcSetTrackKeepOwnCover,
 } from "../../lib/ipc";
 
 // -- Type Imports --
@@ -77,6 +79,8 @@ interface OrganizeStore {
   createSingle: (trackId: number) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
   setAlbumCover: (albumId: number, srcPath: string) => Promise<void>;
+  removeAlbumCover: (albumId: number) => Promise<void>;
+  setTrackKeepOwnCover: (albumId: number, trackIds: number[], value: boolean) => Promise<void>;
 
   createGenre: (name: string) => Promise<number>;
   renameGenre: (id: number, name: string) => Promise<void>;
@@ -161,6 +165,8 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       artist_override: null,
       has_embedded_cover: null,
       missing_at: track.missing_at,
+      // A freshly assigned membership takes the container cover, the default; a later peek can opt out.
+      keep_own_cover: false,
       genre_ids: [],
     };
   };
@@ -373,6 +379,18 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
     setAlbumCover: async (albumId, srcPath) => {
       await ipcSetAlbumCover(albumId, srcPath);
+      await get().loadOrganization();
+    },
+
+    removeAlbumCover: async (albumId) => {
+      await ipcRemoveAlbumCover(albumId);
+      await get().loadOrganization();
+    },
+
+    // Keep-own-cover is an album_tracks flag, not an undoable projection edit: fire the write, then
+    // reload so the membership rows carry the fresh flag for the peek and bulk bar to read.
+    setTrackKeepOwnCover: async (albumId, trackIds, value) => {
+      await ipcSetTrackKeepOwnCover(albumId, trackIds, value);
       await get().loadOrganization();
     },
 
@@ -638,6 +656,8 @@ export const useCreateAlbum = () => useOrganizeStore((s) => s.createAlbum);
 export const useCreateSingle = () => useOrganizeStore((s) => s.createSingle);
 export const useDeleteAlbum = () => useOrganizeStore((s) => s.deleteAlbum);
 export const useSetAlbumCover = () => useOrganizeStore((s) => s.setAlbumCover);
+export const useRemoveAlbumCover = () => useOrganizeStore((s) => s.removeAlbumCover);
+export const useSetTrackKeepOwnCover = () => useOrganizeStore((s) => s.setTrackKeepOwnCover);
 export const useCreateGenre = () => useOrganizeStore((s) => s.createGenre);
 export const useRenameGenre = () => useOrganizeStore((s) => s.renameGenre);
 export const useDeleteGenre = () => useOrganizeStore((s) => s.deleteGenre);
