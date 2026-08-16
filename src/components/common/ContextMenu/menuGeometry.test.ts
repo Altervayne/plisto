@@ -12,6 +12,7 @@ describe("placeMenu", () => {
     const placed = placeMenu({ x: 300, y: 200 }, menu, viewport, 6);
     expect(placed.left).toBe(300);
     expect(placed.top).toBe(200);
+    expect(placed.origin).toBe("left top");
   });
 
   it("opens leftward when the menu would overflow the right edge", () => {
@@ -19,18 +20,21 @@ describe("placeMenu", () => {
     // Grows back toward the pointer: pointer minus width.
     expect(placed.left).toBe(900 - 200);
     expect(placed.top).toBe(200);
+    expect(placed.origin).toBe("right top");
   });
 
   it("opens upward when the menu would overflow the bottom edge", () => {
     const placed = placeMenu({ x: 300, y: 700 }, menu, viewport, 6);
     expect(placed.left).toBe(300);
     expect(placed.top).toBe(700 - 300);
+    expect(placed.origin).toBe("left bottom");
   });
 
   it("flips both axes at the bottom-right corner", () => {
     const placed = placeMenu({ x: 950, y: 750 }, menu, viewport, 6);
     expect(placed.left).toBe(950 - 200);
     expect(placed.top).toBe(750 - 300);
+    expect(placed.origin).toBe("right bottom");
   });
 
   it("clamps a flipped menu that still overshoots the near edge", () => {

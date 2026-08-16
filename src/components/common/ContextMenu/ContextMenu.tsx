@@ -67,7 +67,7 @@ export function ContextMenu({
   const list = items ?? [];
   const menuRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number; origin: string } | null>(null);
   const [active, setActive] = useState(0);
   const menu = useMountTransition(open, EXIT_MS);
 
@@ -262,7 +262,7 @@ export function ContextMenu({
       className={styles.menu}
       data-ready={coords ? "" : undefined}
       data-state={menu.state}
-      style={{ left: coords?.left ?? 0, top: coords?.top ?? 0 }}
+      style={{ left: coords?.left ?? 0, top: coords?.top ?? 0, transformOrigin: coords?.origin }}
       onKeyDown={onKeyDown}
     >
       {top.length > 0 && (

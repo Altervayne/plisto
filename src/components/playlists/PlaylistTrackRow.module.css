@@ -11,6 +11,21 @@
   padding: 7px 6px;
   border-radius: var(--r-sm);
   transition: background var(--dur-fast) ease;
+  animation: row-in var(--dur-fast) var(--ease-cover);
+}
+
+/* A slot appears only when a track is added to the playlist - a user mutation, never a filtered re-list -
+ * so a plain mount fade-and-rise is safe. No fill: once it settles the row hands its transform straight
+ * back to the sortable's inline drag transform. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .row:hover {

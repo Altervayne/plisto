@@ -26,6 +26,12 @@
   --cover-shadow: var(--shadow-pop);
 }
 
+/* A small dip on press, so the card gives under the pointer like the buttons do. It rides the frame's
+ * own transform transition, so reduced motion already snaps it through the block below. */
+.card:active .frame {
+  transform: translateY(-1px) scale(0.99);
+}
+
 .card.selected .frame {
   --cover-shadow: 0 0 0 2px var(--accent), var(--shadow-pop);
 }
