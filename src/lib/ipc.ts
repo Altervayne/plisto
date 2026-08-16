@@ -22,6 +22,7 @@ import type {
   ExtractRow,
   GenreRemovalImpact,
   GenreRow,
+  ImageFolderGroup,
   ListTracksResponse,
   OrganizationSnapshot,
   PlaylistM3uSummary,
@@ -200,6 +201,35 @@ export function saveTrackCover(trackId: number, destPath: string): Promise<void>
 /** The dotless extension of a track's cover, sniffed from its bytes, or null when it has none. */
 export function trackCoverExt(trackId: number): Promise<string | null> {
   return invoke<string | null>("track_cover_ext", { trackId });
+}
+
+/** Wraps a batch callback in a fresh channel the discovery sweep streams folder groups over. */
+export function createDiscoveryChannel(
+  onBatch: (group: ImageFolderGroup) => void,
+): Channel<ImageFolderGroup> {
+  const channel = new Channel<ImageFolderGroup>();
+  channel.onmessage = onBatch;
+  return channel;
+}
+
+/** Streams every folder of loose images across the library over `channel`, with its needs-cover state. */
+export function discoverLibraryImages(channel: Channel<ImageFolderGroup>): Promise<void> {
+  return invoke("discover_library_images", { onBatch: channel });
+}
+
+/** Signals the running discovery sweep to stop. Groups already sent stand; nothing is written. */
+export function cancelDiscovery(): Promise<void> {
+  return invoke("cancel_discovery");
+}
+
+/** Generates a thumbnail for an arbitrary on-disk image at `size`, or null when it cannot be read. */
+export function imageThumb(srcPath: string, size: CoverSize): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("image_thumb", { srcPath, size });
+}
+
+/** Binds a picked image as the cover for a folder addressed by its path, returning the resolved cover. */
+export function importFolderCoverByPath(folderPath: string, srcPath: string): Promise<CoverRef> {
+  return invoke<CoverRef>("import_folder_cover_by_path", { folderPath, srcPath });
 }
 
 /** Creates an album from `trackIds`, seeding fields from the caller and the cover from the backend. */

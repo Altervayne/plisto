@@ -432,7 +432,7 @@ fn resolve_prefill_cover(conn: &Connection, track_ids: &[i64]) -> rusqlite::Resu
         let Some(source_path) = db::get_track_source_path(conn, track_id)? else {
             return Ok(None);
         };
-        let this = super::covers::folder_of(&source_path);
+        let this = crate::normalize::folder_of(&source_path);
         match &folder {
             None => folder = Some(this),
             Some(prev) if *prev != this => return Ok(None),

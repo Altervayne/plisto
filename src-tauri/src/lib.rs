@@ -2,6 +2,7 @@
 mod commands;
 mod covers;
 mod db;
+mod discovery;
 mod dto;
 mod export;
 mod model;
@@ -118,6 +119,8 @@ pub fn run() {
                 export_running: AtomicBool::new(false),
                 playlist_export_cancel: Arc::new(AtomicBool::new(false)),
                 playlist_export_running: AtomicBool::new(false),
+                discovery_cancel: Arc::new(AtomicBool::new(false)),
+                discovery_running: AtomicBool::new(false),
                 export_status: Arc::new(Mutex::new(ExportStatus {
                     running: false,
                     progress: None,
@@ -143,11 +146,15 @@ pub fn run() {
             commands::covers::playlist_cover,
             commands::covers::list_cover_candidates,
             commands::covers::import_folder_cover,
+            commands::covers::import_folder_cover_by_path,
+            commands::covers::image_thumb,
             commands::covers::remove_folder_cover,
             commands::covers::import_track_cover,
             commands::covers::remove_track_cover,
             commands::covers::save_track_cover,
             commands::covers::track_cover_ext,
+            commands::discovery::discover_library_images,
+            commands::discovery::cancel_discovery,
             commands::organize::create_album,
             commands::organize::create_single,
             commands::organize::delete_album,

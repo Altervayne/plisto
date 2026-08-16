@@ -131,6 +131,30 @@ export interface CoverCandidate {
   height: number;
 }
 
+/**
+ * One album's brief identity for a discovered folder that resolves to exactly one album: its id,
+ * title (null = untitled), and whether it already carries a cover. Mirrors AlbumBrief in dto.rs.
+ */
+export interface AlbumBrief {
+  id: number;
+  title: string | null;
+  has_cover: boolean;
+}
+
+/**
+ * One folder of loose images found by the covers sweep: the real-case folder path and leaf name, the
+ * image paths inside it, whether the folder still needs a cover, the album it resolves to (only when
+ * exactly one), and its non-missing track count. Streamed one per folder. Mirrors ImageFolderGroup.
+ */
+export interface ImageFolderGroup {
+  folder_path: string;
+  folder_name: string;
+  images: string[];
+  needs_cover: boolean;
+  album: AlbumBrief | null;
+  track_count: number;
+}
+
 /** The bucket an album row belongs to: a plain album, or an album-of-one single. Mirrors the Rust `kind`. */
 export type AlbumKind = 'album' | 'single';
 

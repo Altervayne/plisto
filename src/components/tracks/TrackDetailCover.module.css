@@ -16,6 +16,25 @@
   width: 148px;
 }
 
+/* The over-cover loading veil while an assign/remove is in flight: a soft scrim so the accent staff
+   spinner reads over any art, matched to the tile's rounding. The spinner's own module fixes its size,
+   so scale it down to sit inside the 148px tile. */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.loading svg {
+  width: 92px;
+  height: auto;
+}
+
 /* The empty slot doubles as the Add control: a sunken recess that veils on hover, not a dropzone. */
 .addSlot {
   position: relative;

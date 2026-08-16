@@ -302,6 +302,51 @@ pub fn get_cover(
     })
 }
 
+/// One track's folder-reconciliation state for the image sweep: its stored (folded) source path,
+/// the tri-state embedded-art flag, whether it carries a per-track cover, and the album it belongs
+/// to. The sweep groups these by folder to decide which folders still need a cover.
+pub struct FolderTrackState {
+    pub source_path: String,
+    pub has_embedded_cover: Option<bool>,
+    pub has_track_cover: bool,
+    pub album_id: Option<i64>,
+}
+
+/// Every present track's cover-reconciliation state, one row per non-missing track: its folded
+/// source path, embedded-art flag, whether a per-track cover is bound, and its album membership (a
+/// track belongs to at most one). The image sweep folds each source path to its folder and rolls
+/// these up per folder to compute the needs-cover signal against the real resolver. Read-only.
+pub fn load_folder_track_states(conn: &Connection) -> rusqlite::Result<Vec<FolderTrackState>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.source_path, t.has_embedded_cover, (tc.track_id IS NOT NULL), at.album_id
+         FROM tracks t
+         LEFT JOIN track_covers tc ON tc.track_id = t.id
+         LEFT JOIN album_tracks at ON at.track_id = t.id
+         WHERE t.missing_at IS NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(FolderTrackState {
+                source_path: r.get(0)?,
+                has_embedded_cover: r.get(1)?,
+                has_track_cover: r.get(2)?,
+                album_id: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Every folder path that carries a bound cover. The image sweep drops a folder's need the moment
+/// its folded key is in this set. Read-only.
+pub fn all_folder_cover_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT folder_path FROM folder_covers")?;
+    let rows = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 // ---- Settings and workspace ----
 
 /// The value stored under `key`, or None when the key is absent. A client pref falls back to its

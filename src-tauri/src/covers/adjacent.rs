@@ -56,6 +56,25 @@ pub fn discover_adjacent_images(track_source_path: &Path) -> Vec<PathBuf> {
     matches.into_iter().map(|(_, _, path)| path).collect()
 }
 
+/// True when `path` names one of the conventional adjacent cover images: a cover/folder/front stem
+/// with a supported image extension, both compared case-insensitively. The membership rule behind
+/// discover_adjacent_images, exposed so the image sweep can reconcile a folder's loose images
+/// against the same rule the resolver applies rather than re-reading the directory.
+pub fn is_adjacent_image(path: &Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase);
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase);
+    let (Some(stem), Some(ext)) = (stem, ext) else {
+        return false;
+    };
+    COVER_STEMS.contains(&stem.as_str()) && IMAGE_EXTS.contains(&ext.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

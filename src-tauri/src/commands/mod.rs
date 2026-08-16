@@ -7,6 +7,7 @@
 
 // -- Module Declarations --
 pub mod covers;
+pub mod discovery;
 pub mod export;
 pub mod extract;
 mod list_query;

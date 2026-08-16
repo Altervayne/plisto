@@ -16,7 +16,7 @@ import {
 import { pickCoverSavePath, pickImageFile } from "../../lib/dialog";
 
 // -- Type Imports --
-import type { CoverSource } from "../../types";
+import type { CoverRef, CoverSource } from "../../types";
 
 /** The resolved cover for a track, its cache path already wrapped for the webview. */
 export interface CoverView {
@@ -40,6 +40,8 @@ export interface TrackCover {
   cover: CoverView | null;
   candidates: CandidateView[];
   loading: boolean;
+  // True only while a cover assign/remove for the shown track is in flight - drives the over-cover spinner.
+  assigning: boolean;
   error: string | null;
   importFromDisk: () => Promise<void>;
   useCandidate: (candidate: CandidateView) => Promise<void>;
@@ -66,8 +68,14 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
   // Start loading: a load always fires on mount, so the surface never flashes "no cover" first.
   const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestId = useRef(0);
+  // The track the hook is currently showing, read at apply-time. A slow assign started on one track must
+  // never paint its result onto another after the peek moves on, so every mutation checks this ref before
+  // it touches state.
+  const latestTrackId = useRef(trackId);
+  latestTrackId.current = trackId;
 
   const load = useCallback(async (): Promise<void> => {
     const id = ++requestId.current;
@@ -111,42 +119,65 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
     void load();
   }, [load]);
 
+  // Switching tracks abandons any assign spinner from the previous one - the flag is hook-wide, so it must
+  // not bleed onto the newly shown track.
+  useEffect(() => {
+    setAssigning(false);
+  }, [trackId]);
+
+  // Applies a freshly-bound cover from the command's own return - no second read_cover round-trip, and,
+  // crucially, no shared `load()` whose request-id would outrace the new track's load and paint stale art.
+  const applyBound = useCallback((id: number, ref: CoverRef): void => {
+    if (id !== latestTrackId.current) return;
+    setCover({ src: toSrc(ref.path), source: ref.source, width: ref.width, height: ref.height });
+  }, []);
+
   const importFromDisk = useCallback(async (): Promise<void> => {
     const path = await pickImageFile();
     if (!path) return;
+    setAssigning(true);
     try {
-      await importTrackCover([trackId], path);
+      applyBound(trackId, await importTrackCover([trackId], path));
     } catch (e) {
-      setError(String(e));
-      return;
+      if (trackId === latestTrackId.current) setError(String(e));
+    } finally {
+      if (trackId === latestTrackId.current) setAssigning(false);
     }
-    await load();
-  }, [trackId, load]);
+  }, [trackId, applyBound]);
 
   const useCandidate = useCallback(
     async (candidate: CandidateView): Promise<void> => {
       // Only an adjacent image is a real file on disk to bind; the embedded source is intrinsic.
       if (candidate.source !== "adjacent" || !candidate.originPath) return;
+      setAssigning(true);
       try {
-        await importTrackCover([trackId], candidate.originPath);
+        applyBound(trackId, await importTrackCover([trackId], candidate.originPath));
       } catch (e) {
-        setError(String(e));
-        return;
+        if (trackId === latestTrackId.current) setError(String(e));
+      } finally {
+        if (trackId === latestTrackId.current) setAssigning(false);
       }
-      await load();
     },
-    [trackId, load],
+    [trackId, applyBound],
   );
 
   const remove = useCallback(async (): Promise<void> => {
+    setAssigning(true);
     try {
       await removeTrackCover([trackId]);
+      if (trackId !== latestTrackId.current) return;
+      // Re-resolve the fallback (folder / keep-own / embedded) now the assigned cover is gone.
+      const ref = await readCover(trackId, "detail", keepOwn);
+      if (trackId !== latestTrackId.current) return;
+      setCover(
+        ref ? { src: toSrc(ref.path), source: ref.source, width: ref.width, height: ref.height } : null,
+      );
     } catch (e) {
-      setError(String(e));
-      return;
+      if (trackId === latestTrackId.current) setError(String(e));
+    } finally {
+      if (trackId === latestTrackId.current) setAssigning(false);
     }
-    await load();
-  }, [trackId, load]);
+  }, [trackId, keepOwn]);
 
   const saveToDisk = useCallback(
     // The message is passed in localized: the surface holds the translator, this hook only the IPC.
@@ -170,5 +201,5 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
     [trackId],
   );
 
-  return { cover, candidates, loading, error, importFromDisk, useCandidate, remove, saveToDisk };
+  return { cover, candidates, loading, assigning, error, importFromDisk, useCandidate, remove, saveToDisk };
 }

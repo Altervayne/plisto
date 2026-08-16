@@ -25,6 +25,7 @@ use crate::covers::{
 use crate::db;
 use crate::dto::{CoverCandidate, CoverRef, CoverSize, CoverSource};
 use crate::model::CoverRecord;
+use crate::normalize::{folder_of, normalize_path_key};
 use crate::state::AppState;
 
 // The bounded longest edge for each requested size. The small size feeds the candidate list; the
@@ -126,6 +127,69 @@ pub async fn import_folder_cover(
         height,
         source: CoverSource::Imported,
     })
+}
+
+/// Imports a picked image as the cover for a folder addressed by its raw path, for an image-only
+/// subfolder that holds no track to route through import_folder_cover. Mirrors it otherwise: the
+/// image is decoded and both cache sizes are written before any DB row is touched, then the manifest
+/// row and the folder binding land together. The path is folded the same way a track's folder is, so
+/// the binding resolves back on read. Returns the newly resolved cover at the peek size. The picked
+/// file is only read.
+#[tauri::command]
+pub async fn import_folder_cover_by_path(
+    folder_path: String,
+    src_path: String,
+    state: State<'_, AppState>,
+) -> Result<CoverRef, String> {
+    let folder = normalize_path_key(&folder_path);
+    let created_at = super::now_unix();
+    let covers_dir = state.covers_dir.clone();
+    let guard = Arc::clone(&state.covers_in_flight);
+    let src = src_path.clone();
+
+    let (record, detail_path, width, height) = tauri::async_runtime::spawn_blocking(move || {
+        import_from_disk(&covers_dir, &guard, &src, created_at)
+    })
+    .await
+    .map_err(|_| "cover task failed to run".to_string())??;
+
+    // Write only after a clean decode: the manifest row and the folder binding land together.
+    {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        let cover_id = db::upsert_cover(&conn, &record).map_err(|e| e.to_string())?;
+        db::set_folder_cover(&conn, &folder, cover_id, created_at).map_err(|e| e.to_string())?;
+    }
+
+    Ok(CoverRef {
+        path: detail_path,
+        width,
+        height,
+        source: CoverSource::Imported,
+    })
+}
+
+/// Generates a thumbnail for an arbitrary on-disk image at `size`, for a covers-workspace tile. The
+/// existing thumb commands all key on a track id; this one takes a bare path, reading and decoding
+/// off the runtime thread. None on an unreadable or undecodable file, so a broken tile stays quiet
+/// rather than erroring. The file is only read.
+#[tauri::command]
+pub async fn image_thumb(
+    src_path: String,
+    size: CoverSize,
+    state: State<'_, AppState>,
+) -> Result<Option<CoverRef>, String> {
+    let covers_dir = state.covers_dir.clone();
+    let guard = Arc::clone(&state.covers_in_flight);
+    let edge = max_edge(size);
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&src_path).ok()?;
+        cover_ref_from_bytes(&covers_dir, &guard, &bytes, edge, CoverSource::Imported)
+    })
+    .await
+    .map_err(|_| "cover task failed to run".to_string())
 }
 
 /// Removes the cover the user bound to the track's folder and returns whatever cover the folder
@@ -757,15 +821,6 @@ fn max_edge(size: CoverSize) -> u32 {
     }
 }
 
-/// The folder a track belongs to: the parent directory of its source path. Written and read the
-/// same way, so a folder cover set on import resolves back on read.
-pub(super) fn folder_of(source_path: &str) -> String {
-    Path::new(source_path)
-        .parent()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
 /// A manifest's stored source-kind string mapped back to the IPC enum. An unknown value reads as
 /// imported, the only kind a folder cover is written with.
 fn cover_source_from_kind(kind: &str) -> CoverSource {
@@ -869,6 +924,39 @@ mod tests {
                 assert!(Path::new(&cover.path).exists(), "the cached thumb exists");
             }
             _ => panic!("expected the imported folder cover to resolve"),
+        }
+    }
+
+    #[test]
+    fn import_folder_cover_by_path_binds_and_resolves() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        // The track is stored under its folded source path, as the scan writes it, so its folder
+        // resolves the same way the by-path bind folds the folder string.
+        let real_source = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &normalize_path_key(&real_source));
+        let folder_path = music.path.to_string_lossy().into_owned();
+
+        let picked = covers.path.join("picked.png");
+        std::fs::write(&picked, png_bytes(64, 48, [12, 34, 56])).unwrap();
+
+        // Mirror the command: fold the folder path, import off-disk, then bind under the lock.
+        let folder = normalize_path_key(&folder_path);
+        let (record, detail_path, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        db::set_folder_cover(&conn, &folder, cover_id, 100).unwrap();
+
+        // The track in that folder now resolves to the imported cover, so the by-path key matched.
+        match prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap() {
+            Resolution::Folder(cover) => {
+                assert_eq!(cover.source, CoverSource::Imported);
+                assert_eq!(cover.path, detail_path);
+            }
+            _ => panic!("expected the by-path folder cover to resolve"),
         }
     }
 

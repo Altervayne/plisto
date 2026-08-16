@@ -15,7 +15,7 @@ mod thumbnail;
 // -- Type Imports --
 use crate::model::CoverRecord;
 
-pub use adjacent::discover_adjacent_images;
+pub use adjacent::{discover_adjacent_images, is_adjacent_image};
 pub use cache::{
     ensure_full_res, ensure_thumb, full_res_cache_path, read_full_res_blob, thumb_cache_path,
     InFlightGuard,

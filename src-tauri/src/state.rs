@@ -24,9 +24,11 @@ use crate::dto::ExportStatus;
 /// export's own cancel flag and overlap guard, kept separate from the scan pair so cancelling
 /// one never touches the other. `playlist_export_cancel`/`playlist_export_running` are the
 /// self-contained playlist folder export's own pair, kept separate again so a playlist export and a
-/// library export never cancel or block each other. `export_status` is the app-global snapshot the
-/// tray popup reads and the export worker updates from its blocking thread, so it is an Arc the
-/// worker closure can hold while the command still reads it through managed state.
+/// library export never cancel or block each other. `discovery_cancel`/`discovery_running` are the
+/// covers-workspace image sweep's own pair, kept separate too so cancelling a sweep never touches a
+/// scan or export. `export_status` is the app-global snapshot the tray popup reads and the export
+/// worker updates from its blocking thread, so it is an Arc the worker closure can hold while the
+/// command still reads it through managed state.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -38,5 +40,7 @@ pub struct AppState {
     pub export_running: AtomicBool,
     pub playlist_export_cancel: Arc<AtomicBool>,
     pub playlist_export_running: AtomicBool,
+    pub discovery_cancel: Arc<AtomicBool>,
+    pub discovery_running: AtomicBool,
     pub export_status: Arc<Mutex<ExportStatus>>,
 }

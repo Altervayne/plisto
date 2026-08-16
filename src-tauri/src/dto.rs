@@ -185,6 +185,32 @@ pub struct CoverCandidate {
     pub height: i64,
 }
 
+/// One album's brief identity for a discovered folder that resolves to exactly one album: its id,
+/// title (None = untitled, resolved to a display default in the UI), and whether it already carries
+/// a cover. Attached to an ImageFolderGroup only on the exactly-one-album case. Field names
+/// serialize snake_case verbatim like every other DTO here. Mirrors AlbumBrief in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct AlbumBrief {
+    pub id: i64,
+    pub title: Option<String>,
+    pub has_cover: bool,
+}
+
+/// One folder of loose images found by the covers sweep: the real-case folder path and its leaf
+/// name, the image paths inside it, whether the folder still needs a cover (computed against the
+/// resolver, not raw SQL), the album it resolves to when its tracks map to exactly one, and its
+/// count of non-missing tracks. Streamed one per folder over the discovery channel. Mirrors
+/// ImageFolderGroup in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageFolderGroup {
+    pub folder_path: String,
+    pub folder_name: String,
+    pub images: Vec<String>,
+    pub needs_cover: bool,
+    pub album: Option<AlbumBrief>,
+    pub track_count: i64,
+}
+
 /// One album shaped for the frontend, with `track_count` from a COUNT join over its membership.
 /// Nullable metadata is `Option` (NULL = unset, resolved to a display default in the UI, never an
 /// empty string); `cover_id` points into the shared `covers` manifest or is None. `kind` is

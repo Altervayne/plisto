@@ -2,6 +2,7 @@
 import { Cover } from "../common/Cover/Cover";
 import { CoverActions } from "../common/CoverActions/CoverActions";
 import { QuietButton } from "../common/QuietButton";
+import { StaffSpinner } from "../scan/StaffSpinner";
 
 // -- Hook Imports --
 import { useTrackCover } from "./useTrackCover";
@@ -67,7 +68,7 @@ export function TrackDetailCover({
   track: TrackRow;
   keepOwn?: boolean;
 }) {
-  const { cover, candidates, loading, error, importFromDisk, useCandidate, remove, saveToDisk } =
+  const { cover, candidates, loading, assigning, error, importFromDisk, useCandidate, remove, saveToDisk } =
     useTrackCover(track.id, keepOwn);
   const t = useT();
 
@@ -77,7 +78,16 @@ export function TrackDetailCover({
 
   return (
     <section className={styles.section} aria-label={t((d) => d.cover.trackLabel)}>
-      {cover ? (
+      {assigning ? (
+        // An assign/remove for this track is running: hold the current art (or the empty recess) under a
+        // scrimmed staff spinner, and drop the actions so the picker can't be re-fired mid-flight.
+        <div className={styles.slot} aria-busy="true">
+          <Cover src={cover?.src ?? null} alt="" />
+          <span className={styles.loading} aria-hidden="true">
+            <StaffSpinner />
+          </span>
+        </div>
+      ) : cover ? (
         <div className={styles.slot}>
           <Cover src={cover.src} alt="" />
           <CoverActions
@@ -100,7 +110,9 @@ export function TrackDetailCover({
         </button>
       )}
 
-      {cover ? (
+      {assigning ? (
+        <p className={styles.provenance}>{t((d) => d.cover.loading)}</p>
+      ) : cover ? (
         <p className={styles.provenance}>{provenanceOf(cover, candidates, t)}</p>
       ) : showLoading ? (
         <p className={styles.provenance}>{t((d) => d.cover.loading)}</p>

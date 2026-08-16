@@ -76,6 +76,17 @@ pub fn normalize_path_key(path: &str) -> String {
     }
 }
 
+/// The folder a track belongs to: the parent directory of its stored source path. Pure and
+/// string-level, so it folds the same way `source_path` is stored and never touches disk - a
+/// folder cover set on import resolves back on read, and the image sweep keys against the same
+/// value. A path with no parent yields the empty string.
+pub fn folder_of(source_path: &str) -> String {
+    Path::new(source_path)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 /// The folded identity key for a genre name, the sibling of normalize_path_key for genre dedup.
 /// Collapses the display text to its comparison form: internal whitespace runs squeeze to a single
 /// space, ends are trimmed, the text is NFC-normalized so accents compare by content not encoding,
