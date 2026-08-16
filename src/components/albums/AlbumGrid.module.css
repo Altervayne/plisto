@@ -12,16 +12,34 @@
   display: flex;
 }
 
-/* An auto-filling wall of cards at a FIXED tile width: the column count follows the width, but a
- * tile never resizes - so opening the detail drawer beside the grid drops a column instead of
- * squishing every card. */
-/* The padding is the breathing room for the hover lift: a card rises and casts --shadow-pop, and the
- * ScrollArea viewport clips its overflow, so the tiles sit far enough off every edge that the raised
- * cover and its shadow fall inside the padded content rather than being shorn at the container edge. */
-.grid {
+/* The padded canvas around the virtualized rows: the breathing room for the hover lift. A card rises
+ * and casts --shadow-pop, and the ScrollArea viewport clips its overflow, so the tiles sit far enough
+ * off every edge that the raised cover and its shadow fall inside the padded content rather than being
+ * shorn at the container edge. The trailing rows carry the last of the bottom room through their own
+ * gap below. */
+.canvas {
+  padding: 18px 22px 22px;
+}
+
+/* Holds the measured height of every row so the scroll surface spans the whole wall while only the
+ * visible rows mount inside it. */
+.spacer {
+  position: relative;
+  width: 100%;
+}
+
+/* One virtual row: a line of fixed-width tiles placed by the virtualizer's offset. The tile never
+ * resizes - the column count follows the width - so opening the detail drawer beside the grid drops a
+ * column instead of squishing every card. The bottom gap is folded into the measured height, so it
+ * spaces this row from the next. */
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(auto-fill, 168px);
+  grid-template-columns: repeat(var(--album-cols), 168px);
   justify-content: start;
-  gap: 26px 20px;
-  padding: 18px 22px 40px;
+  column-gap: 20px;
+  padding-bottom: 26px;
 }

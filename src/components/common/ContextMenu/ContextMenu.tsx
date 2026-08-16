@@ -84,8 +84,11 @@ export function ContextMenu({
 
   // Measure the menu and place it before the browser paints, so it never flashes at the pointer origin.
   // The coords survive a close so the menu fades out where it sits; the next open re-measures at once.
+  // Placement waits on `mounted`, not just `open`: the mount transition flips `mounted` a render after
+  // `open`, so the node (and its ref) only exist then - keying on `open` alone ran this before the menu
+  // rendered and never re-ran, leaving coords stale or null (the menu stuck at 0,0, or the last spot).
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || !menu.mounted) return;
     const el = menuRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -96,7 +99,7 @@ export function ContextMenu({
       MARGIN,
     );
     setCoords(placed);
-  }, [open, x, y]);
+  }, [open, x, y, menu.mounted]);
 
   // On open, start focus at the first enabled entry, once the menu has been placed and painted.
   useEffect(() => {

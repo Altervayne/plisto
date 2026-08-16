@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
@@ -37,27 +37,29 @@ function subLine(album: AlbumRow, lead: string): string {
  * One album tile: the cover as the object, an optional warn badge over it when a member file is
  * gone, and the meta block below. The cover lifts to the pop shadow on hover and carries the accent
  * ring when selected, both driven here through the --cover-shadow hook the Cover atom reads across
- * the module boundary. A single click reports the album up for the drawer; a double-click reports it
- * for the full-pane view.
+ * the module boundary. A single click opens the drawer at once; a double-click opens the full-pane
+ * view.
  *
- * The single click is held for a double-click window before it opens the drawer, but only when it would
- * matter: with no drawer open yet, opening one reflows the grid, so an eager first click would shift the
- * second click of a double onto another card. Once a drawer is open (opening won't reflow), on keyboard
- * activation, or where there is no full-pane action at all, the click acts at once.
+ * The first click opens the drawer and reflows the grid, so the second click of a double can land on
+ * a different card. The last click is recorded at module scope, not per card, so a double is caught
+ * across that shift, and onOpenFull carries the first-clicked id so the intended album still opens.
+ * A double flashes the drawer open before the full view takes over, which the eager open trades for.
  */
-const OPEN_DELAY_MS = 200;
+const DOUBLE_CLICK_MS = 300;
+
+// The last opening click across every card, so a double-click is recognized even when the first click
+// reflowed the grid and the second landed on a different tile.
+let lastClick: { id: number; t: number } | null = null;
 
 export function AlbumCard({
   album,
   selected,
-  drawerOpen,
   onOpen,
   onOpenFull,
   onAddToPlaylist,
 }: {
   album: AlbumRow;
   selected: boolean;
-  drawerOpen: boolean;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
   onAddToPlaylist?: (trackIds: number[]) => void;
@@ -66,46 +68,27 @@ export function AlbumCard({
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (openTimer.current) clearTimeout(openTimer.current);
-    },
-    [],
-  );
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
-    // Keyboard activation (detail 0, no double-click concept), no full-pane action, or a drawer already
-    // open (opening won't reflow the grid) — act at once. Otherwise wait out the double-click window so a
-    // double-click is recognized before the first click opens the drawer and shifts the grid.
-    if (event.detail === 0 || !onOpenFull || drawerOpen) {
+    // Keyboard activation (detail 0, no double-click concept) and singles (no full pane) act at once
+    // and never join a double-click.
+    if (event.detail === 0 || !onOpenFull) {
       onOpen(album.id);
       return;
     }
-    if (openTimer.current) clearTimeout(openTimer.current);
-    openTimer.current = setTimeout(() => {
-      openTimer.current = null;
-      onOpen(album.id);
-    }, OPEN_DELAY_MS);
+    const now = Date.now();
+    // A second click inside the window opens the full pane for the album the first click hit, which the
+    // shared record still holds even if the reflow moved this tile.
+    if (lastClick && now - lastClick.t < DOUBLE_CLICK_MS) {
+      const firstId = lastClick.id;
+      lastClick = null;
+      onOpenFull(firstId);
+      return;
+    }
+    lastClick = { id: album.id, t: now };
+    onOpen(album.id);
   };
 
-  const handleDoubleClick = () => {
-    if (openTimer.current) {
-      clearTimeout(openTimer.current);
-      openTimer.current = null;
-    }
-    onOpenFull?.(album.id);
-  };
-
-  // A right-click never means to open the drawer, so drop any pending open the click timer armed before
-  // the menu takes over.
-  const onContextMenu = (event: MouseEvent<HTMLButtonElement>) => {
-    if (openTimer.current) {
-      clearTimeout(openTimer.current);
-      openTimer.current = null;
-    }
-    menu.onContextMenu(event);
-  };
   // Detail res, not thumb: the tile is 168px (more on hi-DPI) and the source cover is often larger, so a
   // 128px thumb reads crunchy against the sharp drawer and folder-view covers, which already use detail.
   const { src } = useAlbumCover(album.id, "detail");
@@ -162,8 +145,7 @@ export function AlbumCard({
       className={`${styles.card} ${selected ? styles.selected : ""}`}
       aria-pressed={selected}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={onContextMenu}
+      onContextMenu={menu.onContextMenu}
     >
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />
