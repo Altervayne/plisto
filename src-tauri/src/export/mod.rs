@@ -35,7 +35,7 @@ use plan::{CoverPlan, ExportPlan};
 use write::{export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
 
 pub use derive::{safe_component, template_preview, AlbumTemplate};
-pub use plan::{build_plan, playlist_folder_plan};
+pub use plan::{build_export_plan, playlist_folder_plan};
 pub use playlist::{
     playlist_cover_plan, playlist_export_plan, render_m3u, render_rich_m3u8, PlaylistExportPlan,
 };
@@ -474,6 +474,8 @@ mod tests {
         let album = plan::ExportContainer {
             album_id: 1,
             kind: plan::ContainerKind::Album,
+            bucket: plan::Bucket::Root,
+            flat: false,
             album_artist: Some("AA".into()),
             title: Some("Rec".into()),
             year: None,
@@ -484,6 +486,8 @@ mod tests {
         let unsorted = plan::ExportContainer {
             album_id: 0,
             kind: plan::ContainerKind::Unsorted,
+            bucket: plan::Bucket::Root,
+            flat: false,
             album_artist: None,
             title: None,
             year: None,
@@ -621,7 +625,7 @@ mod tests {
         )
         .unwrap();
 
-        let plan = build_plan(&conn).unwrap();
+        let plan = plan::build_plan(&conn).unwrap();
         let template = AlbumTemplate::resolve("", "");
         let cancel = Arc::new(AtomicBool::new(false));
         let summary = run_export(

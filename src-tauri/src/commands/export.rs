@@ -56,7 +56,7 @@ pub async fn export_library(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        let plan = export::build_plan(&conn).map_err(|e| e.to_string())?;
+        let plan = export::build_export_plan(&conn, &config)?;
         let roots = db::all_root_paths(&conn).map_err(|e| e.to_string())?;
         Ok((plan, roots))
     })();

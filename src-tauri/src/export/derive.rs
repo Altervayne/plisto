@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use unicode_normalization::UnicodeNormalization;
 
 // -- Local Imports --
-use super::plan::{ContainerKind, CoverPlan, ExportContainer, ExportTrack};
+use super::plan::{Bucket, ContainerKind, CoverPlan, ExportContainer, ExportTrack};
 use crate::normalize::normalize_path_key;
 
 // The labels a null or all-illegal field falls back to, so a folder or file always has a name.
@@ -26,6 +26,14 @@ const SINGLES_ROOT: &str = "Singles";
 
 // The one flat folder a playlist's loose tracks land in, beside its album subfolders.
 const UNSORTED_ROOT: &str = "Unsorted";
+
+// The general export's top-level sections. Albums move under `Albums/`; each playlist gets its own
+// folder under `Playlists/`. A single's `Singles/` parent comes from its kind, not a bucket.
+const ALBUMS_ROOT: &str = "Albums";
+const PLAYLISTS_ROOT: &str = "Playlists";
+
+// The label a playlist folder falls back to when its name sanitizes to nothing.
+const UNKNOWN_PLAYLIST: &str = "Playlist";
 
 // The characters Windows forbids in a path component, plus control chars stripped separately.
 const ILLEGAL: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
@@ -124,19 +132,38 @@ pub fn derive_layout(
         .collect()
 }
 
-/// The provisional folder components for one container. An album applies the folder pattern; a
-/// single keeps its fixed `Singles/<Artist> - <Title>` layout. Each field falls back to its label
-/// and is sanitized.
+/// The provisional folder components for one container: its bucket prefix, then its kind's own
+/// layout. A flat album stops at the bucket, landing its tracks straight inside; a normal album
+/// applies the folder pattern; a single keeps its fixed `Singles/<Artist> - <Title>` layout. Each
+/// field falls back to its label and is sanitized.
 fn container_components(container: &ExportContainer, template: &AlbumTemplate) -> Vec<String> {
+    let mut comps = bucket_components(&container.bucket);
     match container.kind {
-        ContainerKind::Album => album_components(container, &template.folder),
+        // A flat album gathers its tracks in the bucket dir itself, so it adds no folder of its own.
+        ContainerKind::Album if container.flat => {}
+        ContainerKind::Album => comps.extend(album_components(container, &template.folder)),
         ContainerKind::Single => {
             let artist = value_or(container.album_artist.as_deref(), UNKNOWN_ARTIST);
             let title = value_or(container.title.as_deref(), UNTITLED);
             let name = sanitize_or(&format!("{artist} - {title}"), UNTITLED);
-            vec![SINGLES_ROOT.to_string(), name]
+            comps.push(SINGLES_ROOT.to_string());
+            comps.push(name);
         }
-        ContainerKind::Unsorted => vec![UNSORTED_ROOT.to_string()],
+        ContainerKind::Unsorted => comps.push(UNSORTED_ROOT.to_string()),
+    }
+    comps
+}
+
+/// The top-level segments a container's bucket prefixes: none for `Root`, `Albums/` for the general
+/// export's album section, `Playlists/<name>/` for a playlist's own section. The playlist name is
+/// sanitized here, so a bucket carries the raw name and every path rule stays in this engine.
+fn bucket_components(bucket: &Bucket) -> Vec<String> {
+    match bucket {
+        Bucket::Root => Vec::new(),
+        Bucket::Albums => vec![ALBUMS_ROOT.to_string()],
+        Bucket::Playlist(name) => {
+            vec![PLAYLISTS_ROOT.to_string(), sanitize_or(name, UNKNOWN_PLAYLIST)]
+        }
     }
 }
 
@@ -502,6 +529,8 @@ pub fn template_preview(folder: &str, file: &str) -> String {
     let container = ExportContainer {
         album_id: 1,
         kind: ContainerKind::Album,
+        bucket: Bucket::Root,
+        flat: false,
         album_artist: Some("Radiohead".to_string()),
         title: Some("In Rainbows".to_string()),
         year: Some(2007),
@@ -552,6 +581,8 @@ mod tests {
         ExportContainer {
             album_id,
             kind: ContainerKind::Album,
+            bucket: Bucket::Root,
+            flat: false,
             album_artist: artist.map(str::to_string),
             title: title.map(str::to_string),
             year: None,
@@ -570,6 +601,8 @@ mod tests {
         ExportContainer {
             album_id,
             kind: ContainerKind::Single,
+            bucket: Bucket::Root,
+            flat: false,
             album_artist: artist.map(str::to_string),
             title: title.map(str::to_string),
             year: None,
@@ -789,6 +822,8 @@ mod tests {
         ExportContainer {
             album_id,
             kind: ContainerKind::Album,
+            bucket: Bucket::Root,
+            flat: false,
             album_artist: artist.map(str::to_string),
             title: title.map(str::to_string),
             year,
@@ -963,6 +998,8 @@ mod tests {
         let c = ExportContainer {
             album_id: 0,
             kind: ContainerKind::Unsorted,
+            bucket: Bucket::Root,
+            flat: false,
             album_artist: None,
             title: None,
             year: None,
@@ -974,5 +1011,68 @@ mod tests {
         assert_eq!(rel(&out[0]), "Unsorted");
         assert_eq!(out[0].tracks[0].filename, "Artist - Loose.mp3");
         assert_eq!(out[0].tracks[1].filename, "Band - Other.mp3");
+    }
+
+    #[test]
+    fn the_albums_bucket_prefixes_an_album_folder() {
+        let mut c = album(
+            1,
+            Some("Artist"),
+            Some("Album"),
+            vec![track(1, "Song", "Artist", Some(1))],
+        );
+        c.bucket = Bucket::Albums;
+        let out = derive_layout(&[c], 0, &default_tpl());
+        assert_eq!(rel(&out[0]), "Albums\\Artist\\Album");
+        assert_eq!(out[0].tracks[0].filename, "01 - Song.mp3");
+    }
+
+    #[test]
+    fn a_playlist_bucket_prefixes_its_members_and_singles() {
+        // An album member and a single both sit under the playlist's own folder, the single keeping
+        // its `Singles/` parent from its kind.
+        let mut member = album(
+            1,
+            Some("Artist"),
+            Some("Album"),
+            vec![track(1, "Song", "Artist", Some(1))],
+        );
+        member.bucket = Bucket::Playlist("Mix".into());
+        let mut hit = single(2, Some("Solo"), Some("Hit"), track(2, "Hit", "Solo", None));
+        hit.bucket = Bucket::Playlist("Mix".into());
+        let out = derive_layout(&[member, hit], 0, &default_tpl());
+        assert_eq!(rel(&out[0]), "Playlists\\Mix\\Artist\\Album");
+        assert_eq!(rel(&out[1]), "Playlists\\Mix\\Singles\\Solo - Hit");
+    }
+
+    #[test]
+    fn a_flat_mimic_lands_its_tracks_straight_in_the_playlist_folder() {
+        // A flat album adds no folder of its own: the tracks land in `Playlists/<name>/`, numbered by
+        // the file pattern, not split into Artist/Album subfolders.
+        let mut c = album(
+            1,
+            Some("Various Artists"),
+            Some("Mix"),
+            vec![track(1, "One", "A", Some(1)), track(2, "Two", "B", Some(2))],
+        );
+        c.bucket = Bucket::Playlist("Mix".into());
+        c.flat = true;
+        let out = derive_layout(&[c], 0, &default_tpl());
+        assert_eq!(rel(&out[0]), "Playlists\\Mix");
+        assert_eq!(out[0].tracks[0].filename, "01 - One.mp3");
+        assert_eq!(out[0].tracks[1].filename, "02 - Two.mp3");
+    }
+
+    #[test]
+    fn an_all_illegal_playlist_name_falls_back_to_a_label() {
+        let mut c = album(
+            1,
+            Some("Artist"),
+            Some("Album"),
+            vec![track(1, "Song", "Artist", Some(1))],
+        );
+        c.bucket = Bucket::Playlist("??".into());
+        let out = derive_layout(&[c], 0, &default_tpl());
+        assert_eq!(rel(&out[0]), "Playlists\\Playlist\\Artist\\Album");
     }
 }

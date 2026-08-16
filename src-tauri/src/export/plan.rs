@@ -15,11 +15,26 @@ use rusqlite::Connection;
 
 // -- Local Imports --
 use crate::db::{self, ExportTrackRow, PlaylistExportRow};
+use crate::dto::ExportConfig;
 use crate::resolve::{effective_artist, effective_title};
 
 // The synthetic album id the Unsorted container carries. Real album ids start at 1, so 0 never
 // clashes with one; the container's own folder name is distinct anyway, so dedupe never leans on it.
 const UNSORTED_ALBUM_ID: i64 = 0;
+
+// The synthetic album id a mimic container carries, shared with the Unsorted bag: both are
+// container-less of a real album, and a mimic and an Unsorted never sit in the same plan (a general
+// export picks one playlist shape). Distinct playlists land in distinct buckets, so dedupe keys on
+// the folder path, not this id.
+const MIMIC_ALBUM_ID: i64 = 0;
+
+// The album artist a mimic stamps on every track so a folder-scanning phone reads the playlist as
+// one compilation instead of splitting it by each track's own artist.
+const VARIOUS_ARTISTS: &str = "Various Artists";
+
+// The name a mimic falls back to when its playlist is unnamed - the folder segment and the album
+// title both read this, matching the default the m3u export stems land on.
+const DEFAULT_PLAYLIST_NAME: &str = "Playlist";
 
 /// A container's bucket: a plain album folder, a single's own subfolder under `/Singles`, or the
 /// playlist Unsorted bag that gathers a playlist's loose slots into one flat folder.
@@ -28,6 +43,18 @@ pub enum ContainerKind {
     Album,
     Single,
     Unsorted,
+}
+
+/// A container's top-level section. `Root` sits directly under the destination with no prefix - the
+/// standalone playlist export lays its albums out this way, and a single reads its `Singles/` parent
+/// from its kind, not from a bucket. `Albums` and `Playlist` are the general export's sections: album
+/// containers move under `Albums/`, and a playlist's containers under `Playlists/<name>/`. The name is
+/// the raw playlist name; derive.rs sanitizes it into a folder segment, keeping every path rule there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bucket {
+    Root,
+    Albums,
+    Playlist(String),
 }
 
 /// Where a container's full-res cover bytes come from at write time. The worker reads them off the
@@ -76,6 +103,12 @@ pub struct ExportTrack {
 pub struct ExportContainer {
     pub album_id: i64,
     pub kind: ContainerKind,
+    // The top-level section this container lands in. `Root` for the standalone exports; `Albums` or
+    // `Playlist` for the general export's bucketed sections.
+    pub bucket: Bucket,
+    // A flat container drops its own folder layout and lands its tracks straight in the bucket dir - a
+    // mimic album gathers a whole playlist into one folder, named by the file pattern alone.
+    pub flat: bool,
     pub album_artist: Option<String>,
     pub title: Option<String>,
     pub year: Option<i64>,
@@ -156,6 +189,8 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
         containers.push(ExportContainer {
             album_id: album.id,
             kind,
+            bucket: Bucket::Root,
+            flat: false,
             album_artist: album.album_artist.clone(),
             title: album.title.clone(),
             year: album.year,
@@ -163,6 +198,62 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
             tracks,
             skipped,
         });
+    }
+
+    Ok(ExportPlan { containers })
+}
+
+/// Assembles the general export's plan from the config's include toggles. Album and single containers
+/// come from `build_plan`, kept by kind and re-bucketed - albums move under `Albums/`, singles keep
+/// their kind's own `Singles/` parent. With playlists on, each playlist's containers append under
+/// `Playlists/<name>/` in the chosen shape: `mirror` re-buckets the structured folder plan (its
+/// `Artist/Album` members and `Unsorted` bag), `mimic` folds the whole playlist into one flat album.
+/// Rejects a config that selects nothing, so an export never runs with an empty plan.
+pub fn build_export_plan(conn: &Connection, config: &ExportConfig) -> Result<ExportPlan, String> {
+    if !config.include_albums && !config.include_singles && !config.include_playlists {
+        return Err("nothing selected to export".to_string());
+    }
+
+    let mut containers: Vec<ExportContainer> = Vec::new();
+
+    if config.include_albums || config.include_singles {
+        for mut container in build_plan(conn).map_err(|e| e.to_string())?.containers {
+            match container.kind {
+                ContainerKind::Album if config.include_albums => {
+                    container.bucket = Bucket::Albums;
+                    containers.push(container);
+                }
+                // A single reads its `Singles/` folder from its kind, so it needs no bucket prefix.
+                ContainerKind::Single if config.include_singles => containers.push(container),
+                _ => {}
+            }
+        }
+    }
+
+    if config.include_playlists {
+        // Two shapes only: `mirror` re-uses the structured folder plan, anything else is the mimic.
+        let mimic = config.playlist_shape != "mirror";
+        for playlist in db::load_playlists(conn).map_err(|e| e.to_string())?.playlists {
+            if mimic {
+                if let Some(container) =
+                    mimic_album_container(conn, playlist.id).map_err(|e| e.to_string())?
+                {
+                    containers.push(container);
+                }
+                continue;
+            }
+            let name = playlist
+                .name
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PLAYLIST_NAME.to_string());
+            for mut container in playlist_folder_plan(conn, playlist.id)
+                .map_err(|e| e.to_string())?
+                .containers
+            {
+                container.bucket = Bucket::Playlist(name.clone());
+                containers.push(container);
+            }
+        }
     }
 
     Ok(ExportPlan { containers })
@@ -301,10 +392,94 @@ fn unsorted_container(
     Ok(Some(ExportContainer {
         album_id: UNSORTED_ALBUM_ID,
         kind: ContainerKind::Unsorted,
+        bucket: Bucket::Root,
+        flat: false,
         album_artist: None,
         title: None,
         year: None,
         cover: CoverPlan::None,
+        tracks,
+        skipped,
+    }))
+}
+
+/// Folds a whole playlist into one flat album container - a Mimic Album. Every slot, member or loose,
+/// becomes a track of one album named after the playlist, its `album`/`album_artist` retagged (the
+/// latter to `Various Artists`) so a folder-scanning phone reads the set as one compilation. Tracks
+/// number sequentially in playlist order over the present ones; a doubled slot folds to its first copy.
+/// The cover is the playlist's own art, or the first present member's when it carries none, mirroring
+/// an album's cover precedence. None when the playlist has no slots. The only DB touch after this
+/// returns is none: the worker owns the container.
+pub fn mimic_album_container(
+    conn: &Connection,
+    playlist_id: i64,
+) -> rusqlite::Result<Option<ExportContainer>> {
+    let name = db::playlist_name(conn, playlist_id)?
+        .unwrap_or_else(|| DEFAULT_PLAYLIST_NAME.to_string());
+    let slots = db::load_playlist_export_tracks(conn, playlist_id)?;
+
+    let mut genres_by_track: HashMap<i64, Vec<String>> = HashMap::new();
+    for (track_id, genre) in db::load_export_track_genres(conn)? {
+        genres_by_track.entry(track_id).or_default().push(genre);
+    }
+
+    let mut tracks = Vec::new();
+    let mut skipped = Vec::new();
+    let mut seen: HashSet<i64> = HashSet::new();
+    // Numbering runs over the present tracks alone, in first-seen play order, so a missing or doubled
+    // slot never leaves a gap or a repeat.
+    let mut track_no: i64 = 0;
+    for slot in &slots {
+        if !seen.insert(slot.track_id) {
+            continue;
+        }
+        if slot.missing_at.is_some() {
+            skipped.push(slot.track_id);
+            continue;
+        }
+        track_no += 1;
+        // Open the file by its real-case path; the folded key stands in only for a legacy row.
+        let source = slot
+            .display_path
+            .clone()
+            .unwrap_or_else(|| slot.source_path.clone());
+        tracks.push(ExportTrack {
+            track_id: slot.track_id,
+            source,
+            ext: slot.ext.clone(),
+            title: effective_title(&slot.raw_title, &slot.title_override),
+            artist: effective_artist(&slot.raw_artist, &slot.artist_override),
+            // The retag reads `override ?? container`; stamping the override makes the mimic album's
+            // identity land on every track regardless of what release it came from.
+            album_override: Some(name.clone()),
+            album_artist_override: Some(VARIOUS_ARTISTS.to_string()),
+            year_override: None,
+            genres: genres_by_track.remove(&slot.track_id).unwrap_or_default(),
+            track_no: Some(track_no),
+            disc_no: None,
+            has_embedded: slot.has_embedded,
+            keep_own_cover: false,
+            own_cover: CoverPlan::None,
+        });
+    }
+
+    if tracks.is_empty() && skipped.is_empty() {
+        return Ok(None);
+    }
+
+    // The playlist's own cover, then the first present member's - the album precedence resolve_cover
+    // already encodes, read against the playlist's cover id rather than an album's.
+    let cover = resolve_cover(conn, db::get_playlist_cover_id(conn, playlist_id)?, &tracks)?;
+
+    Ok(Some(ExportContainer {
+        album_id: MIMIC_ALBUM_ID,
+        kind: ContainerKind::Album,
+        bucket: Bucket::Playlist(name.clone()),
+        flat: true,
+        album_artist: Some(VARIOUS_ARTISTS.to_string()),
+        title: Some(name),
+        year: None,
+        cover,
         tracks,
         skipped,
     }))
@@ -534,5 +709,107 @@ mod tests {
             }
             other => panic!("expected the assigned cover to resolve to its store blob, got {other:?}"),
         }
+    }
+
+    // A config with the given section toggles and playlist shape; destination/patterns are irrelevant
+    // to plan assembly.
+    fn cfg(albums: bool, singles: bool, playlists: bool, shape: &str) -> ExportConfig {
+        ExportConfig {
+            destination: String::new(),
+            folder_pattern: String::new(),
+            file_pattern: String::new(),
+            include_albums: albums,
+            include_singles: singles,
+            include_playlists: playlists,
+            playlist_shape: shape.to_string(),
+        }
+    }
+
+    #[test]
+    fn build_export_plan_buckets_albums_and_keeps_singles() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let s = insert_track(&conn, "/m/loose/hit.mp3", "Hit");
+        let album =
+            db::create_album(&mut conn, Some("Rec".into()), Some("AA".into()), Some(2020), None, None, &[a], "album", 1)
+                .unwrap();
+        let single = db::create_single(&mut conn, s, 1).unwrap();
+
+        let plan = build_export_plan(&conn, &cfg(true, true, false, "mimic")).unwrap();
+        let album_c = plan.containers.iter().find(|c| c.album_id == album.id).unwrap();
+        assert_eq!(album_c.bucket, Bucket::Albums, "an album moves under the Albums bucket");
+        assert!(!album_c.flat);
+        let single_c = plan.containers.iter().find(|c| c.album_id == single.id).unwrap();
+        // A single stays at Root: its `Singles/` parent comes from its kind, not a bucket prefix.
+        assert_eq!(single_c.bucket, Bucket::Root);
+        assert_eq!(single_c.kind, ContainerKind::Single);
+    }
+
+    #[test]
+    fn build_export_plan_toggles_filter_the_sections() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let s = insert_track(&conn, "/m/loose/hit.mp3", "Hit");
+        db::create_album(&mut conn, None, None, None, None, None, &[a], "album", 1).unwrap();
+        db::create_single(&mut conn, s, 1).unwrap();
+
+        // Singles only: the album is dropped entirely.
+        let plan = build_export_plan(&conn, &cfg(false, true, false, "mimic")).unwrap();
+        assert_eq!(plan.containers.len(), 1);
+        assert_eq!(plan.containers[0].kind, ContainerKind::Single);
+    }
+
+    #[test]
+    fn build_export_plan_rejects_an_empty_selection() {
+        let conn = db::open_in_memory().unwrap();
+        assert!(build_export_plan(&conn, &cfg(false, false, false, "mimic")).is_err());
+    }
+
+    #[test]
+    fn build_export_plan_mimic_folds_a_playlist_into_one_flat_album() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let loose = insert_track(&conn, "/m/loose/free.mp3", "Free");
+        db::create_album(&mut conn, Some("Rec".into()), Some("AA".into()), None, None, None, &[a], "album", 1).unwrap();
+        let pl = db::create_playlist(&conn, Some("My Mix".into()), 100).unwrap();
+        db::add_tracks_to_playlist(&mut conn, pl.id, &[a, loose], 100).unwrap();
+
+        // Albums off, playlists on, mimic: only the one flat mimic album, both slots as its members.
+        let plan = build_export_plan(&conn, &cfg(false, false, true, "mimic")).unwrap();
+        assert_eq!(plan.containers.len(), 1);
+        let m = &plan.containers[0];
+        assert_eq!(m.kind, ContainerKind::Album);
+        assert!(m.flat, "a mimic gathers its tracks in one flat folder");
+        assert_eq!(m.bucket, Bucket::Playlist("My Mix".to_string()));
+        assert_eq!(m.title.as_deref(), Some("My Mix"));
+        assert_eq!(m.album_artist.as_deref(), Some("Various Artists"));
+        assert_eq!(m.tracks.len(), 2);
+        // Each track is retagged to the mimic album and numbered in playlist order.
+        assert_eq!(m.tracks[0].album_override.as_deref(), Some("My Mix"));
+        assert_eq!(m.tracks[0].album_artist_override.as_deref(), Some("Various Artists"));
+        assert_eq!(m.tracks[0].track_no, Some(1));
+        assert_eq!(m.tracks[1].track_no, Some(2));
+    }
+
+    #[test]
+    fn build_export_plan_mirror_rebuckets_playlist_containers() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let loose = insert_track(&conn, "/m/loose/free.mp3", "Free");
+        db::create_album(&mut conn, Some("Rec".into()), Some("AA".into()), None, None, None, &[a], "album", 1).unwrap();
+        let pl = db::create_playlist(&conn, Some("My Mix".into()), 100).unwrap();
+        db::add_tracks_to_playlist(&mut conn, pl.id, &[a, loose], 100).unwrap();
+
+        // Mirror: the structured album + Unsorted bag, every container under the playlist's bucket.
+        let plan = build_export_plan(&conn, &cfg(false, false, true, "mirror")).unwrap();
+        assert!(plan
+            .containers
+            .iter()
+            .all(|c| c.bucket == Bucket::Playlist("My Mix".to_string())));
+        assert!(plan
+            .containers
+            .iter()
+            .any(|c| c.kind == ContainerKind::Album && !c.flat));
+        assert!(plan.containers.iter().any(|c| c.kind == ContainerKind::Unsorted));
     }
 }

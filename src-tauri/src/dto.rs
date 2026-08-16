@@ -392,6 +392,25 @@ pub struct ExportConfig {
     pub folder_pattern: String,
     #[serde(default)]
     pub file_pattern: String,
+    // The three top-level sections to include, each its own bucket. An export with none selected is
+    // rejected. Albums and singles default on (the pre-1.5 behavior); playlists opt in, since they
+    // duplicate album/single tracks they also belong to. A caller that omits them keeps that default.
+    #[serde(default = "default_true")]
+    pub include_albums: bool,
+    #[serde(default = "default_true")]
+    pub include_singles: bool,
+    #[serde(default)]
+    pub include_playlists: bool,
+    // The shape each included playlist takes: "mirror" for the structured Artist/Album folder, anything
+    // else (the default) for the flat mimic album named after the playlist.
+    #[serde(default)]
+    pub playlist_shape: String,
+}
+
+/// The serde default for the include-albums/singles flags: on, so a pre-1.5 caller that sends only a
+/// destination still exports both sections as it did before (now under their `Albums/`/`Singles/` buckets).
+fn default_true() -> bool {
+    true
 }
 
 /// The stage a running export is in. `preparing` while the plan is snapshotted and the

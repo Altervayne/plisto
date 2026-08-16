@@ -110,9 +110,24 @@ export function exportLibrary(
   channel: Channel<ExportProgress>,
   folderPattern = "",
   filePattern = "",
+  sections: {
+    albums?: boolean;
+    singles?: boolean;
+    playlists?: boolean;
+    playlistShape?: "mimic" | "mirror";
+  } = {},
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
-    config: { destination, folder_pattern: folderPattern, file_pattern: filePattern },
+    config: {
+      destination,
+      folder_pattern: folderPattern,
+      file_pattern: filePattern,
+      // Sections default to the pre-1.5 shape: albums + singles on, playlists opt-in.
+      include_albums: sections.albums ?? true,
+      include_singles: sections.singles ?? true,
+      include_playlists: sections.playlists ?? false,
+      playlist_shape: sections.playlistShape ?? "mimic",
+    },
     onProgress: channel,
   });
 }
