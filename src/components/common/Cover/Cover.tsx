@@ -29,32 +29,32 @@ export function Cover({
   onError?: () => void;
 }) {
   const [broken, setBroken] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  // The src whose load has completed, rather than a bare boolean: `loaded` is derived from this matching
+  // the current src. A boolean plus a reset-on-change effect raced the load event - a cached cover's load
+  // could set true before the effect set false, stranding it hidden when switching albums in the open
+  // drawer. Deriving off the completed src removes the reset effect and the race with it.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
 
   // A new src is worth another load attempt after a previous one failed.
   useEffect(() => setBroken(false), [src]);
 
-  // Re-arm the fade when the src changes on a kept tile, but not on the first mount: an initial cached hit
-  // is caught below before the first paint, and clearing it here would strand it hidden with no load event.
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    setLoaded(false);
-  }, [src]);
+  // The latest src, read by the stable load callbacks without making them churn on every change.
+  const srcRef = useRef(src);
+  srcRef.current = src;
 
-  const onLoad = useCallback(() => setLoaded(true), []);
+  const onLoad = useCallback(() => setLoadedSrc(srcRef.current), []);
 
-  // A cached image can already be complete before React wires onLoad, so no load event ever fires; catch
-  // that as the node attaches and mark it loaded before the first paint, which shows it with no fade. A
-  // pending image stays at zero opacity until its load event arms the transition.
+  // A cached image can already be complete before React wires onLoad, so no load event ever fires for it;
+  // catch that as the node attaches (a cached tile on mount) and mark this src loaded before the first
+  // paint, which shows it with no fade. A src change on a kept node still fires onLoad, so this only needs
+  // to cover the mount case. A pending image stays at zero opacity until its load event lands.
   const armLoaded = useCallback((node: HTMLImageElement | null) => {
-    if (node?.complete) setLoaded(true);
+    if (node?.complete && node.naturalWidth > 0) setLoadedSrc(srcRef.current);
   }, []);
 
   const showArt = src != null && !broken;
+  // Loaded only when the completed src is the one on screen now; a fresh src fades in on its own load.
+  const loaded = showArt && loadedSrc === src;
 
   return (
     <div className={interactive ? `${styles.cover} ${styles.interactive}` : styles.cover}>

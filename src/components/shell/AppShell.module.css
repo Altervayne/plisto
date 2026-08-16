@@ -51,6 +51,63 @@
   padding: 4px 30px 24px;
 }
 
+/* The albums grid layer: the wall plus its drawer, holding the flow. It fades under the full pane
+ * rather than unmounting, so returning keeps its scroll and neither view reflows the other. The base
+ * transition is the slow decelerate the grid rides back in on; leaving swaps to the quick exit. A CSS
+ * transition (not a keyframe) so a mode switch into Albums lands instant, never a spurious fade. */
+.gridLayer {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  transition: opacity var(--dur-slow) var(--ease-cover);
+}
+
+.gridLayer[data-under] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-exit);
+}
+
+/* The full pane overlays the grid layer. The insets mirror .content's padding so it aligns to the
+ * grid's content box rather than spilling under the padding. It crossfades: rising and settling on
+ * enter, fading off on exit, with pointer events released so the returning grid is live at once. */
+.fullLayer {
+  position: absolute;
+  inset: 4px 30px 24px;
+  display: flex;
+}
+
+.fullLayer[data-state="enter"] {
+  animation: view-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.fullLayer[data-state="exit"] {
+  animation: view-out var(--dur-fast) var(--ease-exit) both;
+  pointer-events: none;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes view-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* The right panel's positioned wrapper: it holds the var width, and the resize handle rides its left
  * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
 .panel {

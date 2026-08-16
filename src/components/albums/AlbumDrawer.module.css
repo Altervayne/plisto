@@ -12,6 +12,38 @@
   background: var(--edge);
 }
 
+/* The panel wrapper snaps to width so the grid never reflows frame by frame; the drawer content is
+   what moves, shifting in from the cleared space and settling. opacity and transform only. */
+.drawer[data-state="enter"] {
+  animation: drawer-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.drawer[data-state="exit"] {
+  animation: drawer-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+
 .scroll {
   height: 100%;
 }

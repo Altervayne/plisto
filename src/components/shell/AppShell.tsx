@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 // -- Component Imports --
@@ -20,6 +20,7 @@ import { SelectionActionBar } from "../organize/SelectionActionBar";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
+import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- State Imports --
 import { useAddRoot, useTracks } from "../../state/store";
@@ -38,6 +39,9 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 
+// -- Type Imports --
+import type { AlbumRow } from "../../types";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
@@ -46,6 +50,12 @@ import styles from "./AppShell.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
 type Mode = "files" | "unsorted" | "albums" | "singles" | "playlists" | "export" | "settings";
+
+/** The drawer content's exit before the panel unmounts, matching --dur-soft on the exit keyframe. */
+const DRAWER_EXIT_MS = 200;
+
+/** The full pane's fade-out before it unmounts, matching --dur-fast on the exit keyframe. */
+const VIEW_EXIT_MS = 120;
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
@@ -96,6 +106,22 @@ export function AppShell() {
   if (openPlaylistId != null && openPlaylist == null) {
     setOpenPlaylistId(null);
   }
+
+  // Hold each drawer through its exit after the selection clears. The panel width snaps; only the
+  // drawer content transform-fades. The selection is already null by then, so a ref keeps the last
+  // album to render during the fade rather than showing an empty panel.
+  const albumDrawer = useMountTransition(selectedAlbum != null, DRAWER_EXIT_MS);
+  const lastAlbum = useRef<AlbumRow | null>(null);
+  if (selectedAlbum) lastAlbum.current = selectedAlbum;
+  const singleDrawer = useMountTransition(selectedSingle != null, DRAWER_EXIT_MS);
+  const lastSingle = useRef<AlbumRow | null>(null);
+  if (selectedSingle) lastSingle.current = selectedSingle;
+
+  // Hold the full pane through its fade-out, retaining the last album so it renders during the exit
+  // once its id has cleared.
+  const fullPane = useMountTransition(openAlbum != null, VIEW_EXIT_MS);
+  const lastOpenAlbum = useRef<AlbumRow | null>(null);
+  if (openAlbum) lastOpenAlbum.current = openAlbum;
 
   // Entering the full pane closes the drawer: the two album surfaces never show at once.
   const openFull = (albumId: number) => {
@@ -205,28 +231,43 @@ export function AppShell() {
               style={{ "--drawer-width": `${width}px` } as CSSProperties}
             >
               {mode === "albums" ? (
-                openAlbum ? (
-                  <AlbumFolderView album={openAlbum} onBack={() => setOpenAlbumId(null)} />
-                ) : (
-                  <>
+                <>
+                  {/* The grid holds the flow and fades under the full pane; the pane overlays it and
+                      crossfades in, so neither large view reflows the other. `inert` while it is under
+                      keeps keyboard focus out of the hidden cards, which opacity + pointer-events alone
+                      would still leave in the tab order. */}
+                  <div
+                    className={styles.gridLayer}
+                    data-under={openAlbum != null ? "" : undefined}
+                    inert={openAlbum != null || undefined}
+                  >
                     <AlbumGrid
                       albums={albums}
                       selectedAlbumId={selectedAlbumId}
                       onOpen={setSelectedAlbumId}
                       onOpenFull={openFull}
                     />
-                    {selectedAlbum ? (
+                    {albumDrawer.mounted && lastAlbum.current ? (
                       <div className={styles.panel}>
                         <Resizer resizer={resizer} />
                         <AlbumDrawer
-                          album={selectedAlbum}
+                          album={lastAlbum.current}
+                          state={albumDrawer.state}
                           onClose={() => setSelectedAlbumId(null)}
                           onOpenFull={openFull}
                         />
                       </div>
                     ) : null}
-                  </>
-                )
+                  </div>
+                  {fullPane.mounted && lastOpenAlbum.current ? (
+                    <div className={styles.fullLayer} data-state={fullPane.state}>
+                      <AlbumFolderView
+                        album={lastOpenAlbum.current}
+                        onBack={() => setOpenAlbumId(null)}
+                      />
+                    </div>
+                  ) : null}
+                </>
               ) : mode === "singles" ? (
                 <>
                   <AlbumGrid
@@ -236,11 +277,12 @@ export function AppShell() {
                     emptyTitle={t((d) => d.singles.emptyTitle)}
                     emptyLine={t((d) => d.singles.emptyLine)}
                   />
-                  {selectedSingle ? (
+                  {singleDrawer.mounted && lastSingle.current ? (
                     <div className={styles.panel}>
                       <Resizer resizer={resizer} />
                       <AlbumDrawer
-                        album={selectedSingle}
+                        album={lastSingle.current}
+                        state={singleDrawer.state}
                         onClose={() => setSelectedAlbumId(null)}
                       />
                     </div>

@@ -19,6 +19,7 @@ import { useCommitAlbumFields } from "../../state/organize/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
+import type { MountState } from "../../hooks/useMountTransition";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -45,15 +46,20 @@ function editingField(): boolean {
  * field and the drawer stays open. A single reuses the same shell with its multi-track region traded for
  * one read-only source row, and its delete relabelled to "Remove single". An album drawer also offers
  * Open, which hands the album up to the full-pane view; a single has no such view.
+ *
+ * The wrapper snaps the panel to width; the drawer itself transform-fades over that cleared space,
+ * keyed off the mount state the shell stamps here.
  */
 export function AlbumDrawer({
   album,
   onClose,
   onOpenFull,
+  state,
 }: {
   album: AlbumRow;
   onClose: () => void;
   onOpenFull?: (albumId: number) => void;
+  state?: MountState;
 }) {
   const commit = useCommitAlbumFields();
   const t = useT();
@@ -78,6 +84,7 @@ export function AlbumDrawer({
   return (
     <aside
       className={styles.drawer}
+      data-state={state}
       aria-label={single ? t((d) => d.singles.details) : t((d) => d.albums.details)}
     >
       <ScrollArea className={styles.scroll} contentClassName={styles.inner}>
