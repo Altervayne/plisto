@@ -23,6 +23,7 @@ use crate::covers::{
     thumb_cache_path, CoverSourceKind, InFlightGuard, ResolvedCover,
 };
 use crate::db;
+use crate::discovery::is_library_image;
 use crate::dto::{CoverCandidate, CoverRef, CoverSize, CoverSource};
 use crate::model::CoverRecord;
 use crate::normalize::{folder_of, normalize_path_key};
@@ -76,6 +77,34 @@ pub async fn list_cover_candidates(
     })
     .await
     .map_err(|_| "cover task failed to run".to_string())
+}
+
+/// Lists every loose image sitting directly in the track's own folder, each as a full on-disk
+/// path, sorted. Where list_cover_candidates surfaces only embedded and adjacent-stem art, this is
+/// every image in the folder, so the peek can bind any of them as the track's per-track cover. The
+/// folder comes from the track's real-case path (the folded source_path may not exist on a
+/// case-sensitive filesystem). A missing or unreadable folder reads as empty, not an error; an
+/// unknown track errors. Read-only: the folder is only listed, never written.
+#[tauri::command]
+pub async fn list_folder_images(
+    track_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let real_path = {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        let mut rows = db::load_track_export_paths(&conn, &[track_id]).map_err(|e| e.to_string())?;
+        match rows.pop() {
+            Some((_, path)) => path,
+            None => return Err("track not found".to_string()),
+        }
+    };
+
+    tauri::async_runtime::spawn_blocking(move || folder_images(&real_path))
+        .await
+        .map_err(|_| "cover task failed to run".to_string())
 }
 
 /// Imports a picked image as the cover for the track's folder. The image is decoded and both
@@ -831,6 +860,33 @@ fn cover_source_from_kind(kind: &str) -> CoverSource {
     }
 }
 
+/// Reads the one folder holding `track_path` and returns every loose image in it as a full path,
+/// sorted. Not recursive: only that folder's own direct files are considered, and only those whose
+/// extension names a library image. A path with no parent, or a folder that cannot be read, yields
+/// an empty list rather than an error. Read-only over the folder.
+fn folder_images(track_path: &str) -> Vec<String> {
+    let Some(folder) = Path::new(track_path).parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut images: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(is_library_image)
+                .unwrap_or(false)
+        })
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    images.sort();
+    images
+}
+
 /// A cache path as the plain filesystem string the frontend wraps with convertFileSrc.
 fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
@@ -1395,6 +1451,25 @@ mod tests {
         assert_eq!(image_ext(b"\x00\x01\x02\x03"), "jpg");
         assert_eq!(image_ext(b"RI"), "jpg");
         assert_eq!(image_ext(&[]), "jpg");
+    }
+
+    #[test]
+    fn list_folder_images_returns_only_images_sorted() {
+        let folder = TempDir::new("folder_images");
+        std::fs::write(folder.path.join("a.jpg"), b"x").unwrap();
+        std::fs::write(folder.path.join("b.png"), b"x").unwrap();
+        std::fs::write(folder.path.join("song.mp3"), b"x").unwrap();
+        std::fs::write(folder.path.join("notes.txt"), b"x").unwrap();
+
+        // The resolver reads the parent of the track's own file, so the folder is derived from it.
+        let track_path = folder.path.join("song.mp3").to_string_lossy().into_owned();
+        let images = folder_images(&track_path);
+
+        let expected = vec![
+            folder.path.join("a.jpg").to_string_lossy().into_owned(),
+            folder.path.join("b.png").to_string_lossy().into_owned(),
+        ];
+        assert_eq!(images, expected);
     }
 
     #[test]

@@ -145,6 +145,7 @@ pub fn run() {
             commands::covers::album_cover,
             commands::covers::playlist_cover,
             commands::covers::list_cover_candidates,
+            commands::covers::list_folder_images,
             commands::covers::import_folder_cover,
             commands::covers::import_folder_cover_by_path,
             commands::covers::image_thumb,

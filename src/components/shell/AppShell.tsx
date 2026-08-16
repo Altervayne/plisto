@@ -11,6 +11,7 @@ import { FilesView } from "../files/FilesView";
 import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
+import { CoversView } from "../covers/CoversView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
 import { EmptyState } from "../common/EmptyState";
@@ -37,6 +38,7 @@ import {
   useUnsortedTracks,
 } from "../../state/organize/store";
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
+import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 
 // -- Type Imports --
@@ -49,7 +51,15 @@ import { useT } from "../../i18n";
 import styles from "./AppShell.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode = "files" | "unsorted" | "albums" | "singles" | "playlists" | "export" | "settings";
+type Mode =
+  | "files"
+  | "unsorted"
+  | "albums"
+  | "singles"
+  | "playlists"
+  | "covers"
+  | "export"
+  | "settings";
 
 /** The drawer content's exit before the panel unmounts, matching --dur-soft on the exit keyframe. */
 const DRAWER_EXIT_MS = 200;
@@ -72,6 +82,7 @@ export function AppShell() {
   const singles = useSingles();
   const unsorted = useUnsortedTracks();
   const playlists = usePlaylists();
+  const coversNeeded = useNeedsCoverCount();
   const loadOrganization = useLoadOrganization();
   const loadPlaylists = useLoadPlaylists();
   const loadPreferences = useLoadPreferences();
@@ -183,12 +194,15 @@ export function AppShell() {
         albumsCount={albums.length}
         singlesCount={singles.length}
         playlistsCount={playlists.length}
+        coversCount={coversNeeded}
       />
       <main className={styles.main}>
         {mode === "export" ? (
           <ExportView />
         ) : mode === "settings" ? (
           <SettingsView />
+        ) : mode === "covers" ? (
+          <CoversView />
         ) : mode === "playlists" ? (
           openPlaylist ? (
             <PlaylistView

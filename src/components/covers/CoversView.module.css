@@ -1,0 +1,110 @@
+/*
+ * The covers workspace: a full-region view on the continuous ground, like Export and Settings - no
+ * frame, sections parted by space. A head strip with the scope toggle over the safety line, then the
+ * scrolling wall of folder rows. The reading and empty states center on the ambient ground.
+ */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 30px 24px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.readingHint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* The read-only-source reassurance, kept quiet under the controls. */
+.safety {
+  margin: 0;
+  max-width: 720px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Room for the tile hover-lift and clear of the scrollbar overlay on the right edge. */
+.canvas {
+  padding: 8px 16px 20px 2px;
+}
+
+/* The wall of folder rows: groups parted by their own gap, never a divider. */
+.wall {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* A covered row leaving the Needs-cover scope: it collapses and fades on the quick exit curve. Entering
+ * rows land instant, so streaming the wall never flickers a cascade of fade-ins. */
+.slot[data-state="exit"] {
+  animation: row-out var(--dur-soft) var(--ease-exit) both;
+  overflow: hidden;
+}
+
+@keyframes row-out {
+  from {
+    opacity: 1;
+    max-height: 240px;
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slot[data-state="exit"] {
+    animation: none;
+  }
+}
+
+/* -- Reading state -- */
+
+.reading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.readingTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.readingLine {
+  margin: 0;
+  max-width: 340px;
+  font-size: 13px;
+  color: var(--ink-3);
+}

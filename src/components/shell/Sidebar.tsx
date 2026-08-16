@@ -2,7 +2,7 @@
 import { NavItem } from "./NavItem";
 
 // -- Icon Imports --
-import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Download, Settings } from "lucide-react";
+import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Images, Download, Settings } from "lucide-react";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -11,7 +11,15 @@ import { useT } from "../../i18n";
 import styles from "./Sidebar.module.css";
 
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode = "files" | "unsorted" | "albums" | "singles" | "playlists" | "export" | "settings";
+type Mode =
+  | "files"
+  | "unsorted"
+  | "albums"
+  | "singles"
+  | "playlists"
+  | "covers"
+  | "export"
+  | "settings";
 
 /**
  * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
@@ -27,6 +35,7 @@ export function Sidebar({
   albumsCount,
   singlesCount,
   playlistsCount,
+  coversCount,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -35,6 +44,7 @@ export function Sidebar({
   albumsCount: number;
   singlesCount: number;
   playlistsCount: number;
+  coversCount: number;
 }) {
   const t = useT();
 
@@ -76,6 +86,13 @@ export function Sidebar({
           count={playlistsCount}
           active={mode === "playlists"}
           onClick={() => onModeChange("playlists")}
+        />
+        <NavItem
+          icon={<Images size={17} strokeWidth={1.8} />}
+          label={t((d) => d.nav.covers)}
+          count={coversCount}
+          active={mode === "covers"}
+          onClick={() => onModeChange("covers")}
         />
       </div>
 

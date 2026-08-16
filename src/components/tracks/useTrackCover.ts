@@ -44,6 +44,9 @@ export interface TrackCover {
   assigning: boolean;
   error: string | null;
   importFromDisk: () => Promise<void>;
+  // Binds an already-known on-disk image as the track's cover, without the disk dialog - the peek's
+  // pick-from-folder path.
+  assignFromPath: (path: string) => Promise<void>;
   useCandidate: (candidate: CandidateView) => Promise<void>;
   remove: () => Promise<void>;
   saveToDisk: (nameFor: (ext: string) => string, failMessage: string) => Promise<void>;
@@ -145,6 +148,20 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
     }
   }, [trackId, applyBound]);
 
+  const assignFromPath = useCallback(
+    async (path: string): Promise<void> => {
+      setAssigning(true);
+      try {
+        applyBound(trackId, await importTrackCover([trackId], path));
+      } catch (e) {
+        if (trackId === latestTrackId.current) setError(String(e));
+      } finally {
+        if (trackId === latestTrackId.current) setAssigning(false);
+      }
+    },
+    [trackId, applyBound],
+  );
+
   const useCandidate = useCallback(
     async (candidate: CandidateView): Promise<void> => {
       // Only an adjacent image is a real file on disk to bind; the embedded source is intrinsic.
@@ -201,5 +218,16 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
     [trackId],
   );
 
-  return { cover, candidates, loading, assigning, error, importFromDisk, useCandidate, remove, saveToDisk };
+  return {
+    cover,
+    candidates,
+    loading,
+    assigning,
+    error,
+    importFromDisk,
+    assignFromPath,
+    useCandidate,
+    remove,
+    saveToDisk,
+  };
 }

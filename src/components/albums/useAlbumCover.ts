@@ -31,6 +31,16 @@ function toSrc(path: string): string {
 const coverCache = new Map<string, string>();
 
 /**
+ * Drops an album's cached cover at both sizes, so a cover bound from another surface (the covers
+ * workspace) re-fetches on the next mount rather than painting stale art. Mounted hooks pick it up when
+ * they next remount; a caller wanting an in-place refresh remounts through a key.
+ */
+export function invalidateAlbumCover(albumId: number): void {
+  coverCache.delete(`${albumId}:thumb`);
+  coverCache.delete(`${albumId}:detail`);
+}
+
+/**
  * Loads an album's cover at `size` on albumId change, wrapping its cache path for the webview. All IPC
  * lives here so the caller stays presentational; a failed or empty load leaves src null and the Cover
  * atom shows its placeholder. A shared cache hydrates a known cover synchronously on mount, so a

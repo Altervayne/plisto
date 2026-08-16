@@ -1,6 +1,10 @@
+// -- Framework Imports --
+import { useState } from "react";
+
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { CoverActions } from "../common/CoverActions/CoverActions";
+import { FolderImagePicker } from "./FolderImagePicker";
 import { QuietButton } from "../common/QuietButton";
 import { StaffSpinner } from "../scan/StaffSpinner";
 
@@ -68,9 +72,20 @@ export function TrackDetailCover({
   track: TrackRow;
   keepOwn?: boolean;
 }) {
-  const { cover, candidates, loading, assigning, error, importFromDisk, useCandidate, remove, saveToDisk } =
-    useTrackCover(track.id, keepOwn);
+  const {
+    cover,
+    candidates,
+    loading,
+    assigning,
+    error,
+    importFromDisk,
+    assignFromPath,
+    useCandidate,
+    remove,
+    saveToDisk,
+  } = useTrackCover(track.id, keepOwn);
   const t = useT();
+  const [picking, setPicking] = useState(false);
 
   // Loading has its own surface: a quiet, non-interactive slot while the resolve is in flight, so the
   // peek never claims "no cover found" before the cover has had a chance to arrive.
@@ -122,6 +137,12 @@ export function TrackDetailCover({
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
+      {!assigning ? (
+        <QuietButton onClick={() => setPicking(true)}>
+          {t((d) => d.cover.pickFromFolder)}
+        </QuietButton>
+      ) : null}
+
       {candidates.length > 0 ? (
         <ul className={styles.candidates}>
           {candidates.map((candidate) => (
@@ -155,6 +176,14 @@ export function TrackDetailCover({
       ) : null}
 
       <p className={styles.safety}>{t((d) => d.cover.embedNote)}</p>
+
+      {picking ? (
+        <FolderImagePicker
+          trackId={track.id}
+          onPick={(path) => void assignFromPath(path)}
+          onClose={() => setPicking(false)}
+        />
+      ) : null}
     </section>
   );
 }

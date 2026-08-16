@@ -173,6 +173,11 @@ export function listCoverCandidates(trackId: number): Promise<CoverCandidate[]> 
   return invoke<CoverCandidate[]>("list_cover_candidates", { trackId });
 }
 
+/** Every loose image sitting directly in the track's own folder, each a full on-disk path, sorted. */
+export function listFolderImages(trackId: number): Promise<string[]> {
+  return invoke<string[]>("list_folder_images", { trackId });
+}
+
 /** Binds a picked image as the folder cover for the track, returning the newly resolved cover. */
 export function importFolderCover(trackId: number, srcPath: string): Promise<CoverRef> {
   return invoke<CoverRef>("import_folder_cover", { trackId, srcPath });

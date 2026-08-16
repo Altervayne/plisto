@@ -1,0 +1,178 @@
+/*
+ * One triage row: identity and cover-state on the left, the loose-image supply on the right, parted by
+ * space with no divider - folder groups separate by the wall's own gap. The cover-state tile is a fixed
+ * square; the strip wraps its small tiles. The row never boxes itself: it rests on the continuous ground
+ * like every other surface.
+ */
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 4px 2px;
+}
+
+/* The demand side: the cover-state tile over the folder identity. */
+.left {
+  flex: none;
+  width: 208px;
+  display: flex;
+  gap: 14px;
+}
+
+.state {
+  flex: none;
+  width: 72px;
+}
+
+.identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 2px;
+}
+
+.name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* The ancestor path tail: quiet mono, clipped from the head so the folder's nearest parents stay legible. */
+.path {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.count {
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bridge from physical folder to logical album: the album's small card thumb beside its title. */
+.album {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.albumThumb {
+  flex: none;
+  width: 22px;
+}
+
+.albumTitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* The supply side: the image strip and any expanded checklist stacked under it. */
+.supply {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 12px;
+}
+
+/* The empty-supply fallback: a folder that needs art but holds no loose image, with the one sanctioned
+ * disk-import affordance. */
+.noImages {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 84px;
+}
+
+.noImagesLine {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.diskButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.diskButton:hover {
+  background: var(--veil);
+  color: var(--ink);
+  border-color: var(--edge);
+}
+
+/* The filename-match affordance under the strip, shown only when this folder yields a pair. */
+.matchBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.matchButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.matchButton:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.matchNotice {
+  font-size: 12px;
+  color: var(--ink-3);
+}

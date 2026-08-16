@@ -1,0 +1,129 @@
+/*
+ * The filename-match preview: a scrim behind a lifted card, portalled to the body, on the confirm
+ * dialog's scrim and positioning. The card holds a heading count over a scrolling list of image-to-track
+ * pairs, then a foot with the single solid Apply accent and a quiet Cancel. The scrim is the same
+ * theme-invariant translucent black that dims the light ground and deepens the dark one alike.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.dialog {
+  position: relative;
+  width: min(520px, 94vw);
+  max-height: min(640px, 88vh);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.scroll {
+  min-height: 0;
+}
+
+/* The list caps and scrolls past its cap: a definite length on the real scroll viewport, since a
+   percentage cannot resolve against the card's own max-height. */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 480px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* One pair: the image thumb, its name in mono, the arrow, and the track filename. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.thumb {
+  flex: none;
+  width: 40px;
+}
+
+.image {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.arrow {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.track {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* The apply progress, leading the foot: the staff spinner beside a quiet running line. */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+}
+
+.progress svg {
+  width: 44px;
+  height: auto;
+}
+
+.progressText {
+  font-size: 12px;
+  color: var(--ink-3);
+}
