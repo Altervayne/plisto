@@ -61,7 +61,7 @@ function toSrc(path: string): string {
  * exposes the import/use/remove actions, each reloading afterwards. All IPC lives here so the
  * cover surface stays presentational. A stale load from a fast track switch is discarded.
  */
-export function useTrackCover(trackId: number): TrackCover {
+export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
   const [cover, setCover] = useState<CoverView | null>(null);
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
   // Start loading: a load always fires on mount, so the surface never flashes "no cover" first.
@@ -75,7 +75,9 @@ export function useTrackCover(trackId: number): TrackCover {
     setError(null);
     try {
       const [ref, cands] = await Promise.all([
-        readCover(trackId, "detail"),
+        // keepOwn mirrors the membership flag: a flagged track resolves its own art here, not the
+        // shared folder cover, so toggling keep-own reloads and the peek shows the track's own art.
+        readCover(trackId, "detail", keepOwn),
         listCoverCandidates(trackId),
       ]);
       // Drop the result if a newer load started while this one was in flight.
@@ -103,7 +105,7 @@ export function useTrackCover(trackId: number): TrackCover {
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [trackId]);
+  }, [trackId, keepOwn]);
 
   useEffect(() => {
     void load();

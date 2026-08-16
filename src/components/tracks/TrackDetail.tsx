@@ -216,7 +216,7 @@ export function TrackDetail({
           </QuietButton>
         </div>
 
-        <TrackDetailCover track={live} />
+        <TrackDetailCover track={live} keepOwn={keepOwnCover?.value ?? false} />
 
         <section className={styles.zone}>
           <h3 className={styles.zoneLabel}>{t((d) => d.tracks.sectionTags)}</h3>

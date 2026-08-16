@@ -33,14 +33,18 @@ const THUMB_EDGE: u32 = 128;
 const DETAIL_EDGE: u32 = 512;
 
 /// Resolves a track's single cover at the requested size, generating the thumbnail on a miss.
-/// Returns None when the track has no art from any source.
+/// Returns None when the track has no art from any source. `keep_own` mirrors the membership's
+/// keep-own-cover flag: when set, the folder cover steps aside so the track shows its own embedded
+/// or adjacent art, exactly as export embeds it - falling back to the folder cover only when the
+/// track has none.
 #[tauri::command]
 pub async fn read_cover(
     track_id: i64,
     size: CoverSize,
+    keep_own: bool,
     state: State<'_, AppState>,
 ) -> Result<Option<CoverRef>, String> {
-    resolve_at(state.inner(), track_id, max_edge(size)).await
+    resolve_at(state.inner(), track_id, max_edge(size), keep_own).await
 }
 
 /// Lists every selectable art source for a track's cover picker: its embedded picture (if any)
@@ -145,7 +149,7 @@ pub async fn remove_folder_cover(
         db::remove_folder_cover(&conn, &folder).map_err(|e| e.to_string())?;
     }
 
-    resolve_at(state.inner(), track_id, DETAIL_EDGE).await
+    resolve_at(state.inner(), track_id, DETAIL_EDGE, false).await
 }
 
 /// Writes the track's resolved cover to `dest_path` at full resolution, verbatim. Resolves the
@@ -223,7 +227,7 @@ pub async fn album_cover(
     match decision {
         AlbumCover::None => Ok(None),
         AlbumCover::Bound(cover) => Ok(Some(cover)),
-        AlbumCover::FromTrack(track_id) => resolve_at(state.inner(), track_id, edge).await,
+        AlbumCover::FromTrack(track_id) => resolve_at(state.inner(), track_id, edge, false).await,
     }
 }
 
@@ -254,6 +258,10 @@ enum Resolution {
     Dynamic {
         source_path: String,
         has_embedded: bool,
+        // The folder cover to fall back to when the track has no own art. Set only on the keep-own
+        // path, where own art wins but the folder cover still stands in for a track that has none;
+        // None on the normal path, where a present folder cover already resolved to `Folder`.
+        fallback: Option<CoverRef>,
     },
 }
 
@@ -265,27 +273,38 @@ fn prepare_resolution(
     covers_dir: &Path,
     track_id: i64,
     max_edge: u32,
+    keep_own: bool,
 ) -> rusqlite::Result<Resolution> {
     let Some((source_path, art)) = db::get_track_cover_inputs(conn, track_id)? else {
         return Ok(Resolution::None);
     };
 
     let folder = folder_of(&source_path);
-    if let Some(cover_id) = db::get_folder_cover(conn, &folder)? {
-        if let Some((hash, kind, width, height)) = db::get_cover(conn, cover_id)? {
-            let path = thumb_cache_path(covers_dir, &hash, max_edge);
-            return Ok(Resolution::Folder(CoverRef {
-                path: path_to_string(&path),
+    // The folder cover, resolved to a ref if one is bound. It wins for a normal member; a
+    // keep-own-cover member steps past it to its own art, keeping it only as the fallback for a
+    // track with none - the same precedence export applies.
+    let folder_cover = match db::get_folder_cover(conn, &folder)? {
+        Some(cover_id) => {
+            db::get_cover(conn, cover_id)?.map(|(hash, kind, width, height)| CoverRef {
+                path: path_to_string(&thumb_cache_path(covers_dir, &hash, max_edge)),
                 width,
                 height,
                 source: cover_source_from_kind(&kind),
-            }));
+            })
+        }
+        None => None,
+    };
+
+    if !keep_own {
+        if let Some(cover) = folder_cover {
+            return Ok(Resolution::Folder(cover));
         }
     }
 
     Ok(Resolution::Dynamic {
         source_path,
         has_embedded: art == Some(true),
+        fallback: if keep_own { folder_cover } else { None },
     })
 }
 
@@ -353,13 +372,14 @@ async fn resolve_at(
     state: &AppState,
     track_id: i64,
     max_edge: u32,
+    keep_own: bool,
 ) -> Result<Option<CoverRef>, String> {
     let resolution = {
         let conn = state
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        prepare_resolution(&conn, &state.covers_dir, track_id, max_edge)
+        prepare_resolution(&conn, &state.covers_dir, track_id, max_edge, keep_own)
             .map_err(|e| e.to_string())?
     };
 
@@ -369,6 +389,7 @@ async fn resolve_at(
         Resolution::Dynamic {
             source_path,
             has_embedded,
+            fallback,
         } => {
             let covers_dir = state.covers_dir.clone();
             let guard = Arc::clone(&state.covers_in_flight);
@@ -376,6 +397,8 @@ async fn resolve_at(
                 generate_dynamic_ref(&covers_dir, &guard, &source_path, has_embedded, max_edge)
             })
             .await
+            // Own art wins; the folder cover stands in only when the keep-own track has none.
+            .map(|own| own.or(fallback))
             .map_err(|_| "cover task failed to run".to_string())
         }
     }
@@ -769,7 +792,8 @@ mod tests {
         assert_eq!((width, height), (64, 48));
 
         // Reading the track now resolves to that imported cover at the peek size.
-        let resolution = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
+        let resolution =
+            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap();
         match resolution {
             Resolution::Folder(cover) => {
                 assert_eq!(cover.source, CoverSource::Imported);
@@ -779,6 +803,82 @@ mod tests {
             }
             _ => panic!("expected the imported folder cover to resolve"),
         }
+    }
+
+    #[test]
+    fn keep_own_cover_prefers_the_tracks_own_art_over_the_folder_cover() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        // The track has its own adjacent art on disk, and a folder cover is bound over the whole folder.
+        std::fs::write(music.path.join("cover.jpg"), png_bytes(50, 50, [20, 160, 90])).unwrap();
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+
+        let picked = covers.path.join("picked.png");
+        std::fs::write(&picked, png_bytes(64, 64, [40, 40, 200])).unwrap();
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        db::set_folder_cover(&conn, &folder_of(&source_path), cover_id, 100).unwrap();
+
+        // Without keep-own, the folder cover wins for the member (the shared-folder behavior).
+        assert!(matches!(
+            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap(),
+            Resolution::Folder(_)
+        ));
+
+        // With keep-own, the folder cover steps aside: the track resolves to its own adjacent art,
+        // holding the folder cover only as the fallback.
+        let Resolution::Dynamic {
+            source_path: sp,
+            has_embedded,
+            fallback,
+        } = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, true).unwrap()
+        else {
+            panic!("expected keep-own to resolve dynamically");
+        };
+        assert!(fallback.is_some(), "the folder cover is kept as the fallback");
+        let own = generate_dynamic_ref(&covers.path, &guard, &sp, has_embedded, DETAIL_EDGE)
+            .expect("the track's own adjacent art resolves");
+        assert_eq!(
+            own.source,
+            CoverSource::Adjacent,
+            "the track's own art wins over the folder cover"
+        );
+    }
+
+    #[test]
+    fn keep_own_cover_falls_back_to_the_folder_cover_without_own_art() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        // No art of its own next to the track; only a bound folder cover.
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+        let picked = covers.path.join("picked.png");
+        std::fs::write(&picked, png_bytes(64, 64, [10, 10, 10])).unwrap();
+        let (record, _, _, _) =
+            import_from_disk(&covers.path, &guard, &picked.to_string_lossy(), 100).unwrap();
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        db::set_folder_cover(&conn, &folder_of(&source_path), cover_id, 100).unwrap();
+
+        let Resolution::Dynamic {
+            source_path: sp,
+            has_embedded,
+            fallback,
+        } = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, true).unwrap()
+        else {
+            panic!("expected a dynamic resolution");
+        };
+        // The dynamic probe finds no own art, so the folder cover stands in as the fallback.
+        assert!(generate_dynamic_ref(&covers.path, &guard, &sp, has_embedded, DETAIL_EDGE).is_none());
+        let fallback = fallback.expect("the folder cover is the fallback");
+        assert_eq!(fallback.source, CoverSource::Imported);
     }
 
     #[test]
@@ -805,16 +905,18 @@ mod tests {
         let cover_id = db::upsert_cover(&conn, &record).unwrap();
         db::set_folder_cover(&conn, &folder_of(&source_path), cover_id, 100).unwrap();
         assert!(matches!(
-            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap(),
+            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap(),
             Resolution::Folder(_)
         ));
 
         // Removing it drops back to the adjacent image.
         db::remove_folder_cover(&conn, &folder_of(&source_path)).unwrap();
-        let resolution = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE).unwrap();
+        let resolution =
+            prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap();
         let Resolution::Dynamic {
             source_path: sp,
             has_embedded,
+            ..
         } = resolution
         else {
             panic!("expected a dynamic resolution after removal");
@@ -919,7 +1021,8 @@ mod tests {
         let Resolution::Dynamic {
             source_path: sp,
             has_embedded,
-        } = prepare_resolution(&conn, &covers.path, member, DETAIL_EDGE).unwrap()
+            ..
+        } = prepare_resolution(&conn, &covers.path, member, DETAIL_EDGE, false).unwrap()
         else {
             panic!("expected a dynamic resolution for the member track");
         };

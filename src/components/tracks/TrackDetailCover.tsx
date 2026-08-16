@@ -60,9 +60,15 @@ function candidateLabelOf(candidate: CandidateView, t: Translate): string {
  * sunken Add-cover recess, its provenance, the other available sources, and Remove for a cover the
  * user added. All cover logic lives in the hook; this only renders and wires the actions.
  */
-export function TrackDetailCover({ track }: { track: TrackRow }) {
+export function TrackDetailCover({
+  track,
+  keepOwn = false,
+}: {
+  track: TrackRow;
+  keepOwn?: boolean;
+}) {
   const { cover, candidates, loading, error, importFromDisk, useCandidate, remove, saveToDisk } =
-    useTrackCover(track.id);
+    useTrackCover(track.id, keepOwn);
   const t = useT();
 
   // Loading has its own surface: a quiet, non-interactive slot while the resolve is in flight, so the

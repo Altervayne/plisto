@@ -180,6 +180,59 @@ pub fn remove_folder_cover(conn: &Connection, folder_path: &str) -> rusqlite::Re
     Ok(())
 }
 
+/// The cover a user has assigned to one track, or None when they have set none. A per-track cover
+/// is the top-priority source: it wins over the folder cover and the keep-own path alike, on both
+/// display and export.
+pub fn get_track_cover_id(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT cover_id FROM track_covers WHERE track_id = ?1",
+        params![track_id],
+        |r| r.get(0),
+    )
+    .map(Some)
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+}
+
+/// Assigns `cover_id` to each of `track_ids`, replacing any prior choice per track, in one
+/// transaction. The upsert keys on the track alone so a re-assign swaps the cover in place rather
+/// than appending. A discrete user action, not part of a scan; mirrors set_track_keep_own_cover's
+/// per-track write shape.
+pub fn set_track_cover(
+    conn: &mut Connection,
+    track_ids: &[i64],
+    cover_id: i64,
+    created_at: i64,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for &track_id in track_ids {
+        tx.execute(
+            "INSERT INTO track_covers (track_id, cover_id, created_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(track_id) DO UPDATE SET
+                cover_id = excluded.cover_id,
+                created_at = excluded.created_at",
+            params![track_id, cover_id, created_at],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Removes the assigned cover from each of `track_ids`, in one transaction. A track without one is
+/// silently skipped. After this, the track resolves through the folder/keep-own logic again.
+pub fn remove_track_cover(conn: &mut Connection, track_ids: &[i64]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    for &track_id in track_ids {
+        tx.execute(
+            "DELETE FROM track_covers WHERE track_id = ?1",
+            params![track_id],
+        )?;
+    }
+    tx.commit()
+}
+
 /// The source path and tri-state embedded-art flag for one track, or None when no row has that
 /// id. The cover commands start from a track id and need its file path to find its folder and
 /// its own art.
@@ -884,6 +937,9 @@ pub struct ExportTrackRow {
     pub missing_at: Option<i64>,
     // Whether this membership keeps the track's own art on export instead of the container cover.
     pub keep_own_cover: bool,
+    // The cover the user assigned to this track, if any. Top priority for the embed, above both
+    // keep_own_cover and the container cover.
+    pub own_cover_id: Option<i64>,
 }
 
 // The export projection: the source paths, extension, presence and art flags joined from `tracks`
@@ -897,10 +953,11 @@ const EXPORT_TRACK_SELECT: &str = "
     SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext,
            at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
            te.title, te.artist, te.album, te.album_artist, te.year,
-           t.has_embedded_cover, t.missing_at, at.keep_own_cover
+           t.has_embedded_cover, t.missing_at, at.keep_own_cover, tc.cover_id
     FROM album_tracks at
     JOIN tracks t ON t.id = at.track_id
     LEFT JOIN track_edits te ON te.track_id = at.track_id
+    LEFT JOIN track_covers tc ON tc.track_id = at.track_id
     ORDER BY at.album_id, at.track_no";
 
 /// Maps one result row into an ExportTrackRow. The column order matches EXPORT_TRACK_SELECT.
@@ -923,6 +980,7 @@ fn export_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportTr
         has_embedded_cover: r.get(14)?,
         missing_at: r.get(15)?,
         keep_own_cover: r.get(16)?,
+        own_cover_id: r.get(17)?,
     })
 }
 
@@ -1961,7 +2019,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 11);
+        assert_eq!(version, 12);
 
         for table in [
             "tracks",
@@ -1977,6 +2035,7 @@ mod tests {
             "track_genres",
             "playlists",
             "playlist_tracks",
+            "track_covers",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -2266,6 +2325,36 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM folder_covers", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn track_cover_binds_replaces_and_removes() {
+        let mut conn = open_in_memory().unwrap();
+        let a = genre_track(&conn, "/music/a.mp3");
+        let b = genre_track(&conn, "/music/b.mp3");
+        let one = upsert_cover(&conn, &sample_cover("abc123")).unwrap();
+        let two = upsert_cover(&conn, &sample_cover("def456")).unwrap();
+
+        assert_eq!(get_track_cover_id(&conn, a).unwrap(), None);
+
+        // One set covers both listed tracks; an unlisted track keeps none.
+        set_track_cover(&mut conn, &[a, b], one, 10).unwrap();
+        assert_eq!(get_track_cover_id(&conn, a).unwrap(), Some(one));
+        assert_eq!(get_track_cover_id(&conn, b).unwrap(), Some(one));
+
+        // A second set on the same track replaces the choice, not appends.
+        set_track_cover(&mut conn, &[a], two, 20).unwrap();
+        assert_eq!(get_track_cover_id(&conn, a).unwrap(), Some(two));
+        assert_eq!(get_track_cover_id(&conn, b).unwrap(), Some(one), "b is untouched");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM track_covers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "one row per track, replaced in place");
+
+        // Removal clears only the listed track and is a no-op for one without a binding.
+        remove_track_cover(&mut conn, &[a]).unwrap();
+        assert_eq!(get_track_cover_id(&conn, a).unwrap(), None);
+        assert_eq!(get_track_cover_id(&conn, b).unwrap(), Some(one));
     }
 
     #[test]

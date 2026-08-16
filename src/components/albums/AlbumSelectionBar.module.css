@@ -45,18 +45,25 @@
   }
 }
 
+/* Always renders on one line and never gives up its width, so a wide action set can never squeeze the
+   tally into a wrap. */
 .count {
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
   color: var(--ink-2);
   font-size: 12.5px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
 
+/* Takes the space the count leaves and wraps within it, still trailing to the right edge. When the
+   buttons outgrow one line they flow onto the next rather than overflowing or shoving the count. */
 .actions {
+  flex: 1 1 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 

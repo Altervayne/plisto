@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 11;
+const LATEST_VERSION: i64 = 12;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -263,6 +263,21 @@ const MIGRATION_V11: &str = "
 ALTER TABLE album_tracks ADD COLUMN keep_own_cover INTEGER NOT NULL DEFAULT 0;
 ";
 
+// Version 12: the per-track assigned cover. `track_covers` binds one imported cover to one track,
+// keyed on the track alone (PRIMARY KEY) so a track carries at most one and a re-assign replaces it,
+// mirroring `folder_covers`' one-choice-per-key shape. The `cover_id` reuses the content-hash
+// `covers` manifest exactly as the folder, album and playlist bindings do. A new table only, so every
+// existing row is untouched: a track with no assigned cover simply has no row and resolves through the
+// folder/keep-own logic as before. The track FK CASCADEs so dropping a track (or its root) clears its
+// binding; the cover FK is a plain REFERENCES, matching the other cover bindings.
+const MIGRATION_V12: &str = "
+CREATE TABLE track_covers (
+    track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    cover_id   INTEGER NOT NULL REFERENCES covers(id),
+    created_at INTEGER NOT NULL
+);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -281,6 +296,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             8 => conn.execute_batch(MIGRATION_V9)?,
             9 => conn.execute_batch(MIGRATION_V10)?,
             10 => conn.execute_batch(MIGRATION_V11)?,
+            11 => conn.execute_batch(MIGRATION_V12)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -755,6 +771,56 @@ mod tests {
             .unwrap();
         assert_eq!(track_no, 1, "the membership row survives the upgrade");
         assert_eq!(keep, 0, "keep_own_cover defaults to 0, the container cover");
+    }
+
+    /// A v11 DB with a track upgrades to v12 additively: the track row survives, the new
+    /// `track_covers` table exists, and the track carries no binding until the user assigns one.
+    #[test]
+    fn v11_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.execute_batch(MIGRATION_V8).unwrap();
+        conn.execute_batch(MIGRATION_V9).unwrap();
+        conn.execute_batch(MIGRATION_V10).unwrap();
+        conn.execute_batch(MIGRATION_V11).unwrap();
+        conn.pragma_update(None, "user_version", 11).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let filename: String = conn
+            .query_row("SELECT filename FROM tracks WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
+
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'track_covers'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "the track_covers table exists after v12");
+
+        let bindings: i64 = conn
+            .query_row("SELECT COUNT(*) FROM track_covers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(bindings, 0, "no track carries an assigned cover yet");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

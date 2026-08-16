@@ -149,9 +149,17 @@ export function quitApp(): Promise<void> {
   return invoke("quit_app");
 }
 
-/** Resolves a track's single cover at `size`, or null when it has no art from any source. */
-export function readCover(trackId: number, size: CoverSize): Promise<CoverRef | null> {
-  return invoke<CoverRef | null>("read_cover", { trackId, size });
+/**
+ * Resolves a track's single cover at `size`, or null when it has no art from any source. `keepOwn`
+ * mirrors the membership's keep-own-cover flag: when set, the folder cover steps aside so the track
+ * shows its own embedded/adjacent art (falling back to the folder cover only when it has none).
+ */
+export function readCover(
+  trackId: number,
+  size: CoverSize,
+  keepOwn = false,
+): Promise<CoverRef | null> {
+  return invoke<CoverRef | null>("read_cover", { trackId, size, keepOwn });
 }
 
 /** Resolves an album's cover at `size`: its bound cover, else a member track's art, else null. */
