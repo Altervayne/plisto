@@ -242,8 +242,17 @@ export function ExportView() {
           {check?.inside_workspace ? (
             <p className={styles.warn}>{t((d) => d.export.insideWorkspace)}</p>
           ) : null}
+          {/* A picked destination the probe could not write to: read-only, gone, or otherwise blocked. */}
+          {check && !check.inside_workspace && !check.writable ? (
+            <p className={styles.warn}>{t((d) => d.export.notWritable)}</p>
+          ) : null}
           {check?.ok && check.non_empty ? (
             <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
+          ) : null}
+          {/* With nothing chosen yet, steer away from the silent dead-end of a USB phone: an MTP device
+              has no real path the picker can return, so selecting one reads here as no selection at all. */}
+          {!destination ? (
+            <p className={styles.hint}>{t((d) => d.export.phoneHint)}</p>
           ) : null}
         </section>
 

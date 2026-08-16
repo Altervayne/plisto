@@ -306,6 +306,9 @@ export const en = {
     unsorted: { one: "{{n}} unsorted (won't export)", other: "{{n}} unsorted (won't export)" },
     missing: { one: "{{n}} track missing its source", other: "{{n}} tracks missing their source" },
     insideWorkspace: "This folder is inside your music library. Choose one outside it.",
+    notWritable: "Plisto can't write to this folder. Pick one you have write access to.",
+    phoneHint:
+      "A phone connected over USB can't be an export destination - export to a folder on your PC, then copy it across (or use an SD-card reader).",
     nonEmpty: "This folder already holds files. Export writes into it.",
     openFolder: "Open destination folder",
     again: "Export again",

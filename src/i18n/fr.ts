@@ -307,6 +307,9 @@ export const fr: Dict = {
     unsorted: { one: "{{n}} non triée (non exportée)", other: "{{n}} non triées (non exportées)" },
     missing: { one: "{{n}} piste sans source", other: "{{n}} pistes sans source" },
     insideWorkspace: "Ce répertoire se trouve dans votre audiothèque. Choisissez-en un à l'extérieur.",
+    notWritable: "Plisto ne peut pas écrire dans ce répertoire. Choisissez-en un où vous avez les droits d'écriture.",
+    phoneHint:
+      "Un appareil mobile connecté via USB ne peut pas être utilisé comme destination d'exportation pour l'instant, car cela nécessite un système différent d'un chemin de système de fichiers.",
     nonEmpty: "Ce répertoire contient déjà des fichiers. L'export écrit dedans.",
     openFolder: "Ouvrir le répertoire de destination",
     again: "Exporter à nouveau",
