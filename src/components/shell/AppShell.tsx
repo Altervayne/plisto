@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 // -- Component Imports --
@@ -123,11 +123,12 @@ export function AppShell() {
   const lastOpenAlbum = useRef<AlbumRow | null>(null);
   if (openAlbum) lastOpenAlbum.current = openAlbum;
 
-  // Entering the full pane closes the drawer: the two album surfaces never show at once.
-  const openFull = (albumId: number) => {
+  // Entering the full pane closes the drawer: the two album surfaces never show at once. Stable across
+  // renders so the memoized cards never re-render on its account.
+  const openFull = useCallback((albumId: number) => {
     setOpenAlbumId(albumId);
     setSelectedAlbumId(null);
-  };
+  }, []);
 
   useEffect(() => {
     void loadOrganization();
@@ -259,10 +260,16 @@ export function AppShell() {
                       </div>
                     ) : null}
                   </div>
-                  {fullPane.mounted && lastOpenAlbum.current ? (
-                    <div className={styles.fullLayer} data-state={fullPane.state}>
+                  {/* Mount the pane the same render the grid starts dimming, not a frame later: keying
+                      render on the live id (plus the exit hold) closes the gap where the grid showed
+                      undimmed with no overlay. data-state rides the live id too, so enter plays at once. */}
+                  {(openAlbum != null || fullPane.mounted) && lastOpenAlbum.current ? (
+                    <div
+                      className={styles.fullLayer}
+                      data-state={openAlbum != null ? "enter" : "exit"}
+                    >
                       <AlbumFolderView
-                        album={lastOpenAlbum.current}
+                        album={openAlbum ?? lastOpenAlbum.current}
                         onBack={() => setOpenAlbumId(null)}
                       />
                     </div>

@@ -65,9 +65,11 @@ export function Cover({
           src={src}
           alt={alt}
           data-loaded={loaded ? "" : undefined}
-          // Decode off the main thread so a wall of full-res covers never janks the scroll; the browser
-          // still only decodes tiles it paints, so an off-screen cover costs nothing until it scrolls in.
+          // Decode off the main thread so a wall of full-res covers never janks the scroll, and load
+          // lazily so a tile off-screen in the wall does not fetch until it nears the viewport - the
+          // windowing the grid no longer does itself, handed to the browser per image.
           decoding="async"
+          loading="lazy"
           onLoad={onLoad}
           onError={() => {
             setBroken(true);

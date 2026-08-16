@@ -60,12 +60,10 @@ export function AlbumCoverField({ albumId, hasCover }: { albumId: number; hasCov
         <div className={styles.slot}>
           <Cover src={src} alt="" />
           <CoverActions
-            actions={[
-              { label: t((d) => d.cover.replace), onClick: () => void replace() },
-              ...(hasCover
-                ? [{ label: t((d) => d.cover.remove), onClick: () => void remove() }]
-                : []),
-            ]}
+            actions={[{ label: t((d) => d.cover.replace), onClick: () => void replace() }]}
+            remove={
+              hasCover ? { label: t((d) => d.cover.remove), onClick: () => void remove() } : undefined
+            }
           />
         </div>
       ) : (

@@ -267,6 +267,10 @@ export function ContextMenu({
       data-state={menu.state}
       style={{ left: coords?.left ?? 0, top: coords?.top ?? 0, transformOrigin: coords?.origin }}
       onKeyDown={onKeyDown}
+      // A portal bubbles its events through the React tree, not the DOM, so a click on a menu item would
+      // otherwise reach the onClick of whatever host rendered this menu (a card's own open handler, say),
+      // firing a second unintended action. The menu is a self-contained surface: seal it here.
+      onClick={(event) => event.stopPropagation()}
     >
       {top.length > 0 && (
         <div className={styles.topbar} role="group" aria-label={topActionsLabel}>

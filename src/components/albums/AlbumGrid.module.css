@@ -21,25 +21,13 @@
   padding: 18px 22px 22px;
 }
 
-/* Holds the measured height of every row so the scroll surface spans the whole wall while only the
- * visible rows mount inside it. */
-.spacer {
-  position: relative;
-  width: 100%;
-}
-
-/* One virtual row: a line of fixed-width tiles placed by the virtualizer's offset. The tile never
- * resizes - the column count follows the width - so opening the detail drawer beside the grid drops a
- * column instead of squishing every card. The bottom gap is folded into the measured height, so it
- * spaces this row from the next. */
-.row {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(var(--album-cols), 168px);
-  justify-content: start;
-  column-gap: 20px;
-  padding-bottom: 26px;
+/* The wall: fixed-width tiles wrapping to the content width. The tile never resizes - the count per line
+ * follows the width - so opening the detail drawer beside the grid drops a column instead of squishing
+ * every card. One wrapping flex row keeps each card's identity across a reflow, so a tile that shifts to a
+ * new line holds its cover rather than remounting and reloading it. */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 26px 20px;
 }

@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
@@ -51,7 +51,7 @@ const DOUBLE_CLICK_MS = 300;
 // reflowed the grid and the second landed on a different tile.
 let lastClick: { id: number; t: number } | null = null;
 
-export function AlbumCard({
+export const AlbumCard = memo(function AlbumCard({
   album,
   selected,
   onOpen,
@@ -179,4 +179,4 @@ export function AlbumCard({
       />
     </button>
   );
-}
+});

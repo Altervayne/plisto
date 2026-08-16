@@ -43,7 +43,10 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return createPortal(
-    <div className={styles.overlay}>
+    // A portal bubbles its events through the React tree, not the DOM, so a click inside would otherwise
+    // reach the onClick of whatever host rendered this dialog (a card's own open handler, say). Seal it so
+    // cancelling or confirming never fires a second unintended action on the host.
+    <div className={styles.overlay} onClick={(event) => event.stopPropagation()}>
       <div className={styles.backdrop} onClick={onClose} aria-hidden="true" />
       <div className={styles.dialog} role="alertdialog" aria-modal="true" aria-label={prompt}>
         <p className={styles.prompt}>{prompt}</p>

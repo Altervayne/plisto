@@ -1,12 +1,15 @@
 /*
- * The glass over-art actions. The overlay spans the whole cover so hovering the tile (or focusing
- * a button in it) reveals the bar; the bar itself scrims the bottom edge. Colors are the fixed
- * white-on-glass over-art palette, deliberately theme-independent: this floats over album art, not
- * over a themed surface.
+ * The glass over-art actions. The overlay spans the whole cover and clips to its rounding, so the bottom
+ * scrim and every control stay inside the cover's rounded corners instead of squaring them off. Hovering
+ * the tile (or focusing a control in it) reveals the bar and the corner remove. Colors are the fixed
+ * white-on-glass over-art palette, deliberately theme-independent: this floats over album art, not over a
+ * themed surface - save the remove, which carries a fixed danger red so it reads as destructive over art.
  */
 .overlay {
   position: absolute;
   inset: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
 }
 
 .bar {
@@ -47,8 +50,45 @@
   background: rgba(255, 255, 255, 0.28);
 }
 
+/* The destructive remove: a compact glass square in the top-right, revealed with the bar. It rests dark
+ * with a danger-red glyph so it reads over any art, then fills solid danger on hover. */
+.remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: rgba(0, 0, 0, 0.42);
+  color: #ff7a7a;
+  cursor: pointer;
+  opacity: 0;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition:
+    opacity var(--dur-soft) ease,
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.overlay:hover .remove,
+.overlay:focus-within .remove {
+  opacity: 1;
+}
+
+.remove:hover {
+  background: rgba(224, 49, 49, 0.92);
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .bar {
+  .bar,
+  .remove {
     transition: none;
   }
 }

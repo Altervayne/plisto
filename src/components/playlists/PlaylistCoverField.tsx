@@ -59,10 +59,8 @@ export function PlaylistCoverField({ playlistId }: { playlistId: number }) {
         <div className={styles.slot}>
           <Cover src={src} alt="" />
           <CoverActions
-            actions={[
-              { label: t((d) => d.cover.replace), onClick: () => void replace() },
-              { label: t((d) => d.cover.remove), onClick: () => void remove() },
-            ]}
+            actions={[{ label: t((d) => d.cover.replace), onClick: () => void replace() }]}
+            remove={{ label: t((d) => d.cover.remove), onClick: () => void remove() }}
           />
         </div>
       ) : (
