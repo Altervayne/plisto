@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // -- Icon Imports --
 import { Image as ImageIcon } from "lucide-react";
@@ -29,9 +29,30 @@ export function Cover({
   onError?: () => void;
 }) {
   const [broken, setBroken] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   // A new src is worth another load attempt after a previous one failed.
   useEffect(() => setBroken(false), [src]);
+
+  // Re-arm the fade when the src changes on a kept tile, but not on the first mount: an initial cached hit
+  // is caught below before the first paint, and clearing it here would strand it hidden with no load event.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setLoaded(false);
+  }, [src]);
+
+  const onLoad = useCallback(() => setLoaded(true), []);
+
+  // A cached image can already be complete before React wires onLoad, so no load event ever fires; catch
+  // that as the node attaches and mark it loaded before the first paint, which shows it with no fade. A
+  // pending image stays at zero opacity until its load event arms the transition.
+  const armLoaded = useCallback((node: HTMLImageElement | null) => {
+    if (node?.complete) setLoaded(true);
+  }, []);
 
   const showArt = src != null && !broken;
 
@@ -39,12 +60,15 @@ export function Cover({
     <div className={interactive ? `${styles.cover} ${styles.interactive}` : styles.cover}>
       {showArt ? (
         <img
+          ref={armLoaded}
           className={styles.art}
           src={src}
           alt={alt}
+          data-loaded={loaded ? "" : undefined}
           // Decode off the main thread so a wall of full-res covers never janks the scroll; the browser
           // still only decodes tiles it paints, so an off-screen cover costs nothing until it scrolls in.
           decoding="async"
+          onLoad={onLoad}
           onError={() => {
             setBroken(true);
             onError?.();

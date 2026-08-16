@@ -8,6 +8,9 @@ import { QuietButton } from "../common/QuietButton";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { Tooltip } from "../common/Tooltip";
 
+// -- Hook Imports --
+import { useMountTransition } from "../../hooks/useMountTransition";
+
 // -- IPC Imports --
 import { extractApply, extractPreview } from "../../lib/ipc";
 
@@ -23,6 +26,9 @@ import styles from "./ExtractPanel.module.css";
 
 /** How long typing settles before the pattern commits, so the preview refetches once per pause. */
 const COMMIT_DELAY = 250;
+
+/** The card's exit before it unmounts, matching --dur-soft on the exit keyframe. */
+const EXIT_MS = 200;
 
 /** One track handed to the panel: enough to preview it and address it in the write. */
 export interface ExtractTrack {
@@ -85,6 +91,15 @@ export function ExtractPanel({
 }) {
   const t = useT();
 
+  // Own the card's lifetime so a close plays its exit before the parent drops it: the close paths flip
+  // `open`, and once the exit has run the parent is told to unmount.
+  const [open, setOpen] = useState(true);
+  const card = useMountTransition(open, EXIT_MS);
+  const requestClose = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!card.mounted) onClose();
+  }, [card.mounted, onClose]);
+
   const trackIds = useMemo(() => tracks.map((track) => track.id), [tracks]);
 
   const [draft, setDraft] = useState(PRESETS[0]);
@@ -122,11 +137,11 @@ export function ExtractPanel({
   // Escape dismisses, matching the backdrop and close button.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   // Refetch the preview on each committed pattern, dropping a stale async result with the `live` guard.
   // An empty pattern clears the list rather than querying.
@@ -182,9 +197,11 @@ export function ExtractPanel({
     }
   };
 
+  if (!card.mounted) return null;
+
   return createPortal(
-    <div className={styles.overlay}>
-      <div className={styles.backdrop} onClick={onClose} aria-hidden="true" />
+    <div className={styles.overlay} data-state={card.state}>
+      <div className={styles.backdrop} onClick={requestClose} aria-hidden="true" />
 
       <div className={styles.panel} role="dialog" aria-modal="true" aria-label={t((d) => d.extract.title)}>
         <div className={styles.header}>
@@ -192,7 +209,7 @@ export function ExtractPanel({
             <h2 className={styles.title}>{t((d) => d.extract.title)}</h2>
             <p className={styles.caveat}>{t((d) => d.extract.caveat)}</p>
           </div>
-          <QuietButton onClick={onClose} aria-label={t((d) => d.common.close)}>
+          <QuietButton onClick={requestClose} aria-label={t((d) => d.common.close)}>
             {t((d) => d.common.close)}
           </QuietButton>
         </div>
@@ -275,7 +292,7 @@ export function ExtractPanel({
                 {t((d) => d.extract.resultLooseSkipped, { n: result.track_no_skipped_loose })}
               </p>
             ) : null}
-            <PrimaryButton onClick={onClose}>{t((d) => d.common.close)}</PrimaryButton>
+            <PrimaryButton onClick={requestClose}>{t((d) => d.common.close)}</PrimaryButton>
           </div>
         ) : (
           <div className={styles.footer}>

@@ -3,6 +3,9 @@ import { cloneElement, useCallback, useEffect, useId, useLayoutEffect, useRef, u
 import type { FocusEvent, HTMLAttributes, ReactElement, ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
 
+// -- Hook Imports --
+import { useMountTransition } from "../../../hooks/useMountTransition";
+
 // -- Utils Imports --
 import { placeTooltip } from "./tooltipGeometry";
 import type { TooltipPlacement } from "./tooltipGeometry";
@@ -15,6 +18,8 @@ const DELAY = 450;
 // Distance from the trigger, and the least clearance kept from every viewport edge.
 const GAP = 8;
 const MARGIN = 6;
+// The bubble's exit before it unmounts, matching --dur-fast on the exit keyframe.
+const EXIT_MS = 120;
 
 /** The subset of the trigger's props the tooltip reads or wraps: its ref and the handlers it composes with. */
 type TriggerProps = HTMLAttributes<HTMLElement> & { ref?: Ref<HTMLElement> };
@@ -56,6 +61,7 @@ export function Tooltip({
   const timer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const bubble = useMountTransition(open, EXIT_MS);
 
   // Keep the child's own ref working while measuring the trigger, through a stable callback so the
   // wrapping never churns the ref on every render.
@@ -91,12 +97,10 @@ export function Tooltip({
   };
 
   // Measure the trigger and the bubble, then place it before the browser paints so it never flashes
-  // at the wrong spot. Reset to unplaced on close so the next open re-measures.
+  // at the wrong spot. The coords survive a close so the bubble fades out where it sits; the next open
+  // re-measures.
   useLayoutEffect(() => {
-    if (!open) {
-      setCoords(null);
-      return;
-    }
+    if (!open) return;
     const trigger = triggerRef.current;
     const bubble = bubbleRef.current;
     if (!trigger || !bubble) return;
@@ -147,7 +151,7 @@ export function Tooltip({
   return (
     <>
       {trigger}
-      {open &&
+      {bubble.mounted &&
         createPortal(
           <div
             ref={bubbleRef}
@@ -155,6 +159,7 @@ export function Tooltip({
             role="tooltip"
             className={styles.bubble}
             data-ready={coords ? "" : undefined}
+            data-state={bubble.state}
             style={{ left: coords?.left ?? 0, top: coords?.top ?? 0 }}
           >
             {label}

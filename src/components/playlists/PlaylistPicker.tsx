@@ -1,9 +1,12 @@
 // -- Framework Imports --
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
+
+// -- Hook Imports --
+import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- Type Imports --
 import type { PlaylistRow } from "../../types";
@@ -13,6 +16,9 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./PlaylistPicker.module.css";
+
+/** The panel's exit before it unmounts, matching --dur-fast on the exit keyframe. */
+const EXIT_MS = 120;
 
 /** The playlist's display name, folding a null name to the same untitled default the list shows. */
 function playlistName(playlist: PlaylistRow, untitled: string): string {
@@ -40,6 +46,15 @@ export function PlaylistPicker({
   const t = useT();
   const untitled = t((d) => d.playlists.untitled);
 
+  // A backdrop dismiss plays the exit before the parent drops the panel; choosing or creating closes at
+  // once through the parent.
+  const [open, setOpen] = useState(true);
+  const panel = useMountTransition(open, EXIT_MS);
+  const requestClose = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!panel.mounted) onClose();
+  }, [panel.mounted, onClose]);
+
   const trimmed = filter.trim();
   const qf = trimmed.toLowerCase();
 
@@ -53,10 +68,12 @@ export function PlaylistPicker({
   const showCreate =
     trimmed !== "" && !playlists.some((p) => playlistName(p, untitled).toLowerCase() === qf);
 
+  if (!panel.mounted) return null;
+
   return (
     <>
-      <div className={styles.backdrop} onClick={onClose} aria-hidden="true" />
-      <div className={styles.panel} role="dialog" aria-label={t((d) => d.playlists.pickerTitle)}>
+      <div className={styles.backdrop} onClick={requestClose} aria-hidden="true" />
+      <div className={styles.panel} data-state={panel.state} role="dialog" aria-label={t((d) => d.playlists.pickerTitle)}>
         <div className={styles.search}>
           <SearchField
             value={filter}

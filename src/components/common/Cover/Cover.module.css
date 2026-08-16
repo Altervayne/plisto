@@ -45,6 +45,14 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  /* Fade in once the image loads, keyed off the load event so a cached tile that mounts already loaded
+     paints at full opacity and never re-fades on a scroll-back. */
+  opacity: 0;
+  transition: opacity var(--dur-soft) ease;
+}
+
+.art[data-loaded] {
+  opacity: 1;
 }
 
 .placeholder {

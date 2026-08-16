@@ -27,20 +27,41 @@
 
 .bubble[data-ready] {
   visibility: visible;
+}
+
+.bubble[data-ready][data-state="enter"] {
   animation: tooltip-in var(--dur-fast) var(--ease-cover) both;
+}
+
+.bubble[data-ready][data-state="exit"] {
+  animation: tooltip-out var(--dur-fast) var(--ease-exit) both;
 }
 
 @keyframes tooltip-in {
   from {
     opacity: 0;
+    transform: translateY(2px) scale(0.98);
   }
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tooltip-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bubble[data-ready] {
+  .bubble[data-ready][data-state="enter"],
+  .bubble[data-ready][data-state="exit"] {
     animation: none;
   }
 }

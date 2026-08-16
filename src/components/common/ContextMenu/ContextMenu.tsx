@@ -6,6 +6,9 @@ import { createPortal } from "react-dom";
 // -- Component Imports --
 import { Tooltip } from "../Tooltip/Tooltip";
 
+// -- Hook Imports --
+import { useMountTransition } from "../../../hooks/useMountTransition";
+
 // -- Utils Imports --
 import { placeMenu } from "./menuGeometry";
 import { isSeparator } from "./contextMenuTypes";
@@ -16,6 +19,9 @@ import styles from "./ContextMenu.module.css";
 
 // Least clearance kept from every viewport edge when the menu is placed.
 const MARGIN = 6;
+
+// The menu's exit before it unmounts, matching --dur-fast on the exit keyframe.
+const EXIT_MS = 120;
 
 /** A focusable slot in roving order: which list it belongs to and its index within that list's array. */
 interface Focus {
@@ -63,6 +69,7 @@ export function ContextMenu({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
   const [active, setActive] = useState(0);
+  const menu = useMountTransition(open, EXIT_MS);
 
   // The enabled entries, top bar first, in the order the arrows walk them.
   const order: Focus[] = [];
@@ -76,11 +83,9 @@ export function ContextMenu({
     order.findIndex((slot) => slot.group === group && slot.index === index);
 
   // Measure the menu and place it before the browser paints, so it never flashes at the pointer origin.
+  // The coords survive a close so the menu fades out where it sits; the next open re-measures at once.
   useLayoutEffect(() => {
-    if (!open) {
-      setCoords(null);
-      return;
-    }
+    if (!open) return;
     const el = menuRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -119,7 +124,7 @@ export function ContextMenu({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!menu.mounted) return null;
 
   const focusAt = (next: number) => {
     const n = order.length;
@@ -256,6 +261,7 @@ export function ContextMenu({
       aria-label={ariaLabel}
       className={styles.menu}
       data-ready={coords ? "" : undefined}
+      data-state={menu.state}
       style={{ left: coords?.left ?? 0, top: coords?.top ?? 0 }}
       onKeyDown={onKeyDown}
     >

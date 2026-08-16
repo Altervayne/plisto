@@ -43,6 +43,9 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 
+// -- Hook Imports --
+import { useMountTransition } from "../../hooks/useMountTransition";
+
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 import { revealFile } from "../../lib/opener";
@@ -60,6 +63,9 @@ import styles from "./AlbumTrackList.module.css";
 
 /** The droppable id an empty disc zone carries, its disc number trailing so a drop can read it back. */
 const EMPTY_DISC = "empty-disc-";
+
+/** The selection bar's exit before it unmounts, matching --dur-fast on the exit keyframe. */
+const BAR_EXIT_MS = 120;
 
 /**
  * The album's tracks in the drawer, grouped by disc and sortable by drag across the whole set. A
@@ -114,6 +120,9 @@ export function AlbumTrackList({
     setSelected(new Set());
     anchorRef.current = null;
   }, [albumId]);
+
+  // Hold the header bar through its exit after the selection clears, so it fades out rather than blinking.
+  const selectionBar = useMountTransition(selected.size > 0, BAR_EXIT_MS);
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the title edits
   // rather than jitters into a reorder. Keyboard sensor drives the accessible reorder across discs.
@@ -309,11 +318,12 @@ export function AlbumTrackList({
 
   return (
     <>
-      {selecting ? (
+      {selectionBar.mounted ? (
         <AlbumSelectionBar
           count={selected.size}
           discs={groups.map((g) => g.disc)}
           newDisc={nextDisc}
+          state={selectionBar.state}
           onSelectAll={selectAll}
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}

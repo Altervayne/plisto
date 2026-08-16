@@ -59,9 +59,12 @@
   --pill: 999px;
 
   /* -- Motion -- */
-  --ease-cover: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-cover: cubic-bezier(0.2, 0.7, 0.3, 1); /* decelerate: the enter curve, arrivals settle */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1); /* accelerate: departures leave quicker than they arrive */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* symmetric: reversible in-place motion */
   --dur-fast: 0.12s;
   --dur-soft: 0.2s;
+  --dur-slow: 0.28s; /* larger surfaces: modal, view, drawer */
 }
 
 /* Dark via system preference, unless a manual light stamp overrides it. */

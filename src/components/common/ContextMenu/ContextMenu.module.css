@@ -18,20 +18,41 @@
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: 13px;
+  transform-origin: top center;
   visibility: hidden;
 }
 
 .menu[data-ready] {
   visibility: visible;
+}
+
+.menu[data-ready][data-state="enter"] {
   animation: menu-in var(--dur-fast) var(--ease-cover) both;
+}
+
+.menu[data-ready][data-state="exit"] {
+  animation: menu-out var(--dur-fast) var(--ease-exit) both;
 }
 
 @keyframes menu-in {
   from {
     opacity: 0;
+    transform: translateY(3px) scale(0.98);
   }
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes menu-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
   }
 }
 
@@ -154,7 +175,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .menu[data-ready] {
+  .menu[data-ready][data-state="enter"],
+  .menu[data-ready][data-state="exit"] {
     animation: none;
   }
 }

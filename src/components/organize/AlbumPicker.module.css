@@ -14,6 +14,7 @@
   left: 50%;
   bottom: 78px;
   transform: translateX(-50%);
+  transform-origin: bottom center;
   width: min(320px, 80vw);
   max-height: 320px;
   display: flex;
@@ -24,6 +25,38 @@
   background: var(--surface);
   box-shadow: var(--shadow-pop);
   z-index: 7;
+}
+
+/* Rises toward its anchor above the bar on enter, settles back down and fades on exit. The centering
+   translateX rides along in every frame so the panel never drifts sideways. */
+.panel[data-state="enter"] {
+  animation: panel-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.panel[data-state="exit"] {
+  animation: panel-out var(--dur-fast) var(--ease-exit) both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes panel-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
 }
 
 .search {

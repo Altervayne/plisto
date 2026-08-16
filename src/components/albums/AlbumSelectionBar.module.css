@@ -13,6 +13,38 @@
   background: var(--veil);
 }
 
+/* Rises a touch and fades in on enter, sinks back on exit. Transform only, never height, so the list
+   below never reflows as the bar arrives or leaves. */
+.bar[data-state="enter"] {
+  animation: bar-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.bar[data-state="exit"] {
+  animation: bar-out var(--dur-fast) var(--ease-exit) both;
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes bar-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
 .count {
   flex: 1;
   min-width: 0;

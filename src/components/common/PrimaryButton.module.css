@@ -18,7 +18,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition:
     filter var(--dur-fast) ease,
-    transform var(--dur-fast) ease;
+    transform var(--dur-fast) var(--ease-standard);
 }
 
 /* The hero variant: the same fill and crisp radius, just more presence through padding. */
@@ -40,6 +40,11 @@
 .primary:not(:disabled):hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
+}
+
+/* A small dip on press, so the button gives under the pointer. */
+.primary:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 /* Clearly inert when disabled: the accent fades, the lift shadow drops, the cursor refuses. */

@@ -1,8 +1,11 @@
 // -- Framework Imports --
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
+
+// -- Hook Imports --
+import type { MountState } from "../../hooks/useMountTransition";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -21,6 +24,7 @@ export function AlbumSelectionBar({
   count,
   discs,
   newDisc,
+  state,
   onSelectAll,
   onMoveToDisc,
   onExtract,
@@ -33,6 +37,7 @@ export function AlbumSelectionBar({
   count: number;
   discs: number[];
   newDisc: number;
+  state?: MountState;
   onSelectAll: () => void;
   onMoveToDisc: (disc: number) => void;
   onExtract: () => void;
@@ -45,14 +50,19 @@ export function AlbumSelectionBar({
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // The count empties as the selection clears, but the parent holds the bar through its exit; keep the
+  // last real tally so the fade shows it rather than a bare zero.
+  const lastCount = useRef(count);
+  if (count > 0) lastCount.current = count;
+
   const move = (disc: number) => {
     setMenuOpen(false);
     onMoveToDisc(disc);
   };
 
   return (
-    <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
-      <span className={styles.count}>{t((d) => d.albums.selected, { n: count })}</span>
+    <div className={styles.bar} data-state={state} role="toolbar" aria-label={t((d) => d.selection.actions)}>
+      <span className={styles.count}>{t((d) => d.albums.selected, { n: lastCount.current })}</span>
 
       <div className={styles.actions}>
         <QuietButton onClick={onSelectAll}>{t((d) => d.albums.selectAll)}</QuietButton>

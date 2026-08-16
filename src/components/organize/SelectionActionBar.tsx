@@ -1,5 +1,8 @@
 // -- Framework Imports --
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+// -- Hook Imports --
+import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- Component Imports --
 import { PrimaryButton } from "../common/PrimaryButton";
@@ -37,6 +40,9 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./SelectionActionBar.module.css";
+
+/** The bar's exit before it unmounts, matching --dur-fast on the exit keyframe. */
+const EXIT_MS = 120;
 
 /**
  * The floating action bar over a track selection. It shows only while tracks are selected: a quiet
@@ -77,9 +83,15 @@ export function SelectionActionBar({
   // clears the selection out from under the bar.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
 
+  // Hold the bar through its exit after the selection clears, and keep the last count so the fade shows
+  // the tally it had rather than a bare zero.
+  const bar = useMountTransition(selection.size > 0, EXIT_MS);
+  const lastCount = useRef(0);
+  if (selection.size > 0) lastCount.current = selection.size;
+
   // Stays mounted while the extractor is open, so the bar itself hides on a cleared selection but the
   // modal keeps its summary.
-  if (selection.size === 0 && !extractTracks) return null;
+  if (!bar.mounted && !extractTracks) return null;
 
   const selectedIds = [...selection];
 
@@ -161,7 +173,7 @@ export function SelectionActionBar({
 
   return (
     <>
-      {selection.size > 0 ? (
+      {bar.mounted ? (
         <>
           {pickerOpen ? (
             <AlbumPicker albums={albums} onChoose={onChoose} onClose={() => setPickerOpen(false)} />
@@ -176,9 +188,14 @@ export function SelectionActionBar({
             />
           ) : null}
 
-          <div className={styles.bar} role="toolbar" aria-label={t((d) => d.selection.actions)}>
+          <div
+            className={styles.bar}
+            data-state={bar.state}
+            role="toolbar"
+            aria-label={t((d) => d.selection.actions)}
+          >
             <div className={styles.summary}>
-              <span className={styles.count}>{selection.size}</span>
+              <span className={styles.count}>{lastCount.current}</span>
               <span className={styles.label}>{t((d) => d.selection.selected)}</span>
             </div>
 
@@ -189,7 +206,7 @@ export function SelectionActionBar({
                 {t((d) => d.selection.createAlbum)}
               </PrimaryButton>
               <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
-                {t((d) => d.singles.make, { n: selection.size })}
+                {t((d) => d.singles.make, { n: lastCount.current })}
               </QuietButton>
               <QuietButton
                 onClick={() => {
