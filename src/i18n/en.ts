@@ -308,7 +308,7 @@ export const en = {
     insideWorkspace: "This folder is inside your music library. Choose one outside it.",
     notWritable: "Plisto can't write to this folder. Pick one you have write access to.",
     phoneHint:
-      "A phone connected over USB can't be an export destination - export to a folder on your PC, then copy it across (or use an SD-card reader).",
+      "Mobile devices connected over USB can't be used as export destinations yet, as they required a different system than a filesystem path.",
     nonEmpty: "This folder already holds files. Export writes into it.",
     openFolder: "Open destination folder",
     again: "Export again",
