@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 // -- Library Imports --
@@ -32,7 +32,6 @@ import styles from "./AlbumGrid.module.css";
 // each row measures itself.
 const TILE_WIDTH = 168;
 const COL_GAP = 20;
-const PAD_X = 22;
 const ROW_ESTIMATE = 256;
 
 /** How many fixed tiles fit across `inner` content pixels, at least one. */
@@ -71,18 +70,27 @@ export function AlbumGrid({
   const createPlaylist = useCreatePlaylist();
   const [playlistTarget, setPlaylistTarget] = useState<number[] | null>(null);
 
-  // The column count tracks the viewport width, so opening the drawer beside the grid drops a column
-  // rather than squishing the tiles, exactly as the CSS auto-fill did.
+  // The column count tracks the content width, so opening the drawer beside the grid drops a column
+  // rather than squishing the tiles, exactly as the CSS auto-fill did. It measures off the spacer this
+  // grid owns via a callback ref, so the observer wires up the moment the grid actually renders - even
+  // when albums arrive async after an initial empty-state render (no ScrollArea, no viewport). A one-shot
+  // effect on the ScrollArea viewport ran during that empty pass and never re-ran, leaving a single
+  // column stuck until a remount. The spacer sits inside the canvas padding, so its width is the usable
+  // content width directly.
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const columnObserver = useRef<ResizeObserver | null>(null);
   const [columns, setColumns] = useState(1);
-  useLayoutEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const measure = () => setColumns(columnsFor(el.clientWidth - PAD_X * 2));
+  const measureColumns = useCallback((node: HTMLDivElement | null) => {
+    columnObserver.current?.disconnect();
+    columnObserver.current = null;
+    if (!node) return;
+    const measure = () => {
+      const inner = node.clientWidth;
+      if (inner > 0) setColumns(columnsFor(inner));
+    };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    columnObserver.current = new ResizeObserver(measure);
+    columnObserver.current.observe(node);
   }, []);
 
   // Chunk the wall into rows of the current column count, then virtualize the rows: one virtual item
@@ -117,6 +125,7 @@ export function AlbumGrid({
       <ScrollArea className={styles.scroll} contentClassName={styles.canvas} viewportRef={viewportRef}>
         <div
           className={styles.spacer}
+          ref={measureColumns}
           style={{ height: virtualizer.getTotalSize(), "--album-cols": columns } as CSSProperties}
         >
           {virtualizer.getVirtualItems().map((item) => (
