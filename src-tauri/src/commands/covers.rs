@@ -152,6 +152,59 @@ pub async fn remove_folder_cover(
     resolve_at(state.inner(), track_id, DETAIL_EDGE, false).await
 }
 
+/// Imports a picked image as the assigned cover for each of `track_ids`. The image is decoded and
+/// both cache sizes are written before any DB row is touched, so an unreadable file leaves nothing
+/// half-written; one decode covers the whole selection. Returns the newly resolved cover at the peek
+/// size. The picked file is only read.
+#[tauri::command]
+pub async fn import_track_cover(
+    track_ids: Vec<i64>,
+    src_path: String,
+    state: State<'_, AppState>,
+) -> Result<CoverRef, String> {
+    let created_at = super::now_unix();
+    let covers_dir = state.covers_dir.clone();
+    let guard = Arc::clone(&state.covers_in_flight);
+    let src = src_path.clone();
+
+    let (record, detail_path, width, height) = tauri::async_runtime::spawn_blocking(move || {
+        import_from_disk(&covers_dir, &guard, &src, created_at)
+    })
+    .await
+    .map_err(|_| "cover task failed to run".to_string())??;
+
+    // Write only after a clean decode: the manifest row and every track binding land together.
+    {
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        let cover_id = db::upsert_cover(&conn, &record).map_err(|e| e.to_string())?;
+        db::set_track_cover(&mut conn, &track_ids, cover_id, created_at).map_err(|e| e.to_string())?;
+    }
+
+    Ok(CoverRef {
+        path: detail_path,
+        width,
+        height,
+        source: CoverSource::Imported,
+    })
+}
+
+/// Removes the cover the user assigned to each of `track_ids`. After this, each track resolves
+/// through the folder/keep-own logic again.
+#[tauri::command]
+pub async fn remove_track_cover(
+    track_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::remove_track_cover(&mut conn, &track_ids).map_err(|e| e.to_string())
+}
+
 /// Writes the track's resolved cover to `dest_path` at full resolution, verbatim. Resolves the
 /// same source read_cover would (folder cover, else embedded art, else the first adjacent image),
 /// but hands over the original bytes rather than a thumbnail, so the user keeps the art untouched.
@@ -278,6 +331,20 @@ fn prepare_resolution(
     let Some((source_path, art)) = db::get_track_cover_inputs(conn, track_id)? else {
         return Ok(Resolution::None);
     };
+
+    // A cover the user assigned to this track is the top-priority source: it wins over the folder
+    // cover and the keep-own path alike, whatever `keep_own` says. Resolved straight from its cached
+    // thumbnail by hash, exactly like a bound folder cover, so no decode is left to the caller.
+    if let Some(cover_id) = db::get_track_cover_id(conn, track_id)? {
+        if let Some((hash, kind, width, height)) = db::get_cover(conn, cover_id)? {
+            return Ok(Resolution::Folder(CoverRef {
+                path: path_to_string(&thumb_cache_path(covers_dir, &hash, max_edge)),
+                width,
+                height,
+                source: cover_source_from_kind(&kind),
+            }));
+        }
+    }
 
     let folder = folder_of(&source_path);
     // The folder cover, resolved to a ref if one is bound. It wins for a normal member; a
@@ -879,6 +946,56 @@ mod tests {
         assert!(generate_dynamic_ref(&covers.path, &guard, &sp, has_embedded, DETAIL_EDGE).is_none());
         let fallback = fallback.expect("the folder cover is the fallback");
         assert_eq!(fallback.source, CoverSource::Imported);
+    }
+
+    #[test]
+    fn per_track_cover_wins_over_the_folder_cover_and_keep_own() {
+        let mut conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+
+        // The track has its own adjacent art, a folder cover bound over the folder, and its own
+        // assigned cover on top - three sources the per-track choice must beat.
+        std::fs::write(music.path.join("cover.jpg"), png_bytes(50, 50, [20, 160, 90])).unwrap();
+        let source_path = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let track_id = insert_track(&conn, &source_path);
+
+        let folder_pick = covers.path.join("folder.png");
+        std::fs::write(&folder_pick, png_bytes(64, 64, [40, 40, 200])).unwrap();
+        let (folder_rec, _, _, _) =
+            import_from_disk(&covers.path, &guard, &folder_pick.to_string_lossy(), 100).unwrap();
+        let folder_cover_id = db::upsert_cover(&conn, &folder_rec).unwrap();
+        db::set_folder_cover(&conn, &folder_of(&source_path), folder_cover_id, 100).unwrap();
+
+        let track_pick = covers.path.join("assigned.png");
+        std::fs::write(&track_pick, png_bytes(70, 30, [200, 200, 10])).unwrap();
+        let (track_rec, track_detail, tw, th) =
+            import_from_disk(&covers.path, &guard, &track_pick.to_string_lossy(), 100).unwrap();
+        let track_cover_id = db::upsert_cover(&conn, &track_rec).unwrap();
+        db::set_track_cover(&mut conn, &[track_id], track_cover_id, 100).unwrap();
+        assert_eq!((tw, th), (70, 30));
+
+        // Without keep-own, the per-track cover wins over the bound folder cover.
+        match prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, false).unwrap() {
+            Resolution::Folder(cover) => {
+                assert_eq!(cover.source, CoverSource::Imported);
+                assert_eq!(
+                    cover.path, track_detail,
+                    "the per-track cover resolves, not the folder cover"
+                );
+                assert_eq!((cover.width, cover.height), (70, 30));
+            }
+            _ => panic!("expected the per-track cover to resolve"),
+        }
+
+        // With keep-own, the per-track cover still wins over the track's own adjacent art.
+        match prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, true).unwrap() {
+            Resolution::Folder(cover) => {
+                assert_eq!(cover.path, track_detail, "the per-track cover beats keep-own too");
+            }
+            _ => panic!("expected the per-track cover to win over keep-own"),
+        }
     }
 
     #[test]

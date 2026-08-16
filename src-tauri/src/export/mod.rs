@@ -187,11 +187,13 @@ where
                         track_no: track.track_no,
                         disc_no: track.disc_no,
                     };
-                    // A membership flagged keep-own-cover embeds the track's own embedded/adjacent
-                    // art in place of the container cover; a flagged track with no art of its own
-                    // falls back to the shared container cover, never coverless. Decoded and encoded
-                    // at most once here, per track.
-                    let own_art = if track.keep_own_cover {
+                    // Cover precedence, top down: a per-track assigned cover embeds its stored blob;
+                    // else a keep-own membership embeds the track's own embedded/adjacent art; else
+                    // the shared container cover. Each tier decodes and re-encodes at most once here.
+                    // A per-track cover whose blob is missing or unreadable, or keep-own art the
+                    // track lacks, drops quietly to the next tier - never coverless where art remains.
+                    let per_track = cover_jpeg(&track.own_cover, covers_dir);
+                    let own_art = if per_track.is_none() && track.keep_own_cover {
                         cover_jpeg(
                             &CoverPlan::Member {
                                 source: track.source.clone(),
@@ -202,7 +204,7 @@ where
                     } else {
                         None
                     };
-                    let track_cover = own_art.as_deref().or(cover_bytes);
+                    let track_cover = per_track.as_deref().or(own_art.as_deref()).or(cover_bytes);
                     match export_track(
                         &track.source,
                         &dir,
@@ -449,6 +451,7 @@ mod tests {
             disc_no: None,
             has_embedded: false,
             keep_own_cover: false,
+            own_cover: CoverPlan::None,
         }
     }
 

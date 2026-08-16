@@ -182,6 +182,16 @@ export function removeFolderCover(trackId: number): Promise<CoverRef | null> {
   return invoke<CoverRef | null>("remove_folder_cover", { trackId });
 }
 
+/** Assigns a picked image as the cover for each track, returning the newly resolved cover. */
+export function importTrackCover(trackIds: number[], srcPath: string): Promise<CoverRef> {
+  return invoke<CoverRef>("import_track_cover", { trackIds, srcPath });
+}
+
+/** Clears the assigned cover from each track; each falls back to its folder/keep-own resolution. */
+export function removeTrackCover(trackIds: number[]): Promise<void> {
+  return invoke("remove_track_cover", { trackIds });
+}
+
 /** Writes the track's resolved cover to `destPath` at full resolution, verbatim. */
 export function saveTrackCover(trackId: number, destPath: string): Promise<void> {
   return invoke("save_track_cover", { trackId, destPath });

@@ -87,6 +87,7 @@ export const en = {
     selectAll: "Select all",
     moveToDisc: "Move to disc...",
     newDisc: "New disc {n}",
+    setCover: "Set cover...",
     keepOwnCover: "Keep own cover",
     useAlbumCover: "Use album cover",
     removeFromAlbum: "Remove from album",

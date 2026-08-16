@@ -49,6 +49,8 @@ import { useMountTransition } from "../../hooks/useMountTransition";
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 import { revealFile } from "../../lib/opener";
+import { importTrackCover } from "../../lib/ipc";
+import { pickImageFile } from "../../lib/dialog";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -212,6 +214,16 @@ export function AlbumTrackList({
     clearSelection();
   };
 
+  // Assigns one picked image as the cover of every selected track, then clears. A per-track cover is
+  // resolved backend-side on read, so nothing in the drawer state needs a reload; a cancelled pick is a no-op.
+  const setSelectedCover = async () => {
+    const ids = [...selected];
+    const path = await pickImageFile();
+    if (!path) return;
+    await importTrackCover(ids, path);
+    clearSelection();
+  };
+
   // Adds the picker's target tracks to an existing playlist, then closes. Only the selection-bar flow
   // clears the selection after; a row-menu add leaves it untouched.
   const onChoosePlaylist = (playlistId: number) => {
@@ -328,6 +340,7 @@ export function AlbumTrackList({
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}
           onAddToPlaylist={() => setPlaylistPicker({ tracks: [...selected], fromSelection: true })}
+          onSetCover={() => void setSelectedCover()}
           onKeepOwnCover={() => setSelectedKeepOwnCover(true)}
           onUseAlbumCover={() => setSelectedKeepOwnCover(false)}
           onRemove={removeSelected}

@@ -144,6 +144,8 @@ pub fn run() {
             commands::covers::list_cover_candidates,
             commands::covers::import_folder_cover,
             commands::covers::remove_folder_cover,
+            commands::covers::import_track_cover,
+            commands::covers::remove_track_cover,
             commands::covers::save_track_cover,
             commands::covers::track_cover_ext,
             commands::organize::create_album,

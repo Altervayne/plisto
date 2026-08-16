@@ -6,10 +6,10 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 // -- Local Imports --
 import {
-  importFolderCover,
+  importTrackCover,
   listCoverCandidates,
   readCover,
-  removeFolderCover,
+  removeTrackCover,
   saveTrackCover,
   trackCoverExt,
 } from "../../lib/ipc";
@@ -115,7 +115,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
     const path = await pickImageFile();
     if (!path) return;
     try {
-      await importFolderCover(trackId, path);
+      await importTrackCover([trackId], path);
     } catch (e) {
       setError(String(e));
       return;
@@ -128,7 +128,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
       // Only an adjacent image is a real file on disk to bind; the embedded source is intrinsic.
       if (candidate.source !== "adjacent" || !candidate.originPath) return;
       try {
-        await importFolderCover(trackId, candidate.originPath);
+        await importTrackCover([trackId], candidate.originPath);
       } catch (e) {
         setError(String(e));
         return;
@@ -140,7 +140,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
 
   const remove = useCallback(async (): Promise<void> => {
     try {
-      await removeFolderCover(trackId);
+      await removeTrackCover([trackId]);
     } catch (e) {
       setError(String(e));
       return;

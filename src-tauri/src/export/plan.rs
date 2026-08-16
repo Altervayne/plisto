@@ -63,6 +63,10 @@ pub struct ExportTrack {
     // When set, the writer embeds this track's own embedded/adjacent art instead of the container
     // cover, falling back to the container cover when the track has none.
     pub keep_own_cover: bool,
+    // The cover the user assigned to this track, resolved to its stored blob at plan-build time. Top
+    // priority for the embed: a `Store` here wins over keep-own art and the container cover. `None`
+    // when the track carries no assigned cover or its blob could not be keyed.
+    pub own_cover: CoverPlan,
 }
 
 /// One export container: an album folder or a single's subfolder, with its resolved release fields
@@ -138,6 +142,7 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
                 disc_no: row.disc_no,
                 has_embedded: row.has_embedded_cover == Some(true),
                 keep_own_cover: row.keep_own_cover,
+                own_cover: store_cover(conn, row.own_cover_id)?,
             });
         }
 
@@ -171,6 +176,22 @@ fn resolve_cover(
     cover_id: Option<i64>,
     tracks: &[ExportTrack],
 ) -> rusqlite::Result<CoverPlan> {
+    if let plan @ CoverPlan::Store { .. } = store_cover(conn, cover_id)? {
+        return Ok(plan);
+    }
+    if let Some(first) = tracks.first() {
+        return Ok(CoverPlan::Member {
+            source: first.source.clone(),
+            has_embedded: first.has_embedded,
+        });
+    }
+    Ok(CoverPlan::None)
+}
+
+/// Resolves an imported cover id to its full-res store blob key, or `None` when it is unset or the
+/// manifest has no blob key for it. The one DB read a per-track assigned cover needs, so the worker
+/// reads its bytes off the lock the same way a container's imported cover does.
+fn store_cover(conn: &Connection, cover_id: Option<i64>) -> rusqlite::Result<CoverPlan> {
     if let Some(cover_id) = cover_id {
         if let Some((content_hash, byte_len)) = db::get_cover_blob_key(conn, cover_id)? {
             return Ok(CoverPlan::Store {
@@ -178,12 +199,6 @@ fn resolve_cover(
                 byte_len,
             });
         }
-    }
-    if let Some(first) = tracks.first() {
-        return Ok(CoverPlan::Member {
-            source: first.source.clone(),
-            has_embedded: first.has_embedded,
-        });
     }
     Ok(CoverPlan::None)
 }
@@ -274,6 +289,9 @@ fn unsorted_container(
             // The Unsorted bag is already art-less and its loose tracks carry their own cover, so the
             // album-scoped flag has no bearing here.
             keep_own_cover: false,
+            // A loose track exports its own embedded/adjacent art directly, so no assigned-cover
+            // override rides along the bag.
+            own_cover: CoverPlan::None,
         });
     }
 
@@ -482,6 +500,39 @@ mod tests {
                 assert!(*has_embedded);
             }
             other => panic!("expected a member cover fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn own_cover_resolves_to_its_stored_blob() {
+        let mut conn = db::open_in_memory().unwrap();
+        let t = insert_track(&conn, "/m/album/1.mp3", "One");
+        db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
+
+        // Assign a cover to the track; the manifest carries its store key even without a blob file.
+        let record = crate::model::CoverRecord {
+            content_hash: "feedface".into(),
+            source_kind: "imported".into(),
+            origin_path: None,
+            width: 10,
+            height: 10,
+            byte_len: 42,
+            created_at: 1,
+        };
+        let cover_id = db::upsert_cover(&conn, &record).unwrap();
+        db::set_track_cover(&mut conn, &[t], cover_id, 1).unwrap();
+
+        let plan = build_plan(&conn).unwrap();
+        let track = &plan.containers[0].tracks[0];
+        match &track.own_cover {
+            CoverPlan::Store {
+                content_hash,
+                byte_len,
+            } => {
+                assert_eq!(content_hash, "feedface");
+                assert_eq!(*byte_len, 42);
+            }
+            other => panic!("expected the assigned cover to resolve to its store blob, got {other:?}"),
         }
     }
 }

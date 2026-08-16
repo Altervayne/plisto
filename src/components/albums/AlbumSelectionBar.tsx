@@ -15,8 +15,8 @@ import styles from "./AlbumSelectionBar.module.css";
 
 /**
  * The scoped action bar over an album-track selection, shown at the head of the list only while tracks
- * are selected. It carries the count, a select-all, a move-to-disc menu, an add-to-playlist, the two
- * keep-own-cover toggles, a remove, and a clear. The move menu lists the album's existing discs plus
+ * are selected. It carries the count, a select-all, a move-to-disc menu, an add-to-playlist, a
+ * set-cover, the two keep-own-cover toggles, a remove, and a clear. The move menu lists the album's existing discs plus
  * one entry for the next new disc; choosing a disc lays the selection there. Every action reports up -
  * the parent owns the selection, the layout, and the playlist picker.
  */
@@ -29,6 +29,7 @@ export function AlbumSelectionBar({
   onMoveToDisc,
   onExtract,
   onAddToPlaylist,
+  onSetCover,
   onKeepOwnCover,
   onUseAlbumCover,
   onRemove,
@@ -42,6 +43,7 @@ export function AlbumSelectionBar({
   onMoveToDisc: (disc: number) => void;
   onExtract: () => void;
   onAddToPlaylist: () => void;
+  onSetCover: () => void;
   onKeepOwnCover: () => void;
   onUseAlbumCover: () => void;
   onRemove: () => void;
@@ -104,6 +106,7 @@ export function AlbumSelectionBar({
 
         <QuietButton onClick={onExtract}>{t((d) => d.extract.action)}</QuietButton>
         <QuietButton onClick={onAddToPlaylist}>{t((d) => d.playlists.addTo)}</QuietButton>
+        <QuietButton onClick={onSetCover}>{t((d) => d.albums.setCover)}</QuietButton>
         <QuietButton onClick={onKeepOwnCover}>{t((d) => d.albums.keepOwnCover)}</QuietButton>
         <QuietButton onClick={onUseAlbumCover}>{t((d) => d.albums.useAlbumCover)}</QuietButton>
         <QuietButton onClick={onRemove}>{t((d) => d.albums.removeFromAlbum)}</QuietButton>

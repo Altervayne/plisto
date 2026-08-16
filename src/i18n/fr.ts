@@ -88,6 +88,7 @@ export const fr: Dict = {
     selectAll: "Tout sélectionner",
     moveToDisc: "Déplacer vers le disque...",
     newDisc: "Nouveau disque {n}",
+    setCover: "Définir la pochette...",
     keepOwnCover: "Conserver sa propre pochette",
     useAlbumCover: "Utiliser la pochette de l'album",
     removeFromAlbum: "Retirer de l'album",
