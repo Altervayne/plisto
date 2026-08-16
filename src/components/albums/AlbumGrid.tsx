@@ -1,7 +1,18 @@
+// -- Framework Imports --
+import { useState } from "react";
+
 // -- Component Imports --
 import { EmptyState } from "../common/EmptyState";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { AlbumCard } from "./AlbumCard";
+import { PlaylistPicker } from "../playlists/PlaylistPicker";
+
+// -- State Imports --
+import {
+  useAddTracksToPlaylist,
+  useCreatePlaylist,
+  usePlaylists,
+} from "../../state/playlists/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -38,6 +49,13 @@ export function AlbumGrid({
   const drawerOpen = selectedAlbumId != null;
   const t = useT();
 
+  // The add-to-playlist picker is shared by every card here: a card's right-click hands up its track
+  // ids, which hold while the picker is open so a choose or create lands on that album's tracks.
+  const playlists = usePlaylists();
+  const addTracksToPlaylist = useAddTracksToPlaylist();
+  const createPlaylist = useCreatePlaylist();
+  const [playlistTarget, setPlaylistTarget] = useState<number[] | null>(null);
+
   if (albums.length === 0) {
     return (
       <div className={styles.empty}>
@@ -51,17 +69,39 @@ export function AlbumGrid({
   }
 
   return (
-    <ScrollArea className={styles.scroll} contentClassName={styles.grid}>
-      {albums.map((album) => (
-        <AlbumCard
-          key={album.id}
-          album={album}
-          selected={album.id === selectedAlbumId}
-          drawerOpen={drawerOpen}
-          onOpen={onOpen}
-          onOpenFull={onOpenFull}
+    <>
+      <ScrollArea className={styles.scroll} contentClassName={styles.grid}>
+        {albums.map((album) => (
+          <AlbumCard
+            key={album.id}
+            album={album}
+            selected={album.id === selectedAlbumId}
+            drawerOpen={drawerOpen}
+            onOpen={onOpen}
+            onOpenFull={onOpenFull}
+            onAddToPlaylist={setPlaylistTarget}
+          />
+        ))}
+      </ScrollArea>
+
+      {playlistTarget ? (
+        <PlaylistPicker
+          playlists={playlists}
+          onChoose={(playlistId) => {
+            void addTracksToPlaylist(playlistId, playlistTarget);
+            setPlaylistTarget(null);
+          }}
+          onCreate={(name) => {
+            const targets = playlistTarget;
+            void (async () => {
+              const playlistId = await createPlaylist(name);
+              await addTracksToPlaylist(playlistId, targets);
+            })();
+            setPlaylistTarget(null);
+          }}
+          onClose={() => setPlaylistTarget(null)}
         />
-      ))}
-    </ScrollArea>
+      ) : null}
+    </>
   );
 }

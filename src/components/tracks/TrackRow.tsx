@@ -3,12 +3,14 @@ import type { CSSProperties, MouseEvent } from "react";
 
 // -- Component Imports --
 import { Tooltip } from "../common/Tooltip/Tooltip";
+import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
 import type { TrackColumn } from "./trackColumns";
 
 // -- Type Imports --
+import type { MenuEntry } from "../common/ContextMenu";
 import type { TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
@@ -48,6 +50,9 @@ function cellClass(col: TrackColumn, empty: boolean): string {
  * separate target that toggles selection and never opens it. The checkbox dissolves until the row is
  * hovered or a selection is active, so it is a quiet affordance rather than a permanent column. Hover
  * and the active peek show as a soft veil; a selected row carries a steadier veil.
+ *
+ * `buildMenu` arms the right-click menu: when passed, the row captures the context event and opens the
+ * shared menu at the pointer with the entries it returns for this track. Absent, the row has no menu.
  */
 export function TrackRow({
   track,
@@ -57,6 +62,7 @@ export function TrackRow({
   style,
   onSelect,
   onToggle,
+  buildMenu,
 }: {
   track: TrackRowData;
   active: boolean;
@@ -65,8 +71,10 @@ export function TrackRow({
   style: CSSProperties;
   onSelect: (track: TrackRowData) => void;
   onToggle: (trackId: number, modifiers: SelectModifiers) => void;
+  buildMenu?: (track: TrackRowData) => MenuEntry[];
 }) {
   const t = useT();
+  const menu = useContextMenu();
 
   const toggle = (e: MouseEvent) => {
     // Keep the peek from opening: the checkbox owns this click.
@@ -86,6 +94,7 @@ export function TrackRow({
       tabIndex={0}
       aria-label={track.raw_title ?? track.filename}
       onClick={() => onSelect(track)}
+      onContextMenu={buildMenu ? menu.onContextMenu : undefined}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -121,6 +130,17 @@ export function TrackRow({
           </Tooltip>
         );
       })}
+
+      {buildMenu ? (
+        <ContextMenu
+          open={menu.open}
+          x={menu.x}
+          y={menu.y}
+          onClose={menu.close}
+          items={buildMenu(track)}
+          ariaLabel={track.raw_title ?? track.filename}
+        />
+      ) : null}
     </div>
   );
 }

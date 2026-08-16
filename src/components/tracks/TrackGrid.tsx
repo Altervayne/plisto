@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 // -- Library Imports --
@@ -11,14 +11,20 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+// -- Icon Imports --
+import { ArrowUpToLine, Disc, Disc3, FolderOpen, Info, ListPlus } from "lucide-react";
+
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
+import { AlbumPicker } from "../organize/AlbumPicker";
+import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
 // -- State Imports --
 import {
+  useEditTrack,
   useGridFilter,
   useGridSort,
   useSetGridFilter,
@@ -27,20 +33,28 @@ import {
 } from "../../state/store";
 import {
   useAddSelection,
+  useAlbums,
+  useAssignTracks,
+  useCreateSingle,
   useRemoveSelection,
   useSelectRange,
   useSelection,
   useToggleSelect,
 } from "../../state/organize/store";
-
-// -- Type Imports --
-import type { SelectModifiers } from "./TrackRow";
+import {
+  useAddTracksToPlaylist,
+  useCreatePlaylist,
+  usePlaylists,
+} from "../../state/playlists/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
+import { revealFile } from "../../lib/opener";
 
 // -- Type Imports --
-import type { TrackRow as TrackRowData } from "../../types";
+import type { SelectModifiers } from "./TrackRow";
+import type { MenuEntry } from "../common/ContextMenu";
+import type { TrackEditFields, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -49,6 +63,12 @@ import { useT } from "../../i18n";
 import styles from "./TrackGrid.module.css";
 
 const ROW_HEIGHT = 40;
+
+/** The filename without its extension: everything before the last dot, or the whole name when it has none. */
+function filenameStem(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot > 0 ? filename.slice(0, dot) : filename;
+}
 
 /**
  * The track grid: TanStack Table holds the sorted and filtered row model over the loaded rows,
@@ -137,6 +157,67 @@ export function TrackGrid({
     anchorRef.current = index;
   };
 
+  // The right-click menu acts on the one row it opened over, never the multi-selection: each entry
+  // targets that track alone. The two "Add to..." pickers hold that track id while open, so choosing
+  // lands on it even after the menu has closed.
+  const albums = useAlbums();
+  const assignTracks = useAssignTracks();
+  const createSingle = useCreateSingle();
+  const editTrack = useEditTrack();
+  const playlists = usePlaylists();
+  const addTracksToPlaylist = useAddTracksToPlaylist();
+  const createPlaylist = useCreatePlaylist();
+  const [albumPickerTrack, setAlbumPickerTrack] = useState<number | null>(null);
+  const [playlistPickerTrack, setPlaylistPickerTrack] = useState<number | null>(null);
+
+  // Seeds the title from the filename stem through the track's own edit path, the same write the peek
+  // makes, so it reflects at once and reverts like any typed title.
+  const useFilenameAsTitle = (track: TrackRowData) => {
+    const edits: TrackEditFields = {
+      title: track.title_edit,
+      artist: track.artist_edit,
+      album: track.album_edit,
+      album_artist: track.album_artist_edit,
+      year: track.year_edit,
+      disc_no: track.disc_edit,
+    };
+    void editTrack(track.id, { ...edits, title: filenameStem(track.filename) });
+  };
+
+  const buildMenu = (track: TrackRowData): MenuEntry[] => [
+    {
+      icon: <FolderOpen size={16} strokeWidth={1.8} />,
+      label: t((d) => d.tracks.goToFile),
+      onSelect: () => void revealFile(track.source_path),
+    },
+    {
+      icon: <Info size={16} strokeWidth={1.8} />,
+      label: t((d) => d.tracks.details),
+      onSelect: () => onSelect(track),
+    },
+    {
+      icon: <ArrowUpToLine size={16} strokeWidth={1.8} />,
+      label: t((d) => d.tracks.useFilenameAsTitle),
+      onSelect: () => useFilenameAsTitle(track),
+    },
+    { separator: true },
+    {
+      icon: <Disc size={16} strokeWidth={1.8} />,
+      label: t((d) => d.selection.addToAlbum),
+      onSelect: () => setAlbumPickerTrack(track.id),
+    },
+    {
+      icon: <ListPlus size={16} strokeWidth={1.8} />,
+      label: t((d) => d.playlists.addTo),
+      onSelect: () => setPlaylistPickerTrack(track.id),
+    },
+    {
+      icon: <Disc3 size={16} strokeWidth={1.8} />,
+      label: t((d) => d.singles.make, { n: 1 }),
+      onSelect: () => void createSingle(track.id),
+    },
+  ];
+
   // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface.
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
@@ -182,6 +263,7 @@ export function TrackGrid({
                   selecting={selecting}
                   onSelect={onSelect}
                   onToggle={handleToggle}
+                  buildMenu={buildMenu}
                   style={{ transform: `translateY(${item.start}px)` }}
                 />
               );
@@ -189,6 +271,36 @@ export function TrackGrid({
           </div>
         )}
       </ScrollArea>
+
+      {albumPickerTrack != null ? (
+        <AlbumPicker
+          albums={albums}
+          onChoose={(albumId) => {
+            assignTracks(albumId, [albumPickerTrack]);
+            setAlbumPickerTrack(null);
+          }}
+          onClose={() => setAlbumPickerTrack(null)}
+        />
+      ) : null}
+
+      {playlistPickerTrack != null ? (
+        <PlaylistPicker
+          playlists={playlists}
+          onChoose={(playlistId) => {
+            void addTracksToPlaylist(playlistId, [playlistPickerTrack]);
+            setPlaylistPickerTrack(null);
+          }}
+          onCreate={(name) => {
+            const trackId = playlistPickerTrack;
+            void (async () => {
+              const playlistId = await createPlaylist(name);
+              await addTracksToPlaylist(playlistId, [trackId]);
+            })();
+            setPlaylistPickerTrack(null);
+          }}
+          onClose={() => setPlaylistPickerTrack(null)}
+        />
+      ) : null}
     </div>
   );
 }

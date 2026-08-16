@@ -8,6 +8,7 @@ import { CSS } from "@dnd-kit/utilities";
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 import { Tooltip } from "../common/Tooltip/Tooltip";
+import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
 // -- Icon Imports --
 import { ArrowUpToLine, GripVertical } from "lucide-react";
@@ -21,6 +22,7 @@ import { parseDisc } from "./discField";
 import { formatDuration } from "../../lib/format";
 
 // -- Type Imports --
+import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumTrackRow as AlbumTrackRowData, TrackOverride } from "../../types";
 
 // -- i18n Imports --
@@ -49,6 +51,9 @@ function filenameStem(filename: string): string {
  * that opens the track's peek, and a click anywhere on the main column opens it too. The grip, disc,
  * and checkbox sit outside that column, so they never open the peek. Without `onOpen` the row keeps its
  * drawer form, the inline title `EditableField`. `peeked` marks the row whose peek is open.
+ *
+ * `buildMenu` arms the right-click menu: when passed, the row opens the shared menu at the pointer with
+ * the entries it returns. Absent, the row has no menu.
  */
 export function AlbumTrackRow({
   row,
@@ -60,6 +65,7 @@ export function AlbumTrackRow({
   onSetDisc,
   onToggleSelect,
   onOpen,
+  buildMenu,
 }: {
   row: AlbumTrackRowData;
   displayNo: number;
@@ -70,9 +76,11 @@ export function AlbumTrackRow({
   onSetDisc: (disc: number | null) => void;
   onToggleSelect: (mods: { shift: boolean; meta: boolean }) => void;
   onOpen?: () => void;
+  buildMenu?: () => MenuEntry[];
 }) {
   const commit = useCommitTrackOverrides();
   const t = useT();
+  const menu = useContextMenu();
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
 
@@ -129,6 +137,7 @@ export function AlbumTrackRow({
       data-selected={selected ? "" : undefined}
       data-selecting={selecting ? "" : undefined}
       data-peeked={peeked ? "" : undefined}
+      onContextMenu={buildMenu ? menu.onContextMenu : undefined}
     >
       <button
         type="button"
@@ -219,6 +228,17 @@ export function AlbumTrackRow({
       )}
 
       <span className={styles.dur}>{formatDuration(row.duration_secs)}</span>
+
+      {buildMenu ? (
+        <ContextMenu
+          open={menu.open}
+          x={menu.x}
+          y={menu.y}
+          onClose={menu.close}
+          items={buildMenu()}
+          ariaLabel={displayTitle}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,89 @@
+/*
+ * The confirm dialog: a scrim behind a lifted card, portalled to the body. One translucent-black scrim,
+ * theme-invariant like the extractor's - it dims the light ground and deepens the dark one alike. The
+ * card reads plain: a prompt over a quiet Cancel and a confirm that tints danger-red when destructive.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.dialog {
+  position: relative;
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.prompt {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cancel,
+.confirm {
+  padding: 8px 15px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.cancel {
+  background: var(--veil);
+  color: var(--ink-2);
+}
+
+.cancel:hover {
+  background: var(--veil-2);
+  color: var(--ink);
+}
+
+.confirm {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.confirm:hover {
+  background: var(--veil-2);
+}
+
+/* Destructive confirm: quiet danger tint at rest, solid red on hover to read as the point of no return. */
+.confirm.destructive {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.confirm.destructive:hover {
+  background: var(--danger);
+  color: #fff;
+}

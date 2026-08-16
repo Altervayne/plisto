@@ -5,7 +5,7 @@
  */
 
 // -- Library Imports --
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 /** Opens a folder in the system file manager. A no-op when the desktop runtime is absent. */
 export async function openFolder(path: string): Promise<void> {
@@ -13,5 +13,14 @@ export async function openFolder(path: string): Promise<void> {
     await openPath(path);
   } catch {
     // No shell (a browser preview) or the path is gone: nothing to open.
+  }
+}
+
+/** Reveals a file in the system file manager, selected in its folder. A no-op without the desktop runtime. */
+export async function revealFile(path: string): Promise<void> {
+  try {
+    await revealItemInDir(path);
+  } catch {
+    // No shell (a browser preview) or the path is gone: nothing to reveal.
   }
 }

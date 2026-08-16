@@ -185,6 +185,7 @@ export const fr: Dict = {
     sectionTags: "Tags",
     sectionFile: "Fichier",
     useFilenameAsTitle: "Utiliser le nom de fichier comme titre",
+    goToFile: "Aller au fichier",
     columns: {
       raw_track_no: "N°",
       raw_title: "Titre",

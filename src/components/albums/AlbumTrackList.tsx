@@ -18,6 +18,9 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
+// -- Icon Imports --
+import { FolderOpen, Image as ImageIcon, Info, ListPlus, X } from "lucide-react";
+
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
 import { AlbumTrackRow } from "./AlbumTrackRow";
@@ -42,8 +45,10 @@ import {
 
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
+import { revealFile } from "../../lib/opener";
 
 // -- Type Imports --
+import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
 import type { ExtractTrack } from "../extract/ExtractPanel";
 
@@ -88,7 +93,13 @@ export function AlbumTrackList({
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
-  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
+  // The playlist picker serves two openers: the selection bar (a snapshot of the whole selection, which
+  // clears once added) and a row's right-click menu (that one track, which leaves the selection alone).
+  // `fromSelection` remembers which, so only the bar's flow clears the selection after.
+  const [playlistPicker, setPlaylistPicker] = useState<{
+    tracks: number[];
+    fromSelection: boolean;
+  } | null>(null);
 
   // A revealed-but-empty extra disc, held here alone: it is only a drop zone, never persisted, so it
   // drops away when the drawer moves to another album.
@@ -192,20 +203,64 @@ export function AlbumTrackList({
     clearSelection();
   };
 
-  // Adds the selection to an existing playlist, then clears. The backdrop blocks selection changes while
-  // the picker is open, so the live selection is the snapshot.
+  // Adds the picker's target tracks to an existing playlist, then closes. Only the selection-bar flow
+  // clears the selection after; a row-menu add leaves it untouched.
   const onChoosePlaylist = (playlistId: number) => {
-    void addTracksToPlaylist(playlistId, [...selected]);
-    setPlaylistPickerOpen(false);
-    clearSelection();
+    if (!playlistPicker) return;
+    void addTracksToPlaylist(playlistId, playlistPicker.tracks);
+    if (playlistPicker.fromSelection) clearSelection();
+    setPlaylistPicker(null);
   };
 
-  // Creates a playlist from the typed name, adds the selection to it, then clears.
+  // Creates a playlist from the typed name, adds the picker's target tracks to it, then closes.
   const onCreatePlaylist = async (name: string) => {
+    if (!playlistPicker) return;
+    const { tracks: targets, fromSelection } = playlistPicker;
     const playlistId = await createPlaylist(name);
-    await addTracksToPlaylist(playlistId, [...selected]);
-    setPlaylistPickerOpen(false);
-    clearSelection();
+    await addTracksToPlaylist(playlistId, targets);
+    if (fromSelection) clearSelection();
+    setPlaylistPicker(null);
+  };
+
+  // The row's right-click menu, in album-member context. Details rides only in browse mode, where a
+  // peek exists to open. The cover entry flips by the membership's current flag: keeping its own art or
+  // falling back to the album cover. Remove-from-album is the sole destructive entry.
+  const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
+    const items: MenuEntry[] = [
+      {
+        icon: <FolderOpen size={16} strokeWidth={1.8} />,
+        label: t((d) => d.tracks.goToFile),
+        onSelect: () => void revealFile(row.source_path),
+      },
+    ];
+    if (onOpenTrack) {
+      items.push({
+        icon: <Info size={16} strokeWidth={1.8} />,
+        label: t((d) => d.tracks.details),
+        onSelect: () => onOpenTrack(row.track_id),
+      });
+    }
+    items.push(
+      { separator: true },
+      {
+        icon: <ListPlus size={16} strokeWidth={1.8} />,
+        label: t((d) => d.playlists.addTo),
+        onSelect: () => setPlaylistPicker({ tracks: [row.track_id], fromSelection: false }),
+      },
+      {
+        icon: <ImageIcon size={16} strokeWidth={1.8} />,
+        label: row.keep_own_cover ? t((d) => d.albums.useAlbumCover) : t((d) => d.albums.keepOwnCover),
+        onSelect: () => void setTrackKeepOwnCover(albumId, [row.track_id], !row.keep_own_cover),
+      },
+      { separator: true },
+      {
+        icon: <X size={16} strokeWidth={1.8} />,
+        label: t((d) => d.albums.removeFromAlbum),
+        style: "destructive",
+        onSelect: () => unassignTracks(albumId, [row.track_id]),
+      },
+    );
+    return items;
   };
 
   // Opens the extractor over the current selection. Album rows carry no display_path, so the source
@@ -262,7 +317,7 @@ export function AlbumTrackList({
           onSelectAll={selectAll}
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}
-          onAddToPlaylist={() => setPlaylistPickerOpen(true)}
+          onAddToPlaylist={() => setPlaylistPicker({ tracks: [...selected], fromSelection: true })}
           onKeepOwnCover={() => setSelectedKeepOwnCover(true)}
           onUseAlbumCover={() => setSelectedKeepOwnCover(false)}
           onRemove={removeSelected}
@@ -270,12 +325,12 @@ export function AlbumTrackList({
         />
       ) : null}
 
-      {playlistPickerOpen ? (
+      {playlistPicker ? (
         <PlaylistPicker
           playlists={playlists}
           onChoose={onChoosePlaylist}
           onCreate={(name) => void onCreatePlaylist(name)}
-          onClose={() => setPlaylistPickerOpen(false)}
+          onClose={() => setPlaylistPicker(null)}
         />
       ) : null}
 
@@ -323,6 +378,7 @@ export function AlbumTrackList({
                       onToggleSelect={onToggleSelect}
                       onOpenTrack={onOpenTrack}
                       openTrackId={openTrackId}
+                      buildMenu={buildTrackMenu}
                     />
                   )}
                 </div>
@@ -338,6 +394,7 @@ export function AlbumTrackList({
               onToggleSelect={onToggleSelect}
               onOpenTrack={onOpenTrack}
               openTrackId={openTrackId}
+              buildMenu={buildTrackMenu}
             />
           )}
         </SortableContext>
@@ -365,6 +422,7 @@ function DiscRows({
   onToggleSelect,
   onOpenTrack,
   openTrackId,
+  buildMenu,
 }: {
   rows: AlbumTrackRowData[];
   showDisc: boolean;
@@ -374,6 +432,7 @@ function DiscRows({
   onToggleSelect: (trackId: number, mods: { shift: boolean; meta: boolean }) => void;
   onOpenTrack?: (trackId: number) => void;
   openTrackId?: number | null;
+  buildMenu: (row: AlbumTrackRowData) => MenuEntry[];
 }) {
   return (
     <div className={styles.list}>
@@ -389,6 +448,7 @@ function DiscRows({
           peeked={openTrackId != null && row.track_id === openTrackId}
           onToggleSelect={(mods) => onToggleSelect(row.track_id, mods)}
           onOpen={onOpenTrack ? () => onOpenTrack(row.track_id) : undefined}
+          buildMenu={() => buildMenu(row)}
         />
       ))}
     </div>

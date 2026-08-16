@@ -184,6 +184,7 @@ export const en = {
     sectionTags: "Tags",
     sectionFile: "File",
     useFilenameAsTitle: "Use filename as title",
+    goToFile: "Go to file",
     columns: {
       raw_track_no: "No",
       raw_title: "Title",

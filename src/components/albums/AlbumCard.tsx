@@ -1,19 +1,25 @@
 // -- Framework Imports --
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
+
+// -- Icon Imports --
+import { Info, ListPlus, Maximize2, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { CoverBadge } from "../common/CoverBadge/CoverBadge";
 import { CardMeta } from "./CardMeta";
+import { ContextMenu, useContextMenu } from "../common/ContextMenu";
+import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
 
 // -- Hook Imports --
 import { useAlbumCover } from "./useAlbumCover";
 
 // -- State Imports --
-import { useAlbumTracks } from "../../state/organize/store";
+import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
 
 // -- Type Imports --
+import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumRow } from "../../types";
 
 // -- i18n Imports --
@@ -47,13 +53,19 @@ export function AlbumCard({
   drawerOpen,
   onOpen,
   onOpenFull,
+  onAddToPlaylist,
 }: {
   album: AlbumRow;
   selected: boolean;
   drawerOpen: boolean;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
+  onAddToPlaylist?: (trackIds: number[]) => void;
 }) {
+  const deleteAlbum = useDeleteAlbum();
+  const menu = useContextMenu();
+  // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -84,16 +96,65 @@ export function AlbumCard({
     }
     onOpenFull?.(album.id);
   };
+
+  // A right-click never means to open the drawer, so drop any pending open the click timer armed before
+  // the menu takes over.
+  const onContextMenu = (event: MouseEvent<HTMLButtonElement>) => {
+    if (openTimer.current) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+    menu.onContextMenu(event);
+  };
   // Detail res, not thumb: the tile is 168px (more on hi-DPI) and the source cover is often larger, so a
   // 128px thumb reads crunchy against the sharp drawer and folder-view covers, which already use detail.
   const { src } = useAlbumCover(album.id, "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();
-  const lead =
-    album.kind === "single"
-      ? t((d) => d.singles.marker)
-      : t((d) => d.albums.trackCount, { n: album.track_count });
+  const single = album.kind === "single";
+  const lead = single
+    ? t((d) => d.singles.marker)
+    : t((d) => d.albums.trackCount, { n: album.track_count });
+
+  // The card's right-click menu, split by kind: an album offers Open (the full pane) and Delete; a single
+  // has neither, only its details, an add-to-playlist, and the remove that returns its lone track to
+  // unsorted. Both delete through the same album removal, styled destructive.
+  const buildMenu = (): MenuEntry[] => {
+    const items: MenuEntry[] = [];
+    if (!single && onOpenFull) {
+      items.push({
+        icon: <Maximize2 size={16} strokeWidth={1.8} />,
+        label: t((d) => d.albums.open),
+        onSelect: () => onOpenFull(album.id),
+      });
+    }
+    items.push({
+      icon: <Info size={16} strokeWidth={1.8} />,
+      label: single ? t((d) => d.singles.details) : t((d) => d.albums.details),
+      onSelect: () => onOpen(album.id),
+    });
+    if (onAddToPlaylist) {
+      items.push(
+        { separator: true },
+        {
+          icon: <ListPlus size={16} strokeWidth={1.8} />,
+          label: t((d) => d.playlists.addTo),
+          onSelect: () => onAddToPlaylist(tracks.map((track) => track.track_id)),
+        },
+      );
+    }
+    items.push(
+      { separator: true },
+      {
+        icon: <Trash2 size={16} strokeWidth={1.8} />,
+        label: single ? t((d) => d.singles.remove) : t((d) => d.albums.delete),
+        style: "destructive",
+        onSelect: () => setConfirmDelete(true),
+      },
+    );
+    return items;
+  };
 
   return (
     <button
@@ -102,6 +163,7 @@ export function AlbumCard({
       aria-pressed={selected}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={onContextMenu}
     >
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />
@@ -113,6 +175,25 @@ export function AlbumCard({
         title={album.title ?? t((d) => d.albums.untitled)}
         secondary={album.album_artist ?? ""}
         sub={subLine(album, lead)}
+      />
+
+      <ContextMenu
+        open={menu.open}
+        x={menu.x}
+        y={menu.y}
+        onClose={menu.close}
+        items={buildMenu()}
+        ariaLabel={album.title ?? t((d) => d.albums.untitled)}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        prompt={single ? t((d) => d.singles.removeConfirm) : t((d) => d.albums.deleteConfirm)}
+        confirmLabel={single ? t((d) => d.singles.removeAction) : t((d) => d.albums.deleteAction)}
+        cancelLabel={t((d) => d.common.cancel)}
+        onConfirm={() => void deleteAlbum(album.id)}
+        onClose={() => setConfirmDelete(false)}
+        destructive
       />
     </button>
   );
