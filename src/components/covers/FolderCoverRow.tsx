@@ -210,6 +210,11 @@ export const FolderCoverRow = memo(function FolderCoverRow({ group }: { group: I
             onApplied={(count) => {
               setMatchOpen(false);
               setMatched(count);
+              // Every track in the folder just got its own cover, so none is bare any more: drop the
+              // folder from the Needs-cover list at once rather than waiting on a manual refresh.
+              if (folderTracks.length > 0 && count === folderTracks.length) {
+                markFolderCovered(group.folder_path);
+              }
             }}
           />
         ) : null}

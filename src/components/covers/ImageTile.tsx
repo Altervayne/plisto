@@ -8,6 +8,7 @@ import { Disc, FolderCog, ListChecks } from "lucide-react";
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { ContextMenu } from "../common/ContextMenu";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Hook Imports --
 import { useImageThumb } from "./useImageThumb";
@@ -53,6 +54,9 @@ export const ImageTile = memo(function ImageTile({
   const t = useT();
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0 });
 
+  // The image's own filename, shown on hover so a tile is identifiable without opening it.
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+
   // Both a left click and a right click open the chooser at the pointer. A failed thumbnail is inert:
   // its source cannot be read, so there is nothing to bind.
   const openAt = (event: MouseEvent) => {
@@ -93,17 +97,19 @@ export const ImageTile = memo(function ImageTile({
 
   return (
     <div className={styles.tile}>
-      <button
-        type="button"
-        className={`${styles.hit} ${inUse ? styles.inUse : ""}`}
-        onClick={openAt}
-        onContextMenu={openAt}
-        disabled={failed}
-        aria-label={t((d) => d.covers.chooserLabel)}
-      >
-        <Cover src={failed ? null : src} interactive alt="" onError={onError} />
-        {inUse ? <span className={styles.ring} aria-hidden="true" /> : null}
-      </button>
+      <Tooltip label={fileName}>
+        <button
+          type="button"
+          className={`${styles.hit} ${inUse ? styles.inUse : ""}`}
+          onClick={openAt}
+          onContextMenu={openAt}
+          disabled={failed}
+          aria-label={t((d) => d.covers.chooserLabel)}
+        >
+          <Cover src={failed ? null : src} interactive alt="" onError={onError} />
+          {inUse ? <span className={styles.ring} aria-hidden="true" /> : null}
+        </button>
+      </Tooltip>
       {failed ? <span className={styles.note}>{t((d) => d.covers.unavailable)}</span> : null}
 
       <ContextMenu

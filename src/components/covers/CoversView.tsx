@@ -25,6 +25,7 @@ import {
   useCoverGroups,
   useCoversStatus,
   useDiscoverCovers,
+  useMarkFolderCovered,
 } from "../../state/covers/store";
 
 // -- Type Imports --
@@ -59,11 +60,15 @@ export function CoversView() {
   const status = useCoversStatus();
   const discover = useDiscoverCovers();
   const cancel = useCancelCovers();
+  const markFolderCovered = useMarkFolderCovered();
   const tracks = useTracks();
   const t = useT();
   const [scope, setScope] = useState<CoverScope>("needs");
   // The library-wide filename matches under review, or null when the preview is closed.
   const [preview, setPreview] = useState<CoverMatch[] | null>(null);
+  // The folders whose every track the pending match would cover, so a full apply drops them from the
+  // Needs-cover list at once - the per-track binds clear their bare tracks, but no refresh recomputes it.
+  const [matchFolders, setMatchFolders] = useState<string[]>([]);
   // How many covers the last apply landed, shown briefly then cleared.
   const [matched, setMatched] = useState<number | null>(null);
 
@@ -83,9 +88,21 @@ export function CoversView() {
   }, [matched]);
 
   // Every filename pair across every discovered folder, gathered on demand for the library-wide preview.
+  // A folder whose every track finds a match is flagged so a full apply can drop it from Needs cover.
   const openLibraryMatch = () => {
-    setPreview(
-      groups.flatMap((g) => matchStemPairs(g.images, tracksInFolder(tracks, g.folder_path))),
+    const perFolder = groups.map((g) => {
+      const folderTracks = tracksInFolder(tracks, g.folder_path);
+      return {
+        folder: g.folder_path,
+        matches: matchStemPairs(g.images, folderTracks),
+        trackCount: folderTracks.length,
+      };
+    });
+    setPreview(perFolder.flatMap((f) => f.matches));
+    setMatchFolders(
+      perFolder
+        .filter((f) => f.trackCount > 0 && f.matches.length === f.trackCount)
+        .map((f) => f.folder),
     );
   };
 
@@ -177,6 +194,9 @@ export function CoversView() {
           matches={preview}
           onClose={() => setPreview(null)}
           onApplied={(count) => {
+            // Only when every match landed is a fully-matched folder truly covered; a partial apply
+            // leaves some folder's bare track, so hold those for the next refresh.
+            if (count === preview.length) matchFolders.forEach(markFolderCovered);
             setPreview(null);
             setMatched(count);
           }}

@@ -20,6 +20,11 @@ describe("stemOf", () => {
   it("keeps a dotless name whole", () => {
     expect(stemOf("Song")).toBe("song");
   });
+
+  it("peels the ripper's trailing bracket junk before folding", () => {
+    expect(stemOf("01 - Song (128kbit_AAC).mp3")).toBe("01 - song");
+    expect(stemOf("Graze the Roof (152kbit_Opus).m4a")).toBe("graze the roof");
+  });
 });
 
 describe("matchStemPairs", () => {
@@ -64,6 +69,14 @@ describe("matchStemPairs", () => {
     const matches = matchStemPairs(
       ["/m/a/Song.jpg"],
       [track(1, "Song.mp3"), track(2, "Song.m4a")],
+    );
+    expect(matches.map((m) => m.trackId)).toEqual([1]);
+  });
+
+  it("pairs a track through the format tag when only one side carries it", () => {
+    const matches = matchStemPairs(
+      ["/m/a/01 - Song.jpg"],
+      [track(1, "01 - Song (128kbit_AAC).mp3")],
     );
     expect(matches.map((m) => m.trackId)).toEqual([1]);
   });
