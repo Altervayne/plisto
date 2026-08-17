@@ -75,7 +75,10 @@ pub fn playlist_export_plan(
 /// with the duration in whole seconds (`-1` when unknown) and the `artist - title` label, then the
 /// path `path_for` returns for that slot. `path_for` lets one renderer serve both cases: the
 /// in-place file passes the absolute source, the bundled file passes the relative copied filename.
-/// UTF-8 with `\n` line endings. Missing-source slots are omitted, matching the copy's skip.
+/// Every path is emitted with forward slashes, whatever the host OS: `/` resolves on Windows players
+/// and is the only separator Android and other mobile players accept, so a `\`-laden Windows path
+/// never lands unreadable on a phone. UTF-8 with `\n` line endings. Missing-source slots are omitted,
+/// matching the copy's skip.
 pub fn render_m3u(
     plan: &PlaylistExportPlan,
     path_for: impl Fn(&PlaylistExportTrack) -> String,
@@ -92,7 +95,7 @@ pub fn render_m3u(
             &file_stem(&track.source_path),
         );
         out.push_str(&format!("#EXTINF:{secs},{label}\n"));
-        out.push_str(&path_for(track));
+        out.push_str(&path_for(track).replace('\\', "/"));
         out.push('\n');
     }
     out
@@ -374,6 +377,29 @@ mod tests {
         // A blank-but-present description is treated as unset, so it never renders an empty line.
         let blank = render_rich_m3u8(&plan, Some("   "), false);
         assert!(!blank.contains("#DESCRIPTION"), "blank description omitted");
+    }
+
+    #[test]
+    fn m3u_emits_forward_slashes_for_a_backslash_path() {
+        // A Windows source path renders with forward slashes, so an absolute or relative path never
+        // lands on a phone with the one separator its player cannot read.
+        let plan = PlaylistExportPlan {
+            name: None,
+            tracks: vec![track(
+                1,
+                "C:\\Users\\me\\Music\\a.mp3",
+                Some("A"),
+                Some("Song"),
+                Some(1.0),
+                false,
+            )],
+        };
+        let rendered = render_m3u(&plan, |t| t.source_path.clone());
+        assert!(
+            rendered.contains("C:/Users/me/Music/a.mp3"),
+            "backslashes become forward slashes",
+        );
+        assert!(!rendered.contains('\\'), "no backslash survives the render");
     }
 
     #[test]

@@ -366,7 +366,7 @@ export const en = {
     shape: {
       label: "Playlist shape",
       mimic: "Mimic album",
-      mirror: "Album structure",
+      file: "Playlist file",
     },
     action: "Export",
     confirm: "Export anyway",

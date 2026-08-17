@@ -10,8 +10,8 @@ import type { Segment } from "../common/SegmentedControl";
 // -- Style Imports --
 import styles from "./ExportSections.module.css";
 
-/** The layout each included playlist takes: a flat mimic album, or the Artist/Album structure. */
-export type PlaylistShape = "mimic" | "mirror";
+/** The shape each included playlist takes: a flat mimic album, or a portable .m3u8 playlist file. */
+export type PlaylistShape = "mimic" | "file";
 
 /** Which top-level section a toggle drives. */
 type Section = "albums" | "singles" | "playlists";
@@ -41,7 +41,7 @@ export function ExportSections({
 
   const shapeSegments: Segment<PlaylistShape>[] = [
     { value: "mimic", label: t((d) => d.export.shape.mimic) },
-    { value: "mirror", label: t((d) => d.export.shape.mirror) },
+    { value: "file", label: t((d) => d.export.shape.file) },
   ];
 
   return (

@@ -116,7 +116,7 @@ export function exportLibrary(
     albums?: boolean;
     singles?: boolean;
     playlists?: boolean;
-    playlistShape?: "mimic" | "mirror";
+    playlistShape?: "mimic" | "file";
   } = {},
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {

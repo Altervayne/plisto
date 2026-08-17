@@ -30,7 +30,7 @@ const UNSORTED_ROOT: &str = "Unsorted";
 // The general export's top-level sections. Albums move under `Albums/`; each playlist gets its own
 // folder under `Playlists/`. A single's `Singles/` parent comes from its kind, not a bucket.
 const ALBUMS_ROOT: &str = "Albums";
-const PLAYLISTS_ROOT: &str = "Playlists";
+pub(crate) const PLAYLISTS_ROOT: &str = "Playlists";
 
 // The label a playlist folder falls back to when its name sanitizes to nothing.
 const UNKNOWN_PLAYLIST: &str = "Playlist";

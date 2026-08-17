@@ -155,6 +155,11 @@ where
             let cover_expected = !matches!(container.cover, CoverPlan::None);
             if let Some(jpeg) = &art {
                 write_sidecars(&dir, jpeg);
+                // Keep the exported cover.jpg/folder.jpg out of the phone's gallery: an empty
+                // .nomedia in each folder that carries art tells Android's media scanner to skip it,
+                // so dozens of album covers never flood the Photos grid. A folder with no cover writes
+                // no image, so it needs none. A failed write is quiet - the copies still landed.
+                let _ = fs::write(dir.join(".nomedia"), b"");
             }
             let cover_bytes = art.as_deref();
 
@@ -341,6 +346,57 @@ fn bundled_m3u_content(
     render_m3u(m3u, |t| rel.get(&t.track_id).cloned().unwrap_or_default())
 }
 
+/// Writes one portable `.m3u8` per playlist into the general export's `Playlists/` folder, each
+/// pointing at the copies the run already landed rather than duplicating them: a member or single at
+/// its `Albums/`/`Singles/` path is reached with a `../` out of `Playlists/`, while a bagged orphan
+/// living under the playlist's own folder is reached without. The path map is the same derivation
+/// run_export wrote, keyed by track id, so a slot the playlist holds twice names the one copy and a
+/// missing-source slot drops out. The files sit beside the copies, so the whole export travels as one
+/// portable bundle. Called after the copies, off the cancel path; a failed write is quiet.
+pub fn write_general_playlist_m3us(
+    plan: &ExportPlan,
+    playlists: &[PlaylistExportPlan],
+    destination: &Path,
+    template: &AlbumTemplate,
+) {
+    if playlists.is_empty() {
+        return;
+    }
+
+    // The track -> root-relative exported path map, re-derived from the same layout run_export wrote.
+    let dest_len = destination.to_string_lossy().chars().count();
+    let layout = derive_layout(&plan.containers, dest_len, template);
+    let mut rel: HashMap<i64, String> = HashMap::new();
+    for clayout in &layout {
+        for track in &clayout.tracks {
+            let path = clayout.rel_dir.join(&track.filename);
+            rel.insert(track.track_id, path.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
+    // A fully-referenced playlist bags nothing, so `Playlists/` may not exist yet; make it once.
+    let playlists_dir = destination.join(derive::PLAYLISTS_ROOT);
+    if fs::create_dir_all(&playlists_dir).is_err() {
+        return;
+    }
+    let inside_prefix = format!("{}/", derive::PLAYLISTS_ROOT);
+
+    for pl in playlists {
+        // Each slot's path is relative to `Playlists/`: a bagged orphan already sits under it, so its
+        // prefix is stripped; every other copy is one level up, reached with `../`. render_m3u drops a
+        // missing-source slot, and a slot with no mapped copy renders no path.
+        let content = render_m3u(pl, |t| match rel.get(&t.track_id) {
+            Some(path) => match path.strip_prefix(&inside_prefix) {
+                Some(inside) => inside.to_string(),
+                None => format!("../{path}"),
+            },
+            None => String::new(),
+        });
+        let stem = safe_component(pl.name.as_deref().unwrap_or("Playlist"), "Playlist");
+        write_root_file(&playlists_dir, &format!("{stem}.m3u8"), content.as_bytes());
+    }
+}
+
 /// The note for an exported track: none when its art embedded, a caveat when the format could not
 /// carry it, or when a planned cover could not be resolved. A track with no planned art is clean.
 fn embed_note(embed: EmbedResult, cover_expected: bool) -> Option<&'static str> {
@@ -517,6 +573,62 @@ mod tests {
     }
 
     #[test]
+    fn general_playlist_m3u_references_copies_relative_to_the_playlists_folder() {
+        let dest = TempDir::new("dest");
+
+        // An album copied under Albums/, and an orphan bagged under the playlist's own folder.
+        let album = plan::ExportContainer {
+            album_id: 1,
+            kind: plan::ContainerKind::Album,
+            bucket: plan::Bucket::Albums,
+            flat: false,
+            album_artist: Some("AA".into()),
+            title: Some("Rec".into()),
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![album_track(10, "Song", "Art", Some(1))],
+            skipped: Vec::new(),
+        };
+        let bag = plan::ExportContainer {
+            album_id: 0,
+            kind: plan::ContainerKind::Unsorted,
+            bucket: plan::Bucket::Playlist("Mix".into()),
+            flat: false,
+            album_artist: None,
+            title: None,
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![album_track(20, "Loose", "Solo", None)],
+            skipped: Vec::new(),
+        };
+        let export_plan = ExportPlan {
+            containers: vec![album, bag],
+        };
+        let pl = PlaylistExportPlan {
+            name: Some("Mix".into()),
+            tracks: vec![slot(10, "Art", "Song"), slot(20, "Solo", "Loose")],
+        };
+
+        write_general_playlist_m3us(
+            &export_plan,
+            &[pl],
+            dest.path.as_path(),
+            &AlbumTemplate::resolve("", ""),
+        );
+
+        let content =
+            fs::read_to_string(dest.path.join("Playlists").join("Mix.m3u8")).unwrap();
+        assert!(
+            content.contains("\n../Albums/AA/Rec/01 - Song.mp3\n"),
+            "a covered member is reached with ../ out of Playlists/; got:\n{content}",
+        );
+        assert!(
+            content.contains("\nMix/Unsorted/Solo - Loose.mp3\n"),
+            "a bagged orphan is reached from within Playlists/; got:\n{content}",
+        );
+    }
+
+    #[test]
     fn check_destination_refuses_inside_any_root() {
         let roots = vec!["/music/one".to_string(), "/music/two".to_string()];
 
@@ -650,6 +762,114 @@ mod tests {
             read_album_artist(&container.join("02 - T2.flac")).as_deref(),
             Some("Album AA"),
             "the untouched sibling inherits the album's album_artist",
+        );
+    }
+
+    // A tiny decodable JPEG for a stored cover, so run_export resolves real art and writes sidecars.
+    fn jpeg_blob() -> Vec<u8> {
+        use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+        use std::io::Cursor;
+        let img = RgbImage::from_pixel(8, 8, Rgb([180, 60, 20]));
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Jpeg)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    // A bare album ExportTrack over a real source path, for the run_export integration tests that
+    // build their plan by hand rather than through build_plan.
+    fn source_track(track_id: i64, source: &Path, title: &str) -> plan::ExportTrack {
+        plan::ExportTrack {
+            track_id,
+            source: source.to_string_lossy().into_owned(),
+            ext: "flac".into(),
+            title: Some(title.into()),
+            artist: Some("Artist".into()),
+            album_override: None,
+            album_artist_override: None,
+            year_override: None,
+            genres: Vec::new(),
+            track_no: Some(1),
+            disc_no: None,
+            has_embedded: false,
+            keep_own_cover: false,
+            own_cover: CoverPlan::None,
+        }
+    }
+
+    #[test]
+    fn run_export_drops_a_nomedia_beside_an_exported_cover_and_nowhere_else() {
+        let sources = TempDir::new("src");
+        let dest = TempDir::new("dest");
+        let covers = TempDir::new("covers");
+
+        // A real source to copy, and a decodable cover blob in the store keyed by its own hash.
+        let a_path = sources.path.join("a.flac");
+        fs::write(&a_path, minimal_flac()).unwrap();
+        let blob = jpeg_blob();
+        let hash = blake3::hash(&blob).to_hex().to_string();
+        fs::write(
+            crate::covers::full_res_cache_path(covers.path.as_path(), &hash),
+            &blob,
+        )
+        .unwrap();
+
+        // One album carries a cover; a second has none, to prove a coverless folder stays clean.
+        let covered = plan::ExportContainer {
+            album_id: 1,
+            kind: plan::ContainerKind::Album,
+            bucket: plan::Bucket::Root,
+            flat: false,
+            album_artist: Some("Artist".into()),
+            title: Some("Album".into()),
+            year: None,
+            cover: CoverPlan::Store {
+                content_hash: hash,
+                byte_len: blob.len() as i64,
+            },
+            tracks: vec![source_track(1, &a_path, "Song")],
+            skipped: Vec::new(),
+        };
+        let b_path = sources.path.join("b.flac");
+        fs::write(&b_path, minimal_flac()).unwrap();
+        let bare = plan::ExportContainer {
+            album_id: 2,
+            kind: plan::ContainerKind::Album,
+            bucket: plan::Bucket::Root,
+            flat: false,
+            album_artist: Some("Artist".into()),
+            title: Some("Bare Album".into()),
+            year: None,
+            cover: CoverPlan::None,
+            tracks: vec![source_track(2, &b_path, "Bare")],
+            skipped: Vec::new(),
+        };
+
+        let plan = ExportPlan {
+            containers: vec![covered, bare],
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        run_export(
+            &plan,
+            dest.path.as_path(),
+            &AlbumTemplate::resolve("", ""),
+            covers.path.as_path(),
+            &cancel,
+            |_| {},
+        );
+
+        let with_cover = dest.path.join("Artist").join("Album");
+        assert!(with_cover.join("cover.jpg").exists(), "the cover sidecar landed");
+        assert!(
+            with_cover.join(".nomedia").exists(),
+            "a .nomedia sits beside the exported cover so the gallery skips it",
+        );
+
+        let without = dest.path.join("Artist").join("Bare Album");
+        assert!(
+            !without.join(".nomedia").exists(),
+            "a coverless folder writes no image, so it gets no .nomedia",
         );
     }
 }

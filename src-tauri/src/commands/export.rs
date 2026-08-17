@@ -58,9 +58,18 @@ pub async fn export_library(
             .map_err(|_| "index is unavailable".to_string())?;
         let plan = export::build_export_plan(&conn, &config)?;
         let roots = db::all_root_paths(&conn).map_err(|e| e.to_string())?;
-        Ok((plan, roots))
+        // The playlist-file shape writes a portable .m3u8 per playlist after the copies land; snapshot
+        // each playlist's play-order slots here, under the same lock, so the worker stays DB-free.
+        let mut playlist_files = Vec::new();
+        if config.include_playlists && config.playlist_shape == "file" {
+            for p in db::load_playlists(&conn).map_err(|e| e.to_string())?.playlists {
+                playlist_files
+                    .push(export::playlist_export_plan(&conn, p.id).map_err(|e| e.to_string())?);
+            }
+        }
+        Ok((plan, roots, playlist_files))
     })();
-    let (plan, roots) = match prepared {
+    let (plan, roots, playlist_files) = match prepared {
         Ok(v) => v,
         Err(e) => {
             state.export_running.store(false, Ordering::SeqCst);
@@ -97,7 +106,7 @@ pub async fn export_library(
     let status = Arc::clone(&state.export_status);
     let worker_app = app.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        export::run_export(
+        let summary = export::run_export(
             &plan,
             &destination,
             &template,
@@ -110,7 +119,14 @@ pub async fn export_library(
                 let _ = worker_app.emit("export:progress", &p);
                 let _ = on_progress.send(p);
             },
-        )
+        );
+        // The portable playlist files land after the copies, only on a run that finished, so a
+        // cancelled export never leaves an .m3u8 pointing at copies it never wrote. Empty for every
+        // other shape, where the loop is a no-op.
+        if !summary.cancelled {
+            export::write_general_playlist_m3us(&plan, &playlist_files, &destination, &template);
+        }
+        summary
     })
     .await;
 

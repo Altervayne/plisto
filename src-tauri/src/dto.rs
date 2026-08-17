@@ -426,8 +426,9 @@ pub struct ExportConfig {
     pub include_singles: bool,
     #[serde(default)]
     pub include_playlists: bool,
-    // The shape each included playlist takes: "mirror" for the structured Artist/Album folder, anything
-    // else (the default) for the flat mimic album named after the playlist.
+    // The shape each included playlist takes: "file" for a portable .m3u8 that references the copies
+    // already in Albums/Singles (bagging only orphans), anything else (the default) for the flat mimic
+    // album named after the playlist.
     #[serde(default)]
     pub playlist_shape: String,
 }

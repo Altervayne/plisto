@@ -367,7 +367,7 @@ export const fr: Dict = {
     shape: {
       label: "Forme des playlists",
       mimic: "Album imité",
-      mirror: "Structure par album",
+      file: "Fichier playlist",
     },
     action: "Exporter",
     confirm: "Exporter quand même",
