@@ -1,6 +1,7 @@
 // -- Framework Imports --
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { Channel } from "@tauri-apps/api/core";
 
 // -- Component Imports --
 import { PrimaryButton } from "../common/PrimaryButton";
@@ -8,6 +9,7 @@ import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { ExportReport } from "../export/ExportReport";
+import { ExportLayout } from "../export/ExportLayout";
 
 // -- IPC Imports --
 import {
@@ -15,6 +17,7 @@ import {
   createExportChannel,
   exportPlaylistFolder,
   exportPlaylistM3u,
+  exportPlaylistMimicAlbum,
   exportPlaylistRichM3u8,
 } from "../../lib/ipc";
 
@@ -22,8 +25,12 @@ import {
 import { pickFolder, pickPlaylistSavePath } from "../../lib/dialog";
 import { openFolder } from "../../lib/opener";
 
+// -- Local Imports --
+import { DEFAULT_PRESET, presetIdFor } from "../export/templates";
+
 // -- Type Imports --
 import type { Dict } from "../../i18n/en";
+import type { ExportPreset } from "../export/templates";
 import type { ExportProgress, ExportSummary, PlaylistM3uSummary, PlaylistRow } from "../../types";
 
 // -- i18n Imports --
@@ -32,8 +39,11 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./PlaylistExportDialog.module.css";
 
-/** The three export shapes: a plain file, an album-structured folder of copies, a rich re-openable folder. */
-type ExportType = "m3u" | "folder" | "rich";
+/**
+ * The four export shapes: a plain file, an album-structured folder of copies, a rich re-openable
+ * folder, and a flat mimic album of copies named after the playlist.
+ */
+type ExportType = "m3u" | "folder" | "rich" | "mimic";
 
 /** Which screen the dialog shows: the type choice, the live folder run, then the result. */
 type Phase = "idle" | "running" | "done";
@@ -45,6 +55,11 @@ const TYPES: { id: ExportType; label: (d: Dict) => string; desc: (d: Dict) => st
     id: "folder",
     label: (d) => d.playlists.export.folderLabel,
     desc: (d) => d.playlists.export.folderDesc,
+  },
+  {
+    id: "mimic",
+    label: (d) => d.playlists.export.mimicLabel,
+    desc: (d) => d.playlists.export.mimicDesc,
   },
   { id: "rich", label: (d) => d.playlists.export.richLabel, desc: (d) => d.playlists.export.richDesc },
 ];
@@ -72,6 +87,11 @@ export function PlaylistExportDialog({
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [fileResult, setFileResult] = useState<PlaylistM3uSummary | null>(null);
   const [folderResult, setFolderResult] = useState<ExportSummary | null>(null);
+  // The album layout for the folder shape, a per-export choice seeded from the Artist/Album default.
+  // Custom mode is a UI intent, holding the fields open even while the patterns still spell a preset.
+  const [folderPattern, setFolderPattern] = useState(DEFAULT_PRESET.folder);
+  const [filePattern, setFilePattern] = useState(DEFAULT_PRESET.file);
+  const [customMode, setCustomMode] = useState(false);
   // The directory a run wrote into, kept for the done screen's Open action - set for the two folder
   // shapes, left null for the plain .m3u whose destination is a file, not a folder.
   const [openDest, setOpenDest] = useState<string | null>(null);
@@ -89,12 +109,30 @@ export function PlaylistExportDialog({
 
   const hasDescription = playlist.description != null;
   const hasCover = playlist.cover_id != null;
-  // Each warn fires only when the playlist carries the data this type would leave behind.
-  const warnDescription = hasDescription && (type === "m3u" || type === "folder");
+  // Each warn fires only when the playlist carries the data this type would leave behind. Only the
+  // rich .m3u8 keeps the description; the mimic album folds tracks into a compilation with no room
+  // for it, so it warns alongside the plain and album-structured shapes. Every folder shape keeps the
+  // cover, so only the plain .m3u warns there.
+  const warnDescription =
+    hasDescription && (type === "m3u" || type === "folder" || type === "mimic");
   const warnCover = hasCover && type === "m3u";
 
   const untitled = playlist.name == null || playlist.name === "";
   const defaultFileName = `${untitled ? t((d) => d.playlists.untitled) : playlist.name}.m3u8`;
+
+  const derivedPreset = presetIdFor(folderPattern, filePattern);
+  const selectedPreset = customMode || derivedPreset === null ? "custom" : derivedPreset;
+
+  const onSelectPreset = useCallback((preset: ExportPreset) => {
+    setCustomMode(false);
+    setFolderPattern(preset.folder);
+    setFilePattern(preset.file);
+  }, []);
+
+  const onCustomPatterns = useCallback((nextFolder: string, nextFile: string) => {
+    setFolderPattern(nextFolder);
+    setFilePattern(nextFile);
+  }, []);
 
   // The plain and rich exports share a shape: pick a destination, run, hold the count summary. `openable`
   // marks the folder destinations, whose done screen offers an Open. A null pick is the OS dialog
@@ -118,30 +156,36 @@ export function PlaylistExportDialog({
     [],
   );
 
-  const runFolder = useCallback(async () => {
-    const dest = await pickFolder();
-    if (!dest) return;
-    setOpenDest(dest);
-    setProgress(null);
-    setFolderResult(null);
-    setPhase("running");
+  // The folder and mimic shapes share the streaming run: pick a folder, stream progress, hold the
+  // report. They differ only in the backend call, passed in as `run` - the album-structured folder
+  // carries the layout patterns, the flat mimic takes none.
+  const runFolder = useCallback(
+    async (run: (dest: string, channel: Channel<ExportProgress>) => Promise<ExportSummary>) => {
+      const dest = await pickFolder();
+      if (!dest) return;
+      setOpenDest(dest);
+      setProgress(null);
+      setFolderResult(null);
+      setPhase("running");
 
-    const channel = createExportChannel((tick) => {
-      // exported is monotonic on the backend; guard an out-of-order tick from regressing it.
-      setProgress((prev) => {
-        const exported = prev ? Math.max(prev.exported, tick.exported) : tick.exported;
-        return { ...tick, exported };
+      const channel = createExportChannel((tick) => {
+        // exported is monotonic on the backend; guard an out-of-order tick from regressing it.
+        setProgress((prev) => {
+          const exported = prev ? Math.max(prev.exported, tick.exported) : tick.exported;
+          return { ...tick, exported };
+        });
       });
-    });
 
-    try {
-      setFolderResult(await exportPlaylistFolder(playlist.id, dest, channel));
-      setPhase("done");
-    } catch {
-      // A destination that went invalid mid-run drops back to the choice; the source is untouched.
-      setPhase("idle");
-    }
-  }, [playlist.id]);
+      try {
+        setFolderResult(await run(dest, channel));
+        setPhase("done");
+      } catch {
+        // A destination that went invalid mid-run drops back to the choice; the source is untouched.
+        setPhase("idle");
+      }
+    },
+    [],
+  );
 
   const onExport = useCallback(() => {
     if (type === "m3u") {
@@ -152,10 +196,14 @@ export function PlaylistExportDialog({
       );
     } else if (type === "rich") {
       void runFile((dest) => exportPlaylistRichM3u8(playlist.id, dest), pickFolder, true);
+    } else if (type === "mimic") {
+      void runFolder((dest, channel) => exportPlaylistMimicAlbum(playlist.id, dest, channel));
     } else {
-      void runFolder();
+      void runFolder((dest, channel) =>
+        exportPlaylistFolder(playlist.id, dest, channel, folderPattern, filePattern),
+      );
     }
-  }, [type, playlist.id, defaultFileName, runFile, runFolder]);
+  }, [type, playlist.id, defaultFileName, folderPattern, filePattern, runFile, runFolder]);
 
   const total = progress?.total ?? 0;
   const exported = progress?.exported ?? 0;
@@ -254,6 +302,19 @@ export function PlaylistExportDialog({
                 );
               })}
             </div>
+
+            {/* The album-structured folder is the only shape with a layout to shape; the flat mimic
+                numbers its copies with the default file pattern, and the two file shapes have none. */}
+            {type === "folder" ? (
+              <ExportLayout
+                folder={folderPattern}
+                file={filePattern}
+                selected={selectedPreset}
+                onSelectPreset={onSelectPreset}
+                onSelectCustom={() => setCustomMode(true)}
+                onCustomPatterns={onCustomPatterns}
+              />
+            ) : null}
 
             {warnDescription || warnCover ? (
               <div className={styles.warnings}>

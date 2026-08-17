@@ -1,0 +1,65 @@
+/*
+ * The include control: switch rows for the three sections, with the playlist-shape segmented control
+ * indented beneath when Playlists is on. The switch is the one chromatic affordance here, cyan when
+ * on; the shape control stays accent-free, matching the lens toggle.
+ */
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 340px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+/* The track: a pill that fills cyan when on, sunken and quiet when off. Mirrors the keep-own switch. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--sunken);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+/* The knob rides from left to right as the switch flips. */
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] .knob {
+  transform: translateX(16px);
+}
+
+/* The shape choice, indented under the Playlists row it belongs to. */
+.shape {
+  padding-top: 2px;
+  padding-left: 2px;
+}

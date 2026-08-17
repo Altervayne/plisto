@@ -491,15 +491,38 @@ export function exportPlaylistM3u(playlistId: number, path: string): Promise<Pla
 
 /**
  * Copies the playlist's tracks into `destination`, album-structured (loose tracks under Unsorted), with
- * the cover image, streaming progress over `channel` and resolving with the report. Cancellable through
- * `cancelPlaylistExport`. Mirrors the library export's channel wiring.
+ * the cover image, streaming progress over `channel` and resolving with the report. Each member album
+ * lays out by `folderPattern`/`filePattern` (token language); left empty, the backend falls back to the
+ * shipped default. Cancellable through `cancelPlaylistExport`. Mirrors the library export's channel wiring.
  */
 export function exportPlaylistFolder(
   playlistId: number,
   destination: string,
   channel: Channel<ExportProgress>,
+  folderPattern = "",
+  filePattern = "",
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_playlist_folder", {
+    playlistId,
+    destination,
+    folderPattern,
+    filePattern,
+    onProgress: channel,
+  });
+}
+
+/**
+ * Copies the playlist's tracks into `destination` as a standalone Mimic Album: the folder itself is one
+ * album, every track retagged to the playlist name and numbered in playlist order, with the embedded
+ * cover and a cover.jpg - no bundled .m3u. Streams progress over `channel` and resolves with the report.
+ * Cancellable through `cancelPlaylistExport`.
+ */
+export function exportPlaylistMimicAlbum(
+  playlistId: number,
+  destination: string,
+  channel: Channel<ExportProgress>,
+): Promise<ExportSummary> {
+  return invoke<ExportSummary>("export_playlist_mimic_album", {
     playlistId,
     destination,
     onProgress: channel,

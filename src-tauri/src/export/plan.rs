@@ -485,6 +485,20 @@ pub fn mimic_album_container(
     }))
 }
 
+/// The one-container plan for a standalone Mimic Album export: the mimic container re-bucketed to
+/// `Root`, so its retagged copies land straight in the chosen destination - that folder is the album,
+/// and the album tag on each track carries the playlist name for a folder-scanning phone. Stays flat,
+/// so no Artist/Album subfolders form under it. Empty when the playlist has no slots, and the command
+/// reports zero written. The only DB touch after this returns is none: the worker owns the plan.
+pub fn mimic_album_plan(conn: &Connection, playlist_id: i64) -> rusqlite::Result<ExportPlan> {
+    let mut containers = Vec::new();
+    if let Some(mut container) = mimic_album_container(conn, playlist_id)? {
+        container.bucket = Bucket::Root;
+        containers.push(container);
+    }
+    Ok(ExportPlan { containers })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +803,37 @@ mod tests {
         assert_eq!(m.tracks[0].album_artist_override.as_deref(), Some("Various Artists"));
         assert_eq!(m.tracks[0].track_no, Some(1));
         assert_eq!(m.tracks[1].track_no, Some(2));
+    }
+
+    #[test]
+    fn mimic_album_plan_is_one_flat_root_container() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let loose = insert_track(&conn, "/m/loose/free.mp3", "Free");
+        db::create_album(&mut conn, Some("Rec".into()), Some("AA".into()), None, None, None, &[a], "album", 1).unwrap();
+        let pl = db::create_playlist(&conn, Some("My Mix".into()), 100).unwrap();
+        db::add_tracks_to_playlist(&mut conn, pl.id, &[a, loose], 100).unwrap();
+
+        let plan = mimic_album_plan(&conn, pl.id).unwrap();
+        assert_eq!(plan.containers.len(), 1);
+        let c = &plan.containers[0];
+        // A standalone mimic re-buckets to Root: the destination itself is the album folder.
+        assert_eq!(c.bucket, Bucket::Root);
+        assert!(c.flat, "a mimic stays flat, no Artist/Album subfolders");
+        assert_eq!(c.kind, ContainerKind::Album);
+        assert_eq!(c.title.as_deref(), Some("My Mix"));
+        assert_eq!(c.album_artist.as_deref(), Some("Various Artists"));
+        assert_eq!(c.tracks.len(), 2);
+        assert_eq!(c.tracks[0].track_no, Some(1));
+        assert_eq!(c.tracks[1].track_no, Some(2));
+    }
+
+    #[test]
+    fn mimic_album_plan_is_empty_for_a_playlist_with_no_slots() {
+        let conn = db::open_in_memory().unwrap();
+        let pl = db::create_playlist(&conn, Some("Empty".into()), 100).unwrap();
+        let plan = mimic_album_plan(&conn, pl.id).unwrap();
+        assert!(plan.containers.is_empty(), "no slots yields no container");
     }
 
     #[test]

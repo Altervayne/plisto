@@ -198,6 +198,7 @@ pub fn run() {
             commands::playlist_export::export_playlist_m3u,
             commands::playlist_export::export_playlist_rich_m3u8,
             commands::playlist_export::export_playlist_folder,
+            commands::playlist_export::export_playlist_mimic_album,
             commands::playlist_export::cancel_playlist_export,
             commands::extract::extract_preview,
             commands::extract::extract_apply,

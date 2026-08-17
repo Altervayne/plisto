@@ -73,13 +73,16 @@ pub fn export_playlist_m3u(
 /// Exports `playlist_id` as an album-structured folder under `destination`: retagged copies laid out
 /// like the library (each album and single the playlist touches, plus an Unsorted bag of its loose
 /// tracks), the playlist's own `cover.jpg`, a `.nomedia`, and a bundled `.m3u8`, streaming progress
-/// over `on_progress`. Rejects while another playlist folder export runs. Snapshots the plan, the
+/// over `on_progress`. `folder_pattern`/`file_pattern` lay out each member album (both empty falls to
+/// the shipped default). Rejects while another playlist folder export runs. Snapshots the plan, the
 /// playlist cover and the roots under one lock, then releases it; validates the destination before any
 /// write (refusing one inside the workspace or not writable); runs the worker on a blocking thread.
 #[tauri::command]
 pub async fn export_playlist_folder(
     playlist_id: i64,
     destination: String,
+    folder_pattern: Option<String>,
+    file_pattern: Option<String>,
     on_progress: Channel<ExportProgress>,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
@@ -130,11 +133,104 @@ pub async fn export_playlist_folder(
     }
 
     let destination = PathBuf::from(destination);
+    let template = export::AlbumTemplate::resolve(
+        &folder_pattern.unwrap_or_default(),
+        &file_pattern.unwrap_or_default(),
+    );
     let covers_dir = state.covers_dir.clone();
     let cancel = Arc::clone(&state.playlist_export_cancel);
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        export::run_playlist_folder(&plan, &m3u, &cover, &destination, &covers_dir, &cancel, move |p| {
+        export::run_playlist_folder(
+            &plan,
+            &m3u,
+            &cover,
+            &destination,
+            &covers_dir,
+            &template,
+            &cancel,
+            move |p| {
+                let _ = on_progress.send(p);
+            },
+        )
+    })
+    .await;
+
+    state.playlist_export_running.store(false, Ordering::SeqCst);
+
+    match outcome {
+        Ok(summary) => Ok(summary),
+        Err(_) => Err("playlist export task failed to run".to_string()),
+    }
+}
+
+/// Exports `playlist_id` as a standalone Mimic Album folder under `destination`: `destination` itself
+/// becomes the album, its retagged copies numbered in playlist order, `album_artist` stamped `Various
+/// Artists`, the embedded cover and a `cover.jpg`, so a folder-scanning phone reads the set as one
+/// compilation. No bundled `.m3u`, no `.nomedia` - a mimic is an album to be scanned, not a playlist
+/// bundle - so it runs run_export directly rather than run_playlist_folder. Rejects while another
+/// playlist export runs. Snapshots the plan and the roots under one lock, then releases it; validates
+/// the destination before any write (refusing one inside the workspace or not writable); runs the
+/// worker on a blocking thread. A playlist with no slots writes nothing and reports zero.
+#[tauri::command]
+pub async fn export_playlist_mimic_album(
+    playlist_id: i64,
+    destination: String,
+    on_progress: Channel<ExportProgress>,
+    state: State<'_, AppState>,
+) -> Result<ExportSummary, String> {
+    if state.playlist_export_running.swap(true, Ordering::SeqCst) {
+        return Err("a playlist export is already running".to_string());
+    }
+    state.playlist_export_cancel.store(false, Ordering::SeqCst);
+
+    // The idle-to-running handoff: one Preparing tick while the plan is snapshotted and validated.
+    let _ = on_progress.send(ExportProgress {
+        phase: ExportPhase::Preparing,
+        exported: 0,
+        total: 0,
+        errors: 0,
+        done: false,
+    });
+
+    // Snapshot the flat mimic plan and the roots under one lock, then drop it. The worker owns it.
+    let prepared = (|| -> Result<_, String> {
+        let conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        let plan = export::mimic_album_plan(&conn, playlist_id).map_err(|e| e.to_string())?;
+        let roots = db::all_root_paths(&conn).map_err(|e| e.to_string())?;
+        Ok((plan, roots))
+    })();
+    let (plan, roots) = match prepared {
+        Ok(v) => v,
+        Err(e) => {
+            state.playlist_export_running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
+
+    // Refuse a destination inside any root or one that is not writable, before any write.
+    let check = export::check_destination(&destination, &roots);
+    if check.inside_workspace {
+        state.playlist_export_running.store(false, Ordering::SeqCst);
+        return Err("the destination is inside a library folder".to_string());
+    }
+    if !check.writable {
+        state.playlist_export_running.store(false, Ordering::SeqCst);
+        return Err("the destination is not writable".to_string());
+    }
+
+    let destination = PathBuf::from(destination);
+    // The container is flat, so the folder pattern never applies; the default file pattern numbers the
+    // copies `NN - Title`, matching what a folder-scanning phone expects of an album.
+    let template = export::AlbumTemplate::resolve("", "");
+    let covers_dir = state.covers_dir.clone();
+    let cancel = Arc::clone(&state.playlist_export_cancel);
+
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        export::run_export(&plan, &destination, &template, &covers_dir, &cancel, move |p| {
             let _ = on_progress.send(p);
         })
     })

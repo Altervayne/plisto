@@ -13,6 +13,7 @@ import { ExportDestination } from "./ExportDestination";
 import { ExportLayout } from "./ExportLayout";
 import { ExportReadiness } from "./ExportReadiness";
 import { ExportReport } from "./ExportReport";
+import { ExportSections } from "./ExportSections";
 
 // -- State Imports --
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
@@ -39,6 +40,7 @@ import { useT } from "../../i18n";
 
 // -- Type Imports --
 import type { ExportPreset } from "./templates";
+import type { PlaylistShape } from "./ExportSections";
 import type { DestinationCheck, ExportProgress, ExportSummary } from "../../types";
 
 // -- Style Imports --
@@ -71,6 +73,12 @@ export function ExportView() {
   // Custom mode is a UI intent: the picker holds Custom even while its patterns still spell a preset, so
   // the fields stay open until the user leaves them. The persisted patterns remain the source of truth.
   const [customMode, setCustomMode] = useState(false);
+  // The three top-level sections and, when playlists are on, the shape each takes. Albums and singles
+  // default on (the pre-1.5 shape); playlists opt in, since they duplicate tracks already in an album.
+  const [includeAlbums, setIncludeAlbums] = useState(true);
+  const [includeSingles, setIncludeSingles] = useState(true);
+  const [includePlaylists, setIncludePlaylists] = useState(false);
+  const [playlistShape, setPlaylistShape] = useState<PlaylistShape>("mimic");
 
   const setPreference = useSetPreference();
   // The template is the two persisted album patterns; absent, the Artist/Album default stands in. An
@@ -143,13 +151,29 @@ export function ExportView() {
     });
 
     try {
-      setSummary(await exportLibrary(destination, channel, folder, file));
+      setSummary(
+        await exportLibrary(destination, channel, folder, file, {
+          albums: includeAlbums,
+          singles: includeSingles,
+          playlists: includePlaylists,
+          playlistShape,
+        }),
+      );
       setPhase("done");
     } catch {
       // A destination that went invalid mid-run drops back to idle; the source is untouched.
       setPhase("idle");
     }
-  }, [destination, folder, file]);
+  }, [destination, folder, file, includeAlbums, includeSingles, includePlaylists, playlistShape]);
+
+  const onToggleSection = useCallback(
+    (section: "albums" | "singles" | "playlists", value: boolean) => {
+      if (section === "albums") setIncludeAlbums(value);
+      else if (section === "singles") setIncludeSingles(value);
+      else setIncludePlaylists(value);
+    },
+    [],
+  );
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
@@ -221,7 +245,14 @@ export function ExportView() {
     );
   }
 
-  const canExport = !!destination && !!check?.ok && counts.exportable > 0;
+  // At least one section must be on and hold something to export: an album/single section counts only
+  // when the library has that kind, while playlists is taken on trust (an empty playlist set simply
+  // writes nothing). All three off leaves nothing to write, so the CTA stays dead.
+  const hasContent =
+    (includeAlbums && counts.albums > 0) ||
+    (includeSingles && counts.singles > 0) ||
+    includePlaylists;
+  const canExport = !!destination && !!check?.ok && hasContent;
   return (
     <div className={styles.view}>
       <div className={styles.head}>
@@ -254,6 +285,18 @@ export function ExportView() {
           {!destination ? (
             <p className={styles.hint}>{t((d) => d.export.phoneHint)}</p>
           ) : null}
+        </section>
+
+        <section className={styles.section}>
+          <span className={styles.label}>{t((d) => d.export.include)}</span>
+          <ExportSections
+            albums={includeAlbums}
+            singles={includeSingles}
+            playlists={includePlaylists}
+            shape={playlistShape}
+            onToggle={onToggleSection}
+            onShape={setPlaylistShape}
+          />
         </section>
 
         <section className={styles.section}>

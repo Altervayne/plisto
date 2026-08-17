@@ -35,7 +35,7 @@ use plan::{CoverPlan, ExportPlan};
 use write::{export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
 
 pub use derive::{safe_component, template_preview, AlbumTemplate};
-pub use plan::{build_export_plan, playlist_folder_plan};
+pub use plan::{build_export_plan, mimic_album_plan, playlist_folder_plan};
 pub use playlist::{
     playlist_cover_plan, playlist_export_plan, render_m3u, render_rich_m3u8, PlaylistExportPlan,
 };
@@ -260,23 +260,24 @@ where
 /// Unsorted bag of its loose tracks), then the playlist's own `cover.jpg`, a `.nomedia`, and a
 /// bundled `.m3u8` at the root. `cover` is the playlist's own art, written once at the root; the
 /// per-album covers ride inside their containers through run_export. `m3u` is the play-order slot
-/// snapshot the bundled playlist lists. A cancelled or container-less run skips the three root files.
-/// Sources and the cover store are read-only; nothing is written outside `destination`.
+/// snapshot the bundled playlist lists. `template` lays out each member album's folder and filename,
+/// and the bundled m3u re-derives paths from the same one so they match. A cancelled or
+/// container-less run skips the three root files. Sources and the cover store are read-only; nothing
+/// is written outside `destination`.
 pub fn run_playlist_folder<E>(
     plan: &ExportPlan,
     m3u: &PlaylistExportPlan,
     cover: &CoverPlan,
     destination: &Path,
     covers_dir: &Path,
+    template: &AlbumTemplate,
     cancel: &Arc<AtomicBool>,
     emit: E,
 ) -> ExportSummary
 where
     E: Fn(ExportProgress) + Sync,
 {
-    // A playlist folder always lays its albums out with the shipped default template.
-    let template = AlbumTemplate::resolve("", "");
-    let summary = run_export(plan, destination, &template, covers_dir, cancel, emit);
+    let summary = run_export(plan, destination, template, covers_dir, cancel, emit);
 
     // The root files land beside the copies once at least one container was written and the run was
     // not cancelled - the same gate the bundle used, and enough to know the destination exists.
@@ -286,7 +287,7 @@ where
         }
         // The empty .nomedia keeps the exported cover out of gallery scanners.
         write_root_file(destination, ".nomedia", b"");
-        write_bundled_m3u(plan, m3u, destination, &template);
+        write_bundled_m3u(plan, m3u, destination, template);
     }
 
     summary
