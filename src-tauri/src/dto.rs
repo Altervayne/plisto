@@ -301,6 +301,31 @@ pub struct TrackEditFields {
     pub disc_no: Option<i64>,
 }
 
+/// The bulk tag patch over a multi-track selection: one shared value per set-field, applied to
+/// every selected track at once. Each field is tri-state on the wire: absent (`None`) leaves that
+/// column untouched, an empty string clears it to NULL, and a value sets it. Title and disc are
+/// deliberately absent - they are per-track, never set across a selection. `year` rides as text
+/// like the others so an empty string can carry the clear signal (an integer field could not); the
+/// command parses it, leaving the year untouched when the text is not a number.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BulkSetFields {
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    #[serde(default)]
+    pub year: Option<String>,
+}
+
+/// The tally of a bulk-edit run: how many selected tracks were written. Mirrors BulkEditResult in
+/// types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct BulkEditResult {
+    pub edited: i64,
+}
+
 /// The Files-view editor's hydration read: a track's raw edit-layer overrides plus its managed
 /// genres, so the editor renders the edited value, the revert affordance, and the genre pills. All
 /// value fields are None when the track has no `track_edits` row (a pristine track); `genre_ids` is

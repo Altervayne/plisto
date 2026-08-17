@@ -11,6 +11,8 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   AlbumFields,
   AlbumRow,
+  BulkEditResult,
+  BulkSetFields,
   CoverCandidate,
   CoverRef,
   CoverSize,
@@ -424,6 +426,20 @@ export function extractApply(
   applyFields: string[],
 ): Promise<ExtractResult> {
   return invoke<ExtractResult>("extract_apply", { pattern, trackIds, applyFields });
+}
+
+/**
+ * Sets one shared value across every track in `trackIds` and adds or removes genres over them. A
+ * `set` field left out is untouched, an empty string clears it, a value sets it. Add names get-or-
+ * create their genre; remove names match an existing genre or are skipped. Resolves with the count.
+ */
+export function bulkEditTracks(
+  trackIds: number[],
+  set: BulkSetFields,
+  addGenres: string[],
+  removeGenres: string[],
+): Promise<BulkEditResult> {
+  return invoke<BulkEditResult>("bulk_edit_tracks", { trackIds, set, addGenres, removeGenres });
 }
 
 /** Loads every playlist with its slot count and every slot across all playlists, in one pass. */

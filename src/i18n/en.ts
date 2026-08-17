@@ -53,6 +53,7 @@ export const en = {
     actions: "Selection actions",
     createAlbum: "Create album",
     addToAlbum: "Add to album...",
+    editTags: "Edit tags...",
     createError: "Could not create the album.",
     pickerTitle: "Add to album",
     noAlbums: "No albums yet - Create one.",
@@ -410,6 +411,21 @@ export const en = {
       one: "{{n}} track number skipped - loose tracks have no album position",
       other: "{{n}} track numbers skipped - loose tracks have no album position",
     },
+  },
+
+  bulkEdit: {
+    title: "Edit tags",
+    summary: { one: "{{n}} track", other: "{{n}} tracks" },
+    fields: "Fields",
+    setHint: "Turn on a field to set it across every track. Leave it empty to clear.",
+    addGenres: "Add genres",
+    removeGenres: "Remove genres",
+    addPlaceholder: "Add genre...",
+    removePlaceholder: "Remove genre...",
+    apply: "Apply",
+    applying: "Applying...",
+    applyError: "Could not apply the changes.",
+    applied: { one: "{{n}} track updated", other: "{{n}} tracks updated" },
   },
 
   resizer: {

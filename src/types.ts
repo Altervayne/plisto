@@ -235,6 +235,24 @@ export interface TrackEditFields {
 }
 
 /**
+ * The bulk tag patch over a multi-track selection: one shared value per set-field. Each field is
+ * tri-state - absent leaves the column untouched, an empty string clears it, a value sets it. Title
+ * and disc are deliberately absent, being per-track. `year` rides as text so an empty string can
+ * carry the clear signal; the backend parses it. Mirrors BulkSetFields in dto.rs.
+ */
+export interface BulkSetFields {
+  artist?: string;
+  album?: string;
+  album_artist?: string;
+  year?: string;
+}
+
+/** The tally of a bulk-edit run: how many selected tracks were written. Mirrors BulkEditResult. */
+export interface BulkEditResult {
+  edited: number;
+}
+
+/**
  * The Files-view editor's hydration read: a track's raw edit-layer overrides plus its ordered
  * genres. All value fields are null when the track has no edit row; `genre_ids` is empty when it
  * carries none. Raw edit values, resolved against raw by the UI itself. Mirrors TrackEdit in dto.rs.

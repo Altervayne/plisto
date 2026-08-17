@@ -54,6 +54,7 @@ export const fr: Dict = {
     actions: "Actions de sélection",
     createAlbum: "Créer un album",
     addToAlbum: "Ajouter à un album...",
+    editTags: "Modifier les tags...",
     createError: "Impossible de créer l'album.",
     pickerTitle: "Ajouter à un album",
     noAlbums: "Aucun album pour l'instant - Créez-en un.",
@@ -411,6 +412,21 @@ export const fr: Dict = {
       one: "{{n}} numéro de piste ignoré - les pistes isolées n'ont pas de position dans un album",
       other: "{{n}} numéros de piste ignorés - les pistes isolées n'ont pas de position dans un album",
     },
+  },
+
+  bulkEdit: {
+    title: "Modifier les tags",
+    summary: { one: "{{n}} piste", other: "{{n}} pistes" },
+    fields: "Champs",
+    setHint: "Activez un champ pour le définir sur toutes les pistes. Laissez-le vide pour l'effacer.",
+    addGenres: "Ajouter des genres",
+    removeGenres: "Retirer des genres",
+    addPlaceholder: "Ajouter un genre...",
+    removePlaceholder: "Retirer un genre...",
+    apply: "Appliquer",
+    applying: "Application...",
+    applyError: "Impossible d'appliquer les modifications.",
+    applied: { one: "{{n}} piste mise à jour", other: "{{n}} pistes mises à jour" },
   },
 
   resizer: {

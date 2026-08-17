@@ -1,0 +1,302 @@
+/*
+ * The bulk tag editor modal. Like the filename extractor, this is a true dialog: a dimmed scrim behind
+ * a lifted card, portalled to the body so it clears every stacking context. The scrim is a single
+ * translucent black on purpose - it dims the light ground and deepens the dark one alike, staying
+ * theme-invariant rather than reading from a per-theme token.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+/* The scrim and the card share the overlay's data-state: the card rises and settles on enter, both fade
+   off on exit. opacity and transform only, so the modal never reflows on its way in or out. */
+.overlay[data-state="enter"] .backdrop {
+  animation: scrim-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .backdrop {
+  animation: scrim-out var(--dur-soft) var(--ease-exit) both;
+}
+
+.overlay[data-state="enter"] .panel {
+  animation: card-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .panel {
+  animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* Sizes to its content - the editor is compact - so overflow stays visible for the genre adder's
+   dropdown to spill past the card edge rather than clip. */
+.panel {
+  position: relative;
+  transform-origin: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(560px, 92vw);
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.summary {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Set-field rows -- */
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One field: a fixed-width enable toggle over a value input that fills the rest of the row. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 132px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* A toggle whose field is off greys its label, so an untouched field reads as inactive at a glance. */
+.toggle[data-off] {
+  color: var(--ink-3);
+}
+
+.check {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* A soft-recess field, deepening on focus; a disabled input dims to match its off toggle. */
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  transition: background var(--dur-fast) ease;
+}
+
+.input:focus {
+  background: var(--veil-2);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.input:disabled {
+  color: var(--ink-3);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* -- Genre add and remove -- */
+
+.genres {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.genreGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.groupLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The queued names wrap over the adder, which trails and drops below when the chips fill the row. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.chipName {
+  display: inline-flex;
+  align-items: center;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity var(--dur-fast) ease,
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.chipRemove:hover,
+.chipRemove:focus-visible {
+  opacity: 1;
+  background: var(--danger);
+  color: var(--on-solid);
+}
+
+.adder {
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+
+/* -- Footer -- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.error {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* -- Result -- */
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.resultLine {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}

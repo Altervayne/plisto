@@ -202,6 +202,7 @@ pub fn run() {
             commands::playlist_export::cancel_playlist_export,
             commands::extract::extract_preview,
             commands::extract::extract_apply,
+            commands::bulk_edit::bulk_edit_tracks,
             commands::roots::list_roots,
             commands::roots::add_root,
             commands::roots::remove_root,

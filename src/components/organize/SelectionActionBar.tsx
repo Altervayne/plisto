@@ -10,6 +10,7 @@ import { QuietButton } from "../common/QuietButton";
 import { AlbumPicker } from "./AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { ExtractPanel } from "../extract/ExtractPanel";
+import { BulkEditPanel } from "./BulkEditPanel";
 
 // -- State Imports --
 import { useAppStore, useTracks } from "../../state/store";
@@ -82,6 +83,9 @@ export function SelectionActionBar({
   // The extractor opens over a snapshot of the selection, so it holds its result even after the apply
   // clears the selection out from under the bar.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
+  // The bulk editor opens over its own snapshot of the selected ids, holding them through the apply
+  // that clears the selection.
+  const [bulkEditIds, setBulkEditIds] = useState<number[] | null>(null);
 
   // Hold the bar through its exit after the selection clears, and keep the last count so the fade shows
   // the tally it had rather than a bare zero.
@@ -89,9 +93,9 @@ export function SelectionActionBar({
   const lastCount = useRef(0);
   if (selection.size > 0) lastCount.current = selection.size;
 
-  // Stays mounted while the extractor is open, so the bar itself hides on a cleared selection but the
-  // modal keeps its summary.
-  if (!bar.mounted && !extractTracks) return null;
+  // Stays mounted while the extractor or the bulk editor is open, so the bar itself hides on a cleared
+  // selection but the modal keeps its summary.
+  if (!bar.mounted && !extractTracks && !bulkEditIds) return null;
 
   const selectedIds = [...selection];
 
@@ -162,6 +166,12 @@ export function SelectionActionBar({
     );
   };
 
+  // Snapshots the selected ids into the bulk editor, so the apply that clears the selection does not
+  // pull them out from under the open panel.
+  const openBulkEdit = () => {
+    setBulkEditIds(selectedIds);
+  };
+
   // After a bulk apply, pull the fresh tracks and membership so the new tags show, drop the undo stack
   // (the apply wrote outside the command engine, so a stale inverse must never replay), then clear.
   const onExtractApplied = () => {
@@ -225,6 +235,7 @@ export function SelectionActionBar({
                 {t((d) => d.playlists.addTo)}
               </QuietButton>
               <QuietButton onClick={openExtract}>{t((d) => d.extract.action)}</QuietButton>
+              <QuietButton onClick={openBulkEdit}>{t((d) => d.selection.editTags)}</QuietButton>
               <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
             </div>
           </div>
@@ -235,6 +246,14 @@ export function SelectionActionBar({
         <ExtractPanel
           tracks={extractTracks}
           onClose={() => setExtractTracks(null)}
+          onApplied={onExtractApplied}
+        />
+      ) : null}
+
+      {bulkEditIds ? (
+        <BulkEditPanel
+          trackIds={bulkEditIds}
+          onClose={() => setBulkEditIds(null)}
           onApplied={onExtractApplied}
         />
       ) : null}
