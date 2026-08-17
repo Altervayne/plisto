@@ -257,6 +257,12 @@ export interface AppliedResult {
   tracks: number;
 }
 
+/** One title write in a clean-titles apply: a track and its sanitized title. Mirrors TrackTitle in dto.rs. */
+export interface TrackTitle {
+  track_id: number;
+  title: string;
+}
+
 /**
  * The Files-view editor's hydration read: a track's raw edit-layer overrides plus its ordered
  * genres. All value fields are null when the track has no edit row; `genre_ids` is empty when it

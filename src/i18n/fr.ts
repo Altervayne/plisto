@@ -55,6 +55,7 @@ export const fr: Dict = {
     createAlbum: "Créer un album",
     addToAlbum: "Ajouter à un album...",
     editTags: "Modifier les tags...",
+    cleanTitles: "Nettoyer les titres...",
     createError: "Impossible de créer l'album.",
     pickerTitle: "Ajouter à un album",
     noAlbums: "Aucun album pour l'instant - Créez-en un.",
@@ -428,6 +429,16 @@ export const fr: Dict = {
     applying: "Application...",
     applyError: "Impossible d'appliquer les modifications.",
     applied: { one: "{{n}} piste mise à jour", other: "{{n}} pistes mises à jour" },
+  },
+
+  cleanTitles: {
+    title: "Nettoyer les titres",
+    alreadyClean: { one: "{{n}} déjà propre", other: "{{n}} déjà propres" },
+    empty: "Tous les titres sélectionnés sont déjà propres.",
+    apply: "Nettoyer",
+    applying: "Nettoyage...",
+    applyError: "Impossible de nettoyer les titres.",
+    applied: { one: "{{n}} titre nettoyé", other: "{{n}} titres nettoyés" },
   },
 
   applyAlbum: {

@@ -204,6 +204,7 @@ pub fn run() {
             commands::extract::extract_preview,
             commands::extract::extract_apply,
             commands::bulk_edit::bulk_edit_tracks,
+            commands::bulk_edit::apply_track_titles,
             commands::roots::list_roots,
             commands::roots::add_root,
             commands::roots::remove_root,

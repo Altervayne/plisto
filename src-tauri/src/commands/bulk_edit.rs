@@ -15,7 +15,7 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::db;
-use crate::dto::{BulkEditResult, BulkSetFields};
+use crate::dto::{AppliedResult, BulkEditResult, BulkSetFields, TrackTitle};
 use crate::normalize::normalize_genre_key;
 use crate::state::AppState;
 
@@ -47,6 +47,23 @@ pub fn bulk_edit_tracks(
     )
     .map_err(|e| e.to_string())?;
     Ok(BulkEditResult { edited })
+}
+
+/// Overlays a sanitized title onto each `titles` pair, carrying every other edit field through
+/// unchanged. Each track keeps its artist, album, album artist, year and disc; only the title moves.
+/// Holds the DB lock for the whole batch, so the run lands as one consistent writer. Returns how many
+/// tracks were written.
+#[tauri::command]
+pub fn apply_track_titles(
+    titles: Vec<TrackTitle>,
+    state: State<'_, AppState>,
+) -> Result<AppliedResult, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    let tracks = apply_titles(&conn, &titles).map_err(|e| e.to_string())?;
+    Ok(AppliedResult { tracks })
 }
 
 /// The lock-free core: resolves the genre names once, then writes each track's overlaid edit row and
@@ -140,6 +157,27 @@ fn apply_bulk_edit(
     }
 
     Ok(edited)
+}
+
+/// The lock-free core of the title apply: for each pair, reads the track's current edit row and writes
+/// it back with the new title, every other field carried through verbatim. Returns the count written.
+fn apply_titles(conn: &Connection, titles: &[TrackTitle]) -> rusqlite::Result<i64> {
+    let mut applied = 0;
+    for pair in titles {
+        let current = db::get_track_edit(conn, pair.track_id)?;
+        db::set_track_edit(
+            conn,
+            pair.track_id,
+            Some(pair.title.clone()),
+            current.artist,
+            current.album,
+            current.album_artist,
+            current.year,
+            current.disc_no,
+        )?;
+        applied += 1;
+    }
+    Ok(applied)
 }
 
 /// Overlays one text set-field onto the current value: a None leaves it, an empty string clears it to
@@ -252,5 +290,53 @@ mod tests {
         let edit = db::get_track_edit(&conn, t).unwrap();
         assert_eq!(edit.album, None, "an empty string cleared the album");
         assert_eq!(edit.year, Some(1998), "an absent field left the year in place");
+    }
+
+    #[test]
+    fn applies_new_titles_and_leaves_every_other_field_untouched() {
+        let conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/music/1.mp3");
+        let b = insert_track(&conn, "/music/2.mp3");
+
+        // Seed each track's edit row, so a title write must carry the rest through.
+        db::set_track_edit(
+            &conn,
+            a,
+            Some("Song (128kbit_AAC)".into()),
+            Some("Artist A".into()),
+            Some("Album A".into()),
+            Some("Album Artist A".into()),
+            Some(1998),
+            Some(1),
+        )
+        .unwrap();
+        db::set_track_edit(&conn, b, Some("Song (152kbit_Opus)".into()), Some("Artist B".into()), None, None, None, None)
+            .unwrap();
+
+        let applied = apply_titles(
+            &conn,
+            &[
+                TrackTitle { track_id: a, title: "Song".into() },
+                TrackTitle { track_id: b, title: "Song".into() },
+            ],
+        )
+        .unwrap();
+        assert_eq!(applied, 2);
+
+        // The first track takes the new title and keeps every other field.
+        let ea = db::get_track_edit(&conn, a).unwrap();
+        assert_eq!(ea.title.as_deref(), Some("Song"));
+        assert_eq!(ea.artist.as_deref(), Some("Artist A"));
+        assert_eq!(ea.album.as_deref(), Some("Album A"));
+        assert_eq!(ea.album_artist.as_deref(), Some("Album Artist A"));
+        assert_eq!(ea.year, Some(1998));
+        assert_eq!(ea.disc_no, Some(1));
+
+        // The second takes its new title with its lone artist untouched and the rest still empty.
+        let eb = db::get_track_edit(&conn, b).unwrap();
+        assert_eq!(eb.title.as_deref(), Some("Song"));
+        assert_eq!(eb.artist.as_deref(), Some("Artist B"));
+        assert_eq!(eb.album, None);
+        assert_eq!(eb.year, None);
     }
 }

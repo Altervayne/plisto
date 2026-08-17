@@ -460,6 +460,19 @@ export function bulkEditTracks(
   return invoke<BulkEditResult>("bulk_edit_tracks", { trackIds, set, addGenres, removeGenres });
 }
 
+/**
+ * Writes a cleaned title onto each track, carrying every other edit field through unchanged. The dto
+ * fields serialize snake_case, so each pair passes `track_id` verbatim under the camelCase arg.
+ * Resolves with how many titles were written.
+ */
+export function applyTrackTitles(
+  titles: { trackId: number; title: string }[],
+): Promise<AppliedResult> {
+  return invoke<AppliedResult>("apply_track_titles", {
+    titles: titles.map(({ trackId, title }) => ({ track_id: trackId, title })),
+  });
+}
+
 /** Loads every playlist with its slot count and every slot across all playlists, in one pass. */
 export function loadPlaylists(): Promise<PlaylistSnapshot> {
   return invoke<PlaylistSnapshot>("load_playlists");

@@ -54,6 +54,7 @@ export const en = {
     createAlbum: "Create album",
     addToAlbum: "Add to album...",
     editTags: "Edit tags...",
+    cleanTitles: "Clean titles...",
     createError: "Could not create the album.",
     pickerTitle: "Add to album",
     noAlbums: "No albums yet - Create one.",
@@ -427,6 +428,16 @@ export const en = {
     applying: "Applying...",
     applyError: "Could not apply the changes.",
     applied: { one: "{{n}} track updated", other: "{{n}} tracks updated" },
+  },
+
+  cleanTitles: {
+    title: "Clean titles",
+    alreadyClean: { one: "{{n}} already clean", other: "{{n}} already clean" },
+    empty: "Every selected title is already clean.",
+    apply: "Clean",
+    applying: "Cleaning...",
+    applyError: "Could not clean the titles.",
+    applied: { one: "{{n}} title cleaned", other: "{{n}} titles cleaned" },
   },
 
   applyAlbum: {

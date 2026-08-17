@@ -333,6 +333,15 @@ pub struct AppliedResult {
     pub tracks: i64,
 }
 
+/// One title write in a clean-titles apply: a track and the sanitized title to overlay onto it. The
+/// command carries every other edit field through unchanged, so only the title moves. Field names
+/// serialize snake_case verbatim like every other DTO here. Mirrors TrackTitle in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrackTitle {
+    pub track_id: i64,
+    pub title: String,
+}
+
 /// The Files-view editor's hydration read: a track's raw edit-layer overrides plus its managed
 /// genres, so the editor renders the edited value, the revert affordance, and the genre pills. All
 /// value fields are None when the track has no `track_edits` row (a pristine track); `genre_ids` is

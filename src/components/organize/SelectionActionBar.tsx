@@ -11,6 +11,7 @@ import { AlbumPicker } from "./AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { ExtractPanel } from "../extract/ExtractPanel";
 import { BulkEditPanel } from "./BulkEditPanel";
+import { CleanTitlesPanel } from "./CleanTitlesPanel";
 
 // -- State Imports --
 import { useAppStore, useTracks } from "../../state/store";
@@ -86,6 +87,9 @@ export function SelectionActionBar({
   // The bulk editor opens over its own snapshot of the selected ids, holding them through the apply
   // that clears the selection.
   const [bulkEditIds, setBulkEditIds] = useState<number[] | null>(null);
+  // The title cleaner opens over a snapshot of each selected track's resolved title, so it holds its
+  // diff through the apply that clears the selection.
+  const [cleanTracks, setCleanTracks] = useState<{ id: number; title: string }[] | null>(null);
 
   // Hold the bar through its exit after the selection clears, and keep the last count so the fade shows
   // the tally it had rather than a bare zero.
@@ -93,9 +97,9 @@ export function SelectionActionBar({
   const lastCount = useRef(0);
   if (selection.size > 0) lastCount.current = selection.size;
 
-  // Stays mounted while the extractor or the bulk editor is open, so the bar itself hides on a cleared
-  // selection but the modal keeps its summary.
-  if (!bar.mounted && !extractTracks && !bulkEditIds) return null;
+  // Stays mounted while the extractor, the bulk editor or the title cleaner is open, so the bar itself
+  // hides on a cleared selection but the modal keeps its summary.
+  if (!bar.mounted && !extractTracks && !bulkEditIds && !cleanTracks) return null;
 
   const selectedIds = [...selection];
 
@@ -172,6 +176,16 @@ export function SelectionActionBar({
     setBulkEditIds(selectedIds);
   };
 
+  // Snapshots each selected track's resolved title (edit over raw) into the title cleaner, so the apply
+  // that clears the selection does not pull the diff out from under the open panel.
+  const openCleanTitles = () => {
+    setCleanTracks(
+      tracks
+        .filter((track) => selection.has(track.id))
+        .map((track) => ({ id: track.id, title: track.title_edit ?? track.raw_title ?? "" })),
+    );
+  };
+
   // After a bulk apply, pull the fresh tracks and membership so the new tags show, drop the undo stack
   // (the apply wrote outside the command engine, so a stale inverse must never replay), then clear.
   const onExtractApplied = () => {
@@ -236,6 +250,7 @@ export function SelectionActionBar({
               </QuietButton>
               <QuietButton onClick={openExtract}>{t((d) => d.extract.action)}</QuietButton>
               <QuietButton onClick={openBulkEdit}>{t((d) => d.selection.editTags)}</QuietButton>
+              <QuietButton onClick={openCleanTitles}>{t((d) => d.selection.cleanTitles)}</QuietButton>
               <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
             </div>
           </div>
@@ -254,6 +269,14 @@ export function SelectionActionBar({
         <BulkEditPanel
           trackIds={bulkEditIds}
           onClose={() => setBulkEditIds(null)}
+          onApplied={onExtractApplied}
+        />
+      ) : null}
+
+      {cleanTracks ? (
+        <CleanTitlesPanel
+          tracks={cleanTracks}
+          onClose={() => setCleanTracks(null)}
           onApplied={onExtractApplied}
         />
       ) : null}

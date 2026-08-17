@@ -1,0 +1,229 @@
+/*
+ * The title cleaner modal. Like the bulk editor, a dimmed scrim behind a lifted card, portalled to the
+ * body so it clears every stacking context. The scrim is a single translucent black on purpose - it
+ * dims the light ground and deepens the dark one alike, staying theme-invariant.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+/* The scrim and the card share the overlay's data-state: the card rises and settles on enter, both fade
+   off on exit. opacity and transform only, so the modal never reflows on its way in or out. */
+.overlay[data-state="enter"] .backdrop {
+  animation: scrim-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .backdrop {
+  animation: scrim-out var(--dur-soft) var(--ease-exit) both;
+}
+
+.overlay[data-state="enter"] .panel {
+  animation: card-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .panel {
+  animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.panel {
+  position: relative;
+  transform-origin: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(560px, 92vw);
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.summary {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Diff list -- */
+
+/* The changed titles, one per row, scrolling within the card once the list runs long. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+/* One row: a fixed toggle over the before-to-after diff, the whole row a click target for the box. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.check {
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* The old title struck through beside the cleaned one, each taking half the row and ellipsing on
+   overflow so a long title never pushes the card wider. */
+.diff {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.before {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.arrow {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.after {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 550;
+}
+
+/* -- Empty state -- */
+
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* -- Footer -- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.error {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* -- Result -- */
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.resultLine {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
