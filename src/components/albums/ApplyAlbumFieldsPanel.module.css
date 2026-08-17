@@ -1,0 +1,202 @@
+/*
+ * The force-apply modal for album fields. Like the bulk tag editor, this is a true dialog: a dimmed
+ * scrim behind a lifted card, portalled to the body so it clears every stacking context. The scrim is a
+ * single translucent black on purpose - it dims the light ground and deepens the dark one alike, staying
+ * theme-invariant rather than reading from a per-theme token.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+/* The scrim and the card share the overlay's data-state: the card rises and settles on enter, both fade
+   off on exit. opacity and transform only, so the modal never reflows on its way in or out. */
+.overlay[data-state="enter"] .backdrop {
+  animation: scrim-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .backdrop {
+  animation: scrim-out var(--dur-soft) var(--ease-exit) both;
+}
+
+.overlay[data-state="enter"] .panel {
+  animation: card-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .panel {
+  animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* Sizes to its content - the picker is compact - so the card stays as small as its three rows need. */
+.panel {
+  position: relative;
+  transform-origin: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(440px, 92vw);
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* -- Field rows -- */
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* One field: a checkbox beside the field name over its current value. The whole row is the label. */
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.check {
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+/* An unchecked row greys its name, so an untouched field reads as inactive at a glance. */
+.row[data-off] .name {
+  color: var(--ink-3);
+}
+
+/* The album's current value for the field, clipped to one line so a long genre list never grows the card. */
+.subtitle {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* -- Footer -- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.error {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* -- Result -- */
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.resultLine {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}

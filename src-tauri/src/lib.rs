@@ -180,6 +180,7 @@ pub fn run() {
             commands::organize::set_track_genres,
             commands::organize::add_album_genre,
             commands::organize::remove_album_genre,
+            commands::organize::apply_album_fields_to_members,
             commands::playlists::load_playlists,
             commands::playlists::create_playlist,
             commands::playlists::rename_playlist,

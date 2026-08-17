@@ -326,6 +326,13 @@ pub struct BulkEditResult {
     pub edited: i64,
 }
 
+/// The tally of a force-apply of album fields onto its members: how many member tracks were written.
+/// Mirrors AppliedResult in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct AppliedResult {
+    pub tracks: i64,
+}
+
 /// The Files-view editor's hydration read: a track's raw edit-layer overrides plus its managed
 /// genres, so the editor renders the edited value, the revert affordance, and the genre pills. All
 /// value fields are None when the track has no `track_edits` row (a pristine track); `genre_ids` is

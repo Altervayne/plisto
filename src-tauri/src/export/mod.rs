@@ -31,7 +31,7 @@ use crate::dto::{
 use crate::paths::paths_overlap;
 use crate::scan::progress::ProgressThrottle;
 use derive::derive_layout;
-use plan::{CoverPlan, ExportPlan};
+use plan::{ContainerKind, CoverPlan, ExportPlan};
 use write::{export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
 
 pub use derive::{safe_component, template_preview, AlbumTemplate};
@@ -171,18 +171,22 @@ where
                     if cancel.load(Ordering::Relaxed) {
                         return;
                     }
-                    // Album, album_artist and year resolve per track: the track's own edit wins,
-                    // else it inherits the container's value. Two tiers only - every track sits in
-                    // a container, so the fallback is always defined and an un-edited track lands
-                    // exactly the container value it did before. Folder derivation still keys off
-                    // the container fields in derive.rs; only the written tags are per-track here.
+                    // album_artist and year resolve per track: the track's own edit wins, else it
+                    // inherits the container's value - two tiers, always defined, so an un-edited
+                    // track lands exactly the container value. The album NAME is different: a track
+                    // that sits in a Plisto album takes that album's name outright, so a stale
+                    // per-track album edit (a former tag the file carried in) can never survive the
+                    // export. A single or a loose bag owns no album, so its own resolved album rides
+                    // through. The album view's "apply to tracks" pushes the other fields on demand.
+                    let album = if matches!(container.kind, ContainerKind::Album) {
+                        container.title.as_deref()
+                    } else {
+                        track.album_override.as_deref().or(container.title.as_deref())
+                    };
                     let tags = TrackTags {
                         title: track.title.as_deref(),
                         artist: track.artist.as_deref(),
-                        album: track
-                            .album_override
-                            .as_deref()
-                            .or(container.title.as_deref()),
+                        album,
                         album_artist: track
                             .album_artist_override
                             .as_deref()
@@ -762,6 +766,47 @@ mod tests {
             read_album_artist(&container.join("02 - T2.flac")).as_deref(),
             Some("Album AA"),
             "the untouched sibling inherits the album's album_artist",
+        );
+    }
+
+    // The Album (name) tag of an exported file, or None when it carries none.
+    fn read_album(path: &Path) -> Option<String> {
+        let tagged = lofty::read_from_path(path).unwrap();
+        tagged
+            .primary_tag()
+            .and_then(|t| t.get_string(ItemKey::AlbumTitle).map(str::to_string))
+    }
+
+    #[test]
+    fn an_album_members_name_is_the_albums_not_a_stale_track_edit() {
+        let sources = TempDir::new("src");
+        let dest = TempDir::new("dest");
+        let covers = TempDir::new("covers");
+        let a_path = sources.path.join("a.flac");
+        fs::write(&a_path, minimal_flac()).unwrap();
+
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_flac_track(&conn, &a_path.to_string_lossy(), "T1");
+        db::create_album(&mut conn, Some("Real Album".into()), Some("AA".into()), None, None, None, &[a], "album", 1).unwrap();
+        // A stale per-track album edit - a former tag the file carried in - must not survive the export.
+        db::set_track_edit(&conn, a, None, None, Some("Stale Album".into()), None, None, None).unwrap();
+
+        let plan = plan::build_plan(&conn).unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        run_export(
+            &plan,
+            dest.path.as_path(),
+            &AlbumTemplate::resolve("", ""),
+            covers.path.as_path(),
+            &cancel,
+            |_| {},
+        );
+
+        let out = dest.path.join("AA").join("Real Album").join("01 - T1.flac");
+        assert_eq!(
+            read_album(&out).as_deref(),
+            Some("Real Album"),
+            "the album's own name wins over a stale per-track album edit",
         );
     }
 

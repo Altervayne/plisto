@@ -75,6 +75,7 @@ export const fr: Dict = {
     genre: "Genre",
     genres: "Genres",
     addGenre: "+ ajouter un genre",
+    applyToTracks: "Appliquer aux pistes...",
     tracks: "Pistes",
     noTracks: "Aucune piste dans cet album.",
     delete: "Supprimer l'album",
@@ -426,6 +427,16 @@ export const fr: Dict = {
     apply: "Appliquer",
     applying: "Application...",
     applyError: "Impossible d'appliquer les modifications.",
+    applied: { one: "{{n}} piste mise à jour", other: "{{n}} pistes mises à jour" },
+  },
+
+  applyAlbum: {
+    title: "Appliquer aux pistes",
+    hint: "Force les champs cochés sur chaque piste, en remplaçant la valeur propre à chacune.",
+    none: "non défini",
+    apply: "Appliquer",
+    applying: "Application...",
+    applyError: "Impossible d'appliquer les champs.",
     applied: { one: "{{n}} piste mise à jour", other: "{{n}} pistes mises à jour" },
   },
 

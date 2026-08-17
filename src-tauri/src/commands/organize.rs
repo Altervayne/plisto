@@ -9,6 +9,7 @@
  */
 
 // -- Library Imports --
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -17,7 +18,7 @@ use tauri::State;
 // -- Local Imports --
 use crate::db;
 use crate::dto::{
-    AlbumFields, AlbumRow, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
+    AlbumFields, AlbumRow, AppliedResult, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
     OrganizationSnapshot, TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
 };
 use crate::state::AppState;
@@ -342,6 +343,92 @@ pub fn remove_album_genre(
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     db::remove_album_genre(&mut conn, album_id, genre_id).map_err(|e| e.to_string())
+}
+
+/// Force-applies an album's chosen fallback fields onto every member track, overwriting each
+/// member's own edit for those fields. `album_artist` and `year` overlay the album's value onto the
+/// member's edit row - a None album value clears that member field - leaving title/artist/album/disc
+/// and the unchosen field in place; `genre` unifies the members to the union of their genres, so no
+/// member loses one. Album NAME is deliberately excluded - export already hard-replaces it. Holds the
+/// DB lock once for the whole batch. Returns how many members were touched; all-false touches none.
+#[tauri::command]
+pub fn apply_album_fields_to_members(
+    album_id: i64,
+    album_artist: bool,
+    year: bool,
+    genre: bool,
+    state: State<'_, AppState>,
+) -> Result<AppliedResult, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    let tracks = apply_album_fields(&conn, album_id, album_artist, year, genre)
+        .map_err(|e| e.to_string())?;
+    Ok(AppliedResult { tracks })
+}
+
+/// The lock-free core of the force-apply: reads the album row once for its album_artist/year, gathers
+/// its members in track order, and writes each one's chosen columns. Genre unification takes the union
+/// of all members' genre ids in a stable first-seen order, computed before the loop so every member
+/// lands the same list; the union already holds each member's own genres, so the additive rewrite
+/// loses none. Returns the member count touched; no chosen field writes nothing and returns zero.
+fn apply_album_fields(
+    conn: &Connection,
+    album_id: i64,
+    album_artist: bool,
+    year: bool,
+    genre: bool,
+) -> rusqlite::Result<i64> {
+    if !album_artist && !year && !genre {
+        return Ok(0);
+    }
+    let Some(album) = db::get_album(conn, album_id)? else {
+        return Ok(0);
+    };
+    let members = db::album_member_track_ids(conn, album_id)?;
+
+    // The genre union across the members, deduped in first-seen order over the deterministic
+    // load_track_genre_ids_for read, so the unified list holds steady and drops no member's genre.
+    let union: Vec<i64> = if genre {
+        let mut seen: HashSet<i64> = HashSet::new();
+        let mut ids: Vec<i64> = Vec::new();
+        for (_, genre_id) in db::load_track_genre_ids_for(conn, &members)? {
+            if seen.insert(genre_id) {
+                ids.push(genre_id);
+            }
+        }
+        ids
+    } else {
+        Vec::new()
+    };
+
+    for &track_id in &members {
+        // Overlay only the chosen release fields onto the member's edit, carrying the rest of its row -
+        // title, artist, album, disc, and the unchosen field - through untouched.
+        if album_artist || year {
+            let current = db::get_track_edit(conn, track_id)?;
+            db::set_track_edit(
+                conn,
+                track_id,
+                current.title,
+                current.artist,
+                current.album,
+                if album_artist {
+                    album.album_artist.clone()
+                } else {
+                    current.album_artist
+                },
+                if year { album.year } else { current.year },
+                current.disc_no,
+            )?;
+        }
+        if genre {
+            db::set_track_genres(conn, track_id, &union)?;
+        }
+    }
+
+    Ok(members.len() as i64)
 }
 
 /// Replaces one track's whole edit-layer metadata with the given full set (a null clears one). The
@@ -777,5 +864,54 @@ mod tests {
             Path::new(&detail_path).exists(),
             "the cached detail thumb exists"
         );
+    }
+
+    #[test]
+    fn apply_album_fields_forces_chosen_fields_and_leaves_the_rest() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/music/album/1.mp3");
+        let b = insert_track(&conn, "/music/album/2.mp3");
+        let album = db::create_album(
+            &mut conn,
+            Some("T".into()),
+            Some("Various".into()),
+            Some(2020),
+            None,
+            None,
+            &[a, b],
+            "album",
+            1,
+        )
+        .unwrap();
+
+        // Member a diverges: its own album_artist and year edit, and one of the two genres.
+        let jazz = db::create_genre(&conn, "Jazz", 1).unwrap().id;
+        let funk = db::create_genre(&conn, "Funk", 1).unwrap().id;
+        db::set_track_edit(&conn, a, None, None, None, Some("Solo A".into()), Some(1999), None)
+            .unwrap();
+        db::set_track_genres(&conn, a, &[jazz]).unwrap();
+        db::set_track_genres(&conn, b, &[funk]).unwrap();
+
+        // Force album artist and genre, but not year.
+        let touched = apply_album_fields(&conn, album.id, true, false, true).unwrap();
+        assert_eq!(touched, 2);
+
+        for id in [a, b] {
+            let edit = db::get_track_edit(&conn, id).unwrap();
+            assert_eq!(
+                edit.album_artist.as_deref(),
+                Some("Various"),
+                "the album artist is forced onto every member",
+            );
+            let mut genres = edit.genre_ids.clone();
+            genres.sort_unstable();
+            let mut union = vec![jazz, funk];
+            union.sort_unstable();
+            assert_eq!(genres, union, "every member carries the unified genre set");
+        }
+
+        // Year was not chosen: a's own edit stands, b never gained one.
+        assert_eq!(db::get_track_edit(&conn, a).unwrap().year, Some(1999));
+        assert_eq!(db::get_track_edit(&conn, b).unwrap().year, None);
     }
 }

@@ -1,9 +1,21 @@
+/* The meta column: the field list over its force-apply trigger, spaced like the fields themselves. */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 /* The album metadata fields: a quiet micro-label over each editable value, stacked with space. */
 .fields {
   margin: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* The force-apply trigger sits alone under the fields, hugging its label at the start of the row. */
+.applyRow {
+  display: flex;
 }
 
 .field {

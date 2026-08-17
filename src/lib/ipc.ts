@@ -11,6 +11,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   AlbumFields,
   AlbumRow,
+  AppliedResult,
   BulkEditResult,
   BulkSetFields,
   CoverCandidate,
@@ -389,6 +390,23 @@ export function addAlbumGenre(albumId: number, genreId: number): Promise<void> {
 /** Bulk-removes a genre from every member of an album. */
 export function removeAlbumGenre(albumId: number, genreId: number): Promise<void> {
   return invoke("remove_album_genre", { albumId, genreId });
+}
+
+/**
+ * Force-applies an album's chosen fallback fields onto every member track, overwriting each member's
+ * own edit for those fields. `albumArtist` and `year` overlay the album's value; `genre` unifies the
+ * members to the union of their genres. Album name is deliberately excluded. Resolves with the count.
+ */
+export function applyAlbumFieldsToMembers(
+  albumId: number,
+  fields: { albumArtist: boolean; year: boolean; genre: boolean },
+): Promise<AppliedResult> {
+  return invoke<AppliedResult>("apply_album_fields_to_members", {
+    albumId,
+    albumArtist: fields.albumArtist,
+    year: fields.year,
+    genre: fields.genre,
+  });
 }
 
 /** Reads the persisted workspace root (real-case, as first picked), or null when none is set. */

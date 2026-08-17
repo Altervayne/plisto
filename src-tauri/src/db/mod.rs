@@ -1176,6 +1176,18 @@ pub fn get_album_first_track(conn: &Connection, album_id: i64) -> rusqlite::Resu
     })
 }
 
+/// Every member track of an album as ids in track-number order, or empty when it has none. The
+/// same member scan add_album_genre runs inline, exposed as a read the held-lock commands can share
+/// when they walk an album's members to reach each one's edit row.
+pub fn album_member_track_ids(conn: &Connection, album_id: i64) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt =
+        conn.prepare("SELECT track_id FROM album_tracks WHERE album_id = ?1 ORDER BY track_no")?;
+    let rows = stmt
+        .query_map(params![album_id], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Every album with its track count, ordered by id. One half of the organize snapshot.
 pub fn load_albums(conn: &Connection) -> rusqlite::Result<Vec<AlbumRow>> {
     let sql = format!("{ALBUM_SELECT} GROUP BY a.id ORDER BY a.id");

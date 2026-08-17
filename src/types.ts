@@ -252,6 +252,11 @@ export interface BulkEditResult {
   edited: number;
 }
 
+/** The tally of a force-apply of album fields onto its members: how many were written. Mirrors AppliedResult. */
+export interface AppliedResult {
+  tracks: number;
+}
+
 /**
  * The Files-view editor's hydration read: a track's raw edit-layer overrides plus its ordered
  * genres. All value fields are null when the track has no edit row; `genre_ids` is empty when it

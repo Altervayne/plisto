@@ -74,6 +74,7 @@ export const en = {
     genre: "Genre",
     genres: "Genres",
     addGenre: "+ add genre",
+    applyToTracks: "Apply to tracks...",
     tracks: "Tracks",
     noTracks: "No tracks in this album.",
     delete: "Delete album",
@@ -425,6 +426,16 @@ export const en = {
     apply: "Apply",
     applying: "Applying...",
     applyError: "Could not apply the changes.",
+    applied: { one: "{{n}} track updated", other: "{{n}} tracks updated" },
+  },
+
+  applyAlbum: {
+    title: "Apply to tracks",
+    hint: "Force the checked fields onto every track, replacing each track's own value.",
+    none: "not set",
+    apply: "Apply",
+    applying: "Applying...",
+    applyError: "Could not apply the fields.",
     applied: { one: "{{n}} track updated", other: "{{n}} tracks updated" },
   },
 
