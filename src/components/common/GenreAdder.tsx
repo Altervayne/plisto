@@ -1,6 +1,9 @@
 // -- Framework Imports --
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
+// -- Component Imports --
+import { ScrollArea } from "./ScrollArea/ScrollArea";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
@@ -115,43 +118,47 @@ export function GenreAdder({
       />
 
       {open ? (
-        <ul className={styles.menu} role="listbox">
-          {suggestions.map((genre, i) => (
-            <li key={genre.id}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={i === highlight}
-                className={i === highlight ? `${styles.option} ${styles.active}` : styles.option}
-                // Keep focus on the input so the blur does not close the menu before the click lands.
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlight(i)}
-                onClick={() => commit(i)}
-              >
-                {genre.name}
-              </button>
-            </li>
-          ))}
-          {showCreate ? (
-            <li>
-              <button
-                type="button"
-                role="option"
-                aria-selected={highlight === suggestions.length}
-                className={
-                  highlight === suggestions.length
-                    ? `${styles.option} ${styles.create} ${styles.active}`
-                    : `${styles.option} ${styles.create}`
-                }
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlight(suggestions.length)}
-                onClick={() => commit(suggestions.length)}
-              >
-                {t((d) => d.genre.create, { name: trimmed })}
-              </button>
-            </li>
-          ) : null}
-        </ul>
+        <div className={styles.menu}>
+          <ScrollArea className={styles.scroll}>
+            <ul className={styles.list} role="listbox">
+              {suggestions.map((genre, i) => (
+                <li key={genre.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === highlight}
+                    className={i === highlight ? `${styles.option} ${styles.active}` : styles.option}
+                    // Keep focus on the input so the blur does not close the menu before the click lands.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setHighlight(i)}
+                    onClick={() => commit(i)}
+                  >
+                    {genre.name}
+                  </button>
+                </li>
+              ))}
+              {showCreate ? (
+                <li>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={highlight === suggestions.length}
+                    className={
+                      highlight === suggestions.length
+                        ? `${styles.option} ${styles.create} ${styles.active}`
+                        : `${styles.option} ${styles.create}`
+                    }
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setHighlight(suggestions.length)}
+                    onClick={() => commit(suggestions.length)}
+                  >
+                    {t((d) => d.genre.create, { name: trimmed })}
+                  </button>
+                </li>
+              ) : null}
+            </ul>
+          </ScrollArea>
+        </div>
       ) : null}
     </div>
   );

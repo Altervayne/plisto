@@ -54,7 +54,9 @@ export const ImageTile = memo(function ImageTile({
   const t = useT();
   const [menu, setMenu] = useState({ open: false, x: 0, y: 0 });
 
-  // The image's own filename, shown on hover so a tile is identifiable without opening it.
+  // The image's own filename, shown on hover so a tile is identifiable without opening it. The tooltip
+  // wraps the whole tile, not the button: a failed thumbnail disables the button (no pointer events), so
+  // anchoring on the tile keeps the filename reachable exactly when it is most needed.
   const fileName = path.split(/[\\/]/).pop() ?? path;
 
   // Both a left click and a right click open the chooser at the pointer. A failed thumbnail is inert:
@@ -96,8 +98,8 @@ export const ImageTile = memo(function ImageTile({
   }, [path, trackCount, albumId, onSetFolderCover, onSetAlbumCover, onSetSpecificTracks, t]);
 
   return (
-    <div className={styles.tile}>
-      <Tooltip label={fileName}>
+    <Tooltip label={fileName}>
+      <div className={styles.tile}>
         <button
           type="button"
           className={`${styles.hit} ${inUse ? styles.inUse : ""}`}
@@ -109,17 +111,17 @@ export const ImageTile = memo(function ImageTile({
           <Cover src={failed ? null : src} interactive alt="" onError={onError} />
           {inUse ? <span className={styles.ring} aria-hidden="true" /> : null}
         </button>
-      </Tooltip>
-      {failed ? <span className={styles.note}>{t((d) => d.covers.unavailable)}</span> : null}
+        {failed ? <span className={styles.note}>{t((d) => d.covers.unavailable)}</span> : null}
 
-      <ContextMenu
-        open={menu.open}
-        x={menu.x}
-        y={menu.y}
-        onClose={closeMenu}
-        items={entries}
-        ariaLabel={t((d) => d.covers.chooserLabel)}
-      />
-    </div>
+        <ContextMenu
+          open={menu.open}
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          items={entries}
+          ariaLabel={t((d) => d.covers.chooserLabel)}
+        />
+      </div>
+    </Tooltip>
   );
 });

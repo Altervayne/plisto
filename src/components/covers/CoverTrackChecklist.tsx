@@ -7,6 +7,7 @@ import { Check, X } from "lucide-react";
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { PrimaryButton } from "../common/PrimaryButton";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Hook Imports --
 import { useTrackThumb, invalidateTrackThumb } from "./useTrackThumb";
@@ -47,6 +48,10 @@ export function CoverTrackChecklist({
   const t = useT();
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
 
+  // The chosen image's own filename, shown at the head so its name is one more cue for matching it to
+  // the right tracks - the same info the tile carries, kept in view while the subset is picked.
+  const fileName = imagePath.split(/[\\/]/).pop() ?? imagePath;
+
   const toggle = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -68,7 +73,12 @@ export function CoverTrackChecklist({
   return (
     <div className={styles.panel}>
       <div className={styles.head}>
-        <span className={styles.title}>{t((d) => d.covers.checklistTitle)}</span>
+        <div className={styles.heading}>
+          <span className={styles.title}>{t((d) => d.covers.checklistTitle)}</span>
+          <Tooltip label={fileName}>
+            <span className={styles.imageName}>{fileName}</span>
+          </Tooltip>
+        </div>
         <button
           type="button"
           className={styles.close}

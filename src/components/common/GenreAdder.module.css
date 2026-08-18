@@ -40,21 +40,31 @@
   border-bottom: 2px solid var(--accent);
 }
 
-/* The suggestion list floats over the surface, anchored just under the field. */
+/* The suggestion list floats over the surface, anchored just under the field. The scrolling is handed
+   to the app's own ScrollArea, so the menu itself only frames it - no native overflow. */
 .menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 7;
   width: min(280px, 100%);
-  max-height: 260px;
-  overflow-y: auto;
-  margin: 0;
   padding: 6px;
-  list-style: none;
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
+}
+
+/* The cap sits on the real scroll viewport (ScrollArea's hide-native-scrollbar element) and must be a
+   definite length: a percentage cannot resolve against the auto-height popover. This clips and scrolls
+   past it, yet still shrinks to content when only a few genres match. */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 260px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .option {

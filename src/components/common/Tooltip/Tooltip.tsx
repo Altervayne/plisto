@@ -115,7 +115,10 @@ export function Tooltip({
       MARGIN,
     );
     setCoords({ left: placed.left, top: placed.top });
-  }, [open, placement, label]);
+    // `bubble.mounted` is a dependency because the bubble mounts a render AFTER `open` flips (its own
+    // mount transition defers it): without it this effect runs once while bubbleRef is still null, bails,
+    // and never re-runs - leaving the bubble unpositioned and stuck at visibility:hidden.
+  }, [open, bubble.mounted, placement, label]);
 
   // While open, any scroll, resize, or Escape dismisses it; the bubble is anchored, not tracked.
   useEffect(() => {

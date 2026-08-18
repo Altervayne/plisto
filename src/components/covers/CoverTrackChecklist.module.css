@@ -17,12 +17,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+/* The title over the chosen image's filename, a column that flexes and truncates so a long name never
+   pushes the close button off the row. */
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .title {
   font-size: 12px;
   font-weight: 600;
   color: var(--ink-2);
+}
+
+/* The chosen image's filename: a quiet mono line under the title, clipped to the panel width. */
+.imageName {
+  overflow: hidden;
+  max-width: 100%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
 }
 
 .close {
