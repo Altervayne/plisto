@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 // -- Component Imports --
 import { CenteredStage } from "../common/CenteredStage";
@@ -16,7 +16,6 @@ import { ExportReport } from "./ExportReport";
 import { ExportSections } from "./ExportSections";
 
 // -- State Imports --
-import { useClearExportScope, useExportScope } from "../../state/export/scope";
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
 import { useTracks } from "../../state/store";
 import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
@@ -64,13 +63,6 @@ export function ExportView() {
   const membership = useMembership();
   const tracks = useTracks();
   const t = useT();
-
-  // The export scope, set by a grid multi-select elsewhere. Null is the general export (the whole
-  // library, filtered by Include); a non-null id set pins the run to exactly those albums.
-  const scope = useExportScope();
-  const clearScope = useClearExportScope();
-  // Leaving the screen drops any scope, so a fresh visit always opens general - never stuck scoped.
-  useEffect(() => () => clearScope(), [clearScope]);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [destination, setDestination] = useState<string | null>(null);
@@ -158,17 +150,12 @@ export function ExportView() {
       });
     });
 
-    // Scoped narrows the plan to the picked ids and skips the Include controls; general carries the
-    // section toggles.
-    const sections =
-      scope !== null
-        ? { albumIds: scope }
-        : {
-            albums: includeAlbums,
-            singles: includeSingles,
-            playlists: includePlaylists,
-            playlistShape,
-          };
+    const sections = {
+      albums: includeAlbums,
+      singles: includeSingles,
+      playlists: includePlaylists,
+      playlistShape,
+    };
 
     try {
       setSummary(await exportLibrary(destination, channel, folder, file, sections));
@@ -181,7 +168,6 @@ export function ExportView() {
     destination,
     folder,
     file,
-    scope,
     includeAlbums,
     includeSingles,
     includePlaylists,
@@ -274,12 +260,7 @@ export function ExportView() {
     (includeAlbums && counts.albums > 0) ||
     (includeSingles && counts.singles > 0) ||
     includePlaylists;
-  // Scoped needs only a valid destination and a non-empty selection; general needs content to write.
-  // A ready destination is common to both.
-  const canExport =
-    !!destination &&
-    !!check?.ok &&
-    (scope !== null ? scope.length > 0 : hasContent);
+  const canExport = !!destination && !!check?.ok && hasContent;
   return (
     <div className={styles.view}>
       <div className={styles.head}>
@@ -294,15 +275,6 @@ export function ExportView() {
       </div>
 
       <ScrollArea className={styles.scroll} contentClassName={styles.sections}>
-        {scope !== null ? (
-          <div className={styles.scope}>
-            <span className={styles.scopeNotice}>
-              {t((d) => d.export.scopeNotice, { n: scope.length })}
-            </span>
-            <QuietButton onClick={clearScope}>{t((d) => d.export.exportEverything)}</QuietButton>
-          </div>
-        ) : null}
-
         <section className={styles.section}>
           <span className={styles.label}>{t((d) => d.export.destination)}</span>
           <ExportDestination destination={destination} onPick={() => void onPick()} />
@@ -323,21 +295,17 @@ export function ExportView() {
           ) : null}
         </section>
 
-        {/* Include belongs to general export only: a scope is an explicit selection, so narrowing it by
-            section would fight the choice already made in the grid. */}
-        {scope === null ? (
-          <section className={styles.section}>
-            <span className={styles.label}>{t((d) => d.export.include)}</span>
-            <ExportSections
-              albums={includeAlbums}
-              singles={includeSingles}
-              playlists={includePlaylists}
-              shape={playlistShape}
-              onToggle={onToggleSection}
-              onShape={setPlaylistShape}
-            />
-          </section>
-        ) : null}
+        <section className={styles.section}>
+          <span className={styles.label}>{t((d) => d.export.include)}</span>
+          <ExportSections
+            albums={includeAlbums}
+            singles={includeSingles}
+            playlists={includePlaylists}
+            shape={playlistShape}
+            onToggle={onToggleSection}
+            onShape={setPlaylistShape}
+          />
+        </section>
 
         <section className={styles.section}>
           <span className={styles.label}>{t((d) => d.export.layout)}</span>

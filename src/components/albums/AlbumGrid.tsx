@@ -13,6 +13,7 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { DateRangePicker } from "../common/DateRangePicker/DateRangePicker";
 import { AlbumCard } from "./AlbumCard";
+import { AlbumExportDialog } from "./AlbumExportDialog";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
@@ -46,14 +47,13 @@ const EXIT_MS = 120;
  * the whole wall. With no cards yet it shows the quiet on-ramp pointing at Files, where albums and singles
  * are made from a track selection; the singles wall reuses this layout with its own copy. The open drawer
  * is the parent's concern; the multi-select and its floating export bar live here - a modified click
- * (ctrl/cmd toggle, shift range) picks cards, and the bar drops the picked ids into a scoped export.
+ * (ctrl/cmd toggle, shift range) picks cards, and the bar hands the picked ids to the selection export modal.
  */
 export function AlbumGrid({
   albums,
   selectedAlbumId,
   onOpen,
   onOpenFull,
-  onExportSelection,
   emptyTitle,
   emptyLine,
 }: {
@@ -61,7 +61,6 @@ export function AlbumGrid({
   selectedAlbumId: number | null;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
-  onExportSelection: (ids: number[]) => void;
   emptyTitle?: string;
   emptyLine?: string;
 }) {
@@ -88,6 +87,10 @@ export function AlbumGrid({
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const createPlaylist = useCreatePlaylist();
   const [playlistTarget, setPlaylistTarget] = useState<number[] | null>(null);
+
+  // The ids a selection export is opened over: the whole picked set from the bar, or one album from a
+  // card's own Export. Null keeps the modal closed.
+  const [exportIds, setExportIds] = useState<number[] | null>(null);
 
   // Multi-selection keyed by album id, with the anchor held as an index into the current visual order so
   // a shift-range respects the wall as it reads on screen. The two walls remount this grid, so the set
@@ -129,12 +132,9 @@ export function AlbumGrid({
     [visible],
   );
 
-  // A card's own Export scopes to just that album - a one-item run through the same shell wiring the bar
-  // uses for the whole set.
-  const handleExport = useCallback(
-    (albumId: number) => onExportSelection([albumId]),
-    [onExportSelection],
-  );
+  // A card's own Export opens the modal over just that album - a one-item run through the same modal the
+  // bar opens for the whole set.
+  const handleExport = useCallback((albumId: number) => setExportIds([albumId]), []);
 
   // Hold the bar through its exit after the set empties, keeping the last count so the fade shows the
   // tally it had rather than a bare zero.
@@ -206,7 +206,7 @@ export function AlbumGrid({
             {t((d) => d.albums.gridSelected, { n: lastCount.current })}
           </span>
           <div className={styles.actions}>
-            <PrimaryButton onClick={() => onExportSelection([...selected])}>
+            <PrimaryButton onClick={() => setExportIds([...selected])}>
               {t((d) => d.albums.exportSelected)}
               <ArrowRight size={15} strokeWidth={2} aria-hidden="true" />
             </PrimaryButton>
@@ -234,6 +234,10 @@ export function AlbumGrid({
           }}
           onClose={() => setPlaylistTarget(null)}
         />
+      ) : null}
+
+      {exportIds ? (
+        <AlbumExportDialog albumIds={exportIds} onClose={() => setExportIds(null)} />
       ) : null}
     </>
   );

@@ -1,0 +1,171 @@
+/*
+ * The selection export modal. Twin to the playlist export dialog's shell: a dimmed scrim behind a lifted
+ * card, portalled to the body so it clears every stacking context. The scrim is a single translucent black
+ * on purpose - it dims the light ground and deepens the dark one alike, staying theme-invariant.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(520px, 92vw);
+  max-height: 86vh;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header: the title over its selection count, beside the close -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* The selection tally under the title: quiet meta, naming what the run will write. */
+.count {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* -- Idle: the destination pick, mirroring the library export -- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A warn-tone line: a workspace refusal, a not-writable block, or a non-empty caution. */
+.warn {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+/* The footer: the one solid Export CTA, or the two-step confirm when the destination is non-empty. */
+.cta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The non-empty confirm: the caution over its two-step action. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.confirmActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* -- Running: the live run, mirroring the library export -- */
+
+.run {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+/* The destination path on the running screen: mono meta ink, truncated with the full path on hover. */
+.path {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Live export counts; digits align via tabular-nums, the line stays quiet meta ink. */
+.counters {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.tally {
+  color: var(--warn);
+}
+
+.foot {
+  margin-top: 4px;
+}
+
+/* -- Done: the good dot over the report -- */
+
+.done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+}
+
+/* The good-tone status dot, reused from the empty-state vocabulary. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+/* Both done actions sit together - the good dot carries the success, no second solid accent. */
+.actions {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

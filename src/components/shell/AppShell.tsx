@@ -40,7 +40,6 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
-import { useSetExportScope } from "../../state/export/scope";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -93,7 +92,6 @@ export function AppShell() {
   const canRedo = useCanRedo();
   const error = useOrgError();
   const clearError = useClearError();
-  const setScope = useSetExportScope();
   const t = useT();
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
@@ -263,10 +261,6 @@ export function AppShell() {
                       selectedAlbumId={selectedAlbumId}
                       onOpen={setSelectedAlbumId}
                       onOpenFull={openFull}
-                      onExportSelection={(ids) => {
-                        setScope(ids);
-                        setMode("export");
-                      }}
                     />
                     {albumDrawer.mounted && lastAlbum.current ? (
                       <div className={styles.panel}>
@@ -301,10 +295,6 @@ export function AppShell() {
                     albums={singles}
                     selectedAlbumId={selectedAlbumId}
                     onOpen={setSelectedAlbumId}
-                    onExportSelection={(ids) => {
-                      setScope(ids);
-                      setMode("export");
-                    }}
                     emptyTitle={t((d) => d.singles.emptyTitle)}
                     emptyLine={t((d) => d.singles.emptyLine)}
                   />
