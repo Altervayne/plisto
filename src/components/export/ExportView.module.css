@@ -49,6 +49,20 @@
   color: var(--ink-3);
 }
 
+/* The scope banner: a quiet notice that this run is narrowed to a selection, beside the way back to a
+ * general export. It reads as meta, not a warning - muted ink, no accent, wrapping when tight. */
+.scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.scopeNotice {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
 /* -- Destination control -- */
 
 .destination {

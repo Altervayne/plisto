@@ -3,7 +3,7 @@ import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
-import { Info, ListPlus, Maximize2, Trash2 } from "lucide-react";
+import { Check, Download, Info, ListPlus, Maximize2, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
@@ -54,14 +54,20 @@ let lastClick: { id: number; t: number } | null = null;
 export const AlbumCard = memo(function AlbumCard({
   album,
   selected,
+  checked,
   onOpen,
   onOpenFull,
+  onToggleSelect,
+  onExport,
   onAddToPlaylist,
 }: {
   album: AlbumRow;
   selected: boolean;
+  checked: boolean;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
+  onToggleSelect: (albumId: number, mods: { meta: boolean; shift: boolean }) => void;
+  onExport: (albumId: number) => void;
   onAddToPlaylist?: (trackIds: number[]) => void;
 }) {
   const deleteAlbum = useDeleteAlbum();
@@ -70,6 +76,12 @@ export const AlbumCard = memo(function AlbumCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    // A modified click drives multi-select rather than opening: ctrl/cmd toggles this card, shift
+    // extends the range from the anchor. It never opens the drawer nor joins a double-click.
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      onToggleSelect(album.id, { meta: event.ctrlKey || event.metaKey, shift: event.shiftKey });
+      return;
+    }
     // Keyboard activation (detail 0, no double-click concept) and singles (no full pane) act at once
     // and never join a double-click.
     if (event.detail === 0 || !onOpenFull) {
@@ -117,6 +129,11 @@ export const AlbumCard = memo(function AlbumCard({
       label: single ? t((d) => d.singles.details) : t((d) => d.albums.details),
       onSelect: () => onOpen(album.id),
     });
+    items.push({
+      icon: <Download size={16} strokeWidth={1.8} />,
+      label: single ? t((d) => d.singles.exportItem) : t((d) => d.albums.exportItem),
+      onSelect: () => onExport(album.id),
+    });
     if (onAddToPlaylist) {
       items.push(
         { separator: true },
@@ -142,8 +159,8 @@ export const AlbumCard = memo(function AlbumCard({
   return (
     <button
       type="button"
-      className={`${styles.card} ${selected ? styles.selected : ""}`}
-      aria-pressed={selected}
+      className={`${styles.card} ${selected ? styles.selected : ""} ${checked ? styles.checked : ""}`}
+      aria-pressed={checked || selected}
       onClick={handleClick}
       onContextMenu={menu.onContextMenu}
     >
@@ -151,6 +168,11 @@ export const AlbumCard = memo(function AlbumCard({
         <Cover src={src} interactive alt="" />
         {missing > 0 ? (
           <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
+        ) : null}
+        {checked ? (
+          <span className={styles.check} aria-hidden="true">
+            <Check size={14} strokeWidth={3} />
+          </span>
         ) : null}
       </div>
       <CardMeta

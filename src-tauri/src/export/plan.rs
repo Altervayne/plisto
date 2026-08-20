@@ -211,6 +211,30 @@ pub fn build_plan(conn: &Connection) -> rusqlite::Result<ExportPlan> {
 /// (written after the copies) to reference every track relative to the export root. Rejects a config
 /// that selects nothing, so an export never runs with an empty plan.
 pub fn build_export_plan(conn: &Connection, config: &ExportConfig) -> Result<ExportPlan, String> {
+    // Selection mode: an explicit album/single id set. The plan is exactly those containers, re-bucketed
+    // the same way (album under `Albums/`, single at `Root`); the include toggles and playlists do not
+    // apply. An id not present is skipped, and an empty set yields an empty plan.
+    if let Some(ids) = &config.album_ids {
+        let wanted: HashSet<i64> = ids.iter().copied().collect();
+        let mut containers: Vec<ExportContainer> = Vec::new();
+        for mut container in build_plan(conn).map_err(|e| e.to_string())?.containers {
+            if !wanted.contains(&container.album_id) {
+                continue;
+            }
+            match container.kind {
+                ContainerKind::Album => {
+                    container.bucket = Bucket::Albums;
+                    containers.push(container);
+                }
+                // A single reads its `Singles/` folder from its kind, so it stays at `Root`.
+                ContainerKind::Single => containers.push(container),
+                // build_plan yields only album and single containers.
+                ContainerKind::Unsorted => {}
+            }
+        }
+        return Ok(ExportPlan { containers });
+    }
+
     if !config.include_albums && !config.include_singles && !config.include_playlists {
         return Err("nothing selected to export".to_string());
     }
@@ -764,6 +788,7 @@ mod tests {
             include_singles: singles,
             include_playlists: playlists,
             playlist_shape: shape.to_string(),
+            album_ids: None,
         }
     }
 
@@ -915,4 +940,60 @@ mod tests {
         assert_eq!(bag.kind, ContainerKind::Unsorted);
         assert_eq!(bag.tracks.len(), 2);
     }
+
+    // A selection config with the given album/single ids; the toggles and shape are set on to prove
+    // selection mode ignores them.
+    fn selection(ids: Vec<i64>) -> ExportConfig {
+        let mut config = cfg(true, true, true, "mimic");
+        config.album_ids = Some(ids);
+        config
+    }
+
+    #[test]
+    fn build_export_plan_selection_keeps_only_chosen_containers_and_no_playlists() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let s = insert_track(&conn, "/m/loose/hit.mp3", "Hit");
+        let album =
+            db::create_album(&mut conn, Some("Rec".into()), None, None, None, None, &[a], "album", 1).unwrap();
+        let single = db::create_single(&mut conn, s, 1).unwrap();
+        let pl = db::create_playlist(&conn, Some("Mix".into()), 100).unwrap();
+        db::add_tracks_to_playlist(&mut conn, pl.id, &[a], 100).unwrap();
+
+        // Both the album and the single, re-bucketed the same way; the playlist toggle is ignored.
+        let plan = build_export_plan(&conn, &selection(vec![album.id, single.id])).unwrap();
+        assert_eq!(plan.containers.len(), 2);
+        let album_c = plan.containers.iter().find(|c| c.album_id == album.id).unwrap();
+        assert_eq!(album_c.bucket, Bucket::Albums, "a selected album moves under Albums");
+        let single_c = plan.containers.iter().find(|c| c.album_id == single.id).unwrap();
+        assert_eq!(single_c.bucket, Bucket::Root, "a selected single stays at Root");
+        assert_eq!(single_c.kind, ContainerKind::Single);
+        assert!(
+            !plan.containers.iter().any(|c| matches!(c.bucket, Bucket::Playlist(_))),
+            "selection mode emits no playlist containers"
+        );
+    }
+
+    #[test]
+    fn build_export_plan_selection_skips_unknown_ids() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        let album =
+            db::create_album(&mut conn, Some("Rec".into()), None, None, None, None, &[a], "album", 1).unwrap();
+
+        let plan = build_export_plan(&conn, &selection(vec![album.id, 9999])).unwrap();
+        assert_eq!(plan.containers.len(), 1);
+        assert_eq!(plan.containers[0].album_id, album.id);
+    }
+
+    #[test]
+    fn build_export_plan_selection_empty_set_is_an_empty_plan() {
+        let mut conn = db::open_in_memory().unwrap();
+        let a = insert_track(&conn, "/m/album/1.mp3", "One");
+        db::create_album(&mut conn, Some("Rec".into()), None, None, None, None, &[a], "album", 1).unwrap();
+
+        let plan = build_export_plan(&conn, &selection(vec![])).unwrap();
+        assert!(plan.containers.is_empty(), "an empty selection yields an empty plan");
+    }
+
 }

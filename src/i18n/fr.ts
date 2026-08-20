@@ -98,6 +98,23 @@ export const fr: Dict = {
     removeFromAlbum: "Retirer de l'album",
     trackCount: { one: "{{n}} piste", other: "{{n}} pistes" },
     tracksMissing: { one: "{{n}} piste manquante", other: "{{n}} pistes manquantes" },
+    exportItem: "Exporter...",
+    gridSelected: { one: "{{n}} sélectionné", other: "{{n}} sélectionnés" },
+    exportSelected: "Exporter la sélection",
+    dateField: "Champ de date",
+    dateCreated: "Création",
+    dateUpdated: "Modification",
+    noDateMatch: "Aucun album ne correspond à cette période.",
+  },
+
+  dateRange: {
+    any: "Toute date",
+    since: "Depuis le {date}",
+    until: "Jusqu'au {date}",
+    last7: "7 derniers jours",
+    last30: "30 derniers jours",
+    thisYear: "Cette année",
+    clear: "Effacer",
   },
 
   singles: {
@@ -111,6 +128,7 @@ export const fr: Dict = {
     remove: "Retirer le single",
     removeConfirm: "Retirer ce single ?",
     removeAction: "Retirer",
+    exportItem: "Exporter...",
   },
 
   unsorted: {
@@ -371,6 +389,8 @@ export const fr: Dict = {
       mimic: "Album imité",
       file: "Fichier playlist",
     },
+    scopeNotice: { one: "Exportation de {{n}} sélectionné", other: "Exportation de {{n}} sélectionnés" },
+    exportEverything: "Tout exporter à la place",
     action: "Exporter",
     confirm: "Exporter quand même",
     cancel: "Annuler",

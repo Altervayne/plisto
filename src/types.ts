@@ -294,6 +294,9 @@ export interface ExportConfig {
   destination: string;
   folder_pattern: string;
   file_pattern: string;
+  // A scoped export's explicit album/single id set: present narrows the plan to those containers,
+  // absent exports every album/single (the general export).
+  album_ids?: number[];
 }
 
 /** The stage a running export is in. Mirrors ExportPhase in dto.rs. */

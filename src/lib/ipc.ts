@@ -118,6 +118,7 @@ export function exportLibrary(
     singles?: boolean;
     playlists?: boolean;
     playlistShape?: "mimic" | "file";
+    albumIds?: number[];
   } = {},
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
@@ -130,6 +131,9 @@ export function exportLibrary(
       include_singles: sections.singles ?? true,
       include_playlists: sections.playlists ?? false,
       playlist_shape: sections.playlistShape ?? "mimic",
+      // Scoping is opt-in: an explicit id set narrows the plan to those albums/singles. Omitted, the
+      // key drops out and the export stays general.
+      album_ids: sections.albumIds,
     },
     onProgress: channel,
   });

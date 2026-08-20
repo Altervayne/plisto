@@ -1,0 +1,212 @@
+/*
+ * The date-range picker: a quiet trigger that reads the range as plain text, over a floating calendar
+ * that lifts on the pop shadow like the app's other panels. Presets sit above a month grid; the range's
+ * endpoints carry the solid accent, the days between take the weak accent, and today keeps a faint ring.
+ */
+.wrap {
+  position: relative;
+}
+
+/* Transparent at rest, a soft veil on hover - the quiet-button idiom, carrying the calendar glyph. */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.trigger:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.triggerIcon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+
+/* The calendar floats over the surface, anchored just under the trigger, above the wall and its bar. */
+.pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 268px;
+  padding: 10px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+/* The quick-range row: quiet chips that set the whole range at once. */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.preset {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.preset:hover {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* The month heading, flanked by the prev and next steppers. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.month {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.nav:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.navIcon {
+  width: 16px;
+  height: 16px;
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.weekdays {
+  margin-bottom: 4px;
+}
+
+.weekday {
+  padding: 2px 0;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* A day cell: plain at rest, a veil on hover. The range dressing layers on top through its own classes. */
+.day {
+  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.day:hover {
+  background: var(--veil);
+}
+
+/* Adjacent-month days stay clickable but read quiet, so the shown month keeps the eye. */
+.outside {
+  color: var(--ink-3);
+}
+
+/* The days inside the span take the weak accent; the endpoints below override it with the solid fill. */
+.between {
+  background: var(--accent-weak);
+  color: var(--accent);
+  border-radius: 0;
+}
+
+.endpoint,
+.endpoint:hover {
+  background: var(--accent-solid);
+  color: var(--on-solid);
+}
+
+/* Today reads through a faint accent ring, kept when it also sits inside or ends the range. */
+.today {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.clear {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.clear:hover {
+  background: var(--veil);
+  color: var(--ink);
+}

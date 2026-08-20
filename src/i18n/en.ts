@@ -97,6 +97,23 @@ export const en = {
     removeFromAlbum: "Remove from album",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     tracksMissing: { one: "{{n}} track missing", other: "{{n}} tracks missing" },
+    exportItem: "Export...",
+    gridSelected: { one: "{{n}} selected", other: "{{n}} selected" },
+    exportSelected: "Export selected",
+    dateField: "Date field",
+    dateCreated: "Created",
+    dateUpdated: "Updated",
+    noDateMatch: "No albums match this date range.",
+  },
+
+  dateRange: {
+    any: "Any date",
+    since: "Since {date}",
+    until: "Until {date}",
+    last7: "Last 7 days",
+    last30: "Last 30 days",
+    thisYear: "This year",
+    clear: "Clear",
   },
 
   singles: {
@@ -110,6 +127,7 @@ export const en = {
     remove: "Remove single",
     removeConfirm: "Remove this single?",
     removeAction: "Remove",
+    exportItem: "Export...",
   },
 
   unsorted: {
@@ -370,6 +388,8 @@ export const en = {
       mimic: "Mimic album",
       file: "Playlist file",
     },
+    scopeNotice: { one: "Exporting {{n}} selected", other: "Exporting {{n}} selected" },
+    exportEverything: "Export everything instead",
     action: "Export",
     confirm: "Export anyway",
     cancel: "Cancel",

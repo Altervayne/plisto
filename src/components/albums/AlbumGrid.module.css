@@ -1,3 +1,22 @@
+/* The wall column: the filter toolbar pinned on top, the scroll surface or empty note filling below. */
+.wall {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The filter row: the date-field toggle beside the range picker, inset to meet the canvas padding so
+ * the controls line up over the first card. */
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 22px 6px;
+}
+
 /* Fills the content region; the ScrollArea inside owns the overflow and paints the bespoke bar. */
 .scroll {
   flex: 1;
@@ -30,4 +49,66 @@
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 26px 20px;
+}
+
+/* The multi-select bar: floats centered near the bottom of the content region, lifted on a soft shadow
+ * with no border so it reads as an object on the continuous ground, matching the organize action bar. */
+.bar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  z-index: 5;
+}
+
+/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. The centering
+   translateX rides along every frame so the bar never drifts off center. */
+.bar[data-state="enter"] {
+  animation: bar-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.bar[data-state="exit"] {
+  animation: bar-out var(--dur-fast) var(--ease-exit) both;
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes bar-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+.summary {
+  color: var(--ink-2);
+  font-weight: 550;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

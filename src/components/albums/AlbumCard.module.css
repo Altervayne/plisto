@@ -37,6 +37,28 @@
   --cover-shadow: 0 0 0 2px var(--accent), var(--shadow-pop);
 }
 
+/* Multi-select reads apart from the open ring: a fuller accent ring plus the check token over the
+ * cover, so a picked tile stays legible even when it is also the open one. */
+.card.checked .frame {
+  --cover-shadow: 0 0 0 3px var(--accent), var(--shadow-pop);
+}
+
+/* The check token: an accent disc in the cover corner, riding the frame so it lifts with the tile. */
+.check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-soft);
+}
+
 .card:focus-visible {
   outline: none;
 }

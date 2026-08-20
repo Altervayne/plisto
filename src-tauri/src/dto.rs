@@ -447,6 +447,11 @@ pub struct ExportConfig {
     // album named after the playlist.
     #[serde(default)]
     pub playlist_shape: String,
+    // A scoped export's explicit album/single id set: Some narrows the plan to exactly these containers
+    // (re-bucketed, no playlists, ignoring the toggles above); None exports every album/single per the
+    // toggles, the current behavior. An id not present is skipped.
+    #[serde(default)]
+    pub album_ids: Option<Vec<i64>>,
 }
 
 /// The serde default for the include-albums/singles flags: on, so a pre-1.5 caller that sends only a
