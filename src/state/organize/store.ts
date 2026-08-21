@@ -379,12 +379,19 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     // Bulk delete: fire each removal in turn, then reload once and clear history - the same structural
-    // undo boundary a single delete draws, paid once for the whole set rather than reloading per id.
+    // undo boundary a single delete draws, paid once for the whole set rather than reloading per id. A
+    // mid-loop failure aborts the rest but still resyncs and clears history in the finally, so the
+    // projection never drifts from the DB, and surfaces a quiet error like the other structural writes.
     deleteAlbums: async (albumIds) => {
       if (albumIds.length === 0) return;
-      for (const albumId of albumIds) await ipcDeleteAlbum(albumId);
-      await get().loadOrganization();
-      set({ past: [], future: [] });
+      try {
+        for (const albumId of albumIds) await ipcDeleteAlbum(albumId);
+      } catch {
+        set({ error: "Some items could not be deleted." });
+      } finally {
+        await get().loadOrganization();
+        set({ past: [], future: [] });
+      }
     },
 
     setAlbumCover: async (albumId, srcPath) => {

@@ -66,6 +66,10 @@
   box-shadow: var(--shadow-soft);
   cursor: pointer;
   opacity: 0;
+  /* Hidden, the ring is inert: an opacity:0 element still keeps its box and its pointer events, so
+   * without this the invisible corner would swallow clicks meant to open the card. It re-arms only in
+   * the states that also reveal it below. */
+  pointer-events: none;
   transition:
     opacity var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
@@ -76,11 +80,13 @@
 }
 
 /* Reveal the empty ring on hover or keyboard focus, so the pick gesture is there to find. Once any
- * tile on the wall is picked, every ring stays up so building the set is a plain click each. */
+ * tile on the wall is picked, every ring stays up so building the set is a plain click each. Revealed,
+ * the ring takes clicks again. */
 .card:hover .pick,
 .card:focus-visible .pick,
 .card.picking .pick {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* A picked tile fills the disc to the accent check and keeps it up regardless of hover. */
@@ -89,6 +95,7 @@
   background: var(--accent);
   backdrop-filter: none;
   opacity: 1;
+  pointer-events: auto;
 }
 
 .card:focus-visible {

@@ -26,7 +26,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
-import { useDeleteAlbums, useMembership } from "../../state/organize/store";
+import { useDeleteAlbums, useOrganizeStore } from "../../state/organize/store";
 import { PREF_KEYS, usePreference } from "../../state/preferences/store";
 
 // -- Type Imports --
@@ -178,12 +178,16 @@ export function AlbumGrid({
     [visible.length, handleSelectAll, selected.size],
   );
 
-  // The member track ids behind the current pick, for the bar's add-to-playlist. Derived off the shared
-  // membership so a selection of N albums resolves to their tracks without a per-card walk.
-  const membership = useMembership();
-  const selectedTrackIds = useMemo(
-    () => membership.filter((r) => selected.has(r.album_id)).map((r) => r.track_id),
-    [membership, selected],
+  // The member track ids behind the current pick, for the bar's add-to-playlist. Read imperatively at
+  // click time off the store rather than subscribed, so ordinary membership edits (a drawer rename, a
+  // reorder) don't re-render the whole wall when no add-to-playlist is even in flight.
+  const gatherSelectedTrackIds = useCallback(
+    () =>
+      useOrganizeStore
+        .getState()
+        .org.membership.filter((r) => selected.has(r.album_id))
+        .map((r) => r.track_id),
+    [selected],
   );
 
   // The bar is one component across both walls; its delete copy follows the wall kind. A wall holds one
@@ -273,8 +277,10 @@ export function AlbumGrid({
               <ArrowRight size={15} strokeWidth={2} aria-hidden="true" />
             </PrimaryButton>
             <QuietButton
-              onClick={() => setPlaylistTarget(selectedTrackIds)}
-              disabled={selectedTrackIds.length === 0}
+              onClick={() => {
+                const ids = gatherSelectedTrackIds();
+                if (ids.length > 0) setPlaylistTarget(ids);
+              }}
             >
               {t((d) => d.playlists.addTo)}
             </QuietButton>

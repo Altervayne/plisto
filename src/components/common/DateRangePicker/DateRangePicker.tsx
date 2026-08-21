@@ -95,21 +95,16 @@ export function DateRangePicker({
   const hi = startSec != null && otherSec != null ? Math.max(startSec, otherSec) : startSec;
   const todaySec = dayStart(new Date());
 
-  // While open, an outside press or Escape dismisses it, mirroring the app's other floating panels.
+  // While open, an outside press dismisses it, mirroring the app's other floating panels. Escape is
+  // handled on the wrapper below rather than here, so it can be kept from bubbling to an ancestor's own
+  // Escape handler.
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
       if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
     window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
 
   const toggle = () => {
@@ -147,7 +142,19 @@ export function DateRangePicker({
     : `${labelFor(value.from as number)} - ${labelFor(value.to as number)}`;
 
   return (
-    <div ref={wrapRef} className={styles.wrap}>
+    <div
+      ref={wrapRef}
+      className={styles.wrap}
+      onKeyDown={(event) => {
+        // Escape closes the popover only, and is stopped here so it never reaches an ancestor's own
+        // Escape handler - a grid that clears its selection on Escape must not lose it when the user
+        // is only dismissing this calendar.
+        if (event.key === "Escape" && open) {
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
       <button
         type="button"
         className={styles.trigger}
