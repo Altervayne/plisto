@@ -22,6 +22,8 @@ export const fr: Dict = {
   common: {
     undo: "Annuler",
     redo: "Rétablir",
+    select: "Sélectionner",
+    deselect: "Désélectionner",
     clear: "Déselectioner",
     cancel: "Annuler",
     dismiss: "Congédier",
@@ -102,6 +104,12 @@ export const fr: Dict = {
     gridSelected: { one: "{{n}} sélectionné", other: "{{n}} sélectionnés" },
     exportSelected: "Exporter la sélection",
     exportDialogTitle: "Exporter la sélection",
+    deselectAll: "Tout désélectionner",
+    deleteSelected: "Supprimer",
+    deleteSelectedConfirm: {
+      one: "Supprimer cet album ? L'historique d'annulation sera effacé.",
+      other: "Supprimer ces {{n}} albums ? L'historique d'annulation sera effacé.",
+    },
     dateField: "Champ de date",
     dateCreated: "Création",
     dateUpdated: "Modification",
@@ -115,6 +123,7 @@ export const fr: Dict = {
     last7: "7 derniers jours",
     last30: "30 derniers jours",
     thisYear: "Cette année",
+    sinceExport: "Depuis le dernier export",
     clear: "Effacer",
   },
 
@@ -130,6 +139,11 @@ export const fr: Dict = {
     removeConfirm: "Retirer ce single ?",
     removeAction: "Retirer",
     exportItem: "Exporter...",
+    removeSelected: "Retirer",
+    removeSelectedConfirm: {
+      one: "Retirer ce single ? Sa piste retourne dans les non triées.",
+      other: "Retirer ces {{n}} singles ? Leurs pistes retournent dans les non triées.",
+    },
   },
 
   unsorted: {

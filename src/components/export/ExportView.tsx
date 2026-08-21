@@ -160,6 +160,9 @@ export function ExportView() {
     try {
       setSummary(await exportLibrary(destination, channel, folder, file, sections));
       setPhase("done");
+      // Stamp the sync baseline: only the full-library export moves it, so "Since last export" tracks
+      // the last time everything was written, not a scoped selection or playlist run.
+      setPreference(PREF_KEYS.lastExportAt, String(Math.floor(Date.now() / 1000)));
     } catch {
       // A destination that went invalid mid-run drops back to idle; the source is untouched.
       setPhase("idle");
@@ -172,6 +175,7 @@ export function ExportView() {
     includeSingles,
     includePlaylists,
     playlistShape,
+    setPreference,
   ]);
 
   const onToggleSection = useCallback(

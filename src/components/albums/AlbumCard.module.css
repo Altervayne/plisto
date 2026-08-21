@@ -43,8 +43,13 @@
   --cover-shadow: 0 0 0 3px var(--accent), var(--shadow-pop);
 }
 
-/* The check token: an accent disc in the cover corner, riding the frame so it lifts with the tile. */
-.check {
+/*
+ * The select affordance: a disc in the cover corner, riding the frame so it lifts with the tile.
+ * Unpicked it is a hollow ring on its own glass scrim - the ring floats over unpredictable cover art,
+ * so it carries its own contrast rather than a theme surface - and stays hidden until the tile is
+ * hovered or focused, keeping the wall clean. Picked it fills to the accent check and holds visible.
+ */
+.pick {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -54,9 +59,36 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--accent);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(6px);
   color: var(--accent-ink);
   box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.pick:hover {
+  transform: scale(1.08);
+}
+
+/* Reveal the empty ring on hover or keyboard focus, so the pick gesture is there to find. Once any
+ * tile on the wall is picked, every ring stays up so building the set is a plain click each. */
+.card:hover .pick,
+.card:focus-visible .pick,
+.card.picking .pick {
+  opacity: 1;
+}
+
+/* A picked tile fills the disc to the accent check and keeps it up regardless of hover. */
+.card.checked .pick {
+  border-color: var(--accent);
+  background: var(--accent);
+  backdrop-filter: none;
+  opacity: 1;
 }
 
 .card:focus-visible {
@@ -71,6 +103,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .frame {
+    transition: none;
+  }
+
+  .pick {
     transition: none;
   }
 }

@@ -21,6 +21,8 @@ export const en = {
   common: {
     undo: "Undo",
     redo: "Redo",
+    select: "Select",
+    deselect: "Deselect",
     clear: "Clear",
     cancel: "Cancel",
     dismiss: "Dismiss",
@@ -101,6 +103,12 @@ export const en = {
     gridSelected: { one: "{{n}} selected", other: "{{n}} selected" },
     exportSelected: "Export selected",
     exportDialogTitle: "Export selection",
+    deselectAll: "Deselect all",
+    deleteSelected: "Delete",
+    deleteSelectedConfirm: {
+      one: "Delete this album? This clears the undo history.",
+      other: "Delete these {{n}} albums? This clears the undo history.",
+    },
     dateField: "Date field",
     dateCreated: "Created",
     dateUpdated: "Updated",
@@ -114,6 +122,7 @@ export const en = {
     last7: "Last 7 days",
     last30: "Last 30 days",
     thisYear: "This year",
+    sinceExport: "Since last export",
     clear: "Clear",
   },
 
@@ -129,6 +138,11 @@ export const en = {
     removeConfirm: "Remove this single?",
     removeAction: "Remove",
     exportItem: "Export...",
+    removeSelected: "Remove",
+    removeSelectedConfirm: {
+      one: "Remove this single? Its track returns to unsorted.",
+      other: "Remove these {{n}} singles? Their tracks return to unsorted.",
+    },
   },
 
   unsorted: {

@@ -55,6 +55,7 @@ export const AlbumCard = memo(function AlbumCard({
   album,
   selected,
   checked,
+  selecting,
   onOpen,
   onOpenFull,
   onToggleSelect,
@@ -64,6 +65,9 @@ export const AlbumCard = memo(function AlbumCard({
   album: AlbumRow;
   selected: boolean;
   checked: boolean;
+  // A selection is live somewhere on the wall: every tile shows its ring, so picking more is a plain
+  // click rather than a hover hunt - the discoverable multi-pick mode once the first card is in.
+  selecting: boolean;
   onOpen: (albumId: number) => void;
   onOpenFull?: (albumId: number) => void;
   onToggleSelect: (albumId: number, mods: { meta: boolean; shift: boolean }) => void;
@@ -130,6 +134,11 @@ export const AlbumCard = memo(function AlbumCard({
       onSelect: () => onOpen(album.id),
     });
     items.push({
+      icon: <Check size={16} strokeWidth={1.8} />,
+      label: checked ? t((d) => d.common.deselect) : t((d) => d.common.select),
+      onSelect: () => onToggleSelect(album.id, { meta: false, shift: false }),
+    });
+    items.push({
       icon: <Download size={16} strokeWidth={1.8} />,
       label: single ? t((d) => d.singles.exportItem) : t((d) => d.albums.exportItem),
       onSelect: () => onExport(album.id),
@@ -159,7 +168,7 @@ export const AlbumCard = memo(function AlbumCard({
   return (
     <button
       type="button"
-      className={`${styles.card} ${selected ? styles.selected : ""} ${checked ? styles.checked : ""}`}
+      className={`${styles.card} ${selected ? styles.selected : ""} ${checked ? styles.checked : ""} ${selecting ? styles.picking : ""}`}
       aria-pressed={checked || selected}
       onClick={handleClick}
       onContextMenu={menu.onContextMenu}
@@ -169,11 +178,19 @@ export const AlbumCard = memo(function AlbumCard({
         {missing > 0 ? (
           <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
         ) : null}
-        {checked ? (
-          <span className={styles.check} aria-hidden="true">
-            <Check size={14} strokeWidth={3} />
-          </span>
-        ) : null}
+        {/* The select affordance: an empty ring that fades in on hover so the pick gesture is
+         * discoverable without the modifier keys, filling to the accent check once picked. It is its
+         * own click target - a plain click toggles this tile, stopping the card's open underneath. */}
+        <span
+          className={styles.pick}
+          aria-hidden="true"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleSelect(album.id, { meta: false, shift: false });
+          }}
+        >
+          {checked ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
       </div>
       <CardMeta
         title={album.title ?? t((d) => d.albums.untitled)}

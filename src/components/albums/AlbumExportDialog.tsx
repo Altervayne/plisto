@@ -7,6 +7,7 @@ import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
+import { StaffSpinner } from "../scan/StaffSpinner";
 import { ExportDestination } from "../export/ExportDestination";
 import { ExportLayout } from "../export/ExportLayout";
 import { ExportReport } from "../export/ExportReport";
@@ -186,6 +187,7 @@ export function AlbumExportDialog({
 
         {phase === "running" ? (
           <div className={styles.run}>
+            <StaffSpinner />
             {destination ? (
               <Tooltip label={destination}>
                 <p className={styles.path}>{destination}</p>

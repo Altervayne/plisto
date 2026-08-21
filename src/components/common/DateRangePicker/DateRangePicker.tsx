@@ -46,9 +46,14 @@ function viewFor(range: DateRange): View {
 export function DateRangePicker({
   value,
   onChange,
+  lastExport,
 }: {
   value: DateRange;
   onChange: (range: DateRange) => void;
+  // Epoch seconds of the last full export, or null when there has been none. Present, it offers a
+  // "Since last export" preset that opens the range at that stamp - the caller's field toggle then reads
+  // it as changed-since (Updated) or added-since (Created).
+  lastExport?: number | null;
 }) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -169,6 +174,15 @@ export function DateRangePicker({
             <button type="button" className={styles.preset} onClick={() => onChange(presetThisYear(new Date()))}>
               {t((d) => d.dateRange.thisYear)}
             </button>
+            {lastExport != null ? (
+              <button
+                type="button"
+                className={styles.preset}
+                onClick={() => onChange({ from: lastExport, to: null })}
+              >
+                {t((d) => d.dateRange.sinceExport)}
+              </button>
+            ) : null}
           </div>
 
           <div className={styles.head}>

@@ -78,6 +78,7 @@ interface OrganizeStore {
   createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<number>;
   createSingle: (trackId: number) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
+  deleteAlbums: (albumIds: number[]) => Promise<void>;
   setAlbumCover: (albumId: number, srcPath: string) => Promise<void>;
   removeAlbumCover: (albumId: number) => Promise<void>;
   setTrackKeepOwnCover: (albumId: number, trackIds: number[], value: boolean) => Promise<void>;
@@ -377,6 +378,15 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       set({ past: [], future: [] });
     },
 
+    // Bulk delete: fire each removal in turn, then reload once and clear history - the same structural
+    // undo boundary a single delete draws, paid once for the whole set rather than reloading per id.
+    deleteAlbums: async (albumIds) => {
+      if (albumIds.length === 0) return;
+      for (const albumId of albumIds) await ipcDeleteAlbum(albumId);
+      await get().loadOrganization();
+      set({ past: [], future: [] });
+    },
+
     setAlbumCover: async (albumId, srcPath) => {
       await ipcSetAlbumCover(albumId, srcPath);
       await get().loadOrganization();
@@ -655,6 +665,7 @@ export const useRedo = () => useOrganizeStore((s) => s.redo);
 export const useCreateAlbum = () => useOrganizeStore((s) => s.createAlbum);
 export const useCreateSingle = () => useOrganizeStore((s) => s.createSingle);
 export const useDeleteAlbum = () => useOrganizeStore((s) => s.deleteAlbum);
+export const useDeleteAlbums = () => useOrganizeStore((s) => s.deleteAlbums);
 export const useSetAlbumCover = () => useOrganizeStore((s) => s.setAlbumCover);
 export const useRemoveAlbumCover = () => useOrganizeStore((s) => s.removeAlbumCover);
 export const useSetTrackKeepOwnCover = () => useOrganizeStore((s) => s.setTrackKeepOwnCover);

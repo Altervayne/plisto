@@ -17,6 +17,11 @@
   padding: 8px 22px 6px;
 }
 
+/* Pushes the select-all control to the far end of the filter row, away from the date controls. */
+.toolbarEnd {
+  margin-left: auto;
+}
+
 /* Fills the content region; the ScrollArea inside owns the overflow and paints the bespoke bar. */
 .scroll {
   flex: 1;

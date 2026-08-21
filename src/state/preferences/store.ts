@@ -19,6 +19,9 @@ export const PREF_KEYS = {
   theme: "theme",
   exportFolderPattern: "export_folder_pattern",
   exportFilePattern: "export_file_pattern",
+  // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last
+  // export" filter preset - the baseline for "what changed since I last synced everything".
+  lastExportAt: "last_export_at",
 } as const;
 
 interface PreferencesStore {
