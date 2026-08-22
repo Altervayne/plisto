@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use crate::db;
@@ -22,6 +22,43 @@ use crate::dto::{
 };
 use crate::export;
 use crate::state::AppState;
+
+/// A temp staging directory removed on drop, so the staged export never leaks whether the transfer
+/// succeeds, fails, or the worker panics. Mirrors the `TempDir` Drop pattern in `export/mod.rs`'s
+/// tests. Held on the device-export worker thread for the whole staging+transfer job.
+struct StagingGuard {
+    root: PathBuf,
+}
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Formats a UTC calendar stamp `YYYY-MM-DD HH-MM-SS` from a Unix-seconds value, using dashes where a
+/// clock would use colons so the result is a safe folder component with no further escaping. Pure and
+/// deterministic (the clock is the injected `secs`), so the timestamped export subfolder is testable
+/// without a real clock. The civil-date arithmetic is Howard Hinnant's days-to-date algorithm.
+fn civil_stamp(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let tod = secs % 86_400;
+    let (h, mi, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+
+    // Shift the epoch to 0000-03-01 so leap days fall at the end of the 400-year era, then unwind.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // day-of-era, [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // year-of-era, [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day-of-year (Mar-based), [0, 365]
+    let mp = (5 * doy + 2) / 153; // month, Mar=0 .. Feb=11
+    let d = doy - (153 * mp + 2) / 5 + 1; // day-of-month, [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // to [1, 12]
+    let y = y + if m <= 2 { 1 } else { 0 }; // Jan/Feb belong to the next civil year
+
+    format!("{y:04}-{m:02}-{d:02} {h:02}-{mi:02}-{s:02}")
+}
 
 /// Opens the device-capable shell folder picker and returns the picked MTP target (or None on cancel).
 /// The shell dialog is an STA object that must run on the main UI thread, so this hops there via
@@ -114,6 +151,191 @@ pub async fn export_library(
             return Err(e);
         }
     };
+
+    // A device target stages the library to a temp folder and pushes it onto the phone; the whole
+    // folder path below is skipped. `destination` is ignored (a device has no filesystem path) and
+    // there is nothing for check_destination to probe. Everything the worker needs is snapshotted
+    // here, so the dedicated STA thread stays free of managed state.
+    if let Some(device) = config.device.clone() {
+        let template = export::AlbumTemplate::resolve(&config.folder_pattern, &config.file_pattern);
+        let covers_dir = state.covers_dir.clone();
+        let cancel = Arc::clone(&state.export_cancel);
+        let status = Arc::clone(&state.export_status);
+
+        // The staging root under the app cache dir (temp fallback), uniquely named so two runs never
+        // collide. Its guard removes it on success, failure, and panic.
+        let cache_root = app
+            .path()
+            .app_cache_dir()
+            .unwrap_or_else(|_| std::env::temp_dir());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let staging_root =
+            cache_root.join(format!("plisto-export-{}-{}", std::process::id(), nanos));
+
+        // D1: a fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
+        // nothing to overwrite on the device. Sanitized to a safe component (drops the colons a clock
+        // carries). The phone receives `<device folder>/Plisto <stamp>/<Albums|Singles|...>`.
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let stamp_folder =
+            export::safe_component(&format!("Plisto {}", civil_stamp(secs)), "Plisto");
+
+        // Past every validation: mark the shared status running and announce it, exactly as the
+        // folder path does, so a started event always pairs with a terminal one.
+        if let Ok(mut s) = state.export_status.lock() {
+            *s = ExportStatus {
+                running: true,
+                progress: None,
+            };
+        }
+        let _ = app.emit("export:started", ());
+
+        let worker_app = app.clone();
+        let device_pidl = device.pidl;
+
+        // Trap B: the whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
+        // apartment state can never leak onto a reused Tokio pool thread on an early return (the
+        // device-unplugged path). The async command parks a blocking-pool thread on the join below,
+        // staying free to service cancel_export.
+        let spawned = std::thread::Builder::new()
+            .name("plisto-mtp-export".to_string())
+            .spawn(move || -> Result<ExportSummary, String> {
+                // Declared before the apartment so it drops AFTER it: CoUninitialize runs first, the
+                // temp cleanup second.
+                let _staging = StagingGuard {
+                    root: staging_root.clone(),
+                };
+                let _com = export::device::ComApartment::new();
+
+                let stamp_dir = staging_root.join(&stamp_folder);
+                std::fs::create_dir_all(&stamp_dir)
+                    .map_err(|_| "could not create the staging folder".to_string())?;
+
+                // The shared emit sink: the app-global status snapshot, the app-global progress event,
+                // and the per-invocation channel, driven identically for staging and transfer ticks.
+                let emit_tick = |p: ExportProgress| {
+                    if let Ok(mut s) = status.lock() {
+                        s.progress = Some(p.clone());
+                    }
+                    let _ = worker_app.emit("export:progress", &p);
+                    let _ = on_progress.send(p);
+                };
+
+                // Staging: run_export verbatim into the timestamped subfolder (COM-free). Its own
+                // terminal Done is rewritten to Copying/false - staging completion must never read as
+                // the whole export's done, since the transfer is still to come (Holes 2 & 3, §4).
+                let summary = export::run_export(
+                    &plan,
+                    &stamp_dir,
+                    &template,
+                    &covers_dir,
+                    &cancel,
+                    |p| {
+                        let p = if p.done {
+                            ExportProgress {
+                                phase: ExportPhase::Copying,
+                                done: false,
+                                ..p
+                            }
+                        } else {
+                            p
+                        };
+                        emit_tick(p);
+                    },
+                );
+
+                let final_summary = if summary.cancelled {
+                    // A cancel during staging never reaches the device; the guard cleans the temp.
+                    summary
+                } else {
+                    // Parity with the folder path: the portable playlist .m3u8s land in the staging
+                    // tree so they transfer beside the copies they reference (their relative paths
+                    // resolve on the device). Off the cancel path, like the folder export.
+                    export::write_general_playlist_m3us(
+                        &plan,
+                        &playlist_files,
+                        &stamp_dir,
+                        &template,
+                    );
+
+                    // The transfer: push the staged tree onto the device, streaming Transferring
+                    // ticks. A hard error (disconnect / failure) bubbles as Err - no terminal Done,
+                    // the UI drops to idle - while a mid-transfer cancel returns a cancelled outcome.
+                    let outcome = export::device::transfer_to_device(
+                        &staging_root,
+                        &device_pidl,
+                        &cancel,
+                        |p| emit_tick(p),
+                    )?;
+                    ExportSummary {
+                        cancelled: outcome.cancelled,
+                        ..summary
+                    }
+                };
+
+                // The single real terminal Done, for both a completed and a cancelled run - the tick
+                // the folder path lets run_export emit, sent here since staging's was suppressed.
+                emit_tick(ExportProgress {
+                    phase: ExportPhase::Done,
+                    exported: final_summary.exported,
+                    total: final_summary.total,
+                    errors: final_summary.errors,
+                    done: true,
+                });
+                Ok(final_summary)
+                // _com drops here (CoUninitialize), then _staging (the temp is removed).
+            });
+
+        let handle = match spawned {
+            Ok(h) => h,
+            Err(_) => {
+                state.export_running.store(false, Ordering::SeqCst);
+                if let Ok(mut s) = state.export_status.lock() {
+                    *s = ExportStatus {
+                        running: false,
+                        progress: None,
+                    };
+                }
+                let message = "could not start the device export".to_string();
+                let _ = app.emit("export:failed", &message);
+                return Err(message);
+            }
+        };
+
+        // Await the worker without blocking the async runtime: a blocking-pool thread parks on the
+        // join while cancel_export stays serviceable.
+        let joined = tauri::async_runtime::spawn_blocking(move || handle.join()).await;
+
+        state.export_running.store(false, Ordering::SeqCst);
+        if let Ok(mut s) = state.export_status.lock() {
+            *s = ExportStatus {
+                running: false,
+                progress: None,
+            };
+        }
+
+        return match joined {
+            Ok(Ok(Ok(summary))) => {
+                let _ = app.emit("export:finished", &summary);
+                Ok(summary)
+            }
+            Ok(Ok(Err(message))) => {
+                let _ = app.emit("export:failed", &message);
+                Err(message)
+            }
+            // The worker thread panicked, or the blocking join itself failed to run.
+            Ok(Err(_)) | Err(_) => {
+                let message = "export task failed to run".to_string();
+                let _ = app.emit("export:failed", &message);
+                Err(message)
+            }
+        };
+    }
 
     // Refuse a destination inside any root or one that is not writable, before any write.
     let check = export::check_destination(&config.destination, &roots);
@@ -232,4 +454,39 @@ pub fn validate_export_destination(
         db::all_root_paths(&conn).map_err(|e| e.to_string())?
     };
     Ok(export::check_destination(&destination, &roots))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn civil_stamp_formats_the_unix_epoch() {
+        assert_eq!(civil_stamp(0), "1970-01-01 00-00-00");
+    }
+
+    #[test]
+    fn civil_stamp_formats_a_known_instant() {
+        // 1_700_000_000 is 2023-11-14T22:13:20Z.
+        assert_eq!(civil_stamp(1_700_000_000), "2023-11-14 22-13-20");
+    }
+
+    #[test]
+    fn civil_stamp_carries_no_colon_so_the_folder_component_is_safe() {
+        // The stamp feeds a folder name, so it must never carry a path-illegal character. The dashes
+        // stand in for a clock's colons; safe_component would strip them, but the stamp avoids them.
+        let stamp = civil_stamp(1_700_000_000);
+        assert!(!stamp.contains(':'), "the stamp must be colon-free: {stamp}");
+        assert_eq!(
+            export::safe_component(&format!("Plisto {stamp}"), "Plisto"),
+            "Plisto 2023-11-14 22-13-20",
+            "the timestamped folder survives sanitization unchanged",
+        );
+    }
+
+    #[test]
+    fn civil_stamp_handles_a_leap_day() {
+        // 1_582_934_400 is 2020-02-29T00:00:00Z - the algorithm must place the leap day correctly.
+        assert_eq!(civil_stamp(1_582_934_400), "2020-02-29 00-00-00");
+    }
 }

@@ -294,13 +294,16 @@ export interface ExportConfig {
   destination: string;
   folder_pattern: string;
   file_pattern: string;
+  // Set only for a device export: the picked device target the staged library transfers onto. Absent,
+  // the export writes straight into `destination`.
+  device?: DeviceTarget;
   // A scoped export's explicit album/single id set: present narrows the plan to those containers,
   // absent exports every album/single (the general export).
   album_ids?: number[];
 }
 
 /** The stage a running export is in. Mirrors ExportPhase in dto.rs. */
-export type ExportPhase = 'preparing' | 'copying' | 'done';
+export type ExportPhase = 'preparing' | 'copying' | 'transferring' | 'done';
 
 /** A progress tick over the export channel. `exported` is monotonic. Mirrors ExportProgress. */
 export interface ExportProgress {

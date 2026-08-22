@@ -150,16 +150,19 @@ export function ExportView() {
   );
 
   const runExport = useCallback(async () => {
-    if (!target || target.kind !== "folder") return;
+    if (!target) return;
     setConfirming(false);
     setProgress(null);
     setSummary(null);
     setPhase("running");
 
     const channel = createExportChannel((tick) => {
-      // exported is monotonic on the backend; guard an out-of-order tick from regressing it.
+      // exported is monotonic within a phase, but a device export runs two phases at different scales -
+      // staging counts bytes staged, transferring counts bytes moved. Carrying the staging max into the
+      // transfer would pin the bar full, so the guard resets on a phase change and only clamps within one.
       setProgress((prev) => {
-        const exported = prev ? Math.max(prev.exported, tick.exported) : tick.exported;
+        const exported =
+          prev && prev.phase === tick.phase ? Math.max(prev.exported, tick.exported) : tick.exported;
         return { ...tick, exported };
       });
     });
@@ -172,7 +175,7 @@ export function ExportView() {
     };
 
     try {
-      setSummary(await exportLibrary(target.path, channel, folder, file, sections));
+      setSummary(await exportLibrary(target, channel, folder, file, sections));
       setPhase("done");
       // Stamp the sync baseline: only the full-library export moves it, so "Since last export" tracks
       // the last time everything was written, not a scoped selection or playlist run.
@@ -217,22 +220,47 @@ export function ExportView() {
     setPhase("idle");
   }, []);
 
-  // Only a folder target reaches a run, so its path is the sole one shown on the running and done screens.
+  // A folder path is the only openable destination, so it alone gates the done-screen Open button. A
+  // device has no filesystem path, so this stays null for one and the button drops.
   const path = target?.kind === "folder" ? target.path : null;
 
   if (phase === "running") {
     const total = progress?.total ?? 0;
     const exported = progress?.exported ?? 0;
     const errors = progress?.errors ?? 0;
-    const value = total > 0 ? exported / total : null;
+    const phaseNow = progress?.phase;
+    // The line under the spinner: a folder shows its path, a device its human-readable display name.
+    const destLine =
+      target?.kind === "folder"
+        ? target.path
+        : target?.kind === "device"
+          ? target.target.display
+          : null;
+    // A device export runs two named phases; the folder export only ever copies. The title follows the
+    // phase so the device reads Writing while it stages, then Transferring while it moves onto the device.
+    const title =
+      target?.kind === "device" && phaseNow === "copying"
+        ? t((d) => d.export.writing)
+        : target?.kind === "device" && phaseNow === "transferring"
+          ? t((d) => d.export.transferring)
+          : t((d) => d.export.exporting);
+    // The staging phase counts bytes with no meaningful total to divide against, so the device bar runs
+    // indeterminate while it writes the temp folder, then goes determinate once the transfer begins. A
+    // folder copy stays determinate throughout.
+    const value =
+      target?.kind === "device" && phaseNow === "copying"
+        ? null
+        : total > 0
+          ? exported / total
+          : null;
     return (
       <CenteredStage>
         <div className={styles.body}>
           <StaffSpinner />
-          <h1 className={styles.title}>{t((d) => d.export.exporting)}</h1>
-          {path ? (
-            <Tooltip label={path}>
-              <p className={styles.path}>{path}</p>
+          <h1 className={styles.title}>{title}</h1>
+          {destLine ? (
+            <Tooltip label={destLine}>
+              <p className={styles.path}>{destLine}</p>
             </Tooltip>
           ) : null}
           <ProgressLine value={value} />
@@ -261,6 +289,12 @@ export function ExportView() {
           <span className={styles.dot} aria-hidden="true" />
           <h1 className={styles.title}>{t((d) => d.export.exported)}</h1>
           <ExportReport summary={summary} />
+          {/* A device leaves no folder to open, so name where it went in its place. */}
+          {target?.kind === "device" ? (
+            <p className={styles.hint}>
+              {t((d) => d.export.sentTo, { device: target.target.device_name })}
+            </p>
+          ) : null}
           <div className={styles.actions}>
             {path ? (
               <QuietButton onClick={() => void openFolder(path)}>
@@ -281,8 +315,8 @@ export function ExportView() {
     (includeAlbums && counts.albums > 0) ||
     (includeSingles && counts.singles > 0) ||
     includePlaylists;
-  // Device export is not wired in P1: a device can be picked and validated, but only a folder runs.
-  const canExport = target?.kind === "folder" && !!check?.ok && hasContent;
+  // A validated target with something to write is ready - a folder or a connected device alike.
+  const canExport = !!target && !!check?.ok && hasContent;
   return (
     <div className={styles.view}>
       <div className={styles.head}>
@@ -323,10 +357,6 @@ export function ExportView() {
               hunt for their handset in the folder picker. */}
           {!target ? (
             <p className={styles.hint}>{t((d) => d.export.phoneHint)}</p>
-          ) : null}
-          {/* A validated device is a dead end in P1 - the transfer path is P2. */}
-          {target?.kind === "device" ? (
-            <p className={styles.hint}>{t((d) => d.export.deviceComingSoon)}</p>
           ) : null}
         </section>
 

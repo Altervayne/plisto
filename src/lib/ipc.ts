@@ -22,6 +22,7 @@ import type {
   ExportProgress,
   ExportStatus,
   ExportSummary,
+  ExportTarget,
   ExtractResult,
   ExtractRow,
   GenreRemovalImpact,
@@ -105,12 +106,14 @@ export function createExportChannel(
 }
 
 /**
- * Exports the organized library to `destination`, streaming progress, resolving with the report.
+ * Exports the organized library to `target`, streaming progress, resolving with the report. A folder
+ * target writes straight into its path; a device target stages the library to a temp folder and
+ * transfers it onto the device, so `destination` goes empty and `device` carries the picked target.
  * The album layout follows `folderPattern`/`filePattern` (token language); left empty, the backend
  * falls back to the shipped default layout. Singles ignore the template.
  */
 export function exportLibrary(
-  destination: string,
+  target: ExportTarget,
   channel: Channel<ExportProgress>,
   folderPattern = "",
   filePattern = "",
@@ -124,7 +127,8 @@ export function exportLibrary(
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
     config: {
-      destination,
+      destination: target.kind === "folder" ? target.path : "",
+      device: target.kind === "device" ? target.target : undefined,
       folder_pattern: folderPattern,
       file_pattern: filePattern,
       // Sections default to the pre-1.5 shape: albums + singles on, playlists opt-in.

@@ -789,6 +789,7 @@ mod tests {
             include_playlists: playlists,
             playlist_shape: shape.to_string(),
             album_ids: None,
+            device: None,
         }
     }
 

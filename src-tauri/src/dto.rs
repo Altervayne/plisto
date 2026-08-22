@@ -452,6 +452,11 @@ pub struct ExportConfig {
     // toggles, the current behavior. An id not present is skipped.
     #[serde(default)]
     pub album_ids: Option<Vec<i64>>,
+    // The MTP/device target (1.6.0). Some means this export goes straight onto a connected phone: the
+    // library is staged to a temp folder and transferred onto the device, and `destination` is ignored
+    // (a device has no filesystem path). None is the ordinary folder export, byte-for-byte unchanged.
+    #[serde(default)]
+    pub device: Option<DeviceTarget>,
 }
 
 /// The serde default for the include-albums/singles flags: on, so a pre-1.5 caller that sends only a
@@ -473,12 +478,16 @@ pub struct DeviceTarget {
 }
 
 /// The stage a running export is in. `preparing` while the plan is snapshotted and the
-/// destination validated, `copying` while files are written, `done` on the single terminal emit.
+/// destination validated, `copying` while files are written (for a device export, while the library
+/// is staged to a temp folder), `transferring` while a staged export is pushed onto a connected
+/// device over MTP, and `done` on the single terminal emit. A folder export never reaches
+/// `transferring`; a device export passes through it between the staging copy and the terminal emit.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportPhase {
     Preparing,
     Copying,
+    Transferring,
     Done,
 }
 

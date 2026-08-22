@@ -376,6 +376,8 @@ export const fr: Dict = {
   export: {
     title: "Exporter l'audiothèque",
     exporting: "Exportation en cours",
+    writing: "Écriture...",
+    transferring: "Transfert...",
     exported: "Exportée",
     chooseFolder: "Choisir un répertoire...",
     destination: "Destination",
@@ -416,11 +418,11 @@ export const fr: Dict = {
     missing: { one: "{{n}} piste sans source", other: "{{n}} pistes sans source" },
     insideWorkspace: "Ce répertoire se trouve dans votre audiothèque. Choisissez-en un à l'extérieur.",
     notWritable: "Plisto ne peut pas écrire dans ce répertoire. Choisissez-en un où vous avez les droits d'écriture.",
-    deviceComingSoon: "L'envoi vers un appareil arrive bientôt.",
     deviceDisconnected:
       "Cet appareil n'est pas connecté. Branchez-le, déverrouillez-le et autorisez l'accès aux fichiers.",
     phoneHint: "Envoi vers un téléphone ? Choisissez un téléphone connecté ci-dessus.",
     nonEmpty: "Ce répertoire contient déjà des fichiers. L'export écrit dedans.",
+    sentTo: "Envoyé vers {device}",
     openFolder: "Ouvrir le répertoire de destination",
     again: "Exporter à nouveau",
     written: { one: "{{n}} exportée", other: "{{n}} exportées" },

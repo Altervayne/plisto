@@ -375,6 +375,8 @@ export const en = {
   export: {
     title: "Export library",
     exporting: "Exporting",
+    writing: "Writing...",
+    transferring: "Transferring...",
     exported: "Exported",
     chooseFolder: "Choose folder...",
     destination: "Destination",
@@ -415,11 +417,11 @@ export const en = {
     missing: { one: "{{n}} track missing its source", other: "{{n}} tracks missing their source" },
     insideWorkspace: "This folder is inside your music library. Choose one outside it.",
     notWritable: "Plisto can't write to this folder. Pick one you have write access to.",
-    deviceComingSoon: "Sending to a device is coming soon.",
     deviceDisconnected:
       "That device isn't connected. Plug it in, unlock it, and allow file access.",
     phoneHint: "Sending to a phone? Choose a connected phone above.",
     nonEmpty: "This folder already holds files. Export writes into it.",
+    sentTo: "Sent to {device}",
     openFolder: "Open destination folder",
     again: "Export again",
     written: { one: "{{n}} exported", other: "{{n}} exported" },

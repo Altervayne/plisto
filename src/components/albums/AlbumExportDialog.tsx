@@ -136,22 +136,25 @@ export function AlbumExportDialog({
   }, []);
 
   const runExport = useCallback(async () => {
-    if (!target || target.kind !== "folder") return;
+    if (!target) return;
     setConfirming(false);
     setProgress(null);
     setSummary(null);
     setPhase("running");
 
     const channel = createExportChannel((tick) => {
-      // exported is monotonic on the backend; guard an out-of-order tick from regressing it.
+      // exported is monotonic within a phase, but a device export runs two phases at different scales -
+      // staging counts bytes staged, transferring counts bytes moved. Carrying the staging max into the
+      // transfer would pin the bar full, so the guard resets on a phase change and only clamps within one.
       setProgress((prev) => {
-        const exported = prev ? Math.max(prev.exported, tick.exported) : tick.exported;
+        const exported =
+          prev && prev.phase === tick.phase ? Math.max(prev.exported, tick.exported) : tick.exported;
         return { ...tick, exported };
       });
     });
 
     try {
-      setSummary(await exportLibrary(target.path, channel, folder, file, { albumIds }));
+      setSummary(await exportLibrary(target, channel, folder, file, { albumIds }));
       setPhase("done");
     } catch {
       // A destination that went invalid mid-run drops back to the pick; the source is untouched.
@@ -168,16 +171,37 @@ export function AlbumExportDialog({
     void runExport();
   }, [check, runExport]);
 
-  // Device export is not wired in P1: a device can be picked and validated, but only a folder runs.
-  const canExport = target?.kind === "folder" && !!check?.ok && albumIds.length > 0;
+  // A validated target with a non-empty selection is ready - a folder or a connected device alike.
+  const canExport = !!target && !!check?.ok && albumIds.length > 0;
 
-  // Only a folder target reaches a run, so its path is the sole one shown on the running and done screens.
+  // A folder path is the only openable destination, so it alone gates the done-screen Open button. A
+  // device has no filesystem path, so this stays null for one and the button drops.
   const path = target?.kind === "folder" ? target.path : null;
 
   const total = progress?.total ?? 0;
   const exported = progress?.exported ?? 0;
   const errors = progress?.errors ?? 0;
-  const value = total > 0 ? exported / total : null;
+  const phaseNow = progress?.phase;
+  // The line under the spinner: a folder shows its path, a device its human-readable display name.
+  const destLine =
+    target?.kind === "folder"
+      ? target.path
+      : target?.kind === "device"
+        ? target.target.display
+        : null;
+  // A device export runs two named phases; the folder export only ever copies. The title follows the
+  // phase so the device reads Writing while it stages, then Transferring while it moves onto the device.
+  const runTitle =
+    target?.kind === "device" && phaseNow === "copying"
+      ? t((d) => d.export.writing)
+      : target?.kind === "device" && phaseNow === "transferring"
+        ? t((d) => d.export.transferring)
+        : null;
+  // The staging phase counts bytes with no meaningful total to divide against, so the device bar runs
+  // indeterminate while it writes the temp folder, then goes determinate once the transfer begins. A
+  // folder copy stays determinate throughout.
+  const value =
+    target?.kind === "device" && phaseNow === "copying" ? null : total > 0 ? exported / total : null;
 
   return createPortal(
     <div className={styles.overlay}>
@@ -206,9 +230,11 @@ export function AlbumExportDialog({
         {phase === "running" ? (
           <div className={styles.run}>
             <StaffSpinner />
-            {path ? (
-              <Tooltip label={path}>
-                <p className={styles.path}>{path}</p>
+            {/* A device names its two phases; the folder run leans on the persistent header alone. */}
+            {runTitle ? <span className={styles.count}>{runTitle}</span> : null}
+            {destLine ? (
+              <Tooltip label={destLine}>
+                <p className={styles.path}>{destLine}</p>
               </Tooltip>
             ) : null}
             <ProgressLine value={value} />
@@ -230,6 +256,12 @@ export function AlbumExportDialog({
           <div className={styles.done}>
             <span className={styles.dot} aria-hidden="true" />
             <ExportReport summary={summary} />
+            {/* A device leaves no folder to open, so name where it went in its place. */}
+            {target?.kind === "device" ? (
+              <p className={styles.hint}>
+                {t((d) => d.export.sentTo, { device: target.target.device_name })}
+              </p>
+            ) : null}
             <div className={styles.actions}>
               {path ? (
                 <QuietButton onClick={() => void openFolder(path)}>
@@ -262,10 +294,6 @@ export function AlbumExportDialog({
               ) : null}
               {check?.ok && check.non_empty ? (
                 <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
-              ) : null}
-              {/* A validated device is a dead end in P1 - the transfer path is P2. */}
-              {target?.kind === "device" ? (
-                <p className={styles.hint}>{t((d) => d.export.deviceComingSoon)}</p>
               ) : null}
             </section>
 
