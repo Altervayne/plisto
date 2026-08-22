@@ -18,8 +18,10 @@ import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferen
 // -- IPC Imports --
 import {
   cancelExport,
+  checkDevice,
   createExportChannel,
   exportLibrary,
+  pickDeviceFolder,
   validateExportDestination,
 } from "../../lib/ipc";
 
@@ -31,7 +33,7 @@ import { openFolder } from "../../lib/opener";
 import { DEFAULT_PRESET, presetIdFor } from "../export/templates";
 
 // -- Type Imports --
-import type { DestinationCheck, ExportProgress, ExportSummary } from "../../types";
+import type { DestinationCheck, ExportProgress, ExportSummary, ExportTarget } from "../../types";
 import type { ExportPreset } from "../export/templates";
 
 // -- i18n Imports --
@@ -62,7 +64,7 @@ export function AlbumExportDialog({
   const t = useT();
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [destination, setDestination] = useState<string | null>(null);
+  const [target, setTarget] = useState<ExportTarget | null>(null);
   const [check, setCheck] = useState<DestinationCheck | null>(null);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
@@ -109,10 +111,10 @@ export function AlbumExportDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, running]);
 
-  const onPick = useCallback(async () => {
+  const onPickFolder = useCallback(async () => {
     const picked = await pickFolder();
     if (!picked) return;
-    setDestination(picked);
+    setTarget({ kind: "folder", path: picked });
     setConfirming(false);
     try {
       setCheck(await validateExportDestination(picked));
@@ -121,8 +123,20 @@ export function AlbumExportDialog({
     }
   }, []);
 
+  const onPickDevice = useCallback(async () => {
+    const picked = await pickDeviceFolder();
+    if (!picked) return;
+    setTarget({ kind: "device", target: picked });
+    setConfirming(false);
+    try {
+      setCheck(await checkDevice(picked.pidl));
+    } catch {
+      setCheck(null);
+    }
+  }, []);
+
   const runExport = useCallback(async () => {
-    if (!destination) return;
+    if (!target || target.kind !== "folder") return;
     setConfirming(false);
     setProgress(null);
     setSummary(null);
@@ -137,13 +151,13 @@ export function AlbumExportDialog({
     });
 
     try {
-      setSummary(await exportLibrary(destination, channel, folder, file, { albumIds }));
+      setSummary(await exportLibrary(target.path, channel, folder, file, { albumIds }));
       setPhase("done");
     } catch {
       // A destination that went invalid mid-run drops back to the pick; the source is untouched.
       setPhase("idle");
     }
-  }, [destination, folder, file, albumIds]);
+  }, [target, folder, file, albumIds]);
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
@@ -154,7 +168,11 @@ export function AlbumExportDialog({
     void runExport();
   }, [check, runExport]);
 
-  const canExport = !!destination && !!check?.ok && albumIds.length > 0;
+  // Device export is not wired in P1: a device can be picked and validated, but only a folder runs.
+  const canExport = target?.kind === "folder" && !!check?.ok && albumIds.length > 0;
+
+  // Only a folder target reaches a run, so its path is the sole one shown on the running and done screens.
+  const path = target?.kind === "folder" ? target.path : null;
 
   const total = progress?.total ?? 0;
   const exported = progress?.exported ?? 0;
@@ -188,9 +206,9 @@ export function AlbumExportDialog({
         {phase === "running" ? (
           <div className={styles.run}>
             <StaffSpinner />
-            {destination ? (
-              <Tooltip label={destination}>
-                <p className={styles.path}>{destination}</p>
+            {path ? (
+              <Tooltip label={path}>
+                <p className={styles.path}>{path}</p>
               </Tooltip>
             ) : null}
             <ProgressLine value={value} />
@@ -213,8 +231,8 @@ export function AlbumExportDialog({
             <span className={styles.dot} aria-hidden="true" />
             <ExportReport summary={summary} />
             <div className={styles.actions}>
-              {destination ? (
-                <QuietButton onClick={() => void openFolder(destination)}>
+              {path ? (
+                <QuietButton onClick={() => void openFolder(path)}>
                   {t((d) => d.export.openFolder)}
                 </QuietButton>
               ) : null}
@@ -225,16 +243,29 @@ export function AlbumExportDialog({
           <>
             <section className={styles.section}>
               <span className={styles.label}>{t((d) => d.export.destination)}</span>
-              <ExportDestination destination={destination} onPick={() => void onPick()} />
+              <ExportDestination
+                target={target}
+                onPickFolder={() => void onPickFolder()}
+                onPickDevice={() => void onPickDevice()}
+              />
               {check?.inside_workspace ? (
                 <p className={styles.warn}>{t((d) => d.export.insideWorkspace)}</p>
               ) : null}
-              {/* A picked destination the probe could not write to: read-only, gone, or otherwise blocked. */}
+              {/* The failed-probe line: a folder that could not be written to, or a device that dropped off
+                  the bus between the pick and the check. */}
               {check && !check.inside_workspace && !check.writable ? (
-                <p className={styles.warn}>{t((d) => d.export.notWritable)}</p>
+                <p className={styles.warn}>
+                  {target?.kind === "device"
+                    ? t((d) => d.export.deviceDisconnected)
+                    : t((d) => d.export.notWritable)}
+                </p>
               ) : null}
               {check?.ok && check.non_empty ? (
                 <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
+              ) : null}
+              {/* A validated device is a dead end in P1 - the transfer path is P2. */}
+              {target?.kind === "device" ? (
+                <p className={styles.hint}>{t((d) => d.export.deviceComingSoon)}</p>
               ) : null}
             </section>
 

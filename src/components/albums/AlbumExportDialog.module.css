@@ -84,6 +84,14 @@
   color: var(--warn);
 }
 
+/* Quiet guidance under the destination picker, distinct from a warning: the muted ink, not the warn tone. */
+.hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
 /* The footer: the one solid Export CTA, or the two-step confirm when the destination is non-empty. */
 .cta {
   display: flex;

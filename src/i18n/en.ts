@@ -380,6 +380,8 @@ export const en = {
     destination: "Destination",
     chooseDestination: "Choose destination",
     changeDestination: "Change destination",
+    chooseDevice: "or a connected phone",
+    changeDevice: "Change device",
     layout: "Layout",
     preset: {
       artistAlbum: "Artist / Album",
@@ -413,8 +415,10 @@ export const en = {
     missing: { one: "{{n}} track missing its source", other: "{{n}} tracks missing their source" },
     insideWorkspace: "This folder is inside your music library. Choose one outside it.",
     notWritable: "Plisto can't write to this folder. Pick one you have write access to.",
-    phoneHint:
-      "Mobile devices connected over USB can't be used as export destinations yet, as they require a different method than a filesystem path.",
+    deviceComingSoon: "Sending to a device is coming soon.",
+    deviceDisconnected:
+      "That device isn't connected. Plug it in, unlock it, and allow file access.",
+    phoneHint: "Sending to a phone? Choose a connected phone above.",
     nonEmpty: "This folder already holds files. Export writes into it.",
     openFolder: "Open destination folder",
     again: "Export again",

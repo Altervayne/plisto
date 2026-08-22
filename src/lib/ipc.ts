@@ -18,6 +18,7 @@ import type {
   CoverRef,
   CoverSize,
   DestinationCheck,
+  DeviceTarget,
   ExportProgress,
   ExportStatus,
   ExportSummary,
@@ -155,6 +156,16 @@ export function cancelExport(): Promise<void> {
 /** Inspects a picked destination before a run: workspace overlap, non-empty warn, writability. */
 export function validateExportDestination(destination: string): Promise<DestinationCheck> {
   return invoke<DestinationCheck>("validate_export_destination", { destination });
+}
+
+/** Opens the device-capable folder picker; resolves with the picked device target or null on cancel. */
+export function pickDeviceFolder(): Promise<DeviceTarget | null> {
+  return invoke<DeviceTarget | null>("pick_device_folder");
+}
+
+/** Validates a picked device target: re-resolves its PIDL to confirm the device is still connected. */
+export function checkDevice(pidl: string): Promise<DestinationCheck> {
+  return invoke<DestinationCheck>("check_device", { pidl });
 }
 
 /** The app-global export snapshot, for the tray popup opening mid-run: running flag and latest tick. */

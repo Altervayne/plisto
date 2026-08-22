@@ -381,6 +381,8 @@ export const fr: Dict = {
     destination: "Destination",
     chooseDestination: "Choisir la destination",
     changeDestination: "Changer de destination",
+    chooseDevice: "ou un téléphone connecté",
+    changeDevice: "Changer d'appareil",
     layout: "Disposition",
     preset: {
       artistAlbum: "Artiste / Album",
@@ -414,8 +416,10 @@ export const fr: Dict = {
     missing: { one: "{{n}} piste sans source", other: "{{n}} pistes sans source" },
     insideWorkspace: "Ce répertoire se trouve dans votre audiothèque. Choisissez-en un à l'extérieur.",
     notWritable: "Plisto ne peut pas écrire dans ce répertoire. Choisissez-en un où vous avez les droits d'écriture.",
-    phoneHint:
-      "Un appareil mobile connecté via USB ne peut pas être utilisé comme destination d'exportation pour l'instant, car cela nécessite un système différent d'un chemin de système de fichiers.",
+    deviceComingSoon: "L'envoi vers un appareil arrive bientôt.",
+    deviceDisconnected:
+      "Cet appareil n'est pas connecté. Branchez-le, déverrouillez-le et autorisez l'accès aux fichiers.",
+    phoneHint: "Envoi vers un téléphone ? Choisissez un téléphone connecté ci-dessus.",
     nonEmpty: "Ce répertoire contient déjà des fichiers. L'export écrit dedans.",
     openFolder: "Ouvrir le répertoire de destination",
     again: "Exporter à nouveau",

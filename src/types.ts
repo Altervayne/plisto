@@ -351,6 +351,18 @@ export interface DestinationCheck {
   writable: boolean;
 }
 
+/** A picked MTP/device export target. No filesystem path - the durable ref is the shell PIDL, hex-encoded. Mirrors DeviceTarget in dto.rs. */
+export interface DeviceTarget {
+  device_name: string;
+  display: string;
+  pidl: string;
+}
+
+/** A chosen export destination: a real folder path, or a connected device. */
+export type ExportTarget =
+  | { kind: 'folder'; path: string }
+  | { kind: 'device'; target: DeviceTarget };
+
 /**
  * The fields one filename parsed into, under the active pattern. Every field is optional: a token the
  * pattern never captured, or captured empty, is absent. Numbers stay numbers. Mirrors ExtractedFields.

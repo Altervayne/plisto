@@ -110,6 +110,16 @@
   text-overflow: ellipsis;
 }
 
+/* A picked device reads as a shell breadcrumb, not a path, so it stays in sans - same truncation. */
+.chosenDevice {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* -- Layout templating -- */
 
 .layout {
