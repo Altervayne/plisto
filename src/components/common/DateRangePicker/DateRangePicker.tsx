@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // -- Icon Imports --
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
+// -- Component Imports --
+import { Tooltip } from "../Tooltip/Tooltip";
+
 // -- i18n Imports --
 import { useT } from "../../../i18n";
 
@@ -181,6 +184,8 @@ export function DateRangePicker({
             <button type="button" className={styles.preset} onClick={() => onChange(presetThisYear(new Date()))}>
               {t((d) => d.dateRange.thisYear)}
             </button>
+            {/* Always shown so the filter is discoverable; before a full export has stamped a baseline it
+                is inert and dimmed, with a hint on hover explaining what sets it. */}
             {lastExport != null ? (
               <button
                 type="button"
@@ -189,7 +194,17 @@ export function DateRangePicker({
               >
                 {t((d) => d.dateRange.sinceExport)}
               </button>
-            ) : null}
+            ) : (
+              <Tooltip label={t((d) => d.dateRange.sinceExportHint)}>
+                <button
+                  type="button"
+                  className={`${styles.preset} ${styles.presetOff}`}
+                  aria-disabled="true"
+                >
+                  {t((d) => d.dateRange.sinceExport)}
+                </button>
+              </Tooltip>
+            )}
           </div>
 
           <div className={styles.head}>

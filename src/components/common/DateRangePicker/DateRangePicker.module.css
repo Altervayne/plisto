@@ -80,6 +80,18 @@
   color: var(--accent);
 }
 
+/* The "since last export" preset before any export has set a baseline: shown but inert, dimmed, with a
+ * hint on hover, so the filter is discoverable and explains what unlocks it. */
+.presetOff {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.presetOff:hover {
+  background: var(--veil);
+  color: var(--ink-2);
+}
+
 /* The month heading, flanked by the prev and next steppers. */
 .head {
   display: flex;

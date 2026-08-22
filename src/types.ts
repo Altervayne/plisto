@@ -294,6 +294,9 @@ export interface ExportConfig {
   destination: string;
   folder_pattern: string;
   file_pattern: string;
+  // Device mode: false drops a fresh dated snapshot folder, true merges into the picked device folder
+  // in place (incremental update). Ignored for a folder export.
+  device_in_place?: boolean;
   // Set only for a device export: the picked device target the staged library transfers onto. Absent,
   // the export writes straight into `destination`.
   device?: DeviceTarget;

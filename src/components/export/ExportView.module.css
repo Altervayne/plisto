@@ -296,6 +296,14 @@
   color: var(--ink-3);
 }
 
+/* The device mode toggle over its explaining hint: a small stack under the chosen device. */
+.deviceMode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
 /* The non-empty confirm: the caution over its two-step action. */
 .confirm {
   display: flex;

@@ -457,6 +457,12 @@ pub struct ExportConfig {
     // (a device has no filesystem path). None is the ordinary folder export, byte-for-byte unchanged.
     #[serde(default)]
     pub device: Option<DeviceTarget>,
+    // Device mode (1.6.0), ignored for a folder export. false (default) drops a fresh dated
+    // `Plisto <stamp>/` snapshot on the device; true stages the buckets straight into the picked folder
+    // so the transfer merges them into a living library (incremental update-in-place, overwriting the
+    // files that changed). Overwrite is device-dependent over MTP - the accepted trade for in-place.
+    #[serde(default)]
+    pub device_in_place: bool,
 }
 
 /// The serde default for the include-albums/singles flags: on, so a pre-1.5 caller that sends only a

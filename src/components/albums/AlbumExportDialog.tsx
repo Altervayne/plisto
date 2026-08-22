@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 // -- Component Imports --
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
+import { SegmentedControl } from "../common/SegmentedControl";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { StaffSpinner } from "../scan/StaffSpinner";
@@ -71,6 +72,8 @@ export function AlbumExportDialog({
   const [confirming, setConfirming] = useState(false);
   // A failed run's reason, shown on the idle screen. Cleared on a fresh pick or a new run.
   const [error, setError] = useState<string | null>(null);
+  // Device mode: dated snapshot (false) vs in-place merge into the picked folder (true). Device only.
+  const [deviceInPlace, setDeviceInPlace] = useState(false);
 
   const running = phase === "running";
 
@@ -159,7 +162,7 @@ export function AlbumExportDialog({
     });
 
     try {
-      setSummary(await exportLibrary(target, channel, folder, file, { albumIds }));
+      setSummary(await exportLibrary(target, channel, folder, file, { albumIds, deviceInPlace }));
       setPhase("done");
     } catch {
       // A failed run drops back to the pick with the reason surfaced. The source is untouched; a device
@@ -171,7 +174,7 @@ export function AlbumExportDialog({
           : t((d) => d.export.exportFailed),
       );
     }
-  }, [target, t, folder, file, albumIds]);
+  }, [target, t, folder, file, albumIds, deviceInPlace]);
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
@@ -308,6 +311,26 @@ export function AlbumExportDialog({
               ) : null}
               {check?.ok && check.non_empty ? (
                 <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
+              ) : null}
+              {/* A device offers a dated snapshot or an in-place merge into the picked folder. Only shown
+                  once a device is the target. */}
+              {target?.kind === "device" ? (
+                <div className={styles.deviceMode}>
+                  <SegmentedControl
+                    segments={[
+                      { value: "snapshot", label: t((d) => d.export.deviceSnapshot) },
+                      { value: "inplace", label: t((d) => d.export.deviceUpdate) },
+                    ]}
+                    value={deviceInPlace ? "inplace" : "snapshot"}
+                    onChange={(v) => setDeviceInPlace(v === "inplace")}
+                    label={t((d) => d.export.deviceModeLabel)}
+                  />
+                  <p className={styles.hint}>
+                    {deviceInPlace
+                      ? t((d) => d.export.deviceUpdateHint)
+                      : t((d) => d.export.deviceSnapshotHint)}
+                  </p>
+                </div>
               ) : null}
               {/* A run that failed (a device that dropped off mid-copy, a folder gone invalid) surfaces
                   its reason here rather than silently returning to the pick. */}

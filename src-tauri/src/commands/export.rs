@@ -161,6 +161,7 @@ pub async fn export_library(
         let covers_dir = state.covers_dir.clone();
         let cancel = Arc::clone(&state.export_cancel);
         let status = Arc::clone(&state.export_status);
+        let in_place = config.device_in_place;
 
         // The staging root under the app cache dir (temp fallback), uniquely named so two runs never
         // collide. Its guard removes it on success, failure, and panic.
@@ -212,8 +213,17 @@ pub async fn export_library(
                 };
                 let _com = export::device::ComApartment::new();
 
-                let stamp_dir = staging_root.join(&stamp_folder);
-                std::fs::create_dir_all(&stamp_dir)
+                // In-place mode stages the buckets straight into the staging root, so the transfer
+                // merges them into the device folder (updating a living library, overwriting what
+                // changed). Snapshot mode nests them under a dated `Plisto <stamp>/` folder, so each run
+                // is self-contained. Either way the transfer copies the staging root's top-level
+                // children onto the device, so only this path differs.
+                let stage_dir = if in_place {
+                    staging_root.clone()
+                } else {
+                    staging_root.join(&stamp_folder)
+                };
+                std::fs::create_dir_all(&stage_dir)
                     .map_err(|_| "could not create the staging folder".to_string())?;
 
                 // The shared emit sink: the app-global status snapshot, the app-global progress event,
@@ -231,7 +241,7 @@ pub async fn export_library(
                 // the whole export's done, since the transfer is still to come (Holes 2 & 3, §4).
                 let summary = export::run_export(
                     &plan,
-                    &stamp_dir,
+                    &stage_dir,
                     &template,
                     &covers_dir,
                     &cancel,
@@ -259,7 +269,7 @@ pub async fn export_library(
                     export::write_general_playlist_m3us(
                         &plan,
                         &playlist_files,
-                        &stamp_dir,
+                        &stage_dir,
                         &template,
                     );
 

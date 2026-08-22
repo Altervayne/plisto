@@ -123,6 +123,7 @@ export const en = {
     last30: "Last 30 days",
     thisYear: "This year",
     sinceExport: "Since last export",
+    sinceExportHint: "Run a full export to set this.",
     clear: "Clear",
   },
 
@@ -423,6 +424,12 @@ export const en = {
     nonEmpty: "This folder already holds files. Export writes into it.",
     sentTo: "Sent to {device}",
     partlySentTo: "Partly sent to {device} - the run was cancelled.",
+    deviceModeLabel: "Device mode",
+    deviceSnapshot: "New dated folder",
+    deviceUpdate: "Update my library",
+    deviceSnapshotHint: "Drops a fresh, self-contained folder stamped with the date and time.",
+    deviceUpdateHint:
+      "Merges into the folder you picked, overwriting what changed. Pair with \"Since last export\" for a quick incremental sync.",
     deviceTransferFailed:
       "The transfer didn't finish. Some files may have reached your device; your library is untouched. Reconnect it and export again.",
     exportFailed: "The export didn't finish. Your library is untouched.",

@@ -130,9 +130,25 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   };
 
   // Applies a committed edit: optimistic projection, push onto the undo stack, drop the redo branch,
-  // then fire the write. A committed edit always invalidates any pending redo.
+  // then fire the write. A committed edit always invalidates any pending redo. An edit that changes an
+  // album (its fields, membership, order, or layout) also bumps that album's updated_at in the
+  // projection, mirroring the backend's touch so the "updated since" date filter reflects the change at
+  // once rather than only after the next reload.
   const commit = (cmd: Command): void => {
-    set((s) => ({ org: applyCommand(s.org, cmd), past: [...s.past, cmd], future: [], error: null }));
+    set((s) => {
+      const org = applyCommand(s.org, cmd);
+      const touched = touchedAlbumId(cmd);
+      const nextOrg =
+        touched == null
+          ? org
+          : {
+              ...org,
+              albums: org.albums.map((a) =>
+                a.id === touched ? { ...a, updated_at: Math.floor(Date.now() / 1000) } : a,
+              ),
+            };
+      return { org: nextOrg, past: [...s.past, cmd], future: [], error: null };
+    });
     persist(cmd);
   };
 
@@ -517,6 +533,25 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     clearSelection: () => set({ selection: new Set<number>() }),
   };
 });
+
+/**
+ * The album a committed edit bumps the updated_at of, mirroring the backend's `touch_album`, or null
+ * when the edit does not change an album's own row. A field edit, a membership move (assign/unassign),
+ * a reorder, and a layout change all touch their album; a per-track override does not (the backend
+ * leaves the album's stamp alone for those).
+ */
+function touchedAlbumId(cmd: Command): number | null {
+  switch (cmd.kind) {
+    case "setAlbumFields":
+    case "assign":
+    case "unassign":
+    case "reorderTracks":
+    case "setAlbumLayout":
+      return cmd.albumId;
+    default:
+      return null;
+  }
+}
 
 // Two album-field sets are equal when every editable column matches.
 function sameAlbumFields(a: AlbumFields, b: AlbumFields): boolean {

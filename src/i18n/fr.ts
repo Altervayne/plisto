@@ -124,6 +124,7 @@ export const fr: Dict = {
     last30: "30 derniers jours",
     thisYear: "Cette année",
     sinceExport: "Depuis le dernier export",
+    sinceExportHint: "Faites un export complet pour l'activer.",
     clear: "Effacer",
   },
 
@@ -424,6 +425,12 @@ export const fr: Dict = {
     nonEmpty: "Ce répertoire contient déjà des fichiers. L'export écrit dedans.",
     sentTo: "Envoyé vers {device}",
     partlySentTo: "Envoyé en partie vers {device} - l'export a été annulé.",
+    deviceModeLabel: "Mode appareil",
+    deviceSnapshot: "Nouveau répertoire daté",
+    deviceUpdate: "Mettre à jour mon audiothèque",
+    deviceSnapshotHint: "Dépose un répertoire autonome, horodaté à la date et l'heure.",
+    deviceUpdateHint:
+      "Fusionne dans le répertoire choisi, en remplaçant ce qui a changé. À combiner avec « Depuis le dernier export » pour une synchro incrémentale rapide.",
     deviceTransferFailed:
       "Le transfert n'a pas abouti. Certains fichiers sont peut-être arrivés sur l'appareil ; votre audiothèque n'a pas été touchée. Reconnectez-le et exportez à nouveau.",
     exportFailed: "L'export n'a pas abouti. Votre audiothèque n'a pas été touchée.",

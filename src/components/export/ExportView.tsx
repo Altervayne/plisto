@@ -6,6 +6,7 @@ import { CenteredStage } from "../common/CenteredStage";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
+import { SegmentedControl } from "../common/SegmentedControl";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { StaffSpinner } from "../scan/StaffSpinner";
@@ -71,6 +72,9 @@ export function ExportView() {
   const [check, setCheck] = useState<DestinationCheck | null>(null);
   // A failed run's reason, shown on the idle screen. Cleared on a fresh pick or a new run.
   const [error, setError] = useState<string | null>(null);
+  // Device mode: false drops a dated snapshot folder on the phone, true merges the export into the
+  // picked folder in place (incremental update). Only surfaced once a device is the target.
+  const [deviceInPlace, setDeviceInPlace] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -177,6 +181,7 @@ export function ExportView() {
       singles: includeSingles,
       playlists: includePlaylists,
       playlistShape,
+      deviceInPlace,
     };
 
     try {
@@ -205,6 +210,7 @@ export function ExportView() {
     includeSingles,
     includePlaylists,
     playlistShape,
+    deviceInPlace,
     setPreference,
   ]);
 
@@ -369,6 +375,27 @@ export function ExportView() {
           ) : null}
           {check?.ok && check.non_empty ? (
             <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
+          ) : null}
+          {/* A device offers two shapes: a fresh dated snapshot, or an in-place merge that updates a
+              living library on the phone (pairs with the "since last export" filter for incremental
+              syncs). Only shown once a device is the target. */}
+          {target?.kind === "device" ? (
+            <div className={styles.deviceMode}>
+              <SegmentedControl
+                segments={[
+                  { value: "snapshot", label: t((d) => d.export.deviceSnapshot) },
+                  { value: "inplace", label: t((d) => d.export.deviceUpdate) },
+                ]}
+                value={deviceInPlace ? "inplace" : "snapshot"}
+                onChange={(v) => setDeviceInPlace(v === "inplace")}
+                label={t((d) => d.export.deviceModeLabel)}
+              />
+              <p className={styles.hint}>
+                {deviceInPlace
+                  ? t((d) => d.export.deviceUpdateHint)
+                  : t((d) => d.export.deviceSnapshotHint)}
+              </p>
+            </div>
           ) : null}
           {/* Nothing chosen yet: point a phone user at the device doorway above rather than let them
               hunt for their handset in the folder picker. */}

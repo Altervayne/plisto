@@ -123,12 +123,16 @@ export function exportLibrary(
     playlists?: boolean;
     playlistShape?: "mimic" | "file";
     albumIds?: number[];
+    deviceInPlace?: boolean;
   } = {},
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
     config: {
       destination: target.kind === "folder" ? target.path : "",
       device: target.kind === "device" ? target.target : undefined,
+      // Device mode: merge into the picked folder in place, or drop a dated snapshot. Only a device
+      // target reads it.
+      device_in_place: target.kind === "device" ? sections.deviceInPlace ?? false : false,
       folder_pattern: folderPattern,
       file_pattern: filePattern,
       // Sections default to the pre-1.5 shape: albums + singles on, playlists opt-in.

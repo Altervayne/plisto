@@ -790,6 +790,7 @@ mod tests {
             playlist_shape: shape.to_string(),
             album_ids: None,
             device: None,
+            device_in_place: false,
         }
     }
 

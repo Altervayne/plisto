@@ -1312,9 +1312,22 @@ pub fn delete_album(conn: &Connection, album_id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Bumps an album's `updated_at` to now, so a membership or layout change surfaces it in the
+/// "updated since" filter the same way a field or cover edit does - a track joining, leaving, or being
+/// reordered is a real change to the album. `strftime` stamps epoch seconds the way the migration and
+/// the other in-place edits do, keeping the signature clock-free.
+fn touch_album(conn: &Connection, album_id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE albums SET updated_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE id = ?1",
+        params![album_id],
+    )?;
+    Ok(())
+}
+
 /// Move-or-add under single membership: each track already in this album is left untouched; each
 /// track elsewhere is unbound from its current album first; the rest are appended after the current
-/// max track_no, in the given order. All in one transaction so a half-move can never persist.
+/// max track_no, in the given order. All in one transaction so a half-move can never persist. Both the
+/// target album and any album a track moved out of are touched, so the change shows in the date filter.
 pub fn add_tracks_to_album(
     conn: &mut Connection,
     album_id: i64,
@@ -1325,37 +1338,58 @@ pub fn add_tracks_to_album(
         return Err(WriteError::AddToSingle);
     }
     let mut next = max_track_no(&tx, album_id)?;
+    let mut changed = false;
+    let mut sources: std::collections::HashSet<i64> = std::collections::HashSet::new();
     for &track_id in track_ids {
         match membership_album(&tx, track_id)? {
             Some(current) if current == album_id => continue,
-            Some(_) => remove_membership(&tx, track_id)?,
+            Some(other) => {
+                sources.insert(other);
+                remove_membership(&tx, track_id)?;
+            }
             None => {}
         }
         next += 1;
         insert_album_track(&tx, album_id, track_id, next)?;
+        changed = true;
+    }
+    if changed {
+        touch_album(&tx, album_id)?;
+    }
+    // Each album a track was pulled out of also changed, so it too rises in the "updated" view.
+    for source in sources {
+        touch_album(&tx, source)?;
     }
     Ok(tx.commit()?)
 }
 
 /// Removes the given tracks' membership rows from one album, in one transaction. Tracks not in the
-/// album are silently skipped.
+/// album are silently skipped. The album is touched when anything was actually removed.
 pub fn remove_tracks_from_album(
     conn: &mut Connection,
     album_id: i64,
     track_ids: &[i64],
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
+    let mut removed = false;
     for &track_id in track_ids {
-        tx.execute(
+        let n = tx.execute(
             "DELETE FROM album_tracks WHERE album_id = ?1 AND track_id = ?2",
             params![album_id, track_id],
         )?;
+        if n > 0 {
+            removed = true;
+        }
+    }
+    if removed {
+        touch_album(&tx, album_id)?;
     }
     tx.commit()
 }
 
 /// Rewrites the whole track order: assigns track_no 1..N in the given order, in one transaction so
-/// no intermediate numbering is ever visible. Leaves disc_no untouched.
+/// no intermediate numbering is ever visible. Leaves disc_no untouched. Touches the album, since a
+/// reorder is a change worth surfacing in the date filter.
 pub fn set_track_order(
     conn: &mut Connection,
     album_id: i64,
@@ -1368,6 +1402,7 @@ pub fn set_track_order(
             params![(i as i64) + 1, album_id, track_id],
         )?;
     }
+    touch_album(&tx, album_id)?;
     tx.commit()
 }
 
@@ -1398,6 +1433,7 @@ pub fn set_album_layout(
             params![p.track_id, p.disc_no],
         )?;
     }
+    touch_album(&tx, album_id)?;
     tx.commit()
 }
 
@@ -2503,6 +2539,45 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM albums", [], |r| r.get(0))
             .unwrap();
         assert_eq!(none, 0, "a rejected single writes no album row");
+    }
+
+    #[test]
+    fn membership_changes_bump_the_album_updated_at() {
+        let mut conn = open_in_memory().unwrap();
+        let (root, _) = get_or_create_root(&conn, "/music", 1).unwrap();
+        let t1 = track_under(&conn, "/music/1.mp3", root);
+        let t2 = track_under(&conn, "/music/2.mp3", root);
+
+        // Create the album from one track with a zero updated_at baseline, so any bump is unmistakable.
+        let album =
+            create_album(&mut conn, Some("A".into()), None, None, None, None, &[t1], "album", 0)
+                .unwrap();
+        assert_eq!(album.updated_at, 0, "created with a zero baseline");
+
+        let read = |conn: &Connection| -> i64 {
+            conn.query_row(
+                "SELECT updated_at FROM albums WHERE id = ?1",
+                params![album.id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // Adding a member bumps it off the baseline, so the album rises in the "updated since" filter.
+        add_tracks_to_album(&mut conn, album.id, &[t2]).unwrap();
+        assert!(read(&conn) > 0, "adding a member bumps updated_at");
+
+        // Reset and confirm a removal bumps it too.
+        conn.execute("UPDATE albums SET updated_at = 0 WHERE id = ?1", params![album.id])
+            .unwrap();
+        remove_tracks_from_album(&mut conn, album.id, &[t2]).unwrap();
+        assert!(read(&conn) > 0, "removing a member bumps updated_at");
+
+        // A no-op removal (a track not in the album) leaves the stamp alone.
+        conn.execute("UPDATE albums SET updated_at = 0 WHERE id = ?1", params![album.id])
+            .unwrap();
+        remove_tracks_from_album(&mut conn, album.id, &[t2]).unwrap();
+        assert_eq!(read(&conn), 0, "a no-op removal does not bump updated_at");
     }
 
     // Inserts a track at `path` stamped with `root_id` and returns its id.
