@@ -69,6 +69,8 @@ export function AlbumExportDialog({
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // A failed run's reason, shown on the idle screen. Cleared on a fresh pick or a new run.
+  const [error, setError] = useState<string | null>(null);
 
   const running = phase === "running";
 
@@ -116,6 +118,7 @@ export function AlbumExportDialog({
     if (!picked) return;
     setTarget({ kind: "folder", path: picked });
     setConfirming(false);
+    setError(null);
     try {
       setCheck(await validateExportDestination(picked));
     } catch {
@@ -128,6 +131,7 @@ export function AlbumExportDialog({
     if (!picked) return;
     setTarget({ kind: "device", target: picked });
     setConfirming(false);
+    setError(null);
     try {
       setCheck(await checkDevice(picked.pidl));
     } catch {
@@ -138,6 +142,7 @@ export function AlbumExportDialog({
   const runExport = useCallback(async () => {
     if (!target) return;
     setConfirming(false);
+    setError(null);
     setProgress(null);
     setSummary(null);
     setPhase("running");
@@ -157,10 +162,16 @@ export function AlbumExportDialog({
       setSummary(await exportLibrary(target, channel, folder, file, { albumIds }));
       setPhase("done");
     } catch {
-      // A destination that went invalid mid-run drops back to the pick; the source is untouched.
+      // A failed run drops back to the pick with the reason surfaced. The source is untouched; a device
+      // that dropped off mid-copy may hold a partial copy (no rollback), which the message is honest about.
       setPhase("idle");
+      setError(
+        target.kind === "device"
+          ? t((d) => d.export.deviceTransferFailed)
+          : t((d) => d.export.exportFailed),
+      );
     }
-  }, [target, folder, file, albumIds]);
+  }, [target, t, folder, file, albumIds]);
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
@@ -256,10 +267,13 @@ export function AlbumExportDialog({
           <div className={styles.done}>
             <span className={styles.dot} aria-hidden="true" />
             <ExportReport summary={summary} />
-            {/* A device leaves no folder to open, so name where it went in its place. */}
+            {/* A device leaves no folder to open, so name where it went in its place. A cancelled run only
+                partly landed, so it says so rather than claiming the whole selection reached the phone. */}
             {target?.kind === "device" ? (
               <p className={styles.hint}>
-                {t((d) => d.export.sentTo, { device: target.target.device_name })}
+                {summary.cancelled
+                  ? t((d) => d.export.partlySentTo, { device: target.target.device_name })
+                  : t((d) => d.export.sentTo, { device: target.target.device_name })}
               </p>
             ) : null}
             <div className={styles.actions}>
@@ -295,6 +309,9 @@ export function AlbumExportDialog({
               {check?.ok && check.non_empty ? (
                 <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
               ) : null}
+              {/* A run that failed (a device that dropped off mid-copy, a folder gone invalid) surfaces
+                  its reason here rather than silently returning to the pick. */}
+              {error ? <p className={styles.warn}>{error}</p> : null}
             </section>
 
             <section className={styles.section}>

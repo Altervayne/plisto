@@ -422,6 +422,10 @@ export const en = {
     phoneHint: "Sending to a phone? Choose a connected phone above.",
     nonEmpty: "This folder already holds files. Export writes into it.",
     sentTo: "Sent to {device}",
+    partlySentTo: "Partly sent to {device} - the run was cancelled.",
+    deviceTransferFailed:
+      "The transfer didn't finish. Some files may have reached your device; your library is untouched. Reconnect it and export again.",
+    exportFailed: "The export didn't finish. Your library is untouched.",
     openFolder: "Open destination folder",
     again: "Export again",
     written: { one: "{{n}} exported", other: "{{n}} exported" },

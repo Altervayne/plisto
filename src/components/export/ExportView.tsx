@@ -69,6 +69,8 @@ export function ExportView() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [target, setTarget] = useState<ExportTarget | null>(null);
   const [check, setCheck] = useState<DestinationCheck | null>(null);
+  // A failed run's reason, shown on the idle screen. Cleared on a fresh pick or a new run.
+  const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -113,6 +115,7 @@ export function ExportView() {
     if (!picked) return;
     setTarget({ kind: "folder", path: picked });
     setConfirming(false);
+    setError(null);
     try {
       setCheck(await validateExportDestination(picked));
     } catch {
@@ -125,6 +128,7 @@ export function ExportView() {
     if (!picked) return;
     setTarget({ kind: "device", target: picked });
     setConfirming(false);
+    setError(null);
     try {
       setCheck(await checkDevice(picked.pidl));
     } catch {
@@ -152,6 +156,7 @@ export function ExportView() {
   const runExport = useCallback(async () => {
     if (!target) return;
     setConfirming(false);
+    setError(null);
     setProgress(null);
     setSummary(null);
     setPhase("running");
@@ -181,11 +186,19 @@ export function ExportView() {
       // the last time everything was written, not a scoped selection or playlist run.
       setPreference(PREF_KEYS.lastExportAt, String(Math.floor(Date.now() / 1000)));
     } catch {
-      // A destination that went invalid mid-run drops back to idle; the source is untouched.
+      // A failed run drops back to idle with the reason surfaced rather than vanishing. The library
+      // source is untouched either way; a device that dropped off mid-copy may hold a partial copy (no
+      // rollback), which the device message is honest about.
       setPhase("idle");
+      setError(
+        target.kind === "device"
+          ? t((d) => d.export.deviceTransferFailed)
+          : t((d) => d.export.exportFailed),
+      );
     }
   }, [
     target,
+    t,
     folder,
     file,
     includeAlbums,
@@ -217,6 +230,7 @@ export function ExportView() {
     setSummary(null);
     setProgress(null);
     setConfirming(false);
+    setError(null);
     setPhase("idle");
   }, []);
 
@@ -289,10 +303,13 @@ export function ExportView() {
           <span className={styles.dot} aria-hidden="true" />
           <h1 className={styles.title}>{t((d) => d.export.exported)}</h1>
           <ExportReport summary={summary} />
-          {/* A device leaves no folder to open, so name where it went in its place. */}
+          {/* A device leaves no folder to open, so name where it went in its place. A cancelled run only
+              partly landed, so it says so rather than claiming the whole library reached the phone. */}
           {target?.kind === "device" ? (
             <p className={styles.hint}>
-              {t((d) => d.export.sentTo, { device: target.target.device_name })}
+              {summary.cancelled
+                ? t((d) => d.export.partlySentTo, { device: target.target.device_name })
+                : t((d) => d.export.sentTo, { device: target.target.device_name })}
             </p>
           ) : null}
           <div className={styles.actions}>
@@ -358,6 +375,9 @@ export function ExportView() {
           {!target ? (
             <p className={styles.hint}>{t((d) => d.export.phoneHint)}</p>
           ) : null}
+          {/* A run that failed (a device that dropped off mid-copy, a folder gone invalid) surfaces its
+              reason here rather than silently returning to idle. */}
+          {error ? <p className={styles.warn}>{error}</p> : null}
         </section>
 
         <section className={styles.section}>

@@ -423,6 +423,10 @@ export const fr: Dict = {
     phoneHint: "Envoi vers un téléphone ? Choisissez un téléphone connecté ci-dessus.",
     nonEmpty: "Ce répertoire contient déjà des fichiers. L'export écrit dedans.",
     sentTo: "Envoyé vers {device}",
+    partlySentTo: "Envoyé en partie vers {device} - l'export a été annulé.",
+    deviceTransferFailed:
+      "Le transfert n'a pas abouti. Certains fichiers sont peut-être arrivés sur l'appareil ; votre audiothèque n'a pas été touchée. Reconnectez-le et exportez à nouveau.",
+    exportFailed: "L'export n'a pas abouti. Votre audiothèque n'a pas été touchée.",
     openFolder: "Ouvrir le répertoire de destination",
     again: "Exporter à nouveau",
     written: { one: "{{n}} exportée", other: "{{n}} exportées" },
