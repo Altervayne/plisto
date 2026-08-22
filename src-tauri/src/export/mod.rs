@@ -9,6 +9,7 @@
 
 // -- Module Declarations --
 mod derive;
+pub mod device;
 pub mod extract;
 pub mod plan;
 pub mod playlist;

@@ -17,10 +17,48 @@ use tauri::{AppHandle, Emitter, State};
 // -- Local Imports --
 use crate::db;
 use crate::dto::{
-    DestinationCheck, ExportConfig, ExportPhase, ExportProgress, ExportStatus, ExportSummary,
+    DestinationCheck, DeviceTarget, ExportConfig, ExportPhase, ExportProgress, ExportStatus,
+    ExportSummary,
 };
 use crate::export;
 use crate::state::AppState;
+
+/// Opens the device-capable shell folder picker and returns the picked MTP target (or None on cancel).
+/// The shell dialog is an STA object that must run on the main UI thread, so this hops there via
+/// `run_on_main_thread` (Trap A) and waits on a channel for the result. Windows-only; other platforms
+/// return an error from the resolver. This is the 1.6.0 device-export picker; the transfer is P2.
+#[tauri::command]
+pub fn pick_device_folder(app: AppHandle) -> Result<Option<DeviceTarget>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(export::device::pick_device_folder());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv()
+        .map_err(|_| "the device picker did not respond".to_string())?
+}
+
+/// Validates a picked device target before a run: re-resolves its PIDL to prove the device is still
+/// connected. A device is never inside the workspace and needs no probe-write (MTP storages are
+/// writable; a truly blocked target surfaces as a transfer error), so `writable`/`ok` track reachability
+/// and `non_empty` stays false (we do not enumerate the device — scope guard). Runs the COM re-resolve on
+/// the STA main thread, matching the picker. Windows-only in effect; elsewhere the resolver reports false.
+#[tauri::command]
+pub fn check_device(app: AppHandle, pidl: String) -> Result<DestinationCheck, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let ok = export::device::device_reachable(&pidl);
+        let _ = tx.send(DestinationCheck {
+            ok,
+            inside_workspace: false,
+            non_empty: false,
+            writable: ok,
+        });
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv()
+        .map_err(|_| "the device check did not respond".to_string())
+}
 
 /// Exports the organized library to `config.destination`, streaming progress over `on_progress`
 /// and returning the report. Rejects while another export runs. Snapshots the plan under a brief

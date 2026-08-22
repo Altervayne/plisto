@@ -460,6 +460,18 @@ fn default_true() -> bool {
     true
 }
 
+/// A picked MTP/device export target (1.6.0). A device folder has no filesystem path, so the durable
+/// reference is the shell item's PIDL (`ITEMIDLIST`) hex-encoded - proven on hardware to round-trip via
+/// `SHCreateItemFromIDList` where the parsing-name string does not. `device_name` and `display` are the
+/// human breadcrumb from the shell (e.g. "Pixel 10 Pro", "Pixel 10 Pro > Internal shared storage > Music").
+/// A within-session reference only; never persisted across app restarts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceTarget {
+    pub device_name: String,
+    pub display: String,
+    pub pidl: String,
+}
+
 /// The stage a running export is in. `preparing` while the plan is snapshotted and the
 /// destination validated, `copying` while files are written, `done` on the single terminal emit.
 #[derive(Debug, Clone, Copy, Serialize)]

@@ -35,3 +35,16 @@ blake3 = "1"
 dunce = "1"
 unicode-normalization = "0.1"
 
+# Windows-only: the shell/COM surface for MTP direct-to-device export (1.6.0). cfg-gated so non-Windows
+# builds never pull it. #[implement] (the progress sink, P2) emits windows_core:: paths, so the
+# standalone crate is a direct dep too.
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.58"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "implement",
+] }
+
