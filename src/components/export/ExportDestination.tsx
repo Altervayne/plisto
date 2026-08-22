@@ -1,5 +1,4 @@
 // -- Component Imports --
-import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Icon Imports --
@@ -15,10 +14,9 @@ import type { ExportTarget } from "../../types";
 import styles from "./ExportView.module.css";
 
 /**
- * The destination control: a bordered, iconed button that reads plainly as an action, over a quieter
- * device doorway beneath it, over the chosen line when one is set. A folder shows its path mono and
- * truncated; a device shows its shell breadcrumb in sans, each beside a good-tone dot with the full
- * text on hover.
+ * The destination control: two matching boxed buttons side by side - a folder picker and a mobile-device
+ * picker - over the chosen line when one is set. A folder shows its path mono and truncated; a device
+ * shows its shell breadcrumb in sans, each beside a good-tone dot with the full text on hover.
  */
 export function ExportDestination({
   target,
@@ -33,17 +31,16 @@ export function ExportDestination({
 
   return (
     <div className={styles.destination}>
-      <button type="button" className={styles.destButton} onClick={onPickFolder}>
-        <FolderOpen size={16} strokeWidth={1.9} aria-hidden="true" />
-        {target?.kind === "folder"
-          ? t((d) => d.export.changeDestination)
-          : t((d) => d.export.chooseDestination)}
-      </button>
-      <QuietButton onClick={onPickDevice}>
-        {target?.kind === "device"
-          ? t((d) => d.export.changeDevice)
-          : t((d) => d.export.chooseDevice)}
-      </QuietButton>
+      <div className={styles.destButtons}>
+        <button type="button" className={styles.destButton} onClick={onPickFolder}>
+          <FolderOpen size={16} strokeWidth={1.9} aria-hidden="true" />
+          {t((d) => d.export.exportDestination)}
+        </button>
+        <button type="button" className={styles.destButton} onClick={onPickDevice}>
+          <Smartphone size={16} strokeWidth={1.9} aria-hidden="true" />
+          {t((d) => d.export.exportToDevice)}
+        </button>
+      </div>
       {target?.kind === "folder" ? (
         <Tooltip label={target.path}>
           <span className={styles.chosen}>

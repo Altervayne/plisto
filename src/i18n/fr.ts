@@ -382,10 +382,8 @@ export const fr: Dict = {
     exported: "Exportée",
     chooseFolder: "Choisir un répertoire...",
     destination: "Destination",
-    chooseDestination: "Choisir la destination",
-    changeDestination: "Changer de destination",
-    chooseDevice: "ou un téléphone connecté",
-    changeDevice: "Changer d'appareil",
+    exportDestination: "Répertoire d'export",
+    exportToDevice: "Exporter vers un mobile",
     layout: "Disposition",
     preset: {
       artistAlbum: "Artiste / Album",

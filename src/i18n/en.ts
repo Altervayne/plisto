@@ -381,10 +381,8 @@ export const en = {
     exported: "Exported",
     chooseFolder: "Choose folder...",
     destination: "Destination",
-    chooseDestination: "Choose destination",
-    changeDestination: "Change destination",
-    chooseDevice: "or a connected phone",
-    changeDevice: "Change device",
+    exportDestination: "Export destination",
+    exportToDevice: "Export to mobile device",
     layout: "Layout",
     preset: {
       artistAlbum: "Artist / Album",

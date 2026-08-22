@@ -92,12 +92,19 @@
   color: var(--ink-3);
 }
 
-/* The device mode toggle over its explaining hint: a small stack under the chosen device. */
+/* The device mode toggle over its explaining hint: a small stack under the chosen device. The control
+ * hugs its two chips (align-start beats the column's stretch); the hint stretches back to full width so
+ * its longer copy wraps normally rather than running off as one line. */
 .deviceMode {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 2px;
+}
+
+.deviceMode p {
+  align-self: stretch;
 }
 
 /* The footer: the one solid Export CTA, or the two-step confirm when the destination is non-empty. */

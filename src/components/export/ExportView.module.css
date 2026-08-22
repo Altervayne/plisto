@@ -59,6 +59,14 @@
   max-width: 100%;
 }
 
+/* The two destination pickers side by side - folder and mobile device, matching boxed buttons. Wraps
+ * to a second line only when the panel is too narrow to hold both. */
+.destButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* A real button, not a quiet text link: a subtle edge fill and border with the folder glyph, warming
  * on hover. It reads plainly as the affordance to pick a destination. */
 .destButton {
@@ -296,12 +304,19 @@
   color: var(--ink-3);
 }
 
-/* The device mode toggle over its explaining hint: a small stack under the chosen device. */
+/* The device mode toggle over its explaining hint: a small stack under the chosen device. The control
+ * hugs its two chips (align-start beats the column's stretch); the hint stretches back to full width so
+ * its longer copy wraps normally rather than running off as one line. */
 .deviceMode {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 2px;
+}
+
+.deviceMode p {
+  align-self: stretch;
 }
 
 /* The non-empty confirm: the caution over its two-step action. */
