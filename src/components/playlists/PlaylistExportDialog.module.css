@@ -110,6 +110,46 @@
   color: var(--warn);
 }
 
+/* -- Destination: the album folder shape's pre-picked target, mirroring the library export -- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Quiet guidance under the destination picker, distinct from a warning: the muted ink, not the warn tone.
+ * Doubles as the done screen's device sent-to line. */
+.hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* The device mode toggle over its explaining hint: a small stack under the chosen device. The control
+ * hugs its two chips (align-start beats the column's stretch); the hint stretches back to full width so
+ * its longer copy wraps normally rather than running off as one line. */
+.deviceMode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.deviceMode p {
+  align-self: stretch;
+}
+
 /* -- Footer: the one solid Export CTA -- */
 
 .footer {
@@ -126,6 +166,13 @@
   align-items: center;
   gap: 14px;
   padding: 8px 0;
+}
+
+/* A device export's phase title over the bar - Writing while it stages, Transferring while it moves onto
+ * the phone. A folder run shows none, leaning on the header. */
+.phase {
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 
 /* The destination path on the running screen: mono meta ink, truncated with the full path on hover. */

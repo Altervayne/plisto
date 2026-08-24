@@ -567,14 +567,17 @@ export function exportPlaylistM3u(playlistId: number, path: string): Promise<Pla
  */
 export function exportPlaylistFolder(
   playlistId: number,
-  destination: string,
+  target: ExportTarget,
   channel: Channel<ExportProgress>,
   folderPattern = "",
   filePattern = "",
+  deviceInPlace = false,
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_playlist_folder", {
     playlistId,
-    destination,
+    destination: target.kind === "folder" ? target.path : "",
+    device: target.kind === "device" ? target.target : undefined,
+    deviceInPlace: target.kind === "device" ? deviceInPlace : false,
     folderPattern,
     filePattern,
     onProgress: channel,

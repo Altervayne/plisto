@@ -15,11 +15,12 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 // -- Local Imports --
+use crate::commands::export::{civil_stamp, StagingGuard};
 use crate::db;
-use crate::dto::{ExportPhase, ExportProgress, ExportSummary, PlaylistM3uSummary};
+use crate::dto::{DeviceTarget, ExportPhase, ExportProgress, ExportSummary, PlaylistM3uSummary};
 use crate::export;
 use crate::state::AppState;
 
@@ -70,20 +71,27 @@ pub fn export_playlist_m3u(
     })
 }
 
-/// Exports `playlist_id` as an album-structured folder under `destination`: retagged copies laid out
-/// like the library (each album and single the playlist touches, plus an Unsorted bag of its loose
-/// tracks), the playlist's own `cover.jpg`, a `.nomedia`, and a bundled `.m3u8`, streaming progress
-/// over `on_progress`. `folder_pattern`/`file_pattern` lay out each member album (both empty falls to
-/// the shipped default). Rejects while another playlist folder export runs. Snapshots the plan, the
-/// playlist cover and the roots under one lock, then releases it; validates the destination before any
-/// write (refusing one inside the workspace or not writable); runs the worker on a blocking thread.
+/// Exports `playlist_id` as an album-structured folder, either to a filesystem `destination` or
+/// straight onto a connected `device`: retagged copies laid out like the library (each album and
+/// single the playlist touches, plus an Unsorted bag of its loose tracks), the playlist's own
+/// `cover.jpg`, a `.nomedia`, and a bundled `.m3u8`, streaming progress over `on_progress`.
+/// `folder_pattern`/`file_pattern` lay out each member album (both empty falls to the shipped
+/// default). Rejects while another playlist folder export runs. Snapshots the plan, the playlist
+/// cover and the roots under one lock, then releases it. When `device` is `None` this validates the
+/// destination and runs the worker on a blocking thread (the original folder path). When `device` is
+/// `Some` it stages the same album tree to a temp folder and pushes it onto the phone, mirroring
+/// `export_library`'s device branch (`device_in_place` merges into the picked device folder, else a
+/// dated snapshot subfolder). The library source is only ever read; the temp staging is always cleaned.
 #[tauri::command]
 pub async fn export_playlist_folder(
     playlist_id: i64,
     destination: String,
     folder_pattern: Option<String>,
     file_pattern: Option<String>,
+    device: Option<DeviceTarget>,
+    device_in_place: bool,
     on_progress: Channel<ExportProgress>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
     if state.playlist_export_running.swap(true, Ordering::SeqCst) {
@@ -121,6 +129,159 @@ pub async fn export_playlist_folder(
         }
     };
 
+    let template = export::AlbumTemplate::resolve(
+        &folder_pattern.unwrap_or_default(),
+        &file_pattern.unwrap_or_default(),
+    );
+    let covers_dir = state.covers_dir.clone();
+    let cancel = Arc::clone(&state.playlist_export_cancel);
+
+    // A device target stages the album tree to a temp folder and pushes it onto the phone; the folder
+    // path below is skipped. `destination` is ignored (a device has no filesystem path) and there is
+    // nothing for check_destination to probe. This mirrors export_library's device branch, minus the
+    // tray/status plumbing that command carries: this one only streams over on_progress, so emit_tick
+    // is a bare channel send. (Only the album-folder shape gets a device path in D4 v1; a future
+    // pass could reuse the same helper wiring for export_playlist_mimic_album.)
+    if let Some(device) = device {
+        let device_pidl = device.pidl;
+        let in_place = device_in_place;
+
+        // The staging root under the app cache dir (temp fallback), uniquely named so two runs never
+        // collide. Its guard removes it on success, failure, and panic.
+        let cache_root = app
+            .path()
+            .app_cache_dir()
+            .unwrap_or_else(|_| std::env::temp_dir());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let staging_root =
+            cache_root.join(format!("plisto-playlist-export-{}-{}", std::process::id(), nanos));
+
+        // D1: a fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
+        // nothing to overwrite on the device. Sanitized to a safe component (drops the colons a clock
+        // carries). The phone receives `<device folder>/Plisto <stamp>/<Albums|Singles|...>`.
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let stamp_folder =
+            export::safe_component(&format!("Plisto {}", civil_stamp(secs)), "Plisto");
+
+        // Trap B: the whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
+        // apartment state can never leak onto a reused Tokio pool thread on an early return (the
+        // device-unplugged path). The async command parks a blocking-pool thread on the join below,
+        // staying free to service cancel_playlist_export.
+        let spawned = std::thread::Builder::new()
+            .name("plisto-playlist-mtp-export".to_string())
+            .spawn(move || -> Result<ExportSummary, String> {
+                // Declared before the apartment so it drops AFTER it: CoUninitialize runs first, the
+                // temp cleanup second.
+                let _staging = StagingGuard {
+                    root: staging_root.clone(),
+                };
+                let _com = export::device::ComApartment::new();
+
+                // In-place mode stages the buckets straight into the staging root, so the transfer
+                // merges them into the device folder (updating a living library). Snapshot mode nests
+                // them under a dated `Plisto <stamp>/` folder, so each run is self-contained. Either
+                // way the transfer copies the staging root's top-level children onto the device, so
+                // only this path differs.
+                let stage_dir = if in_place {
+                    staging_root.clone()
+                } else {
+                    staging_root.join(&stamp_folder)
+                };
+                std::fs::create_dir_all(&stage_dir)
+                    .map_err(|_| "could not create the staging folder".to_string())?;
+
+                // The emit sink: just the per-invocation channel (this command has no tray status or
+                // app-global export events, unlike export_library).
+                let emit_tick = |p: ExportProgress| {
+                    let _ = on_progress.send(p);
+                };
+
+                // Staging: run_playlist_folder verbatim into the stage dir (COM-free). It writes the
+                // album tree, the root cover.jpg, the .nomedia and the bundled .m3u8 there. Its own
+                // terminal Done is rewritten to Copying/false - staging completion must never read as
+                // the whole export's done, since the transfer is still to come.
+                let summary = export::run_playlist_folder(
+                    &plan,
+                    &m3u,
+                    &cover,
+                    &stage_dir,
+                    &covers_dir,
+                    &template,
+                    &cancel,
+                    |p| {
+                        let p = if p.done {
+                            ExportProgress {
+                                phase: ExportPhase::Copying,
+                                done: false,
+                                ..p
+                            }
+                        } else {
+                            p
+                        };
+                        emit_tick(p);
+                    },
+                );
+
+                let final_summary = if summary.cancelled {
+                    // A cancel during staging never reaches the device; the guard cleans the temp.
+                    summary
+                } else {
+                    // The transfer: push the staged tree onto the device, streaming Transferring
+                    // ticks. A hard error (disconnect / failure) bubbles as Err - no terminal Done,
+                    // the UI drops to idle - while a mid-transfer cancel returns a cancelled outcome.
+                    let outcome = export::device::transfer_to_device(
+                        &staging_root,
+                        &device_pidl,
+                        &cancel,
+                        |p| emit_tick(p),
+                    )?;
+                    ExportSummary {
+                        cancelled: outcome.cancelled,
+                        ..summary
+                    }
+                };
+
+                // The single real terminal Done, for both a completed and a cancelled run - the tick
+                // the folder path lets run_playlist_folder emit, sent here since staging's was suppressed.
+                emit_tick(ExportProgress {
+                    phase: ExportPhase::Done,
+                    exported: final_summary.exported,
+                    total: final_summary.total,
+                    errors: final_summary.errors,
+                    done: true,
+                });
+                Ok(final_summary)
+                // _com drops here (CoUninitialize), then _staging (the temp is removed).
+            });
+
+        let handle = match spawned {
+            Ok(h) => h,
+            Err(_) => {
+                state.playlist_export_running.store(false, Ordering::SeqCst);
+                return Err("could not start the device export".to_string());
+            }
+        };
+
+        // Await the worker without blocking the async runtime: a blocking-pool thread parks on the
+        // join while cancel_playlist_export stays serviceable.
+        let joined = tauri::async_runtime::spawn_blocking(move || handle.join()).await;
+
+        state.playlist_export_running.store(false, Ordering::SeqCst);
+
+        return match joined {
+            Ok(Ok(Ok(summary))) => Ok(summary),
+            Ok(Ok(Err(message))) => Err(message),
+            // The worker thread panicked, or the blocking join itself failed to run.
+            Ok(Err(_)) | Err(_) => Err("playlist export task failed to run".to_string()),
+        };
+    }
+
     // Refuse a destination inside any root or one that is not writable, before any write.
     let check = export::check_destination(&destination, &roots);
     if check.inside_workspace {
@@ -133,12 +294,6 @@ pub async fn export_playlist_folder(
     }
 
     let destination = PathBuf::from(destination);
-    let template = export::AlbumTemplate::resolve(
-        &folder_pattern.unwrap_or_default(),
-        &file_pattern.unwrap_or_default(),
-    );
-    let covers_dir = state.covers_dir.clone();
-    let cancel = Arc::clone(&state.playlist_export_cancel);
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         export::run_playlist_folder(

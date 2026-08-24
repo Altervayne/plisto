@@ -25,9 +25,10 @@ use crate::state::AppState;
 
 /// A temp staging directory removed on drop, so the staged export never leaks whether the transfer
 /// succeeds, fails, or the worker panics. Mirrors the `TempDir` Drop pattern in `export/mod.rs`'s
-/// tests. Held on the device-export worker thread for the whole staging+transfer job.
-struct StagingGuard {
-    root: PathBuf,
+/// tests. Held on the device-export worker thread for the whole staging+transfer job. `pub(crate)`
+/// so the playlist folder device-export path reuses the exact same guard rather than duplicating it.
+pub(crate) struct StagingGuard {
+    pub(crate) root: PathBuf,
 }
 
 impl Drop for StagingGuard {
@@ -40,7 +41,8 @@ impl Drop for StagingGuard {
 /// clock would use colons so the result is a safe folder component with no further escaping. Pure and
 /// deterministic (the clock is the injected `secs`), so the timestamped export subfolder is testable
 /// without a real clock. The civil-date arithmetic is Howard Hinnant's days-to-date algorithm.
-fn civil_stamp(secs: u64) -> String {
+/// `pub(crate)` so the playlist folder device-export path stamps its snapshot subfolder identically.
+pub(crate) fn civil_stamp(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let tod = secs % 86_400;
     let (h, mi, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
