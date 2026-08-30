@@ -30,6 +30,20 @@ rayon = "1"
 regex = "1"
 lofty = "0.25"
 crossbeam-channel = "0.5"
+# The decode half of the shared audio core. default-features off, then only the codecs/containers the
+# library indexes: WAV/PCM, FLAC, MP3, AAC, ALAC in ISO-MP4, and Ogg Vorbis. Opus is left out on
+# purpose - symphonia ships no production Opus decoder, so it is deferred end to end.
+symphonia = { version = "0.5", default-features = false, features = [
+    "wav",
+    "pcm",
+    "flac",
+    "mp3",
+    "aac",
+    "alac",
+    "isomp4",
+    "ogg",
+    "vorbis",
+] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 blake3 = "1"
 dunce = "1"

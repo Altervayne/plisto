@@ -1,4 +1,5 @@
 // -- Module Declarations --
+mod audio;
 mod commands;
 mod covers;
 mod db;
