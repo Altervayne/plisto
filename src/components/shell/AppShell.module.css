@@ -3,7 +3,7 @@
 .shell {
   height: 100%;
   display: grid;
-  grid-template-columns: 236px 1fr;
+  grid-template-columns: 256px 1fr;
 }
 
 /* The main region: a slim controls strip over the mode content. Top padding stands in for the
@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 30px 10px;
+  padding: 0 30px 10px 20px;
 }
 
 .history {
@@ -48,7 +48,7 @@
   min-height: 0;
   display: flex;
   gap: 24px;
-  padding: 4px 30px 24px;
+  padding: 4px 30px 24px 20px;
 }
 
 /* The albums grid layer: the wall plus its drawer, holding the flow. It fades under the full pane
@@ -75,7 +75,7 @@
  * enter, fading off on exit, with pointer events released so the returning grid is live at once. */
 .fullLayer {
   position: absolute;
-  inset: 4px 30px 24px;
+  inset: 4px 30px 24px 20px;
   display: flex;
 }
 

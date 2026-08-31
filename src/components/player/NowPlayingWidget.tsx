@@ -8,6 +8,7 @@ import { X } from "lucide-react";
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { IconButton } from "../common/IconButton";
+import { CoverBackdrop } from "./CoverBackdrop";
 import { SeekBar } from "./SeekBar";
 import { Transport } from "./Transport";
 
@@ -99,10 +100,7 @@ function CardShell({ coverSrc, children }: { coverSrc: string | null; children: 
 
   return (
     <div className={styles.card} data-tauri-drag-region="">
-      <div
-        className={styles.bg}
-        style={coverSrc ? { backgroundImage: `url("${coverSrc}")` } : undefined}
-      />
+      <CoverBackdrop src={coverSrc} className={styles.bg} />
       <div className={styles.scrim} />
       <div className={styles.content}>{children}</div>
       <span className={styles.close}>

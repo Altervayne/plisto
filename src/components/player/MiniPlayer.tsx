@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
+import { CoverBackdrop } from "./CoverBackdrop";
 import { PopOutButton } from "./PopOutButton";
 import { StopButton } from "./StopButton";
 import { Transport } from "./Transport";
@@ -40,10 +41,7 @@ function MiniPlayerBar({ trackId }: { trackId: number }) {
 
   return (
     <div className={styles.mini}>
-      <div
-        className={styles.bg}
-        style={coverSrc ? { backgroundImage: `url("${coverSrc}")` } : undefined}
-      />
+      <CoverBackdrop src={coverSrc} className={styles.bg} />
       <div className={styles.scrim} />
       <div className={styles.content}>
         <div className={styles.now}>

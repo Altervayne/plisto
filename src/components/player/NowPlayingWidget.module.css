@@ -33,6 +33,23 @@
   pointer-events: none;
 }
 
+/* A newly-swapped cover fades in over the outgoing one, so a track change crossfades rather than cuts. */
+.bg[data-enter] {
+  animation: coverIn var(--dur-slow) var(--ease-standard);
+}
+
+@keyframes coverIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg[data-enter] {
+    animation: none;
+  }
+}
+
 /* A dark wash over the blur, so the text and controls keep their contrast over any cover. */
 .scrim {
   position: absolute;
