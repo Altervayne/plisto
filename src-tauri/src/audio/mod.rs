@@ -10,8 +10,14 @@
 // across the module rather than mark each item, and drop this once a consumer lands.
 #![allow(dead_code, unused_imports)]
 
+// -- Library Imports --
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
 // -- Module Declarations --
 pub mod decode;
+pub mod engine;
 pub mod peaks;
 pub mod silence;
 
@@ -19,6 +25,72 @@ pub mod silence;
 pub use decode::{DecodeError, Decoder};
 pub use peaks::{compute_peaks, Peak};
 pub use silence::{find_silence, SilenceSpan};
+
+// The player's shared vocabulary: the command layer speaks these, the engine thread consumes them,
+// and the frontend reads the status snapshot back. Defined here beside the audio core so both the
+// engine and the IPC surface pull from one place.
+
+/// How the queue behaves at the end of a track: play once through, loop the whole queue, or repeat
+/// the current track forever. Serialized lowercase so the frontend reads `"off"`/`"all"`/`"one"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+/// One entry in the play queue: the track id the frontend keys on, plus its resolved file path. The
+/// command layer resolves ids to paths so the engine stays DB-free and never touches a connection.
+pub struct QueueTrack {
+    pub id: i64,
+    pub path: PathBuf,
+}
+
+/// A transport instruction sent to the resident engine thread over the command channel. The engine
+/// owns all playback state; these are the only way to move it.
+pub enum PlayerCmd {
+    Play { queue: Vec<QueueTrack>, index: usize },
+    TogglePlay,
+    Pause,
+    Resume,
+    Stop,
+    Next,
+    Prev,
+    Seek(f64),
+    SetVolume(f32),
+    SetRepeat(RepeatMode),
+}
+
+/// The app-global playback snapshot: what the engine is doing right now. Written every engine tick
+/// and mirrored into shared state, so `get_player_status` reads it without waiting on an event.
+#[derive(Clone, Debug, Serialize)]
+pub struct PlayerStatus {
+    pub playing: bool,
+    pub track_id: Option<i64>,
+    pub position_secs: f64,
+    pub duration_secs: f64,
+    pub volume: f32,
+    pub repeat: RepeatMode,
+    pub queue_index: usize,
+    pub queue_len: usize,
+}
+
+impl Default for PlayerStatus {
+    fn default() -> Self {
+        Self {
+            playing: false,
+            track_id: None,
+            position_secs: 0.0,
+            duration_secs: 0.0,
+            volume: 1.0,
+            repeat: RepeatMode::Off,
+            queue_index: 0,
+            queue_len: 0,
+        }
+    }
+}
 
 /// The sample format of a decoded stream: the rate in Hz and the interleaved channel count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

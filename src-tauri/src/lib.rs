@@ -109,6 +109,14 @@ pub fn run() {
                 });
             }
 
+            // The resident player thread owns the audio output for the app's life. Spawn it before
+            // managed state takes the Sender, seeding the shared snapshot the status command reads.
+            // The Sender stays single-owned in AppState: dropping it at exit closes the channel and
+            // ends the thread, so it must never be cloned elsewhere.
+            let (player_tx, player_rx) = crossbeam_channel::unbounded::<audio::PlayerCmd>();
+            let player_status = Arc::new(Mutex::new(audio::PlayerStatus::default()));
+            audio::engine::spawn(player_rx, Arc::clone(&player_status), app.handle().clone());
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
@@ -126,6 +134,8 @@ pub fn run() {
                     running: false,
                     progress: None,
                 })),
+                player: player_tx,
+                player_status,
             });
 
             // The tray icon and its popup toggle guard, once the state it reads is managed.
@@ -215,7 +225,18 @@ pub fn run() {
             commands::roots::rescan_all,
             commands::roots::root_removal_impact,
             commands::window::show_main_window,
-            commands::window::quit_app
+            commands::window::quit_app,
+            commands::player::player_play_tracks,
+            commands::player::player_toggle,
+            commands::player::player_pause,
+            commands::player::player_resume,
+            commands::player::player_stop,
+            commands::player::player_next,
+            commands::player::player_prev,
+            commands::player::player_seek,
+            commands::player::player_set_volume,
+            commands::player::player_set_repeat,
+            commands::player::get_player_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

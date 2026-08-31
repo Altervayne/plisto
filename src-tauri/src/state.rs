@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 // -- Local Imports --
+use crate::audio::{PlayerCmd, PlayerStatus};
 use crate::covers::InFlightGuard;
 use crate::dto::ExportStatus;
 
@@ -28,7 +29,12 @@ use crate::dto::ExportStatus;
 /// covers-workspace image sweep's own pair, kept separate too so cancelling a sweep never touches a
 /// scan or export. `export_status` is the app-global snapshot the tray popup reads and the export
 /// worker updates from its blocking thread, so it is an Arc the worker closure can hold while the
-/// command still reads it through managed state.
+/// command still reads it through managed state. `player` is the single-owned Sender to the
+/// resident audio thread - the only handle to it, so dropping AppState at exit closes the channel
+/// and ends the thread; it must never be cloned into the tray or a captured closure or the thread
+/// would outlive exit. `player_status` is the app-global playback snapshot the engine keeps live,
+/// an Arc so the engine holds one clone while commands read the other through state, exactly like
+/// `export_status`.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -43,4 +49,6 @@ pub struct AppState {
     pub discovery_cancel: Arc<AtomicBool>,
     pub discovery_running: AtomicBool,
     pub export_status: Arc<Mutex<ExportStatus>>,
+    pub player: crossbeam_channel::Sender<PlayerCmd>,
+    pub player_status: Arc<Mutex<PlayerStatus>>,
 }

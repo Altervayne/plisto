@@ -44,6 +44,11 @@ symphonia = { version = "0.5", default-features = false, features = [
     "ogg",
     "vorbis",
 ] }
+# Realtime playback for the player engine. default-features off drops rodio's own symphonia decoders:
+# the engine feeds PCM through a custom Source built on the shared audio core, so the mp3/flac/etc
+# feature set is dead weight. Pinned to 0.20 - 0.21 replaced OutputStream::try_default()/Sink::try_new
+# with an OutputStreamBuilder, and the engine uses the 0.19/0.20 API.
+rodio = { version = "0.20", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 blake3 = "1"
 dunce = "1"
