@@ -1,20 +1,13 @@
-// -- Icon Imports --
-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
-
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
-import { IconButton } from "../common/IconButton";
+import { Transport } from "./Transport";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
 
 // -- State Imports --
 import { useTrack } from "../../state/store";
-import {
-  useCurrentTrackId,
-  useIsPlaying,
-  usePlayerActions,
-} from "../../state/player/store";
+import { useCurrentTrackId } from "../../state/player/store";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -36,8 +29,6 @@ export function MiniPlayer() {
 /** The bar itself: cover, one text line, and a compact prev / play-pause / next transport. */
 function MiniPlayerBar({ trackId }: { trackId: number }) {
   const track = useTrack(trackId);
-  const playing = useIsPlaying();
-  const actions = usePlayerActions();
   const { cover } = useTrackCover(trackId);
   const t = useT();
 
@@ -55,24 +46,7 @@ function MiniPlayerBar({ trackId }: { trackId: number }) {
           <span className={styles.artist}>{artist}</span>
         </span>
       </div>
-      <div className={styles.transport}>
-        <IconButton aria-label={t((d) => d.player.previous)} onClick={() => actions.prev()}>
-          <SkipBack size={17} strokeWidth={1.8} />
-        </IconButton>
-        <IconButton
-          aria-label={playing ? t((d) => d.player.pause) : t((d) => d.player.play)}
-          onClick={() => actions.toggle()}
-        >
-          {playing ? (
-            <Pause size={19} strokeWidth={1.8} />
-          ) : (
-            <Play size={19} strokeWidth={1.8} />
-          )}
-        </IconButton>
-        <IconButton aria-label={t((d) => d.player.next)} onClick={() => actions.next()}>
-          <SkipForward size={17} strokeWidth={1.8} />
-        </IconButton>
-      </div>
+      <Transport />
     </div>
   );
 }

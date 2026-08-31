@@ -278,6 +278,16 @@ export interface TrackEdit {
   genre_ids: number[];
 }
 
+/**
+ * One track's resolved title and artist for a now-playing surface: the edit-layer value over the raw
+ * scan value, each null when neither layer holds one. A satellite webview reads this by id to name
+ * the current track without the main window's library store. Mirrors TrackDisplay in dto.rs.
+ */
+export interface TrackDisplay {
+  title: string | null;
+  artist: string | null;
+}
+
 /** The load-all organize payload. Mirrors OrganizationSnapshot in dto.rs. */
 export interface OrganizationSnapshot {
   albums: AlbumRow[];

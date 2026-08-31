@@ -357,6 +357,16 @@ pub struct TrackEdit {
     pub genre_ids: Vec<i64>,
 }
 
+/// One track's resolved title and artist for a now-playing surface: the edit-layer value over the
+/// raw scan value, each None when neither layer holds one. A satellite webview reads this by id, so
+/// the tray and pop-out can name the current track without the main window's library store. Mirrors
+/// TrackDisplay in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackDisplay {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+}
+
 /// The load-all organize payload: every album (each with its track count) and every membership
 /// row. The frontend hydrates its organize state from this in one call.
 #[derive(Debug, Clone, Serialize)]

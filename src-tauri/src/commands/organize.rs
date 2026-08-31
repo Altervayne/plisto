@@ -19,7 +19,7 @@ use tauri::State;
 use crate::db;
 use crate::dto::{
     AlbumFields, AlbumRow, AppliedResult, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
-    OrganizationSnapshot, TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
+    OrganizationSnapshot, TrackDisplay, TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
 };
 use crate::state::AppState;
 
@@ -464,6 +464,20 @@ pub fn get_track_edit(track_id: i64, state: State<'_, AppState>) -> Result<Track
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     db::get_track_edit(&conn, track_id).map_err(|e| e.to_string())
+}
+
+/// Reads one track's resolved display title and artist by id, for a satellite webview that has no
+/// library store to read - the tray popup and the pop-out name the current track through this.
+#[tauri::command]
+pub fn get_track_display(
+    track_id: i64,
+    state: State<'_, AppState>,
+) -> Result<TrackDisplay, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::get_track_display(&conn, track_id).map_err(|e| e.to_string())
 }
 
 /// Applies a whole album layout atomically: each member's disc and its per-disc track number.

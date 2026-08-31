@@ -41,6 +41,7 @@ import type {
   ScanProgress,
   ScanSummary,
   SortSpec,
+  TrackDisplay,
   TrackEdit,
   TrackEditFields,
   TrackOverride,
@@ -347,6 +348,11 @@ export function setTrackEdit(trackId: number, fields: TrackEditFields): Promise<
 /** Reads one track's raw edit-layer overrides and its genres, to hydrate the Files-view editor. */
 export function getTrackEdit(trackId: number): Promise<TrackEdit> {
   return invoke<TrackEdit>("get_track_edit", { trackId });
+}
+
+/** Reads one track's resolved display title and artist by id, for a webview with no library store. */
+export function getTrackDisplay(trackId: number): Promise<TrackDisplay> {
+  return invoke<TrackDisplay>("get_track_display", { trackId });
 }
 
 /** Binds a picked image as an album's cover, returning the newly resolved cover. */

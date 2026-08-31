@@ -42,10 +42,3 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-
-.transport {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-}

@@ -1,0 +1,8 @@
+/* The prev / play-pause / next cluster, centered with a tight gap. Neutral: the buttons veil on
+ * hover, never carry the accent. */
+.transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}

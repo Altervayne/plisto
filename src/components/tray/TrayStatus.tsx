@@ -2,12 +2,19 @@
 import { useEffect, useState } from "react";
 
 // -- Component Imports --
+import { Cover } from "../common/Cover/Cover";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { StaffSpinner } from "../scan/StaffSpinner";
+import { Transport } from "../player/Transport";
+
+// -- Hook Imports --
+import { useTrackCover } from "../tracks/useTrackCover";
+import { useTrackDisplay } from "../player/useTrackDisplay";
 
 // -- State Imports --
 import { useLoadPreferences } from "../../state/preferences/store";
+import { useCurrentTrackId, usePlayerSync } from "../../state/player/store";
 
 // -- Theme Imports --
 import { useApplyTheme } from "../../theme";
@@ -43,6 +50,11 @@ export function TrayStatus() {
     void loadPreferences();
   }, [loadPreferences]);
   useApplyTheme();
+
+  // Seed and follow the playback snapshot in this webview too, so the now-playing block names the
+  // current track without the main window's library store.
+  usePlayerSync();
+  const trackId = useCurrentTrackId();
 
   // Seed from the current status for a popup opened mid-export, then track the run live.
   useEffect(() => {
@@ -85,6 +97,7 @@ export function TrayStatus() {
 
   return (
     <div className={styles.popup}>
+      {trackId != null ? <TrayNowPlaying trackId={trackId} /> : null}
       <div className={styles.body}>
         {status.running ? (
           <>
@@ -104,6 +117,33 @@ export function TrayStatus() {
         <PrimaryButton onClick={() => void showMainWindow()}>{t((d) => d.tray.show)}</PrimaryButton>
         <QuietButton onClick={() => void quitApp()}>{t((d) => d.tray.quit)}</QuietButton>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The now-playing block: the current track's cover and one text line over the transport. It reads the
+ * cover and display fields by id, so it only mounts with a real track id - the id-typed hooks never
+ * run with a null id. Both reads work in this satellite webview: the cover through pure IPC, the
+ * title/artist through the by-id display command.
+ */
+function TrayNowPlaying({ trackId }: { trackId: number }) {
+  const { cover } = useTrackCover(trackId);
+  const { title, artist } = useTrackDisplay(trackId);
+  const t = useT();
+
+  return (
+    <div className={styles.nowBlock}>
+      <div className={styles.nowRow}>
+        <span className={styles.cover}>
+          <Cover src={cover?.src ?? null} alt="" />
+        </span>
+        <span className={styles.text}>
+          <span className={styles.title}>{title ?? t((d) => d.albums.untitled)}</span>
+          <span className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</span>
+        </span>
+      </div>
+      <Transport />
     </div>
   );
 }

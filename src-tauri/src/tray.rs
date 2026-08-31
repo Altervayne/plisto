@@ -12,12 +12,20 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
+
+use crate::state::AppState;
 
 /// The edge margin and the assumed taskbar band, in logical pixels, used to seat the popup above
 /// the tray. The taskbar height is not exposed to the app, so the reserve is a close-enough band.
 const POPUP_MARGIN: f64 = 12.0;
 const TASKBAR_RESERVE: f64 = 48.0;
+
+/// The popup's logical width, and its two heights: the base status card, and the taller card that
+/// fits the now-playing block above the status. The block adds the cover row and the transport.
+const POPUP_WIDTH: f64 = 300.0;
+const POPUP_HEIGHT_BASE: f64 = 188.0;
+const POPUP_HEIGHT_NOW_PLAYING: f64 = 278.0;
 
 /// How long after the popup hides a tray left-click still counts as the dismissing click, so it
 /// does not reopen what it just closed.
@@ -99,6 +107,21 @@ fn toggle_popup(app: &AppHandle) {
         stamp_hidden(app);
         return;
     }
+
+    // Grow the popup to fit the now-playing block when a track is loaded, else sit at the base
+    // status height. Best-effort: a failed read or resize just leaves the last size. `set_size`
+    // works despite `resizable: false`, and `position_popup` reads `outer_size()` after, so the
+    // seat stays correct for whichever height took.
+    let playing_track = app
+        .try_state::<AppState>()
+        .and_then(|s| s.player_status.lock().ok().map(|p| p.track_id.is_some()))
+        .unwrap_or(false);
+    let height = if playing_track {
+        POPUP_HEIGHT_NOW_PLAYING
+    } else {
+        POPUP_HEIGHT_BASE
+    };
+    let _ = window.set_size(LogicalSize::new(POPUP_WIDTH, height));
 
     position_popup(app, &window);
     let _ = window.show();

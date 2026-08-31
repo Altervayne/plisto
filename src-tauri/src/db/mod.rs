@@ -16,7 +16,7 @@ use rusqlite::{params, Connection};
 // -- Type Imports --
 use crate::dto::{
     AlbumRow, AlbumTrackRow, GenreRow, PlaylistRow, PlaylistSnapshot, PlaylistTrackRow, Root,
-    TrackEdit, TrackPlacement,
+    TrackDisplay, TrackEdit, TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{normalize_genre_key, normalize_path_key};
@@ -1570,6 +1570,25 @@ pub fn get_track_edit(conn: &Connection, track_id: i64) -> rusqlite::Result<Trac
         disc_no,
         genre_ids,
     })
+}
+
+/// Resolves one track's display title and artist for a now-playing surface: the edit-layer value
+/// over the raw scan value, each None when neither layer holds one. The edits live on `track_edits`,
+/// so both fields coalesce the left join over `tracks`, exactly as the read path resolves them.
+pub fn get_track_display(conn: &Connection, track_id: i64) -> rusqlite::Result<TrackDisplay> {
+    conn.query_row(
+        "SELECT COALESCE(te.title, t.raw_title), COALESCE(te.artist, t.raw_artist)
+         FROM tracks t
+         LEFT JOIN track_edits te ON te.track_id = t.id
+         WHERE t.id = ?1",
+        params![track_id],
+        |r| {
+            Ok(TrackDisplay {
+                title: r.get(0)?,
+                artist: r.get(1)?,
+            })
+        },
+    )
 }
 
 /// Binds a cover to an album and bumps `updated_at`. The cover row is written through upsert_cover
