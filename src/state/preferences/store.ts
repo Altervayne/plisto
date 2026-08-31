@@ -20,6 +20,7 @@ export const PREF_KEYS = {
   exportFolderPattern: "export_folder_pattern",
   exportFilePattern: "export_file_pattern",
   playerEnabled: "player_enabled",
+  outputDevice: "output_device",
   // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last
   // export" filter preset - the baseline for "what changed since I last synced everything".
   lastExportAt: "last_export_at",

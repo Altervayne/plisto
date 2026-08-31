@@ -61,6 +61,17 @@ pub enum PlayerCmd {
     Seek(f64),
     SetVolume(f32),
     SetRepeat(RepeatMode),
+    // None follows the system default output; Some(name) pins that named device.
+    SetOutputDevice(Option<String>),
+}
+
+/// One selectable output device, for the settings picker. `is_default` marks the current OS default
+/// so the UI can badge it. Named devices are pinned by `name`; the picker's "System default" entry
+/// carries no name and maps to `SetOutputDevice(None)`.
+#[derive(Clone, Debug, Serialize)]
+pub struct OutputDeviceInfo {
+    pub name: String,
+    pub is_default: bool,
 }
 
 /// The app-global playback snapshot: what the engine is doing right now. Written every engine tick
@@ -75,6 +86,9 @@ pub struct PlayerStatus {
     pub repeat: RepeatMode,
     pub queue_index: usize,
     pub queue_len: usize,
+    // The name of the device actually rendering, or None while output is following the system
+    // default before a device is resolved / when no device is open.
+    pub output_device: Option<String>,
 }
 
 impl Default for PlayerStatus {
@@ -88,6 +102,7 @@ impl Default for PlayerStatus {
             repeat: RepeatMode::Off,
             queue_index: 0,
             queue_len: 0,
+            output_device: None,
         }
     }
 }

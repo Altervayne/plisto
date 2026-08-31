@@ -474,4 +474,15 @@ export interface PlayerStatus {
   repeat: RepeatMode;
   queue_index: number;
   queue_len: number;
+  output_device: string | null;
+}
+
+/**
+ * One selectable output device: its name and whether it is the current OS default. The settings
+ * picker's "System default" entry is synthetic and carries no name. Mirrors OutputDeviceInfo in
+ * audio/mod.rs.
+ */
+export interface OutputDeviceInfo {
+  name: string;
+  is_default: boolean;
 }

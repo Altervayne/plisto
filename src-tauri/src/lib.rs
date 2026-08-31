@@ -117,6 +117,15 @@ pub fn run() {
             let player_status = Arc::new(Mutex::new(audio::PlayerStatus::default()));
             audio::engine::spawn(player_rx, Arc::clone(&player_status), app.handle().clone());
 
+            // Re-pin the persisted output device, if one was chosen. Absent or empty means follow the
+            // system default, which the engine already does from its initial build, so nothing is
+            // sent. Best-effort: a read failure leaves playback on the default.
+            if let Ok(Some(name)) = db::get_setting(&conn, "output_device") {
+                if !name.is_empty() {
+                    let _ = player_tx.send(audio::PlayerCmd::SetOutputDevice(Some(name)));
+                }
+            }
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
@@ -236,7 +245,9 @@ pub fn run() {
             commands::player::player_seek,
             commands::player::player_set_volume,
             commands::player::player_set_repeat,
-            commands::player::get_player_status
+            commands::player::get_player_status,
+            commands::player::list_output_devices,
+            commands::player::player_set_output_device
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

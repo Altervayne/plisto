@@ -30,6 +30,7 @@ import type {
   ImageFolderGroup,
   ListTracksResponse,
   OrganizationSnapshot,
+  OutputDeviceInfo,
   PlayerStatus,
   PlaylistM3uSummary,
   PlaylistRow,
@@ -678,6 +679,16 @@ export function playerSetVolume(v: number): Promise<void> {
 /** Sets the repeat mode: off, all, or one. */
 export function playerSetRepeat(mode: RepeatMode): Promise<void> {
   return invoke("player_set_repeat", { mode });
+}
+
+/** Every available output device, each flagged when it is the current OS default. */
+export function listOutputDevices(): Promise<OutputDeviceInfo[]> {
+  return invoke<OutputDeviceInfo[]>("list_output_devices");
+}
+
+/** Picks the output device: a name pins it, null follows the system default. */
+export function playerSetOutputDevice(name: string | null): Promise<void> {
+  return invoke("player_set_output_device", { name });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

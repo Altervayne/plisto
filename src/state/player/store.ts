@@ -48,6 +48,7 @@ const STOPPED: PlayerStatus = {
   repeat: "off",
   queue_index: 0,
   queue_len: 0,
+  output_device: null,
 };
 
 /** The transport actions, poking the engine and letting its event drive `status` back. */

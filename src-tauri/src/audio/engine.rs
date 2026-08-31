@@ -14,7 +14,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
-use rodio::{OutputStream, Sink, Source};
+use rodio::cpal::traits::{DeviceTrait, HostTrait};
+use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
@@ -190,6 +191,15 @@ struct Engine {
     status: Arc<Mutex<PlayerStatus>>,
     app: tauri::AppHandle,
     throttle: ProgressThrottle,
+    // The user's output choice: None follows the system default, Some(name) pins that device.
+    device_pref: Option<String>,
+    // The name of the device the stream is actually bound to, for the status snapshot and the poll.
+    bound_device: Option<String>,
+    // The last-seen OS default output. The follow-default poll fires when THIS changes, so a
+    // fallback to a non-default endpoint does not thrash a rebuild every tick.
+    last_default_name: Option<String>,
+    // Wall-clock ms of the last follow-default poll, throttling it to about once a second.
+    last_device_poll: u64,
 }
 
 impl Engine {
@@ -212,6 +222,7 @@ impl Engine {
             repeat: self.repeat,
             queue_index: self.index,
             queue_len: self.queue.len(),
+            output_device: self.bound_device.clone(),
         }
     }
 
@@ -325,6 +336,79 @@ impl Engine {
         self.emit(true);
     }
 
+    /// Rebuilds the output stream onto `pref` (None follows the system default, Some pins a device),
+    /// preserving the current track and play head across the swap. Captures the play position before
+    /// teardown, opens the new device, overwrites the stream and sink (dropping the old ones on this
+    /// thread to silence the old endpoint), then resumes at the captured spot. Any failure to open
+    /// leaves the engine device-less but coherent - it never panics.
+    fn rebind(&mut self, pref: Option<String>) {
+        // Capture the play head and session before the old device drops, so the rebuilt sink resumes
+        // the same track at the same spot. Same math the snapshot uses.
+        let resume_secs = match (&self.cur_frames, self.cur_rate) {
+            (Some(frames), rate) if rate > 0 => frames.load(Ordering::Relaxed) as f64 / rate as f64,
+            _ => 0.0,
+        };
+        let was_playing = self.cur_track_id.is_some();
+
+        // Resolve the target device and its real name. A pinned name that no longer enumerates falls
+        // back to the system default with a one-off error.
+        let (stream_res, bound_name) = match &pref {
+            None => (OutputStream::try_default(), default_output_name()),
+            Some(name) => match find_output_device(name) {
+                Some(dev) => {
+                    let resolved = dev.name().ok();
+                    (OutputStream::try_from_device(&dev), resolved)
+                }
+                None => {
+                    let message =
+                        format!("output device '{name}' unavailable, using system default");
+                    let _ = self.app.emit("player:error", &message);
+                    (OutputStream::try_default(), default_output_name())
+                }
+            },
+        };
+
+        // Open the sink on the new device. Stream and sink errors carry different types, so map each
+        // to the shared message rather than chaining them.
+        let built = match stream_res {
+            Ok((stream, handle)) => match Sink::try_new(&handle) {
+                Ok(sink) => {
+                    sink.set_volume(self.volume);
+                    Ok((stream, sink))
+                }
+                Err(e) => Err(format!("audio output is unavailable: {e}")),
+            },
+            Err(e) => Err(format!("audio output is unavailable: {e}")),
+        };
+
+        let (stream, sink) = match built {
+            Ok(pair) => pair,
+            Err(message) => {
+                let _ = self.app.emit("player:error", &message);
+                self._stream = None;
+                self.sink = None;
+                self.bound_device = None;
+                return;
+            }
+        };
+
+        // Overwrite drops the old sink then the old stream on this thread, silencing the old endpoint.
+        self._stream = Some(stream);
+        self.sink = Some(sink);
+        self.bound_device = bound_name;
+        self.last_default_name = default_output_name();
+        self.device_pref = pref;
+        self.last_device_poll = now_ms();
+
+        if was_playing {
+            // seek reopens the current file, seeks, and appends to the now-new sink, preserving the
+            // paused state and emitting its own forced status.
+            self.seek(resume_secs);
+        } else {
+            self.emit(true);
+        }
+    }
+
     /// Applies one transport command, then emits a forced status since every command changes state.
     fn handle(&mut self, cmd: PlayerCmd) {
         match cmd {
@@ -389,6 +473,7 @@ impl Engine {
                 self.repeat = m;
                 self.emit(true);
             }
+            PlayerCmd::SetOutputDevice(pref) => self.rebind(pref),
         }
     }
 
@@ -396,6 +481,20 @@ impl Engine {
     /// writes a periodic status. An unplugged device mid-play is not handled here - `sink.empty()`
     /// reads as track-end, and reopening a lost device is a later slice.
     fn tick(&mut self) {
+        // Follow the system default only while unpinned, throttled to about once a second. Keyed off
+        // the default's NAME changing, not "bound != default", so a fallback to a non-default
+        // endpoint does not rebuild every tick.
+        if self.device_pref.is_none() {
+            let now = now_ms();
+            if now.saturating_sub(self.last_device_poll) >= 1000 {
+                self.last_device_poll = now;
+                let cur = default_output_name();
+                if cur != self.last_default_name {
+                    self.last_default_name = cur;
+                    self.rebind(None);
+                }
+            }
+        }
         if self.playing && !self.paused && self.sink.as_ref().map_or(false, |s| s.empty()) {
             match on_track_end(self.index, self.queue.len(), self.repeat) {
                 EndAction::Replay => self.play_at(self.index),
@@ -441,6 +540,15 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
         }
     };
 
+    // Baseline the poll off the device just built: bound_device is the opened default's real name (or
+    // None when the build failed), and last_default_name seeds the follow-default comparison.
+    let bound_device = if stream.is_some() {
+        default_output_name()
+    } else {
+        None
+    };
+    let last_default_name = default_output_name();
+
     let mut engine = Engine {
         _stream: stream,
         sink,
@@ -457,6 +565,10 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
         status,
         app,
         throttle: ProgressThrottle::new(200),
+        device_pref: None,
+        bound_device,
+        last_default_name,
+        last_device_poll: now_ms(),
     };
 
     loop {
@@ -467,6 +579,21 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+/// The name of the current system default output device, or None when there is none or its name is
+/// unreadable. The follow-default poll and the initial baseline both read it.
+fn default_output_name() -> Option<String> {
+    cpal::default_host().default_output_device()?.name().ok()
+}
+
+/// The output device whose name matches `name`, or None when none enumerates under it. Built on the
+/// player thread since the Device feeds the !Send OutputStream.
+fn find_output_device(name: &str) -> Option<cpal::Device> {
+    cpal::default_host()
+        .output_devices()
+        .ok()?
+        .find(|dev| dev.name().ok().as_deref() == Some(name))
 }
 
 /// Wall-clock milliseconds since the Unix epoch, the clock the emit throttle measures against.

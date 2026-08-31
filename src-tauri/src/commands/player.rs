@@ -9,10 +9,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use rodio::cpal;
+use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use tauri::State;
 
 // -- Local Imports --
-use crate::audio::{PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
+use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
 use crate::db;
 use crate::state::AppState;
 
@@ -115,6 +117,36 @@ pub fn player_set_volume(v: f32, state: State<'_, AppState>) -> Result<(), Strin
 #[tauri::command]
 pub fn player_set_repeat(mode: RepeatMode, state: State<'_, AppState>) -> Result<(), String> {
     let _ = state.player.send(PlayerCmd::SetRepeat(mode));
+    Ok(())
+}
+
+/// Enumerates the available output devices for the settings picker, flagging the current OS default.
+/// Runs on the command worker thread - only names cross back, never a `!Send` device handle. The
+/// engine builds its own device on its own thread when a pick arrives.
+#[tauri::command]
+pub fn list_output_devices() -> Result<Vec<OutputDeviceInfo>, String> {
+    let host = cpal::default_host();
+    let default_name = host.default_output_device().and_then(|d| d.name().ok());
+    let devices = host.output_devices().map_err(|e| e.to_string())?;
+    let list = devices
+        .filter_map(|dev| dev.name().ok())
+        .map(|name| OutputDeviceInfo {
+            is_default: Some(&name) == default_name.as_ref(),
+            name,
+        })
+        .collect();
+    Ok(list)
+}
+
+/// Picks the output device: None follows the system default, Some pins that named device. Fire-and-
+/// forget like the transport commands; the engine rebinds on its thread and reports back through the
+/// status snapshot and any `player:error`.
+#[tauri::command]
+pub fn player_set_output_device(
+    name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::SetOutputDevice(name));
     Ok(())
 }
 
