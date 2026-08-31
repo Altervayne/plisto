@@ -46,7 +46,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
-import { usePlayerActions } from "../../state/player/store";
+import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
@@ -162,6 +162,7 @@ export function TrackGrid({
   // targets that track alone. The two "Add to..." pickers hold that track id while open, so choosing
   // lands on it even after the menu has closed.
   const { play } = usePlayerActions();
+  const playerEnabled = usePlayerEnabled();
   const albums = useAlbums();
   const assignTracks = useAssignTracks();
   const createSingle = useCreateSingle();
@@ -189,18 +190,23 @@ export function TrackGrid({
   // Play is the keyboard and assistive route the hover triangle cannot be: it queues the whole view,
   // cursor on this track. A gone source or an undecodable format greys it out with the reason.
   const buildMenu = (track: TrackRowData): MenuEntry[] => [
-    {
-      icon: <Play size={16} strokeWidth={1.8} />,
-      label: t((d) => d.player.play),
-      onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
-      disabled: track.missing_at != null || track.ext === "opus",
-      tooltip:
-        track.missing_at != null
-          ? t((d) => d.player.fileMissing)
-          : track.ext === "opus"
-            ? t((d) => d.player.unsupportedFormat)
-            : undefined,
-    },
+    // Play leads the menu only while the player is on; off, the whole scattered play surface goes quiet.
+    ...(playerEnabled
+      ? [
+          {
+            icon: <Play size={16} strokeWidth={1.8} />,
+            label: t((d) => d.player.play),
+            onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
+            disabled: track.missing_at != null || track.ext === "opus",
+            tooltip:
+              track.missing_at != null
+                ? t((d) => d.player.fileMissing)
+                : track.ext === "opus"
+                  ? t((d) => d.player.unsupportedFormat)
+                  : undefined,
+          } satisfies MenuEntry,
+        ]
+      : []),
     {
       icon: <FolderOpen size={16} strokeWidth={1.8} />,
       label: t((d) => d.tracks.goToFile),
@@ -279,7 +285,9 @@ export function TrackGrid({
                   selecting={selecting}
                   onSelect={onSelect}
                   onToggle={handleToggle}
-                  onPlay={(played) => play(rowIds, rowIds.indexOf(played.id))}
+                  onPlay={
+                    playerEnabled ? (played) => play(rowIds, rowIds.indexOf(played.id)) : undefined
+                  }
                   buildMenu={buildMenu}
                   style={{ transform: `translateY(${item.start}px)` }}
                 />

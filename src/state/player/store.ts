@@ -32,6 +32,9 @@ import {
   playerToggle,
 } from "../../lib/ipc";
 
+// -- State Imports --
+import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store";
+
 // -- Type Imports --
 import type { PlayerStatus, RepeatMode } from "../../types";
 
@@ -99,6 +102,22 @@ export const useCurrentTrackId = (): number | null =>
   usePlayerStore((s) => s.status.track_id);
 export const useIsPlaying = (): boolean => usePlayerStore((s) => s.status.playing);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
+
+/**
+ * Whether the scattered play affordances show. Persisted, default on: an absent pref reads on, so the
+ * player is live until the user quiets it. This is a soft switch - it only hides the play chrome, it
+ * never touches the engine, so music left running stays audible and controllable from the mini.
+ */
+export const usePlayerEnabled = (): boolean => usePreference(PREF_KEYS.playerEnabled) !== "0";
+
+/**
+ * Flips the player-enabled pref. Best-effort persist like every other pref. No playback side effect:
+ * quieting the controls must never stop or pause a track that is already playing.
+ */
+export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.playerEnabled, on ? "1" : "0");
+};
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once (the engine may already

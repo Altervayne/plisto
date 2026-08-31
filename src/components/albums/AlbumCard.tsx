@@ -17,7 +17,7 @@ import { useAlbumCover } from "./useAlbumCover";
 
 // -- State Imports --
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
-import { usePlayerActions } from "../../state/player/store";
+import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -77,6 +77,7 @@ export const AlbumCard = memo(function AlbumCard({
 }) {
   const deleteAlbum = useDeleteAlbum();
   const { play } = usePlayerActions();
+  const playerEnabled = usePlayerEnabled();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -126,11 +127,14 @@ export const AlbumCard = memo(function AlbumCard({
   // unsorted. Both delete through the same album removal, styled destructive.
   const buildMenu = (): MenuEntry[] => {
     const items: MenuEntry[] = [];
-    items.push({
-      icon: <Play size={16} strokeWidth={1.8} />,
-      label: t((d) => d.player.play),
-      onSelect: playAlbum,
-    });
+    // Play leads only while the player is on; off, the whole scattered play surface goes quiet.
+    if (playerEnabled) {
+      items.push({
+        icon: <Play size={16} strokeWidth={1.8} />,
+        label: t((d) => d.player.play),
+        onSelect: playAlbum,
+      });
+    }
     if (!single && onOpenFull) {
       items.push({
         icon: <Maximize2 size={16} strokeWidth={1.8} />,
@@ -190,17 +194,20 @@ export const AlbumCard = memo(function AlbumCard({
         ) : null}
         {/* The play affordance: a disc centered on the cover, fading in on hover so the gesture is
          * there to find. Its own click target - it plays the album and stops the card's open
-         * underneath. The context-menu Play is the accessible route, so this stays mouse-only. */}
-        <span
-          className={styles.play}
-          aria-hidden="true"
-          onClick={(event) => {
-            event.stopPropagation();
-            playAlbum();
-          }}
-        >
-          <Play size={20} strokeWidth={2} fill="currentColor" />
-        </span>
+         * underneath. The context-menu Play is the accessible route, so this stays mouse-only. Gone
+         * while the player is off, alongside every other scattered play affordance. */}
+        {playerEnabled ? (
+          <span
+            className={styles.play}
+            aria-hidden="true"
+            onClick={(event) => {
+              event.stopPropagation();
+              playAlbum();
+            }}
+          >
+            <Play size={20} strokeWidth={2} fill="currentColor" />
+          </span>
+        ) : null}
         {/* The select affordance: an empty ring that fades in on hover so the pick gesture is
          * discoverable without the modifier keys, filling to the accent check once picked. It is its
          * own click target - a plain click toggles this tile, stopping the card's open underneath. */}

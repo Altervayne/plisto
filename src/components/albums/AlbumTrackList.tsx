@@ -42,7 +42,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
-import { usePlayerActions } from "../../state/player/store";
+import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -99,6 +99,7 @@ export function AlbumTrackList({
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const { play } = usePlayerActions();
+  const playerEnabled = usePlayerEnabled();
   const t = useT();
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
@@ -251,17 +252,22 @@ export function AlbumTrackList({
   const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
     const unplayable = row.missing_at != null || row.filename.toLowerCase().endsWith(".opus");
     const items: MenuEntry[] = [
-      {
-        icon: <Play size={16} strokeWidth={1.8} />,
-        label: t((d) => d.player.play),
-        onSelect: () => play(ids, ids.indexOf(row.track_id)),
-        disabled: unplayable,
-        tooltip: unplayable
-          ? row.missing_at != null
-            ? t((d) => d.player.fileMissing)
-            : t((d) => d.player.unsupportedFormat)
-          : undefined,
-      },
+      // Play leads only while the player is on; off, the whole scattered play surface goes quiet.
+      ...(playerEnabled
+        ? [
+            {
+              icon: <Play size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.play),
+              onSelect: () => play(ids, ids.indexOf(row.track_id)),
+              disabled: unplayable,
+              tooltip: unplayable
+                ? row.missing_at != null
+                  ? t((d) => d.player.fileMissing)
+                  : t((d) => d.player.unsupportedFormat)
+                : undefined,
+            } satisfies MenuEntry,
+          ]
+        : []),
       {
         icon: <FolderOpen size={16} strokeWidth={1.8} />,
         label: t((d) => d.tracks.goToFile),
@@ -415,7 +421,9 @@ export function AlbumTrackList({
                       onToggleSelect={onToggleSelect}
                       onOpenTrack={onOpenTrack}
                       openTrackId={openTrackId}
-                      onPlay={(trackId) => play(ids, ids.indexOf(trackId))}
+                      onPlay={
+                        playerEnabled ? (trackId) => play(ids, ids.indexOf(trackId)) : undefined
+                      }
                       buildMenu={buildTrackMenu}
                     />
                   )}
@@ -432,7 +440,7 @@ export function AlbumTrackList({
               onToggleSelect={onToggleSelect}
               onOpenTrack={onOpenTrack}
               openTrackId={openTrackId}
-              onPlay={(trackId) => play(ids, ids.indexOf(trackId))}
+              onPlay={playerEnabled ? (trackId) => play(ids, ids.indexOf(trackId)) : undefined}
               buildMenu={buildTrackMenu}
             />
           )}
@@ -472,7 +480,7 @@ function DiscRows({
   onToggleSelect: (trackId: number, mods: { shift: boolean; meta: boolean }) => void;
   onOpenTrack?: (trackId: number) => void;
   openTrackId?: number | null;
-  onPlay: (trackId: number) => void;
+  onPlay?: (trackId: number) => void;
   buildMenu: (row: AlbumTrackRowData) => MenuEntry[];
 }) {
   return (
@@ -489,7 +497,7 @@ function DiscRows({
           peeked={openTrackId != null && row.track_id === openTrackId}
           onToggleSelect={(mods) => onToggleSelect(row.track_id, mods)}
           onOpen={onOpenTrack ? () => onOpenTrack(row.track_id) : undefined}
-          onPlay={() => onPlay(row.track_id)}
+          onPlay={onPlay ? () => onPlay(row.track_id) : undefined}
           buildMenu={() => buildMenu(row)}
         />
       ))}

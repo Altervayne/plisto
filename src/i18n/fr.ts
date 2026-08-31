@@ -527,6 +527,8 @@ export const fr: Dict = {
     nowPlaying: "Lecture en cours",
     fileMissing: "Fichier source introuvable",
     unsupportedFormat: "Format non pris en charge",
+    hideControls: "Masquer les commandes de lecture",
+    showControls: "Afficher les commandes de lecture",
   },
 
   notify: {

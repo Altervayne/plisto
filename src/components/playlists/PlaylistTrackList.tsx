@@ -29,7 +29,7 @@ import {
   useRemovePlaylistSlots,
   useReorderPlaylist,
 } from "../../state/playlists/store";
-import { usePlayerActions } from "../../state/player/store";
+import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Utils Imports --
 import { reorderSlots } from "./playlistOrder";
@@ -63,6 +63,7 @@ export function PlaylistTrackList({
   const reorder = useReorderPlaylist();
   const removeSlots = useRemovePlaylistSlots();
   const { play } = usePlayerActions();
+  const playerEnabled = usePlayerEnabled();
   const t = useT();
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the row opens
@@ -82,21 +83,26 @@ export function PlaylistTrackList({
   }
 
   // The row's right-click menu: Play (the keyboard route the hover triangle cannot be) over Remove.
-  // A gone source or an undecodable format greys Play out with the reason.
+  // A gone source or an undecodable format greys Play out with the reason. Play rides only while the
+  // player is on; Remove is not a play affordance, so it stays either way and the menu never empties.
   const buildMenu = (slot: (typeof tracks)[number], index: number): MenuEntry[] => {
     const unplayable = slot.missing_at != null || slot.filename.toLowerCase().endsWith(".opus");
     return [
-      {
-        icon: <Play size={16} strokeWidth={1.8} />,
-        label: t((d) => d.player.play),
-        onSelect: () => play(trackIds, index),
-        disabled: unplayable,
-        tooltip: unplayable
-          ? slot.missing_at != null
-            ? t((d) => d.player.fileMissing)
-            : t((d) => d.player.unsupportedFormat)
-          : undefined,
-      },
+      ...(playerEnabled
+        ? [
+            {
+              icon: <Play size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.play),
+              onSelect: () => play(trackIds, index),
+              disabled: unplayable,
+              tooltip: unplayable
+                ? slot.missing_at != null
+                  ? t((d) => d.player.fileMissing)
+                  : t((d) => d.player.unsupportedFormat)
+                : undefined,
+            } satisfies MenuEntry,
+          ]
+        : []),
       {
         icon: <X size={16} strokeWidth={1.8} />,
         label: t((d) => d.playlists.removeTrack),
@@ -133,7 +139,7 @@ export function PlaylistTrackList({
               peeked={slot.id === openSlotId}
               onOpen={() => onOpenSlot(slot.id)}
               onRemove={() => void removeSlots([slot.id])}
-              onPlay={() => play(trackIds, i)}
+              onPlay={playerEnabled ? () => play(trackIds, i) : undefined}
               buildMenu={() => buildMenu(slot, i)}
             />
           ))}

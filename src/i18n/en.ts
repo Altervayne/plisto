@@ -526,6 +526,8 @@ export const en = {
     nowPlaying: "Now playing",
     fileMissing: "Source file is missing",
     unsupportedFormat: "Format not supported",
+    hideControls: "Hide player controls",
+    showControls: "Show player controls",
   },
 
   notify: {

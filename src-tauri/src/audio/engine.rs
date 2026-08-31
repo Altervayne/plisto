@@ -201,7 +201,10 @@ impl Engine {
             _ => 0.0,
         };
         PlayerStatus {
-            playing: self.playing,
+            // `playing` here means actively producing sound, so a paused track reports false - the UI
+            // reads it for the play/pause glyph. Whether a track session is loaded is `track_id`, not
+            // this. Internally `self.playing` is the session flag and `self.paused` the pause within it.
+            playing: self.playing && !self.paused,
             track_id: self.cur_track_id,
             position_secs,
             duration_secs: self.cur_duration,

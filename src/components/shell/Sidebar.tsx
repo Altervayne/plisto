@@ -1,6 +1,7 @@
 // -- Component Imports --
 import { NavItem } from "./NavItem";
 import { MiniPlayer } from "../player/MiniPlayer";
+import { PlayerToggle } from "../player/PlayerToggle";
 
 // -- Icon Imports --
 import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Images, Download, Settings } from "lucide-react";
@@ -112,6 +113,10 @@ export function Sidebar({
       {/* The now-playing mini docks here, above the pinned Settings item. It shows nothing until the
           first play, so the foot stays clean before then. */}
       <MiniPlayer />
+
+      {/* The show/hide switch for the scattered play affordances, quiet and always here, under the
+          mini and above the gear. Soft-off: it never stops a playing track, so the mini above stays. */}
+      <PlayerToggle />
 
       <NavItem
         icon={<Settings size={17} strokeWidth={1.8} />}
