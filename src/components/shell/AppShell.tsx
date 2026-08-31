@@ -40,6 +40,7 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
+import { usePlayerSync } from "../../state/player/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -93,6 +94,8 @@ export function AppShell() {
   const error = useOrgError();
   const clearError = useClearError();
   const t = useT();
+  // One listener for the app's life, following the engine's status and error events into the store.
+  usePlayerSync();
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);

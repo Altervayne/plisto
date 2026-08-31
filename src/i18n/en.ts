@@ -518,6 +518,14 @@ export const en = {
     quit: "Quit",
   },
 
+  player: {
+    play: "Play",
+    pause: "Pause",
+    previous: "Previous",
+    next: "Next",
+    nowPlaying: "Now playing",
+  },
+
   notify: {
     finishedTitle: "Export complete",
     finishedBody: { one: "{{n}} track exported.", other: "{{n}} tracks exported." },

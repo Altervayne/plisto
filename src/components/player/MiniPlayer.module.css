@@ -1,0 +1,51 @@
+/* The now-playing mini at the foot of the rail: cover, one text line, a compact transport row.
+ * Transparent ground like the rail itself - parted from the nav and Settings by space, no filled
+ * band. The 236px rail is tight, so the title and artist truncate rather than wrap. */
+.mini {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.now {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cover {
+  flex: 0 0 auto;
+  width: 40px;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artist {
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}

@@ -30,9 +30,11 @@ import type {
   ImageFolderGroup,
   ListTracksResponse,
   OrganizationSnapshot,
+  PlayerStatus,
   PlaylistM3uSummary,
   PlaylistRow,
   PlaylistSnapshot,
+  RepeatMode,
   Root,
   RootRemovalImpact,
   ScanProgress,
@@ -616,6 +618,66 @@ export function exportPlaylistRichM3u8(
 /** Signals the running folder export to stop. The backend finishes its current file and reports cancelled. */
 export function cancelPlaylistExport(): Promise<void> {
   return invoke("cancel_playlist_export");
+}
+
+// -- Player --
+// The native engine is long-lived: these commands poke it and return at once, while the throttled
+// `player:status` event carries the live state back. Play args mirror the queue model - a play
+// replaces the queue with `trackIds`, cursor at `index`.
+
+/** The player's live snapshot: playing state, playhead, volume, repeat and queue cursor. */
+export function getPlayerStatus(): Promise<PlayerStatus> {
+  return invoke<PlayerStatus>("get_player_status");
+}
+
+/** Replaces the queue with `trackIds` and starts playback at `index` (default the first). */
+export function playerPlayTracks(trackIds: number[], index = 0): Promise<void> {
+  return invoke("player_play_tracks", { trackIds, index });
+}
+
+/** Toggles play/pause on the current track. */
+export function playerToggle(): Promise<void> {
+  return invoke("player_toggle");
+}
+
+/** Pauses the current track, holding the playhead. */
+export function playerPause(): Promise<void> {
+  return invoke("player_pause");
+}
+
+/** Resumes a paused track from the held playhead. */
+export function playerResume(): Promise<void> {
+  return invoke("player_resume");
+}
+
+/** Stops playback and clears the queue. */
+export function playerStop(): Promise<void> {
+  return invoke("player_stop");
+}
+
+/** Advances to the next track in the queue. */
+export function playerNext(): Promise<void> {
+  return invoke("player_next");
+}
+
+/** Steps back to the previous track in the queue. */
+export function playerPrev(): Promise<void> {
+  return invoke("player_prev");
+}
+
+/** Seeks the current track to `secs` from its start. */
+export function playerSeek(secs: number): Promise<void> {
+  return invoke("player_seek", { secs });
+}
+
+/** Sets the output volume, 0..1. */
+export function playerSetVolume(v: number): Promise<void> {
+  return invoke("player_set_volume", { v });
+}
+
+/** Sets the repeat mode: off, all, or one. */
+export function playerSetRepeat(mode: RepeatMode): Promise<void> {
+  return invoke("player_set_repeat", { mode });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

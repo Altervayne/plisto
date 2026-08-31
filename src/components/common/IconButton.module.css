@@ -1,0 +1,37 @@
+/* An icon-only control that dissolves until touched: transparent at rest, a soft veil on hover. The
+ * square padding wraps a lone glyph, where the QuietButton's text padding would not fit. */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.icon:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* A small dip on press, so the button gives under the pointer. */
+.icon:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon:disabled:hover {
+  background: transparent;
+  color: var(--ink-2);
+}

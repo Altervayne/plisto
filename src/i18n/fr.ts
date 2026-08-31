@@ -519,6 +519,14 @@ export const fr: Dict = {
     quit: "Quitter",
   },
 
+  player: {
+    play: "Lecture",
+    pause: "Pause",
+    previous: "Précédent",
+    next: "Suivant",
+    nowPlaying: "Lecture en cours",
+  },
+
   notify: {
     finishedTitle: "Exportation terminée",
     finishedBody: { one: "{{n}} piste exportée.", other: "{{n}} pistes exportées." },

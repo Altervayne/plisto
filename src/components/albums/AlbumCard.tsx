@@ -3,7 +3,7 @@ import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
-import { Check, Download, Info, ListPlus, Maximize2, Trash2 } from "lucide-react";
+import { Check, Download, Info, ListPlus, Maximize2, Play, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
@@ -17,6 +17,7 @@ import { useAlbumCover } from "./useAlbumCover";
 
 // -- State Imports --
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
+import { usePlayerActions } from "../../state/player/store";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -75,6 +76,7 @@ export const AlbumCard = memo(function AlbumCard({
   onAddToPlaylist?: (trackIds: number[]) => void;
 }) {
   const deleteAlbum = useDeleteAlbum();
+  const { play } = usePlayerActions();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -110,6 +112,9 @@ export const AlbumCard = memo(function AlbumCard({
   const { src } = useAlbumCover(album.id, "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
+  // Play the album: its members in order, cursor on the first. Shared by the cover button and the
+  // menu item.
+  const playAlbum = () => play(tracks.map((track) => track.track_id), 0);
   const t = useT();
   const single = album.kind === "single";
   const lead = single
@@ -121,6 +126,11 @@ export const AlbumCard = memo(function AlbumCard({
   // unsorted. Both delete through the same album removal, styled destructive.
   const buildMenu = (): MenuEntry[] => {
     const items: MenuEntry[] = [];
+    items.push({
+      icon: <Play size={16} strokeWidth={1.8} />,
+      label: t((d) => d.player.play),
+      onSelect: playAlbum,
+    });
     if (!single && onOpenFull) {
       items.push({
         icon: <Maximize2 size={16} strokeWidth={1.8} />,
@@ -178,6 +188,19 @@ export const AlbumCard = memo(function AlbumCard({
         {missing > 0 ? (
           <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
         ) : null}
+        {/* The play affordance: a disc centered on the cover, fading in on hover so the gesture is
+         * there to find. Its own click target - it plays the album and stops the card's open
+         * underneath. The context-menu Play is the accessible route, so this stays mouse-only. */}
+        <span
+          className={styles.play}
+          aria-hidden="true"
+          onClick={(event) => {
+            event.stopPropagation();
+            playAlbum();
+          }}
+        >
+          <Play size={20} strokeWidth={2} fill="currentColor" />
+        </span>
         {/* The select affordance: an empty ring that fades in on hover so the pick gesture is
          * discoverable without the modifier keys, filling to the accent check once picked. It is its
          * own click target - a plain click toggles this tile, stopping the card's open underneath. */}

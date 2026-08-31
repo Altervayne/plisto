@@ -456,3 +456,22 @@ export interface ExtractResult {
   unmatched: number;
   track_no_skipped_loose: number;
 }
+
+/** The engine's repeat mode: no repeat, repeat the queue, or repeat the current track. Mirrors RepeatMode in audio/mod.rs. */
+export type RepeatMode = 'off' | 'all' | 'one';
+
+/**
+ * The player's live snapshot: what is playing, where the playhead sits, and the queue cursor. The
+ * throttled `player:status` event and `get_player_status` both carry it. `track_id` is null when the
+ * engine is stopped. Mirrors PlayerStatus in audio/mod.rs.
+ */
+export interface PlayerStatus {
+  playing: boolean;
+  track_id: number | null;
+  position_secs: number;
+  duration_secs: number;
+  volume: number;
+  repeat: RepeatMode;
+  queue_index: number;
+  queue_len: number;
+}

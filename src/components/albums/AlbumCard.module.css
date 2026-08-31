@@ -79,6 +79,48 @@
   transform: scale(1.08);
 }
 
+/*
+ * The play affordance: a disc centered on the cover, riding the frame so it lifts with the tile. It
+ * floats over unpredictable cover art, so like the pick ring it carries its own contrast on a glass
+ * scrim rather than a theme surface. Hidden and inert at rest, revealed on hover or keyboard focus.
+ */
+.play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  /* Inert while hidden: an opacity:0 element still keeps its box and its pointer events, so without
+   * this the invisible disc would swallow clicks meant to open the card. It re-arms with the reveal. */
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.9);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.card:hover .play,
+.card:focus-visible .play {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.play:hover {
+  background: rgba(0, 0, 0, 0.56);
+}
+
 /* Reveal the empty ring on hover or keyboard focus, so the pick gesture is there to find. Once any
  * tile on the wall is picked, every ring stays up so building the set is a plain click each. Revealed,
  * the ring takes clicks again. */
@@ -114,6 +156,10 @@
   }
 
   .pick {
+    transition: none;
+  }
+
+  .play {
     transition: none;
   }
 }
