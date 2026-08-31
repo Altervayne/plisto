@@ -1,0 +1,118 @@
+/*
+ * A single-select that reads as a quiet field: transparent at rest, a soft veil on hover, over a
+ * floating listbox that lifts on a shadow like the other pop panels. The one highlighted row carries
+ * the sole accent; every other row stays quiet.
+ */
+.wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.trigger:hover {
+  background: var(--veil);
+}
+
+.value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+/* The list floats over the surface, anchored just under the trigger. The scrolling is handed to the
+   app's own ScrollArea, so the menu itself only frames it - no native overflow. */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 7;
+  min-width: 100%;
+  width: max-content;
+  max-width: 320px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* The cap sits on the real scroll viewport (ScrollArea's hide-native-scrollbar element) and must be a
+   definite length: a percentage cannot resolve against the auto-height popover. */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 260px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The default marker trails a touch quieter than the device name it qualifies. */
+.hint {
+  flex-shrink: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* The highlighted row is the single accent: an accent-weak fill under accent text. */
+.active {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.active .hint {
+  color: var(--accent);
+}

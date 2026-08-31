@@ -102,6 +102,8 @@ export const usePlayerStatus = (): PlayerStatus => usePlayerStore((s) => s.statu
 export const useCurrentTrackId = (): number | null =>
   usePlayerStore((s) => s.status.track_id);
 export const useIsPlaying = (): boolean => usePlayerStore((s) => s.status.playing);
+export const useCurrentOutputDevice = (): string | null =>
+  usePlayerStore((s) => s.status.output_device);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
 
 /**

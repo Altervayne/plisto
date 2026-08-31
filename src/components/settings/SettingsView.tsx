@@ -9,6 +9,7 @@ import { SegmentedControl } from "../common/SegmentedControl";
 import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
+import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 
 // -- State Imports --
 import {
@@ -129,6 +130,14 @@ export function SettingsView() {
                 placeholder={t((d) => d.settings.addGenre)}
               />
             </div>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.label}>{t((d) => d.settings.sectionPlayback)}</h2>
+          <div className={styles.row}>
+            <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
+            <PlaybackDeviceRow />
           </div>
         </section>
 

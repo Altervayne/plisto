@@ -1,0 +1,22 @@
+/*
+ * The device control stacks its picker over a quiet readout, so the row still reads as one labelled
+ * line with a subordinate hint beneath. The readout trails under the picker, dimmed and capped so a
+ * long device name never widens the row.
+ */
+.control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.readout {
+  margin: 0;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
