@@ -1,11 +1,11 @@
 /*
- * One track row: a grip, a quiet disc field, a number column, the title-over-source main column, and a
- * duration column. The row veils on hover like the rest of the surface. Numbers and duration are
- * tabular so they line up.
+ * One track row: a grip, a checkbox lane, a quiet disc field, a number column, the title-over-source
+ * main column, and a duration column. Every leading lane is always reserved so a reveal never reflows.
+ * The row veils on hover like the rest of the surface. Numbers and duration are tabular so they line up.
  */
 .row {
   display: grid;
-  grid-template-columns: 16px 20px 1fr auto;
+  grid-template-columns: 16px 16px 20px 1fr auto;
   align-items: start;
   gap: 8px;
   padding: 7px 6px;
@@ -31,7 +31,7 @@
 /* A multi-disc album reserves the per-row disc column; a single-disc album drops it entirely so the
  * common case stays pristine and the title is not pushed right by a field it never needs. */
 .row.withDisc {
-  grid-template-columns: 16px 26px 20px 1fr auto;
+  grid-template-columns: 16px 16px 26px 20px 1fr auto;
 }
 
 .row:hover {
@@ -124,9 +124,9 @@
 }
 
 /*
- * The number cell holds both the per-disc number and its selection checkbox, one over the other. At
- * rest the number shows; on row hover or while a selection is active the two swap, so the checkbox is a
- * quiet affordance rather than a permanent column.
+ * The number cell holds the per-disc number and, overlaid on it, the play triangle. At rest the number
+ * shows; on row hover the two swap by opacity alone, so the swap never reflows the digits. The triangle
+ * anchors to the number's left text edge, matching the cell's left alignment.
  */
 .numCell {
   position: relative;
@@ -144,19 +144,44 @@
   transition: opacity var(--dur-fast) ease;
 }
 
-.row:hover .no,
-.row[data-selecting] .no {
+.row:hover .no {
   opacity: 0;
 }
 
-/* The selection checkbox: overlaid on the number at the cell's left so it sits close to the grip, not
- * marooned mid-gutter. Dissolved until the row is hovered or a selection is active, then swapped in as
- * the number fades. */
-.check {
+/* The play triangle, overlaid on the number at the cell's left edge. Inert while hidden - an opacity:0
+ * glyph still keeps its box and its pointer events, so without this the invisible triangle would swallow
+ * clicks meant to open the peek. It re-arms with the reveal on row hover. */
+.play {
   position: absolute;
   top: 50%;
   left: 0;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .play {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* An unplayable row still reveals the glyph so its reason reads on hover, but greyed and dead: no
+ * accent, no play. */
+.playOff {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* The selection checkbox: its own reserved lane after the grip, so the reveal never reflows the row.
+ * Dissolved until the row is hovered or a selection is active, then fades in as a quiet control. */
+.check {
+  align-self: center;
   width: 16px;
   height: 16px;
   padding: 0;
@@ -346,4 +371,11 @@
 /* A member whose file is gone still holds its slot, marked by a quieter, warn-tinted number. */
 .row[data-missing] .no {
   color: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .no,
+  .play {
+    transition: none;
+  }
 }

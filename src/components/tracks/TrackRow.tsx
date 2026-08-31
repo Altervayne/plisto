@@ -5,6 +5,9 @@ import type { CSSProperties, MouseEvent } from "react";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
+// -- Icon Imports --
+import { Play } from "lucide-react";
+
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
 import type { TrackColumn } from "./trackColumns";
@@ -53,6 +56,11 @@ function cellClass(col: TrackColumn, empty: boolean): string {
  *
  * `buildMenu` arms the right-click menu: when passed, the row captures the context event and opens the
  * shared menu at the pointer with the entries it returns for this track. Absent, the row has no menu.
+ *
+ * `onPlay` arms the number cell as a hover play affordance: the raw number swaps to an accent triangle
+ * on row hover, playing the track through the caller's queue. A row whose source is gone or whose format
+ * is undecodable shows the triangle greyed and inert, with the reason on hover; the menu carries the
+ * keyboard route. Without `onPlay` the number stays a plain cell.
  */
 export function TrackRow({
   track,
@@ -62,6 +70,7 @@ export function TrackRow({
   style,
   onSelect,
   onToggle,
+  onPlay,
   buildMenu,
 }: {
   track: TrackRowData;
@@ -71,10 +80,19 @@ export function TrackRow({
   style: CSSProperties;
   onSelect: (track: TrackRowData) => void;
   onToggle: (trackId: number, modifiers: SelectModifiers) => void;
+  onPlay?: (track: TrackRowData) => void;
   buildMenu?: (track: TrackRowData) => MenuEntry[];
 }) {
   const t = useT();
   const menu = useContextMenu();
+
+  // The source is gone, or the format is one the engine will not decode: the triangle greys and the
+  // click is dead, with the reason carried on hover.
+  const playable = track.missing_at == null && track.ext !== "opus";
+  const playReason =
+    track.missing_at != null
+      ? t((d) => d.player.fileMissing)
+      : t((d) => d.player.unsupportedFormat);
 
   const toggle = (e: MouseEvent) => {
     // Keep the peek from opening: the checkbox owns this click.
@@ -116,6 +134,30 @@ export function TrackRow({
       {trackColumns.map((col) => {
         const text = cellText(col, track);
         const empty = text === "-";
+
+        // The number column doubles as the play affordance: the number sits in normal flow, the accent
+        // triangle overlays its right text edge so the hover swap never reflows the digits.
+        if (col.id === "raw_track_no" && onPlay) {
+          const glyph = (
+            <span
+              className={playable ? styles.play : `${styles.play} ${styles.playOff}`}
+              aria-hidden="true"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (playable) onPlay(track);
+              }}
+            >
+              <Play size={12} strokeWidth={2} fill="currentColor" />
+            </span>
+          );
+          return (
+            <span key={col.id} className={`${cellClass(col, empty)} ${styles.numCell}`}>
+              <span className={styles.no}>{text}</span>
+              {playable ? glyph : <Tooltip label={playReason}>{glyph}</Tooltip>}
+            </span>
+          );
+        }
+
         const cell = (
           <span key={col.id} className={cellClass(col, empty)}>
             {text}

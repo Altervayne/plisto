@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Icon Imports --
-import { FolderOpen, Image as ImageIcon, Info, ListPlus, X } from "lucide-react";
+import { FolderOpen, Image as ImageIcon, Info, ListPlus, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
@@ -42,6 +42,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
+import { usePlayerActions } from "../../state/player/store";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -97,6 +98,7 @@ export function AlbumTrackList({
   const playlists = usePlaylists();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
+  const { play } = usePlayerActions();
   const t = useT();
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
@@ -247,7 +249,19 @@ export function AlbumTrackList({
   // peek exists to open. The cover entry flips by the membership's current flag: keeping its own art or
   // falling back to the album cover. Remove-from-album is the sole destructive entry.
   const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
+    const unplayable = row.missing_at != null || row.filename.toLowerCase().endsWith(".opus");
     const items: MenuEntry[] = [
+      {
+        icon: <Play size={16} strokeWidth={1.8} />,
+        label: t((d) => d.player.play),
+        onSelect: () => play(ids, ids.indexOf(row.track_id)),
+        disabled: unplayable,
+        tooltip: unplayable
+          ? row.missing_at != null
+            ? t((d) => d.player.fileMissing)
+            : t((d) => d.player.unsupportedFormat)
+          : undefined,
+      },
       {
         icon: <FolderOpen size={16} strokeWidth={1.8} />,
         label: t((d) => d.tracks.goToFile),
@@ -401,6 +415,7 @@ export function AlbumTrackList({
                       onToggleSelect={onToggleSelect}
                       onOpenTrack={onOpenTrack}
                       openTrackId={openTrackId}
+                      onPlay={(trackId) => play(ids, ids.indexOf(trackId))}
                       buildMenu={buildTrackMenu}
                     />
                   )}
@@ -417,6 +432,7 @@ export function AlbumTrackList({
               onToggleSelect={onToggleSelect}
               onOpenTrack={onOpenTrack}
               openTrackId={openTrackId}
+              onPlay={(trackId) => play(ids, ids.indexOf(trackId))}
               buildMenu={buildTrackMenu}
             />
           )}
@@ -445,6 +461,7 @@ function DiscRows({
   onToggleSelect,
   onOpenTrack,
   openTrackId,
+  onPlay,
   buildMenu,
 }: {
   rows: AlbumTrackRowData[];
@@ -455,6 +472,7 @@ function DiscRows({
   onToggleSelect: (trackId: number, mods: { shift: boolean; meta: boolean }) => void;
   onOpenTrack?: (trackId: number) => void;
   openTrackId?: number | null;
+  onPlay: (trackId: number) => void;
   buildMenu: (row: AlbumTrackRowData) => MenuEntry[];
 }) {
   return (
@@ -471,6 +489,7 @@ function DiscRows({
           peeked={openTrackId != null && row.track_id === openTrackId}
           onToggleSelect={(mods) => onToggleSelect(row.track_id, mods)}
           onOpen={onOpenTrack ? () => onOpenTrack(row.track_id) : undefined}
+          onPlay={() => onPlay(row.track_id)}
           buildMenu={() => buildMenu(row)}
         />
       ))}

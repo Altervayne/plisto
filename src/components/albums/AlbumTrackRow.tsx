@@ -11,7 +11,7 @@ import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
 // -- Icon Imports --
-import { ArrowUpToLine, GripVertical } from "lucide-react";
+import { ArrowUpToLine, GripVertical, Play } from "lucide-react";
 
 // -- State Imports --
 import { useCommitTrackOverrides } from "../../state/organize/store";
@@ -38,22 +38,27 @@ function filenameStem(filename: string): string {
 }
 
 /**
- * One track row in the drawer: a grip handle, a quiet disc field, the per-disc number, the clean title
- * over its mono source filename, and the duration. The handle carries the drag listeners so the title's
- * `EditableField` stays independently editable. The clean title edits `title_override ?? raw_title`;
- * committing empty or the raw value itself clears the override back to raw, so the edited marker only
- * shows a real change. The disc field dissolves until touched: typing a disc moves the track there and
- * renumbers, leaving the album's other discs in place. `displayNo` is the row's position on its disc.
- * The number cell doubles as the selection affordance: it swaps to a checkbox on row hover, or whenever
- * the album has a selection active, so a multi-select never adds a permanent column.
+ * One track row in the drawer: a grip handle, a selection checkbox in its own reserved lane, an optional
+ * quiet disc field, the per-disc number, the clean title over its mono source filename, and the duration.
+ * The handle carries the drag listeners so the title's `EditableField` stays independently editable. The
+ * clean title edits `title_override ?? raw_title`; committing empty or the raw value itself clears the
+ * override back to raw, so the edited marker only shows a real change. The disc field dissolves until
+ * touched: typing a disc moves the track there and renumbers, leaving the album's other discs in place.
+ * `displayNo` is the row's position on its disc.
+ *
+ * Each leading lane is always reserved so a reveal never reflows: grip, checkbox, disc, then the number.
+ * The checkbox dissolves until the row is hovered or the album has a selection active. The number cell
+ * doubles as the play affordance: at rest the number shows; on row hover it swaps to an accent play
+ * triangle by opacity alone, anchored at the number's left edge so the digits never shift.
  *
  * `onOpen` switches the row to browse mode for the full-pane view: the title becomes a display button
  * that opens the track's peek, and a click anywhere on the main column opens it too. The grip, disc,
  * and checkbox sit outside that column, so they never open the peek. Without `onOpen` the row keeps its
  * drawer form, the inline title `EditableField`. `peeked` marks the row whose peek is open.
  *
- * `buildMenu` arms the right-click menu: when passed, the row opens the shared menu at the pointer with
- * the entries it returns. Absent, the row has no menu.
+ * `onPlay` plays this track through the list's queue; a gone source or an undecodable format greys the
+ * triangle and kills the click, with the reason on hover. `buildMenu` arms the right-click menu: when
+ * passed, the row opens the shared menu at the pointer with the entries it returns. Absent, no menu.
  */
 export function AlbumTrackRow({
   row,
@@ -65,6 +70,7 @@ export function AlbumTrackRow({
   onSetDisc,
   onToggleSelect,
   onOpen,
+  onPlay,
   buildMenu,
 }: {
   row: AlbumTrackRowData;
@@ -76,6 +82,7 @@ export function AlbumTrackRow({
   onSetDisc: (disc: number | null) => void;
   onToggleSelect: (mods: { shift: boolean; meta: boolean }) => void;
   onOpen?: () => void;
+  onPlay?: () => void;
   buildMenu?: () => MenuEntry[];
 }) {
   const commit = useCommitTrackOverrides();
@@ -83,6 +90,14 @@ export function AlbumTrackRow({
   const menu = useContextMenu();
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
+
+  // The source is gone, or the format is one the engine will not decode: the triangle greys and the
+  // click is dead, with the reason carried on hover. This row type has no ext, so read it off the name.
+  const playable = row.missing_at == null && !row.filename.toLowerCase().endsWith(".opus");
+  const playReason =
+    row.missing_at != null
+      ? t((d) => d.player.fileMissing)
+      : t((d) => d.player.unsupportedFormat);
 
   // The resolved title for browse mode's static label; a blank override and blank raw fall to the filename.
   const resolved = row.title_override ?? row.raw_title;
@@ -127,6 +142,22 @@ export function AlbumTrackRow({
     onSetDisc(disc);
   };
 
+  // The play triangle overlaid on the number, left-anchored. Playable it takes the click and stops the
+  // row's peek underneath; unplayable it greys out and carries its reason on hover.
+  const playGlyph = (
+    <span
+      className={playable ? styles.play : `${styles.play} ${styles.playOff}`}
+      aria-hidden="true"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (playable) onPlay?.();
+      }}
+    >
+      <Play size={12} strokeWidth={2} fill="currentColor" />
+    </span>
+  );
+  const playControl = playable ? playGlyph : <Tooltip label={playReason}>{playGlyph}</Tooltip>;
+
   return (
     <div
       ref={setNodeRef}
@@ -149,6 +180,17 @@ export function AlbumTrackRow({
         <GripVertical size={16} strokeWidth={1.8} />
       </button>
 
+      <button
+        type="button"
+        className={styles.check}
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? t((d) => d.tracks.deselectTrack) : t((d) => d.tracks.selectTrack)}
+        onClick={onCheck}
+      >
+        <span className={styles.tick} aria-hidden="true" />
+      </button>
+
       {showDisc ? (
         <div className={styles.disc}>
           <EditableField
@@ -161,16 +203,7 @@ export function AlbumTrackRow({
 
       <div className={styles.numCell}>
         <span className={styles.no}>{displayNo}</span>
-        <button
-          type="button"
-          className={styles.check}
-          role="checkbox"
-          aria-checked={selected}
-          aria-label={selected ? t((d) => d.tracks.deselectTrack) : t((d) => d.tracks.selectTrack)}
-          onClick={onCheck}
-        >
-          <span className={styles.tick} aria-hidden="true" />
-        </button>
+        {onPlay ? playControl : null}
       </div>
 
       {onOpen ? (

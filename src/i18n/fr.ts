@@ -525,6 +525,8 @@ export const fr: Dict = {
     previous: "Précédent",
     next: "Suivant",
     nowPlaying: "Lecture en cours",
+    fileMissing: "Fichier source introuvable",
+    unsupportedFormat: "Format non pris en charge",
   },
 
   notify: {

@@ -17,6 +17,9 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
+// -- Icon Imports --
+import { Play, X } from "lucide-react";
+
 // -- Component Imports --
 import { PlaylistTrackRow } from "./PlaylistTrackRow";
 
@@ -26,9 +29,13 @@ import {
   useRemovePlaylistSlots,
   useReorderPlaylist,
 } from "../../state/playlists/store";
+import { usePlayerActions } from "../../state/player/store";
 
 // -- Utils Imports --
 import { reorderSlots } from "./playlistOrder";
+
+// -- Type Imports --
+import type { MenuEntry } from "../common/ContextMenu";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -55,6 +62,7 @@ export function PlaylistTrackList({
   const tracks = usePlaylistTracks(playlistId);
   const reorder = useReorderPlaylist();
   const removeSlots = useRemovePlaylistSlots();
+  const { play } = usePlayerActions();
   const t = useT();
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the row opens
@@ -65,10 +73,38 @@ export function PlaylistTrackList({
   );
 
   const ids = useMemo(() => tracks.map((slot) => slot.id), [tracks]);
+  // The queue reads track ids, not slot ids: a repeated track legitimately appears twice, so the cursor
+  // resolves by the slot's own index, computed at the call site below.
+  const trackIds = useMemo(() => tracks.map((slot) => slot.track_id), [tracks]);
 
   if (tracks.length === 0) {
     return <p className={styles.empty}>{t((d) => d.playlists.noTracks)}</p>;
   }
+
+  // The row's right-click menu: Play (the keyboard route the hover triangle cannot be) over Remove.
+  // A gone source or an undecodable format greys Play out with the reason.
+  const buildMenu = (slot: (typeof tracks)[number], index: number): MenuEntry[] => {
+    const unplayable = slot.missing_at != null || slot.filename.toLowerCase().endsWith(".opus");
+    return [
+      {
+        icon: <Play size={16} strokeWidth={1.8} />,
+        label: t((d) => d.player.play),
+        onSelect: () => play(trackIds, index),
+        disabled: unplayable,
+        tooltip: unplayable
+          ? slot.missing_at != null
+            ? t((d) => d.player.fileMissing)
+            : t((d) => d.player.unsupportedFormat)
+          : undefined,
+      },
+      {
+        icon: <X size={16} strokeWidth={1.8} />,
+        label: t((d) => d.playlists.removeTrack),
+        style: "destructive",
+        onSelect: () => void removeSlots([slot.id]),
+      },
+    ];
+  };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     // A drop outside any target, or back onto the source, leaves the order untouched.
@@ -97,6 +133,8 @@ export function PlaylistTrackList({
               peeked={slot.id === openSlotId}
               onOpen={() => onOpenSlot(slot.id)}
               onRemove={() => void removeSlots([slot.id])}
+              onPlay={() => play(trackIds, i)}
+              buildMenu={() => buildMenu(slot, i)}
             />
           ))}
         </div>

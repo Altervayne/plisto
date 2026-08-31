@@ -524,6 +524,8 @@ export const en = {
     previous: "Previous",
     next: "Next",
     nowPlaying: "Now playing",
+    fileMissing: "Source file is missing",
+    unsupportedFormat: "Format not supported",
   },
 
   notify: {

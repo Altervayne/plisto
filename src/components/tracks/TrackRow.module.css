@@ -149,3 +149,56 @@
   color: var(--ink-3);
   font-weight: 400;
 }
+
+/*
+ * The number cell doubles as a hover play affordance: the raw number sits in flow, the accent triangle
+ * overlays its right text edge. On row hover the two swap by opacity alone, so the digit count never
+ * reflows the column. The triangle is mouse-only - the row's context menu carries the keyboard route.
+ */
+.numCell {
+  position: relative;
+}
+
+.no {
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .no {
+  opacity: 0;
+}
+
+.play {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  /* Inert while hidden: an opacity:0 glyph still keeps its box and its pointer events, so without this
+   * the invisible triangle would swallow clicks meant to open the row. It re-arms with the reveal. */
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .play {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* An unplayable row still reveals the glyph so its reason reads on hover, but greyed and dead: no
+ * accent, no play. */
+.playOff {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .no,
+  .play {
+    transition: none;
+  }
+}

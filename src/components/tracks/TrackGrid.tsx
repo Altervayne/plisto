@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, Disc, Disc3, FolderOpen, Info, ListPlus } from "lucide-react";
+import { ArrowUpToLine, Disc, Disc3, FolderOpen, Info, ListPlus, Play } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -46,6 +46,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
+import { usePlayerActions } from "../../state/player/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
@@ -160,6 +161,7 @@ export function TrackGrid({
   // The right-click menu acts on the one row it opened over, never the multi-selection: each entry
   // targets that track alone. The two "Add to..." pickers hold that track id while open, so choosing
   // lands on it even after the menu has closed.
+  const { play } = usePlayerActions();
   const albums = useAlbums();
   const assignTracks = useAssignTracks();
   const createSingle = useCreateSingle();
@@ -184,7 +186,21 @@ export function TrackGrid({
     void editTrack(track.id, { ...edits, title: filenameStem(track.filename) });
   };
 
+  // Play is the keyboard and assistive route the hover triangle cannot be: it queues the whole view,
+  // cursor on this track. A gone source or an undecodable format greys it out with the reason.
   const buildMenu = (track: TrackRowData): MenuEntry[] => [
+    {
+      icon: <Play size={16} strokeWidth={1.8} />,
+      label: t((d) => d.player.play),
+      onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
+      disabled: track.missing_at != null || track.ext === "opus",
+      tooltip:
+        track.missing_at != null
+          ? t((d) => d.player.fileMissing)
+          : track.ext === "opus"
+            ? t((d) => d.player.unsupportedFormat)
+            : undefined,
+    },
     {
       icon: <FolderOpen size={16} strokeWidth={1.8} />,
       label: t((d) => d.tracks.goToFile),
@@ -263,6 +279,7 @@ export function TrackGrid({
                   selecting={selecting}
                   onSelect={onSelect}
                   onToggle={handleToggle}
+                  onPlay={(played) => play(rowIds, rowIds.indexOf(played.id))}
                   buildMenu={buildMenu}
                   style={{ transform: `translateY(${item.start}px)` }}
                 />
