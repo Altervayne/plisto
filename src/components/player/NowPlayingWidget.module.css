@@ -1,0 +1,123 @@
+/* The pop-out widget's opaque card, filling its own window. DWM rounds the OS window's corners, so the
+ * card itself stays square and fills edge to edge - the OS clips the corners. A CSS radius here would
+ * round tighter than DWM and leave a sliver of window showing past the card at each corner. `overflow`
+ * still clips the scaled blur to the card bounds. It always sits on the dark cover blur, so it forces a
+ * light-on-dark palette locally: the token-driven Transport, IconButton and SeekBar then render legibly
+ * without per-theme chrome. The accent is left as-is - cyan reads well on the dark ground, and the seek
+ * fill is the one accent. */
+.card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  color: var(--ink);
+
+  --ink: #fff;
+  --ink-2: rgba(255, 255, 255, 0.82);
+  --ink-3: rgba(255, 255, 255, 0.55);
+  --veil: rgba(255, 255, 255, 0.12);
+}
+
+/* The blurred cover ground, scaled past the edges so the blur has no visible seam. A plain dark fill
+ * shows through when there is no cover. */
+.bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: #16161c;
+  background-size: cover;
+  background-position: center;
+  filter: blur(28px) saturate(1.3) brightness(0.6);
+  transform: scale(1.3);
+  pointer-events: none;
+}
+
+/* A dark wash over the blur, so the text and controls keep their contrast over any cover. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.62));
+  pointer-events: none;
+}
+
+/*
+ * The foreground over the ground: cover left, the text/seek/transport column right. The whole card is
+ * a drag region, so the ground and this foreground stay pointer-transparent - a grab anywhere that is
+ * not a control falls through to the card and moves the window. The controls below re-arm their own
+ * clicks; the cover and text stay transparent, so they are grab handles too.
+ */
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Re-arm the interactive controls (transport buttons, the seek rail) inside the pass-through content. */
+.content button,
+.content [role="slider"] {
+  pointer-events: auto;
+}
+
+.cover {
+  flex: 0 0 auto;
+  width: 100px;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artist {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The idle transport, shown greyed and untouchable when nothing is playing. The nested rule overrides
+ * the content re-arm above, so the placeholder's buttons stay dead. */
+.inert {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.inert button {
+  pointer-events: none;
+}
+
+/* The close button, floated to the top-right corner above the content. */
+.close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}

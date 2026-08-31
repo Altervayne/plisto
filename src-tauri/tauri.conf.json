@@ -33,6 +33,19 @@
         "skipTaskbar": true,
         "visible": false,
         "focus": false
+      },
+      {
+        "label": "nowplaying",
+        "url": "index.html?window=nowplaying",
+        "title": "Plisto",
+        "width": 372,
+        "height": 160,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {

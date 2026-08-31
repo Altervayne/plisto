@@ -135,11 +135,23 @@ export function usePlayerSync(): void {
     let alive = true;
     const unlisteners: Array<() => void> = [];
 
-    void getPlayerStatus()
-      .then((s) => {
-        if (alive) setStatus(s);
-      })
-      .catch(() => {});
+    // Pull the current snapshot. Runs on mount and again each time this webview becomes visible: a
+    // satellite window (tray popup, pop-out widget) is created hidden and can miss the events that
+    // fired while it was hidden, so it re-seeds the moment it is shown rather than trusting it caught
+    // every event. The main window is always visible, so this only ever fires its mount seed.
+    const seed = () => {
+      void getPlayerStatus()
+        .then((s) => {
+          if (alive) setStatus(s);
+        })
+        .catch(() => {});
+    };
+    seed();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") seed();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const subscribe = async () => {
       unlisteners.push(
@@ -151,6 +163,7 @@ export function usePlayerSync(): void {
 
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisibility);
       unlisteners.forEach((fn) => fn());
     };
   }, [setStatus, setError]);

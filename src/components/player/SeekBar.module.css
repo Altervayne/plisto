@@ -1,0 +1,94 @@
+/* The scrubbable playhead: a rail wrapping the ProgressLine track/fill, its handle and the times
+ * below. The rail is taller than the visible track so the whole strip is an easy pointer target. */
+.seek {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* A track with no known length has nowhere to seek to: dim it and turn off its input. */
+.rail[data-inert] {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.rail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--pill);
+}
+
+/* The slim pill, same vocabulary as the scan ProgressLine. */
+.track {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  overflow: hidden;
+}
+
+/* The elapsed fill, driven by --pct off the rail. The soft width transition follows the engine's
+ * ticks; a drag kills it so the thumb snaps to the pointer with no lag. */
+.fill {
+  height: 100%;
+  border-radius: var(--pill);
+  background: var(--accent);
+  width: var(--pct);
+  transition: width var(--dur-soft) ease;
+}
+
+.rail[data-scrubbing] .fill {
+  transition: none;
+}
+
+/* The handle rides the fill's edge, hidden until the rail is touched. */
+.handle {
+  position: absolute;
+  left: var(--pct);
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--pill);
+  background: var(--accent);
+  box-shadow: var(--shadow-soft);
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.rail:hover .handle,
+.rail:focus-visible .handle,
+.rail[data-scrubbing] .handle {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.times {
+  display: flex;
+  justify-content: space-between;
+}
+
+.time {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* Without motion the fill and handle jump straight to their marks. */
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .handle {
+    transition: none;
+  }
+}

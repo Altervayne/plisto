@@ -59,6 +59,12 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // The pop-out widget's close (a native X or its own close button routing through hide)
+            // hides rather than destroys, so re-summoning it later reuses the same window.
+            WindowEvent::CloseRequested { api, .. } if window.label() == "nowplaying" => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
             // The popup dismisses itself when it loses focus, like a native popover.
             WindowEvent::Focused(false) if window.label() == "tray" => {
                 let _ = window.hide();
@@ -151,6 +157,12 @@ pub fn run() {
             app.manage(TrayState::default());
             tray::build_tray(app.handle())?;
 
+            // Round the opaque pop-out widget's corners through DWM so it reads as a card, not a
+            // square. Runs once at setup; a no-op off Windows.
+            if let Some(widget) = app.get_webview_window("nowplaying") {
+                tray::round_corners(&widget);
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -236,6 +248,8 @@ pub fn run() {
             commands::roots::root_removal_impact,
             commands::window::show_main_window,
             commands::window::quit_app,
+            commands::window::toggle_now_playing_widget,
+            commands::window::hide_now_playing_widget,
             commands::player::player_play_tracks,
             commands::player::player_toggle,
             commands::player::player_pause,

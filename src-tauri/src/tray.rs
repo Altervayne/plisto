@@ -14,6 +14,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
 
+use crate::db;
 use crate::state::AppState;
 
 /// The edge margin and the assumed taskbar band, in logical pixels, used to seat the popup above
@@ -148,3 +149,97 @@ fn position_popup(app: &AppHandle, window: &WebviewWindow) {
 
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
+
+/// The pop-out now-playing widget's edge margin, in logical pixels, matching the popup's.
+const WIDGET_MARGIN: f64 = 12.0;
+
+/// Seats the pop-out now-playing widget before it shows: the remembered position when it still
+/// lands on a connected monitor, else the top-right of the primary monitor - a distinct corner from
+/// the tray popup's bottom-right. Physical pixels throughout, to match what the webview's move
+/// listener persists. Best-effort: a failed read or place just leaves the last seat.
+pub fn seat_now_playing(app: &AppHandle, window: &WebviewWindow) {
+    if let Some(pos) = remembered_widget_pos(app) {
+        if point_on_some_monitor(app, pos) {
+            let _ = window.set_position(pos);
+            return;
+        }
+    }
+    seat_widget_top_right(app, window);
+}
+
+/// Reads the persisted widget top-left, parsed from the "x,y" physical-pixel pair the webview writes.
+/// None when unset, unreadable or malformed. The connection is taken best-effort and dropped at once.
+fn remembered_widget_pos(app: &AppHandle) -> Option<PhysicalPosition<i32>> {
+    let state = app.try_state::<AppState>()?;
+    let conn = state.db.lock().ok()?;
+    let raw = db::get_setting(&conn, "nowplaying_pos").ok().flatten()?;
+    let (x, y) = raw.split_once(',')?;
+    Some(PhysicalPosition::new(
+        x.trim().parse().ok()?,
+        y.trim().parse().ok()?,
+    ))
+}
+
+/// Whether a point falls inside any connected monitor, so a remembered seat on a since-unplugged
+/// display is dropped for the default corner rather than placing the widget off-screen.
+fn point_on_some_monitor(app: &AppHandle, pos: PhysicalPosition<i32>) -> bool {
+    let Ok(monitors) = app.available_monitors() else {
+        return false;
+    };
+    monitors.iter().any(|m| {
+        let o = m.position();
+        let s = m.size();
+        pos.x >= o.x
+            && pos.y >= o.y
+            && pos.x < o.x + s.width as i32
+            && pos.y < o.y + s.height as i32
+    })
+}
+
+/// Seats the widget at the top-right of the primary monitor, clamped on-screen.
+fn seat_widget_top_right(app: &AppHandle, window: &WebviewWindow) {
+    let Ok(Some(monitor)) = app.primary_monitor() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let margin = (WIDGET_MARGIN * scale) as i32;
+    let origin = monitor.position();
+    let extent = monitor.size();
+
+    let x = (origin.x + extent.width as i32 - size.width as i32 - margin).max(origin.x + margin);
+    let y = origin.y + margin;
+
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+/// Asks DWM to round the widget's corners, so the opaque frameless window reads as a rounded card
+/// like the rest of the chrome. Tauri hands back a windows-0.61 HWND while the DWM binding here is
+/// windows-0.58 - the same raw handle, distinct crate-version types, so the pointer is rewrapped for
+/// the call. Best-effort: a failed set just leaves square corners.
+#[cfg(windows)]
+pub fn round_corners(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+
+    if let Ok(handle) = window.hwnd() {
+        let hwnd = HWND(handle.0);
+        let pref = DWMWCP_ROUND;
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref as *const _ as *const _,
+                std::mem::size_of_val(&pref) as u32,
+            );
+        }
+    }
+}
+
+/// Off Windows there is no DWM corner attribute, so rounding is left to the platform's own chrome.
+#[cfg(not(windows))]
+pub fn round_corners(_window: &WebviewWindow) {}

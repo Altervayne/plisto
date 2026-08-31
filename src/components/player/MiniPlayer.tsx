@@ -1,5 +1,7 @@
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
+import { PopOutButton } from "./PopOutButton";
+import { StopButton } from "./StopButton";
 import { Transport } from "./Transport";
 
 // -- Hook Imports --
@@ -34,19 +36,37 @@ function MiniPlayerBar({ trackId }: { trackId: number }) {
 
   const title = track?.title_edit ?? track?.raw_title ?? t((d) => d.albums.untitled);
   const artist = track?.artist_edit ?? track?.raw_artist ?? t((d) => d.albums.unknownArtist);
+  const coverSrc = cover?.src ?? null;
 
   return (
     <div className={styles.mini}>
-      <div className={styles.now}>
-        <span className={styles.cover}>
-          <Cover src={cover?.src ?? null} alt="" />
-        </span>
-        <span className={styles.text}>
-          <span className={styles.title}>{title}</span>
-          <span className={styles.artist}>{artist}</span>
-        </span>
+      <div
+        className={styles.bg}
+        style={coverSrc ? { backgroundImage: `url("${coverSrc}")` } : undefined}
+      />
+      <div className={styles.scrim} />
+      <div className={styles.content}>
+        <div className={styles.now}>
+          <span className={styles.cover}>
+            <Cover src={coverSrc} alt="" />
+          </span>
+          <span className={styles.text}>
+            <span className={styles.title}>{title}</span>
+            <span className={styles.artist}>{artist}</span>
+          </span>
+        </div>
+        <div className={styles.controls}>
+          <span className={styles.side}>
+            <PopOutButton />
+          </span>
+          <span className={styles.pill}>
+            <Transport />
+          </span>
+          <span className={styles.side}>
+            <StopButton />
+          </span>
+        </div>
       </div>
-      <Transport />
     </div>
   );
 }

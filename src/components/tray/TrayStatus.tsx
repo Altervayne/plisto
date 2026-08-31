@@ -6,6 +6,7 @@ import { Cover } from "../common/Cover/Cover";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { StaffSpinner } from "../scan/StaffSpinner";
+import { PopOutButton } from "../player/PopOutButton";
 import { Transport } from "../player/Transport";
 
 // -- Hook Imports --
@@ -141,6 +142,9 @@ function TrayNowPlaying({ trackId }: { trackId: number }) {
         <span className={styles.text}>
           <span className={styles.title}>{title ?? t((d) => d.albums.untitled)}</span>
           <span className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</span>
+        </span>
+        <span className={styles.summon}>
+          <PopOutButton />
         </span>
       </div>
       <Transport />

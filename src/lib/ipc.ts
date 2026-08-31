@@ -195,6 +195,16 @@ export function quitApp(): Promise<void> {
   return invoke("quit_app");
 }
 
+/** Summons or dismisses the pop-out now-playing widget, from the mini-player or the tray block. */
+export function toggleNowPlayingWidget(): Promise<void> {
+  return invoke("toggle_now_playing_widget");
+}
+
+/** Dismisses the pop-out now-playing widget, driven by its own close button. */
+export function hideNowPlayingWidget(): Promise<void> {
+  return invoke("hide_now_playing_widget");
+}
+
 /**
  * Resolves a track's single cover at `size`, or null when it has no art from any source. `keepOwn`
  * mirrors the membership's keep-own-cover flag: when set, the folder cover steps aside so the track

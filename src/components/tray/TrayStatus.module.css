@@ -37,6 +37,13 @@
   min-width: 0;
 }
 
+/* The pop-out button pushed to the right end of the row. The popup is a deliberate surface, so it
+ * shows without a hover reveal. */
+.summon {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .title {
   overflow: hidden;
   font-size: 12.5px;

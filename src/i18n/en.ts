@@ -528,11 +528,16 @@ export const en = {
     pause: "Pause",
     previous: "Previous",
     next: "Next",
+    stop: "Stop",
     nowPlaying: "Now playing",
     fileMissing: "Source file is missing",
     unsupportedFormat: "Format not supported",
     hideControls: "Hide player controls",
     showControls: "Show player controls",
+    popOut: "Pop out player",
+    closeWidget: "Close",
+    seek: "Seek",
+    nothingPlaying: "Nothing playing",
   },
 
   notify: {

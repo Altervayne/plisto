@@ -529,11 +529,16 @@ export const fr: Dict = {
     pause: "Pause",
     previous: "Précédent",
     next: "Suivant",
+    stop: "Arrêter",
     nowPlaying: "Lecture en cours",
     fileMissing: "Fichier source introuvable",
     unsupportedFormat: "Format non pris en charge",
     hideControls: "Masquer les commandes de lecture",
     showControls: "Afficher les commandes de lecture",
+    popOut: "Détacher le lecteur",
+    closeWidget: "Fermer",
+    seek: "Position de lecture",
+    nothingPlaying: "Aucune lecture",
   },
 
   notify: {

@@ -25,8 +25,16 @@
   color: var(--ink-3);
 }
 
-/* Pushes Settings to the bottom of the column, parting it from the content nav. */
+/* Pushes the foot group to the bottom of the column, parting it from the content nav. */
 .spacer {
   flex: 1 1 auto;
   min-height: 8px;
+}
+
+/* The player switch and Settings sit together as a pinned foot pair, tight like a nav group rather
+ * than spread by the sidebar's own wide gap. */
+.footgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }

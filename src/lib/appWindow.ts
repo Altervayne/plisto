@@ -63,3 +63,15 @@ export async function onWindowResized(handler: () => void): Promise<UnlistenFn> 
   if (!w) return () => {};
   return w.onResized(() => handler());
 }
+
+/**
+ * Subscribes to move events, handing the new physical top-left to the handler; the returned unlisten
+ * is a no-op when there is no window. Physical pixels, to match what the Rust seat reads back.
+ */
+export async function onWindowMoved(
+  handler: (pos: { x: number; y: number }) => void,
+): Promise<UnlistenFn> {
+  const w = appWindow();
+  if (!w) return () => {};
+  return w.onMoved((e) => handler({ x: e.payload.x, y: e.payload.y }));
+}

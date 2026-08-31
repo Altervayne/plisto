@@ -1,11 +1,52 @@
-/* The now-playing mini at the foot of the rail: cover, one text line, a compact transport row.
- * Transparent ground like the rail itself - parted from the nav and Settings by space, no filled
- * band. The 236px rail is tight, so the title and artist truncate rather than wrap. */
+/* The now-playing card at the foot of the rail: cover, one text line, and the control row, over a
+ * blurred wash of the current cover. It carries its own dark ground, so - like the pop-out widget -
+ * it forces a light-on-dark palette locally, and the token-driven Transport, IconButton and pill read
+ * legibly over any art regardless of the app theme. Rounded and softly lifted so it reads as one
+ * object; the 236px rail is tight, so the title and artist truncate rather than wrap. */
 .mini {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  padding: 12px;
+  box-shadow: var(--shadow-soft);
+
+  --ink: #fff;
+  --ink-2: rgba(255, 255, 255, 0.82);
+  --ink-3: rgba(255, 255, 255, 0.55);
+  --veil: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+/* The blurred cover ground, scaled past the edges so the blur has no visible seam. A plain dark fill
+ * shows through when there is no cover. */
+.bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-color: #16161c;
+  background-size: cover;
+  background-position: center;
+  filter: blur(22px) saturate(1.3) brightness(0.55);
+  transform: scale(1.4);
+  pointer-events: none;
+}
+
+/* A dark wash over the blur, so the text and controls keep their contrast over any cover. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}
+
+/* The foreground over the ground: the now-playing line stacked over the control row. */
+.content {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 10px;
 }
 
 .now {
@@ -41,4 +82,42 @@
   color: var(--ink-3);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* The control row: the prev/play/next transport centered, flanked by the pop-out on the left and the
+ * full-stop on the right. The flankers reserve equal width even while hidden, so the transport stays
+ * centered and nothing shifts when they appear. */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* Groups the prev/play/next transport into a quiet rounded field, setting it apart from the flanking
+ * pop-out and stop so the three core controls read as one unit. Its radius is the buttons' own --r-sm
+ * plus the 3px padding, so the field's corners nest concentrically with the button corners inside. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--veil);
+  border-radius: var(--r-md);
+  padding: 3px;
+}
+
+/* A flanking control - pop-out or stop - dissolved until the mini is hovered or holds focus, so the
+ * card stays quiet until the user reaches for it. Inert while hidden, so an invisible button never
+ * takes a click. */
+.side {
+  flex: 0 0 auto;
+  display: inline-flex;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.mini:hover .side,
+.mini:focus-within .side {
+  opacity: 1;
+  pointer-events: auto;
 }

@@ -1,34 +1,41 @@
-/* The player switch at the foot of the rail. Mirrors the IconButton vocabulary - transparent at rest,
- * a soft veil on hover, a square around a lone glyph - but carries a two-state ink the atom cannot:
- * --ink-2 when the controls show, dropping to --ink-3 when they are hidden, never accent. It hugs its
- * glyph and pins left so the icon lands on the nav column, under the mini and above the gear. */
+/* The player switch at the foot of the rail, shaped as a nav row so it sits with Settings as a pair.
+ * Mirrors NavItem's vocabulary exactly - transparent ground, a soft veil on hover, icon over label -
+ * so the foot reads as one group. Inky, never accent; the swapped glyph and the action label carry the
+ * on/off state. */
 .toggle {
-  display: inline-flex;
-  align-self: flex-start;
+  position: relative;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+  width: 100%;
   padding: 8px;
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink-2);
+  text-align: left;
   cursor: pointer;
   transition:
     background var(--dur-fast) ease,
-    color var(--dur-fast) ease,
-    transform var(--dur-fast) var(--ease-standard);
+    color var(--dur-fast) ease;
 }
 
-.toggle[aria-checked="false"] {
-  color: var(--ink-3);
+.toggle svg {
+  flex: none;
+  opacity: 0.8;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.txt {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toggle:hover {
   background: var(--veil);
   color: var(--ink);
-}
-
-/* A small dip on press, so the switch gives under the pointer. */
-.toggle:active {
-  transform: scale(0.96);
 }
