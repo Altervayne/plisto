@@ -1,11 +1,28 @@
-/* The waveform sits directly on the ambient ground: no box, no border, no shadow. The scroll
- * container carries the canvas and the overlays together, so a finer zoom scrolls them as one. */
-.scroll {
+/* The lane stacks over its overview: the zoomed waveform takes the height, the overview rail sits
+ * under it when there is something to navigate. */
+.wrap {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+/* The waveform sits directly on the ambient ground: no box, no border, no shadow. The scroll
+ * container carries the canvas and the overlays together, so a finer zoom scrolls them as one. The
+ * native scrollbar is hidden - the overview drives navigation - but wheel and trackpad panning stay.
+ * WebView2 is Chromium, so the webkit rule takes; scrollbar-width covers the standard track. */
+.scroll {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.scroll::-webkit-scrollbar {
+  display: none;
 }
 
 /* The virtual lane: its width is the zoomed file width, at least the viewport. The canvas and the
@@ -169,5 +186,85 @@
   width: 2px;
   margin-left: -1px;
   background: var(--accent);
+  pointer-events: none;
+}
+
+/* The overview rail: the whole file at a glance, standing in for the native scrollbar. A faint recess
+ * so the lensed window can read forward of it, and a grab cursor since a press anywhere pans. */
+.overview {
+  position: relative;
+  flex: none;
+  height: 44px;
+  width: 100%;
+  margin-top: 8px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.overview[data-panning] {
+  cursor: grabbing;
+}
+
+.overviewCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The overview's silence bands and the cropper's trimmed ends: the same absence-not-color veil the
+ * lane uses, at the small scale. */
+.ovSilence,
+.ovVeil {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--veil);
+  pointer-events: none;
+}
+
+/* Landmark hairlines: a neutral tick per cut, an accent tick per kept trim edge - light strokes to
+ * find your way around, never the full handle affordance. */
+.ovTick,
+.ovEdge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  pointer-events: none;
+}
+
+.ovTick {
+  background: var(--ink-3);
+}
+
+.ovEdge {
+  background: var(--accent);
+}
+
+/* The playhead on the rail: the accent stroke of the lane's, thinned to a hairline at this scale. */
+.ovPlayhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* The lens: a quiet frame over the visible window, a soft accent border and a barely-there fill so
+ * the un-lensed remainder reads recessed. Tracks the scroll 1:1, so no transition to smear it. */
+.window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
   pointer-events: none;
 }
