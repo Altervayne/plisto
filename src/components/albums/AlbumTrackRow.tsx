@@ -56,8 +56,8 @@ function filenameStem(filename: string): string {
  * and checkbox sit outside that column, so they never open the peek. Without `onOpen` the row keeps its
  * drawer form, the inline title `EditableField`. `peeked` marks the row whose peek is open.
  *
- * `onPlay` plays this track through the list's queue; a gone source or an undecodable format greys the
- * triangle and kills the click, with the reason on hover. `buildMenu` arms the right-click menu: when
+ * `onPlay` plays this track through the list's queue; a gone source greys the triangle and kills the
+ * click, with the reason on hover. `buildMenu` arms the right-click menu: when
  * passed, the row opens the shared menu at the pointer with the entries it returns. Absent, no menu.
  */
 export function AlbumTrackRow({
@@ -91,13 +91,9 @@ export function AlbumTrackRow({
   const raw = row.raw_title ?? "";
   const edited = row.title_override != null;
 
-  // The source is gone, or the format is one the engine will not decode: the triangle greys and the
-  // click is dead, with the reason carried on hover. This row type has no ext, so read it off the name.
-  const playable = row.missing_at == null && !row.filename.toLowerCase().endsWith(".opus");
-  const playReason =
-    row.missing_at != null
-      ? t((d) => d.player.fileMissing)
-      : t((d) => d.player.unsupportedFormat);
+  // The source is gone: the triangle greys and the click is dead, with the reason carried on hover.
+  const playable = row.missing_at == null;
+  const playReason = t((d) => d.player.fileMissing);
 
   // The resolved title for browse mode's static label; a blank override and blank raw fall to the filename.
   const resolved = row.title_override ?? row.raw_title;

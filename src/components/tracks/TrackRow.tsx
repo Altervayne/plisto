@@ -58,9 +58,9 @@ function cellClass(col: TrackColumn, empty: boolean): string {
  * shared menu at the pointer with the entries it returns for this track. Absent, the row has no menu.
  *
  * `onPlay` arms the number cell as a hover play affordance: the raw number swaps to an accent triangle
- * on row hover, playing the track through the caller's queue. A row whose source is gone or whose format
- * is undecodable shows the triangle greyed and inert, with the reason on hover; the menu carries the
- * keyboard route. Without `onPlay` the number stays a plain cell.
+ * on row hover, playing the track through the caller's queue. A row whose source is gone shows the
+ * triangle greyed and inert, with the reason on hover; the menu carries the keyboard route. Without
+ * `onPlay` the number stays a plain cell.
  */
 export function TrackRow({
   track,
@@ -86,13 +86,9 @@ export function TrackRow({
   const t = useT();
   const menu = useContextMenu();
 
-  // The source is gone, or the format is one the engine will not decode: the triangle greys and the
-  // click is dead, with the reason carried on hover.
-  const playable = track.missing_at == null && track.ext !== "opus";
-  const playReason =
-    track.missing_at != null
-      ? t((d) => d.player.fileMissing)
-      : t((d) => d.player.unsupportedFormat);
+  // The source is gone: the triangle greys and the click is dead, with the reason carried on hover.
+  const playable = track.missing_at == null;
+  const playReason = t((d) => d.player.fileMissing);
 
   const toggle = (e: MouseEvent) => {
     // Keep the peek from opening: the checkbox owns this click.

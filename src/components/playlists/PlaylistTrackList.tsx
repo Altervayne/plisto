@@ -83,10 +83,10 @@ export function PlaylistTrackList({
   }
 
   // The row's right-click menu: Play (the keyboard route the hover triangle cannot be) over Remove.
-  // A gone source or an undecodable format greys Play out with the reason. Play rides only while the
-  // player is on; Remove is not a play affordance, so it stays either way and the menu never empties.
+  // A gone source greys Play out with the reason. Play rides only while the player is on; Remove is
+  // not a play affordance, so it stays either way and the menu never empties.
   const buildMenu = (slot: (typeof tracks)[number], index: number): MenuEntry[] => {
-    const unplayable = slot.missing_at != null || slot.filename.toLowerCase().endsWith(".opus");
+    const unplayable = slot.missing_at != null;
     return [
       ...(playerEnabled
         ? [
@@ -95,11 +95,7 @@ export function PlaylistTrackList({
               label: t((d) => d.player.play),
               onSelect: () => play(trackIds, index),
               disabled: unplayable,
-              tooltip: unplayable
-                ? slot.missing_at != null
-                  ? t((d) => d.player.fileMissing)
-                  : t((d) => d.player.unsupportedFormat)
-                : undefined,
+              tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
           ]
         : []),

@@ -35,7 +35,7 @@ import styles from "./PlaylistTrackRow.module.css";
  *
  * The number cell doubles as the play affordance: at rest the position shows; on row hover it swaps to an
  * accent play triangle by opacity alone, playing the track through the list's queue. A slot whose source
- * is gone or whose format is undecodable shows the triangle greyed and inert, with the reason on hover.
+ * is gone shows the triangle greyed and inert, with the reason on hover.
  * `buildMenu` arms the right-click menu, the keyboard route the hover triangle cannot be; absent, no menu.
  */
 export function PlaylistTrackRow({
@@ -65,13 +65,9 @@ export function PlaylistTrackRow({
   const untitled = resolved == null || resolved === "";
   const fullPath = slot.display_path ?? slot.source_path;
 
-  // The source is gone, or the format is one the engine will not decode: the triangle greys and the
-  // click is dead, with the reason carried on hover. The slot has no ext, so read it off the filename.
-  const playable = slot.missing_at == null && !slot.filename.toLowerCase().endsWith(".opus");
-  const playReason =
-    slot.missing_at != null
-      ? t((d) => d.player.fileMissing)
-      : t((d) => d.player.unsupportedFormat);
+  // The source is gone: the triangle greys and the click is dead, with the reason carried on hover.
+  const playable = slot.missing_at == null;
+  const playReason = t((d) => d.player.fileMissing);
   const playGlyph = (
     <span
       className={playable ? styles.play : `${styles.play} ${styles.playOff}`}

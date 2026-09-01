@@ -250,7 +250,7 @@ export function AlbumTrackList({
   // peek exists to open. The cover entry flips by the membership's current flag: keeping its own art or
   // falling back to the album cover. Remove-from-album is the sole destructive entry.
   const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
-    const unplayable = row.missing_at != null || row.filename.toLowerCase().endsWith(".opus");
+    const unplayable = row.missing_at != null;
     const items: MenuEntry[] = [
       // Play leads only while the player is on; off, the whole scattered play surface goes quiet.
       ...(playerEnabled
@@ -260,11 +260,7 @@ export function AlbumTrackList({
               label: t((d) => d.player.play),
               onSelect: () => play(ids, ids.indexOf(row.track_id)),
               disabled: unplayable,
-              tooltip: unplayable
-                ? row.missing_at != null
-                  ? t((d) => d.player.fileMissing)
-                  : t((d) => d.player.unsupportedFormat)
-                : undefined,
+              tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
           ]
         : []),

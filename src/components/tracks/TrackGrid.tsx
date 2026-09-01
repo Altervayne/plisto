@@ -188,7 +188,7 @@ export function TrackGrid({
   };
 
   // Play is the keyboard and assistive route the hover triangle cannot be: it queues the whole view,
-  // cursor on this track. A gone source or an undecodable format greys it out with the reason.
+  // cursor on this track. A gone source greys it out with the reason.
   const buildMenu = (track: TrackRowData): MenuEntry[] => [
     // Play leads the menu only while the player is on; off, the whole scattered play surface goes quiet.
     ...(playerEnabled
@@ -197,13 +197,8 @@ export function TrackGrid({
             icon: <Play size={16} strokeWidth={1.8} />,
             label: t((d) => d.player.play),
             onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
-            disabled: track.missing_at != null || track.ext === "opus",
-            tooltip:
-              track.missing_at != null
-                ? t((d) => d.player.fileMissing)
-                : track.ext === "opus"
-                  ? t((d) => d.player.unsupportedFormat)
-                  : undefined,
+            disabled: track.missing_at != null,
+            tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
           } satisfies MenuEntry,
         ]
       : []),
