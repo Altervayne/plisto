@@ -3,13 +3,14 @@
  * define frame-range segments, and cut each one losslessly into a tagged file. This module owns the
  * cut dispatch and the sequential job that runs a whole segment list, mirroring the export pipeline's
  * shape - temp-then-rename per file, a cooperative cancel that keeps whatever landed, a per-item
- * report. The cutters themselves are format-specific; only WAV is wired here, decode-free and
- * bit-exact.
+ * report. The cutters themselves are format-specific; WAV and FLAC are wired here, each decode-free
+ * and bit-exact.
  */
 
 // -- Module Declarations --
 mod analyze;
 mod cue;
+mod flac;
 mod wav;
 
 // -- Library Imports --
@@ -31,8 +32,8 @@ const NOTE_EXISTS: &str = "a file with this name already exists";
 const NOTE_CUT_FAILED: &str = "the segment could not be cut";
 const NOTE_TAGS_FAILED: &str = "the file was written but its tags could not be";
 
-/// The source container a cut reads from, chosen by the source extension. Only WAV cuts here; FLAC
-/// and MP3 are recognized so the job can report them clearly, but their cutters land later.
+/// The source container a cut reads from, chosen by the source extension. WAV and FLAC cut here; MP3
+/// is recognized so the job can report it clearly, but its cutter lands later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Wav,
@@ -80,8 +81,8 @@ impl std::fmt::Display for CutError {
 
 impl std::error::Error for CutError {}
 
-/// Cuts one segment's frame range out of `source` into `out_tmp`, dispatching on the format. WAV cuts
-/// losslessly; the other formats are refused until their cutters land.
+/// Cuts one segment's frame range out of `source` into `out_tmp`, dispatching on the format. WAV and
+/// FLAC cut losslessly; MP3 is refused until its cutter lands.
 pub fn cut_segment(
     source: &Path,
     format: Format,
@@ -90,7 +91,8 @@ pub fn cut_segment(
 ) -> Result<(), CutError> {
     match format {
         Format::Wav => wav::cut(source, segment.start_frame, segment.end_frame, out_tmp),
-        Format::Flac | Format::Mp3 => Err(CutError::UnsupportedFormat),
+        Format::Flac => flac::cut(source, segment.start_frame, segment.end_frame, out_tmp),
+        Format::Mp3 => Err(CutError::UnsupportedFormat),
     }
 }
 
@@ -454,12 +456,12 @@ mod tests {
     }
 
     #[test]
-    fn a_non_wav_format_is_unsupported() {
+    fn an_mp3_format_is_unsupported() {
         let dir = TempDir::new();
-        let out = dir.path.join("x.flac");
+        let out = dir.path.join("x.mp3");
         let seg = segment(0, 10, "X", 1);
         assert_eq!(
-            cut_segment(Path::new("nope.flac"), Format::Flac, &seg, &out),
+            cut_segment(Path::new("nope.mp3"), Format::Mp3, &seg, &out),
             Err(CutError::UnsupportedFormat),
         );
     }

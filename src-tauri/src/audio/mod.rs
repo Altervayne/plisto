@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 // -- Module Declarations --
 pub mod decode;
 pub mod engine;
+pub mod flac_frames;
 pub mod peaks;
 pub mod silence;
 

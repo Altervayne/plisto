@@ -306,7 +306,7 @@ impl Decoder {
 
 /// Maps a symphonia open/build failure to the coarse error the app surfaces: a format or codec
 /// symphonia does not implement is `Unsupported`, everything else is `Open`.
-fn map_open_error(err: SymphoniaError) -> DecodeError {
+pub(super) fn map_open_error(err: SymphoniaError) -> DecodeError {
     match err {
         SymphoniaError::Unsupported(_) => DecodeError::Unsupported,
         _ => DecodeError::Open,
