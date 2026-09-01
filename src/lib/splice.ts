@@ -2,14 +2,24 @@
  * The frontend splice helpers: the cut gate, the filename projection twinned from the backend's
  * segment_stem, the per-format frame snap, and the timecode display. Kept in step with the backend's
  * Format::from_source and segment_stem (src-tauri/src/splice/mod.rs) and safe_component
- * (src-tauri/src/export/derive.rs) - WAV, FLAC, and MP3 today, with M4A/AAC/Opus arriving later.
+ * (src-tauri/src/export/derive.rs) - WAV, FLAC, MP3, AAC m4a, and Ogg/Opus today.
  */
 
 /** The source containers the cutter can slice without a re-encode. */
-export type SpliceFormat = "wav" | "flac" | "mp3";
+export type SpliceFormat = "wav" | "flac" | "mp3" | "m4a" | "opus";
 
-/** The source extensions the splicer accepts, lowercased, no leading dot. */
-const SPLICEABLE = new Set<SpliceFormat>(["wav", "flac", "mp3"]);
+/**
+ * The source extensions the splicer accepts, lowercased and no leading dot, each mapped to its cut
+ * format. m4b (AAC audiobooks) rides the same m4a cutter, twinning the backend's from_source.
+ */
+const EXT_TO_FORMAT: Record<string, SpliceFormat> = {
+  wav: "wav",
+  flac: "flac",
+  mp3: "mp3",
+  m4a: "m4a",
+  m4b: "m4a",
+  opus: "opus",
+};
 
 /** The dotless, lowercased extension of a path or a bare extension. */
 function extOf(pathOrExt: string): string {
@@ -20,13 +30,12 @@ function extOf(pathOrExt: string): string {
 
 /** Whether a source path or bare extension names a container the splicer can cut. */
 export function canSplice(pathOrExt: string): boolean {
-  return SPLICEABLE.has(extOf(pathOrExt) as SpliceFormat);
+  return extOf(pathOrExt) in EXT_TO_FORMAT;
 }
 
 /** The splice format of a path or bare extension, or null when its container has no cutter. */
 export function spliceFormat(pathOrExt: string): SpliceFormat | null {
-  const ext = extOf(pathOrExt);
-  return SPLICEABLE.has(ext as SpliceFormat) ? (ext as SpliceFormat) : null;
+  return EXT_TO_FORMAT[extOf(pathOrExt)] ?? null;
 }
 
 // -- Filename projection (twin of segment_stem + safe_component) --
@@ -115,12 +124,22 @@ export function projectFilename(
  * A cut frame snapped to what the format can land on. WAV and FLAC pass through: WAV is sample-
  * accurate, and FLAC's real block boundaries are the encoder's, not ours, so the requested frame is
  * shown and the backend aligns to the nearest block. MP3 snaps to the MPEG frame grid (1152 samples
- * for a sample rate at or above 32 kHz, else 576), the granularity a frame-copy can honor.
+ * for a sample rate at or above 32 kHz, else 576); m4a snaps to the AAC frame grid (1024 samples); opus
+ * snaps to the common 960-sample (20 ms) packet grid, approximate since packets can vary while the
+ * backend cut is exact to the packet. Each is the granularity a frame-copy can honor.
  */
 export function snapFrame(frame: number, format: SpliceFormat | null, sampleRate: number): number {
-  if (format !== "mp3") return Math.round(frame);
-  const grid = sampleRate >= 32000 ? 1152 : 576;
-  return Math.round(frame / grid) * grid;
+  if (format === "mp3") {
+    const grid = sampleRate >= 32000 ? 1152 : 576;
+    return Math.round(frame / grid) * grid;
+  }
+  if (format === "m4a") {
+    return Math.round(frame / 1024) * 1024;
+  }
+  if (format === "opus") {
+    return Math.round(frame / 960) * 960;
+  }
+  return Math.round(frame);
 }
 
 // -- Timecode --

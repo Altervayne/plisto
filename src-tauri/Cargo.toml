@@ -29,6 +29,12 @@ walkdir = "2"
 rayon = "1"
 regex = "1"
 lofty = "0.25"
+# Frame-copy cutter for AAC .m4a/.m4b: reads the sample table and rewrites a fresh container holding a
+# time range, no re-encode. Only the cut path uses it; analysis and playback decode m4a via symphonia.
+mp4 = "0.14"
+# Pure-Rust Ogg page reader/writer for the .opus cutter: remuxes a range of Opus packets into a fresh
+# stream, no decode. Only the cut path uses it; analysis and playback demux Opus via symphonia.
+ogg = "0.9"
 crossbeam-channel = "0.5"
 # The decode half of the shared audio core. default-features off, then only the codecs/containers the
 # library indexes: WAV/PCM, FLAC, MP3, AAC, ALAC in ISO-MP4, and Ogg Vorbis. Opus is left out on

@@ -3,8 +3,9 @@
  * define frame-range segments, and cut each one losslessly into a tagged file. This module owns the
  * cut dispatch and the sequential job that runs a whole segment list, mirroring the export pipeline's
  * shape - temp-then-rename per file, a cooperative cancel that keeps whatever landed, a per-item
- * report. The cutters themselves are format-specific; WAV, FLAC, and MP3 are wired here. WAV and FLAC
- * copy their samples bit-exact; MP3 copies whole frames, frame-aligned.
+ * report. The cutters themselves are format-specific; WAV, FLAC, MP3, AAC m4a, and Ogg/Opus are wired
+ * here. WAV and FLAC copy their samples bit-exact; MP3, m4a, and Opus copy whole frames or packets,
+ * frame-aligned.
  */
 
 // -- Module Declarations --
@@ -12,6 +13,8 @@ mod analyze;
 mod cue;
 mod flac;
 mod mp3;
+mod mp4;
+mod opus;
 mod wav;
 
 // -- Library Imports --
@@ -33,13 +36,15 @@ const NOTE_EXISTS: &str = "a file with this name already exists";
 const NOTE_CUT_FAILED: &str = "the segment could not be cut";
 const NOTE_TAGS_FAILED: &str = "the file was written but its tags could not be";
 
-/// The source container a cut reads from, chosen by the source extension. WAV, FLAC, and MP3 cut here,
-/// each without a re-encode.
+/// The source container a cut reads from, chosen by the source extension. WAV, FLAC, MP3, AAC m4a, and
+/// Ogg/Opus cut here, each without a re-encode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Wav,
     Flac,
     Mp3,
+    M4a,
+    Opus,
 }
 
 impl Format {
@@ -55,6 +60,9 @@ impl Format {
             Some("wav") => Some(Format::Wav),
             Some("flac") => Some(Format::Flac),
             Some("mp3") => Some(Format::Mp3),
+            // m4b audiobooks are AAC in the same container as m4a.
+            Some("m4a") | Some("m4b") => Some(Format::M4a),
+            Some("opus") => Some(Format::Opus),
             _ => None,
         }
     }
@@ -64,9 +72,8 @@ impl Format {
 /// built; `Open` is a read/write failure; `Parse` is a malformed source container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CutError {
-    // Every format the extension resolver returns cuts today; this is held for a container that decodes
-    // but has no cutter (M4A/AAC/Opus), so it is not yet constructed outside tests.
-    #[allow(dead_code)]
+    // A container that decodes but whose cutter cannot frame-copy it: an m4a that is ALAC rather than
+    // AAC, refused rather than corrupted.
     UnsupportedFormat,
     Open,
     Parse,
@@ -86,7 +93,7 @@ impl std::fmt::Display for CutError {
 impl std::error::Error for CutError {}
 
 /// Cuts one segment's frame range out of `source` into `out_tmp`, dispatching on the format. WAV and
-/// FLAC copy samples bit-exact; MP3 copies whole frames, frame-aligned.
+/// FLAC copy samples bit-exact; MP3, m4a, and Opus copy whole frames or packets, frame-aligned.
 pub fn cut_segment(
     source: &Path,
     format: Format,
@@ -97,6 +104,8 @@ pub fn cut_segment(
         Format::Wav => wav::cut(source, segment.start_frame, segment.end_frame, out_tmp),
         Format::Flac => flac::cut(source, segment.start_frame, segment.end_frame, out_tmp),
         Format::Mp3 => mp3::cut(source, segment.start_frame, segment.end_frame, out_tmp),
+        Format::M4a => mp4::cut(source, segment.start_frame, segment.end_frame, out_tmp),
+        Format::Opus => opus::cut(source, segment.start_frame, segment.end_frame, out_tmp),
     }
 }
 
@@ -468,6 +477,23 @@ mod tests {
             b"keep me",
             "the existing file is untouched"
         );
+    }
+
+    #[test]
+    fn from_source_recognizes_the_m4a_family() {
+        assert_eq!(Format::from_source(Path::new("a.m4a")), Some(Format::M4a));
+        assert_eq!(Format::from_source(Path::new("book.m4b")), Some(Format::M4a));
+        // The match is case-insensitive on the extension.
+        assert_eq!(Format::from_source(Path::new("A.M4A")), Some(Format::M4a));
+        // An unrelated container still has no cutter.
+        assert_eq!(Format::from_source(Path::new("x.ogg")), None);
+    }
+
+    #[test]
+    fn from_source_recognizes_opus() {
+        assert_eq!(Format::from_source(Path::new("a.opus")), Some(Format::Opus));
+        // The match is case-insensitive on the extension.
+        assert_eq!(Format::from_source(Path::new("A.OPUS")), Some(Format::Opus));
     }
 
     #[test]

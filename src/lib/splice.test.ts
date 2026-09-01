@@ -56,6 +56,16 @@ describe("snapFrame", () => {
     // 1000 / 576 = 1.74, rounds to 2 -> 1152.
     expect(snapFrame(1_000, "mp3", 22_050)).toBe(1_152);
   });
+
+  it("snaps M4A frames to the 1024-sample AAC grid", () => {
+    // 5000 / 1024 = 4.88, rounds to 5 -> 5120.
+    expect(snapFrame(5_000, "m4a", 44_100)).toBe(5_120);
+  });
+
+  it("snaps Opus frames to the 960-sample packet grid", () => {
+    // 5000 / 960 = 5.21, rounds to 5 -> 4800.
+    expect(snapFrame(5_000, "opus", 48_000)).toBe(4_800);
+  });
 });
 
 describe("spliceFormat", () => {
@@ -63,6 +73,17 @@ describe("spliceFormat", () => {
     expect(spliceFormat("mix.flac")).toBe("flac");
     expect(spliceFormat("mp3")).toBe("mp3");
     expect(spliceFormat("song.ogg")).toBeNull();
+  });
+
+  it("maps the m4a family to the m4a cutter, m4b included", () => {
+    expect(spliceFormat("clip.m4a")).toBe("m4a");
+    expect(spliceFormat("book.m4b")).toBe("m4a");
+    expect(spliceFormat("m4a")).toBe("m4a");
+  });
+
+  it("maps opus to the opus cutter", () => {
+    expect(spliceFormat("voice.opus")).toBe("opus");
+    expect(spliceFormat("opus")).toBe("opus");
   });
 });
 

@@ -305,7 +305,11 @@ export function SplitBody({
       ? t((d) => d.splice.snapMp3)
       : format === "flac"
         ? t((d) => d.splice.snapFlac)
-        : null;
+        : format === "m4a"
+          ? t((d) => d.splice.snapM4a)
+          : format === "opus"
+            ? t((d) => d.splice.snapOpus)
+            : null;
 
   if (subPhase === "running") {
     const total = progress?.total ?? model.segments.length;

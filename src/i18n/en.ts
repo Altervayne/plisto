@@ -343,6 +343,8 @@ export const en = {
     splitInto: { one: "Split into {{n}} file", other: "Split into {{n}} files" },
     snapMp3: "MP3 cuts land on frame boundaries (~26 ms).",
     snapFlac: "FLAC cuts land on block boundaries (~90 ms).",
+    snapM4a: "M4A cuts land on frame boundaries (~23 ms).",
+    snapOpus: "Opus cuts land on packet boundaries (~20 ms).",
     startTime: "Start time",
     segmentLabel: "Segment {n}",
     destination: "Destination",

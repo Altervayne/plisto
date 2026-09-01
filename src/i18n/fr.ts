@@ -344,6 +344,8 @@ export const fr: Dict = {
     splitInto: { one: "Découper en {{n}} fichier", other: "Découper en {{n}} fichiers" },
     snapMp3: "Les découpes MP3 tombent sur des limites de trame (~26 ms).",
     snapFlac: "Les découpes FLAC tombent sur des limites de bloc (~90 ms).",
+    snapM4a: "Les découpes M4A tombent sur des limites de trame (~23 ms).",
+    snapOpus: "Les découpes Opus tombent sur des limites de paquet (~20 ms).",
     startTime: "Début",
     segmentLabel: "Segment {n}",
     destination: "Destination",
