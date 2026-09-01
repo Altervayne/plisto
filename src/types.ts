@@ -496,3 +496,115 @@ export interface OutputDeviceInfo {
   name: string;
   is_default: boolean;
 }
+
+// ---- Splicer / cropper ----
+
+/**
+ * One segment to cut from a source file: a half-open frame range [start_frame, end_frame) and the
+ * tags to write onto the cut. `track_no` numbers the segment. Mirrors Segment in dto.rs.
+ */
+export interface Segment {
+  start_frame: number;
+  end_frame: number;
+  title: string | null;
+  artist: string | null;
+  track_no: number | null;
+}
+
+/** What a segment cut does when its filename already exists. Mirrors CollisionPolicy in dto.rs. */
+export type CollisionPolicy = 'skip' | 'overwrite' | 'rename';
+
+/**
+ * A splice job: the source file, the ordered segments, the destination folder, the filename naming
+ * pattern, and the collision policy. `keep_source_tags` picks the tagging: false (the splitter) overlays
+ * each segment's per-track fields onto the inherited source tag; true (the cropper) keeps the source tag
+ * verbatim, the trimmed file being the same track. Mirrors SpliceJob in dto.rs.
+ */
+export interface SpliceJob {
+  source_path: string;
+  segments: Segment[];
+  destination: string;
+  naming_pattern: string;
+  collision: CollisionPolicy;
+  keep_source_tags: boolean;
+}
+
+/** One waveform bucket: the lowest and highest mono sample it spans. Mirrors Peak in audio/peaks.rs. */
+export interface Peak {
+  min: number;
+  max: number;
+}
+
+/** A contiguous run of silence: `start_frame` inclusive, `end_frame` exclusive. Mirrors SilenceSpan. */
+export interface SilenceSpan {
+  start_frame: number;
+  end_frame: number;
+}
+
+/**
+ * The full analysis of a source file: the waveform peaks, the silence spans, and the stream shape.
+ * `total_frames` and `duration_secs` size the timeline. Mirrors WaveformAnalysis in dto.rs.
+ */
+export interface WaveformAnalysis {
+  peaks: Peak[];
+  silence: SilenceSpan[];
+  sample_rate: number;
+  channels: number;
+  total_frames: number;
+  duration_secs: number;
+}
+
+/** The stage a running splice is in. Mirrors SplicePhase in dto.rs. */
+export type SplicePhase = 'preparing' | 'cutting' | 'done';
+
+/** A progress tick over the splice channel. `completed` is monotonic. Mirrors SpliceProgress. */
+export interface SpliceProgress {
+  phase: SplicePhase;
+  completed: number;
+  total: number;
+  errors: number;
+  done: boolean;
+}
+
+/** A progress tick over the analysis channel: frames decoded of the total. Mirrors AnalyzeProgress. */
+export interface AnalyzeProgress {
+  done_frames: number;
+  total_frames: number;
+}
+
+/** How one segment landed in a splice. Mirrors SpliceItemStatus in dto.rs. */
+export type SpliceItemStatus = 'written' | 'skipped' | 'failed';
+
+/** One report row: which segment, where it landed, and how. Mirrors SpliceItem in dto.rs. */
+export interface SpliceItem {
+  index: number;
+  output_path: string | null;
+  status: SpliceItemStatus;
+  note: string | null;
+}
+
+/** The result of a finished or cancelled splice. Mirrors SpliceReport in dto.rs. */
+export interface SpliceReport {
+  total: number;
+  written: number;
+  errors: number;
+  cancelled: boolean;
+  items: SpliceItem[];
+}
+
+/**
+ * One parsed cue sheet track: its number, its title and performer when stated, and its start time in
+ * seconds. Mirrors CueTrack in dto.rs.
+ */
+export interface CueTrack {
+  number: number;
+  title: string | null;
+  performer: string | null;
+  start_secs: number;
+}
+
+/** A parsed cue sheet: the disc performer when stated, and the tracks in file order. Mirrors CueSheet. */
+export interface CueSheet {
+  performer: string | null;
+  tracks: CueTrack[];
+}

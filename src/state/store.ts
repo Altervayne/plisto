@@ -69,6 +69,7 @@ interface AppStore {
   boot: () => Promise<void>;
   loadRoots: () => Promise<void>;
   addRoot: () => Promise<void>;
+  addRootPath: (path: string) => Promise<boolean>;
   removeRoot: (id: number) => Promise<void>;
   rescanRoot: (id: number) => Promise<void>;
   rescanAll: () => Promise<void>;
@@ -146,6 +147,17 @@ export const useAppStore = create<AppStore>((set, get) => {
         await get().loadRoots();
         await get().loadTracks();
       }
+    },
+
+    // Indexes an already-known folder as a root, the same ingest addRoot runs once a folder is picked.
+    // The splicer hands its finished output folder here to bring the fresh cuts into the library.
+    addRootPath: async (path) => {
+      const ok = await runScanJob((channel) => addRootCmd(path, channel));
+      if (ok) {
+        await get().loadRoots();
+        await get().loadTracks();
+      }
+      return ok;
     },
 
     removeRoot: async (id) => {
@@ -276,6 +288,7 @@ export const useSetGridFilter = () => useAppStore((s) => s.setGridFilter);
 export const useBoot = () => useAppStore((s) => s.boot);
 export const useLoadRoots = () => useAppStore((s) => s.loadRoots);
 export const useAddRoot = () => useAppStore((s) => s.addRoot);
+export const useAddRootPath = () => useAppStore((s) => s.addRootPath);
 export const useRemoveRoot = () => useAppStore((s) => s.removeRoot);
 export const useRescanRoot = () => useAppStore((s) => s.rescanRoot);
 export const useRescanAll = () => useAppStore((s) => s.rescanAll);

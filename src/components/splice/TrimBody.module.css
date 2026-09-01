@@ -1,0 +1,123 @@
+/* The trim body fills the workbench under the header: the lane column beside the trim panel, mirroring
+ * the split body's shape without the resizable peek - the cropper's controls are few and fixed-width. */
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+  padding: 0 10px;
+}
+
+/* The lane column: the waveform takes the height, the transport and zoom sit under it. */
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* A comfortable floor so the peaks and handles read even on a short window. */
+.laneWrap {
+  flex: 1;
+  min-height: 160px;
+}
+
+/* The transport at the leading edge, the zoom stepper at the trailing edge, on one quiet row. */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The trim panel: a fixed column holding the knobs, the readout, and the output config at its foot. */
+.panel {
+  flex: 0 0 320px;
+  min-height: 0;
+  display: flex;
+}
+
+.panelInner {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+}
+
+/* The output config sinks to the panel foot, always in reach under the knobs and readout. */
+.configFoot {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* -- Running and done: one centered column, mirroring the split and export views -- */
+
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 460px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+/* The destination path on the running screen: mono meta ink, truncated with the full path on hover. */
+.path {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The good-tone status dot, the done signal in place of any accent. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+/* Live counts; digits align via tabular-nums, the line stays quiet meta ink. */
+.counters {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.tally {
+  color: var(--warn);
+}
+
+/* A hair of breathing room under the running Cancel. */
+.foot {
+  margin-top: 4px;
+}
+
+/* The done actions stay quiet - the good dot is the signal, no solid accent here. Wraps on a narrow
+ * pane rather than running off the centered column. */
+.actions {
+  margin-top: 4px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}

@@ -64,6 +64,20 @@ pub enum PlayerCmd {
     SetRepeat(RepeatMode),
     // None follows the system default output; Some(name) pins that named device.
     SetOutputDevice(Option<String>),
+    // A transient audition of `path` between two seconds, stopped at the out-point. It plays on the
+    // resident sink but leaves the queue and cursor untouched, so library playback restores after.
+    Preview {
+        path: PathBuf,
+        start_secs: f64,
+        end_secs: f64,
+    },
+    // Reopens the current queue track at `secs` and reseats it as the library source, setting the
+    // paused state from `playing`. A preview clears the sink, so a bare resume would play silence;
+    // this restores the exact track and play head instead. A no-op with an empty queue.
+    RestoreLibrary {
+        secs: f64,
+        playing: bool,
+    },
 }
 
 /// One selectable output device, for the settings picker. `is_default` marks the current OS default

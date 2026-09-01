@@ -1,9 +1,13 @@
 // -- Framework Imports --
 import { useEffect } from "react";
 
+// -- Icon Imports --
+import { Crop, Scissors } from "lucide-react";
+
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 import { EditableField } from "../common/EditableField/EditableField";
 import { TrackDetailCover } from "./TrackDetailCover";
 import { TrackGenres } from "./TrackGenres";
@@ -11,6 +15,10 @@ import { KeepOwnCoverToggle } from "./KeepOwnCoverToggle";
 
 // -- State Imports --
 import { useEditTrack, useTrack } from "../../state/store";
+import { useSetOpenTool } from "../../state/shell/store";
+
+// -- Utils Imports --
+import { canSplice } from "../../lib/splice";
 
 // -- Utils Imports --
 import { parseDisc, formatDisc } from "../albums/discField";
@@ -139,6 +147,7 @@ export function TrackDetail({
 }) {
   const live = useTrack(track.id) ?? track;
   const editTrack = useEditTrack();
+  const setOpenTool = useSetOpenTool();
   const t = useT();
 
   useEffect(() => {
@@ -190,6 +199,34 @@ export function TrackDetail({
   // A field reads as edited only when its edit is set and truly differs from raw, so the marker never
   // shows for an edit that merely echoes the source.
   const changed = <T,>(edit: T | null, raw: T | null): boolean => edit != null && edit !== raw;
+
+  // Split and Trim open the workbench over the app; a format the cutter cannot slice greys them out
+  // with the reason, mirroring the row menu's gate. Placed above the inert File zone, they read as
+  // acting on the file without touching the source.
+  const spliceable = canSplice(live.ext);
+  const spliceButtons = (
+    <div className={styles.spliceActions}>
+      <QuietButton
+        onClick={() => setOpenTool({ verb: "split", trackId: live.id })}
+        disabled={!spliceable}
+      >
+        <Scissors size={15} strokeWidth={1.8} />
+        <span>{t((d) => d.splice.split)}</span>
+      </QuietButton>
+      <QuietButton
+        onClick={() => setOpenTool({ verb: "trim", trackId: live.id })}
+        disabled={!spliceable}
+      >
+        <Crop size={15} strokeWidth={1.8} />
+        <span>{t((d) => d.splice.trim)}</span>
+      </QuietButton>
+    </div>
+  );
+  const spliceActions = spliceable ? (
+    spliceButtons
+  ) : (
+    <Tooltip label={t((d) => d.splice.unsupported)}>{spliceButtons}</Tooltip>
+  );
 
   return (
     <aside className={styles.drawer} aria-label={t((d) => d.tracks.details)}>
@@ -274,6 +311,8 @@ export function TrackDetail({
             ) : null}
           </div>
         </section>
+
+        {spliceActions}
 
         <section className={`${styles.zone} ${styles.fileZone}`}>
           <h3 className={styles.zoneLabel}>{t((d) => d.tracks.sectionFile)}</h3>

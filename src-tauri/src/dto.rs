@@ -640,7 +640,9 @@ pub enum CollisionPolicy {
 }
 
 /// A splice job: the source file, the ordered segments to cut, the destination folder, the filename
-/// naming pattern, and the collision policy. Mirrors SpliceJob in types.ts.
+/// naming pattern, and the collision policy. `keep_source_tags` picks the tagging: false (the splitter)
+/// overlays each segment's per-track fields onto the inherited source tag; true (the cropper) keeps the
+/// source tag verbatim, the trimmed file being the same track. Mirrors SpliceJob in types.ts.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SpliceJob {
     pub source_path: String,
@@ -648,6 +650,7 @@ pub struct SpliceJob {
     pub destination: String,
     pub naming_pattern: String,
     pub collision: CollisionPolicy,
+    pub keep_source_tags: bool,
 }
 
 /// The full analysis of a source file: the waveform peaks, the silence spans, and the stream shape.

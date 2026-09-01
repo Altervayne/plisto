@@ -1,0 +1,173 @@
+/* The waveform sits directly on the ambient ground: no box, no border, no shadow. The scroll
+ * container carries the canvas and the overlays together, so a finer zoom scrolls them as one. */
+.scroll {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* The virtual lane: its width is the zoomed file width, at least the viewport. The canvas and the
+ * overlays stack over it. */
+.lane {
+  position: relative;
+  height: 100%;
+  min-width: 100%;
+  cursor: pointer;
+  touch-action: none;
+  /* The peak ink: the canvas reads this resolved color at paint, so the token drives it across themes. */
+  color: var(--ink-3);
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Silence reads as absence, not danger: a faint veil band, never a color. */
+.silence {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--veil);
+  pointer-events: none;
+}
+
+/* The highlighted segment's span: a faint veil band, the same absence-not-color language as silence,
+ * so hovering a cut row shows its region without spending the accent. */
+.highlight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--veil);
+  pointer-events: none;
+}
+
+/* One cut marker: a full-height column at its frame. The wrapper passes pointer events through to the
+ * lane; only the handle and the play button take them. */
+.marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+/* The divider stroke: neutral at rest, so the playhead stays the only chromatic mark. It goes accent
+ * when the marker is hovered or its segment is highlighted. */
+.markerLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--ink-3);
+}
+
+.markerLine[data-bound] {
+  background: var(--accent);
+}
+
+/* The top grab handle: a small target riding the marker's head. Drag to move, click to delete. */
+.handle {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 12px;
+  height: 16px;
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  background: var(--ink-3);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.handle:hover,
+.handle:focus-visible,
+.handle[data-bound] {
+  background: var(--accent);
+}
+
+/* The play-across affordance: a small accent chip surfacing under the handle on hover, auditioning a
+ * couple of seconds either side of the cut. */
+.across {
+  position: absolute;
+  top: 18px;
+  left: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--pill);
+  background: var(--accent);
+  color: var(--on-solid);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* The cropper's trimmed-away ends: a dimmed veil over the head and tail, the same absence-not-color
+ * language as silence. The source is never modified, so it never goes danger-red. */
+.trimVeil {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--veil);
+  pointer-events: none;
+}
+
+/* One trim handle: a full-height column at its frame. The wrapper passes pointer events through; only
+ * the grip takes them. */
+.trimHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+/* The trim boundary stroke: accent, so the kept edge reads at a glance where the neutral cut markers
+ * stay quiet - a cropper has only these two lines to place. */
+.trimLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--accent);
+}
+
+/* The grab grip riding the handle's head: drag to move the trim point. */
+.trimGrip {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 12px;
+  height: 16px;
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  background: var(--accent);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.trimGrip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The one chromatic mark on the resting lane: the playhead, the accent stroke reused from the seek
+ * bar. Centered on its position so it does not drift at the ends. */
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  pointer-events: none;
+}

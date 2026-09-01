@@ -102,13 +102,45 @@ pub fn tag_file(
 
 /// Carries the source file's primary tag onto `dest`, so a freshly cut file keeps the metadata the
 /// cut itself drops. A source with no primary tag is a no-op. The source is only read.
-#[allow(dead_code)]
 pub fn copy_tags(source: &Path, dest: &Path) -> Result<(), TagError> {
     let tagged = lofty::read_from_path(source).map_err(|_| TagError::Read)?;
     if let Some(tag) = tagged.primary_tag() {
         tag.save_to_path(dest, WriteOptions::default())
             .map_err(|_| TagError::Write)?;
     }
+    Ok(())
+}
+
+/// Overlays the splitter's per-track fields onto `output`, which `copy_tags` has already carried the
+/// source's whole tag onto. Title is set or, when None (an untitled piece), removed so it does not
+/// keep the source's whole-file title; artist is set only when Some, leaving the source's own when
+/// None; the track number always lands, each piece being a distinct track. Everything else the source
+/// carried (album, album_artist, year, genre, cover, disc) rides through untouched. A file with no tag
+/// yet (a WAV source that carried none) gets a fresh native tag holding just these fields.
+pub fn retag_split_segment(
+    output: &Path,
+    title: Option<&str>,
+    artist: Option<&str>,
+    track_no: i64,
+) -> Result<(), TagError> {
+    let tagged = lofty::read_from_path(output).map_err(|_| TagError::Read)?;
+    let tag_type = tagged.primary_tag_type();
+    let mut tag = tagged
+        .primary_tag()
+        .cloned()
+        .unwrap_or_else(|| Tag::new(tag_type));
+
+    match title {
+        Some(v) => tag.set_title(v.to_string()),
+        None => tag.remove_title(),
+    }
+    if let Some(v) = artist {
+        tag.set_artist(v.to_string());
+    }
+    set_text(&mut tag, ItemKey::TrackNumber, Some(track_no.to_string()));
+
+    tag.save_to_path(output, WriteOptions::default())
+        .map_err(|_| TagError::Write)?;
     Ok(())
 }
 
@@ -282,5 +314,114 @@ mod tests {
         let tag = reopened.primary_tag().unwrap();
         assert_eq!(tag.title().as_deref(), Some("Carried Title"));
         assert_eq!(tag.artist().as_deref(), Some("Carried Artist"));
+    }
+
+    // The cropper path: copy_tags must carry the source's whole tag, art included, onto the cut so a
+    // trimmed file keeps every field. This is the field the design assumed ffmpeg passed through.
+    #[test]
+    fn copy_tags_carries_every_field_and_the_cover() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.flac");
+        let dest = dir.path.join("dst.flac");
+        fs::write(&source, minimal_flac()).unwrap();
+        fs::write(&dest, minimal_flac()).unwrap();
+
+        let genres = vec!["Jazz".to_string()];
+        let tags = TrackTags {
+            title: Some("Whole Title"),
+            artist: Some("Whole Artist"),
+            album: Some("Whole Album"),
+            album_artist: Some("Whole AA"),
+            year: Some(1998),
+            genres: &genres,
+            track_no: Some(7),
+            disc_no: Some(2),
+        };
+        let cover = vec![0xFFu8; 64];
+        assert_eq!(tag_file(&source, &tags, Some(&cover)).unwrap(), EmbedResult::Embedded);
+        copy_tags(&source, &dest).unwrap();
+
+        let reopened = lofty::read_from_path(&dest).unwrap();
+        let tag = reopened.primary_tag().unwrap();
+        assert_eq!(tag.title().as_deref(), Some("Whole Title"));
+        assert_eq!(tag.artist().as_deref(), Some("Whole Artist"));
+        assert_eq!(tag.album().as_deref(), Some("Whole Album"));
+        assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Whole AA"));
+        assert_eq!(tag.get_string(ItemKey::Year), Some("1998"));
+        assert_eq!(tag.get_string(ItemKey::Genre), Some("Jazz"));
+        assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("7"));
+        assert_eq!(tag.get_string(ItemKey::DiscNumber), Some("2"));
+        assert_eq!(tag.pictures().len(), 1, "the cover rides along");
+    }
+
+    // The splitter path: after copy_tags, retag overlays the per-track title and number, sets artist
+    // only when given, and leaves every inherited field (album, album_artist, year, genre) in place.
+    #[test]
+    fn retag_split_segment_overlays_over_the_inherited_tag() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.flac");
+        let dest = dir.path.join("dst.flac");
+        fs::write(&source, minimal_flac()).unwrap();
+        fs::write(&dest, minimal_flac()).unwrap();
+
+        let genres = vec!["Jazz".to_string()];
+        let tags = TrackTags {
+            title: Some("Source Title"),
+            artist: Some("Source Artist"),
+            album: Some("Source Album"),
+            album_artist: Some("Source AA"),
+            year: Some(1998),
+            genres: &genres,
+            track_no: Some(1),
+            disc_no: Some(2),
+        };
+        tag_file(&source, &tags, None).unwrap();
+        copy_tags(&source, &dest).unwrap();
+        retag_split_segment(&dest, Some("Piece Title"), None, 5).unwrap();
+
+        let reopened = lofty::read_from_path(&dest).unwrap();
+        let tag = reopened.primary_tag().unwrap();
+        assert_eq!(tag.title().as_deref(), Some("Piece Title"), "title overlaid");
+        assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("5"), "number overlaid");
+        assert_eq!(
+            tag.artist().as_deref(),
+            Some("Source Artist"),
+            "a None artist keeps the source's own"
+        );
+        assert_eq!(tag.album().as_deref(), Some("Source Album"));
+        assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Source AA"));
+        assert_eq!(tag.get_string(ItemKey::Year), Some("1998"));
+        assert_eq!(tag.get_string(ItemKey::Genre), Some("Jazz"));
+    }
+
+    // A None title on the splitter path clears the inherited whole-file title rather than keeping it,
+    // while a Some artist replaces the source's.
+    #[test]
+    fn retag_split_segment_clears_the_title_on_none() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.flac");
+        let dest = dir.path.join("dst.flac");
+        fs::write(&source, minimal_flac()).unwrap();
+        fs::write(&dest, minimal_flac()).unwrap();
+
+        let tags = TrackTags {
+            title: Some("Source Title"),
+            artist: Some("Source Artist"),
+            album: None,
+            album_artist: None,
+            year: None,
+            genres: &[],
+            track_no: None,
+            disc_no: None,
+        };
+        tag_file(&source, &tags, None).unwrap();
+        copy_tags(&source, &dest).unwrap();
+        retag_split_segment(&dest, None, Some("New Artist"), 2).unwrap();
+
+        let reopened = lofty::read_from_path(&dest).unwrap();
+        let tag = reopened.primary_tag().unwrap();
+        assert_eq!(tag.title(), None, "an untitled piece drops the source title");
+        assert_eq!(tag.artist().as_deref(), Some("New Artist"), "a Some artist replaces it");
+        assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("2"));
     }
 }

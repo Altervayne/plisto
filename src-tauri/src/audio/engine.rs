@@ -8,6 +8,7 @@
  */
 
 // -- Library Imports --
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -188,6 +189,10 @@ struct Engine {
     cur_rate: u32,
     cur_duration: f64,
     cur_track_id: Option<i64>,
+    // Set only while a preview is auditioning: the frame the current source stops at. `tick` ends the
+    // preview when the play head reaches it. None for ordinary library playback, which runs to the
+    // track's natural end and advances the queue.
+    stop_at_frame: Option<u64>,
     status: Arc<Mutex<PlayerStatus>>,
     app: tauri::AppHandle,
     throttle: ProgressThrottle,
@@ -273,6 +278,8 @@ impl Engine {
         self.cur_rate = src.spec.sample_rate;
         self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
         self.cur_track_id = Some(self.queue[i].id);
+        // A real track supersedes any preview: drop the boundary so it plays to its natural end.
+        self.stop_at_frame = None;
         if let Some(sink) = &self.sink {
             sink.clear();
             sink.append(src);
@@ -295,6 +302,93 @@ impl Engine {
         self.cur_rate = 0;
         self.cur_duration = 0.0;
         self.cur_track_id = None;
+        self.stop_at_frame = None;
+    }
+
+    /// Auditions `path` between `start_secs` and `end_secs` on the resident sink: opens the file,
+    /// seeks to the in-point, and plays until `tick` catches the out-point frame. Leaves `queue` and
+    /// `index` untouched, and holds `cur_track_id` at None since a preview is not a library track, so
+    /// library playback restores after. A missing file or a seek failure leaves playback untouched.
+    fn preview(&mut self, path: PathBuf, start_secs: f64, end_secs: f64) {
+        let mut dec = match decode::Decoder::open(&path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let start = start_secs.max(0.0);
+        if dec.seek(start).is_err() {
+            return;
+        }
+        // Seed the shared counter at the in-point so the play head and the boundary agree; the rate
+        // comes from the container up front, the same value the primed source reports.
+        let rate = dec.spec().sample_rate;
+        let start_frame = if rate > 0 {
+            (start * rate as f64).floor() as u64
+        } else {
+            0
+        };
+        let src = match DecoderSource::new(dec, start_frame) {
+            Some(s) => s,
+            None => return,
+        };
+        let rate = src.spec.sample_rate;
+        self.cur_frames = Some(Arc::clone(&src.frames));
+        self.cur_rate = rate;
+        self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        self.cur_track_id = None;
+        self.stop_at_frame = if rate > 0 {
+            Some((end_secs.max(0.0) * rate as f64).round() as u64)
+        } else {
+            None
+        };
+        if let Some(sink) = &self.sink {
+            sink.clear();
+            sink.append(src);
+            sink.set_volume(self.volume);
+            sink.play();
+        }
+        self.paused = false;
+        self.playing = true;
+        self.emit(true);
+    }
+
+    /// Reopens the current queue track at `secs` and reseats it as the library source, so a preview
+    /// that cleared the sink no longer leaves the library silent. Reuses `start_source`, then sets
+    /// the paused state from `playing`. A no-op with an empty queue; a missing file or a seek failure
+    /// leaves playback untouched. The queue and cursor survive a preview, so the current track is the
+    /// one to restore.
+    fn restore_library(&mut self, secs: f64, playing: bool) {
+        let path = match self.queue.get(self.index) {
+            Some(t) => t.path.clone(),
+            None => return,
+        };
+        let mut dec = match decode::Decoder::open(&path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let start = secs.max(0.0);
+        if dec.seek(start).is_err() {
+            return;
+        }
+        let rate = dec.spec().sample_rate;
+        let start_frame = if rate > 0 {
+            (start * rate as f64).floor() as u64
+        } else {
+            0
+        };
+        let src = match DecoderSource::new(dec, start_frame) {
+            Some(s) => s,
+            None => return,
+        };
+        // start_source reseats the counter, rate, duration and track id, clears any preview boundary,
+        // and appends to the sink playing.
+        self.start_source(self.index, src);
+        if !playing {
+            if let Some(sink) = &self.sink {
+                sink.pause();
+            }
+            self.paused = true;
+        }
+        self.emit(true);
     }
 
     /// Reopens the current file, seeks to `secs`, and restarts the source there while preserving the
@@ -474,6 +568,12 @@ impl Engine {
                 self.emit(true);
             }
             PlayerCmd::SetOutputDevice(pref) => self.rebind(pref),
+            PlayerCmd::Preview {
+                path,
+                start_secs,
+                end_secs,
+            } => self.preview(path, start_secs, end_secs),
+            PlayerCmd::RestoreLibrary { secs, playing } => self.restore_library(secs, playing),
         }
     }
 
@@ -495,7 +595,19 @@ impl Engine {
                 }
             }
         }
-        if self.playing && !self.paused && self.sink.as_ref().map_or(false, |s| s.empty()) {
+        if let Some(stop) = self.stop_at_frame {
+            // A preview stops at its out-point, or if the file ends first, without ever moving the
+            // queue: stop_playback clears the source and the boundary but leaves queue and index be.
+            let reached = self
+                .cur_frames
+                .as_ref()
+                .is_some_and(|f| f.load(Ordering::Relaxed) >= stop);
+            let ended = self.sink.as_ref().is_some_and(|s| s.empty());
+            if self.playing && !self.paused && (reached || ended) {
+                self.stop_playback();
+                self.emit(true);
+            }
+        } else if self.playing && !self.paused && self.sink.as_ref().is_some_and(|s| s.empty()) {
             match on_track_end(self.index, self.queue.len(), self.repeat) {
                 EndAction::Replay => self.play_at(self.index),
                 EndAction::Advance(i) => self.play_at(i),
@@ -562,6 +674,7 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
         cur_rate: 0,
         cur_duration: 0.0,
         cur_track_id: None,
+        stop_at_frame: None,
         status,
         app,
         throttle: ProgressThrottle::new(200),

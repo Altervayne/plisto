@@ -19,6 +19,10 @@ export const PREF_KEYS = {
   theme: "theme",
   exportFolderPattern: "export_folder_pattern",
   exportFilePattern: "export_file_pattern",
+  spliceNamingPattern: "splice_naming_pattern",
+  spliceDestination: "splice_destination",
+  spliceThresholdDb: "splice_threshold_db",
+  splicePaddingMs: "splice_padding_ms",
   playerEnabled: "player_enabled",
   outputDevice: "output_device",
   // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last

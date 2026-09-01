@@ -14,6 +14,7 @@ import { PlaylistView } from "../playlists/PlaylistView";
 import { CoversView } from "../covers/CoversView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
+import { SpliceWorkbench } from "../splice/SpliceWorkbench";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { Resizer } from "../common/Resizer/Resizer";
@@ -41,9 +42,11 @@ import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 import { usePlayerSync } from "../../state/player/store";
+import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
+import type { ToolSession } from "../../state/shell/store";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -136,6 +139,15 @@ export function AppShell() {
   const fullPane = useMountTransition(openAlbum != null, VIEW_EXIT_MS);
   const lastOpenAlbum = useRef<AlbumRow | null>(null);
   if (openAlbum) lastOpenAlbum.current = openAlbum;
+
+  // The splice workbench overlays the whole main region, from any library mode. It rides its own
+  // mount transition and holds the last session so it renders through the exit once cleared.
+  const openTool = useOpenTool();
+  const setOpenTool = useSetOpenTool();
+  const toolPane = useMountTransition(openTool != null, VIEW_EXIT_MS);
+  const lastTool = useRef<ToolSession | null>(null);
+  if (openTool) lastTool.current = openTool;
+  const closeTool = useCallback(() => setOpenTool(null), [setOpenTool]);
 
   // Entering the full pane closes the drawer: the two album surfaces never show at once. Stable across
   // renders so the memoized cards never re-render on its account.
@@ -331,6 +343,24 @@ export function AppShell() {
             </div>
           </>
         )}
+
+        {/* The tool workbench overlays the entire main region, whatever mode is under it, so it opens
+            the same from Files, an album, or a playlist. It crossfades in like the album pane and
+            holds the last session through its exit. Keyed on the session so each open is a fresh
+            mount, resetting the analysis and phase. */}
+        {(openTool != null || toolPane.mounted) && lastTool.current ? (
+          <div
+            key={`${(openTool ?? lastTool.current).verb}:${(openTool ?? lastTool.current).trackId}`}
+            className={styles.toolLayer}
+            data-state={openTool != null ? "enter" : "exit"}
+          >
+            <SpliceWorkbench
+              verb={(openTool ?? lastTool.current).verb}
+              trackId={(openTool ?? lastTool.current).trackId}
+              onClose={closeTool}
+            />
+          </div>
+        ) : null}
       </main>
     </div>
   );

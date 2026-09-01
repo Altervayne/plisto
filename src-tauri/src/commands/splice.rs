@@ -124,6 +124,7 @@ pub async fn splice_run(
             &job.naming_pattern,
             job.collision,
             &ext,
+            job.keep_source_tags,
             &cancel,
             |completed, errors| {
                 let now = start.elapsed().as_millis() as u64;

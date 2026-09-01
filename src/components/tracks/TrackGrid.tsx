@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, Disc, Disc3, FolderOpen, Info, ListPlus, Play } from "lucide-react";
+import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListPlus, Play, Scissors } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -47,10 +47,12 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { useSetOpenTool } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
 import { revealFile } from "../../lib/opener";
+import { canSplice } from "../../lib/splice";
 
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
@@ -170,6 +172,7 @@ export function TrackGrid({
   const playlists = usePlaylists();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const createPlaylist = useCreatePlaylist();
+  const setOpenTool = useSetOpenTool();
   const [albumPickerTrack, setAlbumPickerTrack] = useState<number | null>(null);
   const [playlistPickerTrack, setPlaylistPickerTrack] = useState<number | null>(null);
 
@@ -189,51 +192,71 @@ export function TrackGrid({
 
   // Play is the keyboard and assistive route the hover triangle cannot be: it queues the whole view,
   // cursor on this track. A gone source greys it out with the reason.
-  const buildMenu = (track: TrackRowData): MenuEntry[] => [
-    // Play leads the menu only while the player is on; off, the whole scattered play surface goes quiet.
-    ...(playerEnabled
-      ? [
-          {
-            icon: <Play size={16} strokeWidth={1.8} />,
-            label: t((d) => d.player.play),
-            onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
-            disabled: track.missing_at != null,
-            tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
-          } satisfies MenuEntry,
-        ]
-      : []),
-    {
-      icon: <FolderOpen size={16} strokeWidth={1.8} />,
-      label: t((d) => d.tracks.goToFile),
-      onSelect: () => void revealFile(track.source_path),
-    },
-    {
-      icon: <Info size={16} strokeWidth={1.8} />,
-      label: t((d) => d.tracks.details),
-      onSelect: () => onSelect(track),
-    },
-    {
-      icon: <ArrowUpToLine size={16} strokeWidth={1.8} />,
-      label: t((d) => d.tracks.useFilenameAsTitle),
-      onSelect: () => useFilenameAsTitle(track),
-    },
-    { separator: true },
-    {
-      icon: <Disc size={16} strokeWidth={1.8} />,
-      label: t((d) => d.selection.addToAlbum),
-      onSelect: () => setAlbumPickerTrack(track.id),
-    },
-    {
-      icon: <ListPlus size={16} strokeWidth={1.8} />,
-      label: t((d) => d.playlists.addTo),
-      onSelect: () => setPlaylistPickerTrack(track.id),
-    },
-    {
-      icon: <Disc3 size={16} strokeWidth={1.8} />,
-      label: t((d) => d.singles.make, { n: 1 }),
-      onSelect: () => void createSingle(track.id),
-    },
-  ];
+  const buildMenu = (track: TrackRowData): MenuEntry[] => {
+    // Split and Trim are gated on a container the cutter can slice; a format it cannot greys them out
+    // with the reason.
+    const spliceable = canSplice(track.ext);
+    const spliceTip = spliceable ? undefined : t((d) => d.splice.unsupported);
+    return [
+      // Play leads the menu only while the player is on; off, the whole scattered play surface goes quiet.
+      ...(playerEnabled
+        ? [
+            {
+              icon: <Play size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.play),
+              onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
+              disabled: track.missing_at != null,
+              tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
+            } satisfies MenuEntry,
+          ]
+        : []),
+      {
+        icon: <FolderOpen size={16} strokeWidth={1.8} />,
+        label: t((d) => d.tracks.goToFile),
+        onSelect: () => void revealFile(track.source_path),
+      },
+      {
+        icon: <Info size={16} strokeWidth={1.8} />,
+        label: t((d) => d.tracks.details),
+        onSelect: () => onSelect(track),
+      },
+      {
+        icon: <Scissors size={16} strokeWidth={1.8} />,
+        label: t((d) => d.splice.split),
+        onSelect: () => setOpenTool({ verb: "split", trackId: track.id }),
+        disabled: !spliceable,
+        tooltip: spliceTip,
+      },
+      {
+        icon: <Crop size={16} strokeWidth={1.8} />,
+        label: t((d) => d.splice.trim),
+        onSelect: () => setOpenTool({ verb: "trim", trackId: track.id }),
+        disabled: !spliceable,
+        tooltip: spliceTip,
+      },
+      {
+        icon: <ArrowUpToLine size={16} strokeWidth={1.8} />,
+        label: t((d) => d.tracks.useFilenameAsTitle),
+        onSelect: () => useFilenameAsTitle(track),
+      },
+      { separator: true },
+      {
+        icon: <Disc size={16} strokeWidth={1.8} />,
+        label: t((d) => d.selection.addToAlbum),
+        onSelect: () => setAlbumPickerTrack(track.id),
+      },
+      {
+        icon: <ListPlus size={16} strokeWidth={1.8} />,
+        label: t((d) => d.playlists.addTo),
+        onSelect: () => setPlaylistPickerTrack(track.id),
+      },
+      {
+        icon: <Disc3 size={16} strokeWidth={1.8} />,
+        label: t((d) => d.singles.make, { n: 1 }),
+        onSelect: () => void createSingle(track.id),
+      },
+    ];
+  };
 
   // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface.
   const scrollRef = useRef<HTMLDivElement | null>(null);

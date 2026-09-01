@@ -1,0 +1,69 @@
+/* The cut list peek: a side region on the continuous ground, given density by the edge veil like the
+ * track detail drawer. It scrolls on its own so a long list never pushes the lane. */
+.list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  min-height: 0;
+  border-radius: var(--r-md);
+  background: var(--edge);
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.inner {
+  padding: 14px 16px 20px;
+}
+
+/* The naming pattern over its live example, parted from the rows by a hairline. */
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The sample name the current pattern lands as, mono and dimmed like the row filenames. */
+.example {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The frame-snap honesty note, present only when the source is not sample-accurate. */
+.note {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+/* The output config and Split CTA, pinned below the scrolling rows and parted from them by a hairline
+ * so a long cut list never pushes the run controls out of reach. */
+.foot {
+  flex: none;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--hairline);
+}

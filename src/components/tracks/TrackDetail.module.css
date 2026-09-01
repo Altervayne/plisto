@@ -50,6 +50,15 @@
   border-top: 1px solid var(--hairline);
 }
 
+/* Split and Trim sit above the inert File zone: a quiet row of controls, parted from the tags by
+ * space. The row stays inline so a disabled pair still reads as one group under its tooltip. */
+.spliceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 20px;
+}
+
 .zoneLabel {
   margin: 0;
   font-size: 11px;

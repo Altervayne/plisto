@@ -57,6 +57,38 @@ pub fn player_play_tracks(
     Ok(())
 }
 
+/// Auditions the file at `path` between `start_secs` and `end_secs` on the resident engine, stopping
+/// at the out-point. A transient preview for the splicer workbench: it leaves the library queue and
+/// cursor untouched, so playback restores after. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_preview(
+    path: String,
+    start_secs: f64,
+    end_secs: f64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::Preview {
+        path: path.into(),
+        start_secs,
+        end_secs,
+    });
+    Ok(())
+}
+
+/// Reopens the current library track at `secs` and restores its paused state on the resident engine,
+/// after a preview cleared the sink. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_restore_library(
+    secs: f64,
+    playing: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let _ = state
+        .player
+        .send(PlayerCmd::RestoreLibrary { secs, playing });
+    Ok(())
+}
+
 /// Toggles between play and pause.
 #[tauri::command]
 pub fn player_toggle(state: State<'_, AppState>) -> Result<(), String> {

@@ -255,6 +255,8 @@ pub fn run() {
             commands::window::toggle_now_playing_widget,
             commands::window::hide_now_playing_widget,
             commands::player::player_play_tracks,
+            commands::player::player_preview,
+            commands::player::player_restore_library,
             commands::player::player_toggle,
             commands::player::player_pause,
             commands::player::player_resume,

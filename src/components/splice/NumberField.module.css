@@ -1,0 +1,44 @@
+/*
+ * The knob value reads as typography, not a box: transparent at rest with a hairline underline on
+ * hover and an accent underline on focus. It sizes to a few digits so the unit label sits right after.
+ * Rest and focus keep the same height (1px border with 1px pad, 2px border with 0 pad) so the baseline
+ * never shifts.
+ */
+.wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.field {
+  width: 4ch;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 1px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: right;
+  vertical-align: baseline;
+  transition: border-color var(--dur-fast) ease;
+}
+
+.field:hover {
+  border-bottom-color: var(--hairline);
+}
+
+.field:focus {
+  outline: none;
+  padding-bottom: 0;
+  border-bottom: 2px solid var(--accent);
+}
+
+.suffix {
+  font-size: 11px;
+  color: var(--ink-3);
+}

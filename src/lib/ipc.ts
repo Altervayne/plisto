@@ -11,12 +11,14 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   AlbumFields,
   AlbumRow,
+  AnalyzeProgress,
   AppliedResult,
   BulkEditResult,
   BulkSetFields,
   CoverCandidate,
   CoverRef,
   CoverSize,
+  CueSheet,
   DestinationCheck,
   DeviceTarget,
   ExportProgress,
@@ -40,12 +42,17 @@ import type {
   RootRemovalImpact,
   ScanProgress,
   ScanSummary,
+  SilenceSpan,
   SortSpec,
+  SpliceJob,
+  SpliceProgress,
+  SpliceReport,
   TrackDisplay,
   TrackEdit,
   TrackEditFields,
   TrackOverride,
   TrackPlacement,
+  WaveformAnalysis,
 } from "../types";
 
 /** Wraps a progress callback in a fresh channel the scan streams ticks over. */
@@ -687,6 +694,23 @@ export function playerSeek(secs: number): Promise<void> {
   return invoke("player_seek", { secs });
 }
 
+/**
+ * Auditions `path` between `startSecs` and `endSecs` on the resident engine, stopping at the out-point.
+ * A transient preview: it leaves the library queue and cursor untouched, so playback restores after.
+ */
+export function playerPreview(path: string, startSecs: number, endSecs: number): Promise<void> {
+  return invoke("player_preview", { path, startSecs, endSecs });
+}
+
+/**
+ * Reopens the current library track at `secs` and restores its paused state on the resident engine.
+ * A preview clears the sink, so a bare resume would play silence; this reseats the library source at
+ * the held position with the full queue intact.
+ */
+export function playerRestoreLibrary(secs: number, playing: boolean): Promise<void> {
+  return invoke("player_restore_library", { secs, playing });
+}
+
 /** Sets the output volume, 0..1. */
 export function playerSetVolume(v: number): Promise<void> {
   return invoke("player_set_volume", { v });
@@ -720,4 +744,76 @@ export function listTracks(args: {
     offset: args.offset,
     limit: args.limit,
   });
+}
+
+// -- Splicer / cropper --
+// analyze/detect drain the source on blocking threads; splice_run cuts segments sequentially. Progress
+// rides per-invocation channels, matching the export wiring; splice_cancel signals a running run to stop.
+
+/** Wraps a progress callback in a fresh channel the analysis streams frame-decode ticks over. */
+export function createAnalyzeChannel(
+  onProgress: (progress: AnalyzeProgress) => void,
+): Channel<AnalyzeProgress> {
+  const channel = new Channel<AnalyzeProgress>();
+  channel.onmessage = onProgress;
+  return channel;
+}
+
+/** Wraps a progress callback in a fresh channel the splice streams ticks over. */
+export function createSpliceChannel(
+  onProgress: (progress: SpliceProgress) => void,
+): Channel<SpliceProgress> {
+  const channel = new Channel<SpliceProgress>();
+  channel.onmessage = onProgress;
+  return channel;
+}
+
+/**
+ * Analyzes the file at `path` into `buckets` waveform peaks and its silence spans, streaming decode
+ * progress over `channel` and resolving with the analysis.
+ */
+export function spliceAnalyze(
+  path: string,
+  buckets: number,
+  thresholdDb: number,
+  minSilenceSecs: number,
+  onProgress: Channel<AnalyzeProgress>,
+): Promise<WaveformAnalysis> {
+  return invoke<WaveformAnalysis>("splice_analyze", {
+    path,
+    buckets,
+    thresholdDb,
+    minSilenceSecs,
+    onProgress,
+  });
+}
+
+/** Re-runs silence detection over `path` with a fresh threshold and minimum length, returning the spans. */
+export function spliceDetectSilence(
+  path: string,
+  thresholdDb: number,
+  minSilenceSecs: number,
+): Promise<SilenceSpan[]> {
+  return invoke<SilenceSpan[]>("splice_detect_silence", { path, thresholdDb, minSilenceSecs });
+}
+
+/** Parses the cue sheet at `path` into its disc performer and tracks. A pure read. */
+export function spliceParseCue(path: string): Promise<CueSheet> {
+  return invoke<CueSheet>("splice_parse_cue", { path });
+}
+
+/**
+ * Cuts `job.segments` out of the source into `job.destination`, streaming progress over `channel` and
+ * resolving with the report. Cancellable through `spliceCancel`.
+ */
+export function spliceRun(
+  job: SpliceJob,
+  onProgress: Channel<SpliceProgress>,
+): Promise<SpliceReport> {
+  return invoke<SpliceReport>("splice_run", { job, onProgress });
+}
+
+/** Signals the running splice to stop. The backend finishes its current segment and reports cancelled. */
+export function spliceCancel(): Promise<void> {
+  return invoke("splice_cancel");
 }

@@ -30,6 +30,19 @@ export async function pickImageFile(): Promise<string | null> {
   }
 }
 
+/** Opens the file picker filtered to cue sheets, resolving with the chosen path or null. */
+export async function pickCueFile(): Promise<string | null> {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Cue sheet", extensions: ["cue"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Opens the save-file picker for a cover image, seeded with `defaultName`, resolving path or null. */
 export async function pickCoverSavePath(defaultName: string): Promise<string | null> {
   try {

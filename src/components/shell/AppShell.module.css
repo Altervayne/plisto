@@ -7,8 +7,10 @@
 }
 
 /* The main region: a slim controls strip over the mode content. Top padding stands in for the
- * retired top bar so the controls are not jammed to the window edge. */
+ * retired top bar so the controls are not jammed to the window edge. Positioned so the tool
+ * workbench can overlay the whole region from any mode. */
 .main {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -106,6 +108,27 @@
   to {
     opacity: 0;
   }
+}
+
+/* The tool workbench overlays the whole main region, above any mode content. It repaints the same
+ * fixed ambient ground so it occludes what is under it seamlessly, then insets its own content by the
+ * region's rhythm. It rides the same crossfade as the album pane. */
+.toolLayer {
+  position: absolute;
+  inset: 0;
+  padding: 20px 30px 24px 20px;
+  display: flex;
+  background: var(--ambient);
+  background-attachment: fixed;
+}
+
+.toolLayer[data-state="enter"] {
+  animation: view-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.toolLayer[data-state="exit"] {
+  animation: view-out var(--dur-fast) var(--ease-exit) both;
+  pointer-events: none;
 }
 
 /* The right panel's positioned wrapper: it holds the var width, and the resize handle rides its left

@@ -1,0 +1,13 @@
+/* The preview transport: a quiet play/stop control and the elapsed time, sitting on the ground with
+ * no frame. */
+.transport {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The elapsed time within the file, digits aligned. */
+.elapsed {
+  font-size: 12px;
+  color: var(--ink-3);
+}

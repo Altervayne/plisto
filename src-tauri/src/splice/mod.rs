@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // -- Local Imports --
 use crate::dto::{CollisionPolicy, Segment, SpliceItem, SpliceItemStatus, SpliceReport};
 use crate::export::safe_component;
-use crate::tags::{self, TrackTags};
+use crate::tags;
 
 // -- Re-exports --
 pub use analyze::{analyze_file, detect_silence};
@@ -115,6 +115,7 @@ pub fn run_splice<E>(
     naming_pattern: &str,
     collision: CollisionPolicy,
     ext: &str,
+    keep_source_tags: bool,
     cancel: &AtomicBool,
     mut emit: E,
 ) -> SpliceReport
@@ -139,7 +140,7 @@ where
 
         match cut_segment(source, format, segment, &tmp) {
             Ok(()) => {
-                let tag_note = tag_segment(&tmp, segment);
+                let tag_note = tag_segment(source, &tmp, segment, i, keep_source_tags);
                 match resolve_collision(destination, &stem, ext, collision) {
                     Some(final_path) => match fs::rename(&tmp, &final_path) {
                         Ok(()) => {
@@ -208,21 +209,28 @@ pub fn segment_stem(pattern: &str, segment: &Segment, index: usize) -> String {
     safe_component(&raw, &format!("Track {}", index + 1))
 }
 
-/// Tags the freshly cut file at `path` with the segment's title, artist, and track number. Best
-/// effort: the audio is already valid, so a tag failure leaves a note rather than failing the write.
-fn tag_segment(path: &Path, segment: &Segment) -> Option<String> {
-    let tags = TrackTags {
-        title: segment.title.as_deref(),
-        artist: segment.artist.as_deref(),
-        album: None,
-        album_artist: None,
-        year: None,
-        genres: &[],
-        track_no: segment.track_no,
-        disc_no: None,
-    };
-    match tags::tag_file(path, &tags, None) {
-        Ok(_) => None,
+/// Tags the freshly cut file at `output` from the source's own tag. Both verbs first carry the whole
+/// source tag across (cover included) so the cut keeps album, album_artist, year, genre and disc. The
+/// splitter then overlays each segment's per-track title, artist and number; the cropper keeps the
+/// source tag verbatim, the trimmed file being the same track. Best effort: the audio is already valid,
+/// so a tag failure leaves a note rather than failing the write.
+fn tag_segment(
+    source: &Path,
+    output: &Path,
+    segment: &Segment,
+    index: usize,
+    keep_source_tags: bool,
+) -> Option<String> {
+    if tags::copy_tags(source, output).is_err() {
+        return Some(NOTE_TAGS_FAILED.to_string());
+    }
+    if keep_source_tags {
+        return None;
+    }
+    let track_no = segment.track_no.unwrap_or((index + 1) as i64);
+    match tags::retag_split_segment(output, segment.title.as_deref(), segment.artist.as_deref(), track_no)
+    {
+        Ok(()) => None,
         Err(_) => Some(NOTE_TAGS_FAILED.to_string()),
     }
 }
@@ -359,6 +367,7 @@ mod tests {
             "{track_no} - {title}",
             CollisionPolicy::Rename,
             "wav",
+            false,
             &cancel,
             |_, _| ticks += 1,
         );
@@ -409,6 +418,7 @@ mod tests {
             "{track_no} - {title}",
             CollisionPolicy::Rename,
             "wav",
+            false,
             &cancel,
             |completed, _| {
                 if completed == 1 {
@@ -446,6 +456,7 @@ mod tests {
             "{track_no} - {title}",
             CollisionPolicy::Skip,
             "wav",
+            false,
             &cancel,
             |_, _| {},
         );

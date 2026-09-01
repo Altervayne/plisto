@@ -1,0 +1,31 @@
+/* The readout: two labelled time rows over the duration, with the play-kept button beneath. No frame -
+ * space and the ambient ground, matching the output config below it. */
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* One row: an uppercase label at the leading edge, its value at the trailing edge. */
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The resulting duration reads as quiet data, aligned with the time fields above it. */
+.value {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}

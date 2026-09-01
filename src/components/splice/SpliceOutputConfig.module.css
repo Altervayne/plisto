@@ -1,0 +1,102 @@
+/* The output config: stacked labelled blocks over the Split CTA, pinned under the scrolling cut list.
+ * No frame - space and hairlines only, matching the peek above it. */
+.config {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The folder picker: a boxed button with the folder glyph, warming on hover - the export destination
+ * affordance, folder-only here. */
+.destButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.destButton:hover {
+  background: var(--veil);
+  border-color: var(--ink-3);
+}
+
+/* The chosen folder: a good-tone dot beside the mono path, truncated to one line, full on hover. */
+.chosen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chosenDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+.chosenPath {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A warn-tone line: a workspace refusal, a not-writable folder, a non-empty caution, or a failed run. */
+.warn {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}
+
+/* Quiet guidance, distinct from a warning: muted ink, not the warn tone. */
+.hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* The non-empty confirm: the caution over its two-step action. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.confirmActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
