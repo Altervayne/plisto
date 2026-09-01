@@ -12,11 +12,6 @@ use std::path::Path;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType;
-use lofty::config::WriteOptions;
-use lofty::file::FileType;
-use lofty::picture::{MimeType, Picture, PictureType};
-use lofty::prelude::{Accessor, ItemKey, TagExt, TaggedFileExt};
-use lofty::tag::{ItemValue, Tag, TagItem, TagType};
 
 // -- Local Imports --
 use super::plan::CoverPlan;
@@ -24,6 +19,7 @@ use crate::covers::{
     discover_adjacent_images, full_res_cache_path, read_embedded_cover_bytes, resolve_track_cover,
     ResolvedCover,
 };
+use crate::tags::{tag_file, EmbedResult, TrackTags};
 
 // JPEG quality for the exported full-res cover. Higher than the thumbnail cache, since this art is
 // embedded and dropped as a sidecar at full size.
@@ -32,35 +28,12 @@ const COVER_JPEG_QUALITY: u8 = 90;
 // The sidecar filenames every container folder gets, so a player finds art by either convention.
 const SIDECARS: &[&str] = &["cover.jpg", "folder.jpg"];
 
-/// How a track's art embedding landed. `Embedded` wrote the cover; `Unsupported` skipped it
-/// because the format cannot carry embedded art; `NoArt` had no cover to embed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmbedResult {
-    Embedded,
-    Unsupported,
-    NoArt,
-}
-
 /// A hard failure writing one track. The source stays untouched; a failed temp is left in place,
 /// never cleaned up destructively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportError {
     CopyFailed,
     RetagFailed,
-}
-
-/// The resolved tag values to write into one exported file. Borrowed from the plan so nothing is
-/// cloned per track. Album, album_artist and year are resolved per track (an override over the
-/// container's value); `genres` is the track's whole managed list, written as a multi-value tag.
-pub struct TrackTags<'a> {
-    pub title: Option<&'a str>,
-    pub artist: Option<&'a str>,
-    pub album: Option<&'a str>,
-    pub album_artist: Option<&'a str>,
-    pub year: Option<i64>,
-    pub genres: &'a [String],
-    pub track_no: Option<i64>,
-    pub disc_no: Option<i64>,
 }
 
 /// Resolves a container's cover to full-size JPEG bytes, or None when no art is available. Reads
@@ -118,121 +91,14 @@ pub fn export_track(
 }
 
 /// Retags the copy at `path` in place with `tags`, embedding `cover` when the format supports it.
-/// Starts from the copy's own primary tag (preserving fields export does not manage), or a fresh
-/// native tag when it has none. Writes the same ItemKeys the scan reads.
+/// Delegates to the shared tag writer, mapping its failure onto the export's own error so the report
+/// reads the same as before.
 fn retag(
     path: &Path,
     tags: &TrackTags<'_>,
     cover: Option<&[u8]>,
 ) -> Result<EmbedResult, ExportError> {
-    let tagged = lofty::read_from_path(path).map_err(|_| ExportError::RetagFailed)?;
-    let file_type = tagged.file_type();
-    let tag_type = tagged.primary_tag_type();
-    let mut tag = tagged
-        .primary_tag()
-        .cloned()
-        .unwrap_or_else(|| Tag::new(tag_type));
-
-    write_accessor(&mut tag, tags);
-    write_genres(&mut tag, tags.genres);
-    set_text(
-        &mut tag,
-        ItemKey::AlbumArtist,
-        tags.album_artist.map(str::to_string),
-    );
-    set_text(
-        &mut tag,
-        ItemKey::TrackNumber,
-        tags.track_no.map(|n| n.to_string()),
-    );
-    set_text(
-        &mut tag,
-        ItemKey::DiscNumber,
-        tags.disc_no.map(|n| n.to_string()),
-    );
-    set_text(&mut tag, ItemKey::Year, tags.year.map(|n| n.to_string()));
-
-    let embed = embed_cover(&mut tag, file_type, tag_type, cover);
-
-    tag.save_to_path(path, WriteOptions::default())
-        .map_err(|_| ExportError::RetagFailed)?;
-    Ok(embed)
-}
-
-/// Writes the three accessor fields (title, artist, album), clearing any the plan resolved to None
-/// so a stale value never survives into the export. Genre is multi-valued now and written through
-/// `write_genres`, not the single-value accessor.
-fn write_accessor(tag: &mut Tag, tags: &TrackTags<'_>) {
-    match tags.title {
-        Some(v) => tag.set_title(v.to_string()),
-        None => tag.remove_title(),
-    }
-    match tags.artist {
-        Some(v) => tag.set_artist(v.to_string()),
-        None => tag.remove_artist(),
-    }
-    match tags.album {
-        Some(v) => tag.set_album(v.to_string()),
-        None => tag.remove_album(),
-    }
-}
-
-/// Writes the track's genres as multiple values, clearing any existing genre first so a re-export
-/// never stacks a value onto a stale one. lofty maps `ItemKey::Genre` to each format's native
-/// multi-value slot - a null-separated TCON on ID3v2.4, one `GENRE` field per value on Vorbis, a
-/// repeated `©gen` atom on MP4 - so pushing each in order lands a real multi-genre tag. An empty
-/// slice clears genre entirely, matching the clear-on-None discipline the accessor fields keep.
-fn write_genres(tag: &mut Tag, genres: &[String]) {
-    tag.remove_key(ItemKey::Genre);
-    for genre in genres {
-        tag.push(TagItem::new(ItemKey::Genre, ItemValue::Text(genre.clone())));
-    }
-}
-
-/// Sets or clears one text item by key. A None clears it, so an export never carries a value the
-/// plan does not have.
-fn set_text(tag: &mut Tag, key: ItemKey, value: Option<String>) {
-    match value {
-        Some(v) => {
-            tag.insert_text(key, v);
-        }
-        None => tag.remove_key(key),
-    }
-}
-
-/// Embeds the cover as the front picture when the format supports it, replacing any existing front
-/// cover so a re-export does not stack art. Formats that cannot carry embedded art (WAV) skip the
-/// embed and rely on the folder sidecar.
-fn embed_cover(
-    tag: &mut Tag,
-    file_type: FileType,
-    tag_type: TagType,
-    cover: Option<&[u8]>,
-) -> EmbedResult {
-    let Some(bytes) = cover else {
-        return EmbedResult::NoArt;
-    };
-    if !embed_supported(file_type, tag_type) {
-        return EmbedResult::Unsupported;
-    }
-    tag.remove_picture_type(PictureType::CoverFront);
-    let picture = Picture::unchecked(bytes.to_vec())
-        .pic_type(PictureType::CoverFront)
-        .mime_type(MimeType::Jpeg)
-        .build();
-    tag.push_picture(picture);
-    EmbedResult::Embedded
-}
-
-/// Whether a format can carry an embedded front cover. ID3v2, Vorbis Comments, MP4 and APE embed
-/// fine; WAV (whose native tag would be ID3v2) is treated as embed-unsupported so its art comes
-/// from the sidecar, matching the export's format guarantee.
-fn embed_supported(file_type: FileType, tag_type: TagType) -> bool {
-    !matches!(file_type, FileType::Wav)
-        && matches!(
-            tag_type,
-            TagType::Id3v2 | TagType::VorbisComments | TagType::Mp4Ilst | TagType::Ape
-        )
+    tag_file(path, tags, cover).map_err(|_| ExportError::RetagFailed)
 }
 
 /// Reads and integrity-checks an imported cover's full-res blob straight from the store, without
@@ -287,6 +153,8 @@ fn tmp_name(filename: &str) -> String {
 mod tests {
     use super::*;
     use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+    use lofty::picture::PictureType;
+    use lofty::prelude::{Accessor, ItemKey, TaggedFileExt};
     use std::io::Cursor;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};

@@ -31,9 +31,10 @@ use crate::dto::{
 };
 use crate::paths::paths_overlap;
 use crate::scan::progress::ProgressThrottle;
+use crate::tags::{EmbedResult, TrackTags};
 use derive::derive_layout;
 use plan::{ContainerKind, CoverPlan, ExportPlan};
-use write::{export_track, write_sidecars, EmbedResult, ExportError, TrackTags};
+use write::{export_track, write_sidecars, ExportError};
 
 pub use derive::{safe_component, template_preview, AlbumTemplate};
 pub use plan::{build_export_plan, mimic_album_plan, playlist_folder_plan};

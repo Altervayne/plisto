@@ -7,6 +7,9 @@
 // -- Library Imports --
 use serde::{Deserialize, Serialize};
 
+// -- Local Imports --
+use crate::audio::{Peak, SilenceSpan};
+
 /// One grid row: a `tracks` record shaped for the frontend. Nullable columns are `Option`,
 /// which serialize to `null`. `id` is the row's primary key.
 #[derive(Debug, Clone, Serialize)]
@@ -610,4 +613,132 @@ pub struct ExtractResult {
     pub applied: i64,
     pub unmatched: i64,
     pub track_no_skipped_loose: i64,
+}
+
+// ---- Splicer / cropper ----
+
+/// One segment to cut out of a source file: a half-open frame range `[start_frame, end_frame)` and
+/// the tags to write onto the cut. `track_no` numbers the segment; the naming pattern and the tag
+/// writer both read it. Mirrors Segment in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Segment {
+    pub start_frame: u64,
+    pub end_frame: u64,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub track_no: Option<i64>,
+}
+
+/// What a segment cut does when its target filename already exists: skip it, overwrite it, or write
+/// beside it under a ` (n)` suffix. Serialized lowercase so the frontend sends `"skip"` etc.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CollisionPolicy {
+    Skip,
+    Overwrite,
+    Rename,
+}
+
+/// A splice job: the source file, the ordered segments to cut, the destination folder, the filename
+/// naming pattern, and the collision policy. Mirrors SpliceJob in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpliceJob {
+    pub source_path: String,
+    pub segments: Vec<Segment>,
+    pub destination: String,
+    pub naming_pattern: String,
+    pub collision: CollisionPolicy,
+}
+
+/// The full analysis of a source file: the waveform peaks, the silence spans, and the stream shape.
+/// `total_frames` and `duration_secs` size the timeline. Mirrors WaveformAnalysis in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct WaveformAnalysis {
+    pub peaks: Vec<Peak>,
+    pub silence: Vec<SilenceSpan>,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub total_frames: u64,
+    pub duration_secs: f64,
+}
+
+/// The stage a running splice is in. `preparing` while the job is validated, `cutting` while segments
+/// are written, `done` on the single terminal emit.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplicePhase {
+    Preparing,
+    Cutting,
+    Done,
+}
+
+/// A progress tick over the splice invocation's channel. `completed` is the count of segments
+/// processed and never exceeds `total`; `errors` counts segments that failed. `done` marks the
+/// guaranteed final tick.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpliceProgress {
+    pub phase: SplicePhase,
+    pub completed: u32,
+    pub total: u32,
+    pub errors: u32,
+    pub done: bool,
+}
+
+/// A progress tick over the analysis channel: how many frames are decoded of the total. `total_frames`
+/// is zero when the container did not state a length.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalyzeProgress {
+    pub done_frames: u64,
+    pub total_frames: u64,
+}
+
+/// The fate of one segment in a splice. `written` landed; `skipped` was not written (a collision
+/// under the skip policy); `failed` could not be cut or renamed into place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpliceItemStatus {
+    Written,
+    Skipped,
+    Failed,
+}
+
+/// One row of the splice report: which segment, where it landed, and how. `output_path` carries the
+/// final file's path for a written segment (for the done screen), None otherwise; `note` is the
+/// plain-language reason for a skip, failure, or caveat. Mirrors SpliceItem in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpliceItem {
+    pub index: u32,
+    pub output_path: Option<String>,
+    pub status: SpliceItemStatus,
+    pub note: Option<String>,
+}
+
+/// The result of a finished (or cancelled) splice. `total` counts every segment; `written`/`errors`
+/// partition the ones attempted. `items` is the per-segment detail the done screen reads. Mirrors
+/// SpliceReport in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpliceReport {
+    pub total: u32,
+    pub written: u32,
+    pub errors: u32,
+    pub cancelled: bool,
+    pub items: Vec<SpliceItem>,
+}
+
+/// One parsed cue sheet track: its number, its title and performer when stated, and its start time in
+/// seconds. Mirrors CueTrack in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct CueTrack {
+    pub number: u32,
+    pub title: Option<String>,
+    pub performer: Option<String>,
+    pub start_secs: f64,
+}
+
+/// A parsed cue sheet: the disc performer when stated, and the tracks in file order. Mirrors CueSheet
+/// in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct CueSheet {
+    pub performer: Option<String>,
+    pub tracks: Vec<CueTrack>,
 }

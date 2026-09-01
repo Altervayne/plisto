@@ -11,7 +11,9 @@ mod normalize;
 mod paths;
 mod resolve;
 mod scan;
+mod splice;
 mod state;
+mod tags;
 mod tray;
 
 // -- Library Imports --
@@ -141,6 +143,8 @@ pub fn run() {
                 covers_in_flight,
                 export_cancel: Arc::new(AtomicBool::new(false)),
                 export_running: AtomicBool::new(false),
+                splice_cancel: Arc::new(AtomicBool::new(false)),
+                splice_running: AtomicBool::new(false),
                 playlist_export_cancel: Arc::new(AtomicBool::new(false)),
                 playlist_export_running: AtomicBool::new(false),
                 discovery_cancel: Arc::new(AtomicBool::new(false)),
@@ -262,7 +266,12 @@ pub fn run() {
             commands::player::player_set_repeat,
             commands::player::get_player_status,
             commands::player::list_output_devices,
-            commands::player::player_set_output_device
+            commands::player::player_set_output_device,
+            commands::splice::splice_run,
+            commands::splice::splice_cancel,
+            commands::splice::splice_analyze,
+            commands::splice::splice_detect_silence,
+            commands::splice::splice_parse_cue
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

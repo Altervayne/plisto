@@ -23,8 +23,8 @@ pub mod silence;
 
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};
-pub use peaks::{compute_peaks, Peak};
-pub use silence::{find_silence, SilenceSpan};
+pub use peaks::{compute_peaks, Peak, PeakAccumulator};
+pub use silence::{find_silence, SilenceDetector, SilenceSpan};
 
 // The player's shared vocabulary: the command layer speaks these, the engine thread consumes them,
 // and the frontend reads the status snapshot back. Defined here beside the audio core so both the
