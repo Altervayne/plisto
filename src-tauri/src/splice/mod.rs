@@ -3,14 +3,15 @@
  * define frame-range segments, and cut each one losslessly into a tagged file. This module owns the
  * cut dispatch and the sequential job that runs a whole segment list, mirroring the export pipeline's
  * shape - temp-then-rename per file, a cooperative cancel that keeps whatever landed, a per-item
- * report. The cutters themselves are format-specific; WAV and FLAC are wired here, each decode-free
- * and bit-exact.
+ * report. The cutters themselves are format-specific; WAV, FLAC, and MP3 are wired here. WAV and FLAC
+ * copy their samples bit-exact; MP3 copies whole frames, frame-aligned.
  */
 
 // -- Module Declarations --
 mod analyze;
 mod cue;
 mod flac;
+mod mp3;
 mod wav;
 
 // -- Library Imports --
@@ -32,8 +33,8 @@ const NOTE_EXISTS: &str = "a file with this name already exists";
 const NOTE_CUT_FAILED: &str = "the segment could not be cut";
 const NOTE_TAGS_FAILED: &str = "the file was written but its tags could not be";
 
-/// The source container a cut reads from, chosen by the source extension. WAV and FLAC cut here; MP3
-/// is recognized so the job can report it clearly, but its cutter lands later.
+/// The source container a cut reads from, chosen by the source extension. WAV, FLAC, and MP3 cut here,
+/// each without a re-encode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Wav,
@@ -59,10 +60,13 @@ impl Format {
     }
 }
 
-/// Why a segment could not be cut. `UnsupportedFormat` is a source whose cutter is not wired yet;
-/// `Open` is a read/write failure; `Parse` is a malformed source container.
+/// Why a segment could not be cut. `UnsupportedFormat` is a recognized container whose cutter is not
+/// built; `Open` is a read/write failure; `Parse` is a malformed source container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CutError {
+    // Every format the extension resolver returns cuts today; this is held for a container that decodes
+    // but has no cutter (M4A/AAC/Opus), so it is not yet constructed outside tests.
+    #[allow(dead_code)]
     UnsupportedFormat,
     Open,
     Parse,
@@ -82,7 +86,7 @@ impl std::fmt::Display for CutError {
 impl std::error::Error for CutError {}
 
 /// Cuts one segment's frame range out of `source` into `out_tmp`, dispatching on the format. WAV and
-/// FLAC cut losslessly; MP3 is refused until its cutter lands.
+/// FLAC copy samples bit-exact; MP3 copies whole frames, frame-aligned.
 pub fn cut_segment(
     source: &Path,
     format: Format,
@@ -92,7 +96,7 @@ pub fn cut_segment(
     match format {
         Format::Wav => wav::cut(source, segment.start_frame, segment.end_frame, out_tmp),
         Format::Flac => flac::cut(source, segment.start_frame, segment.end_frame, out_tmp),
-        Format::Mp3 => Err(CutError::UnsupportedFormat),
+        Format::Mp3 => mp3::cut(source, segment.start_frame, segment.end_frame, out_tmp),
     }
 }
 
@@ -456,13 +460,17 @@ mod tests {
     }
 
     #[test]
-    fn an_mp3_format_is_unsupported() {
+    fn an_mp3_source_dispatches_to_the_mp3_cutter() {
+        // MP3 cuts now, so a garbage source reaches the cutter and reads as a parse failure rather than
+        // the unsupported-format refusal.
         let dir = TempDir::new();
+        let source = dir.path.join("in.mp3");
         let out = dir.path.join("x.mp3");
+        fs::write(&source, b"no mp3 sync anywhere in here").unwrap();
         let seg = segment(0, 10, "X", 1);
         assert_eq!(
-            cut_segment(Path::new("nope.mp3"), Format::Mp3, &seg, &out),
-            Err(CutError::UnsupportedFormat),
+            cut_segment(&source, Format::Mp3, &seg, &out),
+            Err(CutError::Parse),
         );
     }
 }

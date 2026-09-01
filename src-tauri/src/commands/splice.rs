@@ -86,13 +86,9 @@ pub async fn splice_run(
         return Err("the destination is not writable".to_string());
     }
 
-    // Only WAV cuts here; other recognized formats are deferred, an unknown extension is refused.
+    // WAV (sample-accurate) and FLAC/MP3 (frame-aligned) all cut; an unknown extension is refused.
     let format = match splice::Format::from_source(&source) {
-        Some(splice::Format::Wav) => splice::Format::Wav,
-        Some(_) => {
-            state.splice_running.store(false, Ordering::SeqCst);
-            return Err("only WAV files can be split right now".to_string());
-        }
+        Some(f) => f,
         None => {
             state.splice_running.store(false, Ordering::SeqCst);
             return Err("this audio format is not supported".to_string());
