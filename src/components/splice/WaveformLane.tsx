@@ -1,12 +1,27 @@
 // -- Framework Imports --
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 
 // -- Icon Imports --
-import { Play } from "lucide-react";
+import { Play, X } from "lucide-react";
 
 // -- Local Imports --
 import type { DerivedSegment, Marker } from "./cutModel";
+import {
+  handleUpSelects,
+  laneDownScrubs,
+  laneMoveScrubs,
+  laneUpDropsMarker,
+  type Tool,
+} from "./laneGesture";
+import {
+  anchorScrollLeft,
+  clampPxPerSec,
+  fitPxPerSec,
+  maxPxPerSec,
+  secondsVisible,
+  stepPxPerSec,
+} from "./zoomModel";
 
 // -- Type Imports --
 import type { Peak, SilenceSpan } from "../../types";
@@ -17,11 +32,24 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./WaveformLane.module.css";
 
-/** The zoom step: fit the whole file to the lane, or widen it to a scrollable virtual width. */
-export type Zoom = "fit" | "medium" | "fine";
+/** The imperative zoom the body's control and the keyboard drive; each anchors to the playhead. */
+export interface WaveformLaneHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fit: () => void;
+}
 
-/** How far each step widens the lane past the viewport. Fit maps the whole file to the lane width. */
-const ZOOM_FACTOR: Record<Zoom, number> = { fit: 1, medium: 3, fine: 8 };
+/** The zoom snapshot the lane reports up, so the body can render the readout and gate the buttons. */
+export interface ZoomState {
+  secondsVisible: number;
+  atFit: boolean;
+  canIn: boolean;
+  canOut: boolean;
+}
+
+// A wheel or key sits at a bound once its scale is within this slack of it, so floating-point drift at
+// the clamp never leaves a button live with nowhere to go.
+const BOUND_SLACK = 0.5;
 
 // A pointer that moves less than this many pixels between press and release reads as a click, not a
 // drag: on the lane it drops a marker, on a handle it deletes one.
@@ -81,7 +109,9 @@ interface MarkerLayer {
   onAddMarker: (frame: number) => void;
   onRemoveMarker: (id: string) => void;
   onMoveMarker: (id: string, frame: number) => void;
-  onPlayAcross: (frame: number) => void;
+  onSelectMarker: (id: string) => void;
+  onPlayFrom: (frame: number) => void;
+  selectedMarkerId: string | null;
   hoveredSegmentId: string | null;
   selectedSegmentId: string | null;
   onHoverSegment: (id: string | null) => void;
@@ -102,36 +132,54 @@ interface CropLayer {
  * theme flips or the system scheme changes. The peaks downsample to one min/max column per device
  * pixel, so paint cost follows the lane width, not the bucket count.
  *
- * Zoom is a pure client re-render: a finer step widens the virtual lane and the shared scroll
- * container carries the canvas and every overlay together so they stay aligned. Past fit, an overview
- * strip stands in for the native scrollbar: a second canvas of the whole file, a draggable lens over
- * the visible window, and hairline landmarks for the cuts or the trim edges. Scrubbing maps the
- * pointer x to a time through the full duration. The `edit` layer is optional: with it, a click on
- * the empty lane drops a marker, a click on a marker handle deletes it, and a handle drag moves it.
- * The `crop` layer is the cropper's parallel: two draggable trim handles with the trimmed-away ends
- * dimmed, never a marker in sight.
+ * Zoom is a continuous pixels-per-second scale the lane owns: fit maps the whole file to the viewport,
+ * and finer values widen the virtual lane, which the shared scroll container carries with every overlay
+ * so they stay aligned. Shift+wheel zooms toward the cursor; the imperative handle zooms toward the
+ * playhead for the body's control and the keyboard. Every zoom pins its anchor time in place, so the
+ * view never teleports, and fit tracks a pane resize. Past fit, an overview strip stands in for the
+ * native scrollbar: a second canvas of the whole file, a draggable lens over the visible window, and
+ * hairline landmarks for the cuts or the trim edges.
+ *
+ * The `tool` gates the empty-lane gestures: Move seeks the playhead on a click and scrubs on a drag;
+ * Splice drops a cut on a click and stays inert on a drag - the cut tool never moves the playhead, so
+ * scrubbing is the Move tool's job alone. A marker handle click selects it (a hover reveals a delete
+ * chip, a selected marker offers play-from), and a handle drag moves it - the same in both tools. The captured tool and target are frozen at the
+ * press, so a mid-drag tool switch never flips an in-flight gesture. The `crop` layer is the cropper's
+ * parallel: two draggable trim handles with the trimmed-away ends dimmed, never a marker in sight; it
+ * passes no tool, reading as Move.
  */
-export function WaveformLane({
-  peaks,
-  silence,
-  totalFrames,
-  durationSecs,
-  playheadSecs,
-  zoom,
-  onScrub,
-  edit,
-  crop,
-}: {
+interface WaveformLaneProps {
   peaks: Peak[];
   silence: SilenceSpan[];
   totalFrames: number;
   durationSecs: number;
   playheadSecs: number;
-  zoom: Zoom;
+  tool?: Tool;
   onScrub: (secs: number) => void;
+  onScrubStart?: () => void;
+  onScrubEnd?: () => void;
+  onZoomState?: (state: ZoomState) => void;
   edit?: MarkerLayer;
   crop?: CropLayer;
-}) {
+}
+
+export const WaveformLane = forwardRef<WaveformLaneHandle, WaveformLaneProps>(function WaveformLane(
+  {
+    peaks,
+    silence,
+    totalFrames,
+    durationSecs,
+    playheadSecs,
+    tool,
+    onScrub,
+    onScrubStart,
+    onScrubEnd,
+    onZoomState,
+    edit,
+    crop,
+  },
+  ref,
+) {
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
@@ -143,9 +191,21 @@ export function WaveformLane({
   // The live scroll offset of the zoomed lane. The overview's lens rides it; a wheel or trackpad pan
   // of the main lane updates it through onScroll, so the lens follows either way.
   const [scrollLeft, setScrollLeft] = useState(0);
-  const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
+  // The continuous zoom scale, kept clamped to the live bounds. `atFit` remembers the fit intent so a
+  // pane resize can recompute fit and stay there rather than drifting to a stale scale.
+  const [pxPerSec, setPxPerSec] = useState(0);
+  const [atFit, setAtFit] = useState(true);
+  // The scale under a ref too, so the wheel listener reads the current value without re-subscribing on
+  // every zoom.
+  const pxPerSecRef = useRef(pxPerSec);
+  pxPerSecRef.current = pxPerSec;
+  // A zoom stores its anchored scroll target here and bumps `zoomTick`; a layout effect applies it after
+  // the lane has re-rendered to the new width. Setting scrollLeft inline would clamp to the pre-grow
+  // scrollWidth on a zoom-in, dropping the anchor.
+  const pendingScrollRef = useRef<number | null>(null);
+  const [zoomTick, setZoomTick] = useState(0);
 
-  const laneWidth = Math.round(viewportW * ZOOM_FACTOR[zoom]);
+  const laneWidth = Math.round(pxPerSec * durationSecs);
   // The overview only earns its keep once the lane overflows the viewport; at fit there is nothing to
   // navigate, so it never renders.
   const hasOverview = laneWidth > viewportW;
@@ -203,6 +263,98 @@ export function WaveformLane({
   useEffect(() => {
     paintAll();
   }, [paintAll, laneWidth, hasOverview]);
+
+  // Keep the scale valid as the viewport or the duration shifts. At fit, stay fit off the new width;
+  // otherwise re-clamp the held scale, which the browser's own scrollLeft clamp then keeps in view.
+  useEffect(() => {
+    const fit = fitPxPerSec(viewportW, durationSecs);
+    const max = maxPxPerSec(durationSecs, fit);
+    setPxPerSec((cur) => (atFit || cur <= 0 ? fit : clampPxPerSec(cur, fit, max)));
+  }, [viewportW, durationSecs, atFit]);
+
+  // The one place the zoom math lands: clamp the next scale, pin `anchorSecs` under `offsetInViewport`,
+  // and drive both the DOM scroll and its state (a programmatic scrollLeft does not reliably fire
+  // onScroll). Fit is the floor, so a scale at or below it reads as fit and tracks a later resize.
+  const applyPx = useCallback(
+    (nextPx: number, anchorSecs: number, offsetInViewport: number) => {
+      const fit = fitPxPerSec(viewportW, durationSecs);
+      const max = maxPxPerSec(durationSecs, fit);
+      const clamped = clampPxPerSec(nextPx, fit, max);
+      setPxPerSec(clamped);
+      setAtFit(clamped <= fit + BOUND_SLACK);
+      const nextLaneWidth = Math.round(clamped * durationSecs);
+      // Stash the anchored target and let the layout effect apply it once the lane is the new width.
+      pendingScrollRef.current = anchorScrollLeft(
+        anchorSecs,
+        clamped,
+        offsetInViewport,
+        nextLaneWidth,
+        viewportW,
+      );
+      setZoomTick((n) => n + 1);
+    },
+    [viewportW, durationSecs],
+  );
+
+  // Apply a zoom's anchored scroll after the lane has committed its new width, so the browser does not
+  // clamp the scroll to the pre-grow scrollWidth (which would drop the anchor on a zoom-in).
+  useLayoutEffect(() => {
+    if (pendingScrollRef.current === null) return;
+    const scroll = scrollRef.current;
+    if (scroll) {
+      scroll.scrollLeft = pendingScrollRef.current;
+      setScrollLeft(scroll.scrollLeft);
+    }
+    pendingScrollRef.current = null;
+  }, [zoomTick]);
+
+  // The control and the keyboard zoom toward the playhead, centering it in the viewport.
+  const zoomIn = useCallback(
+    () => applyPx(stepPxPerSec(pxPerSecRef.current, 1), playheadSecs, viewportW / 2),
+    [applyPx, playheadSecs, viewportW],
+  );
+  const zoomOut = useCallback(
+    () => applyPx(stepPxPerSec(pxPerSecRef.current, -1), playheadSecs, viewportW / 2),
+    [applyPx, playheadSecs, viewportW],
+  );
+  // Fit: the floor scale clamps up from zero, and the anchor is moot since the lane no longer scrolls.
+  const fitZoom = useCallback(() => applyPx(0, 0, 0), [applyPx]);
+
+  useImperativeHandle(ref, () => ({ zoomIn, zoomOut, fit: fitZoom }), [zoomIn, zoomOut, fitZoom]);
+
+  // Shift+wheel zooms toward the cursor; a plain wheel keeps its native pan. The listener is native and
+  // non-passive so the Shift case can preventDefault, holding the page and the lane still under the zoom.
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.shiftKey) return;
+      e.preventDefault();
+      const lane = laneRef.current;
+      if (!lane || durationSecs <= 0) return;
+      const laneRect = lane.getBoundingClientRect();
+      const tCursor = clamp01((e.clientX - laneRect.left) / laneRect.width) * durationSecs;
+      const offset = e.clientX - scroll.getBoundingClientRect().left;
+      // Chromium routes a Shift+wheel through deltaX, so read whichever axis carries the notch.
+      const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+      applyPx(stepPxPerSec(pxPerSecRef.current, raw < 0 ? 1 : -1), tCursor, offset);
+    };
+    scroll.addEventListener("wheel", onWheel, { passive: false });
+    return () => scroll.removeEventListener("wheel", onWheel);
+  }, [applyPx, durationSecs]);
+
+  // Report the zoom state up so the body renders the readout and gates the buttons at the bounds.
+  useEffect(() => {
+    if (!onZoomState) return;
+    const fit = fitPxPerSec(viewportW, durationSecs);
+    const max = maxPxPerSec(durationSecs, fit);
+    onZoomState({
+      secondsVisible: secondsVisible(viewportW, pxPerSec),
+      atFit,
+      canIn: pxPerSec < max - BOUND_SLACK,
+      canOut: pxPerSec > fit + BOUND_SLACK,
+    });
+  }, [onZoomState, viewportW, durationSecs, pxPerSec, atFit]);
 
   // Track the live scroll offset so the lens can read a post-clamp value: the browser clamps
   // scrollLeft on a resize or a zoom-out, and that fires scroll, so the state stays valid.
@@ -262,29 +414,46 @@ export function WaveformLane({
     return Math.round(clamp01((clientX - rect.left) / rect.width) * totalFrames);
   };
 
-  // Scrub state: a press that stays within the slop is a click (drops a marker); once it passes the
-  // slop it is a scrub drag and no marker lands on release.
-  const scrub = useRef<{ x: number; dragged: boolean } | null>(null);
+  // Scrub state: the tool is captured at the press so a mid-drag switch can't flip the gesture, and
+  // `scrubbing` fires the start/end callbacks once a scrub actually runs (a Splice click that only
+  // drops a cut never scrubs, so it never re-auditions on release).
+  const scrub = useRef<{ x: number; dragged: boolean; tool: Tool | undefined; scrubbing: boolean } | null>(
+    null,
+  );
+  const beginScrub = () => {
+    const s = scrub.current;
+    if (s && !s.scrubbing) {
+      s.scrubbing = true;
+      onScrubStart?.();
+    }
+  };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    scrub.current = { x: e.clientX, dragged: false };
+    scrub.current = { x: e.clientX, dragged: false, tool, scrubbing: false };
     laneRef.current?.setPointerCapture(e.pointerId);
-    onScrub(secsFromPointer(e.clientX));
+    if (laneDownScrubs(tool)) {
+      beginScrub();
+      onScrub(secsFromPointer(e.clientX));
+    }
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     const s = scrub.current;
     if (!s) return;
     if (Math.abs(e.clientX - s.x) > DRAG_SLOP) s.dragged = true;
-    onScrub(secsFromPointer(e.clientX));
+    if (laneMoveScrubs(s.tool, s.dragged)) {
+      beginScrub();
+      onScrub(secsFromPointer(e.clientX));
+    }
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     const s = scrub.current;
     if (!s) return;
     scrub.current = null;
     laneRef.current?.releasePointerCapture(e.pointerId);
-    if (!s.dragged && edit) edit.onAddMarker(frameFromClientX(e.clientX));
+    if (laneUpDropsMarker(s.tool, s.dragged) && edit) edit.onAddMarker(frameFromClientX(e.clientX));
+    if (s.scrubbing) onScrubEnd?.();
   };
 
-  // Marker drag: a press on a handle either deletes it (click) or moves it (drag). The handle owns
+  // Marker drag: a press on a handle either selects it (click) or moves it (drag). The handle owns
   // the pointer so a drag that leaves it keeps steering, and the lane never scrubs under it.
   const markerDrag = useRef<{ id: string; x: number; dragged: boolean } | null>(null);
   const onHandleDown = (e: PointerEvent<HTMLDivElement>, id: string) => {
@@ -307,7 +476,7 @@ export function WaveformLane({
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    if (!d.dragged && edit) edit.onRemoveMarker(id);
+    if (handleUpSelects(d.dragged) && edit) edit.onSelectMarker(id);
   };
 
   // Trim-handle drag: a press on either handle steers its trim point through the pointer, capturing so
@@ -360,6 +529,7 @@ export function WaveformLane({
         <div
           className={styles.lane}
           ref={laneRef}
+          data-tool={tool}
           style={{ width: laneWidth || "100%" } as CSSProperties}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -391,44 +561,59 @@ export function WaveformLane({
             ? edit.markers.map((m) => {
                 const bound =
                   activeSeg != null && (activeSeg.start === m.frame || activeSeg.end === m.frame);
-                const shown = hoveredMarker === m.id;
+                const selected = edit.selectedMarkerId === m.id;
                 return (
                   <div key={m.id} className={styles.marker} style={{ left: `${pct(m.frame)}%` }}>
                     <div className={styles.markerLine} data-bound={bound ? "" : undefined} aria-hidden="true" />
+                    {/* The head zone owns hover: it reveals the delete chip through CSS and lights the
+                        segment band, while the handle inside it drags or selects the marker. */}
                     <div
-                      className={styles.handle}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={t((d) => d.splice.removeMarker)}
-                      data-bound={bound ? "" : undefined}
-                      onPointerDown={(e) => onHandleDown(e, m.id)}
-                      onPointerMove={onHandleMove}
-                      onPointerUp={(e) => onHandleUp(e, m.id)}
-                      onPointerCancel={(e) => onHandleUp(e, m.id)}
-                      onPointerEnter={() => {
-                        setHoveredMarker(m.id);
-                        edit.onHoverSegment(m.id);
-                      }}
-                      onPointerLeave={() => {
-                        setHoveredMarker(null);
-                        edit.onHoverSegment(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Delete" || e.key === "Backspace") {
-                          e.preventDefault();
-                          edit.onRemoveMarker(m.id);
-                        }
-                      }}
-                    />
-                    {shown ? (
+                      className={styles.handleZone}
+                      onPointerEnter={() => edit.onHoverSegment(m.id)}
+                      onPointerLeave={() => edit.onHoverSegment(null)}
+                    >
+                      <div
+                        className={styles.handle}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={t((d) => d.splice.selectMarker)}
+                        data-bound={bound ? "" : undefined}
+                        data-selected={selected ? "" : undefined}
+                        onPointerDown={(e) => onHandleDown(e, m.id)}
+                        onPointerMove={onHandleMove}
+                        onPointerUp={(e) => onHandleUp(e, m.id)}
+                        onPointerCancel={(e) => onHandleUp(e, m.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Delete" || e.key === "Backspace") {
+                            e.preventDefault();
+                            edit.onRemoveMarker(m.id);
+                          }
+                        }}
+                      />
                       <button
                         type="button"
-                        className={styles.across}
-                        aria-label={t((d) => d.splice.playAcross)}
+                        className={styles.remove}
+                        aria-label={t((d) => d.splice.removeMarker)}
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
-                          edit.onPlayAcross(m.frame);
+                          edit.onRemoveMarker(m.id);
+                        }}
+                      >
+                        <X size={12} strokeWidth={2} />
+                      </button>
+                    </div>
+                    {/* Play-from rides the selection, sitting below the head so it never crowds the
+                        hover delete chip above it; it auditions from the cut line forward. */}
+                    {selected ? (
+                      <button
+                        type="button"
+                        className={styles.across}
+                        aria-label={t((d) => d.splice.playFrom)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          edit.onPlayFrom(m.frame);
                         }}
                       >
                         <Play size={11} strokeWidth={2} />
@@ -533,4 +718,4 @@ export function WaveformLane({
       ) : null}
     </div>
   );
-}
+});

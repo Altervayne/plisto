@@ -26,6 +26,14 @@
     color var(--dur-fast) ease;
 }
 
+/* An icon chip: tighter side padding than the text chips, the glyph centered in the square. */
+.iconChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+}
+
 .segment:not(.active):hover {
   background: var(--veil);
   color: var(--ink);

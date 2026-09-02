@@ -18,6 +18,9 @@ import { SpliceRunReport } from "./SpliceRunReport";
 
 // -- Hook Imports --
 import { useSpliceDestination } from "./useSpliceDestination";
+import { usePreviewScrub } from "./usePreviewScrub";
+import { usePreviewToggle } from "./usePreviewToggle";
+import { useWorkbenchKeys } from "./useWorkbenchKeys";
 
 // -- State Imports --
 import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
@@ -45,13 +48,16 @@ import type {
   SpliceReport,
   WaveformAnalysis,
 } from "../../types";
-import type { Zoom } from "./WaveformLane";
+import type { WaveformLaneHandle, ZoomState } from "./WaveformLane";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./TrimBody.module.css";
+
+/** The zoom snapshot before the lane has measured: fit, with nowhere to step. */
+const INITIAL_ZOOM: ZoomState = { secondsVisible: 0, atFit: true, canIn: false, canOut: false };
 
 /** The threshold the workbench analysis ran at, so the opening trim comes free from its silence spans. */
 const ANALYSIS_THRESHOLD_DB = -50;
@@ -89,11 +95,13 @@ export function TrimBody({
   path,
   ext,
   dirtyRef,
+  onRequestClose,
 }: {
   analysis: WaveformAnalysis;
   path: string;
   ext: string;
   dirtyRef?: MutableRefObject<boolean>;
+  onRequestClose: () => void;
 }) {
   const t = useT();
 
@@ -102,7 +110,21 @@ export function TrimBody({
   const epsilon = Math.round(sampleRate * EDGE_EPSILON_SECS);
 
   const [playheadSecs, setPlayheadSecs] = useState(0);
-  const [zoom, setZoom] = useState<Zoom>("fit");
+  const laneZoomRef = useRef<WaveformLaneHandle>(null);
+  const [zoomState, setZoomState] = useState<ZoomState>(INITIAL_ZOOM);
+
+  const { isScrubbing, notePlayhead, onScrubStart, onScrubEnd } = usePreviewScrub(path, durationSecs);
+  const preview = usePreviewToggle(path, playheadSecs, durationSecs);
+
+  // The playhead setter the lane and transport share: it feeds the scrub bridge so a release
+  // re-auditions a live preview from the dropped point.
+  const setPlayhead = useCallback(
+    (secs: number) => {
+      setPlayheadSecs(secs);
+      notePlayhead(secs);
+    },
+    [notePlayhead],
+  );
 
   // The detected-or-hand trim points, seeded once from the analysis silence (the common case, free on
   // open). Padding widens these into the effective cut; a hand drag moves them and holds detection off.
@@ -281,6 +303,18 @@ export function TrimBody({
     setSubPhase("editing");
   }, []);
 
+  // The cropper's reduced shortcut map: no tool or marker keys, just Space to toggle the preview and
+  // Escape to step from a sounding preview back to the workbench close.
+  useWorkbenchKeys(subPhase === "editing", {
+    onZoomIn: () => laneZoomRef.current?.zoomIn(),
+    onZoomOut: () => laneZoomRef.current?.zoomOut(),
+    onFit: () => laneZoomRef.current?.fit(),
+    onTogglePreview: preview.toggle,
+    isSounding: () => preview.sounding,
+    onStopPreview: preview.stop,
+    onClose: onRequestClose,
+  });
+
   if (subPhase === "running") {
     const total = progress?.total ?? 1;
     const completed = progress?.completed ?? 0;
@@ -355,13 +389,16 @@ export function TrimBody({
       <div className={styles.main}>
         <div className={styles.laneWrap}>
           <WaveformLane
+            ref={laneZoomRef}
             peaks={analysis.peaks}
             silence={[]}
             totalFrames={totalFrames}
             durationSecs={durationSecs}
             playheadSecs={playheadSecs}
-            zoom={zoom}
-            onScrub={setPlayheadSecs}
+            onScrub={setPlayhead}
+            onScrubStart={onScrubStart}
+            onScrubEnd={onScrubEnd}
+            onZoomState={setZoomState}
             crop={{ inFrame, outFrame, onMoveIn, onMoveOut }}
           />
         </div>
@@ -371,9 +408,17 @@ export function TrimBody({
             path={path}
             playheadSecs={playheadSecs}
             durationSecs={durationSecs}
-            onPlayhead={setPlayheadSecs}
+            onPlayhead={setPlayhead}
+            suspendSync={isScrubbing}
           />
-          <ZoomControl zoom={zoom} onZoom={setZoom} />
+          <div className={styles.viewControls}>
+            <ZoomControl
+              state={zoomState}
+              onZoomIn={() => laneZoomRef.current?.zoomIn()}
+              onZoomOut={() => laneZoomRef.current?.zoomOut()}
+              onFit={() => laneZoomRef.current?.fit()}
+            />
+          </div>
         </div>
       </div>
 

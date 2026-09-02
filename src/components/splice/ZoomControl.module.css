@@ -1,0 +1,15 @@
+/* The continuous-zoom control: a minus and a plus flanking the fit readout, all quiet ink off the
+ * accent, so the playhead stays the one chromatic mark. */
+.zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The readout holds a stable width across values, so the flanking buttons never shuffle as the span
+ * ticks between "Fit", a seconds count, and a m:ss. */
+.readout {
+  display: inline-block;
+  min-width: 4ch;
+  text-align: center;
+}

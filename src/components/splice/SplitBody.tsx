@@ -3,12 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, MutableRefObject } from "react";
 
 // -- Icon Imports --
-import { FileMusic, MapPin, ScanLine } from "lucide-react";
+import { FileMusic, MapPin, MousePointer2, ScanLine, Scissors } from "lucide-react";
 
 // -- Component Imports --
 import { CenteredStage } from "../common/CenteredStage";
 import { QuietButton } from "../common/QuietButton";
 import { Resizer } from "../common/Resizer/Resizer";
+import { SegmentedControl } from "../common/SegmentedControl";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { StaffSpinner } from "../scan/StaffSpinner";
@@ -22,6 +23,9 @@ import { SpliceRunReport } from "./SpliceRunReport";
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useCutModel } from "./useCutModel";
+import { usePreviewScrub } from "./usePreviewScrub";
+import { usePreviewToggle } from "./usePreviewToggle";
+import { useWorkbenchKeys } from "./useWorkbenchKeys";
 
 // -- State Imports --
 import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
@@ -43,6 +47,7 @@ import { pickCueFile, pickFolder } from "../../lib/dialog";
 import { snapFrame, spliceFormat } from "../../lib/splice";
 import { openFolder } from "../../lib/opener";
 import { toJobSegments } from "./cutModel";
+import { liveIdOrNull, type Tool } from "./laneGesture";
 
 // -- Type Imports --
 import type {
@@ -53,7 +58,7 @@ import type {
   SpliceReport,
   WaveformAnalysis,
 } from "../../types";
-import type { Zoom } from "./WaveformLane";
+import type { WaveformLaneHandle, ZoomState } from "./WaveformLane";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -61,15 +66,15 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./SplitBody.module.css";
 
+/** The zoom snapshot before the lane has measured: fit, with nowhere to step. */
+const INITIAL_ZOOM: ZoomState = { secondsVisible: 0, atFit: true, canIn: false, canOut: false };
+
 /** The silence-detection defaults a re-run uses; the tuning knobs are the cropper's. */
 const DEFAULT_THRESHOLD_DB = -50;
 const DEFAULT_MIN_SILENCE_SECS = 1;
 
 /** The naming pattern a fresh install starts on, matching the backend's own default. */
 const DEFAULT_PATTERN = "{track_no} - {title}";
-
-/** How far either side of a cut the play-across preview auditions. */
-const ACROSS_PAD_SECS = 2;
 
 /** Which screen the body shows: the editing surface, the live run, or the done report. */
 type SubPhase = "editing" | "running" | "done";
@@ -95,19 +100,24 @@ export function SplitBody({
   path,
   ext,
   dirtyRef,
+  onRequestClose,
 }: {
   analysis: WaveformAnalysis;
   path: string;
   ext: string;
   dirtyRef?: MutableRefObject<boolean>;
+  onRequestClose: () => void;
 }) {
   const t = useT();
   const { width, containerRef, resizer } = useDrawerResize();
 
   const [playheadSecs, setPlayheadSecs] = useState(0);
-  const [zoom, setZoom] = useState<Zoom>("fit");
+  const laneZoomRef = useRef<WaveformLaneHandle>(null);
+  const [zoomState, setZoomState] = useState<ZoomState>(INITIAL_ZOOM);
+  const [tool, setTool] = useState<Tool>("move");
   const [hoveredSegmentId, setHoveredSegmentId] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   const [subPhase, setSubPhase] = useState<SubPhase>("editing");
   const [destination, setDestination] = useState<string | null>(null);
@@ -132,6 +142,19 @@ export function SplitBody({
 
   const model = useCutModel(totalFrames);
   const addRootPath = useAddRootPath();
+
+  const { isScrubbing, notePlayhead, onScrubStart, onScrubEnd } = usePreviewScrub(path, durationSecs);
+  const preview = usePreviewToggle(path, playheadSecs, durationSecs);
+
+  // The playhead setter both the lane and the transport go through: it also feeds the scrub bridge, so
+  // a release re-auditions a live preview from the dropped point.
+  const setPlayhead = useCallback(
+    (secs: number) => {
+      setPlayheadSecs(secs);
+      notePlayhead(secs);
+    },
+    [notePlayhead],
+  );
 
   // Seed the markers from the analysis silence once on open: one manual-editable divider per span at
   // its midpoint. The ref guards a re-seed under a callback-identity change or StrictMode's double run.
@@ -211,14 +234,47 @@ export function SplitBody({
 
   const onAddAtPlayhead = () => addSnapped(Math.round(playheadSecs * sampleRate));
 
-  const onPlayAcross = (frame: number) => {
+  // Audition the cut from the line forward: playback begins exactly at the marker and runs on until the
+  // user stops it, so "play" starts where the eye is. (Per-segment auditioning lives on the cut rows.)
+  const onPlayFrom = (frame: number) => {
     const at = frame / sampleRate;
-    void playerPreview(
-      path,
-      clampSecs(at - ACROSS_PAD_SECS, durationSecs),
-      clampSecs(at + ACROSS_PAD_SECS, durationSecs),
-    ).catch(() => {});
+    void playerPreview(path, clampSecs(at, durationSecs), durationSecs).catch(() => {});
   };
+
+  // A handle click selects the marker, a second click on the same one clears it. Distinct from the cut
+  // list's segment-row selection.
+  const onSelectMarker = (id: string) => setSelectedMarkerId((cur) => (cur === id ? null : id));
+
+  // Prune stale selections after any marker change: removing a cut re-derives the segments and shifts
+  // their leading ids, so a held marker or segment id can go dead.
+  useEffect(() => {
+    setSelectedMarkerId((cur) => liveIdOrNull(cur, model.markers.map((m) => m.id)));
+    setSelectedSegmentId((cur) => liveIdOrNull(cur, model.segments.map((s) => s.id)));
+  }, [model.markers, model.segments]);
+
+  // The editing-surface shortcuts: V/B pick the tool, M drops a cut at the playhead, Space toggles the
+  // preview, Delete/Enter act on the selected marker, Escape steps back from selection to preview to close.
+  useWorkbenchKeys(subPhase === "editing", {
+    onMove: () => setTool("move"),
+    onSplice: () => setTool("splice"),
+    onAddCut: onAddAtPlayhead,
+    onRemoveSelected: () => {
+      if (selectedMarkerId) onRemoveMarker(selectedMarkerId);
+    },
+    onPlaySelected: () => {
+      const m = model.markers.find((x) => x.id === selectedMarkerId);
+      if (m) onPlayFrom(m.frame);
+    },
+    hasSelection: () => selectedMarkerId != null,
+    onDeselect: () => setSelectedMarkerId(null),
+    onZoomIn: () => laneZoomRef.current?.zoomIn(),
+    onZoomOut: () => laneZoomRef.current?.zoomOut(),
+    onFit: () => laneZoomRef.current?.fit(),
+    onTogglePreview: preview.toggle,
+    isSounding: () => preview.sounding,
+    onStopPreview: preview.stop,
+    onClose: onRequestClose,
+  });
 
   const onPickDestination = useCallback(async () => {
     const picked = await pickFolder();
@@ -398,20 +454,26 @@ export function SplitBody({
       <div className={styles.main}>
         <div className={styles.laneWrap}>
           <WaveformLane
+            ref={laneZoomRef}
             peaks={analysis.peaks}
             silence={analysis.silence}
             totalFrames={totalFrames}
             durationSecs={durationSecs}
             playheadSecs={playheadSecs}
-            zoom={zoom}
-            onScrub={setPlayheadSecs}
+            tool={tool}
+            onScrub={setPlayhead}
+            onScrubStart={onScrubStart}
+            onScrubEnd={onScrubEnd}
+            onZoomState={setZoomState}
             edit={{
               markers: model.markers,
               segments: model.segments,
               onAddMarker: addSnapped,
               onRemoveMarker,
               onMoveMarker,
-              onPlayAcross,
+              onSelectMarker,
+              onPlayFrom,
+              selectedMarkerId,
               hoveredSegmentId,
               selectedSegmentId,
               onHoverSegment: setHoveredSegmentId,
@@ -424,9 +486,34 @@ export function SplitBody({
             path={path}
             playheadSecs={playheadSecs}
             durationSecs={durationSecs}
-            onPlayhead={setPlayheadSecs}
+            onPlayhead={setPlayhead}
+            suspendSync={isScrubbing}
           />
-          <ZoomControl zoom={zoom} onZoom={setZoom} />
+          <div className={styles.viewControls}>
+            <SegmentedControl<Tool>
+              segments={[
+                {
+                  value: "move",
+                  label: t((d) => d.splice.toolMove),
+                  icon: <MousePointer2 size={15} strokeWidth={1.8} />,
+                },
+                {
+                  value: "splice",
+                  label: t((d) => d.splice.toolSplice),
+                  icon: <Scissors size={15} strokeWidth={1.8} />,
+                },
+              ]}
+              value={tool}
+              onChange={setTool}
+              label={t((d) => d.splice.toolLabel)}
+            />
+            <ZoomControl
+              state={zoomState}
+              onZoomIn={() => laneZoomRef.current?.zoomIn()}
+              onZoomOut={() => laneZoomRef.current?.zoomOut()}
+              onFit={() => laneZoomRef.current?.fit()}
+            />
+          </div>
         </div>
 
         <div className={styles.sources}>

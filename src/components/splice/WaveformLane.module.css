@@ -31,10 +31,16 @@
   position: relative;
   height: 100%;
   min-width: 100%;
-  cursor: pointer;
+  /* Move (and the tool-less cropper) scrubs horizontally, so the resize cursor names the gesture. */
+  cursor: ew-resize;
   touch-action: none;
   /* The peak ink: the canvas reads this resolved color at paint, so the token drives it across themes. */
   color: var(--ink-3);
+}
+
+/* Splice places a cut at a point, so the crosshair names the drop. */
+.lane[data-tool="splice"] {
+  cursor: crosshair;
 }
 
 .canvas {
@@ -74,50 +80,107 @@
 
 /* The divider stroke: neutral at rest, so the playhead stays the only chromatic mark. It goes accent
  * when the marker is hovered or its segment is highlighted. */
+/* The cut line runs the full height, so it must not share the waveform's own ink or it vanishes into a
+ * dense signal. A step up to --ink-2 reads clearly against the peaks while staying neutral, leaving the
+ * accent to the playhead alone. */
 .markerLine {
   position: absolute;
   top: 0;
   bottom: 0;
   left: -1px;
   width: 2px;
-  background: var(--ink-3);
+  background: var(--ink-2);
 }
 
 .markerLine[data-bound] {
   background: var(--accent);
 }
 
-/* The top grab handle: a small target riding the marker's head. Drag to move, click to delete. */
-.handle {
+/* The head zone: the hover host over the marker's head. It owns the pointer so its :hover reveals the
+ * delete chip with no unmount race, and the handle and chip sit inside it. */
+.handleZone {
   position: absolute;
   top: 0;
   left: -6px;
   width: 12px;
+  height: 34px;
+  pointer-events: auto;
+}
+
+/* The top grab handle: a small target riding the marker's head. Drag to move, click to select. */
+.handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 12px;
   height: 16px;
   border-radius: 0 0 var(--r-sm) var(--r-sm);
-  background: var(--ink-3);
+  background: var(--ink-2);
   cursor: grab;
   pointer-events: auto;
   touch-action: none;
 }
 
+.handle:active {
+  cursor: grabbing;
+}
+
 .handle:hover,
 .handle:focus-visible,
-.handle[data-bound] {
+.handle[data-bound],
+.handle[data-selected] {
   background: var(--accent);
 }
 
-/* The play-across affordance: a small accent chip surfacing under the handle on hover, auditioning a
- * couple of seconds either side of the cut. */
-.across {
+/* The delete chip: a solid round button under the handle, surfacing on hover of the head zone and
+ * going danger under the pointer. A filled surface with a soft lift so it reads as a real control
+ * against the waveform rather than a faint mark. Hidden and inert at rest so it never blocks a scrub. */
+.remove {
   position: absolute;
-  top: 18px;
-  left: -10px;
+  top: 16px;
+  left: -4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--pill);
+  background: var(--ink-2);
+  color: var(--on-solid);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+.handleZone:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.remove:hover,
+.remove:focus-visible {
+  background: var(--danger);
+  color: var(--on-solid);
+}
+
+/* The play-across affordance: an accent chip below the head, shown while the marker is selected,
+ * auditioning a couple of seconds either side of the cut. */
+.across {
+  position: absolute;
+  top: 40px;
+  left: -9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
   border-radius: var(--pill);

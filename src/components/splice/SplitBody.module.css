@@ -25,13 +25,20 @@
   min-height: 160px;
 }
 
-/* The transport at the leading edge, the zoom stepper at the trailing edge, on one quiet row. */
+/* The transport at the leading edge, the tool and zoom steppers at the trailing edge, on one quiet row. */
 .controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+/* The trailing view controls: the tool toggle beside the zoom stepper, kept together at the far edge. */
+.viewControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* The three cut sources, one quiet row: place a marker, find silences, import a cue. */

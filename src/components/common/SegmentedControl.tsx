@@ -1,10 +1,17 @@
+// -- Framework Imports --
+import type { ReactNode } from "react";
+
 // -- Style Imports --
 import styles from "./SegmentedControl.module.css";
 
-/** One choice in the control: a stable value and its already-localized label. */
+/**
+ * One choice in the control: a stable value and its already-localized label. With an `icon`, the chip
+ * shows the icon and the label becomes its accessible name, so an icon-only toggle stays labelled.
+ */
 export interface Segment<T extends string> {
   value: T;
   label: string;
+  icon?: ReactNode;
 }
 
 /**
@@ -28,11 +35,14 @@ export function SegmentedControl<T extends string>({
         <button
           key={segment.value}
           type="button"
-          className={`${styles.segment} ${value === segment.value ? styles.active : ""}`}
+          className={`${styles.segment} ${segment.icon ? styles.iconChip : ""} ${
+            value === segment.value ? styles.active : ""
+          }`}
           aria-pressed={value === segment.value}
+          aria-label={segment.icon ? segment.label : undefined}
           onClick={() => onChange(segment.value)}
         >
-          {segment.label}
+          {segment.icon ?? segment.label}
         </button>
       ))}
     </div>

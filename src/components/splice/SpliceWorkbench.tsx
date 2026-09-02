@@ -175,13 +175,20 @@ export function SpliceWorkbench({
     <div className={styles.view}>
       <WorkbenchHeader verb={verb} filename={track.filename} ext={track.ext} onBack={requestClose} />
       {verb === "split" ? (
-        <SplitBody analysis={analysis} path={track.source_path} ext={track.ext} dirtyRef={dirtyRef} />
+        <SplitBody
+          analysis={analysis}
+          path={track.source_path}
+          ext={track.ext}
+          dirtyRef={dirtyRef}
+          onRequestClose={requestClose}
+        />
       ) : (
         <TrimBody
           analysis={analysis}
           path={track.source_path}
           ext={track.ext}
           dirtyRef={dirtyRef}
+          onRequestClose={requestClose}
         />
       )}
       <ConfirmDialog

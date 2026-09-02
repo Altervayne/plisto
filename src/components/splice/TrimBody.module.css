@@ -34,6 +34,13 @@
   flex-wrap: wrap;
 }
 
+/* The trailing view controls: the cropper holds only the zoom stepper here, mirroring the splitter. */
+.viewControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* The trim panel: a fixed column holding the knobs, the readout, and the output config at its foot. */
 .panel {
   flex: 0 0 320px;
