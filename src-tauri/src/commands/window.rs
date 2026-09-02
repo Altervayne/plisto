@@ -36,6 +36,9 @@ pub fn toggle_now_playing_widget(app: AppHandle) {
     } else {
         crate::tray::seat_now_playing(&app, &window);
         let _ = window.show();
+        // Re-assert topmost on every show: the config flag is not reliably re-applied to a window
+        // created hidden, so without this the widget can surface behind other windows.
+        let _ = window.set_always_on_top(true);
         // Push the current snapshot straight to the freshly-shown widget, so it names the track and
         // arms its transport at once even if it missed the events that fired while it was hidden.
         if let Some(state) = app.try_state::<AppState>() {

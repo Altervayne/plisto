@@ -10,6 +10,7 @@ import { Cover } from "../common/Cover/Cover";
 import { IconButton } from "../common/IconButton";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { SeekBar } from "./SeekBar";
+import { SpectrumRidge } from "./SpectrumRidge";
 import { Transport } from "./Transport";
 
 // -- Hook Imports --
@@ -24,6 +25,7 @@ import {
   usePlayerStatus,
   usePlayerSync,
 } from "../../state/player/store";
+import { useSpectrumSync } from "../../state/player/spectrum";
 
 // -- Theme Imports --
 import { useApplyTheme } from "../../theme";
@@ -57,6 +59,7 @@ export function NowPlayingWidget() {
   }, [loadPreferences]);
   useApplyTheme();
   usePlayerSync();
+  useSpectrumSync();
   usePersistPosition();
 
   return trackId == null ? <IdleCard /> : <WidgetBody trackId={trackId} />;
@@ -102,6 +105,7 @@ function CardShell({ coverSrc, children }: { coverSrc: string | null; children: 
     <div className={styles.card} data-tauri-drag-region="">
       <CoverBackdrop src={coverSrc} className={styles.bg} />
       <div className={styles.scrim} />
+      <SpectrumRidge />
       <div className={styles.content}>{children}</div>
       <span className={styles.close}>
         <IconButton aria-label={t((d) => d.player.closeWidget)} onClick={() => void hideNowPlayingWidget()}>
