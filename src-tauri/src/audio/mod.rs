@@ -65,6 +65,15 @@ pub enum PlayerCmd {
     // Jumps the cursor straight to the queue slot at this index, like a click in the up-next list.
     // Clamped to the last slot; landing on a dead track skips forward to the next playable one.
     Jump(usize),
+    // Appends tracks to the end of the queue. New tracks land last in up-next whether shuffled or
+    // not; the live source plays on across the append.
+    Enqueue(Vec<QueueTrack>),
+    // Moves the queue item at `from` to `to`, reindexing the rest. Never touches the sink; the
+    // current track keeps playing under a new cursor.
+    MoveQueueItem { from: usize, to: usize },
+    // Removes the queue item at `index`. Removing an up-next track leaves playback alone; removing
+    // the current track skips to whatever slid into its slot.
+    RemoveQueueItem { index: usize },
     Seek(f64),
     SetVolume(f32),
     SetRepeat(RepeatMode),

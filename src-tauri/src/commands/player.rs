@@ -18,27 +18,17 @@ use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerStatus, QueueTrack, Repeat
 use crate::db;
 use crate::state::AppState;
 
-/// Resolves the given track ids to their files and starts playback at `index`. Ids that no longer
-/// resolve (a deleted row) drop out of the queue, so `index` is clamped to what remains. An empty
-/// resolution is a no-op. The resolve is the only DB work; the engine never sees a connection.
-#[tauri::command]
-pub fn player_play_tracks(
-    track_ids: Vec<i64>,
-    index: usize,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let resolved: Vec<(i64, String)> = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|_| "index is unavailable".to_string())?;
-        db::load_track_export_paths(&conn, &track_ids).map_err(|e| e.to_string())?
+/// Resolves track ids to a DB-free queue, keeping the caller's order and dropping ids that no longer
+/// resolve (a deleted row). `load_track_export_paths` returns only present ids in an arbitrary order,
+/// so index them by id and rebuild along the requested sequence. The only DB work the player does;
+/// the engine never sees a connection. Returns an empty queue when the lock is poisoned.
+fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
+    let resolved: Vec<(i64, String)> = match state.db.lock() {
+        Ok(conn) => db::load_track_export_paths(&conn, track_ids).unwrap_or_default(),
+        Err(_) => return Vec::new(),
     };
-
-    // Keep the caller's order: `load_track_export_paths` returns only present ids in an arbitrary
-    // order, so index them by id and rebuild the queue along the requested sequence.
     let by_id: HashMap<i64, String> = resolved.into_iter().collect();
-    let queue: Vec<QueueTrack> = track_ids
+    track_ids
         .iter()
         .filter_map(|id| {
             by_id.get(id).map(|p| QueueTrack {
@@ -46,14 +36,57 @@ pub fn player_play_tracks(
                 path: PathBuf::from(p),
             })
         })
-        .collect();
+        .collect()
+}
 
+/// Resolves the given track ids to their files and starts playback at `index`. Ids that no longer
+/// resolve (a deleted row) drop out of the queue, so `index` is clamped to what remains. An empty
+/// resolution is a no-op.
+#[tauri::command]
+pub fn player_play_tracks(
+    track_ids: Vec<i64>,
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let queue = resolve_queue(&track_ids, &state);
     if queue.is_empty() {
         return Ok(());
     }
     // Resolution may have dropped rows before `index`, so clamp to the surviving queue.
     let index = index.min(queue.len() - 1);
     let _ = state.player.send(PlayerCmd::Play { queue, index });
+    Ok(())
+}
+
+/// Resolves the given track ids to their files and appends them to the end of the queue. An empty
+/// resolution is a no-op. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_enqueue(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
+    let queue = resolve_queue(&track_ids, &state);
+    if queue.is_empty() {
+        return Ok(());
+    }
+    let _ = state.player.send(PlayerCmd::Enqueue(queue));
+    Ok(())
+}
+
+/// Moves the queue item at `from` to `to`, like a drag in the up-next list. Out-of-range indices are
+/// ignored on the engine. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_move_queue_item(
+    from: usize,
+    to: usize,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::MoveQueueItem { from, to });
+    Ok(())
+}
+
+/// Removes the queue item at `index`, like a delete in the up-next list. An out-of-range index is
+/// ignored on the engine. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_remove_queue_item(index: usize, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::RemoveQueueItem { index });
     Ok(())
 }
 

@@ -21,11 +21,14 @@ import { listen } from "@tauri-apps/api/event";
 import {
   getPlayerQueue,
   getPlayerStatus,
+  playerEnqueue,
   playerJump,
+  playerMoveQueueItem,
   playerNext,
   playerPause,
   playerPlayTracks,
   playerPrev,
+  playerRemoveQueueItem,
   playerResume,
   playerSeek,
   playerSetRepeat,
@@ -70,10 +73,24 @@ interface PlayerActions {
   next: () => void;
   prev: () => void;
   jump: (index: number) => void;
+  // Appends tracks to the queue, or starts a fresh play from `source` when nothing is loaded.
+  addToQueue: (trackIds: number[], source: PlaybackSource) => void;
+  // Moves an up-next row, optimistically reordering the local queue ahead of the engine echo.
+  reorderQueue: (from: number, to: number) => void;
+  // Drops an up-next row, optimistically shrinking the local queue ahead of the engine echo.
+  removeFromQueue: (index: number) => void;
   seek: (secs: number) => void;
   setVolume: (v: number) => void;
   setRepeat: (mode: RepeatMode) => void;
   setShuffle: (on: boolean) => void;
+}
+
+/** Returns `list` with the item at `from` moved to `to`, leaving the input untouched. */
+function arrayMove<T>(list: T[], from: number, to: number): T[] {
+  const next = list.slice();
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
 }
 
 interface PlayerStore {
@@ -97,7 +114,7 @@ interface PlayerStore {
   actions: PlayerActions;
 }
 
-export const usePlayerStore = create<PlayerStore>((set) => ({
+export const usePlayerStore = create<PlayerStore>((set, get) => ({
   status: STOPPED,
   queue: [],
   queueMeta: {},
@@ -124,6 +141,30 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
     next: () => void playerNext().catch(() => {}),
     prev: () => void playerPrev().catch(() => {}),
     jump: (index) => void playerJump(index).catch(() => {}),
+    // Merge the appended rows' metadata so up-next never renders "Unknown track", then either start a
+    // fresh play (nothing loaded) or append. A cold start routes through play for the right queue and
+    // "playing from" source; the enqueue echo folds back through the `player:queue` listener.
+    addToQueue: (trackIds, source) => {
+      const meta = snapshotQueueMeta(trackIds, useAppStore.getState().tracks);
+      set((s) => ({ queueMeta: { ...s.queueMeta, ...meta } }));
+      if (get().status.track_id == null) {
+        get().actions.play(trackIds, 0, source);
+      } else {
+        void playerEnqueue(trackIds).catch(() => {});
+      }
+    },
+    // Reorder locally first so the drop does not snap back for a frame; the `player:queue` echo
+    // reconciles to the engine's authoritative order.
+    reorderQueue: (from, to) => {
+      set((s) => ({ queue: arrayMove(s.queue, from, to) }));
+      void playerMoveQueueItem(from, to).catch(() => {});
+    },
+    // Remove locally first for the same reason; the echo reconciles. queueMeta keeps the stale entry
+    // harmlessly.
+    removeFromQueue: (index) => {
+      set((s) => ({ queue: s.queue.filter((_, i) => i !== index) }));
+      void playerRemoveQueueItem(index).catch(() => {});
+    },
     seek: (secs) => void playerSeek(secs).catch(() => {}),
     setVolume: (v) => void playerSetVolume(v).catch(() => {}),
     setRepeat: (mode) => void playerSetRepeat(mode).catch(() => {}),

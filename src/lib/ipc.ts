@@ -699,6 +699,21 @@ export function playerJump(index: number): Promise<void> {
   return invoke("player_jump", { index });
 }
 
+/** Appends `trackIds` to the end of the queue, resolved to files on the backend. */
+export function playerEnqueue(trackIds: number[]): Promise<void> {
+  return invoke("player_enqueue", { trackIds });
+}
+
+/** Moves the queue item at `from` to `to`, like a drag in the up-next list. */
+export function playerMoveQueueItem(from: number, to: number): Promise<void> {
+  return invoke("player_move_queue_item", { from, to });
+}
+
+/** Removes the queue item at `index`, like a delete in the up-next list. */
+export function playerRemoveQueueItem(index: number): Promise<void> {
+  return invoke("player_remove_queue_item", { index });
+}
+
 /** Seeks the current track to `secs` from its start. */
 export function playerSeek(secs: number): Promise<void> {
   return invoke("player_seek", { secs });
