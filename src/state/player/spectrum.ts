@@ -54,6 +54,28 @@ export function smoothBands(
 }
 
 /**
+ * Folds the raw bands into three levels - the low, mid and high thirds - taking the max of each third so
+ * the three-bar glyph reads the beat rather than an averaged mush. A short or empty frame yields three
+ * zeros. Pure and length-tolerant: the last third takes the remainder when the count divides unevenly.
+ */
+export function foldToThirds(bands: number[]): [number, number, number] {
+  const n = bands.length;
+  if (n === 0) return [0, 0, 0];
+  const size = n / 3;
+  const out: [number, number, number] = [0, 0, 0];
+  for (let g = 0; g < 3; g++) {
+    const start = Math.floor(g * size);
+    const end = g === 2 ? n : Math.floor((g + 1) * size);
+    let max = 0;
+    for (let i = start; i < end; i++) {
+      if (bands[i] > max) max = bands[i];
+    }
+    out[g] = max;
+  }
+  return out;
+}
+
+/**
  * Follows the engine's `player:spectrum` event into the singleton for the app's life. Mount once beside
  * usePlayerSync; the listener tears down on unmount. No mount seed - the spectrum is live-only and
  * starts at rest.

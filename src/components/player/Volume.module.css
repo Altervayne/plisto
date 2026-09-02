@@ -1,10 +1,14 @@
-/* The speaker anchors a rail that unrolls on hover or focus, so the level control stays a single quiet
- * glyph until reached for. The rail keeps its place in the tab order while folded, so a keyboard tab onto
- * it opens the group through focus-within. */
+/* The speaker anchors a vertical rail that unrolls in a recessed chip on hover or focus, so the level
+ * control stays a single quiet glyph until reached for. The chip floats directly above the speaker, so
+ * revealing it never shifts the transport row. */
 .volume {
+  --rail-h: 92px;
+  --handle: 11px;
+  --track-w: 4px;
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
 }
 
 .glyph {
@@ -20,29 +24,43 @@
   color: var(--ink-2);
 }
 
-/* The rail: folded to nothing at rest, unrolling to a short strip on reveal. Inert while folded so the
- * zero-width slider never swallows a pointer, re-armed once open. */
-.rail {
-  position: relative;
+/* The chip: the recessed pill holding the vertical rail, floated just above the speaker. It touches the
+ * glyph so there is no dead gap to cross, and it never clips - its padding clears the handle radius on
+ * every side, so the handle rides to either extreme in full. Folded to nothing at rest, unrolling on
+ * reveal; inert while folded so the hidden slider never swallows a pointer. */
+.chip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
   display: flex;
-  align-items: center;
-  height: 16px;
-  max-width: 0;
+  padding: 9px 8px;
+  border-radius: var(--r-sm);
+  background: var(--veil-2);
+  box-shadow: var(--shadow-soft);
   opacity: 0;
-  overflow: hidden;
-  cursor: pointer;
-  touch-action: none;
   pointer-events: none;
+  transform: translateX(-50%) translateY(4px) scale(0.96);
+  transform-origin: bottom center;
   transition:
-    max-width var(--dur-soft) var(--ease-standard),
-    opacity var(--dur-soft) var(--ease-standard);
+    opacity var(--dur-soft) var(--ease-standard),
+    transform var(--dur-soft) var(--ease-standard);
 }
 
-.volume:hover .rail,
-.volume:focus-within .rail {
-  max-width: 72px;
+.volume:hover .chip,
+.volume:focus-within .chip {
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+/* The rail: the interactive slider region, as tall as the level travel. The handle is measured against
+ * this box, so it must stay outside any clipping - only the track below clips. */
+.rail {
+  position: relative;
+  width: var(--handle);
+  height: var(--rail-h);
+  cursor: pointer;
+  touch-action: none;
 }
 
 .rail:focus-visible {
@@ -51,47 +69,47 @@
   border-radius: var(--pill);
 }
 
+/* The thin groove, centered on the rail and spanning its full height. Clipping lives here alone, so the
+ * fill's rounded cap is contained while the handle above stays free. */
 .track {
-  width: 72px;
-  height: 4px;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: var(--track-w);
+  transform: translateX(-50%);
   border-radius: var(--pill);
-  background: var(--veil-2);
+  background: var(--sunken);
   overflow: hidden;
 }
 
-/* The level fill: neutral ink, never the accent - the seek bar owns the one lit rail. */
+/* The level fill grows from the floor up: neutral ink, never the accent - the seek bar owns the one lit rail. */
 .fill {
-  height: 100%;
-  width: var(--pct);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--level) * 100%);
   border-radius: var(--pill);
   background: var(--ink-3);
 }
 
+/* The handle, measured from the floor so its center clears the bottom edge at zero and the top edge at full -
+ * the travel is the rail height less the handle, so it is never clipped at either extreme. */
 .handle {
   position: absolute;
-  left: var(--pct);
-  top: 50%;
-  width: 10px;
-  height: 10px;
+  left: 50%;
+  bottom: calc(var(--level) * (var(--rail-h) - var(--handle)));
+  width: var(--handle);
+  height: var(--handle);
+  transform: translateX(-50%);
   border-radius: var(--pill);
   background: var(--ink-2);
   box-shadow: var(--shadow-soft);
-  transform: translate(-50%, -50%) scale(0.6);
-  opacity: 0;
-  transition:
-    opacity var(--dur-fast) var(--ease-standard),
-    transform var(--dur-fast) var(--ease-standard);
-}
-
-.rail:hover .handle,
-.rail:focus-visible .handle {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rail,
-  .handle {
+  .chip {
     transition: none;
   }
 }

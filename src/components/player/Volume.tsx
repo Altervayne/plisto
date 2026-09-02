@@ -23,10 +23,12 @@ function clamp01(v: number): number {
 }
 
 /**
- * The speaker with a reveal-on-hover level rail. The rail borrows the seek bar's track and handle
- * vocabulary, but its fill is neutral ink, never accent - the seek fill is the one lit rail, and a
- * second accent here would read as a competing mark. The speaker glyph tracks the level so the state
- * reads even while the rail is folded away. Wired straight to the engine: dragging sets the level live.
+ * The speaker with a reveal-on-hover vertical level rail in a recessed chip that floats above it, so the
+ * control stays a single quiet glyph until reached for. The rail borrows the seek bar's track and handle
+ * vocabulary, but its fill is neutral ink, never accent - the seek fill is the one lit rail, and a second
+ * accent here would read as a competing mark. The speaker glyph tracks the level so the state reads even
+ * while the chip is folded away. Wired straight to the engine: dragging sets the level live, and the
+ * pointer maps inverted, so up is louder.
  */
 export function Volume({ volume }: { volume: number }) {
   const actions = usePlayerActions();
@@ -37,12 +39,12 @@ export function Volume({ volume }: { volume: number }) {
   const pct = level * 100;
   const Glyph = level === 0 ? VolumeX : level < 0.5 ? Volume1 : Volume2;
 
-  // The level under the pointer, from its x within the rail.
+  // The level under the pointer, measured from the rail's floor up, so dragging toward the top raises it.
   const levelFromPointer = (e: PointerEvent<HTMLDivElement>): number => {
     const rail = railRef.current;
     if (!rail) return level;
     const rect = rail.getBoundingClientRect();
-    return clamp01((e.clientX - rect.left) / rect.width);
+    return clamp01((rect.bottom - e.clientY) / rect.height);
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -85,30 +87,32 @@ export function Volume({ volume }: { volume: number }) {
   };
 
   return (
-    <div className={styles.volume}>
-      <span className={styles.glyph} aria-hidden="true">
-        <Glyph size={19} strokeWidth={1.8} />
-      </span>
-      <div
-        ref={railRef}
-        className={styles.rail}
-        style={{ "--pct": `${pct}%` } as CSSProperties}
-        role="slider"
-        tabIndex={0}
-        aria-label={t((d) => d.player.volume)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(pct)}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onKeyDown={onKeyDown}
-      >
-        <div className={styles.track}>
-          <div className={styles.fill} />
+    <div className={styles.volume} style={{ "--level": level } as CSSProperties}>
+      <div className={styles.chip}>
+        <div
+          ref={railRef}
+          className={styles.rail}
+          role="slider"
+          tabIndex={0}
+          aria-label={t((d) => d.player.volume)}
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onKeyDown={onKeyDown}
+        >
+          <div className={styles.track}>
+            <div className={styles.fill} />
+          </div>
+          <div className={styles.handle} aria-hidden="true" />
         </div>
-        <div className={styles.handle} aria-hidden="true" />
       </div>
+      <span className={styles.glyph} aria-hidden="true">
+        <Glyph size={17} strokeWidth={1.8} />
+      </span>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { QueueRow } from "./QueueRow";
+import { SequenceMenu } from "./SequenceMenu";
 
 // -- State Imports --
 import {
@@ -26,7 +27,8 @@ import styles from "./QueueList.module.css";
 /**
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
- * The header counts the tracks still ahead; the footer clears the queue by stopping the engine.
+ * The header counts the tracks still ahead and holds the sequencing control; the footer clears the queue
+ * by stopping the engine.
  */
 export function QueueList() {
   const queue = usePlayerQueue();
@@ -40,8 +42,11 @@ export function QueueList() {
   return (
     <div className={styles.queue}>
       <div className={styles.header}>
-        <span className={styles.label}>{t((d) => d.player.upNext)}</span>
-        <span className={styles.count}>{formatCount(ahead)}</span>
+        <div className={styles.heading}>
+          <span className={styles.label}>{t((d) => d.player.upNext)}</span>
+          <span className={styles.count}>{formatCount(ahead)}</span>
+        </div>
+        <SequenceMenu />
       </div>
 
       <ScrollArea className={styles.scroll} contentClassName={styles.rows}>

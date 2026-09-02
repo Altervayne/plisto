@@ -1,49 +1,16 @@
-/* The fixed hero column, vertically centered and holding still while the queue scrolls beside it. It
- * clips the cover whisper to its own bounds, so the wash can never bleed into the queue gutter. */
+/* The hero column: the flexing centre star, vertically centered and holding still while the queue
+ * scrolls in its narrower column beside it. */
 .hero {
   position: relative;
-  flex: 0 0 clamp(340px, 40%, 460px);
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  overflow: hidden;
 }
 
-/* The cover whisper: the current art, blurred to a soft tint and held near-transparent, feathered by a
- * radial mask so it fades to nothing well before the column edge. No scrim - this is a hint of color, not
- * a ground, so the view never reads as a themed player surface. */
-.wash {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background-size: cover;
-  background-position: center;
-  filter: blur(64px) saturate(1.2);
-  transform: scale(1.4);
-  opacity: 0.07;
-  pointer-events: none;
-  -webkit-mask-image: radial-gradient(58% 54% at 50% 42%, #000, transparent 76%);
-  mask-image: radial-gradient(58% 54% at 50% 42%, #000, transparent 76%);
-}
-
-.wash[data-enter] {
-  animation: washIn var(--dur-slow) var(--ease-standard);
-}
-
-@keyframes washIn {
-  from {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wash[data-enter] {
-    animation: none;
-  }
-}
-
-/* The content stack over the whisper, centered as one column. */
+/* The content stack, centered as one column. */
 .column {
   position: relative;
   z-index: 1;
@@ -144,15 +111,29 @@
   width: 100%;
 }
 
-/* The transport bar: shuffle, the prev/play/next cluster, and repeat as one row of five glyphs. */
+/* The transport row: three columns so the prev/play/next cluster stays optically centered in the column
+ * while the volume rail trails it. The two 1fr flanks are equal, so the auto centre cell holds the middle
+ * regardless of the rail's width. */
 .transport {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+}
+
+/* The prev/play/next transport as one centered cluster. */
+.cluster {
+  grid-column: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
 }
 
-.volume {
+/* The volume rail in the trailing flank, pulled to the far edge so the cluster is not pushed off centre. */
+.volumeSlot {
+  grid-column: 3;
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-self: end;
 }

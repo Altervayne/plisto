@@ -1,0 +1,135 @@
+/* The sequencing control: a toggle button in the queue header over a small popover holding the repeat
+ * radio and the randomize toggle. The popover floats under the button on the pop shadow like the app's
+ * other panels, and stays neutral throughout - the chosen rows read by a check and their ink, never the
+ * accent. */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The popover, anchored under the button and pulled to its trailing edge so it opens back into the panel
+ * rather than past its rounded edge. */
+.pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 208px;
+  padding: 5px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  animation: seq-in var(--dur-fast) var(--ease-cover) both;
+}
+
+@keyframes seq-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop {
+    animation: none;
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* The group heading: the uppercase micro-label the rest of the view titles its sections with. */
+.groupLabel {
+  padding: 5px 9px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A menu row: a glyph, its label, and a trailing check slot. Quiet at rest, veiling on hover. */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.item:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* The chosen repeat mode, or randomize when on: full ink, so the active row reads by weight. */
+.item[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.item[aria-checked="true"] .icon {
+  color: var(--ink-2);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The trailing selected mark, holding its slot whether shown or not so a row never reflows as the choice
+ * moves. Neutral ink, never the accent. */
+.check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink);
+}
+
+/* A hairline between the repeat group and the randomize toggle, set off by its own margin. */
+.sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

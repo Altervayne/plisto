@@ -1,0 +1,19 @@
+/* The visualizer ridge: a full-width canvas anchored to the view floor, sitting between the cover glow
+ * and the content. Neutral ink from the theme, laid with soft-light so it shades the light ground gently
+ * and picks up the glow's hue beneath it - motion tinted by the cover with no color extraction, and never
+ * the accent. The color token is read off this element so the fill tracks the theme. */
+.ridge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* A canvas is a replaced element, so left/right:0 alone will not stretch it - it would fall back to its
+   * intrinsic size. Width and height are given explicitly so the ridge spans the whole view floor. */
+  width: 100%;
+  height: 34%;
+  z-index: 1;
+  display: block;
+  color: var(--ink);
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+}

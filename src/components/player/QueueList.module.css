@@ -1,18 +1,29 @@
-/* The up-next column: a fixed header over the scrolling rows over a quiet footer. It fills the right pane
- * and holds its own scroll, so the hero beside it never moves. */
+/* The up-next column: a fixed header over the scrolling rows over a quiet footer. A tidy fixed-width
+ * column on the trailing edge that holds its own scroll, so the hero beside it never moves. */
 .queue {
-  flex: 1;
+  flex: 0 0 clamp(300px, 30%, 360px);
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
+/* The header: the "up next" heading and its count on the left, the sequencing control pushed to the
+ * trailing edge. */
 .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px 8px 10px;
+}
+
+/* The heading pair keeps its own baseline so the count sits on the label's baseline. */
+.heading {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 0 10px 12px;
+  min-width: 0;
 }
 
 .label {

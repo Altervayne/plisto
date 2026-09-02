@@ -1,10 +1,5 @@
-// -- Icon Imports --
-import { Repeat, Repeat1, Shuffle } from "lucide-react";
-
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
-import { IconToggle } from "../common/IconToggle";
-import { CoverBackdrop } from "./CoverBackdrop";
 import { SeekBar } from "./SeekBar";
 import { Transport } from "./Transport";
 import { Volume } from "./Volume";
@@ -17,7 +12,7 @@ import { useTrackDisplay } from "./useTrackDisplay";
 import { usePlayerActions, usePlayerStatus, usePlayingFrom } from "../../state/player/store";
 
 // -- Type Imports --
-import type { PlaybackSource, RepeatMode } from "../../types";
+import type { PlaybackSource } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -25,15 +20,12 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./PlayerHero.module.css";
 
-/** The repeat cycle the button steps through on each press. */
-const NEXT_REPEAT: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", one: "off" };
-
 /**
- * The now-playing column: the source line, the cover, the title and artist, the seek bar, the transport
- * flanked by shuffle and repeat, and the volume. Mounts only with a real track id, so its id-typed hooks
+ * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
+ * transport with the volume rail trailing it. Mounts only with a real track id, so its id-typed hooks
  * never run empty. The seek fill is the one lit accent of the whole view; every other control reads by
- * weight and material. A confined whisper of the cover washes behind the column, feathered out well
- * before its right edge - no dark scrim, so this never reads as a player theme.
+ * weight and material. The cover's ambient glow now lives at the view level behind both columns, so this
+ * column carries no wash of its own. Sequencing (repeat and shuffle) now lives in the queue's own control.
  */
 export function PlayerHero({
   trackId,
@@ -51,7 +43,6 @@ export function PlayerHero({
 
   return (
     <div className={styles.hero}>
-      <CoverBackdrop src={coverSrc} className={styles.wash} />
       <div className={styles.column}>
         <SourceLine onNavigate={onNavigate} />
 
@@ -73,29 +64,12 @@ export function PlayerHero({
         </div>
 
         <div className={styles.transport}>
-          <IconToggle
-            pressed={status.shuffle}
-            aria-label={t((d) => d.player.shuffle)}
-            onClick={() => actions.setShuffle(!status.shuffle)}
-          >
-            <Shuffle size={18} strokeWidth={1.8} />
-          </IconToggle>
-          <Transport size="lg" />
-          <IconToggle
-            pressed={status.repeat !== "off"}
-            aria-label={t((d) => d.player.repeat)}
-            onClick={() => actions.setRepeat(NEXT_REPEAT[status.repeat])}
-          >
-            {status.repeat === "one" ? (
-              <Repeat1 size={18} strokeWidth={1.8} />
-            ) : (
-              <Repeat size={18} strokeWidth={1.8} />
-            )}
-          </IconToggle>
-        </div>
-
-        <div className={styles.volume}>
-          <Volume volume={status.volume} />
+          <div className={styles.cluster}>
+            <Transport size="lg" />
+          </div>
+          <div className={styles.volumeSlot}>
+            <Volume volume={status.volume} />
+          </div>
         </div>
       </div>
     </div>
