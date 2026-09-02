@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { sequenceActive, sequenceGlyph } from "./sequenceState";
+import { nextRepeat, sequenceActive, sequenceGlyph } from "./sequenceState";
 
 describe("sequenceGlyph", () => {
   it("shows the shuffle glyph whenever shuffle is on, over any repeat mode", () => {
@@ -33,5 +33,23 @@ describe("sequenceActive", () => {
   it("is on for any non-off repeat mode", () => {
     expect(sequenceActive("all", false)).toBe(true);
     expect(sequenceActive("one", false)).toBe(true);
+  });
+});
+
+describe("nextRepeat", () => {
+  it("steps off to all", () => {
+    expect(nextRepeat("off")).toBe("all");
+  });
+
+  it("steps all to one", () => {
+    expect(nextRepeat("all")).toBe("one");
+  });
+
+  it("steps one back to off", () => {
+    expect(nextRepeat("one")).toBe("off");
+  });
+
+  it("cycles back to off in three steps", () => {
+    expect(nextRepeat(nextRepeat(nextRepeat("off")))).toBe("off");
   });
 });

@@ -28,9 +28,10 @@ function clamp01(v: number): number {
  * vocabulary, but its fill is neutral ink, never accent - the seek fill is the one lit rail, and a second
  * accent here would read as a competing mark. The speaker glyph tracks the level so the state reads even
  * while the chip is folded away. Wired straight to the engine: dragging sets the level live, and the
- * pointer maps inverted, so up is louder.
+ * pointer maps inverted, so up is louder. A caller can shorten the rail where the default travel would
+ * clip its window; unset, the stylesheet's own height stands.
  */
-export function Volume({ volume }: { volume: number }) {
+export function Volume({ volume, railHeight }: { volume: number; railHeight?: number }) {
   const actions = usePlayerActions();
   const t = useT();
   const railRef = useRef<HTMLDivElement>(null);
@@ -59,6 +60,10 @@ export function Volume({ volume }: { volume: number }) {
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     railRef.current?.releasePointerCapture(e.pointerId);
+    // A pointer press focuses the rail, and focus-within would hold the chip open until a click elsewhere
+    // blurred it. Dropping focus here lets it fold as soon as the pointer leaves; keyboard focus, which
+    // never fires pointer up, keeps its own reveal.
+    railRef.current?.blur();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -87,7 +92,15 @@ export function Volume({ volume }: { volume: number }) {
   };
 
   return (
-    <div className={styles.volume} style={{ "--level": level } as CSSProperties}>
+    <div
+      className={styles.volume}
+      style={
+        {
+          "--level": level,
+          ...(railHeight != null ? { "--rail-h": `${railHeight}px` } : {}),
+        } as CSSProperties
+      }
+    >
       <div className={styles.chip}>
         <div
           ref={railRef}

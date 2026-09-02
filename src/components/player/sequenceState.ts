@@ -21,3 +21,10 @@ export function sequenceGlyph(repeat: RepeatMode, shuffle: boolean): SequenceGly
 export function sequenceActive(repeat: RepeatMode, shuffle: boolean): boolean {
   return shuffle || repeat !== "off";
 }
+
+/** The next repeat mode a single toggle steps to, cycling off -> all -> one -> off. */
+export function nextRepeat(mode: RepeatMode): RepeatMode {
+  if (mode === "off") return "all";
+  if (mode === "all") return "one";
+  return "off";
+}

@@ -17,6 +17,11 @@
     transform var(--dur-fast) var(--ease-standard);
 }
 
+/* The compact size for a tight row, shaving the padding so the chip fits a narrow column. */
+.sm {
+  padding: 5px;
+}
+
 .toggle:hover {
   background: var(--veil);
   color: var(--ink-2);

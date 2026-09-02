@@ -9,6 +9,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* The control stays hoverable even inside a pointer-transparent drag surface (the pop-out widget), so
+   * hovering the speaker opens the rail. The box is just the speaker - the chip is absolute - so this
+   * never re-arms the empty space above where the rail unrolls. */
+  pointer-events: auto;
 }
 
 .glyph {
@@ -30,12 +34,14 @@
  * reveal; inert while folded so the hidden slider never swallows a pointer. */
 .chip {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% + 6px);
   left: 50%;
   display: flex;
   padding: 9px 8px;
   border-radius: var(--r-sm);
-  background: var(--veil-2);
+  /* An opaque surface, not a veil: it floats over busy ground (the pop-out's blurred cover), so the rail
+   * must read against the chip, not whatever sits behind it. */
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
   opacity: 0;
   pointer-events: none;
@@ -44,6 +50,18 @@
   transition:
     opacity var(--dur-soft) var(--ease-standard),
     transform var(--dur-soft) var(--ease-standard);
+}
+
+/* A transparent bridge spanning the gap down to the speaker, so a hover crossing from the glyph to the
+ * lifted chip never falls through the gap and folds it. Inert while the chip is folded, so it never arms
+ * the empty space at rest. */
+.chip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 8px;
 }
 
 .volume:hover .chip,
@@ -61,6 +79,13 @@
   height: var(--rail-h);
   cursor: pointer;
   touch-action: none;
+}
+
+/* While folded, the rail must not be a hover target - otherwise, in a drag surface that re-arms every
+ * slider (the pop-out widget), the invisible rail would catch a hover over the empty space where it would
+ * open and reveal itself. This outranks that blanket re-arm, so only a hover on the speaker opens it. */
+.volume:not(:hover):not(:focus-within) .rail {
+  pointer-events: none;
 }
 
 .rail:focus-visible {

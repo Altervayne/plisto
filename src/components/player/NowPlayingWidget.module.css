@@ -120,6 +120,27 @@
   text-overflow: ellipsis;
 }
 
+/* The controls row: equal side cells flank the transport so it stays optically centered whether or not
+ * the sequencing group outweighs the volume. Sequencing sits left, the transport dead-center, volume
+ * right. The narrow main column leaves the flankers little air, so they run compact. */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.seq {
+  display: flex;
+  justify-self: start;
+  gap: 2px;
+}
+
+.vol {
+  display: flex;
+  justify-self: end;
+  justify-content: flex-end;
+}
+
 /* The idle transport, shown greyed and untouchable when nothing is playing. The nested rule overrides
  * the content re-arm above, so the placeholder's buttons stay dead. */
 .inert {

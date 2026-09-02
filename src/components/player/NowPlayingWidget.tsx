@@ -3,15 +3,20 @@ import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 // -- Icon Imports --
-import { X } from "lucide-react";
+import { Repeat, Repeat1, X } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { IconButton } from "../common/IconButton";
+import { IconToggle } from "../common/IconToggle";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { SeekBar } from "./SeekBar";
 import { SpectrumRidge } from "./SpectrumRidge";
 import { Transport } from "./Transport";
+import { Volume } from "./Volume";
+
+// -- Local Imports --
+import { nextRepeat } from "./sequenceState";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
@@ -26,9 +31,6 @@ import {
   usePlayerSync,
 } from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
-
-// -- Theme Imports --
-import { useApplyTheme } from "../../theme";
 
 // -- IPC Imports --
 import { hideNowPlayingWidget, setSetting } from "../../lib/ipc";
@@ -57,7 +59,11 @@ export function NowPlayingWidget() {
   useEffect(() => {
     void loadPreferences();
   }, [loadPreferences]);
-  useApplyTheme();
+  // The card always sits on the dark cover ground, so it forces the root dark rather than following the
+  // user's light/dark pref: the dark tokens the controls read then resolve in any app theme.
+  useEffect(() => {
+    document.documentElement.dataset.theme = "dark";
+  }, []);
   usePlayerSync();
   useSpectrumSync();
   usePersistPosition();
@@ -143,7 +149,26 @@ function WidgetBody({ trackId }: { trackId: number }) {
           duration={status.duration_secs}
           onSeek={actions.seek}
         />
-        <Transport size="lg" />
+        <div className={styles.controls}>
+          <div className={styles.seq}>
+            <IconToggle
+              size="sm"
+              pressed={status.repeat !== "off"}
+              aria-label={t((d) => d.player.repeat)}
+              onClick={() => actions.setRepeat(nextRepeat(status.repeat))}
+            >
+              {status.repeat === "one" ? (
+                <Repeat1 size={16} strokeWidth={1.8} />
+              ) : (
+                <Repeat size={16} strokeWidth={1.8} />
+              )}
+            </IconToggle>
+          </div>
+          <Transport size="md" />
+          <div className={styles.vol}>
+            <Volume volume={status.volume} railHeight={60} />
+          </div>
+        </div>
       </div>
     </CardShell>
   );
