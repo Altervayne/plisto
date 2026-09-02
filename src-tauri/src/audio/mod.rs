@@ -21,6 +21,7 @@ pub mod engine;
 pub mod flac_frames;
 pub mod peaks;
 pub mod silence;
+pub mod spectrum;
 
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};

@@ -43,6 +43,7 @@ import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 import { usePlayerSync } from "../../state/player/store";
+import { useSpectrumSync } from "../../state/player/spectrum";
 import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
 
 // -- Type Imports --
@@ -101,6 +102,8 @@ export function AppShell() {
   const t = useT();
   // One listener for the app's life, following the engine's status and error events into the store.
   usePlayerSync();
+  // The live spectrum feed into its own off-render singleton, running the app's life alongside the status.
+  useSpectrumSync();
   const [mode, setMode] = useState<Mode>("albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);

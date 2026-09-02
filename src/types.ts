@@ -470,6 +470,12 @@ export interface ExtractResult {
 /** The engine's repeat mode: no repeat, repeat the queue, or repeat the current track. Mirrors RepeatMode in audio/mod.rs. */
 export type RepeatMode = 'off' | 'all' | 'one';
 
+/** The number of spectrum bands the engine emits per frame. Mirrors BAND_COUNT in audio/engine.rs. */
+export const BAND_COUNT = 24;
+
+/** One spectrum frame: per-band levels in 0..1, already normalized by the engine. The `player:spectrum` payload. */
+export type SpectrumBands = number[];
+
 /**
  * The player's live snapshot: what is playing, where the playhead sits, and the queue cursor. The
  * throttled `player:status` event and `get_player_status` both carry it. `track_id` is null when the

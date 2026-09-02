@@ -9,7 +9,7 @@
 
 // -- Library Imports --
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -20,10 +20,37 @@ use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
-use super::{decode, AudioSpec, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
+use super::{decode, spectrum, AudioSpec, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
 use crate::scan::progress::ProgressThrottle;
 
 // ---- Decoded source ----
+
+// The ring of recent mono samples the spectrum reader taps. A power of two so the write index masks
+// cheaply; the reader grabs the trailing SPECTRUM_WINDOW for one FFT.
+const SPECTRUM_RING: usize = 2048;
+const SPECTRUM_WINDOW: usize = 1024;
+/// Spectrum bands emitted per frame. The mini three-bar EQ folds its bars out of these.
+pub const BAND_COUNT: usize = 24;
+
+/// A lock-free tap of the playing audio for the spectrum reader. `next` runs on rodio's mixer thread
+/// while the engine reads the tail on its own thread, so this straddles the two the way the frame
+/// counter does: one writer, read for display only, Relaxed the right ordering - not a sync gate.
+/// Each mono sample rides as its f32 bits in an AtomicU32.
+struct SpectrumTap {
+    ring: [AtomicU32; SPECTRUM_RING],
+    // Total mono frames pushed since this source began, the write cursor into the ring.
+    written: AtomicU64,
+}
+
+impl SpectrumTap {
+    /// A silent tap: the ring zeroed and the cursor at the start.
+    fn new() -> Self {
+        Self {
+            ring: std::array::from_fn(|_| AtomicU32::new(0)),
+            written: AtomicU64::new(0),
+        }
+    }
+}
 
 /// Adapts a pull-based `decode::Decoder` into a rodio `Source`: rodio pulls one interleaved f32
 /// sample at a time, and this refills from the decoder a packet at a time as it drains. A shared
@@ -37,6 +64,10 @@ struct DecoderSource {
     // Shared with the engine so it reads the play head while the audio thread writes it. Single
     // writer here, read for display only, so Relaxed is the right ordering - not a sync gate.
     frames: Arc<AtomicU64>,
+    // The spectrum reader's tap, written one mono sample per completed frame, same split as `frames`.
+    spectrum: Arc<SpectrumTap>,
+    // Running sum of the current frame's channels, downmixed to mono when the frame completes.
+    frame_sum: f32,
     chan_cursor: u16,
     duration: Option<Duration>,
     done: bool,
@@ -58,6 +89,8 @@ impl DecoderSource {
             pos: 0,
             decoder,
             frames: Arc::new(AtomicU64::new(start_frame)),
+            spectrum: Arc::new(SpectrumTap::new()),
+            frame_sum: 0.0,
             chan_cursor: 0,
             duration,
             done: false,
@@ -91,8 +124,16 @@ impl Iterator for DecoderSource {
         let s = self.buffer[self.pos];
         self.pos += 1;
         self.chan_cursor += 1;
+        self.frame_sum += s;
         if self.chan_cursor >= self.spec.channels {
             self.chan_cursor = 0;
+            // Downmix the frame to mono (sum over channels, not channel 0) so hard-panned content
+            // still lights the bars, then push it to the tap at the next ring slot. No lock, no alloc.
+            let mono = self.frame_sum / self.spec.channels as f32;
+            let slot = (self.spectrum.written.load(Ordering::Relaxed) as usize) & (SPECTRUM_RING - 1);
+            self.spectrum.ring[slot].store(mono.to_bits(), Ordering::Relaxed);
+            self.spectrum.written.fetch_add(1, Ordering::Relaxed);
+            self.frame_sum = 0.0;
             self.frames.fetch_add(1, Ordering::Relaxed);
         }
         Some(s)
@@ -253,6 +294,9 @@ struct Engine {
     playing: bool,
     volume: f32,
     cur_frames: Option<Arc<AtomicU64>>,
+    // The current source's spectrum tap, tracked alongside cur_frames and read by emit_spectrum. None
+    // when nothing plays.
+    cur_spectrum: Option<Arc<SpectrumTap>>,
     cur_rate: u32,
     cur_duration: f64,
     cur_track_id: Option<i64>,
@@ -328,6 +372,38 @@ impl Engine {
         let _ = self.app.emit("player:queue", &ids);
     }
 
+    /// Whether the engine is actively producing sound right now: a loaded track that is not paused.
+    fn is_audible(&self) -> bool {
+        self.playing && !self.paused
+    }
+
+    /// Analyzes the trailing window of played audio and emits it as `player:spectrum`. Gated on active
+    /// output, so it is silent while paused or stopped. Snapshots the tap ring without locking: the
+    /// audio thread may write mid-copy, but a torn window is immaterial to a visualizer.
+    fn emit_spectrum(&self) {
+        let tap = match &self.cur_spectrum {
+            Some(tap) if self.is_audible() => tap,
+            _ => return,
+        };
+        let w = tap.written.load(Ordering::Relaxed);
+        if w < SPECTRUM_WINDOW as u64 {
+            return;
+        }
+        let mut window = [0.0f32; SPECTRUM_WINDOW];
+        for (i, out) in window.iter_mut().enumerate() {
+            let slot = ((w - SPECTRUM_WINDOW as u64 + i as u64) as usize) & (SPECTRUM_RING - 1);
+            *out = f32::from_bits(tap.ring[slot].load(Ordering::Relaxed));
+        }
+        let bands = spectrum::spectrum(&window, self.cur_rate, BAND_COUNT);
+        let _ = self.app.emit("player:spectrum", &bands);
+    }
+
+    /// Emits one zeroed spectrum frame so a visualizer settles to rest. Called on the edge into
+    /// paused or stopped, never every idle tick.
+    fn emit_spectrum_rest(&self) {
+        let _ = self.app.emit("player:spectrum", &vec![0.0f32; BAND_COUNT]);
+    }
+
     /// Loads and starts the track at `start`, skipping FORWARD over any that fail to open (missing
     /// file, unsupported/Opus) until one plays or the queue exhausts and playback stops. Emits a
     /// forced status on either outcome.
@@ -359,6 +435,7 @@ impl Engine {
     fn start_source(&mut self, i: usize, src: DecoderSource) {
         self.index = i;
         self.cur_frames = Some(Arc::clone(&src.frames));
+        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
         self.cur_rate = src.spec.sample_rate;
         self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
         self.cur_track_id = Some(self.queue[i].id);
@@ -383,10 +460,13 @@ impl Engine {
         self.playing = false;
         self.paused = false;
         self.cur_frames = None;
+        self.cur_spectrum = None;
         self.cur_rate = 0;
         self.cur_duration = 0.0;
         self.cur_track_id = None;
         self.stop_at_frame = None;
+        // Settle the bars to rest on the edge into stopped, so a visualizer needs no self-decay.
+        self.emit_spectrum_rest();
     }
 
     /// Auditions `path` between `start_secs` and `end_secs` on the resident sink: opens the file,
@@ -416,6 +496,7 @@ impl Engine {
         };
         let rate = src.spec.sample_rate;
         self.cur_frames = Some(Arc::clone(&src.frames));
+        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
         self.cur_rate = rate;
         self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
         self.cur_track_id = None;
@@ -471,6 +552,7 @@ impl Engine {
                 sink.pause();
             }
             self.paused = true;
+            self.emit_spectrum_rest();
         }
         self.emit(true);
     }
@@ -500,6 +582,7 @@ impl Engine {
             None => return,
         };
         self.cur_frames = Some(Arc::clone(&src.frames));
+        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
         self.cur_rate = src.spec.sample_rate;
         if let Some(sink) = &self.sink {
             sink.clear();
@@ -635,6 +718,9 @@ impl Engine {
                     }
                 }
                 self.paused = !self.paused;
+                if self.paused {
+                    self.emit_spectrum_rest();
+                }
                 self.emit(true);
             }
             PlayerCmd::Pause => {
@@ -642,6 +728,7 @@ impl Engine {
                     sink.pause();
                 }
                 self.paused = true;
+                self.emit_spectrum_rest();
                 self.emit(true);
             }
             PlayerCmd::Resume => {
@@ -748,6 +835,8 @@ impl Engine {
                 EndAction::Stop => self.stop_playback(),
             }
         }
+        // Self-gates on is_audible, so an idle tick emits nothing; the status path keeps its own throttle.
+        self.emit_spectrum();
         self.emit(false);
     }
 }
@@ -814,6 +903,7 @@ fn run(
         playing: false,
         volume: 1.0,
         cur_frames: None,
+        cur_spectrum: None,
         cur_rate: 0,
         cur_duration: 0.0,
         cur_track_id: None,
@@ -829,7 +919,14 @@ fn run(
     };
 
     loop {
-        match rx.recv_timeout(Duration::from_millis(120)) {
+        // Tick at about 30fps while audible so the spectrum feed is smooth, idling back to a slow poll
+        // when nothing plays. Only the timeout changes: the status throttle and track-end checks hold.
+        let timeout = if engine.is_audible() {
+            Duration::from_millis(33)
+        } else {
+            Duration::from_millis(120)
+        };
+        match rx.recv_timeout(timeout) {
             Ok(cmd) => engine.handle(cmd),
             Err(RecvTimeoutError::Timeout) => engine.tick(),
             // Every Sender dropped: the app is exiting. Break so the sink and stream drop cleanly.
