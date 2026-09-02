@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Icon Imports --
-import { FolderOpen, Image as ImageIcon, Info, ListPlus, Play, X } from "lucide-react";
+import { FolderOpen, Image as ImageIcon, Info, ListEnd, ListPlus, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
@@ -99,7 +99,7 @@ export function AlbumTrackList({
   const playlists = usePlaylists();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
-  const { play } = usePlayerActions();
+  const { play, addToQueue } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const album = useAlbum(albumId);
   const t = useT();
@@ -213,6 +213,12 @@ export function AlbumTrackList({
     clearSelection();
   };
 
+  // Append the selection to the queue in visual order (ids already runs disc-then-position), leaving the
+  // selection be like the row menus. The parent gates it on the player being on.
+  const addSelectedToQueue = () => {
+    addToQueue(ids.filter((id) => selected.has(id)), source);
+  };
+
   // The undoable remove-from-album, then clears.
   const removeSelected = () => {
     unassignTracks(albumId, [...selected]);
@@ -268,6 +274,13 @@ export function AlbumTrackList({
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
               onSelect: () => play(ids, ids.indexOf(row.track_id), source),
+              disabled: unplayable,
+              tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
+            } satisfies MenuEntry,
+            {
+              icon: <ListEnd size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.addToQueue),
+              onSelect: () => addToQueue([row.track_id], source),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -362,6 +375,7 @@ export function AlbumTrackList({
           newDisc={nextDisc}
           state={selectionBar.state}
           onSelectAll={selectAll}
+          onAddToQueue={playerEnabled ? addSelectedToQueue : undefined}
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}
           onAddToPlaylist={() => setPlaylistPicker({ tracks: [...selected], fromSelection: true })}

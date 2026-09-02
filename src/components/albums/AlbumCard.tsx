@@ -3,7 +3,7 @@ import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
-import { Check, Download, Info, ListPlus, Maximize2, Play, Trash2 } from "lucide-react";
+import { Check, Download, Info, ListEnd, ListPlus, Maximize2, Play, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
@@ -76,7 +76,7 @@ export const AlbumCard = memo(function AlbumCard({
   onAddToPlaylist?: (trackIds: number[]) => void;
 }) {
   const deleteAlbum = useDeleteAlbum();
-  const { play } = usePlayerActions();
+  const { play, addToQueue } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
@@ -134,11 +134,23 @@ export const AlbumCard = memo(function AlbumCard({
     const items: MenuEntry[] = [];
     // Play leads only while the player is on; off, the whole scattered play surface goes quiet.
     if (playerEnabled) {
-      items.push({
-        icon: <Play size={16} strokeWidth={1.8} />,
-        label: t((d) => d.player.play),
-        onSelect: playAlbum,
-      });
+      items.push(
+        {
+          icon: <Play size={16} strokeWidth={1.8} />,
+          label: t((d) => d.player.play),
+          onSelect: playAlbum,
+        },
+        {
+          icon: <ListEnd size={16} strokeWidth={1.8} />,
+          label: t((d) => d.player.addToQueue),
+          onSelect: () =>
+            addToQueue(tracks.map((track) => track.track_id), {
+              kind: "album",
+              id: album.id,
+              label: album.title ?? t((d) => d.albums.untitled),
+            }),
+        },
+      );
     }
     if (!single && onOpenFull) {
       items.push({

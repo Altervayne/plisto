@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListPlus, Play, Scissors } from "lucide-react";
+import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, Play, Scissors } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -163,7 +163,7 @@ export function TrackGrid({
   // The right-click menu acts on the one row it opened over, never the multi-selection: each entry
   // targets that track alone. The two "Add to..." pickers hold that track id while open, so choosing
   // lands on it even after the menu has closed.
-  const { play } = usePlayerActions();
+  const { play, addToQueue } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const albums = useAlbums();
   const assignTracks = useAssignTracks();
@@ -205,6 +205,13 @@ export function TrackGrid({
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
               onSelect: () => play(rowIds, rowIds.indexOf(track.id), { kind: "files" }),
+              disabled: track.missing_at != null,
+              tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
+            } satisfies MenuEntry,
+            {
+              icon: <ListEnd size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.addToQueue),
+              onSelect: () => addToQueue([track.id], { kind: "files" }),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,

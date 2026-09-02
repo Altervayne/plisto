@@ -44,6 +44,7 @@ import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store
 
 // -- Local Imports --
 import { snapshotQueueMeta } from "./queueMeta";
+import { added } from "./queueToast";
 
 // -- Type Imports --
 import type { PlaybackSource, PlayerStatus, RepeatMode } from "../../types";
@@ -151,6 +152,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         get().actions.play(trackIds, 0, source);
       } else {
         void playerEnqueue(trackIds).catch(() => {});
+        // The append is silent otherwise; a cold start shows the mini-player instead, its own feedback.
+        added(trackIds.length);
       }
     },
     // Reorder locally first so the drop does not snap back for a frame; the `player:queue` echo

@@ -1,17 +1,15 @@
-/* One queue row: a number cell, the title-over-artist column, and the duration. The row veils on hover
- * like the rest of the surface; a full-width button so the whole strip jumps the engine to this track. */
+/* One queue row: a reserved grip lane and the central jump button, which lays out the number cell, the
+ * title-over-artist column, and the duration. The row veils on hover like the rest of the surface. An
+ * up-next row's remove rides absolutely over the duration, swapped in by opacity so nothing reflows. */
 .row {
+  position: relative;
   display: grid;
-  grid-template-columns: 24px 1fr auto;
+  grid-template-columns: 16px 1fr;
   align-items: center;
-  gap: 12px;
-  width: 100%;
+  gap: 4px;
   padding: 7px 10px;
-  border: 0;
   border-radius: var(--r-sm);
   background: transparent;
-  text-align: left;
-  cursor: pointer;
   transition: background var(--dur-fast) ease;
 }
 
@@ -30,6 +28,73 @@
 .row[data-state="now"],
 .row[data-state="now"]:hover {
   background: var(--veil-2);
+}
+
+/* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
+.row[data-dragging] {
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+/*
+ * The reorder grip: its 16px lane is always reserved so the reveal never reflows the row. It dissolves at
+ * rest and surfaces on row hover or when the handle takes keyboard focus. Only up-next rows carry it; the
+ * played and now rows fill the lane with an inert spacer.
+ */
+.handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.row:hover .handle,
+.handle:focus-visible {
+  opacity: 0.65;
+}
+
+.handle:hover {
+  color: var(--ink-2);
+  opacity: 1;
+}
+
+.handle:active,
+.row[data-dragging] .handle {
+  cursor: grabbing;
+}
+
+.handleLane {
+  width: 16px;
+  height: 16px;
+}
+
+/* The central jump target: clicking anywhere across it jumps the engine to this row. It lays out the
+ * three cells the row shows; the row owns the padding and veil around it. */
+.jump {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 /*
@@ -74,13 +139,6 @@
 
 .row:hover .play {
   opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .no,
-  .play {
-    transition: none;
-  }
 }
 
 .main {
@@ -132,4 +190,58 @@
   color: var(--ink-3);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  transition: opacity var(--dur-fast) ease;
+}
+
+/*
+ * The remove: overlaid over the duration at the trailing edge, revealed by opacity on up-next hover so no
+ * trailing lane is added and nothing reflows. The duration fades under it. It warms to the warn tone as
+ * the destructive control. Played and now rows never carry it.
+ */
+.remove {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.row[data-state="next"]:hover .duration {
+  opacity: 0;
+}
+
+.row[data-state="next"]:hover .remove,
+.remove:focus-visible {
+  opacity: 0.75;
+  pointer-events: auto;
+}
+
+.remove:hover {
+  opacity: 1;
+  color: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .no,
+  .play,
+  .duration,
+  .remove,
+  .handle {
+    transition: none;
+  }
 }

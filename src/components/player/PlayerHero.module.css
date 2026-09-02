@@ -1,5 +1,5 @@
-/* The hero column: the flexing centre star, vertically centered and holding still while the queue
- * scrolls in its narrower column beside it. */
+/* The hero column: the flexing centre star, holding still while the queue scrolls in its narrower column
+ * beside it. */
 .hero {
   position: relative;
   flex: 1;
@@ -7,19 +7,42 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
 }
 
-/* The content stack, centered as one column. */
+/* The content stack fills the hero height so the identity can centre in the top while the controls sit at
+ * the foot. */
 .column {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px;
+  text-align: center;
+}
+
+/* The identity group: source, cover and title, centred in the flexible space above the controls, so the
+ * cover reads as the centre of the column. */
+.identity {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+/* The controls group: the seek bar over the transport, resting at the foot of the column. */
+.controls {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 18px;
-  padding: 0 24px;
-  text-align: center;
 }
 
 /* The source line: the uppercase kind over the linked or plain name. */

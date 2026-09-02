@@ -53,6 +53,9 @@
   padding: 0 16px 8px 4px;
 }
 
+/* Clear-queue trails to the right edge, under the rows, rather than sitting adrift on the left. */
 .footer {
-  padding: 10px 10px 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px 0 10px;
 }

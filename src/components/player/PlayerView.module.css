@@ -17,9 +17,10 @@
 }
 
 /* The playing stage inside the panel: the two columns over the glow and ridge, padded off the rounded
- * edge. Layout, lift and clipping all come from .panel. */
+ * edge. The top inset keeps the queue header clear of the window's rounded top rather than flush against
+ * it. Layout, lift and clipping all come from .panel. */
 .view {
-  padding: 4px 30px 24px;
+  padding: 18px 30px 24px;
 }
 
 /* The current cover, blurred and scaled to a wide ambient wash spread behind both columns, feathered by a

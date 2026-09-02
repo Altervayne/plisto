@@ -19,3 +19,20 @@ export function queueRowState(index: number, queueIndex: number): QueueRowState 
 export function upNextCount(queueLen: number, queueIndex: number): number {
   return Math.max(0, queueLen - queueIndex - 1);
 }
+
+/**
+ * Resolves a queue drag into the move to apply, or null for a no-op. Only up-next rows move, and a drop
+ * is clamped to just past the cursor so it can never land in played or now territory. A drop that would
+ * not shift the row (outside any target, onto itself, or already at the clamped slot) returns null.
+ */
+export function resolveQueueReorder(
+  from: number,
+  to: number,
+  queueIndex: number,
+): { from: number; to: number } | null {
+  if (from < 0 || to < 0) return null;
+  if (from <= queueIndex) return null;
+  const target = Math.max(to, queueIndex + 1);
+  if (target === from) return null;
+  return { from, to: target };
+}

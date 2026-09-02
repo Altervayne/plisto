@@ -44,31 +44,37 @@ export function PlayerHero({
   return (
     <div className={styles.hero}>
       <div className={styles.column}>
-        <SourceLine onNavigate={onNavigate} />
+        {/* The identity - source, cover, title - centers in the flexible upper space. */}
+        <div className={styles.identity}>
+          <SourceLine onNavigate={onNavigate} />
 
-        <span className={styles.cover}>
-          <Cover src={coverSrc} alt="" />
-        </span>
+          <span className={styles.cover}>
+            <Cover src={coverSrc} alt="" />
+          </span>
 
-        <div className={styles.text}>
-          <h1 className={styles.title}>{title ?? t((d) => d.albums.untitled)}</h1>
-          <p className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</p>
-        </div>
-
-        <div className={styles.seekWrap}>
-          <SeekBar
-            position={status.position_secs}
-            duration={status.duration_secs}
-            onSeek={actions.seek}
-          />
-        </div>
-
-        <div className={styles.transport}>
-          <div className={styles.cluster}>
-            <Transport size="lg" />
+          <div className={styles.text}>
+            <h1 className={styles.title}>{title ?? t((d) => d.albums.untitled)}</h1>
+            <p className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</p>
           </div>
-          <div className={styles.volumeSlot}>
-            <Volume volume={status.volume} />
+        </div>
+
+        {/* The seek bar and transport sit at the foot of the column. */}
+        <div className={styles.controls}>
+          <div className={styles.seekWrap}>
+            <SeekBar
+              position={status.position_secs}
+              duration={status.duration_secs}
+              onSeek={actions.seek}
+            />
+          </div>
+
+          <div className={styles.transport}>
+            <div className={styles.cluster}>
+              <Transport size="lg" />
+            </div>
+            <div className={styles.volumeSlot}>
+              <Volume volume={status.volume} />
+            </div>
           </div>
         </div>
       </div>

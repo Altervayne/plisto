@@ -1,3 +1,22 @@
+// -- Framework Imports --
+import { useMemo } from "react";
+
+// -- Library Imports --
+import {
+  DndContext,
+  KeyboardSensor,
+  MeasuringStrategy,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
@@ -16,7 +35,7 @@ import {
 import { formatCount } from "../../lib/format";
 
 // -- Local Imports --
-import { queueRowState, upNextCount } from "./queueRowState";
+import { queueRowState, resolveQueueReorder, upNextCount } from "./queueRowState";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -39,6 +58,27 @@ export function QueueList() {
 
   const ahead = upNextCount(queue.length, queueIndex);
 
+  // One sortable id per slot, not per track: the queue is a flat id list with possible duplicates, so a
+  // repeated track carries a distinct slot id, which is also the row key. Every slot registers for stable
+  // geometry; only up-next rows actually lift.
+  const items = useMemo(() => queue.map((id, i) => `${id}:${i}`), [queue]);
+
+  // A few px of travel arms a drag; the keyboard sensor drives the accessible reorder off the grip.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || over.id === active.id) return;
+    const from = items.indexOf(String(active.id));
+    const to = items.indexOf(String(over.id));
+    // Clamp a drop out of played/now territory and drop a no-op; the store reorders optimistically and
+    // the engine echo reconciles.
+    const move = resolveQueueReorder(from, to, queueIndex);
+    if (move) actions.reorderQueue(move.from, move.to);
+  };
+
   return (
     <div className={styles.queue}>
       <div className={styles.header}>
@@ -49,22 +89,38 @@ export function QueueList() {
         <SequenceMenu />
       </div>
 
-      <ScrollArea className={styles.scroll} contentClassName={styles.rows}>
-        {queue.map((id, i) => {
-          const m = meta[id];
-          return (
-            <QueueRow
-              key={`${id}:${i}`}
-              state={queueRowState(i, queueIndex)}
-              displayNo={i + 1}
-              title={m?.title ?? ""}
-              artist={m?.artist ?? null}
-              durationSecs={m?.durationSecs ?? null}
-              unknownLabel={t((d) => d.player.unknownTrack)}
-              onJump={() => actions.jump(i)}
-            />
-          );
-        })}
+      <ScrollArea className={styles.scroll}>
+        <DndContext
+          sensors={sensors}
+          // Resolve drops against live row geometry, never a drag-start snapshot: an optimistic reorder
+          // remounts the rows mid-interaction.
+          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext items={items} strategy={verticalListSortingStrategy}>
+            <div className={styles.rows}>
+              {queue.map((id, i) => {
+                const m = meta[id];
+                return (
+                  <QueueRow
+                    key={items[i]}
+                    id={items[i]}
+                    state={queueRowState(i, queueIndex)}
+                    displayNo={i + 1}
+                    title={m?.title ?? ""}
+                    artist={m?.artist ?? null}
+                    durationSecs={m?.durationSecs ?? null}
+                    unknownLabel={t((d) => d.player.unknownTrack)}
+                    reorderLabel={t((d) => d.player.reorderQueue)}
+                    removeLabel={t((d) => d.player.removeFromQueue)}
+                    onJump={() => actions.jump(i)}
+                    onRemove={() => actions.removeFromQueue(i)}
+                  />
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
       </ScrollArea>
 
       <div className={styles.footer}>

@@ -26,6 +26,7 @@ export function AlbumSelectionBar({
   newDisc,
   state,
   onSelectAll,
+  onAddToQueue,
   onMoveToDisc,
   onExtract,
   onAddToPlaylist,
@@ -40,6 +41,8 @@ export function AlbumSelectionBar({
   newDisc: number;
   state?: MountState;
   onSelectAll: () => void;
+  // Absent while the player is off, so the bar simply drops the entry.
+  onAddToQueue?: () => void;
   onMoveToDisc: (disc: number) => void;
   onExtract: () => void;
   onAddToPlaylist: () => void;
@@ -68,6 +71,10 @@ export function AlbumSelectionBar({
 
       <div className={styles.actions}>
         <QuietButton onClick={onSelectAll}>{t((d) => d.albums.selectAll)}</QuietButton>
+
+        {onAddToQueue ? (
+          <QuietButton onClick={onAddToQueue}>{t((d) => d.player.addToQueue)}</QuietButton>
+        ) : null}
 
         <div className={styles.moveWrap}>
           <QuietButton onClick={() => setMenuOpen((open) => !open)}>

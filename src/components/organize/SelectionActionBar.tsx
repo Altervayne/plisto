@@ -30,6 +30,7 @@ import {
   useCreatePlaylist,
   usePlaylists,
 } from "../../state/playlists/store";
+import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
 import type { ExtractTrack } from "../extract/ExtractPanel";
@@ -75,6 +76,8 @@ export function SelectionActionBar({
   const playlists = usePlaylists();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
+  const { addToQueue } = usePlayerActions();
+  const playerEnabled = usePlayerEnabled();
   const t = useT();
 
   const [busy, setBusy] = useState(false);
@@ -156,6 +159,16 @@ export function SelectionActionBar({
     setPlaylistPickerOpen(false);
   };
 
+  // Append the selection to the queue in the library's canonical order. The Files surface is a folder
+  // browser with no single on-screen order the bar can read, so this ordering is the deterministic one it
+  // offers. Hidden while the player is off, like the row menus.
+  const onAddToQueue = () => {
+    addToQueue(
+      tracks.filter((track) => selection.has(track.id)).map((track) => track.id),
+      { kind: "files" },
+    );
+  };
+
   // Snapshots the selection into the extractor: each track keyed by id, its display path preferred over
   // the source path for the hover.
   const openExtract = () => {
@@ -229,6 +242,9 @@ export function SelectionActionBar({
               <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
                 {t((d) => d.selection.createAlbum)}
               </PrimaryButton>
+              {playerEnabled ? (
+                <QuietButton onClick={onAddToQueue}>{t((d) => d.player.addToQueue)}</QuietButton>
+              ) : null}
               <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
                 {t((d) => d.singles.make, { n: lastCount.current })}
               </QuietButton>

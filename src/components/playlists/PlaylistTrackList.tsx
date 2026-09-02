@@ -18,7 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Icon Imports --
-import { Play, X } from "lucide-react";
+import { ListEnd, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { PlaylistTrackRow } from "./PlaylistTrackRow";
@@ -65,7 +65,7 @@ export function PlaylistTrackList({
   const playlist = usePlaylist(playlistId);
   const reorder = useReorderPlaylist();
   const removeSlots = useRemovePlaylistSlots();
-  const { play } = usePlayerActions();
+  const { play, addToQueue } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const t = useT();
 
@@ -104,6 +104,13 @@ export function PlaylistTrackList({
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
               onSelect: () => play(trackIds, index, source),
+              disabled: unplayable,
+              tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
+            } satisfies MenuEntry,
+            {
+              icon: <ListEnd size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.addToQueue),
+              onSelect: () => addToQueue([slot.track_id], source),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
