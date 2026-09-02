@@ -484,8 +484,23 @@ export interface PlayerStatus {
   repeat: RepeatMode;
   queue_index: number;
   queue_len: number;
+  shuffle: boolean;
   output_device: string | null;
 }
+
+/**
+ * Where the current queue was launched from, captured on the frontend when play fires - the engine is
+ * source-agnostic, so the store records the origin the "playing from" line reads. An album or playlist
+ * carries its id and resolved label; the flat library views carry only their kind; a lone track played
+ * on its own carries the track id and its title.
+ */
+export type PlaybackSource =
+  | { kind: "album"; id: number; label: string }
+  | { kind: "playlist"; id: number; label: string }
+  | { kind: "files" }
+  | { kind: "singles" }
+  | { kind: "unsorted" }
+  | { kind: "single"; id: number; label: string };
 
 /**
  * One selectable output device: its name and whether it is the current OS default. The settings

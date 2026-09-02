@@ -11,6 +11,7 @@ import { FilesView } from "../files/FilesView";
 import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
+import { PlayerView } from "../player/PlayerView";
 import { CoversView } from "../covers/CoversView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
@@ -45,8 +46,7 @@ import { usePlayerSync } from "../../state/player/store";
 import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
 
 // -- Type Imports --
-import type { AlbumRow } from "../../types";
-import type { ToolSession } from "../../state/shell/store";
+import type { AlbumRow, PlaybackSource } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -62,6 +62,8 @@ type Mode =
   | "singles"
   | "playlists"
   | "covers"
+  | "editor"
+  | "player"
   | "export"
   | "settings";
 
@@ -140,13 +142,11 @@ export function AppShell() {
   const lastOpenAlbum = useRef<AlbumRow | null>(null);
   if (openAlbum) lastOpenAlbum.current = openAlbum;
 
-  // The splice workbench overlays the whole main region, from any library mode. It rides its own
-  // mount transition and holds the last session so it renders through the exit once cleared.
+  // The Track Editor destination's session. Opening a tool lands on that destination and the session
+  // persists across nav: the workbench stays mounted while a session holds, hidden off the destination.
+  // Closing the session clears it and leaves the empty state showing on the destination.
   const openTool = useOpenTool();
   const setOpenTool = useSetOpenTool();
-  const toolPane = useMountTransition(openTool != null, VIEW_EXIT_MS);
-  const lastTool = useRef<ToolSession | null>(null);
-  if (openTool) lastTool.current = openTool;
   const closeTool = useCallback(() => setOpenTool(null), [setOpenTool]);
 
   // Entering the full pane closes the drawer: the two album surfaces never show at once. Stable across
@@ -156,11 +156,43 @@ export function AppShell() {
     setSelectedAlbumId(null);
   }, []);
 
+  // Routes the Player's "playing from" link back into the library: a container opens its full pane, a flat
+  // view just switches mode. A lone single carries a track id, not a container, so it has no destination.
+  const onNavigate = useCallback((source: PlaybackSource) => {
+    switch (source.kind) {
+      case "album":
+        setOpenAlbumId(source.id);
+        setMode("albums");
+        break;
+      case "playlist":
+        setOpenPlaylistId(source.id);
+        setMode("playlists");
+        break;
+      case "files":
+        setMode("files");
+        break;
+      case "singles":
+        setMode("singles");
+        break;
+      case "unsorted":
+        setMode("unsorted");
+        break;
+      case "single":
+        break;
+    }
+  }, []);
+
   useEffect(() => {
     void loadOrganization();
     void loadPlaylists();
     void loadPreferences();
   }, [loadOrganization, loadPlaylists, loadPreferences]);
+
+  // Opening a tool from a track's menu lands on the Editor destination. Clearing the session does not
+  // navigate: closing a file leaves you on the destination, showing its empty state.
+  useEffect(() => {
+    if (openTool != null) setMode("editor");
+  }, [openTool]);
 
   // Global undo/redo, but only when focus is not in a field - a field keeps its own text undo.
   useEffect(() => {
@@ -214,8 +246,19 @@ export function AppShell() {
       <main className={styles.main}>
         {mode === "export" ? (
           <ExportView />
+        ) : mode === "player" ? (
+          <PlayerView onNavigate={onNavigate} />
         ) : mode === "settings" ? (
           <SettingsView />
+        ) : mode === "editor" ? (
+          // The workbench layer covers this while a session holds; the prompt shows only when idle.
+          openTool ? null : (
+            <EmptyState
+              tone="idle"
+              title={t((d) => d.splice.editorTitle)}
+              line={t((d) => d.splice.editorHint)}
+            />
+          )
         ) : mode === "covers" ? (
           <CoversView />
         ) : mode === "playlists" ? (
@@ -344,19 +387,21 @@ export function AppShell() {
           </>
         )}
 
-        {/* The tool workbench overlays the entire main region, whatever mode is under it, so it opens
-            the same from Files, an album, or a playlist. It crossfades in like the album pane and
-            holds the last session through its exit. Keyed on the session so each open is a fresh
-            mount, resetting the analysis and phase. */}
-        {(openTool != null || toolPane.mounted) && lastTool.current ? (
+        {/* The Track Editor's workbench. It stays mounted while a session holds, so navigating off the
+            destination and back keeps the in-progress edit whole rather than re-analyzing. Off the
+            destination it is hidden, not torn down; `active` follows that visibility so the library
+            pauses on entry and restores on leave. Keyed on the session so opening a different file is a
+            fresh mount, resetting the analysis and phase. */}
+        {openTool != null ? (
           <div
-            key={`${(openTool ?? lastTool.current).verb}:${(openTool ?? lastTool.current).trackId}`}
+            key={`${openTool.verb}:${openTool.trackId}`}
             className={styles.toolLayer}
-            data-state={openTool != null ? "enter" : "exit"}
+            hidden={mode !== "editor"}
           >
             <SpliceWorkbench
-              verb={(openTool ?? lastTool.current).verb}
-              trackId={(openTool ?? lastTool.current).trackId}
+              verb={openTool.verb}
+              trackId={openTool.trackId}
+              active={mode === "editor"}
               onClose={closeTool}
             />
           </div>

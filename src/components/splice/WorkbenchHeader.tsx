@@ -11,9 +11,10 @@ import { useT } from "../../i18n";
 import styles from "./WorkbenchHeader.module.css";
 
 /**
- * The workbench header: a breadcrumb back to the library, the source filename in mono, and a small
- * format badge. Mirrors the album pane's breadcrumb-over-body chassis, so the two full-pane surfaces
- * read alike.
+ * The workbench header: a breadcrumb whose root is the Track Editor destination and whose leaf is the
+ * open file's verb, the source filename in mono, and a small format badge. The root crumb and the
+ * up control both close the open file, dropping back to the destination's idle prompt. Mirrors the
+ * album pane's breadcrumb-over-body chassis, so the two full-pane surfaces read alike.
  */
 export function WorkbenchHeader({
   verb,
@@ -28,7 +29,7 @@ export function WorkbenchHeader({
 }) {
   const t = useT();
   const crumbs: Crumb[] = [
-    { id: "library", name: t((d) => d.splice.back) },
+    { id: "editor", name: t((d) => d.splice.editorTitle) },
     { id: "tool", name: verb === "split" ? t((d) => d.splice.splitTitle) : t((d) => d.splice.trimTitle) },
   ];
 
@@ -38,7 +39,7 @@ export function WorkbenchHeader({
         crumbs={crumbs}
         atRoot={false}
         onNavigate={(id) => {
-          if (id === "library") onBack();
+          if (id === "editor") onBack();
         }}
         onUp={onBack}
       />

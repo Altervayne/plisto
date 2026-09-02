@@ -1,0 +1,97 @@
+/* The speaker anchors a rail that unrolls on hover or focus, so the level control stays a single quiet
+ * glyph until reached for. The rail keeps its place in the tab order while folded, so a keyboard tab onto
+ * it opens the group through focus-within. */
+.volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  transition: color var(--dur-fast) ease;
+}
+
+.volume:hover .glyph,
+.volume:focus-within .glyph {
+  color: var(--ink-2);
+}
+
+/* The rail: folded to nothing at rest, unrolling to a short strip on reveal. Inert while folded so the
+ * zero-width slider never swallows a pointer, re-armed once open. */
+.rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  pointer-events: none;
+  transition:
+    max-width var(--dur-soft) var(--ease-standard),
+    opacity var(--dur-soft) var(--ease-standard);
+}
+
+.volume:hover .rail,
+.volume:focus-within .rail {
+  max-width: 72px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.rail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--pill);
+}
+
+.track {
+  width: 72px;
+  height: 4px;
+  border-radius: var(--pill);
+  background: var(--veil-2);
+  overflow: hidden;
+}
+
+/* The level fill: neutral ink, never the accent - the seek bar owns the one lit rail. */
+.fill {
+  height: 100%;
+  width: var(--pct);
+  border-radius: var(--pill);
+  background: var(--ink-3);
+}
+
+.handle {
+  position: absolute;
+  left: var(--pct);
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--pill);
+  background: var(--ink-2);
+  box-shadow: var(--shadow-soft);
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.rail:hover .handle,
+.rail:focus-visible .handle {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .handle {
+    transition: none;
+  }
+}

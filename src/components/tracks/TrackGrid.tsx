@@ -204,7 +204,7 @@ export function TrackGrid({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(rowIds, rowIds.indexOf(track.id)),
+              onSelect: () => play(rowIds, rowIds.indexOf(track.id), { kind: "files" }),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -304,7 +304,9 @@ export function TrackGrid({
                   onSelect={onSelect}
                   onToggle={handleToggle}
                   onPlay={
-                    playerEnabled ? (played) => play(rowIds, rowIds.indexOf(played.id)) : undefined
+                    playerEnabled
+                      ? (played) => play(rowIds, rowIds.indexOf(played.id), { kind: "files" })
+                      : undefined
                   }
                   buildMenu={buildMenu}
                   style={{ transform: `translateY(${item.start}px)` }}

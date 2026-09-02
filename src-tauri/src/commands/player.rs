@@ -131,6 +131,14 @@ pub fn player_prev(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Jumps straight to the queue slot at `index`, like a click in the up-next list. The engine clamps
+/// an over-range index to the last slot and skips a dead track forward, so this never lands nowhere.
+#[tauri::command]
+pub fn player_jump(index: usize, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::Jump(index));
+    Ok(())
+}
+
 /// Seeks the current track to `secs` from the start.
 #[tauri::command]
 pub fn player_seek(secs: f64, state: State<'_, AppState>) -> Result<(), String> {
@@ -149,6 +157,14 @@ pub fn player_set_volume(v: f32, state: State<'_, AppState>) -> Result<(), Strin
 #[tauri::command]
 pub fn player_set_repeat(mode: RepeatMode, state: State<'_, AppState>) -> Result<(), String> {
     let _ = state.player.send(PlayerCmd::SetRepeat(mode));
+    Ok(())
+}
+
+/// Turns shuffle on or off. On materializes a shuffled queue order with the current track pinned to
+/// the front; off restores the original insertion order. The current track keeps playing either way.
+#[tauri::command]
+pub fn player_set_shuffle(on: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::SetShuffle(on));
     Ok(())
 }
 
@@ -191,4 +207,16 @@ pub fn get_player_status(state: State<'_, AppState>) -> Result<PlayerStatus, Str
         .lock()
         .map_err(|_| "player status is unavailable".to_string())?;
     Ok(status.clone())
+}
+
+/// The ordered queue track ids, for a UI building its up-next list on open or reconnect. Reads the
+/// shared mirror the engine writes on every queue change, so it never waits on the `player:queue`
+/// event. In the active play order, shuffled or not.
+#[tauri::command]
+pub fn get_player_queue(state: State<'_, AppState>) -> Result<Vec<i64>, String> {
+    let queue = state
+        .player_queue
+        .lock()
+        .map_err(|_| "player queue is unavailable".to_string())?;
+    Ok(queue.clone())
 }

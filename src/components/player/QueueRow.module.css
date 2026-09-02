@@ -1,0 +1,135 @@
+/* One queue row: a number cell, the title-over-artist column, and the duration. The row veils on hover
+ * like the rest of the surface; a full-width button so the whole strip jumps the engine to this track. */
+.row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+/* Played rows recede: the whole row dims and its ink drops a step, so the cursor's future reads brighter
+ * than its past. */
+.row[data-state="played"] {
+  opacity: 0.6;
+}
+
+/* The now-playing row: a quiet neutral fill and full-weight title. Not accent - the seek fill is the one
+ * lit mark - so this reads as "here" by material alone, and holds its fill through a hover. */
+.row[data-state="now"],
+.row[data-state="now"]:hover {
+  background: var(--veil-2);
+}
+
+/*
+ * The number cell stacks the position (or the equalizer) and, overlaid, the play triangle. At rest the
+ * first face shows; on row hover the two swap by opacity, so the swap never reflows the column.
+ */
+.numCell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 16px;
+}
+
+.no {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+/* On hover the resting face - number or equalizer - dissolves so the triangle reads alone. */
+.row:hover .no,
+.row:hover .numCell > span:first-child {
+  opacity: 0;
+}
+
+/* The play triangle, overlaid on the number at the cell's left edge. Inert while hidden so the invisible
+ * glyph never swallows the row click, re-armed on hover. The one transient accent the row is allowed. */
+.play {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .play {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .no,
+  .play {
+    transition: none;
+  }
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.title {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Played rows carry quieter title ink; the now-playing row keeps full ink and a touch more weight. */
+.row[data-state="played"] .title {
+  color: var(--ink-2);
+}
+
+.row[data-state="now"] .title {
+  font-weight: 600;
+}
+
+/* An empty-meta title shows the placeholder in a faint tone, so a hole in the snapshot reads as absent
+ * rather than a real name. */
+.title[data-untitled] {
+  color: var(--ink-3);
+}
+
+.artist {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row[data-state="played"] .artist {
+  color: var(--ink-3);
+}
+
+.duration {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}

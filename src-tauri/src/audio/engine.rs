@@ -143,6 +143,12 @@ pub(crate) fn advance_index(index: usize, len: usize, repeat: RepeatMode) -> Opt
     }
 }
 
+/// Clamps a target index into the queue, so an over-range jump lands on the last track. An empty
+/// queue clamps to 0, which play_at reads as a stop.
+pub(crate) fn clamp_index(index: usize, len: usize) -> usize {
+    index.min(len.saturating_sub(1))
+}
+
 /// The previous index, saturating at the first track. None only when the queue is empty.
 pub(crate) fn prev_index(index: usize, len: usize) -> Option<usize> {
     if len == 0 {
@@ -171,6 +177,61 @@ pub(crate) fn on_track_end(index: usize, len: usize, repeat: RepeatMode) -> EndA
     }
 }
 
+// ---- Shuffle ----
+
+/// A tiny seeded xorshift64 PRNG, so shuffle needs no crate. Deterministic from its seed: the same
+/// seed and call sequence yield the same numbers, which is what lets `shuffle_order` be tested
+/// against a fixed seed. The engine owns one instance seeded from the clock at spawn.
+pub(crate) struct Xorshift {
+    state: u64,
+}
+
+impl Xorshift {
+    /// Seeds the generator. Zero would lock xorshift at zero forever, so it maps to a fixed non-zero
+    /// constant instead.
+    fn new(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed },
+        }
+    }
+
+    /// The next 64-bit value, advancing the state.
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    /// A value in [0, bound), for a bound of at least one. The modulo's bias is immaterial at queue
+    /// lengths.
+    fn below(&mut self, bound: usize) -> usize {
+        (self.next_u64() % bound as u64) as usize
+    }
+}
+
+/// A permutation of `0..len` with `pin` fixed at position 0 and the rest Fisher-Yates shuffled by
+/// `rng`. Pure: the same len, pin and rng state always yield the same order. `pin` is clamped into
+/// range; len 0 yields an empty order and len 1 the single index. Pinning the current track to the
+/// front is what lets a live shuffle keep it playing without touching the sink.
+pub(crate) fn shuffle_order(len: usize, pin: usize, rng: &mut Xorshift) -> Vec<usize> {
+    if len == 0 {
+        return Vec::new();
+    }
+    let pin = pin.min(len - 1);
+    let mut rest: Vec<usize> = (0..len).filter(|&i| i != pin).collect();
+    for i in (1..rest.len()).rev() {
+        let j = rng.below(i + 1);
+        rest.swap(i, j);
+    }
+    let mut order = Vec::with_capacity(len);
+    order.push(pin);
+    order.extend(rest);
+    order
+}
+
 // ---- The resident engine ----
 
 /// All playback state, single-owner on the audio thread and never locked. `_stream` is held only to
@@ -181,6 +242,12 @@ struct Engine {
     sink: Option<Sink>,
     queue: Vec<QueueTrack>,
     index: usize,
+    // The pristine Play-time order, captured on every Play regardless of shuffle. Restoring shuffle
+    // off replays this exact insertion/album order - the user's mental model of the queue.
+    original_order: Vec<QueueTrack>,
+    shuffle: bool,
+    // One instance for the whole thread's life, seeded once at spawn. Only shuffle draws from it.
+    rng: Xorshift,
     repeat: RepeatMode,
     paused: bool,
     playing: bool,
@@ -194,6 +261,10 @@ struct Engine {
     // track's natural end and advances the queue.
     stop_at_frame: Option<u64>,
     status: Arc<Mutex<PlayerStatus>>,
+    // The ordered queue track ids, written only when the queue changes (a Play or a shuffle toggle),
+    // never on the tick. Mirrors `status` but stays off the frequent snapshot since the id list can
+    // run long.
+    queue_ids: Arc<Mutex<Vec<i64>>>,
     app: tauri::AppHandle,
     throttle: ProgressThrottle,
     // The user's output choice: None follows the system default, Some(name) pins that device.
@@ -227,6 +298,7 @@ impl Engine {
             repeat: self.repeat,
             queue_index: self.index,
             queue_len: self.queue.len(),
+            shuffle: self.shuffle,
             output_device: self.bound_device.clone(),
         }
     }
@@ -242,6 +314,18 @@ impl Engine {
         if self.throttle.should_emit(now_ms(), forced) {
             let _ = self.app.emit("player:status", &snap);
         }
+    }
+
+    /// Mirrors the current queue's ordered track ids into shared state and emits `player:queue`.
+    /// Called only when the queue's contents or order change - a Play or a shuffle toggle - so the id
+    /// list, which can run long, never rides the frequent status snapshot. Unthrottled: queue changes
+    /// are rare.
+    fn emit_queue(&mut self) {
+        let ids: Vec<i64> = self.queue.iter().map(|t| t.id).collect();
+        if let Ok(mut guard) = self.queue_ids.lock() {
+            *guard = ids.clone();
+        }
+        let _ = self.app.emit("player:queue", &ids);
     }
 
     /// Loads and starts the track at `start`, skipping FORWARD over any that fail to open (missing
@@ -503,12 +587,42 @@ impl Engine {
         }
     }
 
+    /// Reorders the queue into a shuffled order with the track at `pin` fixed at the front, then
+    /// seats the cursor on it. Touches the queue Vec and cursor only - never the sink - so the live
+    /// source plays on across the reorder.
+    fn shuffle_queue(&mut self, pin: usize) {
+        let order = shuffle_order(self.queue.len(), pin, &mut self.rng);
+        let reordered: Vec<QueueTrack> = order.into_iter().map(|i| self.queue[i].clone()).collect();
+        self.queue = reordered;
+        self.index = 0;
+    }
+
+    /// Restores the pristine Play-time order and re-seats the cursor onto the currently-playing track
+    /// by id, so the live source plays on untouched. Falls back to a clamped index when nothing plays
+    /// or the track is no longer in the queue.
+    fn restore_order(&mut self) {
+        self.queue = self.original_order.clone();
+        let fallback = self.index.min(self.queue.len().saturating_sub(1));
+        self.index = self
+            .cur_track_id
+            .and_then(|id| self.queue.iter().position(|t| t.id == id))
+            .unwrap_or(fallback);
+    }
+
     /// Applies one transport command, then emits a forced status since every command changes state.
     fn handle(&mut self, cmd: PlayerCmd) {
         match cmd {
             PlayerCmd::Play { queue, index } => {
                 self.queue = queue;
-                let start = index.min(self.queue.len().saturating_sub(1));
+                let mut start = clamp_index(index, self.queue.len());
+                // Capture the pristine order before any shuffle, so restoring shuffle off returns
+                // here regardless of the order playback runs in.
+                self.original_order = self.queue.clone();
+                if self.shuffle {
+                    self.shuffle_queue(start);
+                    start = 0;
+                }
+                self.emit_queue();
                 // play_at emits its own forced status on success or exhaustion.
                 self.play_at(start);
             }
@@ -555,6 +669,12 @@ impl Engine {
                     self.emit(true);
                 }
             },
+            PlayerCmd::Jump(i) => {
+                // play_at clamps an empty queue (stops and emits) and skips forward over a dead
+                // track, so a jump lands on the next playable slot, exactly like Next.
+                let i = clamp_index(i, self.queue.len());
+                self.play_at(i);
+            }
             PlayerCmd::Seek(secs) => self.seek(secs),
             PlayerCmd::SetVolume(v) => {
                 self.volume = v.clamp(0.0, 1.0);
@@ -565,6 +685,20 @@ impl Engine {
             }
             PlayerCmd::SetRepeat(m) => {
                 self.repeat = m;
+                self.emit(true);
+            }
+            PlayerCmd::SetShuffle(on) => {
+                if on != self.shuffle {
+                    self.shuffle = on;
+                    if on {
+                        // Pin the current track to the front and shuffle the rest. The Vec and cursor
+                        // change; the sink is untouched, so the current source plays on.
+                        self.shuffle_queue(self.index);
+                    } else {
+                        self.restore_order();
+                    }
+                    self.emit_queue();
+                }
                 self.emit(true);
             }
             PlayerCmd::SetOutputDevice(pref) => self.rebind(pref),
@@ -624,18 +758,24 @@ impl Engine {
 pub fn spawn(
     rx: Receiver<PlayerCmd>,
     status: Arc<Mutex<PlayerStatus>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
     app: tauri::AppHandle,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name("plisto-player".to_string())
-        .spawn(move || run(rx, status, app))
+        .spawn(move || run(rx, status, queue_ids, app))
         .expect("player thread spawns")
 }
 
 /// The thread body. Builds the device (emitting `player:error` and running device-less on failure,
 /// never panicking), then services commands on a short timeout so the idle tick can catch a
 /// track-end even when no command arrives.
-fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::AppHandle) {
+fn run(
+    rx: Receiver<PlayerCmd>,
+    status: Arc<Mutex<PlayerStatus>>,
+    queue_ids: Arc<Mutex<Vec<i64>>>,
+    app: tauri::AppHandle,
+) {
     let (stream, sink) = match OutputStream::try_default() {
         Ok((stream, handle)) => match Sink::try_new(&handle) {
             Ok(sink) => (Some(stream), Some(sink)),
@@ -666,6 +806,9 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
         sink,
         queue: Vec::new(),
         index: 0,
+        original_order: Vec::new(),
+        shuffle: false,
+        rng: Xorshift::new(now_ms()),
         repeat: RepeatMode::Off,
         paused: false,
         playing: false,
@@ -676,6 +819,7 @@ fn run(rx: Receiver<PlayerCmd>, status: Arc<Mutex<PlayerStatus>>, app: tauri::Ap
         cur_track_id: None,
         stop_at_frame: None,
         status,
+        queue_ids,
         app,
         throttle: ProgressThrottle::new(200),
         device_pref: None,
@@ -791,6 +935,92 @@ mod tests {
             on_track_end(0, 3, RepeatMode::Off),
             EndAction::Advance(1)
         ));
+    }
+
+    // ---- Index clamp ----
+
+    #[test]
+    fn clamp_index_caps_at_the_last_track() {
+        assert_eq!(clamp_index(9, 3), 2);
+    }
+
+    #[test]
+    fn clamp_index_leaves_an_in_range_index() {
+        assert_eq!(clamp_index(1, 3), 1);
+    }
+
+    #[test]
+    fn clamp_index_on_an_empty_queue_is_zero() {
+        assert_eq!(clamp_index(4, 0), 0);
+    }
+
+    // ---- Shuffle ----
+
+    #[test]
+    fn shuffle_order_is_deterministic_for_a_seed() {
+        let mut a = Xorshift::new(42);
+        let mut b = Xorshift::new(42);
+        assert_eq!(shuffle_order(8, 3, &mut a), shuffle_order(8, 3, &mut b));
+    }
+
+    #[test]
+    fn shuffle_order_pins_the_chosen_index_at_the_front() {
+        let mut rng = Xorshift::new(7);
+        let order = shuffle_order(10, 4, &mut rng);
+        assert_eq!(order[0], 4);
+    }
+
+    #[test]
+    fn shuffle_order_is_a_valid_permutation() {
+        let mut rng = Xorshift::new(123);
+        let mut order = shuffle_order(12, 5, &mut rng);
+        order.sort_unstable();
+        assert_eq!(order, (0..12).collect::<Vec<usize>>());
+    }
+
+    #[test]
+    fn shuffle_order_empty_is_empty() {
+        let mut rng = Xorshift::new(1);
+        assert!(shuffle_order(0, 0, &mut rng).is_empty());
+    }
+
+    #[test]
+    fn shuffle_order_single_is_the_index() {
+        let mut rng = Xorshift::new(1);
+        assert_eq!(shuffle_order(1, 0, &mut rng), vec![0]);
+    }
+
+    #[test]
+    fn shuffle_order_clamps_an_over_range_pin() {
+        let mut rng = Xorshift::new(1);
+        let mut order = shuffle_order(4, 9, &mut rng);
+        assert_eq!(order[0], 3);
+        order.sort_unstable();
+        assert_eq!(order, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn shuffle_then_restore_round_trips_the_order() {
+        // The ordering half of a shuffle toggle, sink aside: materialize a shuffled order pinning the
+        // current track to the front, then restore the captured original and re-locate by id.
+        let original: Vec<i64> = vec![10, 20, 30, 40, 50];
+        let current = 2usize; // playing id 30
+        let mut rng = Xorshift::new(99);
+
+        let order = shuffle_order(original.len(), current, &mut rng);
+        let shuffled: Vec<i64> = order.iter().map(|&i| original[i]).collect();
+        assert_eq!(shuffled[0], 30);
+
+        let mut got = shuffled.clone();
+        let mut want = original.clone();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(got, want);
+
+        let restored = original.clone();
+        let idx = restored.iter().position(|&id| id == 30).unwrap();
+        assert_eq!(restored, vec![10, 20, 30, 40, 50]);
+        assert_eq!(idx, 2);
     }
 
     // ---- DecoderSource frame counting ----

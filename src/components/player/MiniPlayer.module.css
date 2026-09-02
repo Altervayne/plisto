@@ -67,11 +67,28 @@
   gap: 10px;
 }
 
+/* The now-playing line doubles as the open-Player button: a bare button reset so it lays out like the
+ * text row it wraps, warming faintly on hover to read as reachable. */
 .now {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  width: 100%;
+  padding: 4px;
+  margin: -4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.now:hover {
+  background: var(--veil);
 }
 
 .cover {

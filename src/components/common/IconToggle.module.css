@@ -1,0 +1,59 @@
+/* The toggle glyph: dissolved and inky at rest, veiling on hover like IconButton. Pressed it firms into
+ * a raised chip so the on-state reads by material rather than an accent color. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.toggle:hover {
+  background: var(--veil);
+  color: var(--ink-2);
+}
+
+.toggle:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pressed: a raised chip lifting off the ground, its glyph at full ink. Light rests it on a surface tile
+ * with the soft shadow; dark, where a floated white tile would glare, sits it in the deeper veil flat. */
+.toggle[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+}
+
+.toggle[aria-pressed="true"]:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .toggle[aria-pressed="true"],
+  :root:not([data-theme="light"]) .toggle[aria-pressed="true"]:hover {
+    background: var(--veil-2);
+    box-shadow: none;
+  }
+}
+
+:root[data-theme="dark"] .toggle[aria-pressed="true"],
+:root[data-theme="dark"] .toggle[aria-pressed="true"]:hover {
+  background: var(--veil-2);
+  box-shadow: none;
+}

@@ -36,7 +36,9 @@ use crate::dto::ExportStatus;
 /// and ends the thread; it must never be cloned into the tray or a captured closure or the thread
 /// would outlive exit. `player_status` is the app-global playback snapshot the engine keeps live,
 /// an Arc so the engine holds one clone while commands read the other through state, exactly like
-/// `export_status`.
+/// `export_status`. `player_queue` mirrors the ordered queue track ids the same way, but the engine
+/// writes it only when the queue changes (a Play or a shuffle toggle), never on the status tick, so
+/// a long id list never rides the ~5x-a-second snapshot.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -55,4 +57,5 @@ pub struct AppState {
     pub export_status: Arc<Mutex<ExportStatus>>,
     pub player: crossbeam_channel::Sender<PlayerCmd>,
     pub player_status: Arc<Mutex<PlayerStatus>>,
+    pub player_queue: Arc<Mutex<Vec<i64>>>,
 }

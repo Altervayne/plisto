@@ -123,7 +123,15 @@ pub fn run() {
             // ends the thread, so it must never be cloned elsewhere.
             let (player_tx, player_rx) = crossbeam_channel::unbounded::<audio::PlayerCmd>();
             let player_status = Arc::new(Mutex::new(audio::PlayerStatus::default()));
-            audio::engine::spawn(player_rx, Arc::clone(&player_status), app.handle().clone());
+            // Mirrors the ordered queue track ids, written by the engine only on a queue change so
+            // the id list stays off the frequent status snapshot.
+            let player_queue = Arc::new(Mutex::new(Vec::<i64>::new()));
+            audio::engine::spawn(
+                player_rx,
+                Arc::clone(&player_status),
+                Arc::clone(&player_queue),
+                app.handle().clone(),
+            );
 
             // Re-pin the persisted output device, if one was chosen. Absent or empty means follow the
             // system default, which the engine already does from its initial build, so nothing is
@@ -155,6 +163,7 @@ pub fn run() {
                 })),
                 player: player_tx,
                 player_status,
+                player_queue,
             });
 
             // The tray icon and its popup toggle guard, once the state it reads is managed.
@@ -263,10 +272,13 @@ pub fn run() {
             commands::player::player_stop,
             commands::player::player_next,
             commands::player::player_prev,
+            commands::player::player_jump,
             commands::player::player_seek,
             commands::player::player_set_volume,
             commands::player::player_set_repeat,
+            commands::player::player_set_shuffle,
             commands::player::get_player_status,
+            commands::player::get_player_queue,
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
             commands::splice::splice_run,

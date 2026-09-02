@@ -8,13 +8,16 @@
 
 export const en = {
   nav: {
+    filesGroup: "Files",
     library: "Library",
+    utilities: "Utilities",
     files: "All Tracks",
     unsorted: "Unsorted",
     albums: "Albums",
     singles: "Singles",
     covers: "Covers",
-    output: "Output",
+    editor: "Track Editor",
+    player: "Player",
     export: "Export",
   },
 
@@ -313,7 +316,8 @@ export const en = {
     split: "Split into tracks...",
     trim: "Trim silence...",
     unsupported: "Only WAV, FLAC and MP3 files can be split for now.",
-    back: "Library",
+    editorTitle: "Track Editor",
+    editorHint: "Right-click any track and choose Split or Trim to start editing here.",
     splitTitle: "Split into tracks",
     trimTitle: "Trim silence",
     reading: "Reading waveform...",
@@ -622,6 +626,20 @@ export const en = {
     closeWidget: "Close",
     seek: "Seek",
     nothingPlaying: "Nothing playing",
+    nothingPlayingHint: "Pick a track from your library to start it here.",
+    openPlayer: "Open player",
+    playingFrom: "Playing from",
+    sourceAlbum: "Album",
+    sourcePlaylist: "Playlist",
+    sourceFiles: "All Tracks",
+    sourceSingles: "Singles",
+    sourceUnsorted: "Unsorted",
+    upNext: "Up next",
+    clearQueue: "Clear queue",
+    shuffle: "Shuffle",
+    repeat: "Repeat",
+    volume: "Volume",
+    unknownTrack: "Unknown track",
   },
 
   notify: {

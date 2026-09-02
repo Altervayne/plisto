@@ -124,6 +124,10 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
 export const usePlaylists = (): PlaylistRow[] =>
   usePlaylistsStore(useShallow((s) => s.playlists));
 
+/** One playlist by id, or undefined when it is gone. */
+export const usePlaylist = (id: number): PlaylistRow | undefined =>
+  usePlaylistsStore((s) => s.playlists.find((p) => p.id === id));
+
 /**
  * One playlist's slots, sorted by position. Reads the shallow-stable tracks reference, then derives the
  * filtered/sorted list with useMemo - a fresh array each run would churn under useShallow, so the

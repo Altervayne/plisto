@@ -25,6 +25,7 @@ import { PlaylistTrackRow } from "./PlaylistTrackRow";
 
 // -- State Imports --
 import {
+  usePlaylist,
   usePlaylistTracks,
   useRemovePlaylistSlots,
   useReorderPlaylist,
@@ -36,6 +37,7 @@ import { reorderSlots } from "./playlistOrder";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
+import type { PlaybackSource } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -60,11 +62,19 @@ export function PlaylistTrackList({
   openSlotId: number | null;
 }) {
   const tracks = usePlaylistTracks(playlistId);
+  const playlist = usePlaylist(playlistId);
   const reorder = useReorderPlaylist();
   const removeSlots = useRemovePlaylistSlots();
   const { play } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const t = useT();
+
+  // Every play from this list is tagged with the playlist as its source, for the "playing from" line.
+  const source: PlaybackSource = {
+    kind: "playlist",
+    id: playlistId,
+    label: playlist?.name ?? t((d) => d.playlists.untitled),
+  };
 
   // A few px of travel arms a drag, so a click that lands on the handle before pressing the row opens
   // the peek rather than jittering into a reorder. Keyboard sensor drives the accessible reorder.
@@ -93,7 +103,7 @@ export function PlaylistTrackList({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(trackIds, index),
+              onSelect: () => play(trackIds, index, source),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -135,7 +145,7 @@ export function PlaylistTrackList({
               peeked={slot.id === openSlotId}
               onOpen={() => onOpenSlot(slot.id)}
               onRemove={() => void removeSlots([slot.id])}
-              onPlay={playerEnabled ? () => play(trackIds, i) : undefined}
+              onPlay={playerEnabled ? () => play(trackIds, i, source) : undefined}
               buildMenu={() => buildMenu(slot, i)}
             />
           ))}

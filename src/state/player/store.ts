@@ -19,7 +19,9 @@ import { listen } from "@tauri-apps/api/event";
 
 // -- IPC Imports --
 import {
+  getPlayerQueue,
   getPlayerStatus,
+  playerJump,
   playerNext,
   playerPause,
   playerPlayTracks,
@@ -27,16 +29,22 @@ import {
   playerResume,
   playerSeek,
   playerSetRepeat,
+  playerSetShuffle,
   playerSetVolume,
   playerStop,
   playerToggle,
 } from "../../lib/ipc";
 
 // -- State Imports --
+import { useAppStore } from "../store";
 import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store";
 
+// -- Local Imports --
+import { snapshotQueueMeta } from "./queueMeta";
+
 // -- Type Imports --
-import type { PlayerStatus, RepeatMode } from "../../types";
+import type { PlaybackSource, PlayerStatus, RepeatMode } from "../../types";
+import type { QueueTrackMeta } from "./queueMeta";
 
 /** The stopped default, held before the first play and after a stop. */
 const STOPPED: PlayerStatus = {
@@ -48,28 +56,41 @@ const STOPPED: PlayerStatus = {
   repeat: "off",
   queue_index: 0,
   queue_len: 0,
+  shuffle: false,
   output_device: null,
 };
 
 /** The transport actions, poking the engine and letting its event drive `status` back. */
 interface PlayerActions {
-  play: (trackIds: number[], index?: number) => void;
+  play: (trackIds: number[], index: number, source: PlaybackSource) => void;
   toggle: () => void;
   pause: () => void;
   resume: () => void;
   stop: () => void;
   next: () => void;
   prev: () => void;
+  jump: (index: number) => void;
   seek: (secs: number) => void;
   setVolume: (v: number) => void;
   setRepeat: (mode: RepeatMode) => void;
+  setShuffle: (on: boolean) => void;
 }
 
 interface PlayerStore {
   status: PlayerStatus;
+  // The engine's ordered queue ids in the active play order, shuffle reflected. Its own slice, read
+  // through `usePlayerQueue`, so the status-tick subtree never pulls it; it changes only on a play or a
+  // shuffle toggle.
+  queue: number[];
+  // The display snapshot for the queue's tracks, captured at play-time so the up-next view renders after
+  // the launching view is gone. Keyed by track id.
+  queueMeta: Record<number, QueueTrackMeta>;
+  // Where the current queue was launched from, for the "playing from" line. Null before the first play.
+  playingFrom: PlaybackSource | null;
   // The last `player:error` string, or null. Held for a surface to read; unused for the MVP.
   error: string | null;
   setStatus: (status: PlayerStatus) => void;
+  setQueue: (queue: number[]) => void;
   setError: (error: string | null) => void;
   // One stable object, built once in the initializer, so a card selecting it never re-renders on a
   // status tick. See the perf boundary above.
@@ -78,21 +99,35 @@ interface PlayerStore {
 
 export const usePlayerStore = create<PlayerStore>((set) => ({
   status: STOPPED,
+  queue: [],
+  queueMeta: {},
+  playingFrom: null,
   error: null,
   setStatus: (status) => set({ status }),
+  setQueue: (queue) => set({ queue }),
   setError: (error) => set({ error }),
   actions: {
     // Fire and forget: the engine's event updates `status`, so nothing here mutates it optimistically.
-    play: (trackIds, index = 0) => void playerPlayTracks(trackIds, index).catch(() => {}),
+    // Play alone records the frontend-only bits the engine cannot know - the source it came from and a
+    // metadata snapshot of the queued rows, resolved from the library cache loaded at play-time.
+    play: (trackIds, index, source) => {
+      set({
+        playingFrom: source,
+        queueMeta: snapshotQueueMeta(trackIds, useAppStore.getState().tracks),
+      });
+      void playerPlayTracks(trackIds, index).catch(() => {});
+    },
     toggle: () => void playerToggle().catch(() => {}),
     pause: () => void playerPause().catch(() => {}),
     resume: () => void playerResume().catch(() => {}),
     stop: () => void playerStop().catch(() => {}),
     next: () => void playerNext().catch(() => {}),
     prev: () => void playerPrev().catch(() => {}),
+    jump: (index) => void playerJump(index).catch(() => {}),
     seek: (secs) => void playerSeek(secs).catch(() => {}),
     setVolume: (v) => void playerSetVolume(v).catch(() => {}),
     setRepeat: (mode) => void playerSetRepeat(mode).catch(() => {}),
+    setShuffle: (on) => void playerSetShuffle(on).catch(() => {}),
   },
 }));
 
@@ -105,6 +140,17 @@ export const useIsPlaying = (): boolean => usePlayerStore((s) => s.status.playin
 export const useCurrentOutputDevice = (): string | null =>
   usePlayerStore((s) => s.status.output_device);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
+
+// The queue slices sit apart from `status` so the up-next list never re-renders on a position tick, and
+// the ticking transport never pulls the queue.
+export const usePlayerQueue = (): number[] => usePlayerStore((s) => s.queue);
+export const usePlayerQueueMeta = (): Record<number, QueueTrackMeta> =>
+  usePlayerStore((s) => s.queueMeta);
+// The play cursor, read as a bare primitive so the up-next list re-renders on a track change, never on a
+// position tick - the queue subtree stays off the tick that only moves the playhead.
+export const usePlayerQueueIndex = (): number => usePlayerStore((s) => s.status.queue_index);
+export const usePlayingFrom = (): PlaybackSource | null =>
+  usePlayerStore((s) => s.playingFrom);
 
 /**
  * Whether the scattered play affordances show. Persisted, default on: an absent pref reads on, so the
@@ -129,20 +175,26 @@ export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
  */
 export function usePlayerSync(): void {
   const setStatus = usePlayerStore((s) => s.setStatus);
+  const setQueue = usePlayerStore((s) => s.setQueue);
   const setError = usePlayerStore((s) => s.setError);
 
   useEffect(() => {
     let alive = true;
     const unlisteners: Array<() => void> = [];
 
-    // Pull the current snapshot. Runs on mount and again each time this webview becomes visible: a
-    // satellite window (tray popup, pop-out widget) is created hidden and can miss the events that
-    // fired while it was hidden, so it re-seeds the moment it is shown rather than trusting it caught
-    // every event. The main window is always visible, so this only ever fires its mount seed.
+    // Pull the current snapshot and queue. Runs on mount and again each time this webview becomes
+    // visible: a satellite window (tray popup, pop-out widget) is created hidden and can miss the events
+    // that fired while it was hidden, so it re-seeds the moment it is shown rather than trusting it
+    // caught every event. The main window is always visible, so this only ever fires its mount seed.
     const seed = () => {
       void getPlayerStatus()
         .then((s) => {
           if (alive) setStatus(s);
+        })
+        .catch(() => {});
+      void getPlayerQueue()
+        .then((ids) => {
+          if (alive) setQueue(ids);
         })
         .catch(() => {});
     };
@@ -157,6 +209,7 @@ export function usePlayerSync(): void {
       unlisteners.push(
         await listen<PlayerStatus>("player:status", (e) => setStatus(e.payload)),
       );
+      unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
       unlisteners.push(await listen<string>("player:error", (e) => setError(e.payload)));
     };
     void subscribe().catch(() => {});
@@ -166,5 +219,5 @@ export function usePlayerSync(): void {
       document.removeEventListener("visibilitychange", onVisibility);
       unlisteners.forEach((fn) => fn());
     };
-  }, [setStatus, setError]);
+  }, [setStatus, setQueue, setError]);
 }

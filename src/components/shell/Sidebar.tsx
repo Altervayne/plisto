@@ -4,7 +4,7 @@ import { MiniPlayer } from "../player/MiniPlayer";
 import { PlayerToggle } from "../player/PlayerToggle";
 
 // -- Icon Imports --
-import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Images, Download, Settings } from "lucide-react";
+import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -20,14 +20,17 @@ type Mode =
   | "singles"
   | "playlists"
   | "covers"
+  | "editor"
+  | "player"
   | "export"
   | "settings";
 
 /**
- * The sidebar: the Library mode switches (Files, Albums, Singles) over an Output group (Export), with
- * Settings pinned to the bottom past the spacer - app-level, apart from the content nav. Transparent
- * ground - it flows into the main region with no divider between them. Brand and library identity live
- * in the window title bar; folder actions live inside Settings.
+ * The sidebar: three labeled sections - Files (All Tracks, Unsorted, Covers), Library (Albums, Singles,
+ * Playlists), and Utilities (Track Editor, Export) - over the mini-player and Settings pinned to the bottom past the
+ * spacer, app-level and apart from the content nav. Transparent ground - it flows into the main region
+ * with no divider between them. Brand and library identity live in the window title bar; folder actions
+ * live inside Settings.
  */
 export function Sidebar({
   mode,
@@ -53,7 +56,7 @@ export function Sidebar({
   return (
     <aside className={styles.side}>
       <div className={styles.navgroup}>
-        <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
+        <div className={styles.navlabel}>{t((d) => d.nav.filesGroup)}</div>
         <NavItem
           icon={<LayoutGrid size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.files)}
@@ -68,6 +71,17 @@ export function Sidebar({
           active={mode === "unsorted"}
           onClick={() => onModeChange("unsorted")}
         />
+        <NavItem
+          icon={<Images size={17} strokeWidth={1.8} />}
+          label={t((d) => d.nav.covers)}
+          count={coversCount}
+          active={mode === "covers"}
+          onClick={() => onModeChange("covers")}
+        />
+      </div>
+
+      <div className={styles.navgroup}>
+        <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
         <NavItem
           icon={<Disc size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.albums)}
@@ -90,16 +104,21 @@ export function Sidebar({
           onClick={() => onModeChange("playlists")}
         />
         <NavItem
-          icon={<Images size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.covers)}
-          count={coversCount}
-          active={mode === "covers"}
-          onClick={() => onModeChange("covers")}
+          icon={<Radio size={17} strokeWidth={1.8} />}
+          label={t((d) => d.nav.player)}
+          active={mode === "player"}
+          onClick={() => onModeChange("player")}
         />
       </div>
 
       <div className={styles.navgroup}>
-        <div className={styles.navlabel}>{t((d) => d.nav.output)}</div>
+        <div className={styles.navlabel}>{t((d) => d.nav.utilities)}</div>
+        <NavItem
+          icon={<AudioLines size={17} strokeWidth={1.8} />}
+          label={t((d) => d.nav.editor)}
+          active={mode === "editor"}
+          onClick={() => onModeChange("editor")}
+        />
         <NavItem
           icon={<Download size={17} strokeWidth={1.8} />}
           label={t((d) => d.nav.export)}
@@ -112,7 +131,7 @@ export function Sidebar({
 
       {/* The now-playing mini docks here, above the pinned Settings item. It shows nothing until the
           first play, so the foot stays clean before then. */}
-      <MiniPlayer />
+      <MiniPlayer onExpand={() => onModeChange("player")} />
 
       {/* The show/hide switch and Settings pair as one foot group, tight together and apart from the
           mini above. The switch is soft-off: it never stops a playing track, so the mini above stays. */}

@@ -1,0 +1,158 @@
+/* The fixed hero column, vertically centered and holding still while the queue scrolls beside it. It
+ * clips the cover whisper to its own bounds, so the wash can never bleed into the queue gutter. */
+.hero {
+  position: relative;
+  flex: 0 0 clamp(340px, 40%, 460px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* The cover whisper: the current art, blurred to a soft tint and held near-transparent, feathered by a
+ * radial mask so it fades to nothing well before the column edge. No scrim - this is a hint of color, not
+ * a ground, so the view never reads as a themed player surface. */
+.wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(64px) saturate(1.2);
+  transform: scale(1.4);
+  opacity: 0.07;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(58% 54% at 50% 42%, #000, transparent 76%);
+  mask-image: radial-gradient(58% 54% at 50% 42%, #000, transparent 76%);
+}
+
+.wash[data-enter] {
+  animation: washIn var(--dur-slow) var(--ease-standard);
+}
+
+@keyframes washIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wash[data-enter] {
+    animation: none;
+  }
+}
+
+/* The content stack over the whisper, centered as one column. */
+.column {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+/* The source line: the uppercase kind over the linked or plain name. */
+.source {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.sourceLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The name as a field affordance: a bare link that underlines on hover, no box. */
+.sourceName {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sourceName:hover {
+  text-decoration: underline;
+}
+
+.sourceNamePlain {
+  max-width: 100%;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The cover, the one object of the column: a generous square carrying the pop shadow. */
+.cover {
+  display: block;
+  width: min(72%, 320px);
+  --cover-shadow: var(--shadow-pop);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.title {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  /* Two lines, then ellipsis: a long title never pushes the transport off the column. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.artist {
+  margin: 0;
+  max-width: 100%;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The seek bar spans the column so the fill reads across the full width. */
+.seekWrap {
+  width: 100%;
+}
+
+/* The transport bar: shuffle, the prev/play/next cluster, and repeat as one row of five glyphs. */
+.transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.volume {
+  display: flex;
+  justify-content: center;
+}

@@ -44,6 +44,8 @@ pub enum RepeatMode {
 
 /// One entry in the play queue: the track id the frontend keys on, plus its resolved file path. The
 /// command layer resolves ids to paths so the engine stays DB-free and never touches a connection.
+/// Cloned only when the queue is (re)built - on a Play or a shuffle toggle - never per tick.
+#[derive(Clone)]
 pub struct QueueTrack {
     pub id: i64,
     pub path: PathBuf,
@@ -59,9 +61,15 @@ pub enum PlayerCmd {
     Stop,
     Next,
     Prev,
+    // Jumps the cursor straight to the queue slot at this index, like a click in the up-next list.
+    // Clamped to the last slot; landing on a dead track skips forward to the next playable one.
+    Jump(usize),
     Seek(f64),
     SetVolume(f32),
     SetRepeat(RepeatMode),
+    // Materializes a shuffled queue order (true) or restores the original insertion order (false),
+    // keeping the current track playing across the toggle.
+    SetShuffle(bool),
     // None follows the system default output; Some(name) pins that named device.
     SetOutputDevice(Option<String>),
     // A transient audition of `path` between two seconds, stopped at the out-point. It plays on the
@@ -101,6 +109,9 @@ pub struct PlayerStatus {
     pub repeat: RepeatMode,
     pub queue_index: usize,
     pub queue_len: usize,
+    // Whether the queue is playing in a shuffled order. The order itself lives in the engine's queue
+    // and the separate `player:queue` mirror; this is only the toggle state for the UI.
+    pub shuffle: bool,
     // The name of the device actually rendering, or None while output is following the system
     // default before a device is resolved / when no device is open.
     pub output_device: Option<String>,
@@ -117,6 +128,7 @@ impl Default for PlayerStatus {
             repeat: RepeatMode::Off,
             queue_index: 0,
             queue_len: 0,
+            shuffle: false,
             output_device: None,
         }
     }

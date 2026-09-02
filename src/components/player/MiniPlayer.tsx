@@ -23,14 +23,17 @@ import styles from "./MiniPlayer.module.css";
  * a null track id renders nothing, so the rail stays clean before the engine holds a track. The
  * inner bar reads the track and its cover, so its hooks only run once there is a track to read.
  */
-export function MiniPlayer() {
+export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
   const trackId = useCurrentTrackId();
   if (trackId == null) return null;
-  return <MiniPlayerBar trackId={trackId} />;
+  return <MiniPlayerBar trackId={trackId} onExpand={onExpand} />;
 }
 
-/** The bar itself: cover, one text line, and a compact prev / play-pause / next transport. */
-function MiniPlayerBar({ trackId }: { trackId: number }) {
+/**
+ * The bar itself: cover, one text line, and a compact prev / play-pause / next transport. The cover and
+ * text area is its own button opening the full Player; the transport buttons below keep their own clicks.
+ */
+function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () => void }) {
   const track = useTrack(trackId);
   const { cover } = useTrackCover(trackId);
   const t = useT();
@@ -44,7 +47,12 @@ function MiniPlayerBar({ trackId }: { trackId: number }) {
       <CoverBackdrop src={coverSrc} className={styles.bg} />
       <div className={styles.scrim} />
       <div className={styles.content}>
-        <div className={styles.now}>
+        <button
+          type="button"
+          className={styles.now}
+          aria-label={t((d) => d.player.openPlayer)}
+          onClick={onExpand}
+        >
           <span className={styles.cover}>
             <Cover src={coverSrc} alt="" />
           </span>
@@ -52,7 +60,7 @@ function MiniPlayerBar({ trackId }: { trackId: number }) {
             <span className={styles.title}>{title}</span>
             <span className={styles.artist}>{artist}</span>
           </span>
-        </div>
+        </button>
         <div className={styles.controls}>
           <span className={styles.side}>
             <PopOutButton />

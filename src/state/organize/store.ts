@@ -594,6 +594,10 @@ function sameLayout(a: TrackPlacement[], b: TrackPlacement[]): boolean {
 export const useAlbums = (): AlbumRow[] =>
   useOrganizeStore(useShallow((s) => s.org.albums.filter((a) => a.kind === "album")));
 
+/** One album by id, across both kinds, or undefined when it is gone. */
+export const useAlbum = (id: number): AlbumRow | undefined =>
+  useOrganizeStore((s) => s.org.albums.find((a) => a.id === id));
+
 export const useSingles = (): AlbumRow[] =>
   useOrganizeStore(useShallow((s) => s.org.albums.filter((a) => a.kind === "single")));
 

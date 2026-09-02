@@ -46,22 +46,26 @@ function bucketCount(durationSecs: number | null): number {
 }
 
 /**
- * The splice workbench: a full-pane surface over the library, built on the album pane's
+ * The splice workbench: the Track Editor destination's surface, built on the album pane's
  * breadcrumb-over-body chassis. One shared shell serves both verbs, each with its own body: the
- * splitter's cut surface or the cropper's stub. Opening captures the player's state, pauses the
- * library if it was playing, and analyzes the source into a waveform that drives the body.
+ * splitter's cut surface or the cropper's stub. On mount it analyzes the source into a waveform that
+ * drives the body; the session outlives navigating off the destination, so analysis runs once per file.
  *
- * Restore is frontend-owned and lives in the unmount cleanup, so every close path runs it: a sounding
- * preview stops, then, when a library track was loaded at open, the exact track and position are
- * restored (a preview clears the sink, so a bare resume would play silence).
+ * The library pause keys on `active`, the destination's visibility, not the mount: becoming active
+ * captures the player's state and pauses a playing library; becoming inactive - navigated away - or
+ * unmounting stops a sounding preview and restores the captured track and position. Restore is
+ * frontend-owned (a preview clears the sink, so a bare resume would play silence), and a hidden session
+ * in the background never holds the library paused.
  */
 export function SpliceWorkbench({
   verb,
   trackId,
+  active,
   onClose,
 }: {
   verb: "split" | "trim";
   trackId: number;
+  active: boolean;
   onClose: () => void;
 }) {
   const t = useT();
@@ -81,22 +85,18 @@ export function SpliceWorkbench({
     else onClose();
   }, [onClose]);
 
-  // The library's state at open, so close can restore it: whether it was playing, whether a track was
-  // loaded at all, and the play head to seat it back at.
+  // The library's state captured on entry, so leaving can restore it: whether it was playing, whether
+  // a track was loaded at all, and the play head to seat it back at.
   const wasPlaying = useRef(false);
   const hadTrack = useRef(false);
   const positionSecs = useRef(0);
 
+  // The analysis, once per mounted session. The source outlives navigating off the destination, so this
+  // never re-runs while the editor is merely hidden.
   useEffect(() => {
     // Per-run cancel flag: the cleanup sets it, so a resolving analysis never touches a torn-down
     // workbench. A ref would leak across StrictMode's setup/cleanup/setup and swallow the second run.
     let cancelled = false;
-
-    const player = usePlayerStore.getState();
-    wasPlaying.current = player.status.playing;
-    hadTrack.current = player.status.track_id != null;
-    positionSecs.current = player.status.position_secs;
-    if (player.status.playing) player.actions.pause();
 
     // Resolve the source once, non-reactively: a tag edit repatches the row, and depending on it
     // would re-run the analysis.
@@ -127,15 +127,29 @@ export function SpliceWorkbench({
 
     return () => {
       cancelled = true;
+    };
+  }, [trackId, onClose]);
+
+  // The library pause, keyed on the destination's visibility. Becoming active captures the player's
+  // state and pauses a playing library; becoming inactive (navigated away) or unmounting stops a
+  // sounding preview and restores the captured track and position. A preview clears the sink, so
+  // reopening the source is what brings the library back; a resume alone would play silence. With no
+  // track loaded on entry, nothing to restore.
+  useEffect(() => {
+    if (!active) return;
+
+    const player = usePlayerStore.getState();
+    wasPlaying.current = player.status.playing;
+    hadTrack.current = player.status.track_id != null;
+    positionSecs.current = player.status.position_secs;
+    if (player.status.playing) player.actions.pause();
+
+    return () => {
       const cur = usePlayerStore.getState();
-      // Stop a sounding preview (the engine playing with no library track), then restore the library
-      // track and position captured at open. A preview clears the sink, so reopening the source is
-      // what brings the library back; a resume alone would play silence. With no track loaded at open,
-      // nothing to restore.
       if (cur.status.playing && cur.status.track_id == null) cur.actions.stop();
       if (hadTrack.current) void playerRestoreLibrary(positionSecs.current, wasPlaying.current);
     };
-  }, [trackId, onClose]);
+  }, [active]);
 
   if (phase === "opening") {
     const value =

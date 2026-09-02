@@ -30,6 +30,7 @@ import { ExtractPanel } from "../extract/ExtractPanel";
 // -- State Imports --
 import { useAppStore } from "../../state/store";
 import {
+  useAlbum,
   useAlbumTracks,
   useLoadOrganization,
   useResetHistory,
@@ -55,7 +56,7 @@ import { pickImageFile } from "../../lib/dialog";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
-import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
+import type { AlbumTrackRow as AlbumTrackRowData, PlaybackSource } from "../../types";
 import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- i18n Imports --
@@ -100,7 +101,15 @@ export function AlbumTrackList({
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const { play } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
+  const album = useAlbum(albumId);
   const t = useT();
+
+  // Every play from this list is tagged with the album as its source, for the "playing from" line.
+  const source: PlaybackSource = {
+    kind: "album",
+    id: albumId,
+    label: album?.title ?? t((d) => d.albums.untitled),
+  };
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);
@@ -258,7 +267,7 @@ export function AlbumTrackList({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(ids, ids.indexOf(row.track_id)),
+              onSelect: () => play(ids, ids.indexOf(row.track_id), source),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -418,7 +427,9 @@ export function AlbumTrackList({
                       onOpenTrack={onOpenTrack}
                       openTrackId={openTrackId}
                       onPlay={
-                        playerEnabled ? (trackId) => play(ids, ids.indexOf(trackId)) : undefined
+                        playerEnabled
+                          ? (trackId) => play(ids, ids.indexOf(trackId), source)
+                          : undefined
                       }
                       buildMenu={buildTrackMenu}
                     />
@@ -436,7 +447,9 @@ export function AlbumTrackList({
               onToggleSelect={onToggleSelect}
               onOpenTrack={onOpenTrack}
               openTrackId={openTrackId}
-              onPlay={playerEnabled ? (trackId) => play(ids, ids.indexOf(trackId)) : undefined}
+              onPlay={
+                playerEnabled ? (trackId) => play(ids, ids.indexOf(trackId), source) : undefined
+              }
               buildMenu={buildTrackMenu}
             />
           )}

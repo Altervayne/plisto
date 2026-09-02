@@ -649,9 +649,14 @@ export function cancelPlaylistExport(): Promise<void> {
 // `player:status` event carries the live state back. Play args mirror the queue model - a play
 // replaces the queue with `trackIds`, cursor at `index`.
 
-/** The player's live snapshot: playing state, playhead, volume, repeat and queue cursor. */
+/** The player's live snapshot: playing state, playhead, volume, repeat, shuffle and queue cursor. */
 export function getPlayerStatus(): Promise<PlayerStatus> {
   return invoke<PlayerStatus>("get_player_status");
+}
+
+/** The ordered queue track ids in the active play order, shuffled or not, for the up-next list. */
+export function getPlayerQueue(): Promise<number[]> {
+  return invoke<number[]>("get_player_queue");
 }
 
 /** Replaces the queue with `trackIds` and starts playback at `index` (default the first). */
@@ -689,6 +694,11 @@ export function playerPrev(): Promise<void> {
   return invoke("player_prev");
 }
 
+/** Jumps straight to the queue slot at `index`, like a click in the up-next list. */
+export function playerJump(index: number): Promise<void> {
+  return invoke("player_jump", { index });
+}
+
 /** Seeks the current track to `secs` from its start. */
 export function playerSeek(secs: number): Promise<void> {
   return invoke("player_seek", { secs });
@@ -719,6 +729,11 @@ export function playerSetVolume(v: number): Promise<void> {
 /** Sets the repeat mode: off, all, or one. */
 export function playerSetRepeat(mode: RepeatMode): Promise<void> {
   return invoke("player_set_repeat", { mode });
+}
+
+/** Turns shuffle on or off; the current track keeps playing across the toggle. */
+export function playerSetShuffle(on: boolean): Promise<void> {
+  return invoke("player_set_shuffle", { on });
 }
 
 /** Every available output device, each flagged when it is the current OS default. */

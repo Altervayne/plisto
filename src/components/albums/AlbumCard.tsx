@@ -113,10 +113,15 @@ export const AlbumCard = memo(function AlbumCard({
   const { src } = useAlbumCover(album.id, "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
-  // Play the album: its members in order, cursor on the first. Shared by the cover button and the
-  // menu item.
-  const playAlbum = () => play(tracks.map((track) => track.track_id), 0);
   const t = useT();
+  // Play the album: its members in order, cursor on the first, tagged with the album as the source.
+  // Shared by the cover button and the menu item.
+  const playAlbum = () =>
+    play(tracks.map((track) => track.track_id), 0, {
+      kind: "album",
+      id: album.id,
+      label: album.title ?? t((d) => d.albums.untitled),
+    });
   const single = album.kind === "single";
   const lead = single
     ? t((d) => d.singles.marker)

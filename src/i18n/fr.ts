@@ -9,13 +9,16 @@ import type { Dict } from "./en";
 
 export const fr: Dict = {
   nav: {
+    filesGroup: "Fichiers",
     library: "Audiothèque",
+    utilities: "Utilitaires",
     files: "Toutes les Pistes",
     unsorted: "Non Triées",
     albums: "Albums",
     singles: "Singles",
     covers: "Pochettes",
-    output: "Production",
+    editor: "Éditeur de piste",
+    player: "Lecteur",
     export: "Exporter",
   },
 
@@ -314,7 +317,8 @@ export const fr: Dict = {
     split: "Découper en pistes...",
     trim: "Rogner les silences...",
     unsupported: "Seuls les fichiers WAV, FLAC et MP3 peuvent être découpés pour le moment.",
-    back: "Audiothèque",
+    editorTitle: "Éditeur de piste",
+    editorHint: "Faites un clic droit sur une piste et choisissez Découper ou Rogner pour commencer l'édition ici.",
     splitTitle: "Découper en pistes",
     trimTitle: "Rogner les silences",
     reading: "Lecture de la forme d'onde...",
@@ -623,6 +627,20 @@ export const fr: Dict = {
     closeWidget: "Fermer",
     seek: "Position de lecture",
     nothingPlaying: "Aucune lecture",
+    nothingPlayingHint: "Choisissez un titre dans votre audiothèque pour le lancer ici.",
+    openPlayer: "Ouvrir le lecteur",
+    playingFrom: "Lecture depuis",
+    sourceAlbum: "Album",
+    sourcePlaylist: "Playlist",
+    sourceFiles: "Toutes les Pistes",
+    sourceSingles: "Singles",
+    sourceUnsorted: "Non Triées",
+    upNext: "À suivre",
+    clearQueue: "Vider la file",
+    shuffle: "Aléatoire",
+    repeat: "Répéter",
+    volume: "Volume",
+    unknownTrack: "Piste inconnue",
   },
 
   notify: {

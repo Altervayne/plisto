@@ -110,9 +110,10 @@
   }
 }
 
-/* The tool workbench overlays the whole main region, above any mode content. It repaints the same
- * fixed ambient ground so it occludes what is under it seamlessly, then insets its own content by the
- * region's rhythm. It rides the same crossfade as the album pane. */
+/* The Track Editor's workbench overlays the whole main region, above the destination's idle prompt. It
+ * repaints the same fixed ambient ground so it occludes what is under it seamlessly, then insets its
+ * own content by the region's rhythm. Off the destination it hides rather than unmounting, so the class
+ * display has to yield to the hidden attribute. */
 .toolLayer {
   position: absolute;
   inset: 0;
@@ -122,13 +123,8 @@
   background-attachment: fixed;
 }
 
-.toolLayer[data-state="enter"] {
-  animation: view-in var(--dur-slow) var(--ease-cover) both;
-}
-
-.toolLayer[data-state="exit"] {
-  animation: view-out var(--dur-fast) var(--ease-exit) both;
-  pointer-events: none;
+.toolLayer[hidden] {
+  display: none;
 }
 
 /* The right panel's positioned wrapper: it holds the var width, and the resize handle rides its left
