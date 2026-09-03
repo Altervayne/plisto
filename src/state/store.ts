@@ -89,6 +89,21 @@ const idleScan: ScanState = {
   error: null,
 };
 
+// A first read at launch can reject before the backend's managed state is ready: the window boots and
+// fires its hydrate the instant the webview loads, while setup is still standing up the resident audio
+// engine. That window clears within a moment, so a boot read retries with backoff before giving up -
+// without it, a swallowed early rejection strands a stocked library on the empty-library onboarding.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 12): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, Math.min(1000, 250 * (i + 1))));
+    }
+  }
+}
+
 export const useAppStore = create<AppStore>((set, get) => {
   // Drives the scan state from a scanning job's progress and outcome, over a fresh channel. A
   // cancelled run still resolves with a summary, so it lands in 'done' with the partial index intact.
@@ -132,7 +147,9 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     loadRoots: async () => {
       try {
-        const roots = await listRoots();
+        // Retried: an early boot read can reject before managed state is ready. An empty result is not
+        // a rejection, so a genuinely empty library still resolves at once and shows onboarding.
+        const roots = await withRetry(listRoots);
         set({ roots });
       } catch {
         set({ roots: [] });
@@ -182,7 +199,8 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     loadTracks: async () => {
       try {
-        const { rows } = await listTracks({});
+        // Retried for the same boot-race reason as loadRoots: it runs right after the roots hydrate.
+        const { rows } = await withRetry(() => listTracks({}));
         set({ tracks: rows });
       } catch {
         set({ tracks: [] });
