@@ -197,9 +197,14 @@ export function showMainWindow(): Promise<void> {
   return invoke("show_main_window");
 }
 
-/** Quits the app from the tray popup. */
+/** Quits the app from the tray popup, through the guard that warns on a running job first. */
 export function quitApp(): Promise<void> {
   return invoke("quit_app");
+}
+
+/** The "Quit anyway" path from the running-job warning: cancels every job and exits. */
+export function confirmQuit(): Promise<void> {
+  return invoke("confirm_quit");
 }
 
 /** Summons or dismisses the pop-out now-playing widget, from the mini-player or the tray block. */

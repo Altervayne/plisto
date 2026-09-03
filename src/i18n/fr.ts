@@ -417,6 +417,12 @@ export const fr: Dict = {
     sectionPlayback: "Lecture",
     sectionAppearance: "Apparence",
     sectionLanguage: "Langue",
+    sectionSystem: "Système",
+    closeBehavior: "À la fermeture de la fenêtre",
+    closeQuit: "Quitter Plisto",
+    closeTray: "Garder dans la zone de notification",
+    closeHelper:
+      "Quitter ferme Plisto définitivement. Le garder dans la zone de notification le laisse tourner derrière l'icône - la musique continue et l'icône reste active.",
     outputDevice: "Périphérique de sortie",
     systemDefault: "Périphérique par défaut",
     deviceDefaultHint: "(par défaut)",
@@ -610,6 +616,20 @@ export const fr: Dict = {
     idle: "Aucune exportation en cours",
     show: "Afficher Plisto",
     quit: "Quitter",
+  },
+
+  quitGuard: {
+    jobScan: "un scan de l'audiothèque",
+    jobExport: "une exportation",
+    jobSplice: "un découpage",
+    jobPlaylistExport: "une exportation de playlist",
+    and: "et",
+    running: {
+      one: "{subject} est encore en cours. Quitter Plisto l'annule.",
+      other: "{subject} sont encore en cours. Quitter Plisto les annule.",
+    },
+    quitAnyway: "Quitter quand même",
+    keepRunning: "Continuer",
   },
 
   player: {

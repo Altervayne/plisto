@@ -20,6 +20,7 @@ import {
   useScanStatus,
 } from "../../state/store";
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
+import { useCloseToTray, useSetCloseToTray } from "../../state/preferences/store";
 
 // -- Theme Imports --
 import { useTheme, useSetTheme } from "../../theme";
@@ -54,6 +55,8 @@ export function SettingsView() {
   const setTheme = useSetTheme();
   const locale = useLocale();
   const setLocale = useSetLocale();
+  const closeToTray = useCloseToTray();
+  const setCloseToTray = useSetCloseToTray();
   const t = useT();
 
   // Settings can open before Organize ever loads, so pull the vocabulary in on mount.
@@ -81,6 +84,12 @@ export function SettingsView() {
   const localeSegments: Segment<Locale>[] = [
     { value: "en", label: "English" },
     { value: "fr", label: "Français" },
+  ];
+
+  // The two close behaviors, mapped to a boolean pref: "tray" keeps it alive, "quit" exits.
+  const closeSegments: Segment<"quit" | "tray">[] = [
+    { value: "quit", label: t((d) => d.settings.closeQuit) },
+    { value: "tray", label: t((d) => d.settings.closeTray) },
   ];
 
   return (
@@ -139,6 +148,20 @@ export function SettingsView() {
             <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
             <PlaybackDeviceRow />
           </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.label}>{t((d) => d.settings.sectionSystem)}</h2>
+          <div className={styles.row}>
+            <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
+            <SegmentedControl
+              segments={closeSegments}
+              value={closeToTray ? "tray" : "quit"}
+              onChange={(value) => setCloseToTray(value === "tray")}
+              label={t((d) => d.settings.closeBehavior)}
+            />
+          </div>
+          <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
         </section>
 
         <section className={styles.section}>

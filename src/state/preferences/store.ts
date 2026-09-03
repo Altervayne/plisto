@@ -25,6 +25,9 @@ export const PREF_KEYS = {
   splicePaddingMs: "splice_padding_ms",
   playerEnabled: "player_enabled",
   outputDevice: "output_device",
+  // The backend reads this same kv key by name to seed its close-behavior mirror, so both sides
+  // spell it identically.
+  closeToTray: "closeToTray",
   // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last
   // export" filter preset - the baseline for "what changed since I last synced everything".
   lastExportAt: "last_export_at",
@@ -78,3 +81,15 @@ export const usePreference = (key: string): string | undefined =>
 
 export const useLoadPreferences = () => usePreferencesStore((s) => s.loadPreferences);
 export const useSetPreference = () => usePreferencesStore((s) => s.setPreference);
+
+/**
+ * Whether closing the window keeps Plisto alive in the tray. Persisted, default off: an absent pref
+ * reads off, so the close quits the app until the user opts into the tray.
+ */
+export const useCloseToTray = (): boolean => usePreference(PREF_KEYS.closeToTray) === "1";
+
+/** Flips the close-behavior pref. Best-effort persist like every other pref. */
+export const useSetCloseToTray = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.closeToTray, on ? "1" : "0");
+};

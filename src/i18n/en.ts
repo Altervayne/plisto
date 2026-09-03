@@ -416,6 +416,12 @@ export const en = {
     sectionPlayback: "Playback",
     sectionAppearance: "Appearance",
     sectionLanguage: "Language",
+    sectionSystem: "System",
+    closeBehavior: "When you close the window",
+    closeQuit: "Quit Plisto",
+    closeTray: "Keep it in the tray",
+    closeHelper:
+      "Quit closes Plisto for good. Keep it in the tray leaves it running behind the tray icon - music keeps playing and the tray stays live.",
     outputDevice: "Output device",
     systemDefault: "System default",
     deviceDefaultHint: "(default)",
@@ -609,6 +615,20 @@ export const en = {
     idle: "Nothing exporting",
     show: "Show Plisto",
     quit: "Quit",
+  },
+
+  quitGuard: {
+    jobScan: "a library scan",
+    jobExport: "an export",
+    jobSplice: "a splice",
+    jobPlaylistExport: "a playlist export",
+    and: "and",
+    running: {
+      one: "{subject} is still running. Quitting Plisto cancels it.",
+      other: "{subject} are still running. Quitting Plisto cancels them.",
+    },
+    quitAnyway: "Quit anyway",
+    keepRunning: "Keep running",
   },
 
   player: {

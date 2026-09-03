@@ -5,6 +5,8 @@
  */
 
 // -- Library Imports --
+use std::sync::atomic::Ordering;
+
 use tauri::State;
 
 // -- Local Imports --
@@ -40,5 +42,10 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::set_setting(&conn, &key, &value).map_err(|e| e.to_string())
+    db::set_setting(&conn, &key, &value).map_err(|e| e.to_string())?;
+    // Keep the close-behavior mirror fresh, so the window-event handler never has to read the kv.
+    if key == "closeToTray" {
+        state.close_to_tray.store(value == "1", Ordering::Relaxed);
+    }
+    Ok(())
 }

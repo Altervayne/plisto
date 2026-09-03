@@ -4,6 +4,7 @@ import { useEffect } from "react";
 // -- Component Imports --
 import { TitleBar } from "./components/shell/TitleBar";
 import { WorkspaceGate } from "./components/WorkspaceGate";
+import { ConfirmQuitDialog } from "./components/shell/ConfirmQuitDialog";
 
 // -- State Imports --
 import { useLoadPreferences } from "./state/preferences/store";
@@ -39,6 +40,7 @@ function App() {
       <div className={styles.content}>
         <WorkspaceGate />
       </div>
+      <ConfirmQuitDialog />
     </div>
   );
 }

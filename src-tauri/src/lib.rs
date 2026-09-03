@@ -17,7 +17,7 @@ mod tags;
 mod tray;
 
 // -- Library Imports --
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
@@ -54,12 +54,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| match event {
-            // The main window's close (the X, native or the custom titlebar's JS close()) hides to
-            // tray instead of exiting; the app keeps running behind the tray icon. Minimize is left
-            // to its normal behavior. The tray popup's own close is never intercepted.
+            // The main window's close (the X, native or the custom titlebar's JS close()) follows the
+            // close-behavior pref: hide to tray and keep running behind the icon, or quit. Minimize is
+            // left to its normal behavior. The tray popup's own close is never intercepted.
             WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
-                api.prevent_close();
-                let _ = window.hide();
+                let app = window.app_handle();
+                let close_to_tray = app
+                    .try_state::<AppState>()
+                    .map(|state| state.close_to_tray.load(Ordering::Relaxed))
+                    .unwrap_or(false);
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                } else {
+                    // Never let the raw close through: the tray and pop-out windows keep the process
+                    // alive, so destroying main alone would strand a headless process. Route through
+                    // the guard, which confirms a running job or else exits.
+                    api.prevent_close();
+                    commands::window::guarded_quit(app);
+                }
             }
             // The pop-out widget's close (a native X or its own close button routing through hide)
             // hides rather than destroys, so re-summoning it later reuses the same window.
@@ -142,6 +155,11 @@ pub fn run() {
                 }
             }
 
+            // Seed the close-behavior mirror from the kv before state is managed, like the device
+            // read above. Absent means quit on close, the shipped default.
+            let close_to_tray =
+                db::get_setting(&conn, "closeToTray").ok().flatten().as_deref() == Some("1");
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
@@ -164,6 +182,7 @@ pub fn run() {
                 player: player_tx,
                 player_status,
                 player_queue,
+                close_to_tray: AtomicBool::new(close_to_tray),
             });
 
             // The tray icon and its popup toggle guard, once the state it reads is managed.
@@ -261,6 +280,7 @@ pub fn run() {
             commands::roots::root_removal_impact,
             commands::window::show_main_window,
             commands::window::quit_app,
+            commands::window::confirm_quit,
             commands::window::toggle_now_playing_widget,
             commands::window::hide_now_playing_widget,
             commands::player::player_play_tracks,

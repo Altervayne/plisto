@@ -99,3 +99,11 @@
   font-weight: 550;
   color: var(--ink-2);
 }
+
+/* A persistent hint under a row, explaining the choice above it. */
+.helper {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
