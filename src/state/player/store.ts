@@ -105,7 +105,9 @@ interface PlayerStore {
   queueMeta: Record<number, QueueTrackMeta>;
   // Where the current queue was launched from, for the "playing from" line. Null before the first play.
   playingFrom: PlaybackSource | null;
-  // The last `player:error` string, or null. Held for a surface to read; unused for the MVP.
+  // The last `player:file-error` string, or null: a file the OS handed us that could not be played.
+  // Read by the error toast, which clears it as it dismisses. This is deliberately NOT the broader
+  // `player:error` channel (device fallback, output loss), which must not read as a file failure.
   error: string | null;
   setStatus: (status: PlayerStatus) => void;
   setQueue: (queue: number[]) => void;
@@ -185,6 +187,13 @@ export const useCurrentOutputDevice = (): string | null =>
   usePlayerStore((s) => s.status.output_device);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
 
+// The last playback error, and its setter, for the toast surface: it shows the message, then clears it
+// back to null as it dismisses. The setter is the store's own stable reference, so reading it never
+// re-renders on a status tick.
+export const usePlayerError = (): string | null => usePlayerStore((s) => s.error);
+export const useSetPlayerError = (): ((error: string | null) => void) =>
+  usePlayerStore((s) => s.setError);
+
 // The queue slices sit apart from `status` so the up-next list never re-renders on a position tick, and
 // the ticking transport never pulls the queue.
 export const usePlayerQueue = (): number[] => usePlayerStore((s) => s.queue);
@@ -214,8 +223,9 @@ export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once (the engine may already
- * be mid-play), then follows the throttled `player:status` and the `player:error` events. Mount it
- * once high in the tree; both listeners tear down on unmount. Mirrors the tray's event wiring.
+ * be mid-play), then follows the throttled `player:status`, the `player:queue`, and the
+ * `player:file-error` events. Mount it once high in the tree; the listeners tear down on unmount.
+ * Mirrors the tray's event wiring.
  */
 export function usePlayerSync(): void {
   const setStatus = usePlayerStore((s) => s.setStatus);
@@ -254,7 +264,7 @@ export function usePlayerSync(): void {
         await listen<PlayerStatus>("player:status", (e) => setStatus(e.payload)),
       );
       unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
-      unlisteners.push(await listen<string>("player:error", (e) => setError(e.payload)));
+      unlisteners.push(await listen<string>("player:file-error", (e) => setError(e.payload)));
     };
     void subscribe().catch(() => {});
 

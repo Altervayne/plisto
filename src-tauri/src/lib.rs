@@ -14,6 +14,7 @@ mod resolve;
 mod scan;
 mod smtc;
 mod splice;
+mod startup;
 mod state;
 mod tags;
 mod tray;
@@ -52,6 +53,25 @@ fn app_info() -> AppInfo {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Registered first, as the plugin requires. A second launch (the OS opening a file while
+        // Plisto already runs) routes here instead of starting a new process: surface the main window
+        // from the tray, then play the delivered files now, replacing the queue. A bare relaunch
+        // carries no file, so it only surfaces the window. The N-file decode runs off this callback
+        // thread so it never blocks the main loop.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+                let _ = main.unminimize();
+                let _ = main.set_focus();
+            }
+            let paths = startup::audio_paths_from_argv(&argv);
+            if !paths.is_empty() {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = commands::player::play_files(&app, paths).await;
+                });
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -162,6 +182,13 @@ pub fn run() {
             let close_to_tray =
                 db::get_setting(&conn, "closeToTray").ok().flatten().as_deref() == Some("1");
 
+            // Stash the file the OS cold-launched Plisto with, if any, for the frontend to pull on
+            // mount. Read here, never pushed as an event and never auto-played: a pull is boot-race
+            // safe, where a setup-time push could fire before the first render subscribes.
+            let startup_argv: Vec<String> = std::env::args().collect();
+            let startup_paths = startup::audio_paths_from_argv(&startup_argv);
+            let startup_file = (!startup_paths.is_empty()).then_some(startup_paths);
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
@@ -186,6 +213,7 @@ pub fn run() {
                 player_queue,
                 ad_hoc: Mutex::new(std::collections::HashMap::new()),
                 close_to_tray: AtomicBool::new(close_to_tray),
+                startup_file: Mutex::new(startup_file),
             });
 
             // The tray icon and its popup toggle guard, once the state it reads is managed.
@@ -213,6 +241,7 @@ pub fn run() {
             commands::settings::workspace_root,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::settings::open_default_apps_settings,
             commands::covers::read_cover,
             commands::covers::album_cover,
             commands::covers::playlist_cover,
@@ -293,6 +322,8 @@ pub fn run() {
             commands::window::hide_now_playing_widget,
             commands::player::player_play_tracks,
             commands::player::player_play_file,
+            commands::player::player_play_files,
+            commands::player::get_startup_file,
             commands::player::player_preview,
             commands::player::player_restore_library,
             commands::player::player_toggle,

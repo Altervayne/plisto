@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use rodio::cpal;
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
@@ -62,41 +62,113 @@ pub fn player_play_tracks(
     Ok(())
 }
 
-/// Plays a file straight off disk, with no library row behind it. Reads its title and artist through
-/// the scan's own tag reader and resolves a cover, both off the player thread, then stashes them under
-/// a fresh negative id so the now-playing surfaces name the track without the index. Replaces the
-/// stash and the queue on each open. Errors when the file cannot be read as audio, so the caller can
-/// surface it; the file is only read. Async so the tag read and cover decode never touch the engine.
-#[tauri::command]
-pub async fn player_play_file(path: String, state: State<'_, AppState>) -> Result<(), String> {
-    let covers_dir = state.covers_dir.clone();
-    let guard = Arc::clone(&state.covers_in_flight);
-    let src = path.clone();
-    let track = tauri::async_runtime::spawn_blocking(move || {
-        read_ad_hoc_track(&covers_dir, &guard, &src)
+/// Plays one or more files straight off disk, with no library rows behind them. Reads each file's
+/// title and artist through the scan's own tag reader and caches its cover, both off the player
+/// thread, then stashes each under its own fresh negative id so prev/next traverses the ad-hoc queue
+/// and every entry names itself without the index. Replaces the stash and the queue on each open. An
+/// unreadable file is skipped, not queued; when every file is unreadable nothing plays and
+/// `player:file-error` fires so the toast can report it - its own event, apart from the internal
+/// `player:error` warnings (device fallback, output loss) the surface must not read as a file failure.
+/// The files are only read. Shared by the single-file and multi-file commands and the single-instance
+/// warm-open callback.
+pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let (covers_dir, guard) = {
+        let state = app.state::<AppState>();
+        (state.covers_dir.clone(), Arc::clone(&state.covers_in_flight))
+    };
+
+    // Read tags and cache covers for every file on one blocking hop, never the player thread. Each
+    // readable file comes back with its path; an unreadable one is dropped here.
+    let readable = tauri::async_runtime::spawn_blocking(move || {
+        read_ad_hoc_tracks(&covers_dir, &guard, paths)
     })
     .await
-    .map_err(|_| "playback task failed to run".to_string())??;
+    .map_err(|_| "playback task failed to run".to_string())?;
 
-    // Each open rebuilds the queue, so the stash is replaced too: one entry keyed by the id the
-    // engine reports back as the current track.
-    let id = next_ad_hoc_id();
+    if readable.is_empty() {
+        let _ = app.emit("player:file-error", "couldn't play this file");
+        return Err("couldn't read any of these files".to_string());
+    }
+
+    // Each open rebuilds the queue, so the stash is replaced too: one entry per readable file, keyed
+    // by the id the engine reports back for the current track.
+    let (entries, queue) = build_ad_hoc_queue(readable);
+    let state = app.state::<AppState>();
     {
         let mut stash = state
             .ad_hoc
             .lock()
             .map_err(|_| "player is unavailable".to_string())?;
         stash.clear();
-        stash.insert(id, track);
+        stash.extend(entries);
     }
-    let _ = state.player.send(PlayerCmd::Play {
-        queue: vec![QueueTrack {
+    let _ = state.player.send(PlayerCmd::Play { queue, index: 0 });
+    Ok(())
+}
+
+/// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio. The
+/// blocking body of `play_files`, split out so the skip-unreadable filter is testable without a live
+/// app. Keeps the caller's order among the survivors.
+fn read_ad_hoc_tracks(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    paths: Vec<String>,
+) -> Vec<(String, AdHocTrack)> {
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            read_ad_hoc_track(covers_dir, guard, &path)
+                .ok()
+                .map(|track| (path, track))
+        })
+        .collect()
+}
+
+/// Allocates a fresh negative id for each readable file and pairs the stash entries with the queue
+/// tracks, both keyed by the same ids so every queue entry resolves through the sentinel fan-out to
+/// its own stash entry. Pure over its input, so the id-per-entry stashing is testable.
+fn build_ad_hoc_queue(
+    readable: Vec<(String, AdHocTrack)>,
+) -> (HashMap<i64, AdHocTrack>, Vec<QueueTrack>) {
+    let mut entries = HashMap::with_capacity(readable.len());
+    let mut queue = Vec::with_capacity(readable.len());
+    for (path, track) in readable {
+        let id = next_ad_hoc_id();
+        entries.insert(id, track);
+        queue.push(QueueTrack {
             id,
             path: path.into(),
-        }],
-        index: 0,
-    });
-    Ok(())
+        });
+    }
+    (entries, queue)
+}
+
+/// Plays a file straight off disk, with no library row behind it, naming it from its own tags.
+/// Delegates to the multi-file core with a one-entry list. Errors when the file cannot be read as
+/// audio, so the caller can surface it. Async so the tag read and cover decode never touch the engine.
+#[tauri::command]
+pub async fn player_play_file(path: String, app: AppHandle) -> Result<(), String> {
+    play_files(&app, vec![path]).await
+}
+
+/// Plays a set of files straight off disk, with no library rows: the multi-file open the OS delivers
+/// or a multi-select feeds. Unreadable files drop out; playing starts on the first survivor. Errors
+/// only when every file is unreadable, so a mixed set still plays its readable members.
+#[tauri::command]
+pub async fn player_play_files(paths: Vec<String>, app: AppHandle) -> Result<(), String> {
+    play_files(&app, paths).await
+}
+
+/// Returns the file paths Plisto was cold-launched with, then clears them so a later reload never
+/// replays the file. The boot-race-safe path: the frontend pulls this on mount rather than the setup
+/// hook pushing an event, so a slow first render never misses it. None when Plisto opened on its own.
+#[tauri::command]
+pub fn get_startup_file(state: State<'_, AppState>) -> Result<Option<Vec<String>>, String> {
+    let mut slot = state
+        .startup_file
+        .lock()
+        .map_err(|_| "startup file is unavailable".to_string())?;
+    Ok(slot.take())
 }
 
 /// Reads a lone file's tags and resolves its cover for ad-hoc playback, on a blocking thread. Both
@@ -371,5 +443,52 @@ mod tests {
         // A whitespace-only title collapses to None through the normalize boundary, so the stem wins.
         let (title, _) = ad_hoc_display("/music/track01.opus", &raw(Some("   "), None));
         assert_eq!(title, "track01");
+    }
+
+    // A bare ad-hoc track carrying only a title, enough to key it in the stash and queue.
+    fn track(title: &str) -> AdHocTrack {
+        AdHocTrack {
+            title: title.to_string(),
+            artist: None,
+            cover: None,
+        }
+    }
+
+    #[test]
+    fn build_ad_hoc_queue_gives_each_file_its_own_id() {
+        let readable = vec![
+            ("/music/a.mp3".to_string(), track("A")),
+            ("/music/b.flac".to_string(), track("B")),
+            ("/music/c.wav".to_string(), track("C")),
+        ];
+        let (entries, queue) = build_ad_hoc_queue(readable);
+
+        assert_eq!(queue.len(), 3, "every readable file becomes a queue entry");
+        assert_eq!(entries.len(), 3, "the stash carries one entry per file");
+        // Each queue id keys its own stash entry, so the sentinel fan-out resolves every entry apart.
+        for (i, name) in ["A", "B", "C"].iter().enumerate() {
+            let id = queue[i].id;
+            assert!(id < 0, "an ad-hoc id is always negative");
+            assert_eq!(entries[&id].title, *name, "the stash entry matches its queue slot");
+        }
+        // The paths keep the caller's order.
+        let paths: Vec<_> = queue.iter().map(|q| q.path.to_string_lossy().into_owned()).collect();
+        assert_eq!(paths, vec!["/music/a.mp3", "/music/b.flac", "/music/c.wav"]);
+    }
+
+    #[test]
+    fn read_ad_hoc_tracks_skips_files_it_cannot_read() {
+        // Missing files are unreadable through the tag reader, so every one drops out and nothing is
+        // queued - the all-unreadable case play_files reports as an error.
+        let guard = crate::covers::InFlightGuard::default();
+        let readable = read_ad_hoc_tracks(
+            Path::new("/covers"),
+            &guard,
+            vec![
+                "/music/missing-one.mp3".to_string(),
+                "/music/missing-two.flac".to_string(),
+            ],
+        );
+        assert!(readable.is_empty(), "an unreadable file never reaches the queue");
     }
 }

@@ -22,6 +22,9 @@ import {
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
 import { useCloseToTray, useSetCloseToTray } from "../../state/preferences/store";
 
+// -- IPC Imports --
+import { openDefaultAppsSettings } from "../../lib/ipc";
+
 // -- Theme Imports --
 import { useTheme, useSetTheme } from "../../theme";
 
@@ -91,6 +94,10 @@ export function SettingsView() {
     { value: "quit", label: t((d) => d.settings.closeQuit) },
     { value: "tray", label: t((d) => d.settings.closeTray) },
   ];
+
+  // The make-default row is a Windows-only affordance - only Windows has the Default apps page it
+  // opens - so it stays hidden elsewhere rather than offering a control that does nothing.
+  const isWindows = navigator.userAgent.includes("Windows");
 
   return (
     <div className={styles.view}>
@@ -162,6 +169,17 @@ export function SettingsView() {
             />
           </div>
           <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
+          {isWindows ? (
+            <>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.settings.defaultApp)}</span>
+                <QuietButton onClick={() => void openDefaultAppsSettings().catch(() => {})}>
+                  {t((d) => d.settings.makeDefault)}
+                </QuietButton>
+              </div>
+              <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
+            </>
+          ) : null}
         </section>
 
         <section className={styles.section}>

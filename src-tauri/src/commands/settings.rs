@@ -49,3 +49,22 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
     }
     Ok(())
 }
+
+/// Opens the Windows Default apps settings page, where the user picks Plisto per file type. Win8+
+/// forbids setting the default programmatically, so the honest move is to send them straight to the
+/// page rather than pretend it is done. A no-op off Windows, where there is no such page.
+#[tauri::command]
+pub fn open_default_apps_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_url("ms-settings:defaultapps", None::<&str>)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}

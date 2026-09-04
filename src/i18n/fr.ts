@@ -423,6 +423,10 @@ export const fr: Dict = {
     closeTray: "Garder dans la zone de notification",
     closeHelper:
       "Quitter ferme Plisto définitivement. Le garder dans la zone de notification le laisse tourner derrière l'icône - la musique continue et l'icône reste active.",
+    defaultApp: "Lecteur de musique par défaut",
+    makeDefault: "Définir par défaut",
+    makeDefaultHelper:
+      "Plisto ouvre les paramètres Windows, où vous le choisissez pour chaque type de fichier audio. Windows ne permet de le choisir que là, pas ici.",
     outputDevice: "Périphérique de sortie",
     systemDefault: "Périphérique par défaut",
     deviceDefaultHint: "(par défaut)",
@@ -660,6 +664,7 @@ export const fr: Dict = {
     removeFromQueue: "Retirer de la file",
     reorderQueue: "Réordonner dans la file",
     addedToQueue: { one: "Ajouté à la file", other: "{{n}} ajoutés à la file" },
+    cantPlayFile: "Lecture impossible de ce fichier",
     clearQueue: "Vider la file",
     shuffle: "Aléatoire",
     repeat: "Répéter",

@@ -65,6 +65,16 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      { "ext": ["mp3"], "description": "Audio file" },
+      { "ext": ["flac"], "description": "Audio file" },
+      { "ext": ["wav"], "description": "Audio file" },
+      { "ext": ["m4a"], "description": "Audio file" },
+      { "ext": ["m4b"], "description": "Audio file" },
+      { "ext": ["ogg"], "description": "Audio file" },
+      { "ext": ["oga"], "description": "Audio file" },
+      { "ext": ["opus"], "description": "Audio file" }
     ]
   }
 }

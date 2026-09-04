@@ -422,6 +422,10 @@ export const en = {
     closeTray: "Keep it in the tray",
     closeHelper:
       "Quit closes Plisto for good. Keep it in the tray leaves it running behind the tray icon - music keeps playing and the tray stays live.",
+    defaultApp: "Default music player",
+    makeDefault: "Set as default",
+    makeDefaultHelper:
+      "Plisto opens Windows settings, where you pick it for each audio file type. Windows only lets you choose it there, not here.",
     outputDevice: "Output device",
     systemDefault: "System default",
     deviceDefaultHint: "(default)",
@@ -659,6 +663,7 @@ export const en = {
     removeFromQueue: "Remove from queue",
     reorderQueue: "Reorder in queue",
     addedToQueue: { one: "Added to queue", other: "Added {{n}} to queue" },
+    cantPlayFile: "Can't play this file",
     clearQueue: "Clear queue",
     shuffle: "Shuffle",
     repeat: "Repeat",

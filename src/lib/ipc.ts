@@ -478,6 +478,12 @@ export function setSetting(key: string, value: string): Promise<void> {
   return invoke("set_setting", { key, value });
 }
 
+/** Opens the Windows Default apps settings page, where the user picks Plisto per file type. A no-op
+ * off Windows. */
+export function openDefaultAppsSettings(): Promise<void> {
+  return invoke("open_default_apps_settings");
+}
+
 /**
  * Previews what each track's filename parses to under `pattern`, read-only and order-preserving. A
  * filename that does not fit the pattern, or a track that is not indexed, comes back matched:false
@@ -673,6 +679,18 @@ export function playerPlayTracks(trackIds: number[], index = 0): Promise<void> {
  * file cannot be read as audio. */
 export function playerPlayFile(path: string): Promise<void> {
   return invoke("player_play_file", { path });
+}
+
+/** Plays a set of files straight off disk, with no library rows. Unreadable files drop out; rejects
+ * only when every file is unreadable. */
+export function playerPlayFiles(paths: string[]): Promise<void> {
+  return invoke("player_play_files", { paths });
+}
+
+/** The file paths the OS cold-launched Plisto with, taken once so a reload never replays them, or
+ * null when Plisto opened on its own. */
+export function getStartupFile(): Promise<string[] | null> {
+  return invoke<string[] | null>("get_startup_file");
 }
 
 /** Toggles play/pause on the current track. */

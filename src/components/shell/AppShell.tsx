@@ -13,6 +13,7 @@ import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
 import { PlayerView } from "../player/PlayerView";
 import { QueueToast } from "../player/QueueToast";
+import { PlayerErrorToast } from "../player/PlayerErrorToast";
 import { CoversView } from "../covers/CoversView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
@@ -413,6 +414,9 @@ export function AppShell() {
 
         {/* The added-to-queue nudge, over everything: a menu append from any surface lands here. */}
         <QueueToast />
+
+        {/* The playback-failure nudge, on the same pill: a file that could not be read lands here. */}
+        <PlayerErrorToast />
       </main>
     </div>
   );

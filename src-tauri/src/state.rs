@@ -45,7 +45,10 @@ use crate::dto::ExportStatus;
 /// now-playing surfaces resolve a title/artist/cover for the current track even when it has no index
 /// entry. player_play_file replaces the map on each open. `close_to_tray` mirrors the persisted
 /// close-behavior pref as an atomic, so the window-event handler reads it without taking the `db`
-/// Mutex - a lock there could stall the close while a command holds it.
+/// Mutex - a lock there could stall the close while a command holds it. `startup_file` holds the
+/// file paths the OS cold-launched Plisto with, seeded at setup and taken once by `get_startup_file`:
+/// a pull the frontend makes on mount, never a setup-time push, so a slow first render never misses
+/// it. None when Plisto opened on its own.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -67,6 +70,7 @@ pub struct AppState {
     pub player_queue: Arc<Mutex<Vec<i64>>>,
     pub ad_hoc: Mutex<HashMap<i64, AdHocTrack>>,
     pub close_to_tray: AtomicBool,
+    pub startup_file: Mutex<Option<Vec<String>>>,
 }
 
 #[cfg(test)]
@@ -101,6 +105,7 @@ impl AppState {
             player_queue: Arc::new(Mutex::new(Vec::new())),
             ad_hoc: Mutex::new(HashMap::new()),
             close_to_tray: AtomicBool::new(false),
+            startup_file: Mutex::new(None),
         }
     }
 }
