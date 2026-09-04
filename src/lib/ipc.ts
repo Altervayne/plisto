@@ -669,6 +669,12 @@ export function playerPlayTracks(trackIds: number[], index = 0): Promise<void> {
   return invoke("player_play_tracks", { trackIds, index });
 }
 
+/** Plays a file straight off disk, with no library row, naming it from its own tags. Rejects when the
+ * file cannot be read as audio. */
+export function playerPlayFile(path: string): Promise<void> {
+  return invoke("player_play_file", { path });
+}
+
 /** Toggles play/pause on the current track. */
 export function playerToggle(): Promise<void> {
   return invoke("player_toggle");

@@ -1,4 +1,5 @@
 // -- Module Declarations --
+mod adhoc;
 mod audio;
 mod commands;
 mod covers;
@@ -183,6 +184,7 @@ pub fn run() {
                 player: player_tx,
                 player_status,
                 player_queue,
+                ad_hoc: Mutex::new(std::collections::HashMap::new()),
                 close_to_tray: AtomicBool::new(close_to_tray),
             });
 
@@ -290,6 +292,7 @@ pub fn run() {
             commands::window::toggle_now_playing_widget,
             commands::window::hide_now_playing_widget,
             commands::player::player_play_tracks,
+            commands::player::player_play_file,
             commands::player::player_preview,
             commands::player::player_restore_library,
             commands::player::player_toggle,

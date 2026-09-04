@@ -284,15 +284,19 @@ mod win {
         updater.Update()
     }
 
-    /// Resolves the card's title, artist and cover file for a library track. The title/artist read
+    /// Resolves the card's title, artist and cover file for the current track. The title/artist read
     /// takes a short lock; the cover resolve locks and unlocks on its own, dropping the index lock
     /// before any embedded/adjacent decode, so the decode never holds it. The decode runs here on
     /// the coordinator thread, never the player thread. A missing display row or absent index leaves
-    /// empty strings and no cover.
+    /// empty strings and no cover. An ad-hoc track (a negative id) resolves from the stash instead of
+    /// the DB - a cheap map read, its cover already cached to disk when the file opened.
     fn resolve_display(app: &AppHandle, track_id: i64) -> (String, String, Option<String>) {
         let Some(state) = app.try_state::<AppState>() else {
             return (String::new(), String::new(), None);
         };
+        if crate::adhoc::is_ad_hoc(track_id) {
+            return resolve_ad_hoc_display(state.inner(), track_id);
+        }
         let display = state
             .db
             .lock()
@@ -303,6 +307,24 @@ mod win {
             Some(d) => (d.title.unwrap_or_default(), d.artist.unwrap_or_default()),
             None => (String::new(), String::new()),
         };
+        (title, artist, cover)
+    }
+
+    /// Resolves the card for an ad-hoc track from the stash: its title and artist under a short map
+    /// lock, then its cover file by the same warm-cache path read_cover uses. A missing entry leaves
+    /// empty strings and no cover. No decode and no DB lock - the file's art was cached when it opened.
+    fn resolve_ad_hoc_display(state: &AppState, track_id: i64) -> (String, String, Option<String>) {
+        let (title, artist) = state
+            .ad_hoc
+            .lock()
+            .ok()
+            .and_then(|stash| {
+                stash
+                    .get(&track_id)
+                    .map(|track| (track.title.clone(), track.artist.clone().unwrap_or_default()))
+            })
+            .unwrap_or_default();
+        let cover = crate::commands::covers::resolve_ad_hoc_cover_file(state, track_id);
         (title, artist, cover)
     }
 
@@ -323,6 +345,31 @@ mod win {
                 let _ = clear_card(&updater);
             }
             let _ = state.controls.SetIsEnabled(false);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
+
+        #[test]
+        fn resolve_ad_hoc_display_reads_the_stash() {
+            let state = AppState::for_test(crate::db::open_in_memory().unwrap(), std::env::temp_dir());
+            let id = next_ad_hoc_id();
+            state.ad_hoc.lock().unwrap().insert(
+                id,
+                AdHocTrack {
+                    title: "Ad Hoc".to_string(),
+                    artist: Some("Artist".to_string()),
+                    cover: None,
+                },
+            );
+
+            let (title, artist, cover) = resolve_ad_hoc_display(&state, id);
+            assert_eq!(title, "Ad Hoc");
+            assert_eq!(artist, "Artist");
+            assert!(cover.is_none(), "no stashed cover means no thumbnail path");
         }
     }
 }

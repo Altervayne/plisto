@@ -7,15 +7,19 @@
 
 // -- Library Imports --
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rodio::cpal;
 use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use tauri::State;
 
 // -- Local Imports --
+use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
 use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
+use crate::covers::InFlightGuard;
 use crate::db;
+use crate::model::RawTags;
 use crate::state::AppState;
 
 /// Resolves track ids to a DB-free queue, keeping the caller's order and dropping ids that no longer
@@ -56,6 +60,86 @@ pub fn player_play_tracks(
     let index = index.min(queue.len() - 1);
     let _ = state.player.send(PlayerCmd::Play { queue, index });
     Ok(())
+}
+
+/// Plays a file straight off disk, with no library row behind it. Reads its title and artist through
+/// the scan's own tag reader and resolves a cover, both off the player thread, then stashes them under
+/// a fresh negative id so the now-playing surfaces name the track without the index. Replaces the
+/// stash and the queue on each open. Errors when the file cannot be read as audio, so the caller can
+/// surface it; the file is only read. Async so the tag read and cover decode never touch the engine.
+#[tauri::command]
+pub async fn player_play_file(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let covers_dir = state.covers_dir.clone();
+    let guard = Arc::clone(&state.covers_in_flight);
+    let src = path.clone();
+    let track = tauri::async_runtime::spawn_blocking(move || {
+        read_ad_hoc_track(&covers_dir, &guard, &src)
+    })
+    .await
+    .map_err(|_| "playback task failed to run".to_string())??;
+
+    // Each open rebuilds the queue, so the stash is replaced too: one entry keyed by the id the
+    // engine reports back as the current track.
+    let id = next_ad_hoc_id();
+    {
+        let mut stash = state
+            .ad_hoc
+            .lock()
+            .map_err(|_| "player is unavailable".to_string())?;
+        stash.clear();
+        stash.insert(id, track);
+    }
+    let _ = state.player.send(PlayerCmd::Play {
+        queue: vec![QueueTrack {
+            id,
+            path: path.into(),
+        }],
+        index: 0,
+    });
+    Ok(())
+}
+
+/// Reads a lone file's tags and resolves its cover for ad-hoc playback, on a blocking thread. Both
+/// the tag read and the cover decode run here, never on the player thread. Errors when the file
+/// cannot be opened as audio (missing or undecodable), so the caller reports it rather than queueing
+/// a dead track; a readable file with no tags is fine - it falls back to the filename stem.
+fn read_ad_hoc_track(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    source_path: &str,
+) -> Result<AdHocTrack, String> {
+    let (raw, unreadable) = crate::scan::read_tags(Path::new(source_path));
+    if unreadable {
+        return Err("couldn't read this file".to_string());
+    }
+    let (title, artist) = ad_hoc_display(source_path, &raw);
+    let cover = crate::commands::covers::cache_ad_hoc_cover(covers_dir, guard, source_path);
+    Ok(AdHocTrack {
+        title,
+        artist,
+        cover,
+    })
+}
+
+/// Builds an ad-hoc track's display fields from a file's raw tags and path, through the same
+/// normalize boundary the scan runs: the cleaned tag title, else the filename stem so the track is
+/// never nameless, and the cleaned tag artist, left None when the file carries none. Pure over its
+/// inputs - no disk - so the title/artist precedence is testable without a real file.
+fn ad_hoc_display(source_path: &str, raw: &RawTags) -> (String, Option<String>) {
+    let record = crate::normalize::normalize_track(source_path, 0, 0, 0, raw);
+    let title = record
+        .raw_title
+        .unwrap_or_else(|| filename_stem(&record.filename));
+    (title, record.raw_artist)
+}
+
+/// The filename with its final extension dropped, or the whole name when it has none. The fallback
+/// title for an ad-hoc track whose file carries no title tag.
+fn filename_stem(filename: &str) -> String {
+    Path::new(filename)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| filename.to_string())
 }
 
 /// Resolves the given track ids to their files and appends them to the end of the queue. An empty
@@ -252,4 +336,40 @@ pub fn get_player_queue(state: State<'_, AppState>) -> Result<Vec<i64>, String> 
         .lock()
         .map_err(|_| "player queue is unavailable".to_string())?;
     Ok(queue.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Raw tags carrying only a title and artist, the two fields ad-hoc display reads.
+    fn raw(title: Option<&str>, artist: Option<&str>) -> RawTags {
+        RawTags {
+            title: title.map(str::to_string),
+            artist: artist.map(str::to_string),
+            ..RawTags::default()
+        }
+    }
+
+    #[test]
+    fn ad_hoc_display_prefers_the_tag_title() {
+        let (title, artist) = ad_hoc_display("/music/my song.mp3", &raw(Some("Real Title"), Some("Real Artist")));
+        assert_eq!(title, "Real Title", "the tag title wins over the filename");
+        assert_eq!(artist.as_deref(), Some("Real Artist"));
+    }
+
+    #[test]
+    fn ad_hoc_display_falls_back_to_the_filename_stem() {
+        // No title tag and no artist: the stem names the track and the artist stays None.
+        let (title, artist) = ad_hoc_display("/music/My Song.flac", &raw(None, None));
+        assert_eq!(title, "My Song");
+        assert_eq!(artist, None, "an absent artist tag stays None, never empty");
+    }
+
+    #[test]
+    fn ad_hoc_display_treats_a_blank_title_as_absent() {
+        // A whitespace-only title collapses to None through the normalize boundary, so the stem wins.
+        let (title, _) = ad_hoc_display("/music/track01.opus", &raw(Some("   "), None));
+        assert_eq!(title, "track01");
+    }
 }

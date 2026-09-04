@@ -17,6 +17,7 @@ use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
+use crate::adhoc::{is_ad_hoc, AdHocCover};
 use crate::covers::{
     discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path, normalize_cover,
     read_embedded_cover_bytes, read_full_res_blob, read_image_dimensions, resolve_track_cover,
@@ -46,6 +47,11 @@ pub async fn read_cover(
     keep_own: bool,
     state: State<'_, AppState>,
 ) -> Result<Option<CoverRef>, String> {
+    // An ad-hoc track has no index row: its cover resolves from the stash, a cheap map read with no
+    // decode, since player_play_file already cached both sizes by hash when the file was opened.
+    if is_ad_hoc(track_id) {
+        return Ok(resolve_ad_hoc_cover(state.inner(), track_id, max_edge(size)));
+    }
     resolve_at(state.inner(), track_id, max_edge(size), keep_own).await
 }
 
@@ -623,6 +629,62 @@ pub(crate) fn resolve_cover_file(state: &AppState, track_id: i64) -> Option<Stri
         )
         .map(|cover| cover.path),
     }
+}
+
+// ---- Ad-hoc ----
+
+/// Caches a lone file's own art for an ad-hoc track: its embedded picture, else the first adjacent
+/// image, at both thumb sizes by hash. Returns what read_cover needs to resolve it later at either
+/// size, or None when the file carries no art from either source. The decode runs here, off the
+/// player thread, so a later sentinel read is a warm-cache lookup. Returns None on any read or decode
+/// failure, so a broken source is quiet rather than a hard error. Read-only over the file and folder.
+pub(crate) fn cache_ad_hoc_cover(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    source_path: &str,
+) -> Option<AdHocCover> {
+    let path = Path::new(source_path);
+    // Embedded art wins, then the first adjacent image - the same precedence resolve_track_cover
+    // applies for a track with no folder cover, which an ad-hoc track never has.
+    let bytes = read_embedded_cover_bytes(path).or_else(|| {
+        discover_adjacent_images(path)
+            .first()
+            .and_then(|image| std::fs::read(image).ok())
+    })?;
+    let (width, height) = read_image_dimensions(&bytes).ok()?;
+    let hash = blake3::hash(&bytes).to_hex().to_string();
+    // Both sizes up front so each sentinel read resolves straight to a warm file, like an import.
+    ensure_thumb(covers_dir, &hash, &bytes, THUMB_EDGE, guard).ok()?;
+    ensure_thumb(covers_dir, &hash, &bytes, DETAIL_EDGE, guard).ok()?;
+    Some(AdHocCover {
+        hash,
+        width: width as i64,
+        height: height as i64,
+    })
+}
+
+/// Resolves an ad-hoc track's cover at `max_edge` from the stash: a cached-by-hash file path, no
+/// decode. None when the entry has no cover or no entry is stashed. The map read stands in for the DB
+/// read the library path takes; the thumbnail was written by cache_ad_hoc_cover when the file opened.
+/// The source reads Embedded - the file's own art, embedded taking precedence over an adjacent image.
+fn resolve_ad_hoc_cover(state: &AppState, track_id: i64, max_edge: u32) -> Option<CoverRef> {
+    let stash = state.ad_hoc.lock().ok()?;
+    let cover = stash.get(&track_id)?.cover.as_ref()?;
+    Some(CoverRef {
+        path: path_to_string(&thumb_cache_path(&state.covers_dir, &cover.hash, max_edge)),
+        width: cover.width,
+        height: cover.height,
+        source: CoverSource::Embedded,
+    })
+}
+
+/// The on-disk file path of an ad-hoc track's cover at the peek size, for the Windows now-playing
+/// thumbnail - the ad-hoc counterpart to resolve_cover_file. A warm-cache path by hash with no
+/// decode; None when the track has no stashed cover. Safe off the SMTC coordinator thread: a map
+/// read, never a lock held across work.
+#[cfg(windows)]
+pub(crate) fn resolve_ad_hoc_cover_file(state: &AppState, track_id: i64) -> Option<String> {
+    resolve_ad_hoc_cover(state, track_id, DETAIL_EDGE).map(|cover| cover.path)
 }
 
 /// Builds a CoverRef by caching a thumbnail of `bytes`. None when the bytes cannot be read as an
@@ -1520,5 +1582,71 @@ mod tests {
             resolve_full_res(&covers.path, &plan).is_none(),
             "no art to save"
         );
+    }
+
+    #[test]
+    fn cache_ad_hoc_cover_caches_an_adjacent_image_at_both_sizes() {
+        let covers = TempDir::new("adhoc_covers");
+        let music = TempDir::new("adhoc_music");
+        let guard = InFlightGuard::default();
+
+        // An adjacent image sits next to the file; the file itself carries no embedded art.
+        std::fs::write(music.path.join("cover.jpg"), png_bytes(40, 30, [10, 120, 200])).unwrap();
+        let source = music.path.join("song.mp3").to_string_lossy().into_owned();
+
+        let cover = cache_ad_hoc_cover(&covers.path, &guard, &source).expect("the adjacent art caches");
+        assert_eq!((cover.width, cover.height), (40, 30));
+        // Both thumb sizes are warm on disk, so a later sentinel read never decodes.
+        assert!(thumb_cache_path(&covers.path, &cover.hash, THUMB_EDGE).exists());
+        assert!(thumb_cache_path(&covers.path, &cover.hash, DETAIL_EDGE).exists());
+    }
+
+    #[test]
+    fn cache_ad_hoc_cover_is_none_without_art() {
+        let covers = TempDir::new("adhoc_covers");
+        let music = TempDir::new("adhoc_music");
+        let guard = InFlightGuard::default();
+
+        // No adjacent image and no readable embedded art: nothing to cache.
+        let source = music.path.join("song.mp3").to_string_lossy().into_owned();
+        assert!(cache_ad_hoc_cover(&covers.path, &guard, &source).is_none());
+    }
+
+    #[test]
+    fn resolve_ad_hoc_cover_resolves_a_stashed_cover_at_both_sizes() {
+        let covers = TempDir::new("adhoc_resolve_covers");
+        let music = TempDir::new("adhoc_resolve_music");
+        let guard = InFlightGuard::default();
+
+        std::fs::write(music.path.join("folder.png"), png_bytes(64, 48, [200, 40, 40])).unwrap();
+        let source = music.path.join("song.mp3").to_string_lossy().into_owned();
+        let cover = cache_ad_hoc_cover(&covers.path, &guard, &source).unwrap();
+
+        let state = AppState::for_test(db::open_in_memory().unwrap(), covers.path.clone());
+        let id = crate::adhoc::next_ad_hoc_id();
+        state.ad_hoc.lock().unwrap().insert(
+            id,
+            crate::adhoc::AdHocTrack {
+                title: "T".to_string(),
+                artist: None,
+                cover: Some(cover.clone()),
+            },
+        );
+
+        // The stash entry resolves to the cached thumb at each size, verbatim, no decode.
+        let thumb = resolve_ad_hoc_cover(&state, id, THUMB_EDGE).expect("the thumb size resolves");
+        assert_eq!(
+            thumb.path,
+            thumb_cache_path(&covers.path, &cover.hash, THUMB_EDGE).to_string_lossy()
+        );
+        assert_eq!((thumb.width, thumb.height), (64, 48));
+        let detail = resolve_ad_hoc_cover(&state, id, DETAIL_EDGE).expect("the detail size resolves");
+        assert_eq!(
+            detail.path,
+            thumb_cache_path(&covers.path, &cover.hash, DETAIL_EDGE).to_string_lossy()
+        );
+
+        // A negative id with no stash entry resolves to nothing rather than erroring.
+        assert!(resolve_ad_hoc_cover(&state, -424_242, DETAIL_EDGE).is_none());
     }
 }

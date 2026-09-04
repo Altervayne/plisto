@@ -473,6 +473,32 @@ pub fn get_track_display(
     track_id: i64,
     state: State<'_, AppState>,
 ) -> Result<TrackDisplay, String> {
+    resolve_track_display(state.inner(), track_id)
+}
+
+/// Resolves a track's display title and artist. An ad-hoc track has no index row: its title and
+/// artist come from the stash, no DB lock taken; a missing entry reads as empty. A library track
+/// coalesces the edit layer over the raw tag through the DB as before.
+pub(crate) fn resolve_track_display(
+    state: &AppState,
+    track_id: i64,
+) -> Result<TrackDisplay, String> {
+    if crate::adhoc::is_ad_hoc(track_id) {
+        let stash = state
+            .ad_hoc
+            .lock()
+            .map_err(|_| "player is unavailable".to_string())?;
+        return Ok(match stash.get(&track_id) {
+            Some(track) => TrackDisplay {
+                title: Some(track.title.clone()),
+                artist: track.artist.clone(),
+            },
+            None => TrackDisplay {
+                title: None,
+                artist: None,
+            },
+        });
+    }
     let conn = state
         .db
         .lock()
@@ -927,5 +953,47 @@ mod tests {
         // Year was not chosen: a's own edit stands, b never gained one.
         assert_eq!(db::get_track_edit(&conn, a).unwrap().year, Some(1999));
         assert_eq!(db::get_track_edit(&conn, b).unwrap().year, None);
+    }
+
+    #[test]
+    fn track_display_reads_ad_hoc_from_the_stash_and_library_from_the_db() {
+        let conn = db::open_in_memory().unwrap();
+        // A library track carries a raw title and artist the DB path resolves.
+        conn.execute(
+            "INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, has_embedded_cover, scanned_at, raw_title, raw_artist)
+             VALUES ('/m/a.mp3', 'a.mp3', 'mp3', 1, 2, 0, 3, 'Library Title', 'Library Artist')",
+            [],
+        )
+        .unwrap();
+        let lib_id = conn.last_insert_rowid();
+
+        let covers = TempDir::new("display");
+        let state = AppState::for_test(conn, covers.path.clone());
+
+        // An ad-hoc entry under a negative id, distinct from the library title.
+        let neg = crate::adhoc::next_ad_hoc_id();
+        state.ad_hoc.lock().unwrap().insert(
+            neg,
+            crate::adhoc::AdHocTrack {
+                title: "Ad Hoc Title".to_string(),
+                artist: Some("Ad Hoc Artist".to_string()),
+                cover: None,
+            },
+        );
+
+        // The negative id resolves from the stash.
+        let adhoc = resolve_track_display(&state, neg).unwrap();
+        assert_eq!(adhoc.title.as_deref(), Some("Ad Hoc Title"));
+        assert_eq!(adhoc.artist.as_deref(), Some("Ad Hoc Artist"));
+
+        // The positive id still hits the DB path.
+        let lib = resolve_track_display(&state, lib_id).unwrap();
+        assert_eq!(lib.title.as_deref(), Some("Library Title"));
+        assert_eq!(lib.artist.as_deref(), Some("Library Artist"));
+
+        // A negative id with no stash entry reads as empty rather than erroring.
+        let missing = resolve_track_display(&state, -999_999).unwrap();
+        assert_eq!(missing.title, None);
+        assert_eq!(missing.artist, None);
     }
 }

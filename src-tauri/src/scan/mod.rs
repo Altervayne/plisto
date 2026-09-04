@@ -30,7 +30,8 @@ use crate::dto::{ScanPhase, ScanProgress, ScanSummary};
 use crate::model::TrackRecord;
 use crate::normalize::{is_audio, needs_reread, normalize_path_key, normalize_track};
 use progress::ProgressThrottle;
-use tags::read_tags;
+// Re-exported so ad-hoc playback reads a lone file's tags through the same reader the scan uses.
+pub(crate) use tags::read_tags;
 
 // Rows committed per transaction. A batch keeps each transaction short so a reader is never
 // blocked for long, without paying a commit per file.

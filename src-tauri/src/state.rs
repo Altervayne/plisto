@@ -6,6 +6,7 @@
  */
 
 // -- Library Imports --
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -13,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 // -- Local Imports --
+use crate::adhoc::AdHocTrack;
 use crate::audio::{PlayerCmd, PlayerStatus};
 use crate::covers::InFlightGuard;
 use crate::dto::ExportStatus;
@@ -38,7 +40,10 @@ use crate::dto::ExportStatus;
 /// an Arc so the engine holds one clone while commands read the other through state, exactly like
 /// `export_status`. `player_queue` mirrors the ordered queue track ids the same way, but the engine
 /// writes it only when the queue changes (a Play or a shuffle toggle), never on the status tick, so
-/// a long id list never rides the ~5x-a-second snapshot. `close_to_tray` mirrors the persisted
+/// a long id list never rides the ~5x-a-second snapshot. `ad_hoc` is the stash of tracks played
+/// straight off disk with no library row: keyed by the negative id the engine reports back, so the
+/// now-playing surfaces resolve a title/artist/cover for the current track even when it has no index
+/// entry. player_play_file replaces the map on each open. `close_to_tray` mirrors the persisted
 /// close-behavior pref as an atomic, so the window-event handler reads it without taking the `db`
 /// Mutex - a lock there could stall the close while a command holds it.
 pub struct AppState {
@@ -60,5 +65,42 @@ pub struct AppState {
     pub player: crossbeam_channel::Sender<PlayerCmd>,
     pub player_status: Arc<Mutex<PlayerStatus>>,
     pub player_queue: Arc<Mutex<Vec<i64>>>,
+    pub ad_hoc: Mutex<HashMap<i64, AdHocTrack>>,
     pub close_to_tray: AtomicBool,
+}
+
+#[cfg(test)]
+impl AppState {
+    /// A minimal state for the resolver tests: the given index connection and covers dir, every
+    /// background guard idle, and a dead player channel (its receiver is dropped, so a transport send
+    /// is a silent no-op). Lets a sentinel test drive the real command helpers without launching
+    /// Tauri or the resident engine.
+    pub(crate) fn for_test(db: Connection, covers_dir: PathBuf) -> Self {
+        let (player, _rx) = crossbeam_channel::unbounded();
+        Self {
+            db: Mutex::new(db),
+            db_path: PathBuf::new(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            scan_running: AtomicBool::new(false),
+            covers_dir,
+            covers_in_flight: Arc::new(crate::covers::InFlightGuard::default()),
+            export_cancel: Arc::new(AtomicBool::new(false)),
+            export_running: AtomicBool::new(false),
+            splice_cancel: Arc::new(AtomicBool::new(false)),
+            splice_running: AtomicBool::new(false),
+            playlist_export_cancel: Arc::new(AtomicBool::new(false)),
+            playlist_export_running: AtomicBool::new(false),
+            discovery_cancel: Arc::new(AtomicBool::new(false)),
+            discovery_running: AtomicBool::new(false),
+            export_status: Arc::new(Mutex::new(ExportStatus {
+                running: false,
+                progress: None,
+            })),
+            player,
+            player_status: Arc::new(Mutex::new(PlayerStatus::default())),
+            player_queue: Arc::new(Mutex::new(Vec::new())),
+            ad_hoc: Mutex::new(HashMap::new()),
+            close_to_tray: AtomicBool::new(false),
+        }
+    }
 }
