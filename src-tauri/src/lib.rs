@@ -7,6 +7,7 @@ mod db;
 mod discovery;
 mod dto;
 mod export;
+mod intake;
 mod model;
 mod normalize;
 mod paths;
@@ -55,22 +56,17 @@ pub fn run() {
     tauri::Builder::default()
         // Registered first, as the plugin requires. A second launch (the OS opening a file while
         // Plisto already runs) routes here instead of starting a new process: surface the main window
-        // from the tray, then play the delivered files now, replacing the queue. A bare relaunch
-        // carries no file, so it only surfaces the window. The N-file decode runs off this callback
-        // thread so it never blocks the main loop.
+        // from the tray, then feed the delivered files into the debounced intake buffer. A multi-select
+        // fans out into one sibling launch per file, so each forward pushes into the same buffer and the
+        // whole burst plays as one queue instead of the last file replacing the rest. A bare relaunch
+        // carries no file, so it only surfaces the window.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.show();
                 let _ = main.unminimize();
                 let _ = main.set_focus();
             }
-            let paths = startup::audio_paths_from_argv(&argv);
-            if !paths.is_empty() {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = commands::player::play_files(&app, paths).await;
-                });
-            }
+            intake::push(app, startup::audio_paths_from_argv(&argv));
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -183,11 +179,13 @@ pub fn run() {
                 db::get_setting(&conn, "closeToTray").ok().flatten().as_deref() == Some("1");
 
             // Stash the file the OS cold-launched Plisto with, if any, for the frontend to pull on
-            // mount. Read here, never pushed as an event and never auto-played: a pull is boot-race
-            // safe, where a setup-time push could fire before the first render subscribes.
+            // mount. This stays the standalone tree signal - the pull tells the webview to render the
+            // player - never the play trigger: the intake buffer below plays the batch, so the cold file
+            // and any sibling forwards land in one queue. A pull is boot-race safe, where a setup-time
+            // push could fire before the first render subscribes.
             let startup_argv: Vec<String> = std::env::args().collect();
             let startup_paths = startup::audio_paths_from_argv(&startup_argv);
-            let startup_file = (!startup_paths.is_empty()).then_some(startup_paths);
+            let startup_file = (!startup_paths.is_empty()).then(|| startup_paths.clone());
 
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -214,7 +212,15 @@ pub fn run() {
                 ad_hoc: Mutex::new(std::collections::HashMap::new()),
                 close_to_tray: AtomicBool::new(close_to_tray),
                 startup_file: Mutex::new(startup_file),
+                startup_error: Mutex::new(None),
             });
+
+            // Feed the cold-launch files into the same buffer the warm forwards push into, now that its
+            // state is managed. A lone open plays after the short debounce; a multi-select's sibling
+            // launches pile into the buffer first, so the whole burst plays as one queue. An empty launch
+            // is a no-op. The batch plays from the backend, not the frontend, so the cold file never
+            // races the forwards for the queue.
+            intake::push(app.handle(), startup_paths);
 
             // The tray icon and its popup toggle guard, once the state it reads is managed.
             app.manage(TrayState::default());
@@ -323,7 +329,9 @@ pub fn run() {
             commands::player::player_play_tracks,
             commands::player::player_play_file,
             commands::player::player_play_files,
+            commands::player::player_enqueue_files,
             commands::player::get_startup_file,
+            commands::player::get_startup_error,
             commands::player::player_preview,
             commands::player::player_restore_library,
             commands::player::player_toggle,

@@ -15,7 +15,7 @@ use rusqlite::Connection;
 
 // -- Local Imports --
 use crate::adhoc::AdHocTrack;
-use crate::audio::{PlayerCmd, PlayerStatus};
+use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus};
 use crate::covers::InFlightGuard;
 use crate::dto::ExportStatus;
 
@@ -48,7 +48,12 @@ use crate::dto::ExportStatus;
 /// Mutex - a lock there could stall the close while a command holds it. `startup_file` holds the
 /// file paths the OS cold-launched Plisto with, seeded at setup and taken once by `get_startup_file`:
 /// a pull the frontend makes on mount, never a setup-time push, so a slow first render never misses
-/// it. None when Plisto opened on its own.
+/// it. None when Plisto opened on its own. (The debounced burst buffer that collapses a multi-select's
+/// sibling launches into one queue is a global in `intake`, not a field here - a forward can push into it
+/// before this state is managed.) `startup_error` latches a File
+/// notice when that OS-launch batch is wholly unreadable, taken once by `get_startup_error`, so the
+/// standalone shell shows its refusal body even when the batch's `player:error` fired before the webview
+/// subscribed. None on the normal path.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
@@ -71,6 +76,7 @@ pub struct AppState {
     pub ad_hoc: Mutex<HashMap<i64, AdHocTrack>>,
     pub close_to_tray: AtomicBool,
     pub startup_file: Mutex<Option<Vec<String>>>,
+    pub startup_error: Mutex<Option<PlayerNotice>>,
 }
 
 #[cfg(test)]
@@ -106,6 +112,7 @@ impl AppState {
             ad_hoc: Mutex::new(HashMap::new()),
             close_to_tray: AtomicBool::new(false),
             startup_file: Mutex::new(None),
+            startup_error: Mutex::new(None),
         }
     }
 }

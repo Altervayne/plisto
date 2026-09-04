@@ -73,18 +73,18 @@
   }
 }
 
-/* The two columns over the glow and the ridge: the fixed hero and the flexing queue, parted by space. The
- * cap centers the pair on a wide panel - the full-window standalone player, or the player on a wide monitor
- * - so they never stretch apart with dead space between; the auto margins take the room the cap frees. It
- * sits high enough not to bite at normal window widths, where the pair fills the panel as before. The glow
- * and ridge are absolute, so they keep filling the panel edge to edge behind the capped content. */
+/* The two columns over the glow and the ridge: the fixed hero and the flexing queue, parted by space. They
+ * fill the panel to its edges - the full-window standalone player and the player on a wide monitor both use
+ * the whole width, the queue flexing to take it. The cap only bites past a very wide monitor, so an ultrawide
+ * never stretches the pair to an unreadable span; below it, the auto margins are inert and the pair fills. The
+ * glow and ridge are absolute, so they fill the panel edge to edge behind the content either way. */
 .content {
   position: relative;
   z-index: 2;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  max-width: 1600px;
+  max-width: 2560px;
   margin-inline: auto;
   display: flex;
   gap: 32px;

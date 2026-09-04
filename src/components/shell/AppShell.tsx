@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
+// -- Icon Imports --
+import { ListPlus } from "lucide-react";
+
 // -- Component Imports --
 import { Sidebar } from "./Sidebar";
 import { AlbumGrid } from "../albums/AlbumGrid";
@@ -28,6 +31,7 @@ import { SelectionActionBar } from "../organize/SelectionActionBar";
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useMountTransition } from "../../hooks/useMountTransition";
+import { useFileDrop } from "../../hooks/useFileDrop";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -46,12 +50,17 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
-import { useCurrentTrackId, usePlayerError, usePlayerSync } from "../../state/player/store";
+import {
+  useCurrentTrackId,
+  usePlayerError,
+  usePlayerStore,
+  usePlayerSync,
+} from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
 import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
 
 // -- IPC Imports --
-import { playerPlayFiles } from "../../lib/ipc";
+import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/ipc";
 
 // -- Type Imports --
 import type { AlbumRow, PlaybackSource } from "../../types";
@@ -259,13 +268,34 @@ export function AppShell({
     };
   }, [standalone, boot, loadOrganization, loadPlaylists, loadPreferences]);
 
-  // Play the launch's files once, standalone only. A rejection means every file was unreadable and the
-  // player region falls to its error body; a partial failure resolves, so the readable files still play.
+  // The launch's files play from the backend intake buffer now, not here, so a multi-select that fans out
+  // into sibling launches lands in one queue rather than the last file replacing the rest. This only pulls
+  // the take-once launch error: an all-unreadable batch latches it, so the refusal body shows even when
+  // the batch's file notice fired before this shell subscribed. A batch that plays clears the region to
+  // the player as its first track holds.
   useEffect(() => {
-    if (!standalone || !initialFiles || initialFiles.length === 0) return;
-    setFailed(false);
-    void playerPlayFiles(initialFiles).catch(() => setFailed(true));
-  }, [standalone, initialFiles]);
+    if (!standalone) return;
+    void getStartupError()
+      .then((notice) => {
+        if (notice) setFailed(true);
+      })
+      .catch(() => {});
+  }, [standalone]);
+
+  // A file dropped onto the player, off the desktop: append it to a playing queue, or start fresh when
+  // nothing holds. The playing check reads the store directly so the drop handler stays stable and never
+  // re-binds the window listener on a track change. The ad-hoc up-next rows name themselves through the
+  // queue echo, so no snapshot is passed here.
+  const onFilesDropped = useCallback((paths: string[]) => {
+    if (usePlayerStore.getState().status.track_id != null) {
+      void playerEnqueueFiles(paths).catch(() => {});
+    } else {
+      void playerPlayFiles(paths).catch(() => {});
+    }
+  }, []);
+  // Scoped to the Player surface: the standalone player, or the full app's Player destination. Off it a
+  // file drop is ignored, so it never hijacks the library walls or the cover import slots.
+  const dropActive = useFileDrop(mode === "player", onFilesDropped);
 
   // Latch the first track that ever holds; after it, PlayerView owns the empty state.
   useEffect(() => {
@@ -520,6 +550,18 @@ export function AppShell({
               active={mode === "editor"}
               onClose={closeTool}
             />
+          </div>
+        ) : null}
+
+        {/* The drop affordance: a soft accent wash over the player region while a file drag hovers, so
+            the player reads as a drop target. Scoped to the Player surface by dropActive - a subtle wash,
+            not a heavy frame, to keep the continuous-surface look. */}
+        {dropActive ? (
+          <div className={styles.dropVeil} aria-hidden="true">
+            <div className={styles.dropHint}>
+              <ListPlus size={20} strokeWidth={1.75} />
+              <span>{t((d) => d.player.dropToQueue)}</span>
+            </div>
           </div>
         ) : null}
 

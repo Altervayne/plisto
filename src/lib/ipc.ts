@@ -33,6 +33,7 @@ import type {
   ListTracksResponse,
   OrganizationSnapshot,
   OutputDeviceInfo,
+  PlayerNotice,
   PlayerStatus,
   PlaylistM3uSummary,
   PlaylistRow,
@@ -687,10 +688,22 @@ export function playerPlayFiles(paths: string[]): Promise<void> {
   return invoke("player_play_files", { paths });
 }
 
+/** Appends a set of files straight off disk to the queue, no library rows: a drop onto a playing player.
+ * Unreadable files drop out; rejects only when every file is unreadable. */
+export function playerEnqueueFiles(paths: string[]): Promise<void> {
+  return invoke("player_enqueue_files", { paths });
+}
+
 /** The file paths the OS cold-launched Plisto with, taken once so a reload never replays them, or
  * null when Plisto opened on its own. */
 export function getStartupFile(): Promise<string[] | null> {
   return invoke<string[] | null>("get_startup_file");
+}
+
+/** The notice from a failed OS-launch open (every file unreadable), taken once, or null. Lets the
+ * standalone shell show its refusal body even when the batch's error fired before it subscribed. */
+export function getStartupError(): Promise<PlayerNotice | null> {
+  return invoke<PlayerNotice | null>("get_startup_error");
 }
 
 /** Toggles play/pause on the current track. */

@@ -665,6 +665,7 @@ export const fr: Dict = {
     removeFromQueue: "Retirer de la file",
     reorderQueue: "Réordonner dans la file",
     addedToQueue: { one: "Ajouté à la file", other: "{{n}} ajoutés à la file" },
+    dropToQueue: "Déposer dans la file",
     cantPlayFile: "Lecture impossible de ce fichier",
     noAudioOutput: "Aucune sortie audio disponible",
     deviceFallback: "Votre périphérique audio est indisponible, la sortie système par défaut est utilisée.",

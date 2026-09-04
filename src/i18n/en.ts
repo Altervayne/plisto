@@ -664,6 +664,7 @@ export const en = {
     removeFromQueue: "Remove from queue",
     reorderQueue: "Reorder in queue",
     addedToQueue: { one: "Added to queue", other: "Added {{n}} to queue" },
+    dropToQueue: "Drop to queue",
     cantPlayFile: "Can't play this file",
     noAudioOutput: "No audio output available",
     deviceFallback: "Your audio device isn't available, using the system default.",

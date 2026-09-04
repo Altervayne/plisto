@@ -145,6 +145,41 @@
   display: none;
 }
 
+/* The file-drop affordance over the player region while a drag hovers. Insets to the player panel's box
+ * (the region's 16px top pad, then the panel's 16px side/bottom margins) and rounds to its radius, so the
+ * wash reads as the panel lighting up rather than a floating sheet. A gentle accent tint with a hairline
+ * ring, no heavy border, to hold the continuous surface. */
+.dropVeil {
+  position: absolute;
+  inset: 16px 16px 16px 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-lg);
+  background: var(--accent-weak);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  pointer-events: none;
+  animation: drop-veil-in var(--dur-fast) var(--ease-standard);
+}
+
+@keyframes drop-veil-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The centered cue inside the wash: the append glyph over the localized line, in the accent so it reads
+ * as the one lit mark while the drag is live. */
+.dropHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* The right panel's positioned wrapper: it holds the var width, and the resize handle rides its left
  * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
 .panel {

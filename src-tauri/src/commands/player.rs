@@ -69,9 +69,53 @@ pub fn player_play_tracks(
 /// unreadable file is skipped, not queued; when every file is unreadable nothing plays and a
 /// `player:error` File notice fires so the toast can report it - the same typed channel the engine's
 /// device notices ride, the payload kind telling a file failure from an output one.
-/// The files are only read. Shared by the single-file and multi-file commands and the single-instance
-/// warm-open callback.
+/// The files are only read. Shared by the single-file and multi-file commands and the debounced intake
+/// buffer that plays an OS-launch burst as one queue.
 pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let (entries, queue) = stage_ad_hoc(app, paths).await?;
+    // Each open rebuilds the queue, so the stash is replaced too: one entry per readable file, keyed
+    // by the id the engine reports back for the current track.
+    let state = app.state::<AppState>();
+    {
+        let mut stash = state
+            .ad_hoc
+            .lock()
+            .map_err(|_| "player is unavailable".to_string())?;
+        stash.clear();
+        stash.extend(entries);
+    }
+    let _ = state.player.send(PlayerCmd::Play { queue, index: 0 });
+    Ok(())
+}
+
+/// Appends one or more files straight off disk to the end of the queue, no library rows behind them: a
+/// drop onto the player while a track already holds. The append half of `play_files` - it stashes each
+/// file under its own fresh negative id and extends the stash rather than replacing it, so the live
+/// source plays on and every appended entry still names itself. Sends `Enqueue`, not `Play`. The up-next
+/// rows resolve their titles through the frontend's `fillAdHocQueueMeta` on the `player:queue` echo.
+/// Errors when every file is unreadable, like `play_files`, so the caller can surface it.
+pub async fn enqueue_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
+    let (entries, queue) = stage_ad_hoc(app, paths).await?;
+    let state = app.state::<AppState>();
+    {
+        let mut stash = state
+            .ad_hoc
+            .lock()
+            .map_err(|_| "player is unavailable".to_string())?;
+        stash.extend(entries);
+    }
+    let _ = state.player.send(PlayerCmd::Enqueue(queue));
+    Ok(())
+}
+
+/// Reads tags and caches covers for `paths` off the player thread, then allocates a fresh negative id per
+/// readable file. The shared front half of the ad-hoc open and append: an unreadable file is dropped, and
+/// an all-unreadable set emits the one `player:error` File notice and errors, so either caller surfaces
+/// it the same way. Returns the stash entries keyed to their queue tracks, both in the caller's order.
+async fn stage_ad_hoc(
+    app: &AppHandle,
+    paths: Vec<String>,
+) -> Result<(HashMap<i64, AdHocTrack>, Vec<QueueTrack>), String> {
     let (covers_dir, guard) = {
         let state = app.state::<AppState>();
         (state.covers_dir.clone(), Arc::clone(&state.covers_in_flight))
@@ -90,20 +134,7 @@ pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), Strin
         return Err("couldn't read any of these files".to_string());
     }
 
-    // Each open rebuilds the queue, so the stash is replaced too: one entry per readable file, keyed
-    // by the id the engine reports back for the current track.
-    let (entries, queue) = build_ad_hoc_queue(readable);
-    let state = app.state::<AppState>();
-    {
-        let mut stash = state
-            .ad_hoc
-            .lock()
-            .map_err(|_| "player is unavailable".to_string())?;
-        stash.clear();
-        stash.extend(entries);
-    }
-    let _ = state.player.send(PlayerCmd::Play { queue, index: 0 });
-    Ok(())
+    Ok(build_ad_hoc_queue(readable))
 }
 
 /// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio. The
@@ -159,6 +190,15 @@ pub async fn player_play_files(paths: Vec<String>, app: AppHandle) -> Result<(),
     play_files(&app, paths).await
 }
 
+/// Appends a set of files straight off disk to the queue, with no library rows: a drop onto the player
+/// while a track already holds. Unreadable files drop out; errors only when every file is unreadable, so
+/// a mixed drop still queues its readable members. Async so the tag read and cover decode never touch the
+/// engine.
+#[tauri::command]
+pub async fn player_enqueue_files(paths: Vec<String>, app: AppHandle) -> Result<(), String> {
+    enqueue_files(&app, paths).await
+}
+
 /// Returns the file paths Plisto was cold-launched with, then clears them so a later reload never
 /// replays the file. The boot-race-safe path: the frontend pulls this on mount rather than the setup
 /// hook pushing an event, so a slow first render never misses it. None when Plisto opened on its own.
@@ -168,6 +208,19 @@ pub fn get_startup_file(state: State<'_, AppState>) -> Result<Option<Vec<String>
         .startup_file
         .lock()
         .map_err(|_| "startup file is unavailable".to_string())?;
+    Ok(slot.take())
+}
+
+/// Returns and clears the notice from a failed OS-launch open - a burst of file-opens where every file
+/// was unreadable. The standalone shell pulls it on mount, so its refusal body shows even when the intake
+/// batch played and its `player:error` fired before the webview subscribed. None on the normal path, and
+/// after the take, so a reload never re-reports it.
+#[tauri::command]
+pub fn get_startup_error(state: State<'_, AppState>) -> Result<Option<PlayerNotice>, String> {
+    let mut slot = state
+        .startup_error
+        .lock()
+        .map_err(|_| "startup error is unavailable".to_string())?;
     Ok(slot.take())
 }
 
