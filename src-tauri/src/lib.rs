@@ -11,6 +11,7 @@ mod normalize;
 mod paths;
 mod resolve;
 mod scan;
+mod smtc;
 mod splice;
 mod state;
 mod tags;
@@ -195,6 +196,11 @@ pub fn run() {
                 tray::round_corners(&widget);
             }
 
+            // Bind the OS media controls to the main window and start their coordinator, once state
+            // and the window exist. Best-effort: a failure here leaves the app running without the
+            // now-playing card. A no-op off Windows.
+            smtc::init(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -310,6 +316,13 @@ pub fn run() {
             commands::splice::splice_detect_silence,
             commands::splice::splice_parse_cue
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Every quit funnels through app.exit(0), which fires RunEvent::Exit. Tear the OS media
+            // controls down here so the now-playing overlay does not ghost after the process ends.
+            if let tauri::RunEvent::Exit = event {
+                smtc::teardown(app);
+            }
+        });
 }

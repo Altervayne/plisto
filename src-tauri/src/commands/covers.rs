@@ -591,6 +591,40 @@ fn generate_dynamic_ref(
     }
 }
 
+/// Resolves a track's cover to a plain on-disk image file at the peek size, for a consumer that
+/// needs a file path rather than an IPC ref - the Windows now-playing thumbnail. A bound folder or
+/// per-track cover is its cached hash file, already on disk with no decode; embedded or adjacent art
+/// decodes here, so this must run off any realtime thread, never the player thread. None when the
+/// track has no art from any source. Read-only over the music folder, like every other cover path.
+///
+/// Reads the DB to decide the source under a short lock, then drops it before any decode - the same
+/// read-under-lock / decode-unlocked split resolve_at uses, so an embedded/adjacent decode never
+/// holds the index lock. The decode runs inline on the caller's thread (the SMTC coordinator), which
+/// is why resolve_at's async spawn_blocking is a plain call here.
+#[cfg(windows)]
+pub(crate) fn resolve_cover_file(state: &AppState, track_id: i64) -> Option<String> {
+    let resolution = {
+        let conn = state.db.lock().ok()?;
+        prepare_resolution(&conn, &state.covers_dir, track_id, DETAIL_EDGE, false).ok()?
+    };
+    match resolution {
+        Resolution::None => None,
+        Resolution::Folder(cover) => Some(cover.path),
+        Resolution::Dynamic {
+            source_path,
+            has_embedded,
+            ..
+        } => generate_dynamic_ref(
+            &state.covers_dir,
+            &state.covers_in_flight,
+            &source_path,
+            has_embedded,
+            DETAIL_EDGE,
+        )
+        .map(|cover| cover.path),
+    }
+}
+
 /// Builds a CoverRef by caching a thumbnail of `bytes`. None when the bytes cannot be read as an
 /// image or the cache cannot be written.
 fn cover_ref_from_bytes(
