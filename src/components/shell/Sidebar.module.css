@@ -7,6 +7,16 @@
   gap: 26px;
   min-height: 0;
   padding: 26px 14px 18px 20px;
+  /* Clip the content to the shell's closing column so it wipes rather than reflows, and fade it in the
+   * same motion so the labels never smear as the width crosses zero. */
+  overflow: hidden;
+  transition: opacity var(--dur-slow) var(--ease-standard);
+}
+
+/* Collapsed with the shell's column: fully hidden, so the standalone player owns the whole window. */
+.collapsed {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .navgroup {

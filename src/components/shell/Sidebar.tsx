@@ -31,6 +31,10 @@ type Mode =
  * spacer, app-level and apart from the content nav. Transparent ground - it flows into the main region
  * with no divider between them. Brand and library identity live in the window title bar; folder actions
  * live inside Settings.
+ *
+ * `collapsed` clips and fades the whole rail as the shell closes its column (the standalone player before
+ * "Open library"). `bare` drops the three nav sections when the revealed sidebar has no library to list,
+ * leaving only the foot so the opened file plays on through the mini above Settings.
  */
 export function Sidebar({
   mode,
@@ -41,6 +45,8 @@ export function Sidebar({
   singlesCount,
   playlistsCount,
   coversCount,
+  collapsed = false,
+  bare = false,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -50,82 +56,91 @@ export function Sidebar({
   singlesCount: number;
   playlistsCount: number;
   coversCount: number;
+  collapsed?: boolean;
+  bare?: boolean;
 }) {
   const t = useT();
 
   return (
-    <aside className={styles.side}>
-      <div className={styles.navgroup}>
-        <div className={styles.navlabel}>{t((d) => d.nav.filesGroup)}</div>
-        <NavItem
-          icon={<LayoutGrid size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.files)}
-          count={filesCount}
-          active={mode === "files"}
-          onClick={() => onModeChange("files")}
-        />
-        <NavItem
-          icon={<Inbox size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.unsorted)}
-          count={unsortedCount}
-          active={mode === "unsorted"}
-          onClick={() => onModeChange("unsorted")}
-        />
-        <NavItem
-          icon={<Images size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.covers)}
-          count={coversCount}
-          active={mode === "covers"}
-          onClick={() => onModeChange("covers")}
-        />
-      </div>
+    <aside
+      className={collapsed ? `${styles.side} ${styles.collapsed}` : styles.side}
+      inert={collapsed || undefined}
+    >
+      {bare ? null : (
+        <>
+          <div className={styles.navgroup}>
+            <div className={styles.navlabel}>{t((d) => d.nav.filesGroup)}</div>
+            <NavItem
+              icon={<LayoutGrid size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.files)}
+              count={filesCount}
+              active={mode === "files"}
+              onClick={() => onModeChange("files")}
+            />
+            <NavItem
+              icon={<Inbox size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.unsorted)}
+              count={unsortedCount}
+              active={mode === "unsorted"}
+              onClick={() => onModeChange("unsorted")}
+            />
+            <NavItem
+              icon={<Images size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.covers)}
+              count={coversCount}
+              active={mode === "covers"}
+              onClick={() => onModeChange("covers")}
+            />
+          </div>
 
-      <div className={styles.navgroup}>
-        <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
-        <NavItem
-          icon={<Disc size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.albums)}
-          count={albumsCount}
-          active={mode === "albums"}
-          onClick={() => onModeChange("albums")}
-        />
-        <NavItem
-          icon={<Disc3 size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.singles)}
-          count={singlesCount}
-          active={mode === "singles"}
-          onClick={() => onModeChange("singles")}
-        />
-        <NavItem
-          icon={<ListMusic size={17} strokeWidth={1.8} />}
-          label={t((d) => d.playlists.nav)}
-          count={playlistsCount}
-          active={mode === "playlists"}
-          onClick={() => onModeChange("playlists")}
-        />
-        <NavItem
-          icon={<Radio size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.player)}
-          active={mode === "player"}
-          onClick={() => onModeChange("player")}
-        />
-      </div>
+          <div className={styles.navgroup}>
+            <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
+            <NavItem
+              icon={<Disc size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.albums)}
+              count={albumsCount}
+              active={mode === "albums"}
+              onClick={() => onModeChange("albums")}
+            />
+            <NavItem
+              icon={<Disc3 size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.singles)}
+              count={singlesCount}
+              active={mode === "singles"}
+              onClick={() => onModeChange("singles")}
+            />
+            <NavItem
+              icon={<ListMusic size={17} strokeWidth={1.8} />}
+              label={t((d) => d.playlists.nav)}
+              count={playlistsCount}
+              active={mode === "playlists"}
+              onClick={() => onModeChange("playlists")}
+            />
+            <NavItem
+              icon={<Radio size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.player)}
+              active={mode === "player"}
+              onClick={() => onModeChange("player")}
+            />
+          </div>
 
-      <div className={styles.navgroup}>
-        <div className={styles.navlabel}>{t((d) => d.nav.utilities)}</div>
-        <NavItem
-          icon={<AudioLines size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.editor)}
-          active={mode === "editor"}
-          onClick={() => onModeChange("editor")}
-        />
-        <NavItem
-          icon={<Download size={17} strokeWidth={1.8} />}
-          label={t((d) => d.nav.export)}
-          active={mode === "export"}
-          onClick={() => onModeChange("export")}
-        />
-      </div>
+          <div className={styles.navgroup}>
+            <div className={styles.navlabel}>{t((d) => d.nav.utilities)}</div>
+            <NavItem
+              icon={<AudioLines size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.editor)}
+              active={mode === "editor"}
+              onClick={() => onModeChange("editor")}
+            />
+            <NavItem
+              icon={<Download size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.export)}
+              active={mode === "export"}
+              onClick={() => onModeChange("export")}
+            />
+          </div>
+        </>
+      )}
 
       <div className={styles.spacer} />
 

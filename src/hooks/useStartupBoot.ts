@@ -1,14 +1,14 @@
 /*
- * The boot probe that decides which tree the one main window renders: the standalone player when the OS
- * cold-launched Plisto with a file, else the full library. It PULLS the take-once startup file on mount
- * rather than waiting on a push, so a slow first render never misses it. The pull is boot-race safe: a
- * rejection falls to the library, which boots normally, so a transient failure degrades to the full app
+ * The boot probe that decides what the one main window opens on: the shell in standalone player mode when
+ * the OS cold-launched Plisto with a file, else the full library. It PULLS the take-once startup file on
+ * mount rather than waiting on a push, so a slow first render never misses it. The pull is boot-race safe:
+ * a rejection falls to the library, which boots normally, so a transient failure degrades to the full app
  * rather than stranding on the player. The window is full size on every path, so nothing here resizes it -
- * escalating only reveals the sidebar.
+ * the App reveals the sidebar in place when the standalone player opens the library.
  */
 
 // -- Framework Imports --
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 // -- IPC Imports --
 import { getStartupFile } from "../lib/ipc";
@@ -32,29 +32,23 @@ function probeStartupFile(): Promise<string[] | null> {
   return startupProbe;
 }
 
-/** Which tree the window shows: pending while the probe is in flight, then standalone or library. */
+/** Which content the window shows: pending while the probe is in flight, then standalone or library. */
 export type StartupPhase = "pending" | "standalone" | "library";
 
 export interface StartupBoot {
   phase: StartupPhase;
   // The files the launch carried, for the standalone player to play. Empty off the standalone phase.
   files: string[];
-  // Set once the user leaves the standalone player for the full library. One-way for the session.
-  escalated: boolean;
-  // Reveals the library: flips the tree from the player to the gate. No resize - the window is already
-  // full size, so this only swaps what renders.
-  escalate: () => void;
 }
 
 /**
- * Probes the launch once and yields the phase the App renders from. `escalate` is the standalone player's
- * "Open library" path: it flips `escalated`, so the App drops the player for the normal library gate. The
- * window is full size throughout, so escalating reveals the sidebar without touching the size.
+ * Probes the launch once and yields the phase the App renders from. The App owns the standalone player's
+ * "Open library" reveal now: the shell stays mounted and only its sidebar slides in, so nothing here holds
+ * the reveal state.
  */
 export function useStartupBoot(): StartupBoot {
   const [phase, setPhase] = useState<StartupPhase>("pending");
   const [files, setFiles] = useState<string[]>([]);
-  const [escalated, setEscalated] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -79,7 +73,5 @@ export function useStartupBoot(): StartupBoot {
     };
   }, []);
 
-  const escalate = useCallback(() => setEscalated(true), []);
-
-  return { phase, files, escalated, escalate };
+  return { phase, files };
 }

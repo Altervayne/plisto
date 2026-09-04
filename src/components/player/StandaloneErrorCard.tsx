@@ -11,9 +11,9 @@ import { useT } from "../../i18n";
 import styles from "./StandaloneErrorCard.module.css";
 
 /**
- * The failure body, shown when the opened file cannot play at all: a muted icon over the localized line
- * and the file's own name, honest that the file was refused rather than the player's calm "nothing
- * playing" idle state. Fills the window with the same panel framing the player carries, so a refused file
+ * The failure body, shown in the player region when the opened file cannot play at all: a muted icon over
+ * the localized line and the file's own name, honest that the file was refused rather than the player's
+ * calm "nothing playing" idle state. Wears the same panel framing the player carries, so a refused file
  * reads on the same surface. The library escape sits beneath it; the title bar's close is always there too.
  */
 export function StandaloneErrorCard({
@@ -21,20 +21,18 @@ export function StandaloneErrorCard({
   onOpenLibrary,
 }: {
   stem: string;
-  onOpenLibrary: () => void;
+  onOpenLibrary?: () => void;
 }) {
   const t = useT();
 
   return (
-    <div className={styles.stage}>
-      <div className={styles.panel}>
-        <FileX2 className={styles.icon} size={32} strokeWidth={1.5} aria-hidden="true" />
-        <span className={styles.title}>{t((d) => d.player.cantPlayFile)}</span>
-        <span className={styles.stem}>{stem}</span>
-        <span className={styles.action}>
-          <QuietButton onClick={onOpenLibrary}>{t((d) => d.window.openLibrary)}</QuietButton>
-        </span>
-      </div>
+    <div className={styles.panel}>
+      <FileX2 className={styles.icon} size={32} strokeWidth={1.5} aria-hidden="true" />
+      <span className={styles.title}>{t((d) => d.player.cantPlayFile)}</span>
+      <span className={styles.stem}>{stem}</span>
+      <span className={styles.action}>
+        <QuietButton onClick={onOpenLibrary}>{t((d) => d.window.openLibrary)}</QuietButton>
+      </span>
     </div>
   );
 }

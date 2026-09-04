@@ -12,12 +12,14 @@ import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
 import { PlayerView } from "../player/PlayerView";
+import { StandaloneErrorCard } from "../player/StandaloneErrorCard";
 import { QueueToast } from "../player/QueueToast";
 import { PlayerErrorToast } from "../player/PlayerErrorToast";
 import { CoversView } from "../covers/CoversView";
 import { ExportView } from "../export/ExportView";
 import { SettingsView } from "../settings/SettingsView";
 import { SpliceWorkbench } from "../splice/SpliceWorkbench";
+import { StaffSpinner } from "../scan/StaffSpinner";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { Resizer } from "../common/Resizer/Resizer";
@@ -28,7 +30,7 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- State Imports --
-import { useAddRoot, useTracks } from "../../state/store";
+import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
 import {
   useAlbums,
   useCanRedo,
@@ -44,9 +46,12 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
-import { usePlayerSync } from "../../state/player/store";
+import { useCurrentTrackId, usePlayerError, usePlayerSync } from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
 import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
+
+// -- IPC Imports --
+import { playerPlayFiles } from "../../lib/ipc";
 
 // -- Type Imports --
 import type { AlbumRow, PlaybackSource } from "../../types";
@@ -76,6 +81,13 @@ const DRAWER_EXIT_MS = 200;
 /** The full pane's fade-out before it unmounts, matching --dur-fast on the exit keyframe. */
 const VIEW_EXIT_MS = 120;
 
+/** The trailing name of a path with its extension dropped, so a refused file reads by its own name. */
+function fileStem(path: string): string {
+  const leaf = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  const dot = leaf.lastIndexOf(".");
+  return dot > 0 ? leaf.slice(0, dot) : leaf;
+}
+
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
  * ground, parted by space. The sidebar owns the mode switch; a library mode shows that wall plus the
@@ -83,10 +95,28 @@ const VIEW_EXIT_MS = 120;
  * and drop both (they are library chrome). A scan that found no audio is its own terminal state, not an empty
  * shell. The organize projection and the preferences cache hydrate on mount, and Create from anywhere
  * lands on Albums with the new drawer open.
+ *
+ * Standalone mode is the same shell opened on a file the OS handed Plisto: it opens on the Player, owns
+ * the library boot itself (the gate never mounts on this path), plays the handed files once, and starts
+ * with the sidebar collapsed so the player fills the window. "Open library" slides the sidebar in without
+ * remounting - a stocked library stays on the player to navigate from, an empty one lands on onboarding.
  */
-export function AppShell() {
+export function AppShell({
+  standalone = false,
+  initialFiles,
+  sidebarExpanded = true,
+  onOpenLibrary,
+}: {
+  standalone?: boolean;
+  initialFiles?: string[];
+  sidebarExpanded?: boolean;
+  onOpenLibrary?: () => void;
+} = {}) {
   const tracks = useTracks();
   const addRoot = useAddRoot();
+  const boot = useBoot();
+  const booted = useBooted();
+  const roots = useRoots();
   const albums = useAlbums();
   const singles = useSingles();
   const unsorted = useUnsortedTracks();
@@ -106,7 +136,8 @@ export function AppShell() {
   usePlayerSync();
   // The live spectrum feed into its own off-render singleton, running the app's life alongside the status.
   useSpectrumSync();
-  const [mode, setMode] = useState<Mode>("albums");
+  // Standalone opens on the Player over the handed file; the full app opens on Albums.
+  const [mode, setMode] = useState<Mode>(standalone ? "player" : "albums");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
@@ -114,6 +145,23 @@ export function AppShell() {
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.
   const count = tracks.length;
+
+  // Standalone's play-once tracking. `failed` latches when the play rejects (every handed file was
+  // unreadable); `started` latches the first track that ever held, so a genuine end-of-queue defers to
+  // PlayerView's empty state rather than looping back to the pre-first-track load.
+  const trackId = useCurrentTrackId();
+  const playerNotice = usePlayerError();
+  const [failed, setFailed] = useState(false);
+  const [started, setStarted] = useState(false);
+  // Errored only when nothing plays: the play rejected, or the engine reported a file notice and still
+  // holds no track. A survivor playing is never an error, even beside a notice from one file that dropped.
+  const playbackErrored =
+    standalone && (failed || (trackId == null && playerNotice === "file"));
+  // The sidebar collapses only in standalone-not-expanded; the full app is always expanded.
+  const collapsed = !sidebarExpanded;
+  // The revealed sidebar has no library to list: strip the empty nav groups and keep only the foot, so
+  // the opened file plays on through the mini while onboarding shows in the main region.
+  const noLibrary = standalone && booted && roots.length === 0;
   // One selection id serves both walls; each mode resolves it against its own bucket, so a stale id from
   // the other wall never opens a drawer here.
   const selectedAlbum = albums.find((a) => a.id === selectedAlbumId) ?? null;
@@ -187,11 +235,49 @@ export function AppShell() {
     }
   }, []);
 
+  // The organize and playlist projections hydrate once the library is up. On the normal path the gate has
+  // already booted before this shell mounts, so they load on bare mount. Standalone mounts ahead of its
+  // own background boot and OWNS it here (the gate never mounts), so those two reads wait for boot to
+  // resolve - a bare-mount read would hit an empty DB and leave Albums and Playlists blank even after the
+  // tracks hydrate. Preferences carry theme and locale, so they load at once on both paths.
   useEffect(() => {
-    void loadOrganization();
-    void loadPlaylists();
+    if (!standalone) {
+      void loadOrganization();
+      void loadPlaylists();
+      void loadPreferences();
+      return;
+    }
+    let alive = true;
     void loadPreferences();
-  }, [loadOrganization, loadPlaylists, loadPreferences]);
+    void boot().then(() => {
+      if (!alive) return;
+      void loadOrganization();
+      void loadPlaylists();
+    });
+    return () => {
+      alive = false;
+    };
+  }, [standalone, boot, loadOrganization, loadPlaylists, loadPreferences]);
+
+  // Play the launch's files once, standalone only. A rejection means every file was unreadable and the
+  // player region falls to its error body; a partial failure resolves, so the readable files still play.
+  useEffect(() => {
+    if (!standalone || !initialFiles || initialFiles.length === 0) return;
+    setFailed(false);
+    void playerPlayFiles(initialFiles).catch(() => setFailed(true));
+  }, [standalone, initialFiles]);
+
+  // Latch the first track that ever holds; after it, PlayerView owns the empty state.
+  useEffect(() => {
+    if (trackId != null) setStarted(true);
+  }, [trackId]);
+
+  // The one-way "Open library" reveal, standalone only: an empty library lands the main region on the
+  // add-a-folder onboarding, while a stocked one stays on the player for the user to navigate from the
+  // now-visible sidebar. Waits for boot so a stocked library is never misread as empty mid-hydration.
+  useEffect(() => {
+    if (noLibrary && sidebarExpanded) setMode("albums");
+  }, [noLibrary, sidebarExpanded]);
 
   // Opening a tool from a track's menu lands on the Editor destination. Clearing the session does not
   // navigate: closing a file leaves you on the destination, showing its empty state.
@@ -221,23 +307,27 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
-  if (count === 0) {
-    return (
-      <EmptyState
-        tone="warn"
-        title={t((d) => d.scan.emptyTitle)}
-        line={t((d) => d.scan.emptyLine)}
-        action={
-          <QuietButton onClick={() => void addRoot()}>
-            {t((d) => d.settings.addFolder)}
-          </QuietButton>
-        }
-      />
-    );
+  // A scanned library with no audio is onboarding to add a folder. On the normal path this is the whole
+  // shell's terminal state, unchanged. Standalone never takes this early return - it must keep the player
+  // painting (a fresh install, or the window before boot hydrates a stocked one), so it shows the same
+  // onboarding per-mode instead, only for a library mode and never over the player.
+  const emptyLibrary = (
+    <EmptyState
+      tone="warn"
+      title={t((d) => d.scan.emptyTitle)}
+      line={t((d) => d.scan.emptyLine)}
+      action={
+        <QuietButton onClick={() => void addRoot()}>{t((d) => d.settings.addFolder)}</QuietButton>
+      }
+    />
+  );
+
+  if (!standalone && count === 0) {
+    return emptyLibrary;
   }
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} data-collapsed={collapsed ? "" : undefined}>
       <Sidebar
         mode={mode}
         onModeChange={setMode}
@@ -247,12 +337,29 @@ export function AppShell() {
         singlesCount={singles.length}
         playlistsCount={playlists.length}
         coversCount={coversNeeded}
+        collapsed={collapsed}
+        bare={noLibrary && sidebarExpanded}
       />
       <main className={styles.main}>
         {mode === "export" ? (
           <ExportView />
         ) : mode === "player" ? (
-          <PlayerView onNavigate={onNavigate} />
+          playbackErrored ? (
+            // Every handed file was unreadable: the honest refusal body on the player surface, with the
+            // same "Open library" escape the title bar carries.
+            <StandaloneErrorCard
+              stem={fileStem(initialFiles?.[0] ?? "")}
+              onOpenLibrary={onOpenLibrary}
+            />
+          ) : standalone && !started ? (
+            // Before the engine holds the first track, the app's loading motion - not PlayerView's idle
+            // "nothing playing", which would misread the brief load as an empty player.
+            <div className={styles.playerLoad}>
+              <StaffSpinner />
+            </div>
+          ) : (
+            <PlayerView onNavigate={onNavigate} />
+          )
         ) : mode === "settings" ? (
           <SettingsView />
         ) : mode === "editor" ? (
@@ -275,6 +382,10 @@ export function AppShell() {
           ) : (
             <PlaylistsView onOpen={setOpenPlaylistId} />
           )
+        ) : count === 0 ? (
+          // A library wall with no tracks: the add-a-folder onboarding. Only ever reached in standalone
+          // (the normal path took the early return above), when "Open library" opened an empty library.
+          emptyLibrary
         ) : (
           <>
             <div className={styles.controls}>
@@ -415,8 +526,10 @@ export function AppShell() {
         {/* The added-to-queue nudge, over everything: a menu append from any surface lands here. */}
         <QueueToast />
 
-        {/* The playback-failure nudge, on the same pill: a file that could not be read lands here. */}
-        <PlayerErrorToast />
+        {/* The playback-failure nudge, on the same pill: a file that could not be read lands here. The
+            standalone all-fail case shows the refusal body instead and suppresses the toast, so the same
+            file notice never doubles - and leaving it mounted would clear the notice and unlatch the body. */}
+        {playbackErrored ? null : <PlayerErrorToast />}
       </main>
     </div>
   );

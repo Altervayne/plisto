@@ -1,10 +1,10 @@
 // -- Framework Imports --
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // -- Component Imports --
 import { TitleBar } from "./components/shell/TitleBar";
 import { WorkspaceGate } from "./components/WorkspaceGate";
-import { StandaloneView } from "./components/player/StandaloneView";
+import { AppShell } from "./components/shell/AppShell";
 import { ConfirmQuitDialog } from "./components/shell/ConfirmQuitDialog";
 
 // -- State Imports --
@@ -22,10 +22,10 @@ import styles from "./App.module.css";
 
 /**
  * The app root: the window title bar over the content, so the bar shows on every screen. The startup
- * probe picks the content - the sidebar-less standalone player when the launch opened a file, else the
+ * probe picks the content - the shell in standalone player mode when the launch opened a file, else the
  * full library gate. It holds nothing while the probe is in flight, so neither tree flashes before it
- * resolves. "Open library" from the player escalates to the gate for the rest of the session; the window
- * is full size throughout, so escalating only reveals the sidebar.
+ * resolves. "Open library" from the player reveals the sidebar in place, one-way for the session: the same
+ * shell stays mounted, so the library never re-boots and the player reflows into the narrower region.
  */
 function App() {
   const loadPreferences = useLoadPreferences();
@@ -43,20 +43,23 @@ function App() {
   useExportNotifications();
 
   const boot = useStartupBoot();
-  const playerOnly = boot.phase === "standalone" && !boot.escalated;
+  // Whether the standalone player has opened the library. One-way for the session; the standalone shell
+  // owns the reveal by expanding its sidebar, so the full app never remounts.
+  const [expanded, setExpanded] = useState(false);
+  const openLibrary = () => setExpanded(true);
+  const playerOnly = boot.phase === "standalone" && !expanded;
 
   return (
     <div className={styles.frame}>
-      <TitleBar playerOnly={playerOnly} onOpenLibrary={boot.escalate} />
+      <TitleBar playerOnly={playerOnly} onOpenLibrary={openLibrary} />
       <div className={styles.content}>
-        {boot.phase === "pending" ? null : playerOnly ? (
-          <StandaloneView files={boot.files} onOpenLibrary={boot.escalate} />
-        ) : boot.escalated ? (
-          // The full app fades in over the standalone player at the same size, so the reveal reads as one
-          // motion rather than a hard cut.
-          <div className={styles.escalate}>
-            <WorkspaceGate />
-          </div>
+        {boot.phase === "pending" ? null : boot.phase === "standalone" ? (
+          <AppShell
+            standalone
+            initialFiles={boot.files}
+            sidebarExpanded={expanded}
+            onOpenLibrary={openLibrary}
+          />
         ) : (
           <WorkspaceGate />
         )}

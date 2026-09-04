@@ -4,6 +4,14 @@
   height: 100%;
   display: grid;
   grid-template-columns: 256px 1fr;
+  transition: grid-template-columns var(--dur-slow) var(--ease-standard);
+}
+
+/* Standalone before "Open library": the rail column closes to nothing so the player fills the window,
+ * and reopens in the same motion, the main region reflowing narrower as it does. The sidebar clips and
+ * fades its own content (see Sidebar.module.css); this only drives the column width. */
+.shell[data-collapsed] {
+  grid-template-columns: 0 1fr;
 }
 
 /* The main region: a slim controls strip over the mode content. Top padding stands in for the
@@ -16,6 +24,16 @@
   min-width: 0;
   min-height: 0;
   padding-top: 16px;
+}
+
+/* Standalone's pre-first-track hold: the app's staff spinner centered in the player region until the
+ * engine reports the opened file, so the brief load never flashes the idle "nothing playing" player. */
+.playerLoad {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Undo/redo and the persist-error line sit above the content, aligned to its rhythm. */
