@@ -39,15 +39,15 @@ function folderName(path: string): string {
  * on the right. Ambient ground, no divider - it parts from the content by space. The window calls
  * are guarded so the bar still renders outside the desktop shell.
  *
- * Compact mode is the standalone player's bar: no workspace to name, so the label slot carries the
- * "Open library" affordance instead, and the maximize control is dropped since maximizing a small
- * player is meaningless. Minimize and close stay.
+ * Player-only mode is the standalone player's bar: no workspace to name, so the label slot carries the
+ * "Open library" affordance instead. The window is full size in this mode too, so every control stays -
+ * minimize, maximize and close.
  */
 export function TitleBar({
-  compact = false,
+  playerOnly = false,
   onOpenLibrary,
 }: {
-  compact?: boolean;
+  playerOnly?: boolean;
   onOpenLibrary?: () => void;
 }) {
   const label = useLibraryLabel();
@@ -82,7 +82,7 @@ export function TitleBar({
         <span className={styles.name}>Plisto</span>
       </div>
 
-      {compact ? (
+      {playerOnly ? (
         // The honest spot for the escape: where the library name sits in the full app. Kept literally
         // "Open library" even with no library yet - it routes through the gate, which shows the picker
         // on a fresh install.
@@ -112,20 +112,18 @@ export function TitleBar({
         >
           <Minus size={16} strokeWidth={1.3} />
         </button>
-        {compact ? null : (
-          <button
-            type="button"
-            className={styles.control}
-            onClick={toggleMaximizeWindow}
-            aria-label={maximized ? t((d) => d.window.restore) : t((d) => d.window.maximize)}
-          >
-            {maximized ? (
-              <Copy size={16} strokeWidth={1.3} />
-            ) : (
-              <Square size={16} strokeWidth={1.3} />
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          className={styles.control}
+          onClick={toggleMaximizeWindow}
+          aria-label={maximized ? t((d) => d.window.restore) : t((d) => d.window.maximize)}
+        >
+          {maximized ? (
+            <Copy size={16} strokeWidth={1.3} />
+          ) : (
+            <Square size={16} strokeWidth={1.3} />
+          )}
+        </button>
         <button
           type="button"
           className={`${styles.control} ${styles.close}`}

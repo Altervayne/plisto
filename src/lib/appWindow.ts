@@ -6,7 +6,6 @@
 
 // -- Library Imports --
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 
 // -- Type Imports --
 import type { Window } from "@tauri-apps/api/window";
@@ -34,29 +33,6 @@ export function toggleMaximizeWindow(): void {
 /** Closes the window, ending the app. */
 export function closeWindow(): void {
   void appWindow()?.close();
-}
-
-/** Sets the window's minimum size in logical pixels; a no-op with no window. Lift it before a grow so
- * a larger target size is not clamped by the old floor. */
-export async function setWindowMinSize(width: number, height: number): Promise<void> {
-  const w = appWindow();
-  if (!w) return;
-  try {
-    await w.setMinSize(new LogicalSize(width, height));
-  } catch {
-    // Off the desktop shell there is nothing to size; leave it.
-  }
-}
-
-/** Snaps the window to a logical size in one step, no per-frame animation; a no-op with no window. */
-export async function resizeWindow(width: number, height: number): Promise<void> {
-  const w = appWindow();
-  if (!w) return;
-  try {
-    await w.setSize(new LogicalSize(width, height));
-  } catch {
-    // Off the desktop shell there is nothing to size; leave it.
-  }
 }
 
 /** The maximized state, false when there is no window. */

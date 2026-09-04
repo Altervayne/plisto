@@ -15,12 +15,14 @@ import { useEffect } from "react";
 
 // -- Library Imports --
 import { create } from "zustand";
+import type { StoreApi } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 
 // -- IPC Imports --
 import {
   getPlayerQueue,
   getPlayerStatus,
+  getTrackDisplay,
   playerEnqueue,
   playerJump,
   playerMoveQueueItem,
@@ -117,6 +119,46 @@ interface PlayerStore {
   actions: PlayerActions;
 }
 
+/**
+ * Fills the display snapshot for the queue's ad-hoc rows, the ids the play-time library snapshot cannot
+ * cover. snapshotQueueMeta resolves each id from the cache loaded at play-time, but an ad-hoc file (a
+ * negative id, a stashed track read on the fly) is never in that cache, so its up-next row would render
+ * blank. Every missing negative id is resolved over IPC - get_track_display is sentinel-aware and returns
+ * the stash's title and artist, the same the hero shows. Duration is unknown for a stashed file, so it
+ * stays null, which QueueRow tolerates. Central here so it covers both the cold standalone play and a warm
+ * single-instance open, since both land through setQueue. The resolves batch into one merge, and a late
+ * reply is dropped once the queue has moved past its id or the row was filled meanwhile.
+ */
+function fillAdHocQueueMeta(
+  get: StoreApi<PlayerStore>["getState"],
+  set: StoreApi<PlayerStore>["setState"],
+  queue: number[],
+): void {
+  const have = get().queueMeta;
+  const missing = [...new Set(queue.filter((id) => id < 0 && !(id in have)))];
+  if (missing.length === 0) return;
+
+  void Promise.all(
+    missing.map((id) =>
+      getTrackDisplay(id)
+        .then((d) => [id, d] as const)
+        .catch(() => null),
+    ),
+  ).then((results) => {
+    const live = new Set(get().queue);
+    const merge: Record<number, QueueTrackMeta> = {};
+    for (const entry of results) {
+      if (!entry) continue;
+      const [id, d] = entry;
+      if (!live.has(id) || id in get().queueMeta) continue;
+      merge[id] = { title: d.title ?? "", artist: d.artist ?? null, durationSecs: null };
+    }
+    if (Object.keys(merge).length > 0) {
+      set((s) => ({ queueMeta: { ...s.queueMeta, ...merge } }));
+    }
+  });
+}
+
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   status: STOPPED,
   queue: [],
@@ -124,7 +166,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   playingFrom: null,
   error: null,
   setStatus: (status) => set({ status }),
-  setQueue: (queue) => set({ queue }),
+  // Set the queue, then fill any ad-hoc row's display the play-time snapshot could not reach.
+  setQueue: (queue) => {
+    set({ queue });
+    fillAdHocQueueMeta(get, set, queue);
+  },
   setError: (error) => set({ error }),
   actions: {
     // Fire and forget: the engine's event updates `status`, so nothing here mutates it optimistically.

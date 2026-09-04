@@ -22,9 +22,10 @@ import styles from "./App.module.css";
 
 /**
  * The app root: the window title bar over the content, so the bar shows on every screen. The startup
- * probe picks the content - the compact standalone player when the launch opened a file, else the full
- * library gate. It holds nothing while the probe is in flight, so neither tree flashes before it
- * resolves. "Open library" from the compact player escalates to the gate for the rest of the session.
+ * probe picks the content - the sidebar-less standalone player when the launch opened a file, else the
+ * full library gate. It holds nothing while the probe is in flight, so neither tree flashes before it
+ * resolves. "Open library" from the player escalates to the gate for the rest of the session; the window
+ * is full size throughout, so escalating only reveals the sidebar.
  */
 function App() {
   const loadPreferences = useLoadPreferences();
@@ -42,17 +43,17 @@ function App() {
   useExportNotifications();
 
   const boot = useStartupBoot();
-  const compact = boot.phase === "standalone" && !boot.escalated;
+  const playerOnly = boot.phase === "standalone" && !boot.escalated;
 
   return (
     <div className={styles.frame}>
-      <TitleBar compact={compact} onOpenLibrary={boot.escalate} />
+      <TitleBar playerOnly={playerOnly} onOpenLibrary={boot.escalate} />
       <div className={styles.content}>
-        {boot.phase === "pending" ? null : compact ? (
+        {boot.phase === "pending" ? null : playerOnly ? (
           <StandaloneView files={boot.files} onOpenLibrary={boot.escalate} />
         ) : boot.escalated ? (
-          // The full app fades in as the window snaps up from the compact player, so the swap reads as
-          // one motion rather than a hard cut.
+          // The full app fades in over the standalone player at the same size, so the reveal reads as one
+          // motion rather than a hard cut.
           <div className={styles.escalate}>
             <WorkspaceGate />
           </div>

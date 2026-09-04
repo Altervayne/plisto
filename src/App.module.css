@@ -11,8 +11,8 @@
   min-height: 0;
 }
 
-/* The full library fading in over ~150ms as the window grows from the compact player: a single soft
- * motion rather than a hard cut. It fills the content so the shell inside still lays out full-height. */
+/* The full library fading in over ~150ms over the standalone player at the same size: a single soft
+ * reveal rather than a hard cut. It fills the content so the shell inside still lays out full-height. */
 .escalate {
   height: 100%;
   animation: escalateIn 150ms var(--ease-standard);

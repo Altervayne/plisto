@@ -4,7 +4,7 @@
  * standing up the resident state (the audio engine, the app state). That window clears within a moment,
  * so a boot read retries with backoff before giving up. Without it, a swallowed early rejection reads as
  * "empty" and strands the launch on the wrong path - a stocked library on onboarding, or a file-open on
- * the full library instead of the compact player. An EMPTY result is not a rejection, so a genuinely
+ * the full library instead of the standalone player. An EMPTY result is not a rejection, so a genuinely
  * empty read still resolves at once; only a thrown rejection retries.
  */
 export async function withRetry<T>(fn: () => Promise<T>, attempts = 12): Promise<T> {
