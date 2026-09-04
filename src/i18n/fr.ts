@@ -612,6 +612,7 @@ export const fr: Dict = {
     maximize: "Agrandir",
     restore: "Restaurer",
     close: "Fermer",
+    openLibrary: "Ouvrir l'audiothèque",
     folders: { one: "{{n}} répertoire", other: "{{n}} répertoires" },
   },
 

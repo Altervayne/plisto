@@ -611,6 +611,7 @@ export const en = {
     maximize: "Maximize",
     restore: "Restore",
     close: "Close",
+    openLibrary: "Open library",
     folders: { one: "{{n}} folder", other: "{{n}} folders" },
   },
 

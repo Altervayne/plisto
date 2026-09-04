@@ -7,6 +7,7 @@ import { Transport } from "./Transport";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
+import { useTrackDisplay } from "./useTrackDisplay";
 
 // -- State Imports --
 import { useTrack } from "../../state/store";
@@ -32,14 +33,24 @@ export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
 /**
  * The bar itself: cover, one text line, and a compact prev / play-pause / next transport. The cover and
  * text area is its own button opening the full Player; the transport buttons below keep their own clicks.
+ *
+ * An ad-hoc file (a negative id) carries no library row, so its text comes from the resolved display over
+ * IPC - the title from the stash, the artist hidden when the file has none. A library id keeps the
+ * library store and its "Unknown Artist" fallback unchanged.
  */
 function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () => void }) {
+  const adHoc = trackId < 0;
   const track = useTrack(trackId);
+  const display = useTrackDisplay(adHoc ? trackId : null);
   const { cover } = useTrackCover(trackId);
   const t = useT();
 
-  const title = track?.title_edit ?? track?.raw_title ?? t((d) => d.albums.untitled);
-  const artist = track?.artist_edit ?? track?.raw_artist ?? t((d) => d.albums.unknownArtist);
+  const title = adHoc
+    ? display.title ?? t((d) => d.albums.untitled)
+    : track?.title_edit ?? track?.raw_title ?? t((d) => d.albums.untitled);
+  const artist = adHoc
+    ? display.artist
+    : track?.artist_edit ?? track?.raw_artist ?? t((d) => d.albums.unknownArtist);
   const coverSrc = cover?.src ?? null;
 
   return (
@@ -58,7 +69,7 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
           </span>
           <span className={styles.text}>
             <span className={styles.title}>{title}</span>
-            <span className={styles.artist}>{artist}</span>
+            {artist ? <span className={styles.artist}>{artist}</span> : null}
           </span>
         </button>
         <div className={styles.controls}>

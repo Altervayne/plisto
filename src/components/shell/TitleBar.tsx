@@ -18,6 +18,7 @@ import { useT } from "../../i18n";
 
 // -- Component Imports --
 import { PlistoLogo } from "../common/PlistoLogo";
+import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Icon Imports --
@@ -37,8 +38,18 @@ function folderName(path: string): string {
  * path on the left, a drag region filling the middle, and the minimize / maximize / close controls
  * on the right. Ambient ground, no divider - it parts from the content by space. The window calls
  * are guarded so the bar still renders outside the desktop shell.
+ *
+ * Compact mode is the standalone player's bar: no workspace to name, so the label slot carries the
+ * "Open library" affordance instead, and the maximize control is dropped since maximizing a small
+ * player is meaningless. Minimize and close stay.
  */
-export function TitleBar() {
+export function TitleBar({
+  compact = false,
+  onOpenLibrary,
+}: {
+  compact?: boolean;
+  onOpenLibrary?: () => void;
+}) {
   const label = useLibraryLabel();
   const t = useT();
   const [maximized, setMaximized] = useState(false);
@@ -71,7 +82,14 @@ export function TitleBar() {
         <span className={styles.name}>Plisto</span>
       </div>
 
-      {label ? (
+      {compact ? (
+        // The honest spot for the escape: where the library name sits in the full app. Kept literally
+        // "Open library" even with no library yet - it routes through the gate, which shows the picker
+        // on a fresh install.
+        <div className={styles.workspace}>
+          <QuietButton onClick={onOpenLibrary}>{t((d) => d.window.openLibrary)}</QuietButton>
+        </div>
+      ) : label ? (
         <Tooltip label={label.kind === "single" ? label.path : undefined}>
           <div className={styles.workspace}>
             <span className={styles.dot} aria-hidden="true" />
@@ -94,14 +112,20 @@ export function TitleBar() {
         >
           <Minus size={16} strokeWidth={1.3} />
         </button>
-        <button
-          type="button"
-          className={styles.control}
-          onClick={toggleMaximizeWindow}
-          aria-label={maximized ? t((d) => d.window.restore) : t((d) => d.window.maximize)}
-        >
-          {maximized ? <Copy size={16} strokeWidth={1.3} /> : <Square size={16} strokeWidth={1.3} />}
-        </button>
+        {compact ? null : (
+          <button
+            type="button"
+            className={styles.control}
+            onClick={toggleMaximizeWindow}
+            aria-label={maximized ? t((d) => d.window.restore) : t((d) => d.window.maximize)}
+          >
+            {maximized ? (
+              <Copy size={16} strokeWidth={1.3} />
+            ) : (
+              <Square size={16} strokeWidth={1.3} />
+            )}
+          </button>
+        )}
         <button
           type="button"
           className={`${styles.control} ${styles.close}`}

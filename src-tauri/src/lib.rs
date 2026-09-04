@@ -24,13 +24,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{Manager, WindowEvent};
+use tauri::{LogicalSize, Manager, WindowEvent};
 
 // -- State Imports --
 use covers::InFlightGuard;
 use dto::ExportStatus;
 use state::AppState;
 use tray::TrayState;
+
+// The compact standalone player's birth size and floor, in logical pixels. A launch that opens a file
+// sizes the one main window to this before its first reveal, so the player never snaps down from the
+// full size on screen. A normal launch keeps the config's full 1200x800 / 900x600.
+const COMPACT_WIDTH: f64 = 440.0;
+const COMPACT_HEIGHT: f64 = 240.0;
+const COMPACT_MIN_WIDTH: f64 = 380.0;
+const COMPACT_MIN_HEIGHT: f64 = 220.0;
 
 // Mirrors AppInfo in the frontend's types.ts. Any change here changes the IPC
 // contract, so the two move together.
@@ -187,6 +195,10 @@ pub fn run() {
             // safe, where a setup-time push could fire before the first render subscribes.
             let startup_argv: Vec<String> = std::env::args().collect();
             let startup_paths = startup::audio_paths_from_argv(&startup_argv);
+            // Whether the OS cold-launched Plisto with a file, read from argv for window SIZE here. The
+            // frontend independently pulls get_startup_file for the TREE; both derive from the same
+            // launch, so they agree. This only peeks - the stash take() stays the frontend's.
+            let has_startup_file = !startup_paths.is_empty();
             let startup_file = (!startup_paths.is_empty()).then_some(startup_paths);
 
             app.manage(AppState {
@@ -227,9 +239,24 @@ pub fn run() {
             }
 
             // Bind the OS media controls to the main window and start their coordinator, once state
-            // and the window exist. Best-effort: a failure here leaves the app running without the
-            // now-playing card. A no-op off Windows.
+            // and the window exist. The main HWND already exists while the window is hidden, so this
+            // binds fine before the reveal below. Best-effort: a failure here leaves the app running
+            // without the now-playing card. A no-op off Windows.
             smtc::init(app.handle());
+
+            // Reveal the one main window, sized for the launch. A file open sizes it down to the
+            // compact standalone player before it is ever shown, so there is no visible snap from the
+            // full size; a normal launch keeps the config's full size. The window ships hidden (see
+            // tauri.conf.json), so this is the single reveal on every path - a normal launch must
+            // still show a full window.
+            if let Some(main) = app.get_webview_window("main") {
+                if has_startup_file {
+                    let _ = main
+                        .set_min_size(Some(LogicalSize::new(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT)));
+                    let _ = main.set_size(LogicalSize::new(COMPACT_WIDTH, COMPACT_HEIGHT));
+                }
+                let _ = main.show();
+            }
 
             Ok(())
         })
