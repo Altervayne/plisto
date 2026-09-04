@@ -20,11 +20,12 @@ const VISIBLE_MS = 4000;
 const EXIT_MS = 120;
 
 /**
- * The "can't play this file" nudge: the same foot-of-the-window pill as the queue toast, on the same
- * material, so a playback failure reads as one quiet line rather than an alarm. It shows when the
- * player store holds an error - a file the OS delivered that could not be read, most often - then
- * clears the error back to null as it dismisses. Mount it once beside the queue toast. The message
- * survives the exit fade through a ref, so it stays put while the store empties.
+ * The playback-notice nudge: the same foot-of-the-window pill as the queue toast, on the same
+ * material, so a failure reads as one quiet line rather than an alarm. It shows when the player store
+ * holds a notice - a file that would not play, a lost output, or a device fallback - mapping the kind
+ * to its localized line, then clears the notice back to null as it dismisses. Every kind wears the one
+ * neutral pill. Mount it once beside the queue toast. The message survives the exit fade through a
+ * ref, so it stays put while the store empties.
  */
 export function PlayerErrorToast() {
   const error = usePlayerError();
@@ -39,7 +40,17 @@ export function PlayerErrorToast() {
     return () => window.clearTimeout(timer);
   }, [error, setError]);
 
-  const message = t((d) => d.player.cantPlayFile);
+  // Each notice kind picks its own line; all three share the one pill.
+  const message = t((d) => {
+    switch (error) {
+      case "output":
+        return d.player.noAudioOutput;
+      case "device_fallback":
+        return d.player.deviceFallback;
+      default:
+        return d.player.cantPlayFile;
+    }
+  });
   const lastMessage = useRef(message);
   if (error != null) lastMessage.current = message;
 

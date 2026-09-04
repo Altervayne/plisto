@@ -107,6 +107,18 @@ pub struct OutputDeviceInfo {
     pub is_default: bool,
 }
 
+/// A user-facing player notice, the single payload on `player:error`. `File` names a track that
+/// could not be opened or decoded, `Output` a lost audio device, and `DeviceFallback` a pinned device
+/// that no longer enumerates so playback fell back to the system default. Serialized to the bare
+/// strings `"file"`/`"output"`/`"device_fallback"` the toast maps to a localized line.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerNotice {
+    File,
+    Output,
+    DeviceFallback,
+}
+
 /// The app-global playback snapshot: what the engine is doing right now. Written every engine tick
 /// and mirrored into shared state, so `get_player_status` reads it without waiting on an event.
 #[derive(Clone, Debug, Serialize)]

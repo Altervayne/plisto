@@ -12,9 +12,8 @@
  * WinRT handles: a `player:status` listener forwards the (track id, playing) pair to it, and the
  * thread diffs against the last seen pair so the ~5x-a-second position ticks never touch the OS - only
  * a real transition does. The cover decode for a track with embedded/adjacent art runs on that thread,
- * never the player thread and never rodio. Everything is best-effort: a failed WinRT call logs through
- * `player:error` and the app plays on without the OS card. Non-Windows gets no-op stubs so the setup
- * hook stays uniform.
+ * never the player thread and never rodio. Everything is best-effort: a failed WinRT call logs and the
+ * app plays on without the OS card. Non-Windows gets no-op stubs so the setup hook stays uniform.
  */
 
 /// Initializes the OS media controls and starts the coordinator. Called at the tail of setup, once
@@ -85,7 +84,9 @@ mod win {
     /// returns early and the app runs without the OS card.
     pub fn init(app: &AppHandle) {
         if let Err(e) = try_init(app) {
-            let _ = tauri::Emitter::emit(app, "player:error", &format!("media controls unavailable: {e}"));
+            // Best-effort surface: a missing OS card is not a notice the user acts on, so it logs
+            // rather than riding player:error, which is reserved for file and output failures.
+            eprintln!("media controls unavailable: {e}");
         }
     }
 

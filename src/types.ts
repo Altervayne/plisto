@@ -477,6 +477,13 @@ export const BAND_COUNT = 24;
 export type SpectrumBands = number[];
 
 /**
+ * A user-facing player notice, the `player:error` payload: a file that would not play, a lost audio
+ * output, or a pinned device gone so playback fell back to the system default. Mirrors PlayerNotice
+ * in audio/mod.rs.
+ */
+export type PlayerNotice = 'file' | 'output' | 'device_fallback';
+
+/**
  * The player's live snapshot: what is playing, where the playhead sits, and the queue cursor. The
  * throttled `player:status` event and `get_player_status` both carry it. `track_id` is null when the
  * engine is stopped. Mirrors PlayerStatus in audio/mod.rs.

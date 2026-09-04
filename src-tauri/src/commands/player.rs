@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
-use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
+use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode};
 use crate::covers::InFlightGuard;
 use crate::db;
 use crate::model::RawTags;
@@ -66,9 +66,9 @@ pub fn player_play_tracks(
 /// title and artist through the scan's own tag reader and caches its cover, both off the player
 /// thread, then stashes each under its own fresh negative id so prev/next traverses the ad-hoc queue
 /// and every entry names itself without the index. Replaces the stash and the queue on each open. An
-/// unreadable file is skipped, not queued; when every file is unreadable nothing plays and
-/// `player:file-error` fires so the toast can report it - its own event, apart from the internal
-/// `player:error` warnings (device fallback, output loss) the surface must not read as a file failure.
+/// unreadable file is skipped, not queued; when every file is unreadable nothing plays and a
+/// `player:error` File notice fires so the toast can report it - the same typed channel the engine's
+/// device notices ride, the payload kind telling a file failure from an output one.
 /// The files are only read. Shared by the single-file and multi-file commands and the single-instance
 /// warm-open callback.
 pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
@@ -86,7 +86,7 @@ pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), Strin
     .map_err(|_| "playback task failed to run".to_string())?;
 
     if readable.is_empty() {
-        let _ = app.emit("player:file-error", "couldn't play this file");
+        let _ = app.emit("player:error", PlayerNotice::File);
         return Err("couldn't read any of these files".to_string());
     }
 

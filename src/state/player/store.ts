@@ -47,7 +47,7 @@ import { snapshotQueueMeta } from "./queueMeta";
 import { added } from "./queueToast";
 
 // -- Type Imports --
-import type { PlaybackSource, PlayerStatus, RepeatMode } from "../../types";
+import type { PlaybackSource, PlayerNotice, PlayerStatus, RepeatMode } from "../../types";
 import type { QueueTrackMeta } from "./queueMeta";
 
 /** The stopped default, held before the first play and after a stop. */
@@ -105,13 +105,13 @@ interface PlayerStore {
   queueMeta: Record<number, QueueTrackMeta>;
   // Where the current queue was launched from, for the "playing from" line. Null before the first play.
   playingFrom: PlaybackSource | null;
-  // The last `player:file-error` string, or null: a file the OS handed us that could not be played.
-  // Read by the error toast, which clears it as it dismisses. This is deliberately NOT the broader
-  // `player:error` channel (device fallback, output loss), which must not read as a file failure.
-  error: string | null;
+  // The last player notice kind, or null: a file that would not play, a lost output, or a device
+  // fallback. Read by the error toast, which maps it to a localized line and clears it back to null as
+  // it dismisses. Every kind rides the one typed `player:error` channel.
+  error: PlayerNotice | null;
   setStatus: (status: PlayerStatus) => void;
   setQueue: (queue: number[]) => void;
-  setError: (error: string | null) => void;
+  setError: (error: PlayerNotice | null) => void;
   // One stable object, built once in the initializer, so a card selecting it never re-renders on a
   // status tick. See the perf boundary above.
   actions: PlayerActions;
@@ -190,8 +190,8 @@ export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.act
 // The last playback error, and its setter, for the toast surface: it shows the message, then clears it
 // back to null as it dismisses. The setter is the store's own stable reference, so reading it never
 // re-renders on a status tick.
-export const usePlayerError = (): string | null => usePlayerStore((s) => s.error);
-export const useSetPlayerError = (): ((error: string | null) => void) =>
+export const usePlayerError = (): PlayerNotice | null => usePlayerStore((s) => s.error);
+export const useSetPlayerError = (): ((error: PlayerNotice | null) => void) =>
   usePlayerStore((s) => s.setError);
 
 // The queue slices sit apart from `status` so the up-next list never re-renders on a position tick, and
@@ -223,8 +223,8 @@ export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once (the engine may already
- * be mid-play), then follows the throttled `player:status`, the `player:queue`, and the
- * `player:file-error` events. Mount it once high in the tree; the listeners tear down on unmount.
+ * be mid-play), then follows the throttled `player:status`, the `player:queue`, and the typed
+ * `player:error` events. Mount it once high in the tree; the listeners tear down on unmount.
  * Mirrors the tray's event wiring.
  */
 export function usePlayerSync(): void {
@@ -264,7 +264,7 @@ export function usePlayerSync(): void {
         await listen<PlayerStatus>("player:status", (e) => setStatus(e.payload)),
       );
       unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
-      unlisteners.push(await listen<string>("player:file-error", (e) => setError(e.payload)));
+      unlisteners.push(await listen<PlayerNotice>("player:error", (e) => setError(e.payload)));
     };
     void subscribe().catch(() => {});
 

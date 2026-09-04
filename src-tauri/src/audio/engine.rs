@@ -20,7 +20,8 @@ use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
-use super::{decode, spectrum, AudioSpec, PlayerCmd, PlayerStatus, QueueTrack, RepeatMode};
+use super::{decode, spectrum, AudioSpec, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode};
+use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
 
 // ---- Decoded source ----
@@ -482,25 +483,49 @@ impl Engine {
 
     /// Loads and starts the track at `start`, skipping FORWARD over any that fail to open (missing
     /// file, unsupported/Opus) until one plays or the queue exhausts and playback stops. Emits a
-    /// forced status on either outcome.
+    /// forced status on either outcome, and one `player:error` File notice by outcome: on exhaustion
+    /// when something was asked to play but nothing did, and on success when an opened file (an ad-hoc
+    /// id) was skipped before this one played. A skipped LIBRARY track mid-queue stays silent, the way
+    /// a natural end that lands nowhere does.
     fn play_at(&mut self, start: usize) {
+        // Set when a skipped track was an opened file (an ad-hoc id), so a partial multi-open still
+        // reports the dead one once another plays. A skipped library track leaves it false.
+        let mut skipped_opened_file = false;
         let mut i = start;
         loop {
             if i >= self.queue.len() {
                 self.stop_playback();
                 self.emit(true);
+                // Something was asked to play but nothing did: a lone opened file that will not
+                // decode, or a play where every candidate was dead. A Next off the end has
+                // start == len, so it stays silent - a natural stop, not a failure.
+                if start < self.queue.len() {
+                    let _ = self.app.emit("player:error", PlayerNotice::File);
+                }
                 return;
             }
+            let opened_file = is_ad_hoc(self.queue[i].id);
             match decode::Decoder::open(&self.queue[i].path) {
                 Ok(dec) => match DecoderSource::new(dec, 0) {
                     Some(src) => {
                         self.start_source(i, src);
                         self.emit(true);
+                        // A dead opened file was skipped before this one played: report it once so
+                        // the user learns the failed file did not just vanish.
+                        if skipped_opened_file {
+                            let _ = self.app.emit("player:error", PlayerNotice::File);
+                        }
                         return;
                     }
-                    None => i += 1,
+                    None => {
+                        skipped_opened_file |= opened_file;
+                        i += 1;
+                    }
                 },
-                Err(_) => i += 1,
+                Err(_) => {
+                    skipped_opened_file |= opened_file;
+                    i += 1;
+                }
             }
         }
     }
@@ -697,31 +722,31 @@ impl Engine {
                     (OutputStream::try_from_device(&dev), resolved)
                 }
                 None => {
-                    let message =
-                        format!("output device '{name}' unavailable, using system default");
-                    let _ = self.app.emit("player:error", &message);
+                    // The pinned device is gone; playback carries on the system default, so this is a
+                    // fallback notice, not an output loss.
+                    let _ = self.app.emit("player:error", PlayerNotice::DeviceFallback);
                     (OutputStream::try_default(), default_output_name())
                 }
             },
         };
 
-        // Open the sink on the new device. Stream and sink errors carry different types, so map each
-        // to the shared message rather than chaining them.
+        // Open the sink on the new device. Stream and sink errors carry different types, so collapse
+        // both to the one Output notice rather than chaining them.
         let built = match stream_res {
             Ok((stream, handle)) => match Sink::try_new(&handle) {
                 Ok(sink) => {
                     sink.set_volume(self.volume);
-                    Ok((stream, sink))
+                    Some((stream, sink))
                 }
-                Err(e) => Err(format!("audio output is unavailable: {e}")),
+                Err(_) => None,
             },
-            Err(e) => Err(format!("audio output is unavailable: {e}")),
+            Err(_) => None,
         };
 
         let (stream, sink) = match built {
-            Ok(pair) => pair,
-            Err(message) => {
-                let _ = self.app.emit("player:error", &message);
+            Some(pair) => pair,
+            None => {
+                let _ = self.app.emit("player:error", PlayerNotice::Output);
                 self._stream = None;
                 self.sink = None;
                 self.bound_device = None;
@@ -992,9 +1017,9 @@ pub fn spawn(
         .expect("player thread spawns")
 }
 
-/// The thread body. Builds the device (emitting `player:error` and running device-less on failure,
-/// never panicking), then services commands on a short timeout so the idle tick can catch a
-/// track-end even when no command arrives.
+/// The thread body. Builds the device (emitting a `player:error` Output notice and running
+/// device-less on failure, never panicking), then services commands on a short timeout so the idle
+/// tick can catch a track-end even when no command arrives.
 fn run(
     rx: Receiver<PlayerCmd>,
     status: Arc<Mutex<PlayerStatus>>,
@@ -1004,15 +1029,13 @@ fn run(
     let (stream, sink) = match OutputStream::try_default() {
         Ok((stream, handle)) => match Sink::try_new(&handle) {
             Ok(sink) => (Some(stream), Some(sink)),
-            Err(e) => {
-                let message = format!("audio output is unavailable: {e}");
-                let _ = app.emit("player:error", &message);
+            Err(_) => {
+                let _ = app.emit("player:error", PlayerNotice::Output);
                 (None, None)
             }
         },
-        Err(e) => {
-            let message = format!("audio output is unavailable: {e}");
-            let _ = app.emit("player:error", &message);
+        Err(_) => {
+            let _ = app.emit("player:error", PlayerNotice::Output);
             (None, None)
         }
     };
