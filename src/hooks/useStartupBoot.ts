@@ -15,6 +15,9 @@ import { getStartupFile } from "../lib/ipc";
 // -- Window Imports --
 import { resizeWindow, setWindowMinSize } from "../lib/appWindow";
 
+// -- Local Imports --
+import { withRetry } from "../lib/withRetry";
+
 /** The full window's size and floor, matching tauri.conf.json, restored when the player escalates. */
 const FULL_WIDTH = 1200;
 const FULL_HEIGHT = 800;
@@ -24,9 +27,16 @@ const FULL_MIN_HEIGHT = 600;
 // The probe is take-once on the backend: the second read of a launch always comes back empty. StrictMode
 // mounts the hook twice in dev, so the call is memoized at module scope and both mounts await the one
 // promise - the file is read once, and a real reload (a fresh module) correctly re-reads it as empty.
+//
+// It is RETRIED: get_startup_file reads managed state, which setup() may not have finished standing up
+// when the webview's first render fires it. A transient rejection must NOT read as "no file" - that
+// stranded a real file-open on the full organizer in a compact window, unplayed (the same boot race the
+// library reads retry for). withRetry backs off until the state is up; a rejection only wins after every
+// attempt is spent, and a genuinely empty read still resolves at once. Retries never consume the take -
+// only a SUCCESSFUL read clears the stash, so at most one attempt ever takes the file.
 let startupProbe: Promise<string[] | null> | null = null;
 function probeStartupFile(): Promise<string[] | null> {
-  if (!startupProbe) startupProbe = getStartupFile();
+  if (!startupProbe) startupProbe = withRetry(() => getStartupFile());
   return startupProbe;
 }
 
@@ -67,8 +77,9 @@ export function useStartupBoot(): StartupBoot {
         }
       })
       .catch(() => {
-        // A failed probe falls to the full library rather than the player: the launch file is lost, but
-        // the app still opens and boots its library normally.
+        // Only after every retry is spent - managed state never came up, which means the app is broken
+        // anyway. Fall to the full library as a last resort so it still opens rather than hanging on the
+        // pending hold; a transient boot-race rejection was already retried away above.
         if (alive) setPhase("library");
       });
     return () => {

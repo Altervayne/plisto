@@ -23,6 +23,7 @@ import {
   setTrackGenres as setTrackGenresCmd,
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
+import { withRetry } from "../lib/withRetry";
 
 // -- State Imports --
 // The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
@@ -89,20 +90,8 @@ const idleScan: ScanState = {
   error: null,
 };
 
-// A first read at launch can reject before the backend's managed state is ready: the window boots and
-// fires its hydrate the instant the webview loads, while setup is still standing up the resident audio
-// engine. That window clears within a moment, so a boot read retries with backoff before giving up -
-// without it, a swallowed early rejection strands a stocked library on the empty-library onboarding.
-async function withRetry<T>(fn: () => Promise<T>, attempts = 12): Promise<T> {
-  for (let i = 0; ; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (i >= attempts - 1) throw e;
-      await new Promise((r) => setTimeout(r, Math.min(1000, 250 * (i + 1))));
-    }
-  }
-}
+// The boot-read retry lives in a shared util now that the startup-file pull needs it too; see
+// withRetry for why an early launch read must retry rather than read a rejection as empty.
 
 export const useAppStore = create<AppStore>((set, get) => {
   // Drives the scan state from a scanning job's progress and outcome, over a fresh channel. A
