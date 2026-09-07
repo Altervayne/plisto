@@ -73,13 +73,12 @@ const BAR_EXIT_MS = 120;
 
 /**
  * The album's tracks in the drawer, grouped by disc and sortable by drag across the whole set. A
- * single-disc album (every track on disc 1, an unset disc counting as one) renders as one bare list,
- * no separators - pristine. Spanning more than one disc parts the list into "Disc n" groups, each
- * numbered 1..n on its own. One context spans every disc, so a drag crosses disc lines: the drop
- * resolves its target disc and the index within it from live geometry, then recomputes the full
+ * single-disc album renders as one bare list, no separators. Spanning more than one disc parts the list
+ * into "Disc n" groups, each numbered 1..n on its own. One context spans every disc, so a drag crosses
+ * disc lines: the drop resolves its target disc and index from live geometry, then recomputes the full
  * atomic layout so the stored track_no is always the per-disc position. A quiet foot reveals an empty
- * disc as a drop target; nothing persists until a track lands there. The same list serves the full-pane
- * view: passing `onOpenTrack` puts the rows in browse mode, and `openTrackId` marks the peeked one.
+ * disc as a drop target. The same list serves the full-pane view: passing `onOpenTrack` puts the rows in
+ * browse mode, and `openTrackId` marks the peeked one.
  */
 export function AlbumTrackList({
   albumId,

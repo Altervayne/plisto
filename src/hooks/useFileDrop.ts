@@ -1,10 +1,8 @@
 /*
  * The window's OS file-drop, gated to a surface that queues. Tauri captures the OS drag-drop at the
- * webview level (dragDropEnabled, on by default), so a file dragged from the desktop never reaches the
- * DOM as an HTML5 drop - it arrives here instead. This tracks whether a drag is over the window, for a
- * drop affordance, and hands the dropped audio paths to `onDrop`. `enabled` scopes it to the player, so a
- * drop never lands where it is not a queue target; the internal HTML5 row-reorder drags carry no files
- * and are untouched. A no-op outside the desktop runtime, where the webview is absent.
+ * webview level, so a file dragged from the desktop arrives here, not as an HTML5 DOM drop. `enabled`
+ * scopes it to the player so a drop never lands where it is not a queue target; the internal HTML5
+ * row-reorder drags carry no files and are untouched. A no-op where the webview is absent.
  */
 
 // -- Framework Imports --
@@ -17,10 +15,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { keepAudioFiles } from "../lib/audioFiles";
 
 /**
- * Subscribes to the current webview's file drops while `enabled`, returning whether a drag is currently
- * over the window. `onDrop` receives the dropped audio paths only, and only when at least one is playable,
- * so a non-audio drop never pokes the engine. Keep `onDrop` stable so the listener is not re-bound each
- * render.
+ * Subscribes to the current webview's file drops while `enabled`, returning whether a drag is over the
+ * window. `onDrop` receives playable audio paths only, so a non-audio drop never pokes the engine. Keep
+ * `onDrop` stable so the listener is not re-bound each render.
  */
 export function useFileDrop(enabled: boolean, onDrop: (paths: string[]) => void): boolean {
   const [dragging, setDragging] = useState(false);

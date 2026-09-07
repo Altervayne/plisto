@@ -119,20 +119,17 @@ function TagField({
 
 /**
  * The Files-view detail peek: a calm reading surface that edits in place. The top zone is the track's
- * tags - title, artist, album, album artist, year, disc, and genres - each resolved as `edit ?? raw`
- * and committed through the track's own optimistic edit path. The lower zone is the immutable file
- * facts, deliberately inert: Plisto never rewrites the user's files. Dismiss with the close button or
- * Escape. Reads the live store row, not the select-time snapshot, so an edit shows at once.
+ * tags - title, artist, album, album artist, year, disc, and genres - each resolved as `edit ?? raw` and
+ * committed through the track's optimistic edit path. The lower zone is the immutable file facts,
+ * deliberately inert: Plisto never rewrites the user's files. Dismiss with the close button or Escape.
  *
  * `albumFallback` is the album container's own album/album_artist/year, passed when the peek opens from
  * an album. The three fields then resolve `edit ?? container ?? raw`, so the preview matches what an
- * export writes (export takes the container, not the raw tag). The edited marker stays keyed on the
- * edit differing from its own raw, so the container never lights it. Absent, the fields resolve as
- * `edit ?? raw`, the Files behavior.
+ * export writes. The edited marker stays keyed on the edit differing from raw, so the container never
+ * lights it. Absent, the fields resolve `edit ?? raw`.
  *
- * `keepOwnCover` carries the membership's keep-own-cover flag and its setter, passed only when the peek
- * opens from an album - the flag is an album_tracks concern, so a loose or Files-view peek never shows
- * the toggle.
+ * `keepOwnCover` carries the membership's keep-own-cover flag and its setter, passed only from an album -
+ * the flag is an album_tracks concern, so a loose or Files-view peek never shows the toggle.
  */
 export function TrackDetail({
   track,

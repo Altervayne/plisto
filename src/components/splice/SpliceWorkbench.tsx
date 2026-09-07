@@ -50,12 +50,7 @@ function bucketCount(durationSecs: number | null): number {
  * breadcrumb-over-body chassis. One shared shell serves both verbs, each with its own body: the
  * splitter's cut surface or the cropper's stub. On mount it analyzes the source into a waveform that
  * drives the body; the session outlives navigating off the destination, so analysis runs once per file.
- *
- * The library pause keys on `active`, the destination's visibility, not the mount: becoming active
- * captures the player's state and pauses a playing library; becoming inactive - navigated away - or
- * unmounting stops a sounding preview and restores the captured track and position. Restore is
- * frontend-owned (a preview clears the sink, so a bare resume would play silence), and a hidden session
- * in the background never holds the library paused.
+ * The library pause keys on `active`, the destination's visibility, not the mount.
  */
 export function SpliceWorkbench({
   verb,
@@ -131,10 +126,9 @@ export function SpliceWorkbench({
   }, [trackId, onClose]);
 
   // The library pause, keyed on the destination's visibility. Becoming active captures the player's
-  // state and pauses a playing library; becoming inactive (navigated away) or unmounting stops a
-  // sounding preview and restores the captured track and position. A preview clears the sink, so
-  // reopening the source is what brings the library back; a resume alone would play silence. With no
-  // track loaded on entry, nothing to restore.
+  // state and pauses a playing library; becoming inactive or unmounting stops a sounding preview and
+  // restores the captured track and position. A preview clears the sink, so reopening the source is what
+  // brings the library back; a resume alone would play silence.
   useEffect(() => {
     if (!active) return;
 

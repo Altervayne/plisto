@@ -18,9 +18,8 @@ const EXIT_MS = 120;
 
 /**
  * The nudge after a menu append: a neutral pill at the foot of the window, on the same material as the
- * selection bar. It holds no accent - the append is quiet feedback, not a call to act - and reads the
- * cumulative count so a burst shows one pill. Mount it once near the app's other overlays. The count
- * empties as the pill dismisses, so a ref keeps the last tally on screen through the fade.
+ * selection bar. It reads the cumulative count so a burst shows one pill. Mount once near the app's
+ * overlays. The count empties as the pill dismisses, so a ref keeps the last tally through the fade.
  */
 export function QueueToast() {
   const { count, visible } = useQueueToast();

@@ -34,7 +34,7 @@ pub async fn discover_library_images(
     if state.discovery_running.swap(true, Ordering::SeqCst) {
         return Err("a discovery is already running".to_string());
     }
-    // A scan and a sweep both read every root; only one at a time in v1.
+    // A scan and a sweep both read every root; only one at a time.
     if state.scan_running.load(Ordering::SeqCst) {
         state.discovery_running.store(false, Ordering::SeqCst);
         return Err("a scan is running".to_string());

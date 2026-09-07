@@ -437,8 +437,8 @@ pub struct PlaylistM3uSummary {
 
 /// The export config: where to write and the album layout template. `folder_pattern` is the
 /// slash-separated folder tree (empty = flat, no album subfolders); `file_pattern` is the filename,
-/// both in the token language. A pre-template caller sending only `destination` leaves both empty
-/// and the backend falls back to the shipped default layout. Singles ignore the template.
+/// both in the token language. A caller sending only `destination` leaves both empty and the backend
+/// falls back to the shipped default layout. Singles ignore the template.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportConfig {
     pub destination: String,
@@ -447,8 +447,8 @@ pub struct ExportConfig {
     #[serde(default)]
     pub file_pattern: String,
     // The three top-level sections to include, each its own bucket. An export with none selected is
-    // rejected. Albums and singles default on (the pre-1.5 behavior); playlists opt in, since they
-    // duplicate album/single tracks they also belong to. A caller that omits them keeps that default.
+    // rejected. Albums and singles default on; playlists opt in, since they duplicate album/single
+    // tracks they also belong to. A caller that omits them keeps that default.
     #[serde(default = "default_true")]
     pub include_albums: bool,
     #[serde(default = "default_true")]
@@ -465,12 +465,12 @@ pub struct ExportConfig {
     // toggles, the current behavior. An id not present is skipped.
     #[serde(default)]
     pub album_ids: Option<Vec<i64>>,
-    // The MTP/device target (1.6.0). Some means this export goes straight onto a connected phone: the
+    // The MTP/device target. Some means this export goes straight onto a connected phone: the
     // library is staged to a temp folder and transferred onto the device, and `destination` is ignored
     // (a device has no filesystem path). None is the ordinary folder export, byte-for-byte unchanged.
     #[serde(default)]
     pub device: Option<DeviceTarget>,
-    // Device mode (1.6.0), ignored for a folder export. false (default) drops a fresh dated
+    // Device mode, ignored for a folder export. false (default) drops a fresh dated
     // `Plisto <stamp>/` snapshot on the device; true stages the buckets straight into the picked folder
     // so the transfer merges them into a living library (incremental update-in-place, overwriting the
     // files that changed). Overwrite is device-dependent over MTP - the accepted trade for in-place.
@@ -478,14 +478,14 @@ pub struct ExportConfig {
     pub device_in_place: bool,
 }
 
-/// The serde default for the include-albums/singles flags: on, so a pre-1.5 caller that sends only a
-/// destination still exports both sections as it did before (now under their `Albums/`/`Singles/` buckets).
+/// The serde default for the include-albums/singles flags: on, so a caller that sends only a
+/// destination still exports both sections, under their `Albums/`/`Singles/` buckets.
 fn default_true() -> bool {
     true
 }
 
-/// A picked MTP/device export target (1.6.0). A device folder has no filesystem path, so the durable
-/// reference is the shell item's PIDL (`ITEMIDLIST`) hex-encoded - proven on hardware to round-trip via
+/// A picked MTP/device export target. A device folder has no filesystem path, so the durable
+/// reference is the shell item's PIDL (`ITEMIDLIST`) hex-encoded, which round-trips via
 /// `SHCreateItemFromIDList` where the parsing-name string does not. `device_name` and `display` are the
 /// human breadcrumb from the shell (e.g. "Pixel 10 Pro", "Pixel 10 Pro > Internal shared storage > Music").
 /// A within-session reference only; never persisted across app restarts.

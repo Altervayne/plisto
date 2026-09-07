@@ -21,9 +21,8 @@ const COMMIT_DELAY = 250;
 
 /**
  * The layout section: a quiet preset picker over the album patterns, a Custom pair of fields when it is
- * chosen, and a live example path under both. The selection carries accent linework only - the Export
- * CTA keeps the sole solid accent. The example renders through the backend derivation, so it matches
- * exactly what a run would write.
+ * chosen, and a live example path under both. The example renders through the backend derivation, so it
+ * matches exactly what a run would write.
  */
 export function ExportLayout({
   folder,

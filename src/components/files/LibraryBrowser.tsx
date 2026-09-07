@@ -40,12 +40,11 @@ import styles from "./LibraryBrowser.module.css";
 
 /**
  * Folder-hierarchy navigation over a set of tracks. A breadcrumb and a lens toggle head a nav column
- * that shows the current folder's subfolders over its own tracks (Folders lens) or every file beneath
- * it flat (All-files lens). Drilling changes the scope; the organize selection lives in the store, so
- * it rides across folders untouched. A row peek opens beside the grid. The tree, breadcrumb, and folder
- * band all derive from the passed tracks, so feeding a subset scopes the whole browser to it - folders
- * with no track in the subset simply drop out. An empty set with an emptyState shows that in place of
- * the browser; without one it falls through to the quiet empty grid.
+ * that shows the current folder's subfolders over its own tracks (Folders lens) or every file beneath it
+ * flat (All-files lens). Drilling changes the scope; the organize selection lives in the store, so it
+ * rides across folders untouched. A row peek opens beside the grid. The tree, breadcrumb, and folder band
+ * all derive from the passed tracks, so feeding a subset scopes the whole browser to it. An empty set
+ * with an emptyState shows that in place of the browser; without one it falls through to the empty grid.
  */
 export function LibraryBrowser({
   tracks,

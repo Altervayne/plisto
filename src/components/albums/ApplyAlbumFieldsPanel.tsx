@@ -44,9 +44,9 @@ const FIELDS: { key: FieldKey; label: (d: Dict) => string }[] = [
 /**
  * The force-apply modal over one album: three checkboxes - album artist, year, genre - each showing the
  * album's current value as a quiet subtitle, all checked by default. Apply writes the checked fields onto
- * every member track, overwriting each track's own value (genre unifies to the members' union instead), then
- * holds the count until dismissed and refreshes the caller. It portals to the body and closes on Escape, a
- * backdrop press, or the close button.
+ * every member track, overwriting each track's own value (genre unifies to the members' union), holds the
+ * count until dismissed, and refreshes the caller. Portals to the body and closes on Escape, a backdrop
+ * press, or the close button.
  */
 export function ApplyAlbumFieldsPanel({
   album,

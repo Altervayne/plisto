@@ -30,11 +30,10 @@ import styles from "./CoverMatchPreview.module.css";
 
 /**
  * The preview-then-apply modal for filename cover matching, portalled over a dim scrim like the confirm
- * dialog. It lists every image-to-track pair the match found before anything binds, so applying is a
- * deliberate second step. Apply binds each image as its track's per-track cover in turn - the index is a
- * single writer, so the binds run one at a time - and a single failed bind is skipped without stopping the
- * rest, reporting only the count that landed. An empty match set shows its own quiet state with nothing to
- * apply.
+ * dialog. It lists every image-to-track pair before anything binds, so applying is a deliberate second
+ * step. Apply binds each image as its track's per-track cover in turn, and a single failed bind is
+ * skipped without stopping the rest, reporting only the count that landed. An empty match set shows a
+ * quiet state.
  */
 export function CoverMatchPreview({
   matches,

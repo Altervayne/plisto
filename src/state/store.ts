@@ -1,9 +1,7 @@
 /*
- * The app store: the library of roots, the state of a scan, and the indexed rows. Actions own the
- * IPC orchestration (boot, add/remove/rescan a root, cancel, load) so components stay presentational
- * and only read narrow slices. The app boots by hydrating the roots and, when any exist, the rows;
- * every scanning action shares one channel/progress/done/error runner. The grid sorts and filters
- * the rows client-side.
+ * The app store: the library of roots, the state of a scan, and the indexed rows. Actions own the IPC
+ * orchestration so components stay presentational and read narrow slices. Every scanning action shares
+ * one channel/progress/done/error runner; the grid sorts and filters the rows client-side.
  */
 
 // -- Library Imports --
@@ -89,9 +87,6 @@ const idleScan: ScanState = {
   summary: null,
   error: null,
 };
-
-// The boot-read retry lives in a shared util now that the startup-file pull needs it too; see
-// withRetry for why an early launch read must retry rather than read a rejection as empty.
 
 export const useAppStore = create<AppStore>((set, get) => {
   // Drives the scan state from a scanning job's progress and outcome, over a fresh channel. A
@@ -196,10 +191,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
 
-    // The Files-view detail peek edits a track's tags and genres straight from the grid, on its own
-    // optimistic path: patch the row, fire the write, and on a failed persist reload from truth. The
-    // album drawer edits the same track_edits/track_genres through the organize store; both hit the
-    // same commands, and either surface's next reload reconciles the two views.
+    // The Files-view peek edits tags and genres optimistically: patch the row, fire the write, reload
+    // from truth on a failed persist. The album drawer edits the same commands through the organize
+    // store, so either surface's next reload reconciles the two views.
     editTrack: async (trackId, fields) => {
       set((s) => ({
         tracks: s.tracks.map((r) =>
@@ -258,9 +252,8 @@ export const useRoots = (): Root[] => useAppStore((s) => s.roots);
 export const useBooted = (): boolean => useAppStore((s) => s.booted);
 
 /**
- * The top-bar library label, composed from the roots: one root reads as its path (the folder name),
- * several as a plain count. Null when the library is empty. Built here, not as a store selector, so
- * the fresh object never destabilizes a subscription.
+ * The top-bar library label from the roots: one root reads as its path, several as a count, null when
+ * empty. Built here, not as a store selector, so the fresh object never destabilizes a subscription.
  */
 export const useLibraryLabel = (): LibraryLabel | null => {
   const roots = useRoots();

@@ -19,47 +19,18 @@ use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus};
 use crate::covers::InFlightGuard;
 use crate::dto::ExportStatus;
 
-/// Held in Tauri's managed state for the app's lifetime. `db` is the read connection; the Mutex
-/// serializes access since rusqlite's Connection is not Sync. `cancel` is shared with the
-/// running scan's workers; `scan_running` is the guard that keeps scans from overlapping.
-/// `covers_dir` is where thumbnails are cached; `covers_in_flight` collapses concurrent
-/// identical thumbnail generations to one decode. `export_cancel`/`export_running` are the
-/// export's own cancel flag and overlap guard, kept separate from the scan pair so cancelling
-/// one never touches the other. `splice_cancel`/`splice_running` are the splicer/cropper's own
-/// pair, kept separate again so a splice and an export never cancel or block each other.
-/// `playlist_export_cancel`/`playlist_export_running` are the
-/// self-contained playlist folder export's own pair, kept separate again so a playlist export and a
-/// library export never cancel or block each other. `discovery_cancel`/`discovery_running` are the
-/// covers-workspace image sweep's own pair, kept separate too so cancelling a sweep never touches a
-/// scan or export. `export_status` is the app-global snapshot the tray popup reads and the export
-/// worker updates from its blocking thread, so it is an Arc the worker closure can hold while the
-/// command still reads it through managed state. `player` is the single-owned Sender to the
-/// resident audio thread - the only handle to it, so dropping AppState at exit closes the channel
-/// and ends the thread; it must never be cloned into the tray or a captured closure or the thread
-/// would outlive exit. `player_status` is the app-global playback snapshot the engine keeps live,
-/// an Arc so the engine holds one clone while commands read the other through state, exactly like
-/// `export_status`. `player_queue` mirrors the ordered queue track ids the same way, but the engine
-/// writes it only when the queue changes (a Play or a shuffle toggle), never on the status tick, so
-/// a long id list never rides the ~5x-a-second snapshot. `ad_hoc` is the stash of tracks played
-/// straight off disk with no library row: keyed by the negative id the engine reports back, so the
-/// now-playing surfaces resolve a title/artist/cover for the current track even when it has no index
-/// entry. player_play_file replaces the map on each open. `close_to_tray` mirrors the persisted
-/// close-behavior pref as an atomic, so the window-event handler reads it without taking the `db`
-/// Mutex - a lock there could stall the close while a command holds it. `startup_file` holds the
-/// file paths the OS cold-launched Plisto with, seeded at setup and taken once by `get_startup_file`:
-/// a pull the frontend makes on mount, never a setup-time push, so a slow first render never misses
-/// it. None when Plisto opened on its own. (The debounced burst buffer that collapses a multi-select's
-/// sibling launches into one queue is a global in `intake`, not a field here - a forward can push into it
-/// before this state is managed.) `startup_error` latches a File
-/// notice when that OS-launch batch is wholly unreadable, taken once by `get_startup_error`, so the
-/// standalone shell shows its refusal body even when the batch's `player:error` fired before the webview
-/// subscribed. None on the normal path.
+/// Everything shared across commands and background threads, held by Tauri for the app's life. The
+/// wrapper on each field says how it is shared.
 pub struct AppState {
+    /// Mutex because rusqlite's Connection is not Sync.
     pub db: Mutex<Connection>,
     pub db_path: PathBuf,
+    // Each long job owns a cancel flag and an overlap guard, kept as separate pairs so cancelling or
+    // running one never touches another: scan, export, splice, playlist export, discovery sweep.
     pub cancel: Arc<AtomicBool>,
     pub scan_running: AtomicBool,
     pub covers_dir: PathBuf,
+    /// Collapses identical concurrent thumbnail generations to a single decode.
     pub covers_in_flight: Arc<InFlightGuard>,
     pub export_cancel: Arc<AtomicBool>,
     pub export_running: AtomicBool,
@@ -69,13 +40,22 @@ pub struct AppState {
     pub playlist_export_running: AtomicBool,
     pub discovery_cancel: Arc<AtomicBool>,
     pub discovery_running: AtomicBool,
+    /// Export progress the tray reads and the worker writes; Arc so both hold it at once.
     pub export_status: Arc<Mutex<ExportStatus>>,
+    /// The one handle to the audio thread. Never cloned: dropping AppState at exit closes the channel,
+    /// which ends the thread.
     pub player: crossbeam_channel::Sender<PlayerCmd>,
+    /// The live playback snapshot the engine writes and commands read.
     pub player_status: Arc<Mutex<PlayerStatus>>,
+    /// The ordered queue ids, rewritten only when the queue changes, never on the status tick.
     pub player_queue: Arc<Mutex<Vec<i64>>>,
+    /// Tracks played off disk with no library row, keyed by the negative id the engine reports back.
     pub ad_hoc: Mutex<HashMap<i64, AdHocTrack>>,
+    /// Atomic so the window-close handler reads it without taking the db Mutex.
     pub close_to_tray: AtomicBool,
+    /// Files the OS cold-launched Plisto with; taken once by get_startup_file, None otherwise.
     pub startup_file: Mutex<Option<Vec<String>>>,
+    /// Set when an OS-launch batch was wholly unreadable; taken once by get_startup_error.
     pub startup_error: Mutex<Option<PlayerNotice>>,
 }
 

@@ -317,7 +317,7 @@ mod tests {
     }
 
     // The cropper path: copy_tags must carry the source's whole tag, art included, onto the cut so a
-    // trimmed file keeps every field. This is the field the design assumed ffmpeg passed through.
+    // trimmed file keeps every field.
     #[test]
     fn copy_tags_carries_every_field_and_the_cover() {
         let dir = TempDir::new();

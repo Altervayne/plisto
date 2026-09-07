@@ -32,9 +32,8 @@ function trackTitle(track: TrackRow): string {
 /**
  * The inline checklist the row expands into for "Set on specific tracks". Each of the folder's tracks
  * shows its current cover so the bare ones stand out; checking a subset and confirming binds the chosen
- * image onto exactly those tracks. The one solid accent in this view lives on the confirm here, never on
- * the wall. This is the multi-select cover model from the album drawer, minus the disk dialog - the
- * image is already chosen.
+ * image onto exactly those tracks. The multi-select cover model from the album drawer, minus the disk
+ * dialog since the image is already chosen.
  */
 export function CoverTrackChecklist({
   tracks,

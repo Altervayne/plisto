@@ -130,10 +130,9 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   };
 
   // Applies a committed edit: optimistic projection, push onto the undo stack, drop the redo branch,
-  // then fire the write. A committed edit always invalidates any pending redo. An edit that changes an
-  // album (its fields, membership, order, or layout) also bumps that album's updated_at in the
-  // projection, mirroring the backend's touch so the "updated since" date filter reflects the change at
-  // once rather than only after the next reload.
+  // then fire the write. An edit that changes an album also bumps that album's updated_at in the
+  // projection, mirroring the backend's touch so the "updated since" filter reflects it before the next
+  // reload.
   const commit = (cmd: Command): void => {
     set((s) => {
       const org = applyCommand(s.org, cmd);
@@ -238,10 +237,9 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       commit({ kind: "setAlbumFields", albumId, next, prev });
     },
 
-    // Reflects an app-store track edit into the membership projection: the row's projected title/artist
-    // (te.*), its resolved disc (te.disc_no ?? raw), and its genres. A track sits in at most one album,
-    // but this maps all matching rows to stay total. Not an undo step - it mirrors an edit the app store
-    // already committed, so it never touches the command stack.
+    // Reflects an app-store track edit into the membership projection: projected title/artist, resolved
+    // disc (edit ?? raw), and genres. Not an undo step - it mirrors an edit the app store already
+    // committed, so it never touches the command stack.
     reprojectTrackFromApp: (trackId) => {
       const t = useAppStore.getState().tracks.find((r) => r.id === trackId);
       if (!t) return;
@@ -536,9 +534,8 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
 /**
  * The album a committed edit bumps the updated_at of, mirroring the backend's `touch_album`, or null
- * when the edit does not change an album's own row. A field edit, a membership move (assign/unassign),
- * a reorder, and a layout change all touch their album; a per-track override does not (the backend
- * leaves the album's stamp alone for those).
+ * when the edit does not change an album's own row. Field edits, membership moves, reorders and layout
+ * changes touch their album; a per-track override does not.
  */
 function touchedAlbumId(cmd: Command): number | null {
   switch (cmd.kind) {
@@ -636,10 +633,9 @@ export interface GenreAggregateEntry {
 export const useAlbumGenreAggregate = (
   albumId: number,
 ): { entries: GenreAggregateEntry[]; memberCount: number } => {
-  // Select the raw inputs at shallow-stable identity, then derive the pills with useMemo. The
-  // derivation builds a fresh nested `entries` array each run, which useShallow alone cannot stabilise
-  // (its one-level compare always sees the new array and re-renders on a loop) - deriving off stable
-  // inputs is what breaks that cycle.
+  // Select the raw inputs at shallow-stable identity, then derive the pills with useMemo: the fresh
+  // nested `entries` array each run would churn under useShallow alone, so deriving off stable inputs
+  // breaks the re-render loop.
   const members = useOrganizeStore(
     useShallow((s) => s.org.membership.filter((r) => r.album_id === albumId)),
   );

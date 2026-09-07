@@ -88,12 +88,11 @@ function clampSecs(secs: number, durationSecs: number): number {
 }
 
 /**
- * The splitter's surface across its three phases. Editing is the waveform lane with its cut markers
- * over the mini-transport and zoom, beside the resizable cut list peek whose foot holds the destination,
- * the collision policy, and the one solid Split CTA. Running is a centered determinate stage; done is a
- * centered report with follow-on actions. The body owns the cut model - N markers to N+1 segments - so
- * it owns the run: it builds the job from the derived segments and drives the phase from the report.
- * A manual edit is tracked so the workbench can guard a close over unsaved cuts.
+ * The splitter's surface across its three phases. Editing is the waveform lane with its cut markers over
+ * the mini-transport and zoom, beside the resizable cut list whose foot holds the destination, the
+ * collision policy, and the Split CTA. Running is a centered determinate stage; done is a centered
+ * report. The body owns the cut model - N markers to N+1 segments - so it builds the job from the
+ * derived segments and drives the phase from the report.
  */
 export function SplitBody({
   analysis,

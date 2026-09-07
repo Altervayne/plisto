@@ -24,14 +24,13 @@ import styles from "./ImageTile.module.css";
 
 /**
  * One loose image in a folder's strip: a lazy thumbnail tile that opens the assignment chooser. A left
- * click or a right click both open the same conditional menu at the pointer, so the chooser is
- * discoverable yet mirrored for power users. The menu offers the folder cover always, the album cover
- * only when the folder resolves to one album, and the specific-tracks checklist through the parent. A
- * tile already bound as the folder's cover carries the in-use ring; a thumbnail that fails to read shows
- * the unavailable placeholder and refuses the bind - the source is gone or unreadable, never the cover.
+ * click or a right click both open the same conditional menu at the pointer. The menu offers the folder
+ * cover always, the album cover only when the folder resolves to one album, and the specific-tracks
+ * checklist through the parent. A tile already bound as the folder's cover carries the in-use ring; a
+ * thumbnail that fails to read shows the unavailable placeholder and refuses the bind.
  *
  * Memoized on primitives and stable callbacks so a bind elsewhere in the folder never re-renders the
- * whole strip: only the tile whose in-use state flips repaints.
+ * whole strip.
  */
 export const ImageTile = memo(function ImageTile({
   path,

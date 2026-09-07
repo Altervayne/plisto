@@ -1,12 +1,9 @@
 /*
  * The IPC command surface for covers: resolve a track's single cover, list its selectable art
  * sources, import a folder cover from disk, and remove one. Resolution reads the DB on the async
- * thread, then any decode/resize runs on a blocking thread so the runtime stays free. A folder
- * cover the user imported is served straight from its cached thumbnail by content hash, no
- * decode; embedded and adjacent art decode lazily on first request. Every cache path returned
- * here is loaded by the webview through the Tauri asset protocol - if a CSP is ever set, its
- * img-src must include the asset origin. Read-only over the music folder: art is only read out,
- * never written back.
+ * thread, then any decode/resize runs on a blocking thread. Cache paths are loaded by the webview
+ * through the Tauri asset protocol, so a CSP's img-src must include the asset origin. Read-only over
+ * the music folder: art is only read out, never written back.
  */
 
 // -- Library Imports --
@@ -85,12 +82,10 @@ pub async fn list_cover_candidates(
     .map_err(|_| "cover task failed to run".to_string())
 }
 
-/// Lists every loose image sitting directly in the track's own folder, each as a full on-disk
-/// path, sorted. Where list_cover_candidates surfaces only embedded and adjacent-stem art, this is
-/// every image in the folder, so the peek can bind any of them as the track's per-track cover. The
-/// folder comes from the track's real-case path (the folded source_path may not exist on a
-/// case-sensitive filesystem). A missing or unreadable folder reads as empty, not an error; an
-/// unknown track errors. Read-only: the folder is only listed, never written.
+/// Lists every loose image sitting directly in the track's own folder, each as a full on-disk path,
+/// sorted, so the peek can bind any of them as the track's per-track cover. The folder comes from the
+/// track's real-case path, since the folded source_path may not exist on a case-sensitive filesystem.
+/// A missing folder reads as empty; an unknown track errors. Read-only: the folder is only listed.
 #[tauri::command]
 pub async fn list_folder_images(
     track_id: i64,
@@ -597,16 +592,11 @@ fn generate_dynamic_ref(
     }
 }
 
-/// Resolves a track's cover to a plain on-disk image file at the peek size, for a consumer that
-/// needs a file path rather than an IPC ref - the Windows now-playing thumbnail. A bound folder or
-/// per-track cover is its cached hash file, already on disk with no decode; embedded or adjacent art
-/// decodes here, so this must run off any realtime thread, never the player thread. None when the
-/// track has no art from any source. Read-only over the music folder, like every other cover path.
-///
-/// Reads the DB to decide the source under a short lock, then drops it before any decode - the same
-/// read-under-lock / decode-unlocked split resolve_at uses, so an embedded/adjacent decode never
-/// holds the index lock. The decode runs inline on the caller's thread (the SMTC coordinator), which
-/// is why resolve_at's async spawn_blocking is a plain call here.
+/// Resolves a track's cover to a plain on-disk image file at the peek size, for the Windows
+/// now-playing thumbnail. Reads the DB to decide the source under a short lock, then drops it before
+/// any embedded/adjacent decode, so the decode never holds the index lock. The decode runs inline on
+/// the caller's thread (the SMTC coordinator), never the player thread. None when the track has no
+/// art. Read-only over the music folder.
 #[cfg(windows)]
 pub(crate) fn resolve_cover_file(state: &AppState, track_id: i64) -> Option<String> {
     let resolution = {

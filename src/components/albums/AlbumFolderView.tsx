@@ -29,14 +29,12 @@ import styles from "./AlbumFolderView.module.css";
 
 /**
  * An album opened like a folder: a breadcrumb back to the grid, the editable album header, and the
- * album's track list, with a resizable track peek on the right. Mirrors the Files browser's header-over-
- * body split so the two library surfaces read alike. The track list runs in browse mode, so a row click
- * opens the peek rather than an inline edit.
+ * album's track list, with a resizable track peek on the right. Mirrors the Files browser's
+ * header-over-body split. The track list runs in browse mode, so a row click opens the peek.
  *
- * The peek needs a real library `TrackRow` (its disc edit, raw fields, and edit layer), not the album
- * membership row, so it resolves the open id against the store. A sentinel id keeps the hook order
- * stable when nothing is open. The peek reads the album's container album/album_artist/year through
- * `albumFallback`, so its preview of those fields matches what an export writes.
+ * The peek needs a real library `TrackRow`, not the membership row, so it resolves the open id against
+ * the store; a sentinel id keeps the hook order stable when nothing is open. It reads the album's
+ * container fields through `albumFallback` so its preview matches what an export writes.
  */
 export function AlbumFolderView({ album, onBack }: { album: AlbumRow; onBack: () => void }) {
   const t = useT();

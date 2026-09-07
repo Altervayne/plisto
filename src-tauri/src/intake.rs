@@ -1,16 +1,12 @@
 /*
- * Burst intake for OS file-opens. Windows launches Plisto once per file on a multi-select (a %1
- * association), so opening N files arrives as one cold launch plus N-1 single-instance forwards, each a
- * separate process hop landing here at its own moment. Left alone, every forward would replace the queue
- * and only the last file would play. This gathers the burst into one debounced batch instead: each push
- * appends its files and re-arms a short timer, and the whole accumulation plays as a single queue once the
- * launches stop arriving. The cold-launch setup and the single-instance callback both push here.
- *
- * The buffer is a GLOBAL, not a field on AppState, and that is load-bearing: a multi-select's sibling
- * launches forward within milliseconds, so a forward's `push` routinely runs while the cold instance is
- * still inside `setup()`, BEFORE `app.manage(AppState)`. Reading managed state there would panic and crash
- * the process (the white-then-close a multi-open showed). So `push` touches no managed state at all; only
- * the delayed play - which fires after the debounce, well past setup - reads AppState, and guards it.
+ * Burst intake for OS file-opens. Windows launches Plisto once per file on a multi-select, so opening
+ * N files arrives as one cold launch plus N-1 single-instance forwards. Left alone, every forward would
+ * replace the queue and only the last file would play. This gathers the burst into one debounced batch:
+ * each push appends its files and re-arms a short timer, and the whole accumulation plays as one queue
+ * once the launches stop. The buffer is a global, not a field on AppState, and that is load-bearing: a
+ * forward's `push` routinely runs while the cold instance is still inside `setup()`, before
+ * `app.manage(AppState)`, so reading managed state there would panic. `push` touches no managed state;
+ * only the delayed play, past the debounce, reads AppState and guards it.
  */
 
 // -- Library Imports --
@@ -62,9 +58,8 @@ impl Intake {
     }
 }
 
-/// The process-wide burst buffer. Global rather than on AppState so an early single-instance forward never
-/// touches unmanaged state (see the module note): the forwards of a cold multi-select land here while the
-/// first instance is still in setup.
+/// The process-wide burst buffer. Global rather than on AppState so an early forward never touches
+/// unmanaged state before `app.manage` (see the module note).
 static INTAKE: Mutex<Intake> = Mutex::new(Intake::new());
 
 /// Adds `paths` to the pending burst and arms the debounce. Called from the cold-launch setup and the

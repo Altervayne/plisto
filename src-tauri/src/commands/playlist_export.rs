@@ -140,8 +140,7 @@ pub async fn export_playlist_folder(
     // path below is skipped. `destination` is ignored (a device has no filesystem path) and there is
     // nothing for check_destination to probe. This mirrors export_library's device branch, minus the
     // tray/status plumbing that command carries: this one only streams over on_progress, so emit_tick
-    // is a bare channel send. (Only the album-folder shape gets a device path in D4 v1; a future
-    // pass could reuse the same helper wiring for export_playlist_mimic_album.)
+    // is a bare channel send.
     if let Some(device) = device {
         let device_pidl = device.pidl;
         let in_place = device_in_place;
@@ -159,7 +158,7 @@ pub async fn export_playlist_folder(
         let staging_root =
             cache_root.join(format!("plisto-playlist-export-{}-{}", std::process::id(), nanos));
 
-        // D1: a fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
+        // A fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
         // nothing to overwrite on the device. Sanitized to a safe component (drops the colons a clock
         // carries). The phone receives `<device folder>/Plisto <stamp>/<Albums|Singles|...>`.
         let secs = std::time::SystemTime::now()
@@ -169,7 +168,7 @@ pub async fn export_playlist_folder(
         let stamp_folder =
             export::safe_component(&format!("Plisto {}", civil_stamp(secs)), "Plisto");
 
-        // Trap B: the whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
+        // The whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
         // apartment state can never leak onto a reused Tokio pool thread on an early return (the
         // device-unplugged path). The async command parks a blocking-pool thread on the join below,
         // staying free to service cancel_playlist_export.

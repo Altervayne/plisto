@@ -22,11 +22,10 @@ import styles from "./CutList.module.css";
 const EXAMPLE_META = { title: "Golden", artist: "Artist", track_no: 3 };
 
 /**
- * The cut list peek: the naming pattern over one row per output segment, on the album pane's detail
- * chassis. The pattern field previews live against a sample name; the format snap note, when the
- * source is not sample-accurate, sits under the header. The rows scroll on their own; the output
- * config and the Split CTA ride in a pinned foot below them, always in reach. Highlight is shared with
- * the lane through the hover and select callbacks.
+ * The cut list: the naming pattern over one row per output segment, on the album pane's detail chassis.
+ * The pattern field previews live against a sample name; the format snap note sits under the header when
+ * the source is not sample-accurate. The rows scroll; the output config and Split CTA ride a pinned foot.
+ * Highlight is shared with the lane through the hover and select callbacks.
  */
 export function CutList({
   segments,

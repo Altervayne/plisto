@@ -24,11 +24,10 @@ import { useT } from "../../i18n";
 import styles from "./SequenceMenu.module.css";
 
 /**
- * The queue's sequencing control: one button opening a small anchored popover that carries the repeat
- * radio and an independent randomize toggle. Repeat and shuffle stay orthogonal - the popover just
- * repackages them - so it reads and writes the engine through the existing status and actions. The button
- * glyph mirrors the pair at a glance and lifts into a chip when a non-default mode is on. Neutral
- * throughout: the chosen rows read by a check and their ink, never the accent.
+ * The queue's sequencing control: one button opening a small anchored popover with the repeat radio and
+ * an independent randomize toggle. Repeat and shuffle stay orthogonal - the popover just repackages them
+ * - so it reads and writes the engine through the existing status and actions. The button glyph mirrors
+ * the pair and lifts into a chip when a non-default mode is on.
  */
 export function SequenceMenu() {
   const status = usePlayerStatus();

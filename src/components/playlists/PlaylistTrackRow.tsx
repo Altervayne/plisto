@@ -25,18 +25,16 @@ import styles from "./PlaylistTrackRow.module.css";
 /**
  * One slot row in the full-pane playlist: a grip handle, the position number, the title over its mono
  * filename, and a hover-revealed remove. The handle carries the drag listeners so the main column stays
- * an independent open target. Clicking the main column opens the track peek. `peeked` marks the row whose
- * peek is open.
+ * an independent open target. Clicking the main column opens the track peek. `peeked` marks the peeked
+ * row.
  *
- * The title reads live off the library track (`title_edit ?? raw_title`), so an edit made in the peek
- * reflects at once, while the slot still owns identity and position. A track with no title shows a faint
- * streak rather than echoing the filename already on the line beneath. The remove keys on the slot id, so
- * a repeated track drops one copy at a time.
+ * The title reads live off the library track (`title_edit ?? raw_title`), so a peek edit reflects at
+ * once, while the slot still owns identity and position. A track with no title shows a faint streak. The
+ * remove keys on the slot id, so a repeated track drops one copy at a time.
  *
- * The number cell doubles as the play affordance: at rest the position shows; on row hover it swaps to an
- * accent play triangle by opacity alone, playing the track through the list's queue. A slot whose source
- * is gone shows the triangle greyed and inert, with the reason on hover.
- * `buildMenu` arms the right-click menu, the keyboard route the hover triangle cannot be; absent, no menu.
+ * The number cell doubles as the play affordance: at rest the position shows, on hover it swaps to an
+ * accent play triangle, playing the track through the list's queue; a gone source greys it inert, with
+ * the reason on hover. `buildMenu` arms the right-click menu; absent, no menu.
  */
 export function PlaylistTrackRow({
   slot,

@@ -49,12 +49,11 @@ function fold(value: string): string {
 }
 
 /**
- * The bulk tag editor, a dimmed modal over a track selection. Each set-field has an enable toggle and
- * an input: an enabled field writes across every track, and an enabled-but-empty field clears it,
- * while a field left off is untouched. The genre section gathers names to add and names to remove,
- * each a chip list over a vocabulary-suggesting adder that also takes a free-typed name. Apply sends
- * the whole patch, holds the result summary until dismissed, and refreshes the grid through the
- * parent. It portals to the body and closes on Escape, a backdrop press, or the close button.
+ * The bulk tag editor, a dimmed modal over a track selection. Each set-field has an enable toggle and an
+ * input: an enabled field writes across every track, an enabled-but-empty field clears it, a field left
+ * off is untouched. The genre section gathers names to add and to remove, each a chip list over a
+ * suggesting adder. Apply sends the whole patch, holds the result until dismissed, and refreshes the grid
+ * through the parent. Portals to the body and closes on Escape, a backdrop press, or the close button.
  */
 export function BulkEditPanel({
   trackIds,

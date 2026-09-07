@@ -1,10 +1,9 @@
 /*
  * The "added to queue" nudge, kept off the store so a menu append never touches the ticking player
  * slice. A module-level emitter holds the running count and one dismiss timer; the pill subscribes
- * through useSyncExternalStore. Menu hammering coalesces: each append while the pill still shows adds
- * to the tally and restarts the window, so a burst reads as one pill with the cumulative count rather
- * than a stack. The count survives the exit fade (the pill holds its last value) and resets only when a
- * fresh append opens a new pill.
+ * through useSyncExternalStore. Repeated appends while the pill shows add to the tally and restart the
+ * window, so a burst reads as one pill with the cumulative count. The count survives the exit fade and
+ * resets only when a fresh append opens a new pill.
  */
 
 // -- Framework Imports --

@@ -99,16 +99,13 @@ function fileStem(path: string): string {
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
- * ground, parted by space. The sidebar owns the mode switch; a library mode shows that wall plus the
- * slim undo/redo controls and the floating action bar, while Export and Settings own the whole region
- * and drop both (they are library chrome). A scan that found no audio is its own terminal state, not an empty
- * shell. The organize projection and the preferences cache hydrate on mount, and Create from anywhere
- * lands on Albums with the new drawer open.
+ * ground. The sidebar owns the mode switch; a library mode shows that wall plus the undo/redo controls
+ * and the action bar, while Export and Settings own the whole region. A scan that found no audio is its
+ * own terminal state. The organize projection and preferences hydrate on mount.
  *
  * Standalone mode is the same shell opened on a file the OS handed Plisto: it opens on the Player, owns
- * the library boot itself (the gate never mounts on this path), plays the handed files once, and starts
- * with the sidebar collapsed so the player fills the window. "Open library" slides the sidebar in without
- * remounting - a stocked library stays on the player to navigate from, an empty one lands on onboarding.
+ * the library boot itself, plays the handed files once, and starts with the sidebar collapsed. "Open
+ * library" slides the sidebar in without remounting.
  */
 export function AppShell({
   standalone = false,
@@ -245,10 +242,9 @@ export function AppShell({
   }, []);
 
   // The organize and playlist projections hydrate once the library is up. On the normal path the gate has
-  // already booted before this shell mounts, so they load on bare mount. Standalone mounts ahead of its
-  // own background boot and OWNS it here (the gate never mounts), so those two reads wait for boot to
-  // resolve - a bare-mount read would hit an empty DB and leave Albums and Playlists blank even after the
-  // tracks hydrate. Preferences carry theme and locale, so they load at once on both paths.
+  // booted before this shell mounts, so they load on bare mount. Standalone owns its own boot here, so
+  // those two reads wait for it - a bare-mount read would hit an empty DB and leave Albums and Playlists
+  // blank. Preferences carry theme and locale, so they load at once on both paths.
   useEffect(() => {
     if (!standalone) {
       void loadOrganization();
@@ -268,11 +264,9 @@ export function AppShell({
     };
   }, [standalone, boot, loadOrganization, loadPlaylists, loadPreferences]);
 
-  // The launch's files play from the backend intake buffer now, not here, so a multi-select that fans out
-  // into sibling launches lands in one queue rather than the last file replacing the rest. This only pulls
-  // the take-once launch error: an all-unreadable batch latches it, so the refusal body shows even when
-  // the batch's file notice fired before this shell subscribed. A batch that plays clears the region to
-  // the player as its first track holds.
+  // Pull only the take-once launch error: an all-unreadable batch latches it, so the refusal body shows
+  // even when the batch's file notice fired before this shell subscribed. The files themselves play from
+  // the backend intake buffer, not here. A batch that plays clears the region to the player.
   useEffect(() => {
     if (!standalone) return;
     void getStartupError()
@@ -282,10 +276,9 @@ export function AppShell({
       .catch(() => {});
   }, [standalone]);
 
-  // A file dropped onto the player, off the desktop: append it to a playing queue, or start fresh when
-  // nothing holds. The playing check reads the store directly so the drop handler stays stable and never
-  // re-binds the window listener on a track change. The ad-hoc up-next rows name themselves through the
-  // queue echo, so no snapshot is passed here.
+  // A file dropped onto the player, off the desktop: append to a playing queue, or start fresh. The
+  // playing check reads the store directly so the drop handler stays stable and never re-binds the
+  // listener on a track change.
   const onFilesDropped = useCallback((paths: string[]) => {
     if (usePlayerStore.getState().status.track_id != null) {
       void playerEnqueueFiles(paths).catch(() => {});
@@ -337,10 +330,9 @@ export function AppShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
-  // A scanned library with no audio is onboarding to add a folder. On the normal path this is the whole
-  // shell's terminal state, unchanged. Standalone never takes this early return - it must keep the player
-  // painting (a fresh install, or the window before boot hydrates a stocked one), so it shows the same
-  // onboarding per-mode instead, only for a library mode and never over the player.
+  // A scanned library with no audio is onboarding to add a folder. On the normal path this is the shell's
+  // terminal state. Standalone never takes this early return - it keeps the player painting and shows the
+  // same onboarding per-mode instead, only for a library mode and never over the player.
   const emptyLibrary = (
     <EmptyState
       tone="warn"
@@ -452,9 +444,8 @@ export function AppShell({
               {mode === "albums" ? (
                 <>
                   {/* The grid holds the flow and fades under the full pane; the pane overlays it and
-                      crossfades in, so neither large view reflows the other. `inert` while it is under
-                      keeps keyboard focus out of the hidden cards, which opacity + pointer-events alone
-                      would still leave in the tab order. */}
+                      crossfades in. `inert` while it is under keeps keyboard focus out of the hidden
+                      cards, which opacity + pointer-events alone would leave in the tab order. */}
                   <div
                     className={styles.gridLayer}
                     data-under={openAlbum != null ? "" : undefined}
@@ -533,11 +524,10 @@ export function AppShell({
           </>
         )}
 
-        {/* The Track Editor's workbench. It stays mounted while a session holds, so navigating off the
-            destination and back keeps the in-progress edit whole rather than re-analyzing. Off the
-            destination it is hidden, not torn down; `active` follows that visibility so the library
-            pauses on entry and restores on leave. Keyed on the session so opening a different file is a
-            fresh mount, resetting the analysis and phase. */}
+        {/* The Track Editor's workbench. It stays mounted while a session holds, so navigating off and
+            back keeps the in-progress edit whole. Off the destination it is hidden, not torn down;
+            `active` follows that visibility so the library pauses on entry and restores on leave. Keyed
+            on the session so a different file is a fresh mount. */}
         {openTool != null ? (
           <div
             key={`${openTool.verb}:${openTool.trackId}`}

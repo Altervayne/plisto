@@ -20,12 +20,10 @@ const VISIBLE_MS = 4000;
 const EXIT_MS = 120;
 
 /**
- * The playback-notice nudge: the same foot-of-the-window pill as the queue toast, on the same
- * material, so a failure reads as one quiet line rather than an alarm. It shows when the player store
- * holds a notice - a file that would not play, a lost output, or a device fallback - mapping the kind
- * to its localized line, then clears the notice back to null as it dismisses. Every kind wears the one
- * neutral pill. Mount it once beside the queue toast. The message survives the exit fade through a
- * ref, so it stays put while the store empties.
+ * The playback-notice nudge: the same foot-of-the-window pill as the queue toast, so a failure reads as
+ * one quiet line. It shows when the player store holds a notice - a file that would not play, a lost
+ * output, or a device fallback - mapping the kind to its localized line, then clears the notice as it
+ * dismisses. Mount once beside the queue toast. The message survives the exit fade through a ref.
  */
 export function PlayerErrorToast() {
   const error = usePlayerError();

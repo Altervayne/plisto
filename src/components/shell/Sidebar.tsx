@@ -26,15 +26,12 @@ type Mode =
   | "settings";
 
 /**
- * The sidebar: three labeled sections - Files (All Tracks, Unsorted, Covers), Library (Albums, Singles,
- * Playlists), and Utilities (Track Editor, Export) - over the mini-player and Settings pinned to the bottom past the
- * spacer, app-level and apart from the content nav. Transparent ground - it flows into the main region
- * with no divider between them. Brand and library identity live in the window title bar; folder actions
- * live inside Settings.
+ * The sidebar: three labeled sections - Files, Library, Utilities - over the mini-player and Settings
+ * pinned to the bottom past the spacer. Transparent ground, so it flows into the main region with no
+ * divider. Brand and library identity live in the title bar; folder actions live in Settings.
  *
- * `collapsed` clips and fades the whole rail as the shell closes its column (the standalone player before
- * "Open library"). `bare` drops the three nav sections when the revealed sidebar has no library to list,
- * leaving only the foot so the opened file plays on through the mini above Settings.
+ * `collapsed` clips and fades the whole rail as the shell closes its column. `bare` drops the nav
+ * sections when the revealed sidebar has no library to list, leaving only the foot.
  */
 export function Sidebar({
   mode,

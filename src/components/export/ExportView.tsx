@@ -54,11 +54,9 @@ type Phase = "idle" | "running" | "done";
 
 /**
  * The export screen. Idle is a titled region: the readiness summary upfront, a destination control, the
- * layout template picker, and the one solid Export CTA footed and dead until a valid destination holds
- * exportable tracks. Running and done stay a centered column - determinate progress, then the report.
- * The single solid accent moves with the state: the idle CTA, the progress fill, then nothing (the good
- * dot carries done). A destination inside the workspace is refused; a non-empty one takes a two-step
- * confirm before writing.
+ * layout template picker, and the solid Export CTA, dead until a valid destination holds exportable
+ * tracks. Running and done stay a centered column - determinate progress, then the report. A destination
+ * inside the workspace is refused; a non-empty one takes a two-step confirm before writing.
  */
 export function ExportView() {
   const albums = useAlbums();

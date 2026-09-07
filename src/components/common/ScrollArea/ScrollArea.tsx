@@ -14,8 +14,8 @@ import styles from "./ScrollArea.module.css";
  * track and thumb overlay the right edge, reflecting scrollTop and steering it on drag. The thumb is
  * the only interactive part, so the transparent track never intercepts clicks meant for the content.
  *
- * Vertical only for now: a horizontal bar is a clean addition along the same seam. The viewport
- * element is handed back through viewportRef so a virtualizer can scroll this exact surface.
+ * Vertical only: a horizontal bar is a clean addition along the same seam. The viewport element is
+ * handed back through viewportRef so a virtualizer can scroll this exact surface.
  */
 export function ScrollArea({
   children,

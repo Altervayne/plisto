@@ -1,15 +1,11 @@
 /*
- * MTP / device export target resolution (Windows only) — 1.6.0.
- *
- * A phone is not a filesystem, so the folder picker's path-returning dialog resolves null for a device
- * folder (indistinguishable from a cancel — the original bug). The shell folder dialog opened with
- * FOS_ALLNONSTORAGEITEMS returns a usable IShellItem for an MTP folder instead. Its durable reference
- * is the PIDL (ITEMIDLIST) hex-encoded here: proven on hardware (Pixel 10 Pro) to round-trip via
- * SHCreateItemFromIDList, where the SIGDN parsing-name string fails with E_INVALIDARG.
- *
- * This is P1: pick + validate only. The staged transfer (IFileOperation) is P2. Everything here runs on
- * the STA main thread — the caller hops there via run_on_main_thread (Trap A). Non-Windows gets stubs so
- * the command surface stays uniform.
+ * MTP / device export target resolution (Windows only). A phone is not a filesystem, so the folder
+ * picker's path-returning dialog resolves null for a device folder, indistinguishable from a cancel.
+ * The shell folder dialog opened with FOS_ALLNONSTORAGEITEMS returns a usable IShellItem for an MTP
+ * folder instead. Its durable reference is the PIDL (ITEMIDLIST) hex-encoded here, which round-trips
+ * via SHCreateItemFromIDList where the SIGDN parsing-name string fails with E_INVALIDARG. Both the pick
+ * and the staged transfer (IFileOperation) run on the STA main thread; the caller hops there via
+ * run_on_main_thread. Non-Windows gets stubs so the command surface stays uniform.
  */
 
 use std::path::Path;
@@ -20,8 +16,8 @@ use crate::dto::{DeviceTarget, ExportProgress};
 
 /// The result of a staged device transfer. `cancelled` is the authoritative cancel terminal - a
 /// `PerformOperations` that returned `E_ABORT` because the sink aborted on the cancel flag, NOT
-/// `GetAnyOperationsAborted` (proven unreliable on hardware; it tracks the shell's suppressed cancel
-/// UI). The user-facing tally rides on the staging `ExportSummary`, so nothing else is carried here.
+/// `GetAnyOperationsAborted`, which is unreliable: it tracks the shell's suppressed cancel UI. The
+/// user-facing tally rides on the staging `ExportSummary`, so nothing else is carried here.
 #[derive(Debug, Clone, Copy)]
 pub struct TransferOutcome {
     pub cancelled: bool,
@@ -164,8 +160,7 @@ mod win {
         }
     }
 
-    /// Copies the PIDL bytes into a 2-byte-aligned buffer, so reading them as an ITEMIDLIST is sound
-    /// (the spike's raw `Vec<u8>` only worked because the allocator over-aligned).
+    /// Copies the PIDL bytes into a 2-byte-aligned buffer, so reading them as an ITEMIDLIST is sound.
     fn aligned_pidl(bytes: &[u8]) -> Vec<u16> {
         let mut buf = vec![0u16; bytes.len().div_ceil(2)];
         unsafe {
@@ -198,7 +193,7 @@ mod win {
         parts
     }
 
-    /// The device node: the third breadcrumb level (Desktop > This PC > **Device** > …), falling back to
+    /// The device node: the third breadcrumb level (Desktop > This PC > Device > ...), falling back to
     /// the last node when the chain is shorter (a non-device pick through the same dialog).
     fn device_name(chain: &[String]) -> String {
         chain
@@ -208,7 +203,7 @@ mod win {
             .unwrap_or_default()
     }
 
-    /// The human display path with the shell roots trimmed: "Pixel 10 Pro > Internal shared storage > …".
+    /// The human display path with the shell roots trimmed: "Pixel 10 Pro > Internal shared storage > ...".
     fn display_chain(chain: &[String]) -> String {
         let start = if chain.len() > 2 { 2 } else { 0 };
         chain[start..].join(" > ")
@@ -232,11 +227,11 @@ mod win {
             .collect()
     }
 
-    // ---- staged transfer (P2) ----
+    // ---- Staged transfer ----
 
-    /// A COM apartment scoped to its owning thread (Trap B). Construction enters an STA; drop leaves
-    /// it. `CoInitializeEx` may return `S_FALSE` (already initialized on this thread) - harmless, so
-    /// its result is ignored like the spike's, since a fresh dedicated thread always gets `S_OK`.
+    /// A COM apartment scoped to its owning thread. Construction enters an STA; drop leaves it.
+    /// `CoInitializeEx` may return `S_FALSE` (already initialized on this thread) - harmless, so its
+    /// result is ignored, since a fresh dedicated thread always gets `S_OK`.
     pub struct ComApartment;
 
     impl ComApartment {
@@ -262,15 +257,14 @@ mod win {
     struct TransferShared {
         cancel: Arc<AtomicBool>,
         // iWorkTotal / iWorkSoFar from UpdateProgress: byte-ish units, so sidecars inflating the file
-        // count never breaks the exported <= total invariant (Hole 2). Zero until the first update.
+        // count never breaks the exported <= total invariant. Zero until the first update.
         total: AtomicU32,
         sofar: AtomicU32,
     }
 
-    /// Ports the spike's proven transfer. Runs the COM copy on the calling (STA) thread while a
-    /// scoped sibling thread streams byte-driven `Transferring` ticks, so the bar moves during the
-    /// slow phase without the sink having to carry the emit closure. The caller owns the
-    /// `ComApartment`.
+    /// Runs the COM copy on the calling (STA) thread while a scoped sibling thread streams byte-driven
+    /// `Transferring` ticks, so the bar moves during the slow phase without the sink having to carry
+    /// the emit closure. The caller owns the `ComApartment`.
     pub fn transfer(
         staging_root: &Path,
         pidl_hex: &str,
@@ -324,7 +318,7 @@ mod win {
     }
 
     /// The COM half of the transfer: rebuild the device item, enqueue one `CopyItem` per top-level
-    /// child of the staging root (Hole 1 - never the temp-named root itself), run the operation, and
+    /// child of the staging root (never the temp-named root itself), run the operation, and
     /// map its terminal. A sink-initiated `E_ABORT` is the authoritative cancel; any other error is a
     /// transfer failure. `SHCreateItemFromParsingName` over the staged children is sound because they
     /// are real filesystem paths, unlike the device item which only rebuilds from its PIDL.
@@ -354,9 +348,8 @@ mod win {
             .Advise(&sink)
             .map_err(|_| "could not attach transfer progress".to_string())?;
 
-        // HOLE 1 FIX: one CopyItem per TOP-LEVEL child of the staging root, never the root itself -
-        // else the phone nests the whole export under a temp-named folder. Folder creation on the
-        // device is automatic (proven on hardware).
+        // One CopyItem per top-level child of the staging root, never the root itself, else the phone
+        // nests the whole export under a temp-named folder. Folder creation on the device is automatic.
         let entries = std::fs::read_dir(staging_root)
             .map_err(|_| "could not read the staged export".to_string())?;
         for entry in entries {
@@ -378,9 +371,8 @@ mod win {
         let _ = op.Unadvise(cookie);
 
         // The authoritative cancel terminal is PerformOperations' HRESULT == E_ABORT (the sink
-        // returned it from PreCopyItem on the cancel flag). GetAnyOperationsAborted is NOT used - it
-        // read false on a genuinely aborted hardware run, since FOF_SILENT suppresses the cancel UI
-        // it actually tracks.
+        // returned it from PreCopyItem on the cancel flag). GetAnyOperationsAborted is NOT used: it
+        // reads false on a genuine abort, since FOF_SILENT suppresses the cancel UI it actually tracks.
         match performed {
             Ok(()) => Ok(TransferOutcome { cancelled: false }),
             Err(e) if e.code() == E_ABORT => Ok(TransferOutcome { cancelled: true }),
@@ -448,7 +440,7 @@ mod win {
             _n: &PCWSTR,
         ) -> Result<()> {
             // The cancel hook: a set flag aborts the operation after the current item, leaving a
-            // partial copy on the device (no rollback - matches the design's honesty requirement).
+            // partial copy on the device with no rollback.
             if self.shared.cancel.load(Ordering::Relaxed) {
                 return Err(E_ABORT.into());
             }
@@ -493,8 +485,8 @@ mod win {
             Ok(())
         }
         fn UpdateProgress(&self, total: u32, sofar: u32) -> Result<()> {
-            // Byte-ish work units drive the determinate transfer bar (Hole 2): sofar <= total always,
-            // so the emit loop never overshoots the way a sidecar-inflated file count would.
+            // Byte-ish work units drive the determinate transfer bar: sofar <= total always, so the
+            // emit loop never overshoots the way a sidecar-inflated file count would.
             self.shared.total.store(total, Ordering::Relaxed);
             self.shared.sofar.store(sofar, Ordering::Relaxed);
             Ok(())

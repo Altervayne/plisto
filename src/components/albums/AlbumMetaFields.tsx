@@ -30,9 +30,9 @@ import styles from "./AlbumMetaFields.module.css";
 /**
  * The album's editable metadata under the cover: artist, year, and the genre aggregate. Artist and year
  * commit the full field set with their one column replaced, so a null clears a column and the DB never
- * stores an empty string; the vestigial `genre` column rides along untouched. Genre is now per-track,
- * shown and bulk-edited through the pills. Year maps between its numeric column and the text field.
- * A trailing control opens the force-apply panel, which stamps chosen fields onto every member track.
+ * stores an empty string; the vestigial `genre` column rides along untouched. Genre is per-track, shown
+ * and bulk-edited through the pills. A trailing control opens the force-apply panel, which stamps chosen
+ * fields onto every member track.
  */
 export function AlbumMetaFields({ album }: { album: AlbumRow }) {
   const commit = useCommitAlbumFields();

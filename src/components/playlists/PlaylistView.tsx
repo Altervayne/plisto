@@ -31,11 +31,10 @@ import styles from "./PlaylistView.module.css";
  * slot list, with a resizable track peek on the right - mirroring the album full-pane view, but flat
  * and slot-keyed.
  *
- * The peek needs a real library `TrackRow` (its edit layer and raw fields), not the playlist slot, so it
- * resolves the open slot's `track_id` against the store. No `albumFallback`: a playlist is not an album
- * container, so album/artist/year fall back to raw, the Files behavior. `openSlotId` keys on the slot,
- * not the track, so a repeated track opens its own row; a sentinel keeps the hook order stable when
- * nothing is open.
+ * The peek needs a real library `TrackRow`, not the playlist slot, so it resolves the open slot's
+ * `track_id` against the store. No `albumFallback`: a playlist is not an album container. `openSlotId`
+ * keys on the slot, not the track, so a repeated track opens its own row; a sentinel keeps the hook order
+ * stable when nothing is open.
  */
 export function PlaylistView({
   playlistId,

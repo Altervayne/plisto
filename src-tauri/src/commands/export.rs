@@ -39,9 +39,9 @@ impl Drop for StagingGuard {
 
 /// Formats a UTC calendar stamp `YYYY-MM-DD HH-MM-SS` from a Unix-seconds value, using dashes where a
 /// clock would use colons so the result is a safe folder component with no further escaping. Pure and
-/// deterministic (the clock is the injected `secs`), so the timestamped export subfolder is testable
-/// without a real clock. The civil-date arithmetic is Howard Hinnant's days-to-date algorithm.
-/// `pub(crate)` so the playlist folder device-export path stamps its snapshot subfolder identically.
+/// deterministic (the clock is the injected `secs`). The civil-date arithmetic is Howard Hinnant's
+/// days-to-date algorithm. `pub(crate)` so the playlist folder device-export path stamps its snapshot
+/// subfolder identically.
 pub(crate) fn civil_stamp(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let tod = secs % 86_400;
@@ -64,8 +64,8 @@ pub(crate) fn civil_stamp(secs: u64) -> String {
 
 /// Opens the device-capable shell folder picker and returns the picked MTP target (or None on cancel).
 /// The shell dialog is an STA object that must run on the main UI thread, so this hops there via
-/// `run_on_main_thread` (Trap A) and waits on a channel for the result. Windows-only; other platforms
-/// return an error from the resolver. This is the 1.6.0 device-export picker; the transfer is P2.
+/// `run_on_main_thread` and waits on a channel for the result. Windows-only; other platforms return an
+/// error from the resolver.
 #[tauri::command]
 pub fn pick_device_folder(app: AppHandle) -> Result<Option<DeviceTarget>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -80,8 +80,8 @@ pub fn pick_device_folder(app: AppHandle) -> Result<Option<DeviceTarget>, String
 /// Validates a picked device target before a run: re-resolves its PIDL to prove the device is still
 /// connected. A device is never inside the workspace and needs no probe-write (MTP storages are
 /// writable; a truly blocked target surfaces as a transfer error), so `writable`/`ok` track reachability
-/// and `non_empty` stays false (we do not enumerate the device — scope guard). Runs the COM re-resolve on
-/// the STA main thread, matching the picker. Windows-only in effect; elsewhere the resolver reports false.
+/// and `non_empty` stays false, since the device is never enumerated. Runs the COM re-resolve on the STA
+/// main thread, matching the picker. Windows-only in effect; elsewhere the resolver reports false.
 #[tauri::command]
 pub fn check_device(app: AppHandle, pidl: String) -> Result<DestinationCheck, String> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -178,7 +178,7 @@ pub async fn export_library(
         let staging_root =
             cache_root.join(format!("plisto-export-{}-{}", std::process::id(), nanos));
 
-        // D1: a fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
+        // A fresh timestamped subfolder, so each transfer is a self-contained dated snapshot with
         // nothing to overwrite on the device. Sanitized to a safe component (drops the colons a clock
         // carries). The phone receives `<device folder>/Plisto <stamp>/<Albums|Singles|...>`.
         let secs = std::time::SystemTime::now()
@@ -201,7 +201,7 @@ pub async fn export_library(
         let worker_app = app.clone();
         let device_pidl = device.pidl;
 
-        // Trap B: the whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
+        // The whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
         // apartment state can never leak onto a reused Tokio pool thread on an early return (the
         // device-unplugged path). The async command parks a blocking-pool thread on the join below,
         // staying free to service cancel_export.
@@ -239,8 +239,8 @@ pub async fn export_library(
                 };
 
                 // Staging: run_export verbatim into the timestamped subfolder (COM-free). Its own
-                // terminal Done is rewritten to Copying/false - staging completion must never read as
-                // the whole export's done, since the transfer is still to come (Holes 2 & 3, §4).
+                // terminal Done is rewritten to Copying/false, since staging completion must never read
+                // as the whole export's done while the transfer is still to come.
                 let summary = export::run_export(
                     &plan,
                     &stage_dir,

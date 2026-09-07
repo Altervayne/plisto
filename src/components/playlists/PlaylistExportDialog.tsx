@@ -78,14 +78,13 @@ const TYPES: { id: ExportType; label: (d: Dict) => string; desc: (d: Dict) => st
 
 /**
  * The playlist export dialog, a dimmed modal over one playlist. Four selectable type cards each carry a
- * one-line description; an inline warn shows only when the chosen type would drop data the playlist
- * actually holds (a description, a cover). The album folder shape pre-picks a typed destination up front -
- * a real folder or a connected device, mirroring the library export - and runs it on the Export click; the
- * plain .m3u, rich .m3u8 and mimic shapes still pick their destination on the click itself. The plain and
- * rich exports resolve at once into a written/skipped summary, while both folder shapes stream progress
- * with a cancel before a fuller report, a device naming its two staging/transfer phases. It portals to the
- * body and dismisses on Escape, a backdrop press, or the close button - never mid-run, so a copy is not
- * abandoned by a stray key.
+ * one-line description; an inline warn shows only when the chosen type would drop data the playlist holds
+ * (a description, a cover). The album folder shape pre-picks a typed destination up front - a real folder
+ * or a connected device - and runs it on the Export click; the plain .m3u, rich .m3u8 and mimic shapes
+ * pick their destination on the click itself. The plain and rich exports resolve at once into a
+ * written/skipped summary; both folder shapes stream progress with a cancel, a device naming its
+ * staging/transfer phases. Portals to the body and dismisses on Escape, a backdrop press, or the close
+ * button - never mid-run.
  */
 export function PlaylistExportDialog({
   playlist,

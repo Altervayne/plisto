@@ -1,12 +1,10 @@
 /*
  * The organize command engine: a pure, framework-free inverse-command stack over the album/membership
  * projection. Every undoable edit is a Command that captures its target, its next value, and enough of
- * the previous state to build a clean inverse. applyCommand is the pure reducer, invertCommand builds
- * the exact reverse, and commandToIpc is the thin write sink an undo reuses (the inverse is itself a
- * Command). The membership moves (assign/unassign) carry the full before/after rows so a single inverse
- * Command restores a moved track exactly - a move renumbers the album (track_no is a per-disc position
- * that shifts), so the prior row must travel with the command, not be recomputed. A track's own tag
- * edits live in track_edits keyed by track_id and survive a move untouched.
+ * the previous state to build a clean inverse. applyCommand is the pure reducer, invertCommand builds the
+ * exact reverse, and commandToIpc is the write sink an undo reuses. The membership moves carry the full
+ * before/after rows so a single inverse restores a moved track exactly - a move renumbers the album, so
+ * the prior row must travel with the command, not be recomputed.
  */
 
 // -- IPC Imports --

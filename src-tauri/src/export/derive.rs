@@ -50,8 +50,8 @@ const RESERVED: &[&str] = &[
 const MAX_COMPONENT: usize = 255;
 const MAX_PATH_BUDGET: usize = 255;
 
-// The album layout applied when a caller sends no template (a pre-template caller): the artist/album
-// folder tree and the `<track_no> - <title>` filename that shipped before templating.
+// The album layout applied when a caller sends no template: the artist/album folder tree and the
+// `<track_no> - <title>` filename.
 const DEFAULT_FOLDER_PATTERN: &str = "{albumartist}/{album}";
 const DEFAULT_FILE_PATTERN: &str = "{track_no} - {title}";
 
@@ -80,9 +80,9 @@ pub struct AlbumTemplate {
 }
 
 impl AlbumTemplate {
-    /// Resolves a caller's patterns. An all-empty config is a pre-template caller and falls back to
-    /// the shipped default layout; a blank file pattern alone falls back to the default filename; an
-    /// empty folder pattern beside a real file pattern stays the deliberate flat layout.
+    /// Resolves a caller's patterns. An all-empty config falls back to the shipped default layout; a
+    /// blank file pattern alone falls back to the default filename; an empty folder pattern beside a
+    /// real file pattern stays the deliberate flat layout.
     pub fn resolve(folder: &str, file: &str) -> Self {
         if folder.is_empty() && file.is_empty() {
             return Self {
@@ -616,7 +616,7 @@ mod tests {
         layout.rel_dir.to_string_lossy().replace('/', "\\")
     }
 
-    // The pre-template default layout, used by the regression tests that predate templating.
+    // The default layout applied when no template is given.
     fn default_tpl() -> AlbumTemplate {
         AlbumTemplate::resolve("", "")
     }
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn default_patterns_reproduce_the_shipped_album_layout() {
-        // The explicit default patterns must land exactly what the pre-template layout did.
+        // The explicit default patterns must land exactly what the shipped default layout does.
         let tpl = AlbumTemplate::resolve("{albumartist}/{album}", "{track_no} - {title}");
         let c = album(
             1,
@@ -966,7 +966,7 @@ mod tests {
 
     #[test]
     fn empty_config_falls_back_to_the_default_layout() {
-        // A pre-template caller sends both patterns empty and still gets the shipped album layout.
+        // A caller with no template sends both patterns empty and still gets the shipped album layout.
         let tpl = AlbumTemplate::resolve("", "");
         let c = album(
             1,

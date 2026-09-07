@@ -76,9 +76,8 @@ function tokensIn(pattern: string): Set<string> {
  * The filename-to-metadata extractor, a dimmed modal over a track selection. The pattern field debounces
  * into a live read-only preview: each row shows a filename and the fields it parsed, or a quiet no-match.
  * A field's write toggle is on by default only while its token sits in the pattern, and can be unchecked;
- * a token-less field is disabled. Apply writes just the checked, parsed fields onto the tracks, then holds
- * the result summary until dismissed. It portals to the body and closes on Escape, a backdrop press, or
- * the close button.
+ * a token-less field is disabled. Apply writes just the checked, parsed fields, then holds the result
+ * until dismissed. Portals to the body and closes on Escape, a backdrop press, or the close button.
  */
 export function ExtractPanel({
   tracks,

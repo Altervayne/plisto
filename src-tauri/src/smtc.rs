@@ -1,19 +1,11 @@
 /*
- * The Windows System Media Transport Controls bridge (Windows only) - 2.1.0. It ties the resident
- * player to the OS now-playing surface both ways: the hardware media keys and the volume-flyout
- * transport route Play/Pause/Next/Prev/Stop back into the engine, and every real playback transition
- * pushes the current title, artist and cover art out to the lock-screen and flyout card.
- *
- * The controls bind to the main window's HWND, obtained the same way tray::round_corners gets it. The
- * main window only ever hides, never closes, so that HWND and its message loop live for the process
- * and the binding holds while audio plays behind the tray. Button events arrive on that message loop;
- * their handler does only a non-blocking send on the single player Sender, borrowed through managed
- * state and never cloned. Pushing state out runs on a dedicated `plisto-smtc` thread that owns the
- * WinRT handles: a `player:status` listener forwards the (track id, playing) pair to it, and the
- * thread diffs against the last seen pair so the ~5x-a-second position ticks never touch the OS - only
- * a real transition does. The cover decode for a track with embedded/adjacent art runs on that thread,
- * never the player thread and never rodio. Everything is best-effort: a failed WinRT call logs and the
- * app plays on without the OS card. Non-Windows gets no-op stubs so the setup hook stays uniform.
+ * The Windows System Media Transport Controls bridge. It ties the resident player to the OS
+ * now-playing surface both ways: the media keys route transport back into the engine, and every real
+ * playback transition pushes title, artist and cover out to the lock-screen and flyout card. The
+ * controls bind to the main window's HWND, which only hides and never closes, so the binding holds
+ * while audio plays behind the tray. A dedicated `plisto-smtc` thread owns the WinRT handles and diffs
+ * each transition against the last, so the frequent position ticks never touch the OS. All
+ * best-effort: a failed WinRT call logs and the app plays on. Non-Windows gets no-op stubs.
  */
 
 /// Initializes the OS media controls and starts the coordinator. Called at the tail of setup, once
@@ -250,11 +242,9 @@ mod win {
         }
     }
 
-    /// Pushes the card's metadata for `track_id`: its title, artist and cover art. Reads the display
-    /// fields and resolves the cover to an on-disk file under the DB lock, then writes them to the
-    /// updater. A track with no art clears the thumbnail via the reset, so a previous cover never
-    /// lingers. This is the single point a track id turns into what the OS shows - a later ad-hoc /
-    /// sentinel source resolves its own title/artist/cover here without touching the coordinator.
+    /// Pushes the card's metadata for `track_id`: its title, artist and cover art. Resolves the
+    /// display fields and cover under the DB lock, then writes them to the updater. A track with no
+    /// art clears the thumbnail via the reset, so a previous cover never lingers.
     fn push_metadata(
         app: &AppHandle,
         updater: &SystemMediaTransportControlsDisplayUpdater,
@@ -285,12 +275,11 @@ mod win {
         updater.Update()
     }
 
-    /// Resolves the card's title, artist and cover file for the current track. The title/artist read
-    /// takes a short lock; the cover resolve locks and unlocks on its own, dropping the index lock
-    /// before any embedded/adjacent decode, so the decode never holds it. The decode runs here on
-    /// the coordinator thread, never the player thread. A missing display row or absent index leaves
-    /// empty strings and no cover. An ad-hoc track (a negative id) resolves from the stash instead of
-    /// the DB - a cheap map read, its cover already cached to disk when the file opened.
+    /// Resolves the card's title, artist and cover file for the current track. The cover resolve drops
+    /// the index lock before any embedded/adjacent decode, so the decode never holds it, and runs here
+    /// on the coordinator thread, never the player thread. A missing display row leaves empty strings
+    /// and no cover. An ad-hoc track (a negative id) resolves from the stash instead of the DB, its
+    /// cover already cached to disk when the file opened.
     fn resolve_display(app: &AppHandle, track_id: i64) -> (String, String, Option<String>) {
         let Some(state) = app.try_state::<AppState>() else {
             return (String::new(), String::new(), None);

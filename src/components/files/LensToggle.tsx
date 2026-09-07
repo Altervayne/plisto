@@ -11,9 +11,8 @@ export type Lens = "folders" | "all-files";
 const SEGMENTS: Lens[] = ["folders", "all-files"];
 
 /**
- * A segmented Folders/All-files control: a soft recess holding two chips, the active one raised. The
- * accent is deliberately absent - the raised chip alone marks the choice, leaving the sidebar's Files
- * nav as the one accent for this view.
+ * A segmented Folders/All-files control: a soft recess holding two chips, the active one raised. No
+ * accent - the raised chip alone marks the choice, leaving the sidebar's Files nav as the view's accent.
  */
 export function LensToggle({
   value,

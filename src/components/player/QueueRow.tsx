@@ -18,15 +18,13 @@ import type { QueueRowState } from "./queueRowState";
 import styles from "./QueueRow.module.css";
 
 /**
- * One queue row: a reserved grip lane, the number cell, the title over its artist, and the duration.
- * The number cell carries three faces stacked - the position, the equalizer on the now-playing row, and
- * the accent play triangle that surfaces on hover - swapped by opacity so the column never reflows. The
- * triangle is the one sanctioned transient accent; the now-playing fill stays a neutral veil.
+ * One queue row: a reserved grip lane, the number cell, the title over its artist, and the duration. The
+ * number cell stacks three faces - the position, the equalizer on the now-playing row, and the accent
+ * play triangle on hover - swapped by opacity so the column never reflows. The triangle is the one
+ * sanctioned transient accent.
  *
- * An up-next row reveals a grip in the lane and a remove that swaps over the duration on hover; both stop
- * the click from reaching the jump, and neither shows on the played or now-playing rows. The whole
- * central column jumps the engine to this row. An empty title falls back to a localized placeholder
- * rather than a blank line.
+ * An up-next row reveals a grip and a remove on hover, both stopping the click from reaching the jump;
+ * neither shows on the played or now-playing rows. The central column jumps the engine to this row.
  */
 export function QueueRow({
   id,

@@ -50,10 +50,9 @@ function inScope(group: ImageFolderGroup, scope: CoverScope): boolean {
 /**
  * The covers workspace: a full-region triage of every folder holding loose images, wired to the streamed
  * discovery sweep. It runs the sweep on entry and cancels it on leave; a manual refresh re-reads. The
- * Needs cover / All toggle scopes the wall, which lands needs-first so the backlog sits up top. A folder
- * covered here fades out of the Needs view at once. While a scan holds the same folders the sweep is
- * refused, surfaced as a quiet paused state. Covers binds art that already sits in the library; it never
- * moves, renames, or deletes a file.
+ * Needs cover / All toggle scopes the wall, which lands needs-first. A folder covered here fades out of
+ * the Needs view at once. While a scan holds the same folders the sweep is refused, surfaced as a quiet
+ * paused state. Covers binds art already in the library; it never moves, renames, or deletes a file.
  */
 export function CoversView() {
   const groups = useCoverGroups();

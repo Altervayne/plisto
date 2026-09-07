@@ -36,10 +36,9 @@ type CleanRow = { id: number; before: string; after: string };
 /**
  * The title cleaner, a dimmed modal over a track selection. It sanitizes each selected title, then lists
  * only the ones sanitizing would change - each a before-to-after diff with a checkbox, all on by default
- * - and a quiet count of the titles already clean. Apply writes the checked cleaned titles through the
- * ipc, holds the result summary until dismissed, and refreshes the grid through the parent. When nothing
- * would change it shows an empty-state line and no Apply. It portals to the body and closes on Escape, a
- * backdrop press, or the close button.
+ * - and a quiet count of the titles already clean. Apply writes the checked cleaned titles, holds the
+ * result until dismissed, and refreshes the grid through the parent. When nothing would change it shows
+ * an empty-state line and no Apply. Portals to the body and closes on Escape, a backdrop, or Close.
  */
 export function CleanTitlesPanel({
   tracks,

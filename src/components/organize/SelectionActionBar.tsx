@@ -48,14 +48,12 @@ import styles from "./SelectionActionBar.module.css";
 const EXIT_MS = 120;
 
 /**
- * The floating action bar over a track selection. It shows only while tracks are selected: a quiet
- * count summary at the left, and at the right the one solid-accent Create album beside the quiet
- * Make-single, Add-to-album and Clear. Create seeds the album from the selection's shared raw tags,
- * then clears the selection and hands the new album id up so the shell can open it; on failure it keeps
- * the selection and says so. Make single fans the selection out one-to-one - N tracks become N standalone
- * singles - then hands the new ids up. Add-to-album opens a picker of existing albums. All three reach
- * the backend through the store, which the native side confirms - here the selection, the count, and the
- * suggested fields are what render.
+ * The floating action bar over a track selection, shown only while tracks are selected: a quiet count at
+ * the left, and at the right the solid-accent Create album beside the quiet Make-single, Add-to-album and
+ * Clear. Create seeds the album from the selection's shared raw tags, then clears the selection and hands
+ * the new album id up; on failure it keeps the selection and says so. Make single fans the selection out
+ * one-to-one - N tracks become N singles - then hands the new ids up. Add-to-album opens a picker. All
+ * three reach the backend through the store.
  */
 export function SelectionActionBar({
   onCreated,

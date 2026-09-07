@@ -1,13 +1,11 @@
 /*
  * The player store: the live PlayerStatus snapshot plus the transport actions that poke the native
- * engine. The engine owns playback truth - each action fires and forgets, and the throttled
- * `player:status` event drives `status` back into the store, so the UI never optimistically guesses
- * the engine's state.
+ * engine. The engine owns playback truth; actions fire and forget, and the `player:status` event
+ * drives `status` back, so the UI never guesses.
  *
- * Perf boundary: the position ticks about five times a second, so only the player subtree may read
- * `status`. The grid and album cards read `actions` alone, which is one object built once and never
- * replaced - selecting it never re-renders on a status tick, so a memoized wall of cards stays still
- * while the playhead moves. Keep it that way: a card must never subscribe to `status`.
+ * Perf boundary: `status` ticks several times a second, so only the player subtree may read it. The
+ * grid and cards read the stable `actions` object alone, which never changes, so they never re-render
+ * on a tick. A card must never subscribe to `status`.
  */
 
 // -- Framework Imports --
@@ -98,36 +96,28 @@ function arrayMove<T>(list: T[], from: number, to: number): T[] {
 
 interface PlayerStore {
   status: PlayerStatus;
-  // The engine's ordered queue ids in the active play order, shuffle reflected. Its own slice, read
-  // through `usePlayerQueue`, so the status-tick subtree never pulls it; it changes only on a play or a
-  // shuffle toggle.
+  // The engine's queue ids in play order, shuffle reflected. Its own slice so the status-tick subtree
+  // never pulls it; changes only on a play or shuffle toggle.
   queue: number[];
   // The display snapshot for the queue's tracks, captured at play-time so the up-next view renders after
   // the launching view is gone. Keyed by track id.
   queueMeta: Record<number, QueueTrackMeta>;
   // Where the current queue was launched from, for the "playing from" line. Null before the first play.
   playingFrom: PlaybackSource | null;
-  // The last player notice kind, or null: a file that would not play, a lost output, or a device
-  // fallback. Read by the error toast, which maps it to a localized line and clears it back to null as
-  // it dismisses. Every kind rides the one typed `player:error` channel.
+  // The last player notice, or null. The error toast maps it to a localized line, then clears it.
   error: PlayerNotice | null;
   setStatus: (status: PlayerStatus) => void;
   setQueue: (queue: number[]) => void;
   setError: (error: PlayerNotice | null) => void;
-  // One stable object, built once in the initializer, so a card selecting it never re-renders on a
-  // status tick. See the perf boundary above.
+  // One stable object, so a card selecting it never re-renders on a status tick. See the perf boundary above.
   actions: PlayerActions;
 }
 
 /**
- * Fills the display snapshot for the queue's ad-hoc rows, the ids the play-time library snapshot cannot
- * cover. snapshotQueueMeta resolves each id from the cache loaded at play-time, but an ad-hoc file (a
- * negative id, a stashed track read on the fly) is never in that cache, so its up-next row would render
- * blank. Every missing negative id is resolved over IPC - get_track_display is sentinel-aware and returns
- * the stash's title and artist, the same the hero shows. Duration is unknown for a stashed file, so it
- * stays null, which QueueRow tolerates. Central here so it covers both the cold standalone play and a warm
- * single-instance open, since both land through setQueue. The resolves batch into one merge, and a late
- * reply is dropped once the queue has moved past its id or the row was filled meanwhile.
+ * Fills the display snapshot for the queue's ad-hoc rows - negative ids the play-time library snapshot
+ * cannot cover. Resolves each missing negative id over IPC (get_track_display is sentinel-aware and
+ * returns the stash's title and artist); duration stays null for a stashed file. A late reply is dropped
+ * once the queue has moved past its id or the row was filled meanwhile.
  */
 function fillAdHocQueueMeta(
   get: StoreApi<PlayerStore>["getState"],
@@ -173,9 +163,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
   setError: (error) => set({ error }),
   actions: {
-    // Fire and forget: the engine's event updates `status`, so nothing here mutates it optimistically.
-    // Play alone records the frontend-only bits the engine cannot know - the source it came from and a
-    // metadata snapshot of the queued rows, resolved from the library cache loaded at play-time.
+    // Play records the frontend-only bits the engine cannot know: the source and a metadata snapshot of
+    // the queued rows, resolved from the library cache.
     play: (trackIds, index, source) => {
       set({
         playingFrom: source,
@@ -190,9 +179,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     next: () => void playerNext().catch(() => {}),
     prev: () => void playerPrev().catch(() => {}),
     jump: (index) => void playerJump(index).catch(() => {}),
-    // Merge the appended rows' metadata so up-next never renders "Unknown track", then either start a
-    // fresh play (nothing loaded) or append. A cold start routes through play for the right queue and
-    // "playing from" source; the enqueue echo folds back through the `player:queue` listener.
+    // Merge the appended rows' metadata so up-next has it, then start a fresh play when nothing is loaded
+    // or append otherwise.
     addToQueue: (trackIds, source) => {
       const meta = snapshotQueueMeta(trackIds, useAppStore.getState().tracks);
       set((s) => ({ queueMeta: { ...s.queueMeta, ...meta } }));
@@ -233,9 +221,8 @@ export const useCurrentOutputDevice = (): string | null =>
   usePlayerStore((s) => s.status.output_device);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
 
-// The last playback error, and its setter, for the toast surface: it shows the message, then clears it
-// back to null as it dismisses. The setter is the store's own stable reference, so reading it never
-// re-renders on a status tick.
+// The last playback error and its setter, for the toast. The setter is a stable reference, so reading it
+// never re-renders on a status tick.
 export const usePlayerError = (): PlayerNotice | null => usePlayerStore((s) => s.error);
 export const useSetPlayerError = (): ((error: PlayerNotice | null) => void) =>
   usePlayerStore((s) => s.setError);
@@ -245,33 +232,27 @@ export const useSetPlayerError = (): ((error: PlayerNotice | null) => void) =>
 export const usePlayerQueue = (): number[] => usePlayerStore((s) => s.queue);
 export const usePlayerQueueMeta = (): Record<number, QueueTrackMeta> =>
   usePlayerStore((s) => s.queueMeta);
-// The play cursor, read as a bare primitive so the up-next list re-renders on a track change, never on a
-// position tick - the queue subtree stays off the tick that only moves the playhead.
+// The play cursor, read as a bare primitive so the up-next list re-renders on a track change, not on a
+// position tick.
 export const usePlayerQueueIndex = (): number => usePlayerStore((s) => s.status.queue_index);
 export const usePlayingFrom = (): PlaybackSource | null =>
   usePlayerStore((s) => s.playingFrom);
 
 /**
- * Whether the scattered play affordances show. Persisted, default on: an absent pref reads on, so the
- * player is live until the user quiets it. This is a soft switch - it only hides the play chrome, it
- * never touches the engine, so music left running stays audible and controllable from the mini.
+ * Whether the play affordances show. Persisted, default on (an absent pref reads on). A soft switch: it
+ * only hides the play chrome, never touches the engine, so a running track stays audible from the mini.
  */
 export const usePlayerEnabled = (): boolean => usePreference(PREF_KEYS.playerEnabled) !== "0";
 
-/**
- * Flips the player-enabled pref. Best-effort persist like every other pref. No playback side effect:
- * quieting the controls must never stop or pause a track that is already playing.
- */
+/** Flips the player-enabled pref. No playback side effect: quieting the controls never stops a track. */
 export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
   const setPreference = useSetPreference();
   return (on) => setPreference(PREF_KEYS.playerEnabled, on ? "1" : "0");
 };
 
 /**
- * Wires the store to the engine for the app's life: seeds the snapshot once (the engine may already
- * be mid-play), then follows the throttled `player:status`, the `player:queue`, and the typed
- * `player:error` events. Mount it once high in the tree; the listeners tear down on unmount.
- * Mirrors the tray's event wiring.
+ * Wires the store to the engine for the app's life: seeds the snapshot once, then follows the
+ * `player:status`, `player:queue`, and `player:error` events. Mount once high in the tree.
  */
 export function usePlayerSync(): void {
   const setStatus = usePlayerStore((s) => s.setStatus);
@@ -282,10 +263,8 @@ export function usePlayerSync(): void {
     let alive = true;
     const unlisteners: Array<() => void> = [];
 
-    // Pull the current snapshot and queue. Runs on mount and again each time this webview becomes
-    // visible: a satellite window (tray popup, pop-out widget) is created hidden and can miss the events
-    // that fired while it was hidden, so it re-seeds the moment it is shown rather than trusting it
-    // caught every event. The main window is always visible, so this only ever fires its mount seed.
+    // Pull the current snapshot and queue, on mount and on each return to visible: a satellite window is
+    // created hidden and can miss events fired while hidden, so it re-seeds when shown.
     const seed = () => {
       void getPlayerStatus()
         .then((s) => {

@@ -12,8 +12,7 @@ const SEGMENTS: CoverScope[] = ["needs", "all"];
 
 /**
  * The Needs cover / All segmented control: a soft recess holding two chips, the active one raised. No
- * accent - the raised chip alone marks the choice, leaving the sidebar's Covers nav as the view's one
- * accent, the same way the files lens toggle reads.
+ * accent - the raised chip alone marks the choice, leaving the sidebar's Covers nav as the view's accent.
  */
 export function CoverFilter({
   value,

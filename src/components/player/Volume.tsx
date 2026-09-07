@@ -23,13 +23,11 @@ function clamp01(v: number): number {
 }
 
 /**
- * The speaker with a reveal-on-hover vertical level rail in a recessed chip that floats above it, so the
- * control stays a single quiet glyph until reached for. The rail borrows the seek bar's track and handle
- * vocabulary, but its fill is neutral ink, never accent - the seek fill is the one lit rail, and a second
- * accent here would read as a competing mark. The speaker glyph tracks the level so the state reads even
- * while the chip is folded away. Wired straight to the engine: dragging sets the level live, and the
- * pointer maps inverted, so up is louder. A caller can shorten the rail where the default travel would
- * clip its window; unset, the stylesheet's own height stands.
+ * The speaker with a reveal-on-hover vertical level rail in a recessed chip floating above it, so the
+ * control stays one quiet glyph until reached for. The rail borrows the seek bar's track/handle
+ * vocabulary but its fill is neutral ink, never accent. The speaker glyph tracks the level so the state
+ * reads while the chip is folded. Wired straight to the engine: dragging sets the level live, the pointer
+ * mapped inverted so up is louder. `railHeight` shortens the rail where the default travel would clip.
  */
 export function Volume({ volume, railHeight }: { volume: number; railHeight?: number }) {
   const actions = usePlayerActions();

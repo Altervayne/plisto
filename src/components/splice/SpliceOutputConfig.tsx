@@ -18,12 +18,10 @@ import styles from "./SpliceOutputConfig.module.css";
 
 /**
  * The output config pinned under the cut list: where the files land, what happens on a name clash, and
- * the one solid Split CTA. The destination is folder-only - the cutter writes real files, never to a
- * device - and runs the same validation the export destination does, refusing one inside the library or
- * one it cannot write. By default the CTA is dead until there are at least two segments and a valid
- * destination; a non-empty folder arms a two-step confirm before it writes, mirroring the export flow.
- * The cropper reuses this footer with a one-segment gate: `canRun` overrides the segment gate, and
- * `runLabel`/`disabledHint` retitle the CTA and its guidance for a single output.
+ * the solid Split CTA. The destination is folder-only and runs the same validation the export does,
+ * refusing one inside the library or one it cannot write. The CTA is dead until there are two segments
+ * and a valid destination; a non-empty folder arms a two-step confirm. The cropper reuses this footer
+ * with a one-segment gate: `canRun` overrides the segment gate, and `runLabel`/`disabledHint` retitle it.
  */
 export function SpliceOutputConfig({
   destination,

@@ -48,8 +48,8 @@ function ancestorTail(folderPath: string): string {
  * right. The recessed cover-state is the demand signal - a hollow tile means the folder resolves to no
  * cover; the strip is the supply. Clicking an image opens the chooser to bind it as the folder cover,
  * the album cover (only when the folder resolves to one album), or a picked subset of tracks. A folder
- * with no loose images still shows, with the sanctioned disk-import fallback. Binding folder-wide flips
- * the group's needs-cover state at once and rings the bound tile.
+ * with no loose images still shows, with the disk-import fallback. Binding folder-wide flips the group's
+ * needs-cover state at once and rings the bound tile.
  *
  * Memoized on the group, which only changes for the folder whose state flips, so a bind never re-renders
  * the rest of the wall.

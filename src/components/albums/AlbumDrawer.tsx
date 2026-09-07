@@ -43,12 +43,11 @@ function editingField(): boolean {
  * The album edit drawer: the cover slot, the title hero, the metadata fields, and the track list, held
  * on the continuous ground by the edge veil like the read-only track peek. Fields auto-commit on blur
  * through the command engine. Escape closes the drawer, unless a field is focused - then it reverts the
- * field and the drawer stays open. A single reuses the same shell with its multi-track region traded for
- * one read-only source row, and its delete relabelled to "Remove single". An album drawer also offers
- * Open, which hands the album up to the full-pane view; a single has no such view.
+ * field. A single reuses the shell with its multi-track region traded for one read-only source row, and
+ * its delete relabelled to "Remove single". An album drawer also offers Open to the full-pane view.
  *
- * The wrapper snaps the panel to width; the drawer itself transform-fades over that cleared space,
- * keyed off the mount state the shell stamps here.
+ * The wrapper snaps the panel to width; the drawer transform-fades over that space, keyed off the mount
+ * state the shell stamps here.
  */
 export function AlbumDrawer({
   album,

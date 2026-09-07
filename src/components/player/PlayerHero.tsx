@@ -23,9 +23,8 @@ import styles from "./PlayerHero.module.css";
 /**
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
  * transport with the volume rail trailing it. Mounts only with a real track id, so its id-typed hooks
- * never run empty. The seek fill is the one lit accent of the whole view; every other control reads by
- * weight and material. The cover's ambient glow now lives at the view level behind both columns, so this
- * column carries no wash of its own. Sequencing (repeat and shuffle) now lives in the queue's own control.
+ * never run empty. The seek fill is the one lit accent of the view; every other control reads by weight
+ * and material.
  */
 export function PlayerHero({
   trackId,

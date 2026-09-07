@@ -50,10 +50,9 @@ type Phase = "idle" | "running" | "done";
  * The selection export modal, a dimmed portal over a set of picked albums or singles. It runs exactly the
  * ids handed in - no Include controls, no scope handoff to the Export screen. Idle pairs the destination
  * control with the same guards the library export uses: a folder inside the workspace is refused, a
- * non-empty one takes a two-step confirm. The same layout template picker the Export screen carries sits
- * here too, editing the shared global patterns. Running streams progress with a cancel; done shows the
- * report over an Open. It
- * dismisses on Escape, a backdrop press, or the close button - never mid-run, so a copy is not abandoned.
+ * non-empty one takes a two-step confirm. The same layout template picker sits here too, editing the
+ * shared global patterns. Running streams progress with a cancel; done shows the report over an Open. It
+ * dismisses on Escape, a backdrop press, or the close button - never mid-run.
  */
 export function AlbumExportDialog({
   albumIds,

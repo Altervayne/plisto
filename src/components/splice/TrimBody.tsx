@@ -83,12 +83,11 @@ function numberPref(value: string | undefined, fallback: number): number {
 }
 
 /**
- * The cropper's surface across its three phases. Editing is the waveform lane with its two trim
- * handles over the transport and zoom, beside the panel that holds the threshold and padding knobs, the
- * head/tail readout, the destination, and the one solid Trim CTA. Running is a centered determinate
- * stage; done is a centered report with follow-on actions. The body owns the trim: two points derived
- * from the file's silence, widened by the padding, cut as a single segment that keeps the source name.
- * A hand-moved handle or a changed knob not yet run arms the workbench's close-guard.
+ * The cropper's surface across its three phases. Editing is the waveform lane with its two trim handles
+ * over the transport and zoom, beside the panel holding the threshold and padding knobs, the head/tail
+ * readout, the destination, and the Trim CTA. Running is a centered determinate stage; done is a report.
+ * The body owns the trim: two points derived from the file's silence, widened by the padding, cut as one
+ * segment that keeps the source name.
  */
 export function TrimBody({
   analysis,
@@ -166,11 +165,9 @@ export function TrimBody({
   );
 
   // Reconcile a remembered threshold with the opening trim: the analysis ran at the default, so only a
-  // differing remembered threshold needs a detect on open. Runs once; later changes go through the knob.
+  // differing remembered threshold needs a detect on open. Idempotent through redetect's generation
+  // guard, so no ref gate to leak under StrictMode; the knob handler owns every later re-detect.
   useEffect(() => {
-    // The threshold reflects the analysis on open, so only a differing remembered one needs a detect.
-    // Mount-only, and idempotent through redetect's generation guard - no ref gate to leak under
-    // StrictMode's double mount, and the knob handler owns every later re-detect.
     if (thresholdDb !== ANALYSIS_THRESHOLD_DB) void redetect(thresholdDb);
   }, []);
 

@@ -62,15 +62,11 @@ pub fn player_play_tracks(
     Ok(())
 }
 
-/// Plays one or more files straight off disk, with no library rows behind them. Reads each file's
-/// title and artist through the scan's own tag reader and caches its cover, both off the player
-/// thread, then stashes each under its own fresh negative id so prev/next traverses the ad-hoc queue
-/// and every entry names itself without the index. Replaces the stash and the queue on each open. An
-/// unreadable file is skipped, not queued; when every file is unreadable nothing plays and a
-/// `player:error` File notice fires so the toast can report it - the same typed channel the engine's
-/// device notices ride, the payload kind telling a file failure from an output one.
-/// The files are only read. Shared by the single-file and multi-file commands and the debounced intake
-/// buffer that plays an OS-launch burst as one queue.
+/// Plays one or more files straight off disk, with no library rows behind them. Reads each file's tags
+/// and caches its cover off the player thread, then stashes each under its own fresh negative id so
+/// prev/next traverses the ad-hoc queue. Replaces the stash and queue on each open. An unreadable file
+/// is skipped; when every file is unreadable nothing plays and a `player:error` File notice fires.
+/// Shared by the single- and multi-file commands and the debounced intake buffer.
 pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
     let (entries, queue) = stage_ad_hoc(app, paths).await?;
     // Each open rebuilds the queue, so the stash is replaced too: one entry per readable file, keyed
@@ -89,11 +85,9 @@ pub async fn play_files(app: &AppHandle, paths: Vec<String>) -> Result<(), Strin
 }
 
 /// Appends one or more files straight off disk to the end of the queue, no library rows behind them: a
-/// drop onto the player while a track already holds. The append half of `play_files` - it stashes each
-/// file under its own fresh negative id and extends the stash rather than replacing it, so the live
-/// source plays on and every appended entry still names itself. Sends `Enqueue`, not `Play`. The up-next
-/// rows resolve their titles through the frontend's `fillAdHocQueueMeta` on the `player:queue` echo.
-/// Errors when every file is unreadable, like `play_files`, so the caller can surface it.
+/// drop onto the player while a track already holds. The append half of `play_files`: it extends the
+/// stash rather than replacing it, so the live source plays on, and sends `Enqueue`, not `Play`. Errors
+/// when every file is unreadable, so the caller can surface it.
 pub async fn enqueue_files(app: &AppHandle, paths: Vec<String>) -> Result<(), String> {
     let (entries, queue) = stage_ad_hoc(app, paths).await?;
     let state = app.state::<AppState>();
@@ -137,9 +131,8 @@ async fn stage_ad_hoc(
     Ok(build_ad_hoc_queue(readable))
 }
 
-/// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio. The
-/// blocking body of `play_files`, split out so the skip-unreadable filter is testable without a live
-/// app. Keeps the caller's order among the survivors.
+/// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio, and
+/// keeping the caller's order among the survivors.
 fn read_ad_hoc_tracks(
     covers_dir: &Path,
     guard: &InFlightGuard,
@@ -157,7 +150,7 @@ fn read_ad_hoc_tracks(
 
 /// Allocates a fresh negative id for each readable file and pairs the stash entries with the queue
 /// tracks, both keyed by the same ids so every queue entry resolves through the sentinel fan-out to
-/// its own stash entry. Pure over its input, so the id-per-entry stashing is testable.
+/// its own stash entry.
 fn build_ad_hoc_queue(
     readable: Vec<(String, AdHocTrack)>,
 ) -> (HashMap<i64, AdHocTrack>, Vec<QueueTrack>) {
@@ -248,8 +241,7 @@ fn read_ad_hoc_track(
 
 /// Builds an ad-hoc track's display fields from a file's raw tags and path, through the same
 /// normalize boundary the scan runs: the cleaned tag title, else the filename stem so the track is
-/// never nameless, and the cleaned tag artist, left None when the file carries none. Pure over its
-/// inputs - no disk - so the title/artist precedence is testable without a real file.
+/// never nameless, and the cleaned tag artist, left None when the file carries none.
 fn ad_hoc_display(source_path: &str, raw: &RawTags) -> (String, Option<String>) {
     let record = crate::normalize::normalize_track(source_path, 0, 0, 0, raw);
     let title = record

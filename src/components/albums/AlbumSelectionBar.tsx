@@ -15,10 +15,9 @@ import styles from "./AlbumSelectionBar.module.css";
 
 /**
  * The scoped action bar over an album-track selection, shown at the head of the list only while tracks
- * are selected. It carries the count, a select-all, a move-to-disc menu, an add-to-playlist, a
- * set-cover, the two keep-own-cover toggles, a remove, and a clear. The move menu lists the album's existing discs plus
- * one entry for the next new disc; choosing a disc lays the selection there. Every action reports up -
- * the parent owns the selection, the layout, and the playlist picker.
+ * are selected. It carries the count, a select-all, a move-to-disc menu, an add-to-playlist, a set-cover,
+ * the two keep-own-cover toggles, a remove, and a clear. The move menu lists the album's discs plus one
+ * entry for the next new disc. Every action reports up - the parent owns the selection and layout.
  */
 export function AlbumSelectionBar({
   count,

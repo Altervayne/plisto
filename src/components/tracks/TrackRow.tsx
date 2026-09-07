@@ -48,19 +48,15 @@ function cellClass(col: TrackColumn, empty: boolean): string {
 }
 
 /**
- * One virtualized track row, positioned by the caller. Dumb: it renders cells straight from the
- * column model and reports a click. The row body opens the read-only peek; the leading checkbox is a
- * separate target that toggles selection and never opens it. The checkbox dissolves until the row is
- * hovered or a selection is active, so it is a quiet affordance rather than a permanent column. Hover
- * and the active peek show as a soft veil; a selected row carries a steadier veil.
+ * One virtualized track row, positioned by the caller. Dumb: it renders cells from the column model and
+ * reports a click. The row body opens the read-only peek; the leading checkbox is a separate target that
+ * toggles selection. The checkbox dissolves until the row is hovered or a selection is active. Hover and
+ * the active peek show as a soft veil; a selected row carries a steadier one.
  *
- * `buildMenu` arms the right-click menu: when passed, the row captures the context event and opens the
- * shared menu at the pointer with the entries it returns for this track. Absent, the row has no menu.
- *
- * `onPlay` arms the number cell as a hover play affordance: the raw number swaps to an accent triangle
- * on row hover, playing the track through the caller's queue. A row whose source is gone shows the
- * triangle greyed and inert, with the reason on hover; the menu carries the keyboard route. Without
- * `onPlay` the number stays a plain cell.
+ * `buildMenu` arms the right-click menu, opening the shared menu at the pointer with the entries it
+ * returns. `onPlay` arms the number cell as a hover play affordance: the number swaps to an accent
+ * triangle on hover, playing the track through the caller's queue; a gone source greys it inert, with the
+ * reason on hover. Without either the row keeps its plain form.
  */
 export function TrackRow({
   track,

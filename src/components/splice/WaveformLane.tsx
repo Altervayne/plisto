@@ -126,27 +126,22 @@ interface CropLayer {
 }
 
 /**
- * The waveform lane: one canvas painting only the peaks, with the silence bands, the playhead, the
- * cut markers, and the segment highlight as DOM overlays above it. Canvas cannot read theme tokens,
- * so the peak ink is read from `--ink-3` via getComputedStyle at paint and repainted whenever the
- * theme flips or the system scheme changes. The peaks downsample to one min/max column per device
- * pixel, so paint cost follows the lane width, not the bucket count.
+ * The waveform lane: one canvas painting only the peaks, with the silence bands, playhead, cut markers,
+ * and segment highlight as DOM overlays above it. Canvas cannot read theme tokens, so the peak ink is
+ * read from `--ink-3` via getComputedStyle at paint and repainted whenever the theme flips or the system
+ * scheme changes. The peaks downsample to one min/max column per device pixel, so paint cost follows the
+ * lane width, not the bucket count.
  *
  * Zoom is a continuous pixels-per-second scale the lane owns: fit maps the whole file to the viewport,
- * and finer values widen the virtual lane, which the shared scroll container carries with every overlay
- * so they stay aligned. Shift+wheel zooms toward the cursor; the imperative handle zooms toward the
- * playhead for the body's control and the keyboard. Every zoom pins its anchor time in place, so the
- * view never teleports, and fit tracks a pane resize. Past fit, an overview strip stands in for the
- * native scrollbar: a second canvas of the whole file, a draggable lens over the visible window, and
- * hairline landmarks for the cuts or the trim edges.
+ * finer values widen the virtual lane, which the shared scroll container carries with every overlay so
+ * they stay aligned. Shift+wheel zooms toward the cursor; the imperative handle zooms toward the
+ * playhead. Every zoom pins its anchor time in place, and fit tracks a pane resize. Past fit, an overview
+ * strip stands in for the scrollbar: a whole-file canvas with a draggable lens and hairline landmarks.
  *
- * The `tool` gates the empty-lane gestures: Move seeks the playhead on a click and scrubs on a drag;
- * Splice drops a cut on a click and stays inert on a drag - the cut tool never moves the playhead, so
- * scrubbing is the Move tool's job alone. A marker handle click selects it (a hover reveals a delete
- * chip, a selected marker offers play-from), and a handle drag moves it - the same in both tools. The captured tool and target are frozen at the
- * press, so a mid-drag tool switch never flips an in-flight gesture. The `crop` layer is the cropper's
- * parallel: two draggable trim handles with the trimmed-away ends dimmed, never a marker in sight; it
- * passes no tool, reading as Move.
+ * The `tool` gates the empty-lane gestures: Move seeks on a click and scrubs on a drag; Splice drops a
+ * cut on a click and stays inert on a drag. A marker handle click selects it, a drag moves it. The
+ * captured tool and target are frozen at the press, so a mid-drag tool switch never flips an in-flight
+ * gesture. The `crop` layer is the cropper's parallel: two draggable trim handles, no tool, reading as Move.
  */
 interface WaveformLaneProps {
   peaks: Peak[];

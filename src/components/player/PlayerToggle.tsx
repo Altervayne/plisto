@@ -13,10 +13,8 @@ import styles from "./PlayerToggle.module.css";
 /**
  * The switch at the foot of the rail that shows or hides the scattered play affordances - the row
  * triangles, the cover disc, the menu Play entries. It never touches the engine: hiding the controls
- * leaves any playing track running, still reachable from the mini above. It reads as a full-width nav
- * row alongside Settings; the glyph swaps outright between states and the label names the action, so
- * on and off read apart at a glance. Inky, never accent, so it does not compete with the one lit
- * accent a view already holds.
+ * leaves a playing track running, still reachable from the mini. Reads as a full-width nav row alongside
+ * Settings; the glyph swaps between states and the label names the action.
  */
 export function PlayerToggle() {
   const enabled = usePlayerEnabled();

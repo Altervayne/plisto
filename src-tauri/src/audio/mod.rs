@@ -5,9 +5,8 @@
  * functions over interleaved f32 PCM, so they test on synthetic buffers with no decoder and no device.
  */
 
-// The realtime player engine and the splicer commands are the callers of this core; neither is wired
-// into the crate yet, so its public surface and convenience re-exports have no in-crate use. Allow it
-// across the module rather than mark each item, and drop this once a consumer lands.
+// Not every item of this core's public surface and convenience re-exports is used in-crate. Allow it
+// across the module rather than mark each item.
 #![allow(dead_code, unused_imports)]
 
 // -- Library Imports --

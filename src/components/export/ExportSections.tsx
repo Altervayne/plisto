@@ -18,9 +18,8 @@ type Section = "albums" | "singles" | "playlists";
 
 /**
  * The include control: three switches for the top-level sections, and - only when Playlists is on - a
- * segmented Mimic/Mirror shape choice. Each switch fills cyan when on, the one chromatic affordance
- * here; the shape control stays accent-free, so the Export CTA keeps the sole solid accent. Gating the
- * "at least one on" rule lives in the caller, which disables the CTA when every section is off.
+ * segmented Mimic/Mirror shape choice. Each switch fills cyan when on. The "at least one on" rule lives
+ * in the caller, which disables the CTA when every section is off.
  */
 export function ExportSections({
   albums,

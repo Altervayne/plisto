@@ -1,11 +1,9 @@
 /*
- * The playlists store: the flat playlist projection and every slot across all playlists, kept apart
- * from the organize/undo store so an album edit never touches playlist state. Structural writes
- * (create, rename, delete, add, remove) follow reload-on-write, the shape the genre vocabulary uses:
- * fire the command, then reload from the backend so the counts and positions stay true. Reorder is the
- * one optimistic path - it renumbers the local slots at once so a drag never flickers, and reloads only
- * when the persist fails. The row identity everywhere is the slot `id`, never `track_id`: a playlist may
- * hold the same track more than once, so a repeated track stays independently removable and reorderable.
+ * The playlists store: the flat playlist projection and every slot across all playlists, kept apart from
+ * the organize/undo store so an album edit never touches playlist state. Structural writes follow
+ * reload-on-write: fire the command, then reload so counts and positions stay true. Reorder is the one
+ * optimistic path. The row identity everywhere is the slot `id`, never `track_id`: a playlist may hold
+ * the same track twice, so a repeated track stays independently removable and reorderable.
  */
 
 // -- Library Imports --

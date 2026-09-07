@@ -24,13 +24,12 @@ import styles from "./MiniTransport.module.css";
 
 /**
  * The workbench transport: it auditions the source through the engine's transient preview, never the
- * library's queue-replace play. A preview plays from the playhead to the end of the file and stops at
- * the boundary on its own; the Stop control halts it early through the player stop path.
+ * library's queue-replace play. A preview plays from the playhead to the end of the file and stops on
+ * its own; the Stop control halts it early.
  *
- * A sounding preview is the engine playing with no library track (preview holds `track_id` at null),
- * so its position drives the playhead while it runs. When nothing is auditioning the playhead follows
- * the scrub position the lane reports. `suspendSync` holds that position drive off while the user is
- * scrubbing, so a mid-drag tick never yanks the cursor back.
+ * A sounding preview is the engine playing with no library track, so its position drives the playhead
+ * while it runs; otherwise the playhead follows the lane's scrub position. `suspendSync` holds the
+ * position drive off while the user is scrubbing, so a mid-drag tick never yanks the cursor back.
  */
 export function MiniTransport({
   path,

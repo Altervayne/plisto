@@ -33,9 +33,9 @@ const PROGRESS_INTERVAL_MS: u64 = 100;
 /// Cuts `job.segments` out of the source into `job.destination`, streaming progress over
 /// `on_progress` and returning the report. Rejects while another splice runs. Reads the roots under a
 /// brief lock, then validates the destination (refusing one inside a library folder or not writable)
-/// and refuses any segment whose output path would land on the source file. Only WAV sources cut in
-/// this build; other formats are refused with a clear message. The worker runs on a blocking thread
-/// and is awaited, so splice_cancel stays serviceable.
+/// and refuses any segment whose output path would land on the source file. An unsupported source
+/// format is refused with a clear message. The worker runs on a blocking thread and is awaited, so
+/// splice_cancel stays serviceable.
 #[tauri::command]
 pub async fn splice_run(
     job: SpliceJob,
@@ -86,7 +86,7 @@ pub async fn splice_run(
         return Err("the destination is not writable".to_string());
     }
 
-    // WAV (sample-accurate) and FLAC/MP3 (frame-aligned) all cut; an unknown extension is refused.
+    // A known container cuts; an unknown extension is refused.
     let format = match splice::Format::from_source(&source) {
         Some(f) => f,
         None => {

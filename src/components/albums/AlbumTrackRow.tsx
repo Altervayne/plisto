@@ -38,27 +38,22 @@ function filenameStem(filename: string): string {
 }
 
 /**
- * One track row in the drawer: a grip handle, a selection checkbox in its own reserved lane, an optional
- * quiet disc field, the per-disc number, the clean title over its mono source filename, and the duration.
- * The handle carries the drag listeners so the title's `EditableField` stays independently editable. The
- * clean title edits `title_override ?? raw_title`; committing empty or the raw value itself clears the
- * override back to raw, so the edited marker only shows a real change. The disc field dissolves until
- * touched: typing a disc moves the track there and renumbers, leaving the album's other discs in place.
- * `displayNo` is the row's position on its disc.
+ * One track row in the drawer: a grip handle, a selection checkbox in a reserved lane, an optional quiet
+ * disc field, the per-disc number, the clean title over its mono source filename, and the duration. The
+ * handle carries the drag listeners so the title's `EditableField` stays editable. The clean title edits
+ * `title_override ?? raw_title`; committing empty or the raw value clears the override back to raw. The
+ * disc field dissolves until touched: typing a disc moves the track there and renumbers. `displayNo` is
+ * the row's position on its disc.
  *
- * Each leading lane is always reserved so a reveal never reflows: grip, checkbox, disc, then the number.
- * The checkbox dissolves until the row is hovered or the album has a selection active. The number cell
- * doubles as the play affordance: at rest the number shows; on row hover it swaps to an accent play
- * triangle by opacity alone, anchored at the number's left edge so the digits never shift.
+ * Each leading lane is always reserved so a reveal never reflows. The checkbox dissolves until the row is
+ * hovered or a selection is active. The number cell doubles as the play affordance: at rest the number
+ * shows, on hover it swaps to an accent play triangle by opacity, anchored so the digits never shift.
  *
- * `onOpen` switches the row to browse mode for the full-pane view: the title becomes a display button
- * that opens the track's peek, and a click anywhere on the main column opens it too. The grip, disc,
- * and checkbox sit outside that column, so they never open the peek. Without `onOpen` the row keeps its
- * drawer form, the inline title `EditableField`. `peeked` marks the row whose peek is open.
- *
- * `onPlay` plays this track through the list's queue; a gone source greys the triangle and kills the
- * click, with the reason on hover. `buildMenu` arms the right-click menu: when
- * passed, the row opens the shared menu at the pointer with the entries it returns. Absent, no menu.
+ * `onOpen` switches the row to browse mode: the title becomes a display button opening the track's peek,
+ * and a click on the main column opens it too; the grip, disc, and checkbox sit outside that column.
+ * Without `onOpen` the row keeps its inline title `EditableField`. `peeked` marks the peeked row. `onPlay`
+ * plays this track through the list's queue; a gone source greys the triangle. `buildMenu` arms the
+ * right-click menu.
  */
 export function AlbumTrackRow({
   row,

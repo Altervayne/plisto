@@ -35,7 +35,7 @@ interface Focus {
  * placement math (flipping near an edge so it always opens back into the screen), and dismisses on an
  * outside press, Escape, scroll, or blur. Focus rocks along the enabled entries with the arrows, Home
  * and End, Enter selects, and disabled entries are skipped but still announced. Neutral entries read
- * quiet; destructive ones carry the warn tint. Nothing consumes it yet; pair it with `useContextMenu`:
+ * quiet; destructive ones carry the warn tint. Pair it with `useContextMenu`:
  *
  *   const menu = useContextMenu();
  *   <div onContextMenu={menu.onContextMenu} />

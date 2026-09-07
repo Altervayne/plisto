@@ -1,10 +1,8 @@
 /*
- * The resident player engine. It runs on one dedicated thread that owns the audio output for the
- * app's whole life: the frontend never talks to it directly, only through the command channel, and
- * it reports back through a shared status snapshot plus throttled `player:status` events. The output
- * device (rodio's OutputStream) is !Send + !Sync, which is the whole reason the engine is a thread
- * and not a value in AppState - the device is built here, lives here, and drops here when the
- * channel closes at app exit. This is also the only file in the crate that names rodio.
+ * The resident player engine, on one dedicated thread that owns the audio output. The frontend drives
+ * it only through the command channel and reads back a shared status snapshot plus throttled
+ * `player:status` events. rodio's OutputStream is !Send, which is why the engine is a thread and not a
+ * value in AppState: the device is built, lives, and drops here.
  */
 
 // -- Library Imports --
@@ -33,9 +31,8 @@ const SPECTRUM_WINDOW: usize = 1024;
 /// Spectrum bands emitted per frame. The mini three-bar EQ folds its bars out of these.
 pub const BAND_COUNT: usize = 24;
 
-/// A lock-free tap of the playing audio for the spectrum reader. `next` runs on rodio's mixer thread
-/// while the engine reads the tail on its own thread, so this straddles the two the way the frame
-/// counter does: one writer, read for display only, Relaxed the right ordering - not a sync gate.
+/// A lock-free tap of the playing audio for the spectrum reader. One writer on rodio's mixer thread,
+/// read for display only on the engine thread, so Relaxed is the right ordering, not a sync gate.
 /// Each mono sample rides as its f32 bits in an AtomicU32.
 struct SpectrumTap {
     ring: [AtomicU32; SPECTRUM_RING],
@@ -214,11 +211,10 @@ pub(crate) fn enqueue_tracks(
     first_new
 }
 
-/// Moves the queue item at `from` to `to`, reindexing the rest, and keeps the pristine order in step:
-/// an unshuffled reorder rebaselines the pristine order to the new order so it survives a later
-/// shuffle cycle, while a shuffled reorder leaves it pristine (ephemeral by design). A no-op that
-/// returns false when the queue is empty, `from` is out of range, or `from == to`. Never clamps
-/// `from`: a stale over-range index would move the wrong track, so it is ignored instead.
+/// Moves the queue item at `from` to `to`, keeping the pristine order in step: an unshuffled reorder
+/// rebaselines the pristine order to the new order, a shuffled reorder leaves it pristine. Returns
+/// false without changing anything when the queue is empty, `from` is out of range, or `from == to`.
+/// Never clamps `from`: a stale over-range index would move the wrong track.
 pub(crate) fn move_queue_item(
     queue: &mut Vec<QueueTrack>,
     original_order: &mut Vec<QueueTrack>,
@@ -240,9 +236,8 @@ pub(crate) fn move_queue_item(
 }
 
 /// Removes the queue item at `index` and keeps the pristine order in step: an unshuffled remove
-/// rebaselines the pristine order to the shortened queue, while a shuffled remove drops the first
-/// pristine entry with the removed id (a duplicate id under shuffle is an accepted imperfection).
-/// Returns the removed track's id, or None when `index` is out of range and nothing changed.
+/// rebaselines the pristine order to the shortened queue, a shuffled remove drops the first pristine
+/// entry with the removed id. Returns the removed track's id, or None when `index` is out of range.
 pub(crate) fn remove_queue_item(
     queue: &mut Vec<QueueTrack>,
     original_order: &mut Vec<QueueTrack>,
@@ -298,8 +293,7 @@ pub(crate) fn on_track_end(index: usize, len: usize, repeat: RepeatMode) -> EndA
 // ---- Shuffle ----
 
 /// A tiny seeded xorshift64 PRNG, so shuffle needs no crate. Deterministic from its seed: the same
-/// seed and call sequence yield the same numbers, which is what lets `shuffle_order` be tested
-/// against a fixed seed. The engine owns one instance seeded from the clock at spawn.
+/// seed and call sequence yield the same numbers. The engine owns one instance seeded at spawn.
 pub(crate) struct Xorshift {
     state: u64,
 }
@@ -408,9 +402,9 @@ impl Engine {
             _ => 0.0,
         };
         PlayerStatus {
-            // `playing` here means actively producing sound, so a paused track reports false - the UI
-            // reads it for the play/pause glyph. Whether a track session is loaded is `track_id`, not
-            // this. Internally `self.playing` is the session flag and `self.paused` the pause within it.
+            // `playing` here means actively producing sound, so a paused track reports false. Whether
+            // a track session is loaded is `track_id`. Internally `self.playing` is the session flag,
+            // `self.paused` the pause within it.
             playing: self.playing && !self.paused,
             track_id: self.cur_track_id,
             position_secs,
@@ -481,12 +475,11 @@ impl Engine {
         let _ = self.app.emit("player:spectrum", &vec![0.0f32; BAND_COUNT]);
     }
 
-    /// Loads and starts the track at `start`, skipping FORWARD over any that fail to open (missing
-    /// file, unsupported/Opus) until one plays or the queue exhausts and playback stops. Emits a
-    /// forced status on either outcome, and one `player:error` File notice by outcome: on exhaustion
-    /// when something was asked to play but nothing did, and on success when an opened file (an ad-hoc
-    /// id) was skipped before this one played. A skipped LIBRARY track mid-queue stays silent, the way
-    /// a natural end that lands nowhere does.
+    /// Loads and starts the track at `start`, skipping forward over any that fail to open until one
+    /// plays or the queue exhausts and playback stops. Emits a forced status either way, plus one
+    /// `player:error` File notice: on exhaustion when something was asked to play but nothing did, or
+    /// on success when an opened ad-hoc file was skipped before this one played. A skipped library
+    /// track mid-queue stays silent.
     fn play_at(&mut self, start: usize) {
         // Set when a skipped track was an opened file (an ad-hoc id), so a partial multi-open still
         // reports the dead one once another plays. A skipped library track leaves it false.
@@ -618,10 +611,9 @@ impl Engine {
     }
 
     /// Reopens the current queue track at `secs` and reseats it as the library source, so a preview
-    /// that cleared the sink no longer leaves the library silent. Reuses `start_source`, then sets
-    /// the paused state from `playing`. A no-op with an empty queue; a missing file or a seek failure
-    /// leaves playback untouched. The queue and cursor survive a preview, so the current track is the
-    /// one to restore.
+    /// that cleared the sink no longer leaves the library silent. Reuses `start_source`, then sets the
+    /// paused state from `playing`. A no-op with an empty queue; a missing file or a seek failure
+    /// leaves playback untouched.
     fn restore_library(&mut self, secs: f64, playing: bool) {
         let path = match self.queue.get(self.index) {
             Some(t) => t.path.clone(),
@@ -699,10 +691,8 @@ impl Engine {
     }
 
     /// Rebuilds the output stream onto `pref` (None follows the system default, Some pins a device),
-    /// preserving the current track and play head across the swap. Captures the play position before
-    /// teardown, opens the new device, overwrites the stream and sink (dropping the old ones on this
-    /// thread to silence the old endpoint), then resumes at the captured spot. Any failure to open
-    /// leaves the engine device-less but coherent - it never panics.
+    /// preserving the current track and play head across the swap. Any failure to open leaves the
+    /// engine device-less but coherent, never panicking.
     fn rebind(&mut self, pref: Option<String>) {
         // Capture the play head and session before the old device drops, so the rebuilt sink resumes
         // the same track at the same spot. Same math the snapshot uses.
@@ -961,7 +951,7 @@ impl Engine {
 
     /// The idle tick between commands: detects a track that played out and moves the queue, then
     /// writes a periodic status. An unplugged device mid-play is not handled here - `sink.empty()`
-    /// reads as track-end, and reopening a lost device is a later slice.
+    /// reads as track-end.
     fn tick(&mut self) {
         // Follow the system default only while unpinned, throttled to about once a second. Keyed off
         // the default's NAME changing, not "bound != default", so a fallback to a non-default

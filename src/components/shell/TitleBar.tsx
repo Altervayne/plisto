@@ -34,14 +34,12 @@ function folderName(path: string): string {
 }
 
 /**
- * The custom window chrome that replaces the native title bar: the brand and the active workspace
- * path on the left, a drag region filling the middle, and the minimize / maximize / close controls
- * on the right. Ambient ground, no divider - it parts from the content by space. The window calls
- * are guarded so the bar still renders outside the desktop shell.
+ * The custom window chrome replacing the native title bar: the brand and active workspace path on the
+ * left, a drag region in the middle, and minimize / maximize / close on the right. Ambient ground, no
+ * divider. The window calls are guarded so the bar still renders outside the desktop shell.
  *
  * Player-only mode is the standalone player's bar: no workspace to name, so the label slot carries the
- * "Open library" affordance instead. The window is full size in this mode too, so every control stays -
- * minimize, maximize and close.
+ * "Open library" affordance instead. Every window control stays.
  */
 export function TitleBar({
   playerOnly = false,

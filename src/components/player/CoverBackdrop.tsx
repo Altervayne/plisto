@@ -8,10 +8,9 @@ interface Layer {
 
 /**
  * The blurred-cover ground that crossfades when the track changes. CSS cannot transition a
- * background-image, so each cover is its own stacked layer: a new src mounts on top and fades in over
- * the outgoing one, which is dropped once the fade settles. The first, single layer never fades. The
- * `className` is the surface's own `.bg` style - blur, scale and fallback differ per surface (the mini
- * and the widget) - and that class carries the fade via its own `[data-enter]` rule; this only manages
+ * background-image, so each cover is its own stacked layer: a new src mounts on top and fades in over the
+ * outgoing one, which is dropped once the fade settles. The first, single layer never fades. `className`
+ * is the surface's own `.bg` style, which carries the fade via its `[data-enter]` rule; this only manages
  * the layering.
  */
 export function CoverBackdrop({ src, className }: { src: string | null; className: string }) {

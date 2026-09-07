@@ -11,10 +11,9 @@ import { useT } from "../../i18n";
 import styles from "./StandaloneErrorCard.module.css";
 
 /**
- * The failure body, shown in the player region when the opened file cannot play at all: a muted icon over
- * the localized line and the file's own name, honest that the file was refused rather than the player's
- * calm "nothing playing" idle state. Wears the same panel framing the player carries, so a refused file
- * reads on the same surface. The library escape sits beneath it; the title bar's close is always there too.
+ * The failure body shown in the player region when the opened file cannot play: a muted icon over the
+ * localized line and the file's own name, honest that the file was refused rather than the calm "nothing
+ * playing" idle. Wears the player's panel framing. The library escape sits beneath it.
  */
 export function StandaloneErrorCard({
   stem,

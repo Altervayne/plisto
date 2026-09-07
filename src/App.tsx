@@ -22,10 +22,9 @@ import styles from "./App.module.css";
 
 /**
  * The app root: the window title bar over the content, so the bar shows on every screen. The startup
- * probe picks the content - the shell in standalone player mode when the launch opened a file, else the
- * full library gate. It holds nothing while the probe is in flight, so neither tree flashes before it
- * resolves. "Open library" from the player reveals the sidebar in place, one-way for the session: the same
- * shell stays mounted, so the library never re-boots and the player reflows into the narrower region.
+ * probe picks the content - standalone player mode when the launch opened a file, else the full library
+ * gate. It holds nothing while the probe is in flight, so neither tree flashes. "Open library" from the
+ * player reveals the sidebar in place without re-booting the library.
  */
 function App() {
   const loadPreferences = useLoadPreferences();

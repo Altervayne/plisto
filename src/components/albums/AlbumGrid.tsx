@@ -44,14 +44,12 @@ const EXIT_MS = 120;
 
 /**
  * The album grid: a wall of fixed-width cards that wraps to the content width, on the bespoke scroll
- * surface. One flex row that wraps, so opening the detail drawer beside the grid simply drops a column as
- * the space narrows - the cards never resize, and each keeps its identity across the reflow, so its cover
- * holds rather than reloading. Off-screen covers stay cheap: the Cover atom loads its art lazily, only
- * fetching as a tile nears the viewport, and each card is memoized so an unrelated re-render never touches
- * the whole wall. With no cards yet it shows the quiet on-ramp pointing at Files, where albums and singles
- * are made from a track selection; the singles wall reuses this layout with its own copy. The open drawer
- * is the parent's concern; the multi-select and its floating export bar live here - a modified click
- * (ctrl/cmd toggle, shift range) picks cards, and the bar hands the picked ids to the selection export modal.
+ * surface. One flex row that wraps, so opening the detail drawer beside the grid drops a column as the
+ * space narrows - the cards never resize and each keeps its identity across the reflow, so its cover
+ * holds. Covers load lazily and each card is memoized, so an unrelated re-render never touches the whole
+ * wall. With no cards it shows the quiet on-ramp pointing at Files; the singles wall reuses this layout.
+ * The multi-select and its floating export bar live here - a modified click (ctrl/cmd toggle, shift
+ * range) picks cards, and the bar hands the picked ids to the selection export modal.
  */
 export function AlbumGrid({
   albums,

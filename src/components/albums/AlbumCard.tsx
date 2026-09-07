@@ -35,16 +35,11 @@ function subLine(album: AlbumRow, lead: string): string {
 }
 
 /**
- * One album tile: the cover as the object, an optional warn badge over it when a member file is
- * gone, and the meta block below. The cover lifts to the pop shadow on hover and carries the accent
- * ring when selected, both driven here through the --cover-shadow hook the Cover atom reads across
- * the module boundary. A single click opens the drawer at once; a double-click opens the full-pane
- * view.
- *
- * The first click opens the drawer and reflows the grid, so the second click of a double can land on
- * a different card. The last click is recorded at module scope, not per card, so a double is caught
- * across that shift, and onOpenFull carries the first-clicked id so the intended album still opens.
- * A double flashes the drawer open before the full view takes over, which the eager open trades for.
+ * One album tile: the cover as the object, an optional warn badge when a member file is gone, and the
+ * meta block below. The cover lifts to the pop shadow on hover and carries the accent ring when selected,
+ * through the --cover-shadow hook the Cover atom reads. A single click opens the drawer; a double-click
+ * opens the full-pane view. The first click reflows the grid, so the last click is recorded at module
+ * scope (not per card) to catch a double across the shift, and onOpenFull carries the first-clicked id.
  */
 const DOUBLE_CLICK_MS = 300;
 
@@ -209,10 +204,9 @@ export const AlbumCard = memo(function AlbumCard({
         {missing > 0 ? (
           <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
         ) : null}
-        {/* The play affordance: a disc centered on the cover, fading in on hover so the gesture is
-         * there to find. Its own click target - it plays the album and stops the card's open
-         * underneath. The context-menu Play is the accessible route, so this stays mouse-only. Gone
-         * while the player is off, alongside every other scattered play affordance. */}
+        {/* The play affordance: a disc centered on the cover, fading in on hover. Its own click target -
+         * it plays the album and stops the card's open underneath. The context-menu Play is the
+         * accessible route, so this stays mouse-only. Gone while the player is off. */}
         {playerEnabled ? (
           <span
             className={styles.play}
@@ -225,9 +219,8 @@ export const AlbumCard = memo(function AlbumCard({
             <Play size={20} strokeWidth={2} fill="currentColor" />
           </span>
         ) : null}
-        {/* The select affordance: an empty ring that fades in on hover so the pick gesture is
-         * discoverable without the modifier keys, filling to the accent check once picked. It is its
-         * own click target - a plain click toggles this tile, stopping the card's open underneath. */}
+        {/* The select affordance: an empty ring that fades in on hover, filling to the accent check once
+         * picked. Its own click target - a plain click toggles this tile, stopping the card's open. */}
         <span
           className={styles.pick}
           aria-hidden="true"
