@@ -22,9 +22,10 @@ import { QuietButton } from "../common/QuietButton";
 import { FacetFilter } from "./FacetFilter";
 import { GroupByControl } from "./GroupByControl";
 import { GroupHeader } from "./GroupHeader";
+import { SortControl } from "./SortControl";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
-import { TrackCard } from "./TrackCard";
+import { TrackCardWall } from "./TrackCardWall";
 import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
@@ -199,15 +200,15 @@ export function TrackGrid({
     setCollapsed(new Set());
   }, [groupBy]);
 
+  // The sorted, filtered rows unwrapped from the table model, held once so the card wall and the grouping
+  // pass share one array rather than remapping per render.
+  const originals = useMemo(() => rows.map((r) => r.original), [rows]);
+
   const groups = useMemo(() => {
     // grouping narrows groupBy to a real dimension, so the "none" default never reaches groupRows.
     if (!grouping) return NO_GROUPS;
-    return groupRows(
-      rows.map((r) => r.original),
-      groupBy,
-      genreNameById,
-    );
-  }, [grouping, rows, groupBy, genreNameById]);
+    return groupRows(originals, groupBy, genreNameById);
+  }, [grouping, originals, groupBy, genreNameById]);
   const flat = useMemo(() => flattenGroups(groups, collapsed), [groups, collapsed]);
 
   const toggleCollapse = (key: string) =>
@@ -434,6 +435,8 @@ export function TrackGrid({
               />
             ) : null}
             <GroupByControl groupBy={groupBy} onChange={onGroupByChange} />
+            {/* Cards carry no column headers, so their sort lives here; the list keeps its header sort. */}
+            {cards ? <SortControl sort={sort} onChange={onSortChange} /> : null}
             {grouping ? (
               <button
                 type="button"
@@ -492,24 +495,21 @@ export function TrackGrid({
             }
           />
         ) : cards ? (
-          <div className={styles.cards}>
-            {rows.map((row) => {
-              const track = row.original;
-              return (
-                <TrackCard
-                  key={track.id}
-                  track={track}
-                  active={track.id === selectedId}
-                  checked={selection.has(track.id)}
-                  selecting={selecting}
-                  onOpen={onSelect}
-                  onToggleSelect={handleToggle}
-                  onPlay={onPlayRow}
-                  buildMenu={buildMenu}
-                />
-              );
-            })}
-          </div>
+          <TrackCardWall
+            scrollRef={scrollRef}
+            rows={originals}
+            grouping={grouping}
+            groups={groups}
+            collapsed={collapsed}
+            onToggleCollapse={toggleCollapse}
+            selectedId={selectedId}
+            selection={selection}
+            selecting={selecting}
+            onOpen={onSelect}
+            onToggleSelect={handleToggle}
+            onPlay={onPlayRow}
+            buildMenu={buildMenu}
+          />
         ) : grouping ? (
           <div className={styles.body} style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {

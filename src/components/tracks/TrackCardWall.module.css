@@ -1,0 +1,22 @@
+/*
+ * The windowed card wall: the virtualized card-rows are absolutely placed inside this measured-height
+ * spacer, the same shape the list body uses. A card-row is one flex line of fixed-width tiles; its own
+ * bottom padding carries the vertical gutter, so the virtualizer measures the real pitch. The tile width
+ * and gutters match the album wall, so the two card surfaces reflow on one grid.
+ */
+.body {
+  position: relative;
+  width: 100%;
+}
+
+/* One line of tiles, left-aligned so a short remainder row sits under the first columns rather than
+ * spreading. The horizontal gap and the trailing gutter ride in inline style, shared with the layout math. */
+.cardRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}

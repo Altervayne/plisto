@@ -13,9 +13,6 @@ import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 // -- Hook Imports --
 import { useTrackThumb } from "../covers/useTrackThumb";
 
-// -- Utils Imports --
-import { formatDuration } from "../../lib/format";
-
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
 import type { MenuEntry } from "../common/ContextMenu";
@@ -25,11 +22,12 @@ import type { TrackRow as TrackRowData } from "../../types";
 import styles from "./TrackCard.module.css";
 
 /**
- * One track tile: the cover as the object over a title, artist, and duration. It carries the same
+ * One track tile: the cover as the object over a title, artist, and album. The album grounds a browse by
+ * where a track sits rather than its runtime, which the list column keeps. It carries the same
  * affordance grammar as the album card - the cover lifts on hover and takes the accent ring when peeked
  * or picked, a hover-play disc queues the view from this track, and a hover pick ring toggles selection.
- * A plain click opens the read-only peek; a modified click drives multi-select. Feeds the flat file wall,
- * so it reads from the same rows the table does; selection and the right-click menu are the caller's.
+ * A plain click opens the read-only peek; a modified click drives multi-select. Feeds the All Tracks
+ * wall, so it reads from the same rows the list does; selection and the right-click menu are the caller's.
  */
 export const TrackCard = memo(function TrackCard({
   track,
@@ -62,6 +60,7 @@ export const TrackCard = memo(function TrackCard({
 
   const title = track.title_edit ?? track.raw_title;
   const artist = track.artist_edit ?? track.raw_artist;
+  const album = track.album_edit ?? track.raw_album;
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A modified click drives multi-select rather than opening: ctrl/cmd toggles, shift extends the range.
@@ -118,7 +117,7 @@ export const TrackCard = memo(function TrackCard({
       <CardMeta
         title={title ?? track.filename}
         secondary={artist ?? ""}
-        sub={formatDuration(track.duration_secs)}
+        sub={album ?? ""}
       />
 
       <ContextMenu

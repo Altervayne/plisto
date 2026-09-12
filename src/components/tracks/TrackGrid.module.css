@@ -73,17 +73,9 @@
   margin-left: auto;
 }
 
-/* The card wall: fixed-width tiles wrapping to the content width, the same layout the album wall uses, so
- * opening the peek drops a column rather than squishing every tile. Covers load lazily per tile. */
-.cards {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 26px 20px;
-}
-
-/* The padded canvas around the tiles: breathing room for the hover lift, so a raised cover and its shadow
- * fall inside the padded content rather than being shorn at the viewport edge. */
+/* The padded canvas around the card wall: breathing room for the hover lift, so a raised cover and its
+ * shadow fall inside the padded content rather than being shorn at the viewport edge. Its top padding is
+ * the wall's scroll margin, so the first card-row's lift clears the edge too. */
 .canvas {
   padding: 18px 22px 22px;
 }

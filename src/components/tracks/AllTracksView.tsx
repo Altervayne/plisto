@@ -2,11 +2,15 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 
+// -- Icon Imports --
+import { LayoutGrid, Rows3 } from "lucide-react";
+
 // -- Component Imports --
 import { TrackGrid } from "./TrackGrid";
 import { TrackDetail } from "./TrackDetail";
 import { EmptyState } from "../common/EmptyState";
 import { Resizer } from "../common/Resizer/Resizer";
+import { SegmentedControl } from "../common/SegmentedControl";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -17,10 +21,12 @@ import {
   useLibraryGroupBy,
   useLibrarySearch,
   useLibrarySort,
+  useLibraryView,
   useSetLibraryFacets,
   useSetLibraryGroupBy,
   useSetLibrarySearch,
   useSetLibrarySort,
+  useSetLibraryView,
   useTracks,
 } from "../../state/store";
 
@@ -54,6 +60,8 @@ export function AllTracksView() {
   const setFacets = useSetLibraryFacets();
   const groupBy = useLibraryGroupBy();
   const setGroupBy = useSetLibraryGroupBy();
+  const view = useLibraryView();
+  const setView = useSetLibraryView();
 
   const [selected, setSelected] = useState<TrackRow | null>(null);
   // The filtered row count reported up from the grid, so the header counts the narrowed view rather than
@@ -77,6 +85,25 @@ export function AllTracksView() {
       <div className={styles.header}>
         <h1 className={styles.title}>{t((d) => d.nav.tracks)}</h1>
         <span className={styles.count}>{t((d) => d.tracks.count, { n: visibleCount })}</span>
+        <div className={styles.viewToggle}>
+          <SegmentedControl
+            segments={[
+              {
+                value: "table",
+                label: t((d) => d.tracks.viewList),
+                icon: <Rows3 size={15} strokeWidth={1.8} aria-hidden="true" />,
+              },
+              {
+                value: "cards",
+                label: t((d) => d.tracks.viewCards),
+                icon: <LayoutGrid size={15} strokeWidth={1.8} aria-hidden="true" />,
+              },
+            ]}
+            value={view}
+            onChange={setView}
+            label={t((d) => d.tracks.view)}
+          />
+        </div>
       </div>
 
       <div
@@ -85,7 +112,7 @@ export function AllTracksView() {
         style={{ "--drawer-width": `${width}px` } as CSSProperties}
       >
         <TrackGrid
-          view="table"
+          view={view}
           enableFacets
           columns={collectionColumns}
           source={{ kind: "tracks" }}

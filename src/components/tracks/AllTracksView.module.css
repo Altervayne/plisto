@@ -33,6 +33,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The list/cards toggle trails at the far end of the title row, centered against the baseline-set text. */
+.viewToggle {
+  margin-left: auto;
+  align-self: center;
+}
+
 /* Carries --drawer-width so the detail panel's flex-basis (and its child handle) follow a drag. */
 .body {
   position: relative;

@@ -176,6 +176,30 @@
   white-space: nowrap;
 }
 
+/* A row label carrying a leading glyph (the sort direction arrow beside its name). */
+.dirLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The direction arrow, quiet until its row is the active one. */
+.rowLead {
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+
+.rowActive .rowLead {
+  color: var(--accent);
+}
+
+/* Parts the two stacks in a stacked menu (the sort fields over the direction toggle) with a hairline. */
+.groupDivider {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--hairline);
+}
+
 .rowIcon {
   flex-shrink: 0;
   color: var(--ink-3);
