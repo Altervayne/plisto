@@ -1,3 +1,6 @@
+// -- Framework Imports --
+import { useMemo } from "react";
+
 // -- Library Imports --
 import type { Header } from "@tanstack/react-table";
 
@@ -14,8 +17,6 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./TrackGridHeader.module.css";
 
-const byId = new Map<string, TrackColumn>(trackColumns.map((col) => [col.id, col]));
-
 /** The select-all box's state over the current view: no rows, some, or every row selected. */
 export type SelectAllState = "none" | "some" | "all";
 
@@ -27,14 +28,20 @@ export type SelectAllState = "none" | "some" | "all";
  */
 export function TrackGridHeader({
   headers,
+  columns = trackColumns,
   selectAll,
   onToggleAll,
 }: {
   headers: Header<TrackRow, unknown>[];
+  columns?: TrackColumn[];
   selectAll: SelectAllState;
   onToggleAll: () => void;
 }) {
   const t = useT();
+  const byId = useMemo(
+    () => new Map<string, TrackColumn>(columns.map((col) => [col.id, col])),
+    [columns],
+  );
 
   return (
     <div className={styles.header}>
@@ -55,6 +62,10 @@ export function TrackGridHeader({
 
       {headers.map((header) => {
         const col = byId.get(header.column.id);
+        // The lead affordance gutter holds no label and no sort: a blank slot keeps the grid aligned.
+        if (col?.affordance) {
+          return <span key={header.id} aria-hidden="true" />;
+        }
         const sorted = header.column.getIsSorted();
         const align = col?.align === "right" ? styles.right : styles.left;
         const label = col ? t((d) => d.tracks.columns[col.id]) : header.column.id;

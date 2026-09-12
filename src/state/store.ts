@@ -67,12 +67,15 @@ interface AppStore {
   booted: boolean;
   scan: ScanState;
   tracks: TrackRow[];
-  // Grid sort, search, facet chips, and the flat-list view mode live here, not in the grid, so a
-  // re-scan (which unmounts the grid) does not lose them.
-  gridSort: GridSort;
-  gridFilter: string;
-  gridFacets: GridFacet[];
-  filesView: FilesViewMode;
+  // Each flat destination owns its own sort/search so their filters never leak into one another. The
+  // library surface (All Tracks) also carries facet chips and a view mode; Files keeps only sort and
+  // search. All of it lives here, not in the grid, so a re-scan (which unmounts the grid) does not lose it.
+  librarySort: GridSort;
+  librarySearch: string;
+  libraryFacets: GridFacet[];
+  libraryView: FilesViewMode;
+  filesSort: GridSort;
+  filesSearch: string;
   boot: () => Promise<void>;
   loadRoots: () => Promise<void>;
   addRoot: () => Promise<void>;
@@ -84,10 +87,12 @@ interface AppStore {
   loadTracks: () => Promise<void>;
   editTrack: (trackId: number, fields: TrackEditFields) => Promise<void>;
   setTrackGenres: (trackId: number, genreIds: number[]) => Promise<void>;
-  setGridSort: (sort: GridSort) => void;
-  setGridFilter: (filter: string) => void;
-  setGridFacets: (facets: GridFacet[]) => void;
-  setFilesView: (view: FilesViewMode) => void;
+  setLibrarySort: (sort: GridSort) => void;
+  setLibrarySearch: (search: string) => void;
+  setLibraryFacets: (facets: GridFacet[]) => void;
+  setLibraryView: (view: FilesViewMode) => void;
+  setFilesSort: (sort: GridSort) => void;
+  setFilesSearch: (search: string) => void;
   reset: () => void;
 }
 
@@ -129,10 +134,12 @@ export const useAppStore = create<AppStore>((set, get) => {
     booted: false,
     scan: idleScan,
     tracks: [],
-    gridSort: [],
-    gridFilter: "",
-    gridFacets: [],
-    filesView: "table",
+    librarySort: [],
+    librarySearch: "",
+    libraryFacets: [],
+    libraryView: "table",
+    filesSort: [],
+    filesSearch: "",
 
     boot: async () => {
       await get().loadRoots();
@@ -243,10 +250,12 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
 
-    setGridSort: (gridSort) => set({ gridSort }),
-    setGridFilter: (gridFilter) => set({ gridFilter }),
-    setGridFacets: (gridFacets) => set({ gridFacets }),
-    setFilesView: (filesView) => set({ filesView }),
+    setLibrarySort: (librarySort) => set({ librarySort }),
+    setLibrarySearch: (librarySearch) => set({ librarySearch }),
+    setLibraryFacets: (libraryFacets) => set({ libraryFacets }),
+    setLibraryView: (libraryView) => set({ libraryView }),
+    setFilesSort: (filesSort) => set({ filesSort }),
+    setFilesSearch: (filesSearch) => set({ filesSearch }),
 
     reset: () =>
       set({
@@ -254,10 +263,12 @@ export const useAppStore = create<AppStore>((set, get) => {
         booted: false,
         scan: idleScan,
         tracks: [],
-        gridSort: [],
-        gridFilter: "",
-        gridFacets: [],
-        filesView: "table",
+        librarySort: [],
+        librarySearch: "",
+        libraryFacets: [],
+        libraryView: "table",
+        filesSort: [],
+        filesSearch: "",
       }),
   };
 });
@@ -295,15 +306,19 @@ export const useTracks = (): TrackRow[] => useAppStore((s) => s.tracks);
 export const useTrack = (id: number): TrackRow | undefined =>
   useAppStore((s) => s.tracks.find((r) => r.id === id));
 
-export const useGridSort = (): GridSort => useAppStore((s) => s.gridSort);
-export const useGridFilter = (): string => useAppStore((s) => s.gridFilter);
-export const useGridFacets = (): GridFacet[] => useAppStore((s) => s.gridFacets);
-export const useFilesView = (): FilesViewMode => useAppStore((s) => s.filesView);
+export const useLibrarySort = (): GridSort => useAppStore((s) => s.librarySort);
+export const useLibrarySearch = (): string => useAppStore((s) => s.librarySearch);
+export const useLibraryFacets = (): GridFacet[] => useAppStore((s) => s.libraryFacets);
+export const useLibraryView = (): FilesViewMode => useAppStore((s) => s.libraryView);
+export const useFilesSort = (): GridSort => useAppStore((s) => s.filesSort);
+export const useFilesSearch = (): string => useAppStore((s) => s.filesSearch);
 
-export const useSetGridSort = () => useAppStore((s) => s.setGridSort);
-export const useSetGridFilter = () => useAppStore((s) => s.setGridFilter);
-export const useSetGridFacets = () => useAppStore((s) => s.setGridFacets);
-export const useSetFilesView = () => useAppStore((s) => s.setFilesView);
+export const useSetLibrarySort = () => useAppStore((s) => s.setLibrarySort);
+export const useSetLibrarySearch = () => useAppStore((s) => s.setLibrarySearch);
+export const useSetLibraryFacets = () => useAppStore((s) => s.setLibraryFacets);
+export const useSetLibraryView = () => useAppStore((s) => s.setLibraryView);
+export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);
+export const useSetFilesSearch = () => useAppStore((s) => s.setFilesSearch);
 
 export const useBoot = () => useAppStore((s) => s.boot);
 export const useLoadRoots = () => useAppStore((s) => s.loadRoots);

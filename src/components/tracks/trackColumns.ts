@@ -39,6 +39,8 @@ export interface TrackColumn {
   grow: number;
   align: CellAlign;
   ink: CellInk;
+  /** The lead gutter that carries only the hover play triangle: no value, no header label, no sort. */
+  affordance?: boolean;
   /** The lone mono cell marks the raw source filename. */
   mono?: boolean;
   /** Digits that stack down the column align via tabular-nums. */
@@ -109,6 +111,60 @@ export const trackColumns: TrackColumn[] = [
   { id: "filename", width: null, grow: 1.6, align: "left", ink: "meta", mono: true, searchable: true },
 ];
 
+/**
+ * The flat collection row for All Tracks: a metadata surface across the whole library. The lead cell is
+ * the play affordance alone - a raw track number reads as noise across a cross-album list, so it is gone,
+ * as are the source-file columns (filename, format), which belong to the file browser and the peek.
+ */
+export const collectionColumns: TrackColumn[] = [
+  { id: "raw_track_no", width: 44, grow: 0, align: "right", ink: "meta", affordance: true },
+  {
+    id: "raw_title",
+    width: null,
+    grow: 2,
+    align: "left",
+    ink: "primary",
+    searchable: true,
+    resolve: (t) => t.title_edit ?? t.raw_title,
+  },
+  {
+    id: "raw_artist",
+    width: null,
+    grow: 1.4,
+    align: "left",
+    ink: "secondary",
+    searchable: true,
+    resolve: (t) => t.artist_edit ?? t.raw_artist,
+  },
+  {
+    id: "raw_album",
+    width: null,
+    grow: 1.4,
+    align: "left",
+    ink: "secondary",
+    searchable: true,
+    resolve: (t) => t.album_edit ?? t.raw_album,
+  },
+  {
+    id: "raw_year",
+    width: 60,
+    grow: 0,
+    align: "right",
+    ink: "meta",
+    tabular: true,
+    resolve: (t) => t.year_edit ?? t.raw_year,
+  },
+  {
+    id: "duration_secs",
+    width: 72,
+    grow: 0,
+    align: "right",
+    ink: "meta",
+    tabular: true,
+    format: (value) => formatDuration(value as number | null),
+  },
+];
+
 /** The shared `grid-template-columns` value: fixed px for meta, `fr` weights for flexing text. */
 export function gridTemplate(columns: TrackColumn[] = trackColumns): string {
   return columns
@@ -129,11 +185,12 @@ export function toColumnDefs(columns: TrackColumn[] = trackColumns): ColumnDef<T
     // The id stays the stable column key and the header's dict lookup; only the accessor differs. An
     // edited column resolves `edit ?? raw` so sort and search read the effective value the cell
     // shows, while a plain column keeps its raw field key.
+    // The lead affordance carries no value, so it is neither sortable nor searchable.
     const shared = {
       id: col.id,
       header: col.id,
-      enableSorting: true,
-      enableGlobalFilter: col.searchable ?? false,
+      enableSorting: !col.affordance,
+      enableGlobalFilter: !col.affordance && (col.searchable ?? false),
     };
     return col.resolve
       ? { ...shared, accessorFn: col.resolve }

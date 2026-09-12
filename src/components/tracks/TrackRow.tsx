@@ -60,6 +60,7 @@ function cellClass(col: TrackColumn, empty: boolean): string {
  */
 export function TrackRow({
   track,
+  columns = trackColumns,
   active,
   selected,
   selecting,
@@ -70,6 +71,7 @@ export function TrackRow({
   buildMenu,
 }: {
   track: TrackRowData;
+  columns?: TrackColumn[];
   active: boolean;
   selected: boolean;
   selecting: boolean;
@@ -123,29 +125,43 @@ export function TrackRow({
         <span className={styles.tick} aria-hidden="true" />
       </button>
 
-      {trackColumns.map((col) => {
+      {columns.map((col) => {
         const text = cellText(col, track);
         const empty = text === "-";
 
-        // The number column doubles as the play affordance: the number sits in normal flow, the accent
-        // triangle overlays its right text edge so the hover swap never reflows the digits.
-        if (col.id === "raw_track_no" && onPlay) {
-          const glyph = (
-            <span
-              className={playable ? styles.play : `${styles.play} ${styles.playOff}`}
-              aria-hidden="true"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (playable) onPlay(track);
-              }}
-            >
-              <Play size={12} strokeWidth={2} fill="currentColor" />
+        // The play triangle, armed only when the caller passes onPlay. A gone source greys it inert with
+        // its reason on hover.
+        const glyph = onPlay ? (
+          <span
+            className={playable ? styles.play : `${styles.play} ${styles.playOff}`}
+            aria-hidden="true"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (playable) onPlay(track);
+            }}
+          >
+            <Play size={12} strokeWidth={2} fill="currentColor" />
+          </span>
+        ) : null;
+        const armedGlyph =
+          glyph == null || playable ? glyph : <Tooltip label={playReason}>{glyph}</Tooltip>;
+
+        // The lead gutter carries the hover play triangle alone: blank at rest, no value beneath it.
+        if (col.affordance) {
+          return (
+            <span key={col.id} className={`${cellClass(col, true)} ${styles.numCell}`}>
+              {armedGlyph}
             </span>
           );
+        }
+
+        // The number column doubles as the play affordance: the number sits in normal flow, the accent
+        // triangle overlays its right text edge so the hover swap never reflows the digits.
+        if (col.id === "raw_track_no" && glyph) {
           return (
             <span key={col.id} className={`${cellClass(col, empty)} ${styles.numCell}`}>
               <span className={styles.no}>{text}</span>
-              {playable ? glyph : <Tooltip label={playReason}>{glyph}</Tooltip>}
+              {armedGlyph}
             </span>
           );
         }

@@ -109,6 +109,10 @@ function SourceLine({ onNavigate }: { onNavigate: (source: PlaybackSource) => vo
       label = t((d) => d.player.playingFrom);
       name = t((d) => d.player.sourceFiles);
       break;
+    case "tracks":
+      label = t((d) => d.player.playingFrom);
+      name = t((d) => d.player.sourceTracks);
+      break;
     case "singles":
       label = t((d) => d.player.playingFrom);
       name = t((d) => d.player.sourceSingles);

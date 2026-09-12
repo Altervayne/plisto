@@ -11,6 +11,7 @@ import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { FilesView } from "../files/FilesView";
+import { AllTracksView } from "../tracks/AllTracksView";
 import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
@@ -74,6 +75,7 @@ import styles from "./AppShell.module.css";
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
 type Mode =
   | "files"
+  | "tracks"
   | "unsorted"
   | "albums"
   | "singles"
@@ -230,6 +232,9 @@ export function AppShell({
       case "files":
         setMode("files");
         break;
+      case "tracks":
+        setMode("tracks");
+        break;
       case "singles":
         setMode("singles");
         break;
@@ -354,6 +359,7 @@ export function AppShell({
         mode={mode}
         onModeChange={setMode}
         filesCount={count}
+        tracksCount={count}
         unsortedCount={unsorted.length}
         albumsCount={albums.length}
         singlesCount={singles.length}
@@ -506,6 +512,8 @@ export function AppShell({
                 </>
               ) : mode === "unsorted" ? (
                 <UnsortedView />
+              ) : mode === "tracks" ? (
+                <AllTracksView />
               ) : (
                 <FilesView />
               )}

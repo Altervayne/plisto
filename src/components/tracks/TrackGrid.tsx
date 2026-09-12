@@ -17,6 +17,8 @@ import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
+import { EmptyState } from "../common/EmptyState";
+import { QuietButton } from "../common/QuietButton";
 import { FacetFilter } from "./FacetFilter";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
@@ -25,16 +27,7 @@ import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
 // -- State Imports --
-import {
-  useEditTrack,
-  useGridFacets,
-  useGridFilter,
-  useGridSort,
-  useSetGridFacets,
-  useSetGridFilter,
-  useSetGridSort,
-  useTracks,
-} from "../../state/store";
+import { useEditTrack, useTracks } from "../../state/store";
 import {
   useAddSelection,
   useAlbums,
@@ -55,16 +48,18 @@ import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { useSetOpenTool } from "../../state/shell/store";
 
 // -- Utils Imports --
-import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
+import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
 import { filterByFacets } from "./trackFacets";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
 
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
+import type { TrackColumn } from "./trackColumns";
+import type { GridFacet } from "./trackFacets";
 import type { MenuEntry } from "../common/ContextMenu";
-import type { FilesViewMode } from "../../state/store";
-import type { TrackEditFields, TrackRow as TrackRowData } from "../../types";
+import type { FilesViewMode, GridSort } from "../../state/store";
+import type { PlaybackSource, TrackEditFields, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -74,6 +69,9 @@ import styles from "./TrackGrid.module.css";
 
 const ROW_HEIGHT = 40;
 
+// A stable empty chip set, so a plain browser (facets off) never rebuilds the pre-filter each render.
+const NO_FACETS: GridFacet[] = [];
+
 /** The filename without its extension: everything before the last dot, or the whole name when it has none. */
 function filenameStem(filename: string): string {
   const dot = filename.lastIndexOf(".");
@@ -82,15 +80,26 @@ function filenameStem(filename: string): string {
 
 /**
  * The track grid: TanStack Table holds the sorted and filtered row model over the loaded rows,
- * TanStack Virtual windows the DOM to the visible slice. Sort and search state live here; the
- * search pill and the persistent summary share the toolbar above the header. A row click reports
+ * TanStack Virtual windows the DOM to the visible slice. Sort, search, and the facet chips are
+ * controlled by the caller, so each destination owns its own filter set and they never leak across.
+ * The search pill and the persistent summary share the toolbar above the header. A row click reports
  * its track up for the detail peek. A `tracks` list scopes the grid to a subset (a folder view);
- * without it the grid spans the whole index.
+ * without it the grid spans the whole index. `columns` picks the visible column set; `enableFacets`
+ * drops the facet filter for a plain browser; `source` tags what the queue plays from.
  */
 export function TrackGrid({
   tracks,
   summary,
   view = "table",
+  columns = trackColumns,
+  enableFacets = true,
+  source = { kind: "files" },
+  sort,
+  onSortChange,
+  search,
+  onSearchChange,
+  facets = NO_FACETS,
+  onFacetsChange,
   selectedId,
   onSelect,
 }: {
@@ -98,22 +107,30 @@ export function TrackGrid({
   summary?: ReactNode;
   // How the body draws. Cards only fit the flat file list, so the caller passes it only there.
   view?: FilesViewMode;
+  columns?: TrackColumn[];
+  enableFacets?: boolean;
+  source?: PlaybackSource;
+  sort: GridSort;
+  onSortChange: (sort: GridSort) => void;
+  search: string;
+  onSearchChange: (search: string) => void;
+  facets?: GridFacet[];
+  onFacetsChange?: (facets: GridFacet[]) => void;
   selectedId: number | null;
   onSelect: (track: TrackRowData) => void;
 }) {
   const allTracks = useTracks();
   const t = useT();
   const scoped = tracks ?? allTracks;
-  const columns = useMemo(() => toColumnDefs(), []);
-  const template = useMemo(() => gridTemplate(), []);
+  const columnDefs = useMemo(() => toColumnDefs(columns), [columns]);
+  const template = useMemo(() => gridTemplate(columns), [columns]);
 
-  // Sort, search, and the facet chips live in the store so a re-scan, which unmounts this grid, keeps them.
-  const sorting = useGridSort();
-  const globalFilter = useGridFilter();
-  const facets = useGridFacets();
-  const setSorting = useSetGridSort();
-  const setGlobalFilter = useSetGridFilter();
-  const setFacets = useSetGridFacets();
+  const sorting = sort;
+  const globalFilter = search;
+  const setSorting = onSortChange;
+  const setGlobalFilter = onSearchChange;
+  // A plain browser drops the facet control, so its chips are always empty and the pre-filter is a no-op.
+  const activeFacets = enableFacets ? facets : NO_FACETS;
 
   // Genre facets read the per-track vocabulary membership, so resolve ids to names through the vocabulary.
   const genres = useGenres();
@@ -125,13 +142,13 @@ export function TrackGrid({
   // The chip facets pre-filter the rows client-side; the table then runs the free-text search and sort
   // over what is left, so all three compose and both the table and the card wall read the same rows.
   const data = useMemo(
-    () => filterByFacets(scoped, facets, genreNameById),
-    [scoped, facets, genreNameById],
+    () => filterByFacets(scoped, activeFacets, genreNameById),
+    [scoped, activeFacets, genreNameById],
   );
 
   const table = useReactTable({
     data,
-    columns,
+    columns: columnDefs,
     state: { sorting, globalFilter },
     onSortingChange: (updater) =>
       setSorting(typeof updater === "function" ? updater(sorting) : updater),
@@ -230,14 +247,14 @@ export function TrackGrid({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(rowIds, rowIds.indexOf(track.id), { kind: "files" }),
+              onSelect: () => play(rowIds, rowIds.indexOf(track.id), source),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
             {
               icon: <ListEnd size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.addToQueue),
-              onSelect: () => addToQueue([track.id], { kind: "files" }),
+              onSelect: () => addToQueue([track.id], source),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -303,10 +320,15 @@ export function TrackGrid({
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const cards = view === "cards";
   const searching = globalFilter.trim().length > 0;
-  const noMatch = rows.length === 0 && (searching || facets.length > 0);
+  const noMatch = rows.length === 0 && (searching || activeFacets.length > 0);
   const onPlayRow = playerEnabled
-    ? (played: TrackRowData) => play(rowIds, rowIds.indexOf(played.id), { kind: "files" })
+    ? (played: TrackRowData) => play(rowIds, rowIds.indexOf(played.id), source)
     : undefined;
+  // Loosen a filter that matched nothing: clear the search and any facet chips back to the full view.
+  const clearFilters = () => {
+    setGlobalFilter("");
+    onFacetsChange?.([]);
+  };
 
   return (
     <div className={styles.grid} style={{ "--track-cols": template } as CSSProperties}>
@@ -318,19 +340,26 @@ export function TrackGrid({
             placeholder={t((d) => d.tracks.search)}
           />
         </div>
-        <div className={styles.filter}>
-          <FacetFilter
-            tracks={scoped}
-            genreNameById={genreNameById}
-            facets={facets}
-            onChange={setFacets}
-          />
-        </div>
+        {enableFacets && onFacetsChange ? (
+          <div className={styles.filter}>
+            <FacetFilter
+              tracks={scoped}
+              genreNameById={genreNameById}
+              facets={facets}
+              onChange={onFacetsChange}
+            />
+          </div>
+        ) : null}
         {summary ? <div className={styles.summary}>{summary}</div> : null}
       </div>
 
       {cards ? null : (
-        <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
+        <TrackGridHeader
+          headers={headers}
+          columns={columns}
+          selectAll={selectAll}
+          onToggleAll={onToggleAll}
+        />
       )}
 
       <ScrollArea
@@ -339,11 +368,18 @@ export function TrackGrid({
         viewportRef={scrollRef}
       >
         {noMatch ? (
-          <p className={styles.noMatch}>
-            {searching
-              ? t((d) => d.tracks.noMatch, { q: globalFilter.trim() })
-              : t((d) => d.tracks.noFilterMatch)}
-          </p>
+          <EmptyState
+            tone="idle"
+            title={t((d) => d.tracks.noMatchTitle)}
+            line={
+              searching
+                ? t((d) => d.tracks.noMatch, { q: globalFilter.trim() })
+                : t((d) => d.tracks.noFilterMatch)
+            }
+            action={
+              <QuietButton onClick={clearFilters}>{t((d) => d.tracks.clearFilters)}</QuietButton>
+            }
+          />
         ) : cards ? (
           <div className={styles.cards}>
             {rows.map((row) => {
@@ -371,6 +407,7 @@ export function TrackGrid({
                 <TrackRow
                   key={track.id}
                   track={track}
+                  columns={columns}
                   active={track.id === selectedId}
                   selected={selection.has(track.id)}
                   selecting={selecting}

@@ -1,0 +1,52 @@
+/*
+ * The All Tracks destination: a page-title header over the collection grid and its peek drawer. It
+ * fills the content slot as a column, the body splitting into the grid and, when a row is peeked, the
+ * track detail beside it - the album grid and Files browser split, without the folder nav above it.
+ */
+.view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The title with the count trailing it, parted by space and aligned on their baseline. */
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 10px 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.count {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Carries --drawer-width so the detail panel's flex-basis (and its child handle) follow a drag. */
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+}
+
+/* The detail panel's positioned wrapper: it holds the var width, and the resize handle rides its left
+ * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
+.panel {
+  position: relative;
+  flex: 0 0 var(--drawer-width);
+  min-height: 0;
+  display: flex;
+}

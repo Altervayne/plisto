@@ -511,6 +511,7 @@ export type PlaybackSource =
   | { kind: "album"; id: number; label: string }
   | { kind: "playlist"; id: number; label: string }
   | { kind: "files" }
+  | { kind: "tracks" }
   | { kind: "singles" }
   | { kind: "unsorted" }
   | { kind: "single"; id: number; label: string };

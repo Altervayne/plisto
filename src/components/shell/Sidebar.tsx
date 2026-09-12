@@ -4,7 +4,7 @@ import { MiniPlayer } from "../player/MiniPlayer";
 import { PlayerToggle } from "../player/PlayerToggle";
 
 // -- Icon Imports --
-import { LayoutGrid, Inbox, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
+import { LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -15,6 +15,7 @@ import styles from "./Sidebar.module.css";
 /** The region showing in the main pane: a library wall, the export screen, or settings. */
 type Mode =
   | "files"
+  | "tracks"
   | "unsorted"
   | "albums"
   | "singles"
@@ -37,6 +38,7 @@ export function Sidebar({
   mode,
   onModeChange,
   filesCount,
+  tracksCount,
   unsortedCount,
   albumsCount,
   singlesCount,
@@ -48,6 +50,7 @@ export function Sidebar({
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   filesCount: number;
+  tracksCount: number;
   unsortedCount: number;
   albumsCount: number;
   singlesCount: number;
@@ -92,6 +95,13 @@ export function Sidebar({
 
           <div className={styles.navgroup}>
             <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
+            <NavItem
+              icon={<Library size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.tracks)}
+              count={tracksCount}
+              active={mode === "tracks"}
+              onClick={() => onModeChange("tracks")}
+            />
             <NavItem
               icon={<Disc size={17} strokeWidth={1.8} />}
               label={t((d) => d.nav.albums)}
