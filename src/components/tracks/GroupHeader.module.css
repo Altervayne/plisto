@@ -1,0 +1,71 @@
+/*
+ * A group section header: label, trailing count, and a dissolving disclosure chevron. Absolutely placed
+ * like the rows so the virtualizer positions it by transform. The top space parts it from the group above
+ * and lives in the padding, not a margin, so the virtualizer measures the real height. No fill, no rule:
+ * the space above and the heavier label carry the break.
+ */
+.header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 10px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The leading group sits flush: no band above the first header. */
+.first {
+  padding-top: 6px;
+}
+
+/* The disclosure chevron: quiet until the header is touched, pointing down when open and flat when shut. */
+.chevron {
+  flex: none;
+  color: var(--ink-3);
+  opacity: 0;
+  transform: rotate(90deg);
+  transition:
+    opacity var(--dur-fast) ease,
+    transform var(--dur-fast) ease;
+}
+
+.header:hover .chevron,
+.header:focus-visible .chevron {
+  opacity: 1;
+}
+
+.collapsed .chevron {
+  transform: rotate(0deg);
+}
+
+/* The group value, one step below the page title so the hierarchy reads without a second accent. */
+.label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.count {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: opacity var(--dur-fast) ease;
+  }
+}

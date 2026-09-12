@@ -14,9 +14,11 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 // -- State Imports --
 import {
   useLibraryFacets,
+  useLibraryGroupBy,
   useLibrarySearch,
   useLibrarySort,
   useSetLibraryFacets,
+  useSetLibraryGroupBy,
   useSetLibrarySearch,
   useSetLibrarySort,
   useTracks,
@@ -50,8 +52,13 @@ export function AllTracksView() {
   const setSearch = useSetLibrarySearch();
   const facets = useLibraryFacets();
   const setFacets = useSetLibraryFacets();
+  const groupBy = useLibraryGroupBy();
+  const setGroupBy = useSetLibraryGroupBy();
 
   const [selected, setSelected] = useState<TrackRow | null>(null);
+  // The filtered row count reported up from the grid, so the header counts the narrowed view rather than
+  // the whole library. It seeds at the total, the value an unfiltered grid reports back at once.
+  const [visibleCount, setVisibleCount] = useState(tracks.length);
   const { width, containerRef, resizer } = useDrawerResize();
 
   // An empty library rests on the add-a-folder on-ramp, pointing at Settings the way the album wall does.
@@ -69,7 +76,7 @@ export function AllTracksView() {
     <div className={styles.view}>
       <div className={styles.header}>
         <h1 className={styles.title}>{t((d) => d.nav.tracks)}</h1>
-        <span className={styles.count}>{t((d) => d.tracks.count, { n: tracks.length })}</span>
+        <span className={styles.count}>{t((d) => d.tracks.count, { n: visibleCount })}</span>
       </div>
 
       <div
@@ -88,6 +95,9 @@ export function AllTracksView() {
           onSearchChange={setSearch}
           facets={facets}
           onFacetsChange={setFacets}
+          groupBy={groupBy}
+          onGroupByChange={setGroupBy}
+          onVisibleCount={setVisibleCount}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
         />

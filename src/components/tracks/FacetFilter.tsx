@@ -29,7 +29,7 @@ import type { Dict } from "../../i18n/en";
 import styles from "./FacetFilter.module.css";
 
 /** Each facet's dict label, reusing the field names the peek already carries. */
-const FACET_LABEL: Record<FacetKey, (d: Dict) => string> = {
+export const FACET_LABEL: Record<FacetKey, (d: Dict) => string> = {
   artist: (d) => d.tracks.fields.artist,
   album_artist: (d) => d.tracks.fields.albumArtist,
   album: (d) => d.tracks.fields.album,

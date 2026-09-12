@@ -15,6 +15,9 @@ export type FacetKey = "artist" | "album_artist" | "album" | "genre" | "year";
 /** The facets in menu order. */
 export const FACET_KEYS: FacetKey[] = ["artist", "album_artist", "album", "genre", "year"];
 
+/** A grouping dimension: one of the facets, or the flat ungrouped default. */
+export type GroupDimension = "none" | FacetKey;
+
 /** One active filter: a facet and one of its values. The chip bar holds a flat list of these. */
 export interface GridFacet {
   facet: FacetKey;
@@ -87,8 +90,9 @@ export function facetOptions(
   };
 }
 
-// Years sort as numbers, newest first; every other facet sorts by name, case-insensitive.
-function sortValues(facet: FacetKey, values: Set<string>): string[] {
+/** A facet's values in menu order: years as numbers newest first, every other facet by name,
+ *  case-insensitive. Group headers reuse this so the group order matches the facet menu. */
+export function sortValues(facet: FacetKey, values: Set<string>): string[] {
   const list = [...values];
   if (facet === "year") return list.sort((a, b) => Number(b) - Number(a));
   return list.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));

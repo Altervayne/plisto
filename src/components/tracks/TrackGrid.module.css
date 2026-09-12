@@ -36,6 +36,38 @@
   min-width: 0;
 }
 
+/* The library controls cluster: the facet filter, the group-by trigger, and the collapse-all sit on one
+ * wrapping row so the two menus read as one family beside each other. */
+.controls {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The collapse-all toggle: a quiet icon button matching the trigger grammar of the two menus beside it. */
+.collapseAll {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.collapseAll:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
 .summary {
   min-width: 0;
   margin-left: auto;

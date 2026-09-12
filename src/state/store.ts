@@ -24,7 +24,7 @@ import { pickFolder } from "../lib/dialog";
 import { withRetry } from "../lib/withRetry";
 
 // -- Type Imports --
-import type { GridFacet } from "../components/tracks/trackFacets";
+import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets";
 
 // -- State Imports --
 // The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
@@ -73,6 +73,7 @@ interface AppStore {
   librarySort: GridSort;
   librarySearch: string;
   libraryFacets: GridFacet[];
+  libraryGroupBy: GroupDimension;
   libraryView: FilesViewMode;
   filesSort: GridSort;
   filesSearch: string;
@@ -90,6 +91,7 @@ interface AppStore {
   setLibrarySort: (sort: GridSort) => void;
   setLibrarySearch: (search: string) => void;
   setLibraryFacets: (facets: GridFacet[]) => void;
+  setLibraryGroupBy: (groupBy: GroupDimension) => void;
   setLibraryView: (view: FilesViewMode) => void;
   setFilesSort: (sort: GridSort) => void;
   setFilesSearch: (search: string) => void;
@@ -137,6 +139,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     librarySort: [],
     librarySearch: "",
     libraryFacets: [],
+    libraryGroupBy: "none",
     libraryView: "table",
     filesSort: [],
     filesSearch: "",
@@ -253,6 +256,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setLibrarySort: (librarySort) => set({ librarySort }),
     setLibrarySearch: (librarySearch) => set({ librarySearch }),
     setLibraryFacets: (libraryFacets) => set({ libraryFacets }),
+    setLibraryGroupBy: (libraryGroupBy) => set({ libraryGroupBy }),
     setLibraryView: (libraryView) => set({ libraryView }),
     setFilesSort: (filesSort) => set({ filesSort }),
     setFilesSearch: (filesSearch) => set({ filesSearch }),
@@ -266,6 +270,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         librarySort: [],
         librarySearch: "",
         libraryFacets: [],
+        libraryGroupBy: "none",
         libraryView: "table",
         filesSort: [],
         filesSearch: "",
@@ -309,6 +314,7 @@ export const useTrack = (id: number): TrackRow | undefined =>
 export const useLibrarySort = (): GridSort => useAppStore((s) => s.librarySort);
 export const useLibrarySearch = (): string => useAppStore((s) => s.librarySearch);
 export const useLibraryFacets = (): GridFacet[] => useAppStore((s) => s.libraryFacets);
+export const useLibraryGroupBy = (): GroupDimension => useAppStore((s) => s.libraryGroupBy);
 export const useLibraryView = (): FilesViewMode => useAppStore((s) => s.libraryView);
 export const useFilesSort = (): GridSort => useAppStore((s) => s.filesSort);
 export const useFilesSearch = (): string => useAppStore((s) => s.filesSearch);
@@ -316,6 +322,7 @@ export const useFilesSearch = (): string => useAppStore((s) => s.filesSearch);
 export const useSetLibrarySort = () => useAppStore((s) => s.setLibrarySort);
 export const useSetLibrarySearch = () => useAppStore((s) => s.setLibrarySearch);
 export const useSetLibraryFacets = () => useAppStore((s) => s.setLibraryFacets);
+export const useSetLibraryGroupBy = () => useAppStore((s) => s.setLibraryGroupBy);
 export const useSetLibraryView = () => useAppStore((s) => s.setLibraryView);
 export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);
 export const useSetFilesSearch = () => useAppStore((s) => s.setFilesSearch);

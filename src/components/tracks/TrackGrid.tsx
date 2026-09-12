@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 // -- Library Imports --
@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, Play, Scissors } from "lucide-react";
+import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, Play, Scissors } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -20,6 +20,8 @@ import { SearchField } from "../common/SearchField";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { FacetFilter } from "./FacetFilter";
+import { GroupByControl } from "./GroupByControl";
+import { GroupHeader } from "./GroupHeader";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
 import { TrackCard } from "./TrackCard";
@@ -50,13 +52,15 @@ import { useSetOpenTool } from "../../state/shell/store";
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
 import { filterByFacets } from "./trackFacets";
+import { UNTAGGED_KEY, flattenGroups, groupRows } from "./trackGrouping";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
 
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
 import type { TrackColumn } from "./trackColumns";
-import type { GridFacet } from "./trackFacets";
+import type { GridFacet, GroupDimension } from "./trackFacets";
+import type { TrackGroup } from "./trackGrouping";
 import type { MenuEntry } from "../common/ContextMenu";
 import type { FilesViewMode, GridSort } from "../../state/store";
 import type { PlaybackSource, TrackEditFields, TrackRow as TrackRowData } from "../../types";
@@ -68,9 +72,15 @@ import { useT } from "../../i18n";
 import styles from "./TrackGrid.module.css";
 
 const ROW_HEIGHT = 40;
+// The seed height for a group header, corrected once the real header measures. It only trims the first
+// paint's layout shift, so an approximation is enough.
+const GROUP_HEADER_HEIGHT = 56;
 
 // A stable empty chip set, so a plain browser (facets off) never rebuilds the pre-filter each render.
 const NO_FACETS: GridFacet[] = [];
+
+// A stable empty group list, so the ungrouped path holds one reference rather than a fresh array.
+const NO_GROUPS: TrackGroup[] = [];
 
 /** The filename without its extension: everything before the last dot, or the whole name when it has none. */
 function filenameStem(filename: string): string {
@@ -85,7 +95,9 @@ function filenameStem(filename: string): string {
  * The search pill and the persistent summary share the toolbar above the header. A row click reports
  * its track up for the detail peek. A `tracks` list scopes the grid to a subset (a folder view);
  * without it the grid spans the whole index. `columns` picks the visible column set; `enableFacets`
- * drops the facet filter for a plain browser; `source` tags what the queue plays from.
+ * drops the facet filter for a plain browser; `source` tags what the queue plays from. Passing
+ * `onGroupByChange` arms the group-by control and the collapsible section headers; without it the body
+ * stays flat. `onVisibleCount` reports the unique filtered row count so a caller's header stays honest.
  */
 export function TrackGrid({
   tracks,
@@ -100,6 +112,9 @@ export function TrackGrid({
   onSearchChange,
   facets = NO_FACETS,
   onFacetsChange,
+  groupBy = "none",
+  onGroupByChange,
+  onVisibleCount,
   selectedId,
   onSelect,
 }: {
@@ -116,6 +131,9 @@ export function TrackGrid({
   onSearchChange: (search: string) => void;
   facets?: GridFacet[];
   onFacetsChange?: (facets: GridFacet[]) => void;
+  groupBy?: GroupDimension;
+  onGroupByChange?: (groupBy: GroupDimension) => void;
+  onVisibleCount?: (count: number) => void;
   selectedId: number | null;
   onSelect: (track: TrackRowData) => void;
 }) {
@@ -166,6 +184,43 @@ export function TrackGrid({
 
   const rows = table.getRowModel().rows;
 
+  // Report the unique filtered row count (the sorted row model, before any genre duplication), so a
+  // caller's header reflects the narrowed view rather than the whole library.
+  useEffect(() => {
+    onVisibleCount?.(rows.length);
+  }, [rows.length, onVisibleCount]);
+
+  // Grouping is the last presentational pass, folding the already-sorted rows under section headers. It
+  // arms only when the caller wired the control and picked a dimension; otherwise the body stays flat.
+  const grouping = onGroupByChange != null && groupBy !== "none";
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // A dimension change retires the old keys, so start each dimension fully expanded.
+  useEffect(() => {
+    setCollapsed(new Set());
+  }, [groupBy]);
+
+  const groups = useMemo(() => {
+    // grouping narrows groupBy to a real dimension, so the "none" default never reaches groupRows.
+    if (!grouping) return NO_GROUPS;
+    return groupRows(
+      rows.map((r) => r.original),
+      groupBy,
+      genreNameById,
+    );
+  }, [grouping, rows, groupBy, genreNameById]);
+  const flat = useMemo(() => flattenGroups(groups, collapsed), [groups, collapsed]);
+
+  const toggleCollapse = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(g.key));
+  const toggleCollapseAll = () =>
+    setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)));
+
   // Selection is keyed by track_id in the store, so it survives sort and filter. The anchor is a
   // row's index in the current sorted/filtered view, so a shift-range respects the order on screen.
   const selection = useSelection();
@@ -180,6 +235,20 @@ export function TrackGrid({
   // adds or removes only these rows, so selections held in other folders ride through untouched.
   const rowIds = rows.map((r) => r.original.id);
   const selectedInView = rowIds.reduce((n, id) => (selection.has(id) ? n + 1 : n), 0);
+  // The play queue walks the screen: grouped, it follows the flattened visual order and drops a
+  // genre-duplicated track after its first sighting so next and prev never land on it twice; flat, it is
+  // the plain row order. Collapsed groups contribute nothing, since their rows are off screen.
+  const queueIds = useMemo(() => {
+    if (!grouping) return rows.map((r) => r.original.id);
+    const ids: number[] = [];
+    const seen = new Set<number>();
+    for (const item of flat) {
+      if (item.type !== "row" || seen.has(item.track.id)) continue;
+      seen.add(item.track.id);
+      ids.push(item.track.id);
+    }
+    return ids;
+  }, [grouping, rows, flat]);
   const selectAll =
     rowIds.length > 0 && selectedInView === rowIds.length
       ? "all"
@@ -247,7 +316,7 @@ export function TrackGrid({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(rowIds, rowIds.indexOf(track.id), source),
+              onSelect: () => play(queueIds, queueIds.indexOf(track.id), source),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -308,12 +377,26 @@ export function TrackGrid({
     ];
   };
 
-  // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface.
+  // The ScrollArea hands its viewport here, so the virtualizer scrolls the bespoke surface. Grouped, it
+  // windows the flattened header-and-row list; flat, the plain rows. Keying by content, not index, keeps
+  // a measured header height pinned to its group as a collapse shifts every following index.
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const getItemKey = useCallback(
+    (index: number) => {
+      if (!grouping) return rows[index]?.original.id ?? index;
+      const item = flat[index];
+      if (!item) return index;
+      return item.type === "header" ? `h:${item.group.key}` : `r:${item.groupKey}:${item.track.id}`;
+    },
+    [grouping, rows, flat],
+  );
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: grouping ? flat.length : rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    // A header runs taller than a row; its exact height is measured, so this is only the seed estimate.
+    estimateSize: (index) =>
+      grouping && flat[index]?.type === "header" ? GROUP_HEADER_HEIGHT : ROW_HEIGHT,
+    getItemKey,
     overscan: 8,
   });
 
@@ -322,7 +405,7 @@ export function TrackGrid({
   const searching = globalFilter.trim().length > 0;
   const noMatch = rows.length === 0 && (searching || activeFacets.length > 0);
   const onPlayRow = playerEnabled
-    ? (played: TrackRowData) => play(rowIds, rowIds.indexOf(played.id), source)
+    ? (played: TrackRowData) => play(queueIds, queueIds.indexOf(played.id), source)
     : undefined;
   // Loosen a filter that matched nothing: clear the search and any facet chips back to the full view.
   const clearFilters = () => {
@@ -340,7 +423,35 @@ export function TrackGrid({
             placeholder={t((d) => d.tracks.search)}
           />
         </div>
-        {enableFacets && onFacetsChange ? (
+        {onGroupByChange ? (
+          <div className={styles.controls}>
+            {enableFacets && onFacetsChange ? (
+              <FacetFilter
+                tracks={scoped}
+                genreNameById={genreNameById}
+                facets={facets}
+                onChange={onFacetsChange}
+              />
+            ) : null}
+            <GroupByControl groupBy={groupBy} onChange={onGroupByChange} />
+            {grouping ? (
+              <button
+                type="button"
+                className={styles.collapseAll}
+                aria-label={
+                  allCollapsed ? t((d) => d.tracks.expandAll) : t((d) => d.tracks.collapseAll)
+                }
+                onClick={toggleCollapseAll}
+              >
+                {allCollapsed ? (
+                  <ChevronsUpDown size={15} strokeWidth={1.8} aria-hidden="true" />
+                ) : (
+                  <ChevronsDownUp size={15} strokeWidth={1.8} aria-hidden="true" />
+                )}
+              </button>
+            ) : null}
+          </div>
+        ) : enableFacets && onFacetsChange ? (
           <div className={styles.filter}>
             <FacetFilter
               tracks={scoped}
@@ -395,6 +506,46 @@ export function TrackGrid({
                   onToggleSelect={handleToggle}
                   onPlay={onPlayRow}
                   buildMenu={buildMenu}
+                />
+              );
+            })}
+          </div>
+        ) : grouping ? (
+          <div className={styles.body} style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map((item) => {
+              const entry = flat[item.index];
+              if (!entry) return null;
+              const y: CSSProperties = { transform: `translateY(${item.start}px)` };
+              if (entry.type === "header") {
+                const group = entry.group;
+                return (
+                  <GroupHeader
+                    key={`h:${group.key}`}
+                    index={item.index}
+                    measureRef={virtualizer.measureElement}
+                    style={y}
+                    label={group.key === UNTAGGED_KEY ? t((d) => d.tracks.untagged) : group.label}
+                    count={group.rows.length}
+                    collapsed={collapsed.has(group.key)}
+                    first={item.index === 0}
+                    onToggle={() => toggleCollapse(group.key)}
+                  />
+                );
+              }
+              const track = entry.track;
+              return (
+                <TrackRow
+                  key={`r:${entry.groupKey}:${track.id}`}
+                  track={track}
+                  columns={columns}
+                  active={track.id === selectedId}
+                  selected={selection.has(track.id)}
+                  selecting={selecting}
+                  onSelect={onSelect}
+                  onToggle={handleToggle}
+                  onPlay={onPlayRow}
+                  buildMenu={buildMenu}
+                  style={y}
                 />
               );
             })}
