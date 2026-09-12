@@ -1,0 +1,211 @@
+/*
+ * The facet control row: the trigger, the active chips, and the clear-all, wrapping over the toolbar
+ * width. The trigger opens a floating two-step menu that lifts on a shadow like the other pop panels;
+ * a full chip carries the accent-weak fill, its remove x surfacing on hover.
+ */
+.wrap {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The quiet trigger: transparent at rest, a soft veil on hover, the veil held while the menu is open. */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.trigger:hover,
+.triggerOpen {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* A full filter: the accent-weak pill, the same grammar as the album genre pills. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 5px 4px 11px;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.chipText {
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The remove x holds its slot but dissolves at rest, deepening to the solid danger on hover or focus. */
+.chipRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--danger-weak);
+  color: var(--danger);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    background var(--dur-fast) ease;
+}
+
+.chip:hover .chipRemove,
+.chipRemove:focus-visible {
+  opacity: 1;
+  background: var(--danger);
+  color: var(--on-solid);
+}
+
+/* The clear-all trails the chips, quiet until touched. */
+.clear {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.clear:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* The menu floats over the surface, anchored under the trigger. */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 7;
+  min-width: 200px;
+  max-width: 300px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* The value list scrolls on the app's own bar; the cap is a definite length so it resolves in the popover. */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 280px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover:not(:disabled) {
+  background: var(--veil);
+}
+
+.row:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* A chosen value reads as the single accent: an accent-weak fill under accent text and the check. */
+.rowActive {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.rowActive:hover {
+  background: var(--accent-weak);
+}
+
+.rowLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  color: var(--ink-3);
+}
+
+.rowActive .rowIcon {
+  color: var(--accent);
+}
+
+/* The back row heads the value step, naming the facet it drilled into. */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.back:hover {
+  background: var(--veil);
+  color: var(--ink);
+}

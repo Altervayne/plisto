@@ -11,6 +11,7 @@ mod intake;
 mod model;
 mod normalize;
 mod paths;
+mod plays;
 mod resolve;
 mod scan;
 mod smtc;
@@ -237,6 +238,11 @@ pub fn run() {
             // now-playing card. A no-op off Windows.
             smtc::init(app.handle());
 
+            // Register the play-log listener that turns the engine's `player:played` emits into rows,
+            // once state exists. A single Rust-side listener, so a listen counts once whatever webviews
+            // are open.
+            plays::init(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -352,6 +358,9 @@ pub fn run() {
             commands::player::get_player_queue,
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
+            commands::plays::reset_play_history,
+            commands::plays::get_recently_played,
+            commands::plays::get_most_played,
             commands::splice::splice_run,
             commands::splice::splice_cancel,
             commands::splice::splice_analyze,

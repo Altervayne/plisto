@@ -23,6 +23,13 @@
   min-width: 0;
 }
 
+/* The lens toggle and, under the flat lens, the table/cards view toggle sit together at the header end. */
+.lenses {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* Carries --drawer-width so the detail panel's flex-basis (and its child handle) follow a drag. */
 .body {
   position: relative;

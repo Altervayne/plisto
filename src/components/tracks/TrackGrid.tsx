@@ -17,16 +17,20 @@ import { ArrowUpToLine, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
+import { FacetFilter } from "./FacetFilter";
 import { TrackGridHeader } from "./TrackGridHeader";
 import { TrackRow } from "./TrackRow";
+import { TrackCard } from "./TrackCard";
 import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
 // -- State Imports --
 import {
   useEditTrack,
+  useGridFacets,
   useGridFilter,
   useGridSort,
+  useSetGridFacets,
   useSetGridFilter,
   useSetGridSort,
   useTracks,
@@ -36,6 +40,7 @@ import {
   useAlbums,
   useAssignTracks,
   useCreateSingle,
+  useGenres,
   useRemoveSelection,
   useSelectRange,
   useSelection,
@@ -51,12 +56,14 @@ import { useSetOpenTool } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackGlobalFilter } from "./trackColumns";
+import { filterByFacets } from "./trackFacets";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
 
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
 import type { MenuEntry } from "../common/ContextMenu";
+import type { FilesViewMode } from "../../state/store";
 import type { TrackEditFields, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
@@ -83,25 +90,44 @@ function filenameStem(filename: string): string {
 export function TrackGrid({
   tracks,
   summary,
+  view = "table",
   selectedId,
   onSelect,
 }: {
   tracks?: TrackRowData[];
   summary?: ReactNode;
+  // How the body draws. Cards only fit the flat file list, so the caller passes it only there.
+  view?: FilesViewMode;
   selectedId: number | null;
   onSelect: (track: TrackRowData) => void;
 }) {
   const allTracks = useTracks();
   const t = useT();
-  const data = tracks ?? allTracks;
+  const scoped = tracks ?? allTracks;
   const columns = useMemo(() => toColumnDefs(), []);
   const template = useMemo(() => gridTemplate(), []);
 
-  // Sort and search live in the store so a re-scan, which unmounts this grid, keeps them.
+  // Sort, search, and the facet chips live in the store so a re-scan, which unmounts this grid, keeps them.
   const sorting = useGridSort();
   const globalFilter = useGridFilter();
+  const facets = useGridFacets();
   const setSorting = useSetGridSort();
   const setGlobalFilter = useSetGridFilter();
+  const setFacets = useSetGridFacets();
+
+  // Genre facets read the per-track vocabulary membership, so resolve ids to names through the vocabulary.
+  const genres = useGenres();
+  const genreNameById = useMemo(
+    () => new Map(genres.map((g) => [g.id, g.name] as const)),
+    [genres],
+  );
+
+  // The chip facets pre-filter the rows client-side; the table then runs the free-text search and sort
+  // over what is left, so all three compose and both the table and the card wall read the same rows.
+  const data = useMemo(
+    () => filterByFacets(scoped, facets, genreNameById),
+    [scoped, facets, genreNameById],
+  );
 
   const table = useReactTable({
     data,
@@ -275,7 +301,12 @@ export function TrackGrid({
   });
 
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
-  const noMatch = rows.length === 0 && globalFilter.trim().length > 0;
+  const cards = view === "cards";
+  const searching = globalFilter.trim().length > 0;
+  const noMatch = rows.length === 0 && (searching || facets.length > 0);
+  const onPlayRow = playerEnabled
+    ? (played: TrackRowData) => play(rowIds, rowIds.indexOf(played.id), { kind: "files" })
+    : undefined;
 
   return (
     <div className={styles.grid} style={{ "--track-cols": template } as CSSProperties}>
@@ -287,16 +318,51 @@ export function TrackGrid({
             placeholder={t((d) => d.tracks.search)}
           />
         </div>
+        <div className={styles.filter}>
+          <FacetFilter
+            tracks={scoped}
+            genreNameById={genreNameById}
+            facets={facets}
+            onChange={setFacets}
+          />
+        </div>
         {summary ? <div className={styles.summary}>{summary}</div> : null}
       </div>
 
-      <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
+      {cards ? null : (
+        <TrackGridHeader headers={headers} selectAll={selectAll} onToggleAll={onToggleAll} />
+      )}
 
-      <ScrollArea className={styles.scroll} contentClassName={styles.scrollInner} viewportRef={scrollRef}>
+      <ScrollArea
+        className={styles.scroll}
+        contentClassName={cards ? styles.canvas : styles.scrollInner}
+        viewportRef={scrollRef}
+      >
         {noMatch ? (
           <p className={styles.noMatch}>
-            {t((d) => d.tracks.noMatch, { q: globalFilter.trim() })}
+            {searching
+              ? t((d) => d.tracks.noMatch, { q: globalFilter.trim() })
+              : t((d) => d.tracks.noFilterMatch)}
           </p>
+        ) : cards ? (
+          <div className={styles.cards}>
+            {rows.map((row) => {
+              const track = row.original;
+              return (
+                <TrackCard
+                  key={track.id}
+                  track={track}
+                  active={track.id === selectedId}
+                  checked={selection.has(track.id)}
+                  selecting={selecting}
+                  onOpen={onSelect}
+                  onToggleSelect={handleToggle}
+                  onPlay={onPlayRow}
+                  buildMenu={buildMenu}
+                />
+              );
+            })}
+          </div>
         ) : (
           <div className={styles.body} style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {
@@ -310,11 +376,7 @@ export function TrackGrid({
                   selecting={selecting}
                   onSelect={onSelect}
                   onToggle={handleToggle}
-                  onPlay={
-                    playerEnabled
-                      ? (played) => play(rowIds, rowIds.indexOf(played.id), { kind: "files" })
-                      : undefined
-                  }
+                  onPlay={onPlayRow}
                   buildMenu={buildMenu}
                   style={{ transform: `translateY(${item.start}px)` }}
                 />

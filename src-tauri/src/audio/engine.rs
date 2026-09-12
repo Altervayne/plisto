@@ -18,7 +18,10 @@ use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
-use super::{decode, spectrum, AudioSpec, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode};
+use super::{
+    decode, spectrum, AudioSpec, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack,
+    RepeatMode,
+};
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
 
@@ -371,6 +374,11 @@ struct Engine {
     cur_rate: u32,
     cur_duration: f64,
     cur_track_id: Option<i64>,
+    // Latched true once the play head crosses the half mark of the current listen, so a manual end past
+    // it counts as a partial play. Reset per start_source, the one place a new listen begins.
+    played_half: bool,
+    // Guards the play-log emit to at most once per listen. Reset per start_source alongside played_half.
+    listen_recorded: bool,
     // Set only while a preview is auditioning: the frame the current source stops at. `tick` ends the
     // preview when the play head reaches it. None for ordinary library playback, which runs to the
     // track's natural end and advances the queue.
@@ -535,6 +543,9 @@ impl Engine {
         self.cur_track_id = Some(self.queue[i].id);
         // A real track supersedes any preview: drop the boundary so it plays to its natural end.
         self.stop_at_frame = None;
+        // A fresh listen begins: neither the half mark nor the record has fired for it yet.
+        self.played_half = false;
+        self.listen_recorded = false;
         if let Some(sink) = &self.sink {
             sink.clear();
             sink.append(src);
@@ -561,6 +572,36 @@ impl Engine {
         self.stop_at_frame = None;
         // Settle the bars to rest on the edge into stopped, so a visualizer needs no self-decay.
         self.emit_spectrum_rest();
+    }
+
+    /// The single choke point for a counted listen. Both guards ride here: it fires at most once per
+    /// listen (`listen_recorded`), and never for a preview or stopped engine (`cur_track_id` None) nor
+    /// an ad-hoc file (a negative id would violate the plays foreign key). Emits `player:played`; the
+    /// engine never opens a connection - a thin listener does the insert on the event thread.
+    fn record_play(&mut self, completed: bool) {
+        if self.listen_recorded {
+            return;
+        }
+        let id = match self.cur_track_id {
+            Some(id) if !is_ad_hoc(id) => id,
+            _ => return,
+        };
+        self.listen_recorded = true;
+        let _ = self.app.emit(
+            "player:played",
+            PlayReport {
+                track_id: id,
+                completed,
+            },
+        );
+    }
+
+    /// Records a partial play when a listen is ended by hand - a skip, a stop, a new Play - but only
+    /// once the head crossed the half mark. Before half, a manual end counts nothing.
+    fn record_manual_end(&mut self) {
+        if self.played_half {
+            self.record_play(false);
+        }
     }
 
     /// Auditions `path` between `start_secs` and `end_secs` on the resident sink: opens the file,
@@ -789,6 +830,9 @@ impl Engine {
     fn handle(&mut self, cmd: PlayerCmd) {
         match cmd {
             PlayerCmd::Play { queue, index } => {
+                // The outgoing listen ends by hand: count it if it passed half, before the queue is
+                // reassigned out from under cur_track_id.
+                self.record_manual_end();
                 self.queue = queue;
                 let mut start = clamp_index(index, self.queue.len());
                 // Capture the pristine order before any shuffle, so restoring shuffle off returns
@@ -832,24 +876,32 @@ impl Engine {
                 self.emit(true);
             }
             PlayerCmd::Stop => {
+                self.record_manual_end();
                 self.stop_playback();
                 self.emit(true);
             }
-            PlayerCmd::Next => match advance_index(self.index, self.queue.len(), self.repeat) {
-                Some(i) => self.play_at(i),
-                None => {
-                    self.stop_playback();
-                    self.emit(true);
+            PlayerCmd::Next => {
+                self.record_manual_end();
+                match advance_index(self.index, self.queue.len(), self.repeat) {
+                    Some(i) => self.play_at(i),
+                    None => {
+                        self.stop_playback();
+                        self.emit(true);
+                    }
                 }
-            },
-            PlayerCmd::Prev => match prev_index(self.index, self.queue.len()) {
-                Some(i) => self.play_at(i),
-                None => {
-                    self.stop_playback();
-                    self.emit(true);
+            }
+            PlayerCmd::Prev => {
+                self.record_manual_end();
+                match prev_index(self.index, self.queue.len()) {
+                    Some(i) => self.play_at(i),
+                    None => {
+                        self.stop_playback();
+                        self.emit(true);
+                    }
                 }
-            },
+            }
             PlayerCmd::Jump(i) => {
+                self.record_manual_end();
                 // play_at clamps an empty queue (stops and emits) and skips forward over a dead
                 // track, so a jump lands on the next playable slot, exactly like Next.
                 let i = clamp_index(i, self.queue.len());
@@ -896,6 +948,8 @@ impl Engine {
                     None => return,
                 };
                 if self.cur_track_id == Some(removed_id) {
+                    // Removing the current track ends its listen by hand: count it if it passed half.
+                    self.record_manual_end();
                     // The sink still renders the removed source, so this is a skip: advance onto
                     // whatever slid into the slot, reusing play_at's dead-track skip and forced emit.
                     // The queue shrank, so mirror it before either outcome (play_at only emits status).
@@ -967,6 +1021,19 @@ impl Engine {
                 }
             }
         }
+        // Latch the half-play mark while audio genuinely advances through the source, so a manual end
+        // past it counts and a seek alone never does. The latch only sets; record_play gates the id.
+        if self.is_audible() && self.cur_duration > 0.0 && !self.played_half {
+            let pos = match (&self.cur_frames, self.cur_rate) {
+                (Some(frames), rate) if rate > 0 => {
+                    frames.load(Ordering::Relaxed) as f64 / rate as f64
+                }
+                _ => 0.0,
+            };
+            if pos >= 0.5 * self.cur_duration {
+                self.played_half = true;
+            }
+        }
         if let Some(stop) = self.stop_at_frame {
             // A preview stops at its out-point, or if the file ends first, without ever moving the
             // queue: stop_playback clears the source and the boundary but leaves queue and index be.
@@ -980,6 +1047,10 @@ impl Engine {
                 self.emit(true);
             }
         } else if self.playing && !self.paused && self.sink.as_ref().is_some_and(|s| s.empty()) {
+            // A track that drained on its own is a completed play, recorded unconditionally (a full
+            // play counts even where the half latch never ran, e.g. a zero-duration file), before the
+            // queue moves onto the next source and start_source resets the guards.
+            self.record_play(true);
             match on_track_end(self.index, self.queue.len(), self.repeat) {
                 EndAction::Replay => self.play_at(self.index),
                 EndAction::Advance(i) => self.play_at(i),
@@ -1056,6 +1127,8 @@ fn run(
         cur_rate: 0,
         cur_duration: 0.0,
         cur_track_id: None,
+        played_half: false,
+        listen_recorded: false,
         stop_at_frame: None,
         status,
         queue_ids,

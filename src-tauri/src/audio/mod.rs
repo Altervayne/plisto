@@ -155,6 +155,15 @@ impl Default for PlayerStatus {
     }
 }
 
+/// One counted listen the engine emits on `player:played`, for the play-log listener to insert. The
+/// engine stays DB-free: it resolves each listen's verdict and emits, and a thin Rust listener does the
+/// write. `completed` is true for a full play to the end, false for a manual end past the halfway mark.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct PlayReport {
+    pub track_id: i64,
+    pub completed: bool,
+}
+
 /// The sample format of a decoded stream: the rate in Hz and the interleaved channel count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioSpec {

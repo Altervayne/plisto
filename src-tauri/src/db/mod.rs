@@ -2080,6 +2080,86 @@ pub fn set_playlist_order(
     tx.commit()
 }
 
+// ---- Plays ----
+
+// The most-played score weights a full play (to the end) above a partial (past halfway). One named
+// constant so the bias is trivially tunable; a partial always counts 1.
+const COMPLETED_PLAY_WEIGHT: i64 = 2;
+
+/// Records one counted listen: an append-only event stamped with the current unix second. `completed`
+/// is true for a full play to the end, false for a manual end past the halfway mark. The play-log
+/// listener calls this off the engine thread; a negative ad-hoc id is guarded out before it reaches
+/// here, so it never violates the plays foreign key.
+pub fn insert_play(conn: &Connection, track_id: i64, completed: bool) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO plays (track_id, played_at, completed) VALUES (?1, ?2, ?3)",
+        params![track_id, now_unix(), completed],
+    )?;
+    Ok(())
+}
+
+/// Clears play history: `Some(id)` drops just that track's plays, `None` drops the whole log. The reset
+/// utility behind the play-history command.
+pub fn reset_plays(conn: &Connection, track_id: Option<i64>) -> rusqlite::Result<()> {
+    match track_id {
+        Some(id) => conn.execute("DELETE FROM plays WHERE track_id = ?1", params![id])?,
+        None => conn.execute("DELETE FROM plays", [])?,
+    };
+    Ok(())
+}
+
+/// The most recently played tracks, most recent first, one entry per track: its latest listen orders
+/// it. `limit` caps the list. Returns ids only - the frontend already holds every TrackRow and hydrates
+/// from its store.
+pub fn get_recently_played(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT track_id FROM plays GROUP BY track_id ORDER BY MAX(played_at) DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The most played tracks by a weighted score, highest first, one entry per track. A full play scores
+/// COMPLETED_PLAY_WEIGHT, a partial 1; a score tie breaks on the most recent listen. `since` (unix
+/// seconds) windows the count to plays at or after it, or None for all-time. Returns ids only.
+pub fn get_most_played(
+    conn: &Connection,
+    limit: i64,
+    since: Option<i64>,
+) -> rusqlite::Result<Vec<i64>> {
+    let where_clause = if since.is_some() {
+        " WHERE played_at >= ?"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT track_id, SUM(CASE WHEN completed THEN {COMPLETED_PLAY_WEIGHT} ELSE 1 END) AS score \
+         FROM plays{where_clause} \
+         GROUP BY track_id ORDER BY score DESC, MAX(played_at) DESC LIMIT ?"
+    );
+    // The optional `since` binds first, then the limit, so anonymous placeholders stay in order.
+    let mut binds: Vec<i64> = Vec::new();
+    if let Some(s) = since {
+        binds.push(s);
+    }
+    binds.push(limit);
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(binds.iter()), |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Whole seconds since the Unix epoch, stamped onto a play the moment it is recorded.
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2131,7 +2211,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, 13);
 
         for table in [
             "tracks",
@@ -2148,6 +2228,7 @@ mod tests {
             "playlists",
             "playlist_tracks",
             "track_covers",
+            "plays",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -2206,7 +2287,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 12);
+        assert_eq!(version, 13);
     }
 
     #[test]
@@ -3187,5 +3268,87 @@ mod tests {
         let empty = load_playlists(&conn).unwrap();
         assert!(empty.playlists.is_empty());
         assert!(empty.tracks.is_empty());
+    }
+
+    // ---- Plays ----
+
+    // A bare track row with the given id, enough to satisfy the plays foreign key.
+    fn add_track(conn: &Connection, id: i64) {
+        conn.execute(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (?1, ?2, 'f.mp3', 'mp3', 1, 2, 3)",
+            params![id, format!("/music/{id}.mp3")],
+        )
+        .unwrap();
+    }
+
+    // A play row with an explicit timestamp and completion flag, so the read tests order
+    // deterministically instead of leaning on the wall clock insert_play stamps.
+    fn add_play(conn: &Connection, track_id: i64, played_at: i64, completed: bool) {
+        conn.execute(
+            "INSERT INTO plays (track_id, played_at, completed) VALUES (?1, ?2, ?3)",
+            params![track_id, played_at, completed],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn insert_play_records_a_stamped_row() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+
+        insert_play(&conn, 1, true).unwrap();
+
+        let (track_id, played_at, completed): (i64, i64, bool) = conn
+            .query_row("SELECT track_id, played_at, completed FROM plays", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(track_id, 1);
+        assert!(played_at > 0, "the play is stamped with a real unix second");
+        assert!(completed, "the completed flag is stored");
+    }
+
+    #[test]
+    fn get_recently_played_orders_by_latest_play_per_track() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        // Track 1 played twice; its latest play (300) outranks track 2's single play (200).
+        add_play(&conn, 1, 100, false);
+        add_play(&conn, 1, 300, true);
+        add_play(&conn, 2, 200, false);
+
+        let recent = get_recently_played(&conn, 10).unwrap();
+        assert_eq!(
+            recent,
+            vec![1, 2],
+            "each track appears once, ordered by its most recent play"
+        );
+
+        // The limit caps the list to the most recent tracks.
+        assert_eq!(get_recently_played(&conn, 1).unwrap(), vec![1]);
+    }
+
+    #[test]
+    fn get_most_played_weights_completed_above_partial() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        // Track 1: two completed plays score 4. Track 2: three partial plays score 3. The heavier
+        // weight wins even though track 2 has more plays, so the full-play weight is what orders them.
+        add_play(&conn, 1, 10, true);
+        add_play(&conn, 1, 20, true);
+        add_play(&conn, 2, 30, false);
+        add_play(&conn, 2, 40, false);
+        add_play(&conn, 2, 50, false);
+
+        let most = get_most_played(&conn, 10, None).unwrap();
+        assert_eq!(most, vec![1, 2], "a full play outweighs a partial");
+
+        // `since` windows the count: with a floor above track 1's plays, only track 2's later plays
+        // count, so track 1 drops out entirely.
+        let windowed = get_most_played(&conn, 10, Some(25)).unwrap();
+        assert_eq!(windowed, vec![2], "a since floor excludes older plays");
     }
 }

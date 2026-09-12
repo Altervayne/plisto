@@ -803,6 +803,28 @@ export function playerSetOutputDevice(name: string | null): Promise<void> {
   return invoke("player_set_output_device", { name });
 }
 
+// -- Play history --
+// The engine records each counted listen into a `plays` log; these read it back and reset it. The
+// reads return ordered track ids, hydrated against the in-memory library store.
+
+/** Clears play history: a track id wipes just that track's plays, omitted wipes the whole log. */
+export function resetPlayHistory(trackId?: number): Promise<void> {
+  return invoke("reset_play_history", { trackId });
+}
+
+/** The most recently played track ids, most recent first, one per track. */
+export function getRecentlyPlayed(limit: number): Promise<number[]> {
+  return invoke<number[]>("get_recently_played", { limit });
+}
+
+/**
+ * The most played track ids by weighted score, highest first. `since` (unix seconds) windows the count
+ * to recent plays; omit it for all-time.
+ */
+export function getMostPlayed(limit: number, since?: number): Promise<number[]> {
+  return invoke<number[]>("get_most_played", { limit, since });
+}
+
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */
 export function listTracks(args: {
   filter?: string;

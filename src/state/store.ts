@@ -23,6 +23,9 @@ import {
 import { pickFolder } from "../lib/dialog";
 import { withRetry } from "../lib/withRetry";
 
+// -- Type Imports --
+import type { GridFacet } from "../components/tracks/trackFacets";
+
 // -- State Imports --
 // The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
 // touched solely inside actions, to mirror a peek edit into the album membership projection.
@@ -44,6 +47,9 @@ export type ScanStatus = "idle" | "scanning" | "done" | "error";
 /** The grid's sort, structurally the table lib's SortingState but without the coupling. */
 export type GridSort = { id: string; desc: boolean }[];
 
+/** How the flat file list draws: the dense table or the cover wall. */
+export type FilesViewMode = "table" | "cards";
+
 /** The top-bar library label: the sole root's path when there is one, else the folder count. */
 export type LibraryLabel =
   | { kind: "single"; path: string }
@@ -61,10 +67,12 @@ interface AppStore {
   booted: boolean;
   scan: ScanState;
   tracks: TrackRow[];
-  // Grid sort and search live here, not in the grid, so a re-scan (which unmounts the grid)
-  // does not lose them.
+  // Grid sort, search, facet chips, and the flat-list view mode live here, not in the grid, so a
+  // re-scan (which unmounts the grid) does not lose them.
   gridSort: GridSort;
   gridFilter: string;
+  gridFacets: GridFacet[];
+  filesView: FilesViewMode;
   boot: () => Promise<void>;
   loadRoots: () => Promise<void>;
   addRoot: () => Promise<void>;
@@ -78,6 +86,8 @@ interface AppStore {
   setTrackGenres: (trackId: number, genreIds: number[]) => Promise<void>;
   setGridSort: (sort: GridSort) => void;
   setGridFilter: (filter: string) => void;
+  setGridFacets: (facets: GridFacet[]) => void;
+  setFilesView: (view: FilesViewMode) => void;
   reset: () => void;
 }
 
@@ -121,6 +131,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     tracks: [],
     gridSort: [],
     gridFilter: "",
+    gridFacets: [],
+    filesView: "table",
 
     boot: async () => {
       await get().loadRoots();
@@ -233,6 +245,8 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     setGridSort: (gridSort) => set({ gridSort }),
     setGridFilter: (gridFilter) => set({ gridFilter }),
+    setGridFacets: (gridFacets) => set({ gridFacets }),
+    setFilesView: (filesView) => set({ filesView }),
 
     reset: () =>
       set({
@@ -242,6 +256,8 @@ export const useAppStore = create<AppStore>((set, get) => {
         tracks: [],
         gridSort: [],
         gridFilter: "",
+        gridFacets: [],
+        filesView: "table",
       }),
   };
 });
@@ -281,9 +297,13 @@ export const useTrack = (id: number): TrackRow | undefined =>
 
 export const useGridSort = (): GridSort => useAppStore((s) => s.gridSort);
 export const useGridFilter = (): string => useAppStore((s) => s.gridFilter);
+export const useGridFacets = (): GridFacet[] => useAppStore((s) => s.gridFacets);
+export const useFilesView = (): FilesViewMode => useAppStore((s) => s.filesView);
 
 export const useSetGridSort = () => useAppStore((s) => s.setGridSort);
 export const useSetGridFilter = () => useAppStore((s) => s.setGridFilter);
+export const useSetGridFacets = () => useAppStore((s) => s.setGridFacets);
+export const useSetFilesView = () => useAppStore((s) => s.setFilesView);
 
 export const useBoot = () => useAppStore((s) => s.boot);
 export const useLoadRoots = () => useAppStore((s) => s.loadRoots);

@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 12;
+const LATEST_VERSION: i64 = 13;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -278,6 +278,26 @@ CREATE TABLE track_covers (
 );
 ";
 
+// Version 13: the play-event log. `plays` is an append-only stream, one row per counted listen, never
+// updated: `played_at` is the unix second the listen was recorded and `completed` splits a full play to
+// the end (1) from one that only passed the halfway mark (0) - the weight the most-played score leans
+// on. The track FK CASCADEs so dropping a track (or its root) clears its history, and the two plays
+// indexes key the recently-played read (MAX played_at per track) and the windowed count. A new table
+// only, so every existing row is untouched. `idx_track_genres_genre` rides along here: the
+// `(track_id, genre_id)` primary key does not left-prefix `genre_id`, so a genre-first lookup had no
+// index, and later genre filtering wants one.
+const MIGRATION_V13: &str = "
+CREATE TABLE plays (
+    id        INTEGER PRIMARY KEY,
+    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    played_at INTEGER NOT NULL,
+    completed INTEGER NOT NULL
+);
+CREATE INDEX idx_plays_track     ON plays(track_id);
+CREATE INDEX idx_plays_played_at ON plays(played_at);
+CREATE INDEX idx_track_genres_genre ON track_genres(genre_id);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -297,6 +317,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             9 => conn.execute_batch(MIGRATION_V10)?,
             10 => conn.execute_batch(MIGRATION_V11)?,
             11 => conn.execute_batch(MIGRATION_V12)?,
+            12 => conn.execute_batch(MIGRATION_V13)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -821,6 +842,70 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM track_covers", [], |r| r.get(0))
             .unwrap();
         assert_eq!(bindings, 0, "no track carries an assigned cover yet");
+    }
+
+    /// A v12 DB with a track upgrades to v13 additively: the track row survives, the new `plays` table
+    /// exists, it starts empty, and a play cascades away with its track.
+    #[test]
+    fn v12_db_with_rows_migrates_additively() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(MIGRATION_V1).unwrap();
+        conn.execute_batch(MIGRATION_V2).unwrap();
+        conn.execute_batch(MIGRATION_V3).unwrap();
+        conn.execute_batch(MIGRATION_V4).unwrap();
+        conn.execute_batch(MIGRATION_V5).unwrap();
+        conn.execute_batch(MIGRATION_V6).unwrap();
+        conn.execute_batch(MIGRATION_V7).unwrap();
+        conn.execute_batch(MIGRATION_V8).unwrap();
+        conn.execute_batch(MIGRATION_V9).unwrap();
+        conn.execute_batch(MIGRATION_V10).unwrap();
+        conn.execute_batch(MIGRATION_V11).unwrap();
+        conn.execute_batch(MIGRATION_V12).unwrap();
+        conn.pragma_update(None, "user_version", 12).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at)
+             VALUES (1, '/music/a.mp3', 'a.mp3', 'mp3', 10, 20, 30);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let filename: String = conn
+            .query_row("SELECT filename FROM tracks WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(filename, "a.mp3", "the existing row survives the upgrade");
+
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plays'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "the plays table exists after v13");
+
+        let empty: i64 = conn
+            .query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(empty, 0, "no play is recorded yet");
+
+        // A recorded play cascades away when its track is deleted.
+        conn.execute(
+            "INSERT INTO plays (track_id, played_at, completed) VALUES (1, 100, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM tracks WHERE id = 1", []).unwrap();
+        let after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(after, 0, "deleting a track cascades its plays");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

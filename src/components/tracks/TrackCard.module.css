@@ -1,0 +1,162 @@
+/*
+ * One track tile: a reset button holding the cover frame over the meta block, the same object grammar as
+ * the album card so the flat wall reads as one system. The cover is the only object - it carries the
+ * shadow and lifts on hover; the lift and the peeked/picked rings reach the Cover atom through the
+ * --cover-shadow custom property that inherits into it.
+ */
+.card {
+  width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.frame {
+  position: relative;
+  transition: transform var(--dur-soft) var(--ease-cover);
+}
+
+.card:hover .frame {
+  transform: translateY(-4px);
+  --cover-shadow: var(--shadow-pop);
+}
+
+/* A small dip on press, so the card gives under the pointer like the buttons do. */
+.card:active .frame {
+  transform: translateY(-1px) scale(0.99);
+}
+
+/* The open peek marks its tile with the accent ring, the same as a selected album cover. */
+.card.selected .frame {
+  --cover-shadow: 0 0 0 2px var(--accent), var(--shadow-pop);
+}
+
+/* A picked tile reads apart with a fuller accent ring plus the check, legible even when also the open one. */
+.card.checked .frame {
+  --cover-shadow: 0 0 0 3px var(--accent), var(--shadow-pop);
+}
+
+/*
+ * The select affordance: a disc in the cover corner, riding the frame so it lifts with the tile. It floats
+ * over unpredictable cover art, so it carries its own contrast on a glass scrim rather than a theme
+ * surface, and stays hidden until the tile is hovered or focused. Picked it fills to the accent check.
+ */
+.pick {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(6px);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  /* Inert while hidden: an opacity:0 element still keeps its box and pointer events, so without this the
+   * invisible corner would swallow clicks meant to open the card. It re-arms with the reveal. */
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.pick:hover {
+  transform: scale(1.08);
+}
+
+/*
+ * The play affordance: a disc centered on the cover, riding the frame so it lifts with the tile. Like the
+ * pick ring it carries its own contrast on a glass scrim. Hidden and inert at rest, revealed on hover or
+ * keyboard focus.
+ */
+.play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.9);
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+
+.card:hover .play,
+.card:focus-visible .play {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.play:hover {
+  background: rgba(0, 0, 0, 0.56);
+}
+
+/* A gone source: the disc greys and its click is dead, the reason carried by the row peek. */
+.playOff {
+  color: rgba(255, 255, 255, 0.5);
+  cursor: default;
+}
+
+.card:hover .playOff,
+.card:focus-visible .playOff {
+  pointer-events: none;
+}
+
+/* Reveal the empty ring on hover or keyboard focus, and keep every ring up once any tile is picked. */
+.card:hover .pick,
+.card:focus-visible .pick,
+.card.picking .pick {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A picked tile fills the disc to the accent check and holds it up regardless of hover. */
+.card.checked .pick {
+  border-color: var(--accent);
+  background: var(--accent);
+  backdrop-filter: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card:focus-visible {
+  outline: none;
+}
+
+.card:focus-visible .frame {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .pick,
+  .play {
+    transition: none;
+  }
+}

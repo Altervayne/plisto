@@ -2,10 +2,14 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+// -- Icon Imports --
+import { LayoutGrid, Rows3 } from "lucide-react";
+
 // -- Component Imports --
 import { Breadcrumb } from "./Breadcrumb";
 import { FolderBand } from "./FolderBand";
 import { LensToggle } from "./LensToggle";
+import { SegmentedControl } from "../common/SegmentedControl";
 import { TrackGrid } from "../tracks/TrackGrid";
 import { TrackDetail } from "../tracks/TrackDetail";
 import { Resizer } from "../common/Resizer/Resizer";
@@ -15,7 +19,7 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useBandResize } from "../common/Resizer/useBandResize";
 
 // -- State Imports --
-import { useRoots } from "../../state/store";
+import { useFilesView, useRoots, useSetFilesView } from "../../state/store";
 import {
   childFolders,
   descendantTracks,
@@ -33,6 +37,7 @@ import { useT } from "../../i18n";
 
 // -- Type Imports --
 import type { Lens } from "./LensToggle";
+import type { FilesViewMode } from "../../state/store";
 import type { TrackRow } from "../../types";
 
 // -- Style Imports --
@@ -66,6 +71,9 @@ export function LibraryBrowser({
 
   const [scope, setScope] = useState(initialScope);
   const [lens, setLens] = useState<Lens>("folders");
+  // Table or cards, only offered under the flat All-files lens and kept in the store so a re-scan holds it.
+  const filesView = useFilesView();
+  const setFilesView = useSetFilesView();
   const [selected, setSelected] = useState<TrackRow | null>(null);
   const { width, containerRef, resizer } = useDrawerResize();
   const band = useBandResize();
@@ -130,7 +138,28 @@ export function LibraryBrowser({
             onUp={onUp}
           />
         </div>
-        <LensToggle value={lens} onChange={setLens} />
+        <div className={styles.lenses}>
+          <LensToggle value={lens} onChange={setLens} />
+          {lens === "all-files" ? (
+            <SegmentedControl<FilesViewMode>
+              segments={[
+                {
+                  value: "table",
+                  label: t((d) => d.files.viewTable),
+                  icon: <Rows3 size={15} strokeWidth={1.8} />,
+                },
+                {
+                  value: "cards",
+                  label: t((d) => d.files.viewCards),
+                  icon: <LayoutGrid size={15} strokeWidth={1.8} />,
+                },
+              ]}
+              value={filesView}
+              onChange={setFilesView}
+              label={t((d) => d.files.view)}
+            />
+          ) : null}
+        </div>
       </div>
 
       <div
@@ -148,6 +177,7 @@ export function LibraryBrowser({
           ) : null}
           <TrackGrid
             tracks={scoped}
+            view={lens === "all-files" ? filesView : "table"}
             selectedId={selected?.id ?? null}
             onSelect={setSelected}
           />
