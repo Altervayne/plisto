@@ -7,6 +7,7 @@ import { ListPlus } from "lucide-react";
 
 // -- Component Imports --
 import { Sidebar } from "./Sidebar";
+import { HomeView } from "../home/HomeView";
 import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { AlbumFolderView } from "../albums/AlbumFolderView";
@@ -52,6 +53,7 @@ import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
 import {
+  useAppMode,
   useCurrentTrackId,
   usePlayerError,
   usePlayerStore,
@@ -63,6 +65,10 @@ import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
 // -- IPC Imports --
 import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/ipc";
 
+// -- Unit Imports --
+import { firstVisibleDestination, isDestinationVisible } from "./navVisibility";
+import type { Mode } from "./navVisibility";
+
 // -- Type Imports --
 import type { AlbumRow, PlaybackSource } from "../../types";
 
@@ -71,20 +77,6 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./AppShell.module.css";
-
-/** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode =
-  | "files"
-  | "tracks"
-  | "unsorted"
-  | "albums"
-  | "singles"
-  | "playlists"
-  | "covers"
-  | "editor"
-  | "player"
-  | "export"
-  | "settings";
 
 /** The drawer content's exit before the panel unmounts, matching --dur-soft on the exit keyframe. */
 const DRAWER_EXIT_MS = 200;
@@ -144,8 +136,11 @@ export function AppShell({
   usePlayerSync();
   // The live spectrum feed into its own off-render singleton, running the app's life alongside the status.
   useSpectrumSync();
-  // Standalone opens on the Player over the handed file; the full app opens on Albums.
-  const [mode, setMode] = useState<Mode>(standalone ? "player" : "albums");
+  // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
+  // already has the right rows.
+  const appMode = useAppMode();
+  // Standalone opens on the Player over the handed file; the full app opens on the Home landing.
+  const [mode, setMode] = useState<Mode>(standalone ? "player" : "home");
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
@@ -313,6 +308,19 @@ export function AppShell({
     if (openTool != null) setMode("editor");
   }, [openTool]);
 
+  // A mode flip can hide the destination you are standing on. When it does, land on the first the new
+  // mode still shows, in nav order. Settings lives in the foot and stays reachable, and an editor with a
+  // live session is a file you opened, so neither is swept off. Standalone opens on its handed file and
+  // owns its own landing, so it sits this out. The visibility guard keeps this from looping: once the
+  // landing is a shown destination it does not fire again.
+  useEffect(() => {
+    if (standalone) return;
+    if (mode === "settings") return;
+    if (mode === "editor" && openTool != null) return;
+    if (isDestinationVisible(appMode, mode)) return;
+    setMode(firstVisibleDestination(appMode));
+  }, [appMode, mode, openTool, standalone]);
+
   // Global undo/redo, but only when focus is not in a field - a field keeps its own text undo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -369,7 +377,10 @@ export function AppShell({
         bare={noLibrary && sidebarExpanded}
       />
       <main className={styles.main}>
-        {mode === "export" ? (
+        {mode === "home" ? (
+          // Home needs a library; an empty one keeps the add-a-folder onboarding, as the walls do.
+          count === 0 ? emptyLibrary : <HomeView onNavigate={setMode} />
+        ) : mode === "export" ? (
           <ExportView />
         ) : mode === "player" ? (
           playbackErrored ? (

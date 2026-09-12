@@ -9,6 +9,7 @@ import type { Dict } from "./en";
 
 export const fr: Dict = {
   nav: {
+    home: "Accueil",
     filesGroup: "Fichiers",
     library: "Audiothèque",
     utilities: "Utilitaires",
@@ -21,6 +22,21 @@ export const fr: Dict = {
     editor: "Éditeur de piste",
     player: "Lecteur",
     export: "Exporter",
+  },
+
+  home: {
+    title: "Accueil",
+    seeAll: "Tout voir",
+    missingCoversLabel: "Pochettes manquantes",
+    missingCoversVerb: "à ajouter",
+    missingCoversSettled: "Tout est couvert",
+    unsortedLabel: "Non triées",
+    unsortedVerb: "à trier",
+    unsortedSettled: "Tout est trié",
+    unsortedInvite: "Rien à trier.",
+    recentlyPlayedLabel: "Écoutées récemment",
+    mostPlayedLabel: "Les plus écoutées",
+    playInvite: "Lancez une lecture, elle apparaîtra ici.",
   },
 
   common: {

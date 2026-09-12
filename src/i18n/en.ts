@@ -8,6 +8,7 @@
 
 export const en = {
   nav: {
+    home: "Home",
     filesGroup: "Files",
     library: "Library",
     utilities: "Utilities",
@@ -20,6 +21,21 @@ export const en = {
     editor: "Track Editor",
     player: "Player",
     export: "Export",
+  },
+
+  home: {
+    title: "Home",
+    seeAll: "See all",
+    missingCoversLabel: "Missing covers",
+    missingCoversVerb: "need art",
+    missingCoversSettled: "All covered",
+    unsortedLabel: "Unsorted",
+    unsortedVerb: "to sort",
+    unsortedSettled: "All sorted",
+    unsortedInvite: "Nothing waiting to be sorted.",
+    recentlyPlayedLabel: "Recently played",
+    mostPlayedLabel: "Most played",
+    playInvite: "Play something and it lands here.",
   },
 
   common: {

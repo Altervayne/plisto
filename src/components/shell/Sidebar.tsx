@@ -4,7 +4,14 @@ import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
 
 // -- Icon Imports --
-import { LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
+import { Home, LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
+
+// -- State Imports --
+import { useAppMode } from "../../state/player/store";
+
+// -- Unit Imports --
+import { NAV_SECTIONS, isDestinationVisible, isSectionVisible } from "./navVisibility";
+import type { Mode } from "./navVisibility";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -12,27 +19,15 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./Sidebar.module.css";
 
-/** The region showing in the main pane: a library wall, the export screen, or settings. */
-type Mode =
-  | "files"
-  | "tracks"
-  | "unsorted"
-  | "albums"
-  | "singles"
-  | "playlists"
-  | "covers"
-  | "editor"
-  | "player"
-  | "export"
-  | "settings";
-
 /**
  * The sidebar: three labeled sections - Files, Library, Utilities - over the mini-player and Settings
  * pinned to the bottom past the spacer. Transparent ground, so it flows into the main region with no
  * divider. Brand and library identity live in the title bar; folder actions live in Settings.
  *
  * `collapsed` clips and fades the whole rail as the shell closes its column. `bare` drops the nav
- * sections when the revealed sidebar has no library to list, leaving only the foot.
+ * sections when the revealed sidebar has no library to list, leaving only the foot. The app mode shapes
+ * what remains: Player drops the file and utility sections, Organizer drops the all-tracks and player
+ * rows, and a section whose rows all go takes its label with it. The foot always shows.
  */
 export function Sidebar({
   mode,
@@ -60,6 +55,7 @@ export function Sidebar({
   bare?: boolean;
 }) {
   const t = useT();
+  const appMode = useAppMode();
 
   return (
     <aside
@@ -68,84 +64,119 @@ export function Sidebar({
     >
       {bare ? null : (
         <>
-          <div className={styles.navgroup}>
-            <div className={styles.navlabel}>{t((d) => d.nav.filesGroup)}</div>
-            <NavItem
-              icon={<LayoutGrid size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.files)}
-              count={filesCount}
-              active={mode === "files"}
-              onClick={() => onModeChange("files")}
-            />
-            <NavItem
-              icon={<Inbox size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.unsorted)}
-              count={unsortedCount}
-              active={mode === "unsorted"}
-              onClick={() => onModeChange("unsorted")}
-            />
-            <NavItem
-              icon={<Images size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.covers)}
-              count={coversCount}
-              active={mode === "covers"}
-              onClick={() => onModeChange("covers")}
-            />
-          </div>
+          {/* Home tops the rail above the sections: the landing every mode shares, so it stands apart
+              from the mode-shaped groups below and carries no count. */}
+          <NavItem
+            icon={<Home size={17} strokeWidth={1.8} />}
+            label={t((d) => d.nav.home)}
+            active={mode === "home"}
+            onClick={() => onModeChange("home")}
+          />
 
-          <div className={styles.navgroup}>
-            <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
-            <NavItem
-              icon={<Library size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.tracks)}
-              count={tracksCount}
-              active={mode === "tracks"}
-              onClick={() => onModeChange("tracks")}
-            />
-            <NavItem
-              icon={<Disc size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.albums)}
-              count={albumsCount}
-              active={mode === "albums"}
-              onClick={() => onModeChange("albums")}
-            />
-            <NavItem
-              icon={<Disc3 size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.singles)}
-              count={singlesCount}
-              active={mode === "singles"}
-              onClick={() => onModeChange("singles")}
-            />
-            <NavItem
-              icon={<ListMusic size={17} strokeWidth={1.8} />}
-              label={t((d) => d.playlists.nav)}
-              count={playlistsCount}
-              active={mode === "playlists"}
-              onClick={() => onModeChange("playlists")}
-            />
-            <NavItem
-              icon={<Radio size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.player)}
-              active={mode === "player"}
-              onClick={() => onModeChange("player")}
-            />
-          </div>
+          {isSectionVisible(appMode, NAV_SECTIONS.files) ? (
+            <div className={styles.navgroup}>
+              <div className={styles.navlabel}>{t((d) => d.nav.filesGroup)}</div>
+              {isDestinationVisible(appMode, "files") ? (
+                <NavItem
+                  icon={<LayoutGrid size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.files)}
+                  count={filesCount}
+                  active={mode === "files"}
+                  onClick={() => onModeChange("files")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "unsorted") ? (
+                <NavItem
+                  icon={<Inbox size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.unsorted)}
+                  count={unsortedCount}
+                  active={mode === "unsorted"}
+                  onClick={() => onModeChange("unsorted")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "covers") ? (
+                <NavItem
+                  icon={<Images size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.covers)}
+                  count={coversCount}
+                  active={mode === "covers"}
+                  onClick={() => onModeChange("covers")}
+                />
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className={styles.navgroup}>
-            <div className={styles.navlabel}>{t((d) => d.nav.utilities)}</div>
-            <NavItem
-              icon={<AudioLines size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.editor)}
-              active={mode === "editor"}
-              onClick={() => onModeChange("editor")}
-            />
-            <NavItem
-              icon={<Download size={17} strokeWidth={1.8} />}
-              label={t((d) => d.nav.export)}
-              active={mode === "export"}
-              onClick={() => onModeChange("export")}
-            />
-          </div>
+          {isSectionVisible(appMode, NAV_SECTIONS.library) ? (
+            <div className={styles.navgroup}>
+              <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
+              {isDestinationVisible(appMode, "tracks") ? (
+                <NavItem
+                  icon={<Library size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.tracks)}
+                  count={tracksCount}
+                  active={mode === "tracks"}
+                  onClick={() => onModeChange("tracks")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "albums") ? (
+                <NavItem
+                  icon={<Disc size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.albums)}
+                  count={albumsCount}
+                  active={mode === "albums"}
+                  onClick={() => onModeChange("albums")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "singles") ? (
+                <NavItem
+                  icon={<Disc3 size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.singles)}
+                  count={singlesCount}
+                  active={mode === "singles"}
+                  onClick={() => onModeChange("singles")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "playlists") ? (
+                <NavItem
+                  icon={<ListMusic size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.playlists.nav)}
+                  count={playlistsCount}
+                  active={mode === "playlists"}
+                  onClick={() => onModeChange("playlists")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "player") ? (
+                <NavItem
+                  icon={<Radio size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.player)}
+                  active={mode === "player"}
+                  onClick={() => onModeChange("player")}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {isSectionVisible(appMode, NAV_SECTIONS.utilities) ? (
+            <div className={styles.navgroup}>
+              <div className={styles.navlabel}>{t((d) => d.nav.utilities)}</div>
+              {isDestinationVisible(appMode, "editor") ? (
+                <NavItem
+                  icon={<AudioLines size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.editor)}
+                  active={mode === "editor"}
+                  onClick={() => onModeChange("editor")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "export") ? (
+                <NavItem
+                  icon={<Download size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.export)}
+                  active={mode === "export"}
+                  onClick={() => onModeChange("export")}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
 
