@@ -1,7 +1,7 @@
 // -- Component Imports --
 import { NavItem } from "./NavItem";
 import { MiniPlayer } from "../player/MiniPlayer";
-import { PlayerToggle } from "../player/PlayerToggle";
+import { AppModeSwitch } from "../player/AppModeSwitch";
 
 // -- Icon Imports --
 import { LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
@@ -155,10 +155,11 @@ export function Sidebar({
           first play, so the foot stays clean before then. */}
       <MiniPlayer onExpand={() => onModeChange("player")} />
 
-      {/* The show/hide switch and Settings pair as one foot group, tight together and apart from the
-          mini above. The switch is soft-off: it never stops a playing track, so the mini above stays. */}
+      {/* The mode switch and Settings pair as one foot group, tight together and apart from the mini
+          above. The switch is soft: Organizer only hides the play chrome, never stopping a track, so the
+          mini above stays. */}
       <div className={styles.footgroup}>
-        <PlayerToggle />
+        <AppModeSwitch />
         <NavItem
           icon={<Settings size={17} strokeWidth={1.8} />}
           label={t((d) => d.settings.nav)}

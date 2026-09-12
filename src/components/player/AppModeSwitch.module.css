@@ -1,0 +1,8 @@
+/* Centers the compact segmented switch in the foot group, parted from the Settings row below it by a
+ * touch of space. The control keeps its own pill width rather than stretching, so the three icon chips
+ * sit as one tidy cluster above the full-width Settings row. */
+.wrap {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 4px;
+}

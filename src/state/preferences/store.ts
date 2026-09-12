@@ -24,6 +24,7 @@ export const PREF_KEYS = {
   spliceThresholdDb: "splice_threshold_db",
   splicePaddingMs: "splice_padding_ms",
   playerEnabled: "player_enabled",
+  appMode: "app_mode",
   outputDevice: "output_device",
   // The backend reads this same kv key by name to seed its close-behavior mirror, so both sides
   // spell it identically.

@@ -238,17 +238,35 @@ export const usePlayerQueueIndex = (): number => usePlayerStore((s) => s.status.
 export const usePlayingFrom = (): PlaybackSource | null =>
   usePlayerStore((s) => s.playingFrom);
 
-/**
- * Whether the play affordances show. Persisted, default on (an absent pref reads on). A soft switch: it
- * only hides the play chrome, never touches the engine, so a running track stays audible from the mini.
- */
-export const usePlayerEnabled = (): boolean => usePreference(PREF_KEYS.playerEnabled) !== "0";
+/** The app's working identity. `player` and `both` show the play affordances; `organizer` hides them. */
+export type AppMode = "player" | "organizer" | "both";
 
-/** Flips the player-enabled pref. No playback side effect: quieting the controls never stops a track. */
-export const useSetPlayerEnabled = (): ((on: boolean) => void) => {
-  const setPreference = useSetPreference();
-  return (on) => setPreference(PREF_KEYS.playerEnabled, on ? "1" : "0");
+const APP_MODES: readonly string[] = ["player", "organizer", "both"];
+
+/**
+ * The current app mode. Persisted, default `both`. When the pref is absent, fall back to the old
+ * player-enabled boolean: a stored "0" lands in `organizer`, anything else in `both`, so a user who
+ * had turned the player off keeps its hidden chrome under the new switch.
+ */
+export const useAppMode = (): AppMode => {
+  const stored = usePreference(PREF_KEYS.appMode);
+  const legacyEnabled = usePreference(PREF_KEYS.playerEnabled);
+  if (stored && APP_MODES.includes(stored)) return stored as AppMode;
+  return legacyEnabled === "0" ? "organizer" : "both";
 };
+
+/** Sets the app mode. No playback side effect: switching mode never stops a running track. */
+export const useSetAppMode = (): ((mode: AppMode) => void) => {
+  const setPreference = useSetPreference();
+  return (mode) => setPreference(PREF_KEYS.appMode, mode);
+};
+
+/**
+ * Whether the play affordances show - the row triangles, the cover disc, the menu Play entries. Derived
+ * from the app mode: only `organizer` hides them. A soft gate that never touches the engine, so a
+ * running track stays audible from the mini even when hidden.
+ */
+export const usePlayerEnabled = (): boolean => useAppMode() !== "organizer";
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once, then follows the
