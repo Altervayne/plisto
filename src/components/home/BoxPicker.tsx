@@ -21,6 +21,9 @@ export const BOX_LABEL: Record<BoxType, (d: Dict) => string> = {
   unsortedPreview: (d) => d.home.unsortedLabel,
   recentlyPlayed: (d) => d.home.recentlyPlayedLabel,
   mostPlayed: (d) => d.home.mostPlayedLabel,
+  missingMetadata: (d) => d.home.missingMetaLabel,
+  playNext: (d) => d.home.playNextLabel,
+  moreFromArtist: (d) => d.home.moreFromArtistLabel,
 };
 
 /** Each type's one-line picker description. */
@@ -30,6 +33,9 @@ const DESC: Record<BoxType, (d: Dict) => string> = {
   unsortedPreview: (d) => d.home.boxDesc.unsortedPreview,
   recentlyPlayed: (d) => d.home.boxDesc.recentlyPlayed,
   mostPlayed: (d) => d.home.boxDesc.mostPlayed,
+  missingMetadata: (d) => d.home.boxDesc.missingMetadata,
+  playNext: (d) => d.home.boxDesc.playNext,
+  moreFromArtist: (d) => d.home.boxDesc.moreFromArtist,
 };
 
 /**
@@ -64,6 +70,7 @@ export function BoxPicker({
   const present = new Set(layout.map((box) => box.type));
   const stats = BOX_ORDER.filter((type) => boxShape(type) === "stat");
   const lists = BOX_ORDER.filter((type) => boxShape(type) === "list");
+  const suggestions = BOX_ORDER.filter((type) => boxShape(type) === "suggestion");
 
   const group = (title: string, types: readonly BoxType[]) => (
     <div className={styles.group}>
@@ -101,6 +108,7 @@ export function BoxPicker({
       >
         {group(t((d) => d.home.groupStats), stats)}
         {group(t((d) => d.home.groupLists), lists)}
+        {group(t((d) => d.home.groupSuggestions), suggestions)}
       </div>
     </>
   );

@@ -1,8 +1,8 @@
 /*
  * The bento grid: boxes laid on a fixed-unit grid whose column count follows the measured content
  * width, the same content-width read the walls use. Dense flow backfills the gaps a wide box leaves, so
- * a handful of mixed-size boxes tile without holes. The 22px gap is the only thing parting one box from
- * the next - no lines, no panels.
+ * a handful of mixed-size boxes tile without holes. Each box is a surfaced card so the arrangeable grid
+ * reads as distinct tiles, matching the Player card; the 22px gap parts one from the next.
  */
 .grid {
   display: grid;
@@ -13,11 +13,18 @@
   align-content: start;
 }
 
-/* One placed box. The span rides inline style off its size, capped to the live column count so a wide
- * box never overflows a narrow grid. */
+/* One placed box, a surfaced card. The span rides inline style off its size, capped to the live column
+ * count so a wide box never overflows a narrow grid. It owns the inner padding, so the content clips to
+ * the rounded corners and never touches the border. */
 .cell {
   min-width: 0;
   min-height: 0;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--veil);
+  background: var(--surface-pearl);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 
 /* The add-box tile trails the arrange grid in one cell, the picker anchored under it. */

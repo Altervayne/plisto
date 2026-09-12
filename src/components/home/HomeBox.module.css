@@ -1,8 +1,8 @@
 /*
- * The two Home box shapes on the continuous surface: a stat and a cover preview. A box is frameless -
- * transparent, no border, no fill, no shadow of its own; the grid gap and the micro-label are what mark
- * it out. Only the covers inside a preview are objects: they carry the shadow and lift, exactly like the
- * walls. A clickable stat warms with the veil alone, never a shadow, so the frameless read holds.
+ * The two Home box shapes: a stat and a cover preview. Each shape fills a surfaced card the cell owns, so
+ * the box itself supplies no fill or border; the covers inside a preview are objects on that card, carrying
+ * the shadow and lift like the walls. A clickable stat is a whole-box target, so its hover lifts the card
+ * fill rather than bleeding a veil.
  */
 
 /* The micro-label naming a box. Uppercase and quiet, the label the box is defined by. */
@@ -27,18 +27,16 @@
 
 /* -- Stat -- */
 
-/* The whole stat is the click target to its destination. Frameless at rest; a faint veil on hover marks
- * the region without a shadow. The negative inline margin lets that veil bleed past the text edge while
- * the content still lines up on the grid. */
+/* The whole stat is the click target to its destination. It fills the card the cell pads; on hover the
+ * card fill lifts to --surface-2 to mark the region, no shadow, keeping the single-accent read. */
 .stat {
   display: flex;
   flex-direction: column;
   gap: 7px;
   height: 100%;
-  margin: 0 -12px;
-  padding: 10px 12px;
+  margin: -16px;
+  padding: 16px;
   border: 0;
-  border-radius: var(--r-md);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -46,7 +44,7 @@
 }
 
 .stat:hover {
-  background: var(--veil);
+  background: var(--surface-2);
 }
 
 .stat:focus-visible {
@@ -86,7 +84,6 @@
   gap: 12px;
   height: 100%;
   min-width: 0;
-  padding: 10px 0;
 }
 
 .head {
@@ -129,7 +126,7 @@
 /* One compact cover item: the cover object over a title and artist, the wall's grammar at a smaller
  * size. The cover is the only object - it lifts and takes the shadow through --cover-shadow. */
 .item {
-  width: 108px;
+  width: 88px;
   display: flex;
   flex-direction: column;
   gap: 8px;

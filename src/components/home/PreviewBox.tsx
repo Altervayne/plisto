@@ -9,7 +9,7 @@ import { Cover } from "../common/Cover/Cover";
 import { CardMeta } from "../albums/CardMeta";
 
 // -- Hook Imports --
-import { useTrackThumb } from "../covers/useTrackThumb";
+import { useTrackDetail } from "../covers/useTrackThumb";
 
 // -- Utils Imports --
 import { columnCount } from "../tracks/trackCardLayout";
@@ -21,7 +21,8 @@ import type { TrackRow } from "../../types";
 import styles from "./HomeBox.module.css";
 
 // The compact cover item's width and the gutter between items, fed to the same fit math the walls use.
-const ITEM_WIDTH = 108;
+// Held under the surfaced card's content height so the item's caption never clips at the bottom edge.
+const ITEM_WIDTH = 88;
 const ITEM_GAP = 14;
 
 /**
@@ -92,7 +93,7 @@ function PreviewItem({
   track: TrackRow;
   onPlay?: (track: TrackRow) => void;
 }) {
-  const coverSrc = useTrackThumb(track.id);
+  const coverSrc = useTrackDetail(track.id);
   const title = track.title_edit ?? track.raw_title ?? track.filename;
   const artist = track.artist_edit ?? track.raw_artist ?? "";
   // A gone source cannot play, matching the wall: no disc, no click.

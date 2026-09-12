@@ -47,8 +47,8 @@ interface BentoProps {
 /**
  * The responsive span grid for the landing's boxes. It measures its own content width to fix the column
  * count and the live cell width, then lays each box across the columns and rows its size names, capped
- * so a wide box never spills a narrow grid. At rest the boxes are frameless and live; in arrange each
- * lifts into a movable object and a trailing tile adds a new box.
+ * so a wide box never spills a narrow grid. Each box is a surfaced card, so the grid reads as distinct
+ * tiles; in arrange each lifts into a movable object and a trailing tile adds a new box.
  */
 export function Bento({
   layout,

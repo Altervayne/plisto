@@ -5,15 +5,29 @@
  * never learns a box's data. Every box takes the shared nav callback and routes to its own destination.
  */
 
+// -- Framework Imports --
+import { useMemo } from "react";
+
 // -- Component Imports --
 import { StatBox } from "./StatBox";
 import { PreviewBox } from "./PreviewBox";
+import { SuggestionBox } from "./SuggestionBox";
+
+// -- Unit Imports --
+import {
+  countMissingMetadata,
+  pickPlayNext,
+  topArtistFrom,
+  tracksByArtist,
+} from "./homeSuggestions";
+import { resolveFacet } from "../tracks/trackFacets";
 
 // -- State Imports --
 import { useNeedsCoverCount } from "../../state/covers/store";
-import { useUnsortedTracks } from "../../state/organize/store";
+import { useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
 import { useMostPlayed, useRecentlyPlayed } from "../../state/player/playHistory";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { useSetLibraryFacets, useTracks } from "../../state/store";
 
 // -- Type Imports --
 import type { BoxType } from "./boxCatalog";
@@ -118,11 +132,103 @@ function MostPlayedBox(_: HomeBoxProps) {
   );
 }
 
-/** Each box type's component. The single point H3 extends alongside its catalog entry. */
+function MissingMetadataBox({ onNavigate }: HomeBoxProps) {
+  const t = useT();
+  const count = countMissingMetadata(useTracks());
+  return (
+    <StatBox
+      label={t((d) => d.home.missingMetaLabel)}
+      count={count}
+      verb={t((d) => d.home.missingMetaVerb)}
+      settled={t((d) => d.home.missingMetaSettled)}
+      onClick={() => onNavigate("tracks")}
+    />
+  );
+}
+
+function PlayNextBox(_: HomeBoxProps) {
+  const t = useT();
+  const tracks = useTracks();
+  const recent = useRecentlyPlayed(PREVIEW_LIMIT);
+  const seed = recent[0] ?? null;
+  // Locate the seed's album so the album-next branch can walk it; -1 stands in when the seed is loose,
+  // which yields no membership rows.
+  const membership = useMembership();
+  const albumId = seed ? membership.find((r) => r.track_id === seed.id)?.album_id : undefined;
+  const albumTracks = useAlbumTracks(albumId ?? -1);
+  const onPlay = usePreviewPlay();
+
+  const suggestion = useMemo(() => {
+    if (!seed) return null;
+    const byId = new Map(tracks.map((row) => [row.id, row] as const));
+    const seedAlbumTracks = albumTracks
+      .map((r) => byId.get(r.track_id))
+      .filter((row): row is TrackRow => row != null);
+    const artist = resolveFacet(seed, "artist");
+    const artistTracks = artist ? tracksByArtist(tracks, artist, tracks.length, [seed.id]) : [];
+    return pickPlayNext(seed, seedAlbumTracks, artistTracks, recent.map((r) => r.id));
+  }, [seed, tracks, albumTracks, recent]);
+
+  // The why-line: the album continuation or the artist fallback, each named. An empty name yields no
+  // line rather than a bare "Next in".
+  const reason = suggestion?.reason;
+  const context =
+    reason?.kind === "album" && reason.album
+      ? t((d) => d.home.playNextInAlbum, { album: reason.album })
+      : reason?.kind === "artist" && reason.artist
+        ? t((d) => d.home.playNextFromArtist, { artist: reason.artist })
+        : undefined;
+
+  return (
+    <SuggestionBox
+      label={t((d) => d.home.playNextLabel)}
+      track={suggestion?.track ?? null}
+      context={context}
+      invite={t((d) => d.home.playNextInvite)}
+      onPlay={onPlay}
+    />
+  );
+}
+
+function MoreFromArtistBox({ onNavigate }: HomeBoxProps) {
+  const t = useT();
+  const tracks = useTracks();
+  const artist = topArtistFrom(useMostPlayed(1));
+  const setFacets = useSetLibraryFacets();
+  const onPlay = usePreviewPlay();
+
+  const rows = useMemo(
+    () => (artist ? tracksByArtist(tracks, artist, PREVIEW_LIMIT) : []),
+    [tracks, artist],
+  );
+
+  return (
+    <PreviewBox
+      label={artist ? t((d) => d.home.moreFromArtistNamed, { artist }) : t((d) => d.home.moreFromArtistLabel)}
+      rows={rows}
+      invite={t((d) => d.home.moreFromArtistInvite)}
+      seeAllLabel={artist ? t((d) => d.home.seeAll) : undefined}
+      onSeeAll={
+        artist
+          ? () => {
+              setFacets([{ facet: "artist", value: artist }]);
+              onNavigate("tracks");
+            }
+          : undefined
+      }
+      onPlay={onPlay}
+    />
+  );
+}
+
+/** Each box type's component. The single point to extend alongside its catalog entry. */
 export const BOX_COMPONENTS: Record<BoxType, (props: HomeBoxProps) => ReactNode> = {
   missingCovers: MissingCoversBox,
   unsortedStat: UnsortedStatBox,
   unsortedPreview: UnsortedPreviewBox,
   recentlyPlayed: RecentlyPlayedBox,
   mostPlayed: MostPlayedBox,
+  missingMetadata: MissingMetadataBox,
+  playNext: PlayNextBox,
+  moreFromArtist: MoreFromArtistBox,
 };

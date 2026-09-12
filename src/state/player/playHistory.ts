@@ -1,8 +1,9 @@
 /*
  * The play-history reads for the Home previews: the recently- and most-played track ids fetched on
- * mount, mapped through the in-memory track index to rows. The engine records plays by id alone, so the
- * ids resolve here against the same full library snapshot the player queue reads. An id with no row -
- * gone since it last played - drops out, and a cold empty result yields an empty list.
+ * mount and on each recorded play, mapped through the in-memory track index to rows. The engine records
+ * plays by id alone, so the ids resolve here against the same full library snapshot the player queue
+ * reads. An id with no row - gone since it last played - drops out, and a cold empty result yields an
+ * empty list.
  */
 
 // -- Framework Imports --
@@ -10,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 
 // -- State Imports --
 import { useTracks } from "../store";
+import { usePlaysVersion } from "./store";
 
 // -- IPC Imports --
 import { getMostPlayed, getRecentlyPlayed } from "../../lib/ipc";
@@ -31,9 +33,13 @@ export function resolveTrackRows(ids: number[], tracks: TrackRow[]): TrackRow[] 
   return rows;
 }
 
-/** Fetches a history query once on mount, then keeps its ids resolved against the live track index. */
+/**
+ * Fetches a history query on mount and on each recorded play, then keeps its ids resolved against the
+ * live track index. The plays version rises after the insert lands, so the refetch reads the new row in.
+ */
 function usePlayHistory(fetchIds: (limit: number) => Promise<number[]>, limit: number): TrackRow[] {
   const tracks = useTracks();
+  const playsVersion = usePlaysVersion();
   const [ids, setIds] = useState<number[]>([]);
 
   useEffect(() => {
@@ -46,7 +52,7 @@ function usePlayHistory(fetchIds: (limit: number) => Promise<number[]>, limit: n
     return () => {
       alive = false;
     };
-  }, [fetchIds, limit]);
+  }, [fetchIds, limit, playsVersion]);
 
   return useMemo(() => resolveTrackRows(ids, tracks), [ids, tracks]);
 }

@@ -6,7 +6,7 @@
  */
 
 // -- Library Imports --
-use tauri::{AppHandle, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 
 // -- Local Imports --
 use crate::adhoc::is_ad_hoc;
@@ -31,7 +31,10 @@ pub fn init(app: &AppHandle) {
         }
         if let Some(state) = handle.try_state::<AppState>() {
             if let Ok(conn) = state.db.lock() {
-                let _ = db::insert_play(&conn, report.track_id, report.completed);
+                // Signal the frontend only when the row lands, so its refetch reads the new play in.
+                if db::insert_play(&conn, report.track_id, report.completed).is_ok() {
+                    let _ = handle.emit("plays:changed", ());
+                }
             }
         }
     });

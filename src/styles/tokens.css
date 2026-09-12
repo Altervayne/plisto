@@ -41,6 +41,20 @@
   --shadow-soft: 0 6px 20px -14px rgba(20, 20, 45, 0.3);
   --shadow-pop: 0 18px 40px -20px rgba(20, 20, 45, 0.35);
 
+  /* A pearl sheen over --surface for the Home cards: faint corner light-catches, the hue drifting
+   * across a narrow band so none reads as accent, fading before the centre so card text stays clean. */
+  --surface-pearl:
+    linear-gradient(
+      122deg,
+      rgba(56, 150, 170, 0.05) 0%,
+      transparent 32%,
+      transparent 66%,
+      rgba(120, 116, 188, 0.045) 100%
+    ),
+    radial-gradient(120% 86% at 3% -4%, rgba(30, 156, 192, 0.055), transparent 46%),
+    radial-gradient(118% 90% at 100% 104%, rgba(122, 116, 190, 0.05), transparent 48%),
+    var(--surface);
+
   /* -- Ambient ground: three soft radial washes over --bg -- */
   --ambient:
     radial-gradient(80% 60% at 6% -6%, rgba(30, 156, 192, 0.12), transparent 55%),
@@ -98,6 +112,20 @@
     --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
     --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
 
+    /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
+     * same narrow hue drift, so a dark card looks like it catches a little light. */
+    --surface-pearl:
+      linear-gradient(
+        122deg,
+        rgba(79, 184, 212, 0.058) 0%,
+        transparent 32%,
+        transparent 66%,
+        rgba(150, 140, 214, 0.05) 100%
+      ),
+      radial-gradient(120% 86% at 3% -4%, rgba(120, 200, 224, 0.062), transparent 46%),
+      radial-gradient(118% 90% at 100% 104%, rgba(150, 142, 216, 0.055), transparent 48%),
+      var(--surface);
+
     --ambient:
       radial-gradient(80% 60% at 6% -6%, rgba(79, 184, 212, 0.15), transparent 55%),
       radial-gradient(70% 55% at 104% 2%, rgba(74, 142, 190, 0.12), transparent 52%),
@@ -135,6 +163,20 @@
   --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
   --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
   --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
+
+  /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
+   * same narrow hue drift, so a dark card looks like it catches a little light. */
+  --surface-pearl:
+    linear-gradient(
+      122deg,
+      rgba(79, 184, 212, 0.058) 0%,
+      transparent 32%,
+      transparent 66%,
+      rgba(150, 140, 214, 0.05) 100%
+    ),
+    radial-gradient(120% 86% at 3% -4%, rgba(120, 200, 224, 0.062), transparent 46%),
+    radial-gradient(118% 90% at 100% 104%, rgba(150, 142, 216, 0.055), transparent 48%),
+    var(--surface);
 
   --ambient:
     radial-gradient(80% 60% at 6% -6%, rgba(79, 184, 212, 0.15), transparent 55%),

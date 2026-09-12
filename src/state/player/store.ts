@@ -96,6 +96,9 @@ function arrayMove<T>(list: T[], from: number, to: number): T[] {
 
 interface PlayerStore {
   status: PlayerStatus;
+  // Bumped on each `plays:changed` event. The play-history reads depend on it, so a recorded play
+  // refetches them without a remount. The event fires after the DB insert, so the new row is present.
+  playsVersion: number;
   // The engine's queue ids in play order, shuffle reflected. Its own slice so the status-tick subtree
   // never pulls it; changes only on a play or shuffle toggle.
   queue: number[];
@@ -109,6 +112,7 @@ interface PlayerStore {
   setStatus: (status: PlayerStatus) => void;
   setQueue: (queue: number[]) => void;
   setError: (error: PlayerNotice | null) => void;
+  bumpPlaysVersion: () => void;
   // One stable object, so a card selecting it never re-renders on a status tick. See the perf boundary above.
   actions: PlayerActions;
 }
@@ -151,6 +155,7 @@ function fillAdHocQueueMeta(
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   status: STOPPED,
+  playsVersion: 0,
   queue: [],
   queueMeta: {},
   playingFrom: null,
@@ -162,6 +167,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     fillAdHocQueueMeta(get, set, queue);
   },
   setError: (error) => set({ error }),
+  bumpPlaysVersion: () => set((s) => ({ playsVersion: s.playsVersion + 1 })),
   actions: {
     // Play records the frontend-only bits the engine cannot know: the source and a metadata snapshot of
     // the queued rows, resolved from the library cache.
@@ -238,6 +244,10 @@ export const usePlayerQueueIndex = (): number => usePlayerStore((s) => s.status.
 export const usePlayingFrom = (): PlaybackSource | null =>
   usePlayerStore((s) => s.playingFrom);
 
+// A monotonically rising token, bumped on each recorded play. The play-history reads depend on it to
+// refetch, so it changes only on `plays:changed`, never on a status tick.
+export const usePlaysVersion = (): number => usePlayerStore((s) => s.playsVersion);
+
 /** The app's working identity. `player` and `both` show the play affordances; `organizer` hides them. */
 export type AppMode = "player" | "organizer" | "both";
 
@@ -276,6 +286,7 @@ export function usePlayerSync(): void {
   const setStatus = usePlayerStore((s) => s.setStatus);
   const setQueue = usePlayerStore((s) => s.setQueue);
   const setError = usePlayerStore((s) => s.setError);
+  const bumpPlaysVersion = usePlayerStore((s) => s.bumpPlaysVersion);
 
   useEffect(() => {
     let alive = true;
@@ -308,6 +319,7 @@ export function usePlayerSync(): void {
       );
       unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
       unlisteners.push(await listen<PlayerNotice>("player:error", (e) => setError(e.payload)));
+      unlisteners.push(await listen("plays:changed", () => bumpPlaysVersion()));
     };
     void subscribe().catch(() => {});
 
@@ -316,5 +328,5 @@ export function usePlayerSync(): void {
       document.removeEventListener("visibilitychange", onVisibility);
       unlisteners.forEach((fn) => fn());
     };
-  }, [setStatus, setQueue, setError]);
+  }, [setStatus, setQueue, setError, bumpPlaysVersion]);
 }

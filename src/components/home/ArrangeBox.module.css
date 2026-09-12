@@ -1,17 +1,21 @@
 /*
- * A box in arrange: the only time a bento box becomes an object. It takes the surface and soft shadow,
- * a grab cursor over the whole face, and its controls - a remove disc, a size chip, and a corner grip.
- * The accent ring marks the box under focus, drag, or resize, the same ring a selected cover wears; the
- * drop target sinks to a dashed veil recess instead. The box content sits under a pointer-events veil so
- * its own covers and stats stay inert while the box is being moved.
+ * A box in arrange: the same surfaced card the rest grid shows, gaining the arrange affordances. It keeps
+ * the card surface, border, and soft shadow, adds a grab cursor over the whole face and its controls - a
+ * remove disc, a size chip, a corner grip - and lifts to the pop shadow while grabbed or active so a
+ * picked-up box reads above its neighbours. The accent ring marks the box under focus, drag, or resize,
+ * the same ring a selected cover wears; the drop target sinks to a dashed veil recess instead. Padding
+ * matches the rest cell's 16px all sides so a box sits identically in and out of arrange; .content clips
+ * what would spill the card. The box content sits under a pointer-events veil so its own covers and stats
+ * stay inert while it moves.
  */
 .box {
   position: relative;
   min-width: 0;
   min-height: 0;
-  padding: 12px 16px;
-  border-radius: var(--r-md);
-  background: var(--surface);
+  padding: 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--veil);
+  background: var(--surface-pearl);
   box-shadow: var(--shadow-soft);
   cursor: grab;
   transition:
@@ -20,11 +24,18 @@
 }
 
 .box:focus-visible,
-.box:focus-within,
-.box[data-active] {
+.box:focus-within {
   outline: none;
   box-shadow:
     var(--shadow-soft),
+    0 0 0 2px var(--accent);
+}
+
+/* Grabbed or active lifts above its neighbours: the pop shadow under the same accent ring. */
+.box[data-active],
+.box[data-dragging] {
+  box-shadow:
+    var(--shadow-pop),
     0 0 0 2px var(--accent);
 }
 
@@ -42,9 +53,11 @@
   outline-offset: -5px;
 }
 
-/* The box's own content, held inert under a veil so a move never triggers a play or a navigate. */
+/* The box's own content, held inert under a veil so a move never triggers a play or a navigate. Clipped
+ * so no box content ever spills past the card face; the box itself stays unclipped for the resize ghost. */
 .content {
   height: 100%;
+  overflow: hidden;
   pointer-events: none;
 }
 
