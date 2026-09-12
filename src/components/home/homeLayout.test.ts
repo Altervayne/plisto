@@ -71,11 +71,19 @@ describe("reorderLayout", () => {
     { type: "recentlyPlayed" as const, size: "M" as const },
   ];
 
-  it("moves a box into the target's slot", () => {
+  it("moves a box backward onto the target's slot", () => {
     expect(reorderLayout(base, "recentlyPlayed", "missingCovers")).toEqual([
       { type: "recentlyPlayed", size: "M" },
       { type: "missingCovers", size: "S" },
       { type: "unsortedStat", size: "S" },
+    ]);
+  });
+
+  it("moves a box forward to after the target, not before it", () => {
+    expect(reorderLayout(base, "missingCovers", "recentlyPlayed")).toEqual([
+      { type: "unsortedStat", size: "S" },
+      { type: "recentlyPlayed", size: "M" },
+      { type: "missingCovers", size: "S" },
     ]);
   });
 

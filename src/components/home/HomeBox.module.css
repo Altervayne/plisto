@@ -27,14 +27,15 @@
 
 /* -- Stat -- */
 
-/* The whole stat is the click target to its destination. It fills the card the cell pads; on hover the
- * card fill lifts to --surface-2 to mark the region, no shadow, keeping the single-accent read. */
+/* The whole stat is the click target to its destination. It fills the whole card (absolute over the
+ * padded cell), so its hover marks the entire tile, not a content-sized patch. The hover is a translucent
+ * veil, not an opaque fill, so the pearl sheen still reads through it. No shadow, single-accent read held. */
 .stat {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  height: 100%;
-  margin: -16px;
   padding: 16px;
   border: 0;
   background: transparent;
@@ -44,7 +45,7 @@
 }
 
 .stat:hover {
-  background: var(--surface-2);
+  background: var(--veil);
 }
 
 .stat:focus-visible {

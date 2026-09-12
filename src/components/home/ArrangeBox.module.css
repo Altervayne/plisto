@@ -1,10 +1,11 @@
 /*
  * A box in arrange: the same surfaced card the rest grid shows, gaining the arrange affordances. It keeps
  * the card surface, border, and soft shadow, adds a grab cursor over the whole face and its controls - a
- * remove disc, a size chip, a corner grip - and lifts to the pop shadow while grabbed or active so a
- * picked-up box reads above its neighbours. The accent ring marks the box under focus, drag, or resize,
- * the same ring a selected cover wears; the drop target sinks to a dashed veil recess instead. Padding
- * matches the rest cell's 16px all sides so a box sits identically in and out of arrange; .content clips
+ * remove disc, a size chip, a corner grip - and lifts to the pop shadow while resizing so a worked-on
+ * box reads above its neighbours. The accent ring marks the box under focus or resize, the same ring a
+ * selected cover wears; a dragged box hides in place while the overlay carries it and the grid reflows
+ * the rest in real order. Padding matches the rest cell's 16px all sides so a box sits identically in
+ * and out of arrange; .content clips
  * what would spill the card. The box content sits under a pointer-events veil so its own covers and stats
  * stay inert while it moves.
  */
@@ -18,6 +19,8 @@
   background: var(--surface-pearl);
   box-shadow: var(--shadow-soft);
   cursor: grab;
+  /* A drag surface never selects its own text on the way. */
+  user-select: none;
   transition:
     box-shadow var(--dur-fast) var(--ease-standard),
     opacity var(--dur-fast) var(--ease-standard);
@@ -31,31 +34,31 @@
     0 0 0 2px var(--accent);
 }
 
-/* Grabbed or active lifts above its neighbours: the pop shadow under the same accent ring. */
-.box[data-active],
-.box[data-dragging] {
+/* Resizing lifts the box above its neighbours: the pop shadow under the same accent ring. */
+.box[data-active] {
   box-shadow:
     var(--shadow-pop),
     0 0 0 2px var(--accent);
 }
 
-/* The lifted source fades while it rides the pointer, so the drop target reads as the live slot. */
+/* The source hides while the DragOverlay carries the moving copy. Its box keeps its grid cell, so the
+ * empty slot the neighbours reflow around is the live drop preview at the box's true size. */
 .box[data-dragging] {
-  opacity: 0.5;
-  cursor: grabbing;
+  opacity: 0;
 }
 
-/* The drop target sinks: the surface drops to a dashed recess rather than a hard framed border. */
+/* The box the drop will land before wears an accent ring. Ring only, no border or size change, so the
+ * droppable rect never moves under the cursor. */
 .box[data-drop] {
-  background: var(--veil-2);
-  box-shadow: none;
-  outline: 2px dashed var(--hairline);
-  outline-offset: -5px;
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 2px var(--accent);
 }
 
 /* The box's own content, held inert under a veil so a move never triggers a play or a navigate. Clipped
  * so no box content ever spills past the card face; the box itself stays unclipped for the resize ghost. */
 .content {
+  position: relative;
   height: 100%;
   overflow: hidden;
   pointer-events: none;

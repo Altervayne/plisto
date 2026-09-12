@@ -1,22 +1,27 @@
 /*
  * The bento grid: boxes laid on a fixed-unit grid whose column count follows the measured content
- * width, the same content-width read the walls use. Dense flow backfills the gaps a wide box leaves, so
- * a handful of mixed-size boxes tile without holes. Each box is a surfaced card so the arrangeable grid
- * reads as distinct tiles, matching the Player card; the 22px gap parts one from the next.
+ * width, capped at six, the same content-width read the walls use. Plain row flow places boxes strictly
+ * in array order and wraps them responsively, so order is the layout - no dense backfill pulling a later
+ * box forward into a gap. Each box is a surfaced card so the arrangeable grid reads as distinct tiles,
+ * matching the Player card; the 22px gap parts one from the next. The max-width holds the arrangement
+ * tuned and comfortably sized on a wide monitor instead of stretching the columns thin.
  */
 .grid {
   display: grid;
   grid-template-columns: repeat(var(--home-cols), minmax(0, 1fr));
   grid-auto-rows: 190px;
-  grid-auto-flow: row dense;
+  grid-auto-flow: row;
   gap: 22px;
   align-content: start;
+  max-width: 1500px;
+  margin-inline: auto;
 }
 
 /* One placed box, a surfaced card. The span rides inline style off its size, capped to the live column
  * count so a wide box never overflows a narrow grid. It owns the inner padding, so the content clips to
  * the rounded corners and never touches the border. */
 .cell {
+  position: relative;
   min-width: 0;
   min-height: 0;
   padding: 16px;
@@ -25,6 +30,31 @@
   background: var(--surface-pearl);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
+}
+
+/* The DragOverlay clone: the same surfaced card lifted to the pop shadow and accent ring, sized by
+ * @dnd-kit to the dragged box's own rect so the moving copy never scales. It rides the cursor while the
+ * real box hides in its reflowing slot below. */
+.overlayCard {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--veil);
+  background: var(--surface-pearl);
+  box-shadow:
+    var(--shadow-pop),
+    0 0 0 2px var(--accent);
+  cursor: grabbing;
+  overflow: hidden;
+}
+
+/* The clone's content, inert so the snapshot never fires a play or a navigate. */
+.overlayContent {
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* The add-box tile trails the arrange grid in one cell, the picker anchored under it. */

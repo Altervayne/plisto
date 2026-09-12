@@ -58,15 +58,18 @@ export function serializeLayout(layout: BoxSeed[]): string {
   return JSON.stringify(layout);
 }
 
-/** Moves `fromType` into `toType`'s slot, sliding the rest along. A no-op when either is absent. */
+/** Moves `fromType` to `toType`'s position, sliding the rest along: a forward move lands after the
+ *  target, a backward move on it, so a drop lands where the pointer left it. A no-op when either is absent. */
 export function reorderLayout(layout: BoxSeed[], fromType: BoxType, toType: BoxType): BoxSeed[] {
   const from = layout.findIndex((box) => box.type === fromType);
   const to = layout.findIndex((box) => box.type === toType);
   if (from < 0 || to < 0 || from === to) return [...layout];
 
+  // Insert at the target's original index. Once the box is pulled out, a forward target has shifted back
+  // one, so this seats it after the target; a backward target is untouched, so it seats before it.
   const next = [...layout];
   const [moved] = next.splice(from, 1);
-  next.splice(next.findIndex((box) => box.type === toType), 0, moved);
+  next.splice(to, 0, moved);
   return next;
 }
 

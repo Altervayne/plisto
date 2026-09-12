@@ -88,6 +88,12 @@ export const fr: Dict = {
     revert: "rétablir",
   },
 
+  errorBoundary: {
+    title: "Une erreur est survenue",
+    line: "Plisto a rencontré une erreur inattendue. Redémarrez pour revenir à votre audiothèque.",
+    restart: "Redémarrer",
+  },
+
   scan: {
     pickerTitle: "Bienvenue dans Plisto",
     pickerSafety: "Plisto ne modifie pas les fichiers ou répertoires vers lesquels vous le dirigez. L'application se contente de les lire et indéxer pour les apporter dans votre espace de travail. Toute modification devra être exportée.",

@@ -87,6 +87,12 @@ export const en = {
     revert: "revert",
   },
 
+  errorBoundary: {
+    title: "Something went wrong",
+    line: "Plisto hit an unexpected error. Restart to get back to your library.",
+    restart: "Restart",
+  },
+
   scan: {
     pickerTitle: "Welcome to Plisto",
     pickerSafety: "Plisto does not alter the files or folders you point it to. It only reads and indexes them to bring them to your workspace. Any modifications have to be exported.",

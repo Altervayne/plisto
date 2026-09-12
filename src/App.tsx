@@ -6,6 +6,7 @@ import { TitleBar } from "./components/shell/TitleBar";
 import { WorkspaceGate } from "./components/WorkspaceGate";
 import { AppShell } from "./components/shell/AppShell";
 import { ConfirmQuitDialog } from "./components/shell/ConfirmQuitDialog";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 
 // -- State Imports --
 import { useLoadPreferences } from "./state/preferences/store";
@@ -52,16 +53,20 @@ function App() {
     <div className={styles.frame}>
       <TitleBar playerOnly={playerOnly} onOpenLibrary={openLibrary} />
       <div className={styles.content}>
-        {boot.phase === "pending" ? null : boot.phase === "standalone" ? (
-          <AppShell
-            standalone
-            initialFiles={boot.files}
-            sidebarExpanded={expanded}
-            onOpenLibrary={openLibrary}
-          />
-        ) : (
-          <WorkspaceGate />
-        )}
+        {/* The title bar sits above this, outside the boundary, so its window controls survive a crash
+            in the content below. */}
+        <ErrorBoundary>
+          {boot.phase === "pending" ? null : boot.phase === "standalone" ? (
+            <AppShell
+              standalone
+              initialFiles={boot.files}
+              sidebarExpanded={expanded}
+              onOpenLibrary={openLibrary}
+            />
+          ) : (
+            <WorkspaceGate />
+          )}
+        </ErrorBoundary>
       </div>
       <ConfirmQuitDialog />
     </div>

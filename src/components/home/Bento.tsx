@@ -2,6 +2,26 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
+// -- Library Imports --
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MeasuringStrategy,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+
 // -- Icon Imports --
 import { Plus } from "lucide-react";
 
@@ -64,16 +84,18 @@ export function Bento({
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [cols, setCols] = useState(1);
   const [cellWidth, setCellWidth] = useState(BASE_COL);
-  const [draggingType, setDraggingType] = useState<BoxType | null>(null);
-  const [dropTargetType, setDropTargetType] = useState<BoxType | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [activeType, setActiveType] = useState<BoxType | null>(null);
+  const [overType, setOverType] = useState<BoxType | null>(null);
 
   useLayoutEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
     const measure = () => {
       const width = grid.clientWidth;
-      const count = columnCount(width, BASE_COL, GAP);
+      // Cap the columns at six so a wide monitor keeps the arrangement stable instead of thinning the
+      // boxes across ever more tracks.
+      const count = Math.min(6, columnCount(width, BASE_COL, GAP));
       setCols(count);
       // The flexible track width the boxes actually occupy, the gaps taken out of the content width.
       setCellWidth((width - (count - 1) * GAP) / count);
@@ -84,14 +106,47 @@ export function Bento({
     return () => observer.disconnect();
   }, []);
 
-  // Leaving arrange drops any transient arrange state, so re-entering starts clean.
+  // A few px of travel arms a drag; the keyboard sensor drives the accessible reorder.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // The overlay renders the lifted box, so track it from the start.
+  const onDragStart = ({ active }: DragStartEvent) => setActiveType(active.id as BoxType);
+  const clearDrag = () => {
+    setActiveType(null);
+    setOverType(null);
+  };
+
+  // Outline the box the drop will land before. Visual only: an outline never shifts the grid, so the
+  // over target stays put and the drag can't loop.
+  const onDragOver = ({ active, over }: DragOverEvent) => {
+    setOverType(over && over.id !== active.id ? (over.id as BoxType) : null);
+  };
+
+  // Commit the move once, on drop: reorderLayout slots the box before the target. The grid holds still
+  // through the drag and reflows only here, so the over target never shifts under the cursor mid-drag -
+  // the reorder-render-reorder loop that a live reflow would spin.
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (over && active.id !== over.id) {
+      const from = layout.findIndex((box) => box.type === active.id);
+      const to = layout.findIndex((box) => box.type === over.id);
+      if (from >= 0 && to >= 0) reorder(active.id as BoxType, over.id as BoxType);
+    }
+    clearDrag();
+  };
+
+  // Leaving arrange drops the picker and any lifted box, so re-entering starts clean.
   useEffect(() => {
     if (!arranging) {
       setPickerOpen(false);
-      setDraggingType(null);
-      setDropTargetType(null);
+      setActiveType(null);
+      setOverType(null);
     }
   }, [arranging]);
+
+  const ActiveBox = activeType ? BOX_COMPONENTS[activeType] : null;
 
   return (
     <div
@@ -100,23 +155,48 @@ export function Bento({
       style={{ "--home-cols": cols } as CSSProperties}
     >
       {arranging
-        ? layout.map((seed) => (
-            <ArrangeBox
-              key={seed.type}
-              seed={seed}
-              layout={layout}
-              metrics={{ cols, cellWidth, rowHeight: ROW_H, gap: GAP }}
-              onNavigate={onNavigate}
-              reorder={reorder}
-              resize={resize}
-              cycle={cycle}
-              remove={remove}
-              draggingType={draggingType}
-              setDraggingType={setDraggingType}
-              dropTargetType={dropTargetType}
-              setDropTargetType={setDropTargetType}
-            />
-          ))
+        ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              // Measure droppables live: the reflow re-places boxes mid-drag, so a start snapshot would
+              // resolve collisions against stale cells.
+              measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDragEnd={onDragEnd}
+              onDragCancel={clearDrag}
+            >
+              <SortableContext items={layout.map((s) => s.type)} strategy={rectSortingStrategy}>
+                {layout.map((seed) => (
+                  <ArrangeBox
+                    key={seed.type}
+                    seed={seed}
+                    layout={layout}
+                    metrics={{ cols, cellWidth, rowHeight: ROW_H, gap: GAP }}
+                    onNavigate={onNavigate}
+                    reorder={reorder}
+                    resize={resize}
+                    cycle={cycle}
+                    remove={remove}
+                    isDropTarget={overType === seed.type}
+                  />
+                ))}
+              </SortableContext>
+
+              {/* The lifted copy that tracks the cursor at the box's true size, no scaling. It is an inert
+                  snapshot: the card chrome and the box content, none of the arrange controls. */}
+              <DragOverlay>
+                {ActiveBox ? (
+                  <div className={styles.overlayCard}>
+                    <div className={styles.overlayContent} aria-hidden="true">
+                      <ActiveBox onNavigate={onNavigate} />
+                    </div>
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          )
         : layout.map((seed) => {
             const Box = BOX_COMPONENTS[seed.type];
             const span = SIZE_SPAN[seed.size];

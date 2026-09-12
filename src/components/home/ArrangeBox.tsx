@@ -2,6 +2,9 @@
 import { useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
 
+// -- Library Imports --
+import { useSortable } from "@dnd-kit/sortable";
+
 // -- Icon Imports --
 import { X } from "lucide-react";
 
@@ -40,10 +43,7 @@ interface ArrangeBoxProps {
   resize: (type: BoxType, size: BoxSize) => void;
   cycle: (type: BoxType) => void;
   remove: (type: BoxType) => void;
-  draggingType: BoxType | null;
-  setDraggingType: (type: BoxType | null) => void;
-  dropTargetType: BoxType | null;
-  setDropTargetType: (type: BoxType | null) => void;
+  isDropTarget: boolean;
 }
 
 /** The pixel span a footprint of `count` cells covers, cells parted by the gap. */
@@ -55,7 +55,8 @@ function footprint(count: number, cell: number, gap: number): number {
  * A box lifted into an object for arrange: it carries the surface and shadow, a whole-box drag surface
  * for reorder, a corner grip and a size chip for resize, and a remove control. The box's own content
  * stays inert under a pointer-events veil, so StatBox and PreviewBox never learn about arrange. Drag
- * reorder rides HTML5 drag-and-drop; the grip rides pointer capture so it tracks past the box edge.
+ * reorder rides @dnd-kit's pointer sensor, the same one the queue uses; the grip rides pointer capture
+ * so it tracks past the box edge, and its pointerdown stops the sort from arming.
  */
 export function ArrangeBox({
   seed,
@@ -66,10 +67,7 @@ export function ArrangeBox({
   resize,
   cycle,
   remove,
-  draggingType,
-  setDraggingType,
-  dropTargetType,
-  setDropTargetType,
+  isDropTarget,
 }: ArrangeBoxProps) {
   const t = useT();
   const Box = BOX_COMPONENTS[seed.type];
@@ -79,14 +77,17 @@ export function ArrangeBox({
   const grippingRef = useRef(false);
   const [ghost, setGhost] = useState<BoxSize | null>(null);
 
+  // No transform off useSortable: the boxes are variable-span, so a scale/translate would size a card to
+  // whatever slot it slides through. The grid itself reflows in real order, and the DragOverlay carries
+  // the moving copy; this hook only feeds the node, collisions, and the lifted/hidden source state.
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: seed.type });
+
   const span = SIZE_SPAN[seed.size];
   const cell: CSSProperties = {
     gridColumn: `span ${Math.min(span.cols, metrics.cols)}`,
     gridRow: `span ${span.rows}`,
   };
 
-  const isDragging = draggingType === seed.type;
-  const isDropTarget = dropTargetType === seed.type && draggingType !== seed.type;
   const resizing = ghost != null;
 
   // -- Keyboard reorder: Ctrl+Arrow slides the focused box one slot along the array --
@@ -99,13 +100,6 @@ export function ArrangeBox({
     const index = layout.findIndex((box) => box.type === seed.type);
     const target = layout[index + (back ? -1 : 1)];
     if (target) reorder(seed.type, target.type);
-  };
-
-  // -- Drag reorder: the whole box is the handle; dropping onto another box takes its slot --
-  const onDrop = () => {
-    if (draggingType && draggingType !== seed.type) reorder(draggingType, seed.type);
-    setDraggingType(null);
-    setDropTargetType(null);
   };
 
   // -- Resize grip: read the pointer against the live cell metrics, snap to an allowed size --
@@ -142,36 +136,21 @@ export function ArrangeBox({
 
   return (
     <div
-      ref={outerRef}
+      ref={(node) => {
+        outerRef.current = node;
+        setNodeRef(node);
+      }}
       className={styles.box}
       style={cell}
-      // Resizing pins the box down so the grip drag never turns into a reorder drag.
-      draggable={!resizing}
+      {...attributes}
+      {...listeners}
       data-dragging={isDragging ? "" : undefined}
-      data-drop={isDropTarget ? "" : undefined}
+      data-drop={isDropTarget && !isDragging ? "" : undefined}
       data-active={resizing ? "" : undefined}
       tabIndex={0}
       role="group"
       aria-label={t(BOX_LABEL[seed.type])}
       onKeyDown={onKeyDown}
-      onDragStart={(event) => {
-        if (resizing) {
-          event.preventDefault();
-          return;
-        }
-        event.dataTransfer.effectAllowed = "move";
-        setDraggingType(seed.type);
-      }}
-      onDragEnd={() => {
-        setDraggingType(null);
-        setDropTargetType(null);
-      }}
-      onDragOver={(event) => {
-        if (!draggingType || draggingType === seed.type) return;
-        event.preventDefault();
-        setDropTargetType(seed.type);
-      }}
-      onDrop={onDrop}
     >
       <div className={styles.content} aria-hidden="true">
         <Box onNavigate={onNavigate} />
