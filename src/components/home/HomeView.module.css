@@ -1,0 +1,46 @@
+/*
+ * The Home destination: a page-title header over the scrolling bento. It fills the content slot as a
+ * column, the header fixed and the bento scrolling under it, aligned to the region's rhythm so the
+ * boxes sit on the same left edge as every other wall.
+ */
+.view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 30px 16px 20px;
+}
+
+/* The arrange controls trailing the title: the Arrange toggle at rest, Reset and the solid Done in it. */
+.actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* Clip any transient horizontal overflow - a resize footprint ghost or a mid-measure box span - so
+   * the surface never grows a horizontal scrollbar. */
+  overflow-x: hidden;
+  padding: 4px 30px 24px 20px;
+}

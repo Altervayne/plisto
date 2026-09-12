@@ -1,0 +1,215 @@
+/*
+ * The two Home box shapes on the continuous surface: a stat and a cover preview. A box is frameless -
+ * transparent, no border, no fill, no shadow of its own; the grid gap and the micro-label are what mark
+ * it out. Only the covers inside a preview are objects: they carry the shadow and lift, exactly like the
+ * walls. A clickable stat warms with the veil alone, never a shadow, so the frameless read holds.
+ */
+
+/* The micro-label naming a box. Uppercase and quiet, the label the box is defined by. */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* A backlog pip before the label: the one warn mark on a box that has items waiting. */
+.pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+/* -- Stat -- */
+
+/* The whole stat is the click target to its destination. Frameless at rest; a faint veil on hover marks
+ * the region without a shadow. The negative inline margin lets that veil bleed past the text edge while
+ * the content still lines up on the grid. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  margin: 0 -12px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.stat:hover {
+  background: var(--veil);
+}
+
+.stat:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The hero count. Dimmed to --ink-3 at zero, where a settled line replaces the verb. */
+.num {
+  font-size: 40px;
+  font-weight: 680;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.num[data-zero] {
+  color: var(--ink-3);
+}
+
+.verb {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* Zero is good news, so the settled line takes the good tone. */
+.verb[data-good] {
+  color: var(--good);
+}
+
+/* -- Preview -- */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* The optional "See all" trailing the label, a quiet text link to the box's full destination. */
+.seeAll {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+
+.seeAll:hover {
+  color: var(--accent);
+}
+
+/* One line of compact cover items, left-aligned and clipped by the measured item count rather than by
+ * overflow, so a hovered cover's lift is never shorn. */
+.strip {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+/* The cold line when a preview has nothing yet: a one-line invite, not the full empty stage. */
+.invite {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* One compact cover item: the cover object over a title and artist, the wall's grammar at a smaller
+ * size. The cover is the only object - it lifts and takes the shadow through --cover-shadow. */
+.item {
+  width: 108px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.item.playable {
+  cursor: pointer;
+}
+
+.frame {
+  position: relative;
+  transition: transform var(--dur-soft) var(--ease-cover);
+}
+
+.item.playable:hover .frame {
+  transform: translateY(-4px);
+  --cover-shadow: var(--shadow-pop);
+}
+
+.item.playable:active .frame {
+  transform: translateY(-1px) scale(0.99);
+}
+
+/*
+ * The play affordance: a disc centered on the cover, riding the frame so it lifts with the tile. It
+ * carries its own contrast on a glass scrim over unpredictable art, hidden and inert until the item is
+ * hovered or focused.
+ */
+.play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.9);
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+
+.item.playable:hover .play,
+.item.playable:focus-visible .play {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.play:hover {
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.item:focus-visible {
+  outline: none;
+}
+
+.item:focus-visible .frame {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .play,
+  .stat {
+    transition: none;
+  }
+}

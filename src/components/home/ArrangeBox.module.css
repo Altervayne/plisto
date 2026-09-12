@@ -1,0 +1,166 @@
+/*
+ * A box in arrange: the only time a bento box becomes an object. It takes the surface and soft shadow,
+ * a grab cursor over the whole face, and its controls - a remove disc, a size chip, and a corner grip.
+ * The accent ring marks the box under focus, drag, or resize, the same ring a selected cover wears; the
+ * drop target sinks to a dashed veil recess instead. The box content sits under a pointer-events veil so
+ * its own covers and stats stay inert while the box is being moved.
+ */
+.box {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  cursor: grab;
+  transition:
+    box-shadow var(--dur-fast) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-standard);
+}
+
+.box:focus-visible,
+.box:focus-within,
+.box[data-active] {
+  outline: none;
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 2px var(--accent);
+}
+
+/* The lifted source fades while it rides the pointer, so the drop target reads as the live slot. */
+.box[data-dragging] {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+/* The drop target sinks: the surface drops to a dashed recess rather than a hard framed border. */
+.box[data-drop] {
+  background: var(--veil-2);
+  box-shadow: none;
+  outline: 2px dashed var(--hairline);
+  outline-offset: -5px;
+}
+
+/* The box's own content, held inert under a veil so a move never triggers a play or a navigate. */
+.content {
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The live target footprint the grip drags out: a dashed accent region that can overflow the current
+ * box to preview a larger size before the resize commits. */
+.footprint {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-md);
+  background: var(--veil-2);
+  pointer-events: none;
+}
+
+.controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+
+/* The remove disc: the small round control grammar, quiet until hovered, then the danger tint. */
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--veil);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.remove:hover {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.sizing {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The size chip: the current size letter, click to cycle the allowed sizes. */
+.sizeChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 640;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.sizeChip:hover {
+  background: var(--veil-2);
+  color: var(--ink);
+}
+
+/* The corner grip: a small handle whose diagonal ridges read as a resize pull. Revealed on box hover or
+ * focus so the resting arrange face stays calm. */
+.grip {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0 42%,
+      var(--ink-3) 42% 54%,
+      transparent 54% 66%,
+      var(--ink-3) 66% 78%,
+      transparent 78%
+    );
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+  touch-action: none;
+}
+
+.box:hover .grip,
+.box:focus-within .grip,
+.box[data-active] .grip {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box,
+  .grip {
+    transition: none;
+  }
+}

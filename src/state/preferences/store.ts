@@ -32,6 +32,11 @@ export const PREF_KEYS = {
   // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last
   // export" filter preset - the baseline for "what changed since I last synced everything".
   lastExportAt: "last_export_at",
+  // The Home bento's saved layout per app mode, each a serialized box list. A mode with no saved
+  // layout falls back to its seed; the first arrange edit persists the whole layout here.
+  homeLayoutPlayer: "home_layout_player",
+  homeLayoutOrganizer: "home_layout_organizer",
+  homeLayoutBoth: "home_layout_both",
 } as const;
 
 interface PreferencesStore {
