@@ -200,9 +200,14 @@ export function Bento({
         : layout.map((seed) => {
             const Box = BOX_COMPONENTS[seed.type];
             const span = SIZE_SPAN[seed.size];
+            // Clamp the footprint to the live grid: a box loses one row per column it cannot get, so a
+            // wide box on a narrow grid folds to a shorter tile rather than a tower. Never below one cell.
+            const displayCols = Math.min(span.cols, cols);
+            const colDeficit = Math.max(0, span.cols - displayCols);
+            const displayRows = Math.max(1, span.rows - colDeficit);
             const cell: CSSProperties = {
-              gridColumn: `span ${Math.min(span.cols, cols)}`,
-              gridRow: `span ${span.rows}`,
+              gridColumn: `span ${displayCols}`,
+              gridRow: `span ${displayRows}`,
             };
             return (
               <div key={seed.type} className={styles.cell} style={cell}>

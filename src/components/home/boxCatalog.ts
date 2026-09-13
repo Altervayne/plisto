@@ -19,8 +19,16 @@ export type BoxType =
   | "playNext"
   | "moreFromArtist";
 
-/** A box footprint on the grid: S 1x1, M 2x1 (wide), T 1x2 (tall), L 2x2. */
-export type BoxSize = "S" | "M" | "T" | "L";
+/** A box footprint on the grid, as cols x rows. 1x2 and 1x3 are deliberately unauthorized. */
+export type BoxSize = "1x1" | "2x1" | "3x1" | "2x2" | "3x2" | "2x3" | "3x3";
+
+/** The footprints a box may take, widths-first so a resize tie breaks toward the wider one. */
+const AUTHORIZED: readonly BoxSize[] = ["1x1", "2x1", "3x1", "2x2", "3x2", "2x3", "3x3"];
+
+/** Each size's column and row span, read off the "COLxROW" code so the table cannot drift from the names. */
+export const SIZE_SPAN: Record<BoxSize, { cols: number; rows: number }> = Object.fromEntries(
+  AUTHORIZED.map((s) => [s, { cols: +s[0], rows: +s[2] }]),
+) as Record<BoxSize, { cols: number; rows: number }>;
 
 /** A box's shape family, splitting the picker: a hero count, a cover strip, or a single continuation. */
 export type BoxShape = "stat" | "list" | "suggestion";
@@ -46,15 +54,17 @@ export const BOX_ORDER: readonly BoxType[] = [
 ];
 
 /** Each box's size, resize range, shape, and mode membership. The single point to extend to add a box. */
+const LIST_SIZES: readonly BoxSize[] = ["2x1", "3x1", "2x2", "3x2", "2x3", "3x3"];
+
 export const BOX_CATALOG: Record<BoxType, BoxSpec> = {
-  missingCovers: { size: "S", allowedSizes: ["S", "M"], shape: "stat", modes: ["organizer", "both"] },
-  unsortedStat: { size: "S", allowedSizes: ["S", "M"], shape: "stat", modes: ["organizer", "both"] },
-  unsortedPreview: { size: "M", allowedSizes: ["M", "L"], shape: "list", modes: ["organizer"] },
-  recentlyPlayed: { size: "M", allowedSizes: ["M", "L"], shape: "list", modes: ["player", "both"] },
-  mostPlayed: { size: "M", allowedSizes: ["M", "L"], shape: "list", modes: ["player", "both"] },
-  missingMetadata: { size: "S", allowedSizes: ["S", "M"], shape: "stat", modes: ["organizer", "both"] },
-  playNext: { size: "T", allowedSizes: ["T"], shape: "suggestion", modes: ["player", "both"] },
-  moreFromArtist: { size: "M", allowedSizes: ["M", "L"], shape: "list", modes: ["player", "both"] },
+  missingCovers: { size: "1x1", allowedSizes: ["1x1"], shape: "stat", modes: ["organizer", "both"] },
+  unsortedStat: { size: "1x1", allowedSizes: ["1x1"], shape: "stat", modes: ["organizer", "both"] },
+  unsortedPreview: { size: "2x1", allowedSizes: LIST_SIZES, shape: "list", modes: ["organizer"] },
+  recentlyPlayed: { size: "2x1", allowedSizes: LIST_SIZES, shape: "list", modes: ["player", "both"] },
+  mostPlayed: { size: "2x1", allowedSizes: LIST_SIZES, shape: "list", modes: ["player", "both"] },
+  missingMetadata: { size: "1x1", allowedSizes: ["1x1"], shape: "stat", modes: ["organizer", "both"] },
+  playNext: { size: "2x1", allowedSizes: ["2x1"], shape: "suggestion", modes: ["player", "both"] },
+  moreFromArtist: { size: "2x1", allowedSizes: LIST_SIZES, shape: "list", modes: ["player", "both"] },
 };
 
 /** A box's shape family, split for the picker. */
@@ -75,11 +85,3 @@ export function seedLayout(mode: AppMode): BoxSeed[] {
     size: BOX_CATALOG[type].size,
   }));
 }
-
-/** A size's column and row span on the bento grid. */
-export const SIZE_SPAN: Record<BoxSize, { cols: number; rows: number }> = {
-  S: { cols: 1, rows: 1 },
-  M: { cols: 2, rows: 1 },
-  T: { cols: 1, rows: 2 },
-  L: { cols: 2, rows: 2 },
-};

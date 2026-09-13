@@ -1,9 +1,8 @@
 /*
- * The suggestion shape: a micro-label over one continuation track. Portrait so the cover leads - it is
- * the dominant object with a caption beneath, not a wide banner the small content cannot fill. It fills a
- * surfaced card the cell owns; the cover is the only shadowed object on it. Its play disc is the single
- * resting solid-accent element on Home, so it wears the theme-invariant --accent-solid fill at rest, not
- * the hover-glass a preview cover does.
+ * The suggestion shape: a micro-label over one continuation track laid out as a wide feature row. It
+ * fills a surfaced card the cell owns; the feature row carries the cover, caption, and the single resting
+ * solid-accent play disc on Home. This module holds only the box frame - the label column and the fill
+ * slot the row drops into; the row's own grammar lives in FeatureRow.
  */
 
 .suggestion {
@@ -14,134 +13,13 @@
   min-width: 0;
 }
 
-/* The picked track: a column filling the box below the label - the cover on top, the caption under it. */
-.item {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
+/* The slot the feature row fills below the label. A definite height here lets the cover bind to it. */
+.fill {
   flex: 1;
   min-height: 0;
 }
 
-/* The cover object, the lead here: full width drives the square tile that carries the shadow and lift. */
-.frame {
-  width: 100%;
-}
-
-/* The caption under the cover: the text column takes the slack, the disc rides its trailing edge. */
-.caption {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.textcol {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.artist {
-  font-size: 12.5px;
-  color: var(--ink-2);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.meta {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-  min-width: 0;
-}
-
-/* The why-line names the continuation: next in the album, or another by the artist. */
-.why {
-  flex: 1;
-  font-size: 11.5px;
-  color: var(--ink-3);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.duration {
-  flex: none;
-  font-size: 11.5px;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-
-/* The invite centers in the tall item area so an empty box does not itself read hollow. */
+/* The invite centers in the fill area so an empty box does not itself read hollow. */
 .invite {
   margin: auto 0;
-}
-
-/*
- * The play disc: solid accent at rest, the one such element on Home. It reads as the primary action a
- * primary button does - deep cyan fill, white glyph, a soft lift shadow - and gives under the pointer.
- * It sits on the surface at the caption edge, never over the art, so the solid-on-surface read holds.
- */
-.play {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 46px;
-  height: 46px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent-solid);
-  color: var(--on-solid);
-  cursor: pointer;
-  /* Drop the button's UA padding so justify-center places the glyph symmetrically; the optical nudge
-   * below then does the centering, not a lopsided padding. */
-  padding: 0;
-  box-shadow:
-    0 10px 24px -13px color-mix(in srgb, var(--accent-solid) 82%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  transition:
-    filter var(--dur-fast) ease,
-    transform var(--dur-fast) var(--ease-standard);
-}
-
-/* Optically center the play triangle: its visual mass sits a third in from the base, well left of the
- * glyph box, so a geometrically-placed glyph reads left-heavy. Nudge it right onto the disc center -
- * measured against the triangle centroid, not its bounding box. */
-.play svg {
-  transform: translateX(1.3px);
-}
-
-.play:hover {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
-}
-
-.play:active {
-  transform: scale(0.96);
-}
-
-.play:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .play {
-    transition: none;
-  }
 }

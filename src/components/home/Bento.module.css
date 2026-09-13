@@ -50,11 +50,16 @@
   overflow: hidden;
 }
 
-/* The clone's content, inert so the snapshot never fires a play or a navigate. */
+/* The clone's content, inert so the snapshot never fires a play or a navigate. It drops the same inert
+ * links the arrange box does, so the dragged copy reads identically. */
 .overlayContent {
   height: 100%;
   overflow: hidden;
   pointer-events: none;
+}
+
+.overlayContent [data-arrange-hidden] {
+  display: none;
 }
 
 /* The add-box tile trails the arrange grid in one cell, the picker anchored under it. */

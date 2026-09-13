@@ -24,11 +24,16 @@ function clampSize(type: BoxType, size: unknown): BoxSize {
   return spec.allowedSizes.includes(size as BoxSize) ? (size as BoxSize) : spec.size;
 }
 
+// Old single-letter size codes, mapped to their footprint so a layout saved before the cols x rows
+// system reads back at the same shape. clampSize then enforces each box's own legality on the result.
+const LEGACY_SIZE: Record<string, BoxSize> = { S: "1x1", M: "2x1", T: "2x2", L: "2x2" };
+
 /**
- * The saved layout for a mode, validated. An absent, unparseable, or empty string falls back to the
- * mode's seed. A parsed list is filtered against the catalog: unknown types drop, a repeated type keeps
- * only its first placement, and a size the type disallows clamps to its default. An all-invalid list
- * also falls back, so the grid always has something to place.
+ * The saved layout for a mode, validated. An absent or unparseable string falls back to the mode's seed.
+ * A parsed list is filtered against the catalog: unknown types drop, a repeated type keeps only its first
+ * placement, and a size the type disallows clamps to its default. A stored EMPTY list is a deliberate
+ * clear and stays empty - the user removed every box. An all-invalid list (entries that every one fail
+ * validation, a stale or corrupt pref) does fall back to the seed, so a broken pref never strands the Home.
  */
 export function parseLayout(json: string | undefined, mode: AppMode): BoxSeed[] {
   if (!json) return seedLayout(mode);
@@ -40,6 +45,9 @@ export function parseLayout(json: string | undefined, mode: AppMode): BoxSeed[] 
     return seedLayout(mode);
   }
   if (!Array.isArray(raw)) return seedLayout(mode);
+  // A deliberately-cleared layout stands; only a broken pref (entries that all fail validation, below)
+  // re-seeds. Without this an empty layout can never persist - it re-seeds itself on the next read.
+  if (raw.length === 0) return [];
 
   const seen = new Set<BoxType>();
   const layout: BoxSeed[] = [];
@@ -47,7 +55,9 @@ export function parseLayout(json: string | undefined, mode: AppMode): BoxSeed[] 
     const type = (entry as { type?: unknown })?.type;
     if (!isBoxType(type) || seen.has(type)) continue;
     seen.add(type);
-    layout.push({ type, size: clampSize(type, (entry as { size?: unknown }).size) });
+    const rawSize = (entry as { size?: unknown }).size;
+    const size = typeof rawSize === "string" && rawSize in LEGACY_SIZE ? LEGACY_SIZE[rawSize] : rawSize;
+    layout.push({ type, size: clampSize(type, size) });
   }
 
   return layout.length > 0 ? layout : seedLayout(mode);

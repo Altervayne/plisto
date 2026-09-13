@@ -1,0 +1,173 @@
+/*
+ * The wide feature row: the cover leads at the row's full height, the caption fills the slack, the text
+ * tops with the cover and the genres anchor to its foot so a tall cover's side reads full. The cover binds
+ * to HEIGHT, so a fluid-width, fixed-height cell never stretches it wide nor strands it narrow. The cover
+ * is the only shadowed object here, lifting under the pointer with a glass play disc revealed over it.
+ */
+
+.feature {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+  height: 100%;
+}
+
+/* The cover as its own play target: fills the row height, no button chrome. */
+.coverButton {
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The cover object, bound to the row height so its width follows the square, never the cell width. It
+ * rests on the soft shadow and lifts to the pop under the pointer, the walls' motion at this scale. */
+.frame {
+  position: relative;
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1;
+  --cover-shadow: var(--shadow-soft);
+  transition: transform var(--dur-soft) var(--ease-cover);
+}
+
+.frame:hover,
+.coverButton:hover .frame {
+  transform: translateY(-4px);
+  --cover-shadow: var(--shadow-pop);
+}
+
+.coverButton:active .frame {
+  transform: translateY(-1px) scale(0.99);
+}
+
+/*
+ * The glass play disc over the cover, hidden until the cover is hovered or focused. It carries its own
+ * contrast on a blurred scrim over unpredictable art, the compact grid's affordance at the feature scale.
+ */
+.coverPlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.9);
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.coverButton:hover .coverPlay,
+.coverButton:focus-visible .coverPlay {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Optically center the triangle: its mass sits a third in from the base, so nudge it off the glyph box. */
+.coverPlay svg {
+  transform: translateX(1px);
+}
+
+.coverButton:focus-visible {
+  outline: none;
+}
+
+.coverButton:focus-visible .frame {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-md);
+}
+
+/* The caption beside the cover: title and artist over a context line, the genres pinned to the foot so
+ * the column spans the cover height rather than stranding the space below a short block. */
+.caption {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artist {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+/* The context line names the continuation: next in the album, or another by the artist. */
+.why {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.duration {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The genres, pinned to the caption foot: quiet chips that fill the space beside a tall cover. */
+.genres {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.genre {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--veil);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .coverPlay {
+    transition: none;
+  }
+}

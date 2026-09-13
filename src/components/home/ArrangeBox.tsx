@@ -83,9 +83,14 @@ export function ArrangeBox({
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: seed.type });
 
   const span = SIZE_SPAN[seed.size];
+  // Clamp the footprint to the live grid, matching the rest render: a box loses one row per column it
+  // cannot get, so it folds to a shorter tile rather than a tower and never jumps size between modes.
+  const displayCols = Math.min(span.cols, metrics.cols);
+  const colDeficit = Math.max(0, span.cols - displayCols);
+  const displayRows = Math.max(1, span.rows - colDeficit);
   const cell: CSSProperties = {
-    gridColumn: `span ${Math.min(span.cols, metrics.cols)}`,
-    gridRow: `span ${span.rows}`,
+    gridColumn: `span ${displayCols}`,
+    gridRow: `span ${displayRows}`,
   };
 
   const resizing = ghost != null;

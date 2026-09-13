@@ -64,6 +64,13 @@
   pointer-events: none;
 }
 
+/* Arrange drops the box's own inert links - a "See all" cannot be clicked here and would only sit under
+ * the remove control. Hidden by arrange, so the box content never has to know it is being arranged. */
+.content [data-arrange-hidden] {
+  display: none;
+}
+
+
 /* The live target footprint the grip drags out: a dashed accent region that can overflow the current
  * box to preview a larger size before the resize commits. */
 .footprint {
@@ -86,26 +93,30 @@
   gap: 6px;
 }
 
-/* The remove disc: the small round control grammar, quiet until hovered, then the danger tint. */
+/* The remove disc: a solid, shadowed chip so it reads clearly over any cover or stat behind it rather
+ * than letting the art bleed through a translucent veil. The danger tint arrives on hover. */
 .remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--hairline);
   border-radius: 50%;
-  background: var(--veil);
+  background: var(--surface-2);
   color: var(--ink-2);
+  box-shadow: var(--shadow-soft);
   cursor: pointer;
   transition:
     background var(--dur-fast) ease,
-    color var(--dur-fast) ease;
+    color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
 }
 
 .remove:hover {
   background: var(--danger-weak);
+  border-color: var(--danger);
   color: var(--danger);
 }
 
@@ -119,18 +130,20 @@
   gap: 6px;
 }
 
-/* The size chip: the current size letter, click to cycle the allowed sizes. */
+/* The size chip: the current footprint, click to cycle the allowed sizes. Solid and shadowed like the
+ * remove disc, so the covers behind it never muddy the reading. */
 .sizeChip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border: 0;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
-  background: var(--veil);
-  color: var(--ink-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
   font: inherit;
   font-size: 11px;
   font-weight: 640;
@@ -141,27 +154,30 @@
 }
 
 .sizeChip:hover {
-  background: var(--veil-2);
+  background: var(--surface);
   color: var(--ink);
 }
 
-/* The corner grip: a small handle whose diagonal ridges read as a resize pull. Revealed on box hover or
- * focus so the resting arrange face stays calm. */
+/* The corner grip: a solid, shadowed chip whose diagonal ridges read as a resize pull. Revealed on box
+ * hover or focus so the resting arrange face stays calm, and opaque like the other controls so it never
+ * fights the art behind it. */
 .grip {
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
   padding: 0;
-  border: 0;
-  border-radius: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
   background:
     linear-gradient(
       135deg,
-      transparent 0 42%,
-      var(--ink-3) 42% 54%,
-      transparent 54% 66%,
-      var(--ink-3) 66% 78%,
-      transparent 78%
-    );
+      transparent 0 40%,
+      var(--ink-2) 40% 52%,
+      transparent 52% 64%,
+      var(--ink-2) 64% 76%,
+      transparent 76%
+    ),
+    var(--surface-2);
+  box-shadow: var(--shadow-soft);
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-standard);

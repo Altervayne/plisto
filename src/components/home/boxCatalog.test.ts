@@ -4,34 +4,37 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import { BOX_CATALOG, BOX_ORDER, SIZE_SPAN, seedLayout } from "./boxCatalog";
 
+// -- Type Imports --
+import type { BoxSize, BoxType } from "./boxCatalog";
+
 describe("seedLayout", () => {
   it("seeds the organizer landing with the covers, unsorted, and missing-metadata boxes", () => {
     expect(seedLayout("organizer")).toEqual([
-      { type: "missingCovers", size: "S" },
-      { type: "unsortedStat", size: "S" },
-      { type: "unsortedPreview", size: "M" },
-      { type: "missingMetadata", size: "S" },
+      { type: "missingCovers", size: "1x1" },
+      { type: "unsortedStat", size: "1x1" },
+      { type: "unsortedPreview", size: "2x1" },
+      { type: "missingMetadata", size: "1x1" },
     ]);
   });
 
   it("seeds the player landing with the play-history previews and the suggestions", () => {
     expect(seedLayout("player")).toEqual([
-      { type: "recentlyPlayed", size: "M" },
-      { type: "mostPlayed", size: "M" },
-      { type: "playNext", size: "T" },
-      { type: "moreFromArtist", size: "M" },
+      { type: "recentlyPlayed", size: "2x1" },
+      { type: "mostPlayed", size: "2x1" },
+      { type: "playNext", size: "2x1" },
+      { type: "moreFromArtist", size: "2x1" },
     ]);
   });
 
   it("seeds the both landing with the stats, the play-history previews, and the suggestions", () => {
     expect(seedLayout("both")).toEqual([
-      { type: "missingCovers", size: "S" },
-      { type: "unsortedStat", size: "S" },
-      { type: "recentlyPlayed", size: "M" },
-      { type: "mostPlayed", size: "M" },
-      { type: "missingMetadata", size: "S" },
-      { type: "playNext", size: "T" },
-      { type: "moreFromArtist", size: "M" },
+      { type: "missingCovers", size: "1x1" },
+      { type: "unsortedStat", size: "1x1" },
+      { type: "recentlyPlayed", size: "2x1" },
+      { type: "mostPlayed", size: "2x1" },
+      { type: "missingMetadata", size: "1x1" },
+      { type: "playNext", size: "2x1" },
+      { type: "moreFromArtist", size: "2x1" },
     ]);
   });
 
@@ -43,10 +46,50 @@ describe("seedLayout", () => {
 });
 
 describe("SIZE_SPAN", () => {
-  it("maps each size to its column and row footprint", () => {
-    expect(SIZE_SPAN.S).toEqual({ cols: 1, rows: 1 });
-    expect(SIZE_SPAN.M).toEqual({ cols: 2, rows: 1 });
-    expect(SIZE_SPAN.T).toEqual({ cols: 1, rows: 2 });
-    expect(SIZE_SPAN.L).toEqual({ cols: 2, rows: 2 });
+  it("maps each authorized footprint to its column and row span", () => {
+    expect(SIZE_SPAN["1x1"]).toEqual({ cols: 1, rows: 1 });
+    expect(SIZE_SPAN["2x1"]).toEqual({ cols: 2, rows: 1 });
+    expect(SIZE_SPAN["3x1"]).toEqual({ cols: 3, rows: 1 });
+    expect(SIZE_SPAN["2x2"]).toEqual({ cols: 2, rows: 2 });
+    expect(SIZE_SPAN["3x2"]).toEqual({ cols: 3, rows: 2 });
+    expect(SIZE_SPAN["2x3"]).toEqual({ cols: 2, rows: 3 });
+    expect(SIZE_SPAN["3x3"]).toEqual({ cols: 3, rows: 3 });
+  });
+
+  it("holds exactly the seven authorized footprints, with no 1x2 or 1x3 tower", () => {
+    expect(Object.keys(SIZE_SPAN).sort()).toEqual(
+      ["1x1", "2x1", "2x2", "2x3", "3x1", "3x2", "3x3"],
+    );
+    expect(SIZE_SPAN).not.toHaveProperty("1x2");
+    expect(SIZE_SPAN).not.toHaveProperty("1x3");
+  });
+});
+
+describe("BOX_CATALOG", () => {
+  const authorized = new Set(Object.keys(SIZE_SPAN));
+
+  it("draws every box's allowed sizes only from the authorized footprints", () => {
+    for (const type of BOX_ORDER) {
+      for (const size of BOX_CATALOG[type].allowedSizes) {
+        expect(authorized.has(size)).toBe(true);
+      }
+    }
+  });
+
+  it("keeps every box's default size within its own allowed sizes", () => {
+    for (const type of BOX_ORDER) {
+      expect(BOX_CATALOG[type].allowedSizes).toContain(BOX_CATALOG[type].size);
+    }
+  });
+
+  it("pins playNext to the single wide footprint", () => {
+    expect(BOX_CATALOG.playNext.allowedSizes).toEqual<BoxSize[]>(["2x1"]);
+  });
+
+  it("pins each stat box to the single cell", () => {
+    const stats: BoxType[] = ["missingCovers", "unsortedStat", "missingMetadata"];
+    for (const type of stats) {
+      expect(BOX_CATALOG[type].allowedSizes).toEqual<BoxSize[]>(["1x1"]);
+    }
   });
 });

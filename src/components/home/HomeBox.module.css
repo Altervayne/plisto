@@ -93,6 +93,34 @@
   gap: 8px;
 }
 
+/* The area under the head: the optional feature row over the strip, stacked and filling the card. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* With a feature, the feature tops and the strip bottoms, so the slack the whole grid rows leave lands as
+ * margin around the divider between them rather than a gap stranded under the strip. */
+.bodyFeatured {
+  justify-content: space-between;
+}
+
+/* The feature's band: a fixed height set inline, so the hero cover binds to the same square in every tall
+ * box rather than ballooning with the cell. */
+.featureBand {
+  flex: none;
+}
+
+/* The calm divider parting the feature from the grid, centered in the slack the body spaces out. */
+.divider {
+  flex: none;
+  height: 1px;
+  background: var(--hairline);
+}
+
 /* The optional "See all" trailing the label, a quiet text link to the box's full destination. */
 .seeAll {
   margin-left: auto;
@@ -109,19 +137,48 @@
   color: var(--accent);
 }
 
-/* One line of compact cover items, left-aligned and clipped by the measured item count rather than by
- * overflow, so a hovered cover's lift is never shorn. */
+/* The compact cover items, spaced evenly across each row and clipped by the measured column x row count
+ * rather than by overflow, so a hovered cover's lift is never shorn. It holds exactly its rows so the
+ * feature band above takes the slack; a box with no feature grows the strip instead to fill the card. */
 .strip {
   display: flex;
+  flex-wrap: wrap;
+  flex: none;
+  min-height: 0;
+  align-content: flex-start;
+  justify-content: space-evenly;
   gap: 14px;
   align-items: flex-start;
   min-width: 0;
+}
+
+/* A strip with no feature above it fills the body itself. */
+.stripGrow {
+  flex: 1;
 }
 
 /* The cold line when a preview has nothing yet: a one-line invite, not the full empty stage. */
 .invite {
   font-size: 12.5px;
   color: var(--ink-3);
+}
+
+/* The hover tooltip's body: the track's full title over its artist and album, each on its own line, so a
+ * clipped cover caption reads in full. The title leads in ink, the artist and album step back a tone. */
+.tip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 240px;
+}
+
+.tipTitle {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tipLine {
+  color: var(--ink-2);
 }
 
 /* One compact cover item: the cover object over a title and artist, the wall's grammar at a smaller
