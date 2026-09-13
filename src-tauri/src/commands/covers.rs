@@ -52,6 +52,30 @@ pub async fn read_cover(
     resolve_at(state.inner(), track_id, max_edge(size), keep_own).await
 }
 
+/// Resolves a track's 2-3 dominant cover colours as sRGB triples, for the player's ambient aurora.
+/// Reads the same source read_cover resolves, decoding the already-cached 128px thumb rather than
+/// the original art. None when the track has no cover, or when the cover is near-gray and yields no
+/// colour worth blooming - the aurora falls back to its neutral tint. The verdict is cached beside
+/// the thumb, keyed by the same content hash, so a reassigned cover (a fresh hash) recomputes.
+#[tauri::command]
+pub async fn read_cover_palette(
+    track_id: i64,
+    state: State<'_, AppState>,
+) -> Result<Option<Vec<[u8; 3]>>, String> {
+    let thumb = if is_ad_hoc(track_id) {
+        resolve_ad_hoc_cover(state.inner(), track_id, THUMB_EDGE)
+    } else {
+        resolve_at(state.inner(), track_id, THUMB_EDGE, false).await?
+    };
+    let Some(thumb) = thumb else {
+        return Ok(None);
+    };
+
+    tauri::async_runtime::spawn_blocking(move || palette_for_thumb(&thumb.path))
+        .await
+        .map_err(|_| "cover task failed to run".to_string())
+}
+
 /// Lists every selectable art source for a track's cover picker: its embedded picture (if any)
 /// first, then each adjacent image in discovery order, each with a small generated thumbnail.
 #[tauri::command]
@@ -978,6 +1002,107 @@ fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+// ---- Cover palette ----
+
+// The thumb is downscaled to this longest edge before the histogram: dominant colour survives a
+// heavy shrink, and a tiny grid keeps the pass cheap.
+const PALETTE_SAMPLE_EDGE: u32 = 32;
+// Dominant colours the aurora asks for. Three blooms, so at most three leads.
+const PALETTE_MAX_COLORS: usize = 3;
+// Luma cutoffs (0..255): a pixel darker or lighter than these is sleeve black or paper white, not a
+// colour to bloom, so it never enters the histogram.
+const PALETTE_DARK_CUT: u16 = 28;
+const PALETTE_LIGHT_CUT: u16 = 232;
+// A bucket below this HSV saturation reads as gray and never leads. Scoring by saturation already
+// buries gray; this also filters a gray secondary, and a palette with no bucket above it is None.
+const PALETTE_GRAY_SAT: f32 = 0.12;
+
+/// Resolves a thumb's dominant palette, warm-cache first. The verdict is stored beside the thumb as a
+/// JSON triple list under a `.palette` extension, keyed by the same content hash the thumb is; an
+/// empty list is the cached "near-gray, no palette" answer, so a gray cover is judged once. A torn or
+/// unreadable cache falls through to a recompute. None when the thumb is unreadable or yields no
+/// colour. Read-only but for the sibling cache file.
+fn palette_for_thumb(thumb_path: &str) -> Option<Vec<[u8; 3]>> {
+    let cache = Path::new(thumb_path).with_extension("palette");
+    if let Ok(text) = std::fs::read_to_string(&cache) {
+        if let Ok(colors) = serde_json::from_str::<Vec<[u8; 3]>>(&text) {
+            return (!colors.is_empty()).then_some(colors);
+        }
+    }
+
+    let bytes = std::fs::read(thumb_path).ok()?;
+    let colors = dominant_palette(&bytes);
+    if let Ok(text) = serde_json::to_string(&colors) {
+        let _ = std::fs::write(&cache, text);
+    }
+    (!colors.is_empty()).then_some(colors)
+}
+
+/// Extracts up to three dominant sRGB colours from encoded image bytes. Pure and deterministic: it
+/// shrinks to a small grid, buckets pixels into a coarse 4-bit-per-channel histogram (skipping near-
+/// black and near-white), then ranks buckets by saturation times population so a small vivid patch on
+/// a gray sleeve still leads over the gray mass. Buckets below the gray saturation are dropped, so a
+/// truly monochrome cover yields an empty list, which the aurora reads as its neutral tint.
+fn dominant_palette(bytes: &[u8]) -> Vec<[u8; 3]> {
+    let Ok(decoded) = image::load_from_memory(bytes) else {
+        return Vec::new();
+    };
+    let small = decoded
+        .thumbnail(PALETTE_SAMPLE_EDGE, PALETTE_SAMPLE_EDGE)
+        .to_rgb8();
+
+    // Each bucket accumulates its pixel count and channel sums, so its colour is the true average of
+    // its members rather than the quantized bucket centre.
+    let mut buckets: std::collections::HashMap<u16, (u32, u32, u32, u32)> =
+        std::collections::HashMap::new();
+    for px in small.pixels() {
+        let [r, g, b] = px.0;
+        // Rec. 601 luma is enough to spot black and white margins.
+        let luma = (r as u16 * 3 + g as u16 * 6 + b as u16) / 10;
+        if luma <= PALETTE_DARK_CUT || luma >= PALETTE_LIGHT_CUT {
+            continue;
+        }
+        let key = ((r as u16 >> 4) << 8) | ((g as u16 >> 4) << 4) | (b as u16 >> 4);
+        let slot = buckets.entry(key).or_insert((0, 0, 0, 0));
+        slot.0 += 1;
+        slot.1 += r as u32;
+        slot.2 += g as u32;
+        slot.3 += b as u32;
+    }
+
+    // Rank each bucket's average colour by saturation times population, keeping only the colourful.
+    let mut scored: Vec<(f32, [u8; 3])> = buckets
+        .values()
+        .filter_map(|&(count, rs, gs, bs)| {
+            let avg = [
+                (rs / count) as u8,
+                (gs / count) as u8,
+                (bs / count) as u8,
+            ];
+            let sat = hsv_saturation(avg);
+            (sat >= PALETTE_GRAY_SAT).then_some((sat * count as f32, avg))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+    scored
+        .into_iter()
+        .take(PALETTE_MAX_COLORS)
+        .map(|(_, color)| color)
+        .collect()
+}
+
+/// The HSV saturation of an sRGB colour, 0 for gray and 1 for a pure hue. Chroma over the brightest
+/// channel - cheap and enough to sort colour from gray.
+fn hsv_saturation([r, g, b]: [u8; 3]) -> f32 {
+    let max = r.max(g).max(b) as f32;
+    let min = r.min(g).min(b) as f32;
+    if max <= 0.0 {
+        0.0
+    } else {
+        (max - min) / max
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1571,6 +1696,64 @@ mod tests {
         assert!(
             resolve_full_res(&covers.path, &plan).is_none(),
             "no art to save"
+        );
+    }
+
+    // A PNG that is mostly `ground` with a `patch` block in one corner, in memory.
+    fn patched_png(width: u32, height: u32, ground: [u8; 3], patch: [u8; 3]) -> Vec<u8> {
+        let mut img = RgbImage::from_pixel(width, height, Rgb(ground));
+        for y in 0..height / 4 {
+            for x in 0..width / 4 {
+                img.put_pixel(x, y, Rgb(patch));
+            }
+        }
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn dominant_palette_leads_with_the_vivid_patch() {
+        // A gray sleeve with a small vivid-red patch: population favours the gray, but the palette
+        // ranks by saturation times population, so the red leads.
+        let bytes = patched_png(64, 64, [130, 132, 128], [220, 30, 30]);
+        let palette = dominant_palette(&bytes);
+        assert!(!palette.is_empty(), "the vivid patch yields a colour");
+        let [r, g, b] = palette[0];
+        assert!(
+            r > g + 40 && r > b + 40,
+            "the leading colour is the red patch, got {:?}",
+            palette[0]
+        );
+    }
+
+    #[test]
+    fn dominant_palette_is_empty_for_a_gray_cover() {
+        // A flat mid-gray has no saturated bucket, so nothing blooms.
+        let bytes = png_bytes(64, 64, [128, 128, 128]);
+        assert!(dominant_palette(&bytes).is_empty());
+    }
+
+    #[test]
+    fn palette_for_thumb_caches_its_verdict_beside_the_thumb() {
+        let covers = TempDir::new("palette");
+        let thumb = covers.path.join("deadbeef_128.jpg");
+        std::fs::write(&thumb, patched_png(64, 64, [120, 122, 118], [30, 90, 220])).unwrap();
+
+        let palette = palette_for_thumb(&thumb.to_string_lossy()).expect("a blue patch leads");
+        let [r, g, b] = palette[0];
+        assert!(b > r + 40 && b > g + 40, "the blue patch leads, got {:?}", palette[0]);
+
+        // The verdict is written beside the thumb and reads back byte-for-byte on the warm path.
+        let cache = thumb.with_extension("palette");
+        assert!(cache.exists(), "the palette is cached next to the thumb");
+        std::fs::remove_file(&thumb).unwrap();
+        assert_eq!(
+            palette_for_thumb(&thumb.to_string_lossy()),
+            Some(palette),
+            "the warm cache resolves without the thumb present"
         );
     }
 

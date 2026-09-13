@@ -233,6 +233,14 @@ export function readCover(
   return invoke<CoverRef | null>("read_cover", { trackId, size, keepOwn });
 }
 
+/**
+ * A track's 2-3 dominant cover colours as sRGB triples, for the player's ambient aurora. Null when
+ * the track has no cover or the cover is near-gray, which the aurora renders as a neutral tint.
+ */
+export function getCoverPalette(trackId: number): Promise<[number, number, number][] | null> {
+  return invoke<[number, number, number][] | null>("read_cover_palette", { trackId });
+}
+
 /** Resolves an album's cover at `size`: its bound cover, else a member track's art, else null. */
 export function albumCover(albumId: number, size: CoverSize): Promise<CoverRef | null> {
   return invoke<CoverRef | null>("album_cover", { albumId, size });

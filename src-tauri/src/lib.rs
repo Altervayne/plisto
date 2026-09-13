@@ -255,6 +255,7 @@ pub fn run() {
             commands::settings::set_setting,
             commands::settings::open_default_apps_settings,
             commands::covers::read_cover,
+            commands::covers::read_cover_palette,
             commands::covers::album_cover,
             commands::covers::playlist_cover,
             commands::covers::list_cover_candidates,

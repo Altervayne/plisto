@@ -1,4 +1,8 @@
+// -- Framework Imports --
+import { useRef } from "react";
+
 // -- Component Imports --
+import { Aurora } from "./Aurora";
 import { CenteredStage } from "../common/CenteredStage";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { PlayerHero } from "./PlayerHero";
@@ -48,9 +52,10 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
 }
 
 /**
- * The playing stage: the two columns over the current cover, spread as a soft ambient glow behind both and
- * a filled ridge rising from the floor. Mounts only with a real track id, so its id-typed cover hook never
- * runs empty. The glow and ridge sit under the content, which carries the only lit mark.
+ * The playing stage: the two columns over the current cover, spread as a soft ambient glow behind both,
+ * an aurora of drifting colour blooms above it, and a filled ridge rising from the floor. Mounts only with
+ * a real track id, so its id-typed cover hook never runs empty. The three ambient layers sit under the
+ * content, which carries the only lit mark.
  */
 function PlayerStage({
   trackId,
@@ -61,13 +66,16 @@ function PlayerStage({
 }) {
   const { cover } = useTrackCover(trackId);
   const coverSrc = cover?.src ?? null;
+  // Shared with the aurora so its mask centers on the art rather than the whole panel.
+  const coverRef = useRef<HTMLSpanElement | null>(null);
 
   return (
     <div className={`${styles.panel} ${styles.view}`}>
       <CoverBackdrop src={coverSrc} className={styles.glow} />
+      <Aurora trackId={trackId} coverRef={coverRef} />
       <SpectrumRidge />
       <div className={styles.content}>
-        <PlayerHero trackId={trackId} onNavigate={onNavigate} />
+        <PlayerHero trackId={trackId} onNavigate={onNavigate} coverRef={coverRef} />
         <QueueList />
       </div>
     </div>

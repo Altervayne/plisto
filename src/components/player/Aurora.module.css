@@ -1,0 +1,25 @@
+/* The ambient aurora: a full-panel canvas between the cover glow and the ridge. The backing store is
+ * small and the field is blurred and blended from the component, so this only places and masks the
+ * element. A radial feather protects the title/artist zone at the exact centre (dipping ~15%) and
+ * fades the field to nothing just past the panel edges, mirroring the glow's masking idiom. Blur,
+ * blend mode and opacity are set on the element from the component, so they stay theme- and
+ * breath-driven in one place. */
+.aurora {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(
+    var(--aurora-rx, 72%) var(--aurora-ry, 68%) at var(--aurora-mx, 50%) var(--aurora-my, 48%),
+    #000 30%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    var(--aurora-rx, 72%) var(--aurora-ry, 68%) at var(--aurora-mx, 50%) var(--aurora-my, 48%),
+    #000 30%,
+    transparent 78%
+  );
+}

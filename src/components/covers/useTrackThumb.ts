@@ -7,6 +7,9 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 // -- IPC Imports --
 import { readCover } from "../../lib/ipc";
 
+// -- Local Imports --
+import { invalidateTrackPalette } from "./useCoverPalette";
+
 // -- Type Imports --
 import type { CoverSize } from "../../types";
 
@@ -32,6 +35,8 @@ const coverCache = new Map<string, string | null>();
 export function invalidateTrackThumb(trackId: number): void {
   coverCache.delete(cacheKey("thumb", trackId));
   coverCache.delete(cacheKey("detail", trackId));
+  // The aurora's palette derives from the thumb, so it goes stale on the same reassign.
+  invalidateTrackPalette(trackId);
 }
 
 /**

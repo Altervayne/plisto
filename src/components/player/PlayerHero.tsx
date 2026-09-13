@@ -12,6 +12,7 @@ import { useTrackDisplay } from "./useTrackDisplay";
 import { usePlayerActions, usePlayerStatus, usePlayingFrom } from "../../state/player/store";
 
 // -- Type Imports --
+import type { RefObject } from "react";
 import type { PlaybackSource } from "../../types";
 
 // -- i18n Imports --
@@ -29,9 +30,12 @@ import styles from "./PlayerHero.module.css";
 export function PlayerHero({
   trackId,
   onNavigate,
+  coverRef,
 }: {
   trackId: number;
   onNavigate: (source: PlaybackSource) => void;
+  // Handed up to the aurora so its mask centers on the art.
+  coverRef?: RefObject<HTMLSpanElement | null>;
 }) {
   const { cover } = useTrackCover(trackId);
   const { title, artist } = useTrackDisplay(trackId);
@@ -47,7 +51,7 @@ export function PlayerHero({
         <div className={styles.identity}>
           <SourceLine onNavigate={onNavigate} />
 
-          <span className={styles.cover}>
+          <span ref={coverRef} className={styles.cover}>
             <Cover src={coverSrc} alt="" />
           </span>
 
