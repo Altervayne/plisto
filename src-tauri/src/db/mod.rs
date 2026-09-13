@@ -15,8 +15,8 @@ use rusqlite::{params, Connection};
 
 // -- Type Imports --
 use crate::dto::{
-    AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlaylistRow, PlaylistSnapshot, PlaylistTrackRow,
-    Root, TrackDisplay, TrackEdit, TrackPlacement,
+    AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistRow, PlaylistSnapshot,
+    PlaylistTrackRow, Root, TrackDisplay, TrackEdit, TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{normalize_genre_key, normalize_path_key};
@@ -2216,6 +2216,34 @@ pub fn get_most_played_rows(
     Ok(rows)
 }
 
+/// The raw play-log timeline for the History surface: every play newest first, one row per listen, not
+/// deduped - a track repeats once per play. `limit` caps the list when `Some`; `None` returns the whole
+/// log. The `plays.id` rides along as `play_id`, so each repeat keys distinctly on the frontend. The id
+/// breaks a same-second tie, since it rises with insert order.
+pub fn get_play_timeline(conn: &Connection, limit: Option<i64>) -> rusqlite::Result<Vec<PlayEvent>> {
+    let limit_clause = if limit.is_some() { " LIMIT ?" } else { "" };
+    let sql = format!(
+        "SELECT id, track_id, played_at, completed \
+         FROM plays ORDER BY played_at DESC, id DESC{limit_clause}"
+    );
+    let mut binds: Vec<i64> = Vec::new();
+    if let Some(l) = limit {
+        binds.push(l);
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(binds.iter()), |r| {
+            Ok(PlayEvent {
+                play_id: r.get(0)?,
+                track_id: r.get(1)?,
+                played_at: r.get(2)?,
+                completed: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Whole seconds since the Unix epoch, stamped onto a play the moment it is recorded.
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -3469,5 +3497,39 @@ mod tests {
         let capped = get_most_played_rows(&conn, Some(1)).unwrap();
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0].track_id, 2);
+    }
+
+    #[test]
+    fn get_play_timeline_lists_every_play_newest_first() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        // Track 1 played twice, track 2 once. The timeline keeps every play, not deduped, so track 1
+        // shows up as two distinct rows.
+        add_play(&conn, 1, 100, true);
+        add_play(&conn, 2, 200, false);
+        add_play(&conn, 1, 300, true);
+
+        let rows = get_play_timeline(&conn, None).unwrap();
+        assert_eq!(rows.len(), 3, "one row per play, no dedup");
+        assert_eq!(rows[0].track_id, 1, "the newest play leads");
+        assert_eq!(rows[0].played_at, 300);
+        assert!(rows[0].completed, "the completed flag round-trips");
+        assert_eq!(rows[1].track_id, 2);
+        assert!(!rows[1].completed, "a partial play round-trips as false");
+        assert_eq!(rows[2].played_at, 100, "the oldest play sits last");
+        assert_eq!(
+            rows.iter().filter(|r| r.track_id == 1).count(),
+            2,
+            "a repeated track is two rows, not one"
+        );
+        // Each play carries its own id, so repeats are distinguishable.
+        assert_ne!(rows[0].play_id, rows[2].play_id);
+
+        // The limit bounds the log to the newest plays; None returned the whole log above.
+        let capped = get_play_timeline(&conn, Some(2)).unwrap();
+        assert_eq!(capped.len(), 2);
+        assert_eq!(capped[0].played_at, 300, "the bounded read stays newest-first");
+        assert_eq!(capped[1].played_at, 200);
     }
 }

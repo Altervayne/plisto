@@ -36,6 +36,30 @@ export function formatTimestamp(secs: number): string {
   return new Date(secs * 1000).toLocaleString();
 }
 
+/** The time of day for a unix-seconds stamp: "14:32", 24h, zero-padded, in the local zone. ASCII, so
+ *  it sits in a right-aligned meta cell beside the play marker. */
+export function formatClockTime(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const h = d.getHours().toString().padStart(2, "0");
+  const m = d.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/** The local calendar-day key for a unix-seconds stamp, "YYYY-MM-DD", so plays fall into a day bucket
+ *  regardless of the time. The day-header label text is chosen in the view, which needs i18n. */
+export function dayKey(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const y = d.getFullYear();
+  const mo = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+/** Whether two unix-seconds stamps land on the same local calendar day. */
+export function sameCalendarDay(a: number, b: number): boolean {
+  return dayKey(a) === dayKey(b);
+}
+
 const MINUTE = 60;
 const HOUR = 3600;
 const DAY = 86400;

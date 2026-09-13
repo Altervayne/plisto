@@ -14,8 +14,10 @@ export interface ToolSession {
   trackId: number;
 }
 
-/** Which lens the History destination opens on: the recently-played list or the most-played ranking. */
-export type HistoryLens = "recent" | "most";
+/** Which lens the History destination opens on: the deduped recently-played list, the most-played
+ *  ranking, or the raw chronological timeline. The two Home See-all boxes route only to recent/most;
+ *  the timeline is reachable through the destination's own toggle. */
+export type HistoryLens = "recent" | "most" | "timeline";
 
 interface ShellStore {
   openTool: ToolSession | null;

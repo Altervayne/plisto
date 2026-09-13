@@ -34,6 +34,7 @@ import type {
   ListTracksResponse,
   OrganizationSnapshot,
   OutputDeviceInfo,
+  PlayEvent,
   PlayerNotice,
   PlayerStatus,
   PlaylistM3uSummary,
@@ -840,6 +841,14 @@ export function getRecentlyPlayedRows(limit?: number): Promise<HistoryRow[]> {
  */
 export function getMostPlayedRows(limit?: number): Promise<HistoryRow[]> {
   return invoke<HistoryRow[]>("get_most_played_rows", { limit });
+}
+
+/**
+ * The raw play-log timeline for the History surface, every play newest first, not deduped - a track
+ * repeats once per listen. `limit` caps the list; undefined returns the whole log.
+ */
+export function getPlayTimeline(limit?: number): Promise<PlayEvent[]> {
+  return invoke<PlayEvent[]>("get_play_timeline", { limit });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

@@ -382,6 +382,18 @@ pub struct HistoryRow {
     pub completed_count: i64,
 }
 
+/// One raw play-log event for the History timeline: the play's own id, its track, when it happened
+/// (unix seconds), and whether it ran to the end. Unlike HistoryRow this is not deduped - one event per
+/// listen, so a track repeats once per play, and `play_id` keys each repeat apart. Mirrors PlayEvent in
+/// types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayEvent {
+    pub play_id: i64,
+    pub track_id: i64,
+    pub played_at: i64,
+    pub completed: bool,
+}
+
 /// The load-all organize payload: every album (each with its track count) and every membership
 /// row. The frontend hydrates its organize state from this in one call.
 #[derive(Debug, Clone, Serialize)]

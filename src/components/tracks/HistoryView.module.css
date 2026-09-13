@@ -1,0 +1,64 @@
+/*
+ * The History destination: a page-title header with the lens toggle over the collection grid and its
+ * peek drawer. The layout mirrors All Tracks - a column whose body splits into the grid and, when a row
+ * is peeked, the track detail beside it - with the recently/most lens control sitting between the title
+ * and the count.
+ */
+.view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The title, the lens toggle, and the count on one baseline-set row; the view toggle rides the far end. */
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 10px 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+/* The lens toggle is a chip control, so it centers against the baseline-set title rather than sitting on it. */
+.lens {
+  align-self: center;
+}
+
+.count {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The list/cards toggle trails at the far end of the title row, centered against the baseline-set text. */
+.viewToggle {
+  margin-left: auto;
+  align-self: center;
+}
+
+/* Carries --drawer-width so the detail panel's flex-basis (and its child handle) follow a drag. */
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 24px;
+}
+
+/* The detail panel's positioned wrapper: it holds the var width, and the resize handle rides its left
+ * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
+.panel {
+  position: relative;
+  flex: 0 0 var(--drawer-width);
+  min-height: 0;
+  display: flex;
+}

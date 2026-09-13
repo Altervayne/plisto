@@ -17,13 +17,14 @@ import { usePlaysVersion } from "./store";
 import {
   getMostPlayed,
   getMostPlayedRows,
+  getPlayTimeline,
   getRecentlyPlayed,
   getRecentlyPlayedRows,
 } from "../../lib/ipc";
 
 // -- Type Imports --
 import type { HistoryLens } from "../shell/store";
-import type { HistoryStat, TrackRow } from "../../types";
+import type { HistoryStat, PlayEvent, TrackRow } from "../../types";
 
 /**
  * Resolves play-history ids to their library rows in id order, dropping any id the index no longer
@@ -119,4 +120,50 @@ export function useHistory(lens: HistoryLens): { rows: TrackRow[]; stats: Map<nu
     }
     return { rows, stats };
   }, [historyRows, tracks]);
+}
+
+/**
+ * One resolved timeline entry: the play's own id, its library row, when it played, and whether it ran
+ * to the end. Keyed by playId, so a repeat of the same track stays a distinct entry.
+ */
+export interface TimelineEntry {
+  playId: number;
+  track: TrackRow;
+  playedAt: number;
+  completed: boolean;
+}
+
+/**
+ * The full play-log timeline (unbounded), every listen resolved to its library row in the read's
+ * newest-first order. Refetches on mount and on each recorded play. A repeat is kept - the log is
+ * chronological, not deduped - and an event whose track is gone drops out, so no orphan entry survives.
+ */
+export function usePlayTimeline(): TimelineEntry[] {
+  const tracks = useTracks();
+  const playsVersion = usePlaysVersion();
+  const [events, setEvents] = useState<PlayEvent[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void getPlayTimeline()
+      .then((result) => {
+        if (alive) setEvents(result);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [playsVersion]);
+
+  return useMemo(() => {
+    const byId = new Map(tracks.map((t) => [t.id, t] as const));
+    const entries: TimelineEntry[] = [];
+    for (const e of events) {
+      const track = byId.get(e.track_id);
+      if (track) {
+        entries.push({ playId: e.play_id, track, playedAt: e.played_at, completed: e.completed });
+      }
+    }
+    return entries;
+  }, [events, tracks]);
 }

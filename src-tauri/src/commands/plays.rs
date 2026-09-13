@@ -9,7 +9,7 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::db;
-use crate::dto::HistoryRow;
+use crate::dto::{HistoryRow, PlayEvent};
 use crate::state::AppState;
 
 /// Clears play history: a track id wipes just that track's plays, None wipes the whole log. A discrete
@@ -74,4 +74,18 @@ pub fn get_most_played_rows(
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     db::get_most_played_rows(&conn, limit).map_err(|e| e.to_string())
+}
+
+/// The raw play-log timeline for the History surface, every play newest first, not deduped. `limit`
+/// caps the list, or None for the whole log.
+#[tauri::command]
+pub fn get_play_timeline(
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<PlayEvent>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::get_play_timeline(&conn, limit).map_err(|e| e.to_string())
 }

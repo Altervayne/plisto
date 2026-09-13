@@ -537,6 +537,18 @@ export interface HistoryStat {
 }
 
 /**
+ * One raw play-log event for the History timeline: the play's own id, its track, when it happened
+ * (unix seconds), and whether it ran to the end. Not deduped - a track repeats once per listen, and
+ * `play_id` keys each repeat apart. Mirrors PlayEvent in dto.rs.
+ */
+export interface PlayEvent {
+  play_id: number;
+  track_id: number;
+  played_at: number;
+  completed: boolean;
+}
+
+/**
  * One selectable output device: its name and whether it is the current OS default. The settings
  * picker's "System default" entry is synthetic and carries no name. Mirrors OutputDeviceInfo in
  * audio/mod.rs.

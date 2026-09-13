@@ -7,7 +7,7 @@
 
   [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
   ![Platform: Windows](https://img.shields.io/badge/platform-Windows_x64-informational)
-  ![Version](https://img.shields.io/badge/version-2.0.0-success)
+  ![Version](https://img.shields.io/badge/version-2.1.0-success)
 </div>
 
 ---
@@ -34,9 +34,14 @@ SQLite database placed under `%APPDATA%`. This means every edit is non-destructi
 ### Library and organization
 
 - **Scan** your music folders into a fast, searchable track index.
+- **All Tracks**, the whole library on one surface, with filter chips
+  (artist, album, genre, year), grouping, search, and list or cards views.
 - **Albums, singles, and playlists.** Curate collections, reorder tracks, and
   keep a slot-based playlist model, where a track can appear more than once.
 - **Unsorted workspace** for triaging freshly imported material.
+- A configurable **Home** with per-mode layouts, and a **Player / Organizer /
+  Both** mode switch that tailors the sidebar to what you are doing.
+- **History** of what you have played, most-recent and most-played.
 - **Covers workspace** that shows which folders and albums still need art, with
   one-click assignment from loose images, auto-matching by filename, and
   pick-from-folder.

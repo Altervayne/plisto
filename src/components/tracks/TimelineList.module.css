@@ -1,0 +1,190 @@
+/*
+ * The play-log timeline: a day-grouped, virtualized list of raw play events, one row per listen. It
+ * borrows the collection row's rhythm - a fixed-height single line, disciplined ink, a hover veil - but
+ * carries its own column set (play gutter, title, artist, album, then a completed marker and the clock
+ * time), so it never couples to the grid's column or selection model. Day headers match the group
+ * header's break: top space and a heavier label, no fill, no rule.
+ */
+.list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fills the surface; the ScrollArea inside owns the overflow and paints the bespoke bar. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The scroll body's right inset clears the overlay scrollbar, so a row's hover veil stops short of the
+ * bar rather than sliding under it. */
+.scrollInner {
+  padding-right: 16px;
+}
+
+/* The virtualized items are absolutely placed inside this measured-height spacer. */
+.body {
+  position: relative;
+  width: 100%;
+}
+
+/*
+ * A day header: the day label with its play count trailing, over a band of top space that parts it from
+ * the day above. The space rides in the padding, not a margin, so the virtualizer measures the real
+ * height. Neutral ink - the accent stays reserved for play.
+ */
+.header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 28px 10px 8px;
+}
+
+/* The leading day sits flush: no band above the first header. */
+.headerFirst {
+  padding-top: 6px;
+}
+
+.dayLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dayCount {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * One play row: a fixed-height single line laid on the bespoke column template. No border, no zebra.
+ * The lead gutter carries the hover play triangle; the trailing cell pairs the completed marker with
+ * the clock time. Hover and the active peek wash a soft veil.
+ */
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 40px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  column-gap: 18px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.active,
+.active:hover {
+  background: var(--veil-2);
+}
+
+/* A single-line cell that clips overflow; the title carries the ellipsis on long text. */
+.cell {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+
+/* The one primary-ink anchor per row. */
+.title {
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.secondary {
+  color: var(--ink-2);
+}
+
+/* A missing tag reads as a deliberate quiet dash. */
+.empty {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+/* The lead gutter holds only the hover play triangle, right-aligned where a track number would sit. */
+.gutter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  /* Inert while hidden: an opacity:0 glyph still keeps its box and pointer events, so without this the
+   * invisible triangle would swallow clicks meant to open the row. It re-arms with the reveal. */
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.row:hover .play {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A gone source still reveals the glyph so its reason reads on hover, but greyed and dead. */
+.playOff {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* The trailing cell: the completed marker then the clock time, hugging the right edge. */
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The completed/partial marker: a small dot, filled for a full play, a hollow ring for a partial one. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dotFull {
+  background: var(--ink-2);
+}
+
+.dotPartial {
+  border: 1.5px solid var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play {
+    transition: none;
+  }
+}
