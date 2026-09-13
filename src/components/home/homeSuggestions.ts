@@ -6,38 +6,24 @@
  */
 
 // -- Unit Imports --
-import { resolveFacet } from "../tracks/trackFacets";
+import { EMPTY_INDEX, isMissingMetadata, resolveFacet } from "../tracks/trackFacets";
 
 // -- Type Imports --
-import type { TrackRow } from "../../types";
+import type { AlbumRow, TrackRow } from "../../types";
 
 /** A track plays only while its source is present. */
 function playable(track: TrackRow): boolean {
   return track.missing_at == null;
 }
 
-/** The resolved title, edit over raw, or null when neither layer holds one. */
-function resolveTitle(track: TrackRow): string | null {
-  const v = track.title_edit ?? track.raw_title;
-  return v ? v : null;
-}
-
 /**
- * How many tracks lack the metadata export needs. A track counts when its resolved title, artist, or
- * album is empty - the same edit-over-raw resolve the facets do, aligned with the Unknown/Untitled
- * substitution export falls back to. Year and track number are pattern-optional there, so they never
- * count here.
+ * How many tracks lack the metadata export needs, through the one predicate the All Tracks filter
+ * shares, so the box count and the filtered list never disagree.
  */
-export function countMissingMetadata(tracks: TrackRow[]): number {
+export function countMissingMetadata(tracks: TrackRow[], index = EMPTY_INDEX): number {
   let count = 0;
   for (const track of tracks) {
-    if (
-      resolveTitle(track) == null ||
-      resolveFacet(track, "artist") == null ||
-      resolveFacet(track, "album") == null
-    ) {
-      count += 1;
-    }
+    if (isMissingMetadata(track, index)) count += 1;
   }
   return count;
 }
@@ -59,19 +45,24 @@ export interface PlayNext {
  * Else another playable track by the seed's resolved artist, skipping the seed and anything played
  * recently, named by that artist. Else nothing - never a fabricated fallback. `seedAlbumTracks` is the
  * seed's album in play order (empty when the seed is loose); `artistTracks` its resolved-artist
- * candidates drawn from the index.
+ * candidates drawn from the index. `albumIndex` joins the seed's album so its label shows the real album
+ * name when the seed is a member.
  */
 export function pickPlayNext(
   seed: TrackRow,
   seedAlbumTracks: TrackRow[],
   artistTracks: TrackRow[],
   recentIds: readonly number[],
+  albumIndex: Map<number, AlbumRow> = EMPTY_INDEX,
 ): PlayNext | null {
   const seedIndex = seedAlbumTracks.findIndex((t) => t.id === seed.id);
   if (seedIndex >= 0) {
     for (let i = seedIndex + 1; i < seedAlbumTracks.length; i += 1) {
       if (playable(seedAlbumTracks[i])) {
-        return { track: seedAlbumTracks[i], reason: { kind: "album", album: resolveFacet(seed, "album") ?? "" } };
+        return {
+          track: seedAlbumTracks[i],
+          reason: { kind: "album", album: resolveFacet(seed, "album", albumIndex) ?? "" },
+        };
       }
     }
   }

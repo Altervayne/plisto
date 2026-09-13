@@ -10,6 +10,7 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 
 // -- Utils Imports --
 import {
+  EMPTY_INDEX,
   FACET_KEYS,
   facetOptions,
   hasFacet,
@@ -19,7 +20,7 @@ import {
 
 // -- Type Imports --
 import type { FacetKey, GridFacet } from "./trackFacets";
-import type { TrackRow } from "../../types";
+import type { AlbumRow, TrackRow } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -42,18 +43,26 @@ export const FACET_LABEL: Record<FacetKey, (d: Dict) => string> = {
  * active filters trailing as removable accent-weak chips. Values within a facet OR, chips across facets
  * AND, matching filterByFacets. Options come from the passed rows, so the menu offers only values present
  * in the current scope. Presentational over the store: the parent holds the chips and what a pick does.
- * Escape closes the open menu, or clears every chip when the menu is already closed.
+ * A top-level "Missing metadata" entry toggles a whole-row narrowing that composes with the facets, its
+ * own accent-weak chip trailing beside them. Escape closes the open menu, or clears every filter when the
+ * menu is already closed.
  */
 export function FacetFilter({
   tracks,
   genreNameById,
+  albumIndex = EMPTY_INDEX,
   facets,
   onChange,
+  missingMetadata,
+  onMissingMetadataChange,
 }: {
   tracks: TrackRow[];
   genreNameById: Map<number, string>;
+  albumIndex?: Map<number, AlbumRow>;
   facets: GridFacet[];
   onChange: (facets: GridFacet[]) => void;
+  missingMetadata: boolean;
+  onMissingMetadataChange: (on: boolean) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -61,7 +70,17 @@ export function FacetFilter({
   const [step, setStep] = useState<FacetKey | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  const options = useMemo(() => facetOptions(tracks, genreNameById), [tracks, genreNameById]);
+  const options = useMemo(
+    () => facetOptions(tracks, genreNameById, albumIndex),
+    [tracks, genreNameById, albumIndex],
+  );
+
+  const anyActive = facets.length > 0 || missingMetadata;
+  // Loosen everything at once: the facet chips and the missing-metadata narrowing both back off.
+  const clearAll = () => {
+    onChange([]);
+    onMissingMetadataChange(false);
+  };
 
   const close = () => {
     setOpen(false);
@@ -84,9 +103,9 @@ export function FacetFilter({
     if (open) {
       event.stopPropagation();
       close();
-    } else if (facets.length > 0) {
+    } else if (anyActive) {
       event.stopPropagation();
-      onChange([]);
+      clearAll();
     }
   };
 
@@ -102,6 +121,20 @@ export function FacetFilter({
         <ListFilter size={15} strokeWidth={1.8} aria-hidden="true" />
         {t((d) => d.tracks.filter)}
       </button>
+
+      {missingMetadata ? (
+        <span className={styles.chip}>
+          <span className={styles.chipText}>{t((d) => d.tracks.missingMetadata)}</span>
+          <button
+            type="button"
+            className={styles.chipRemove}
+            aria-label={t((d) => d.tracks.removeFilter)}
+            onClick={() => onMissingMetadataChange(false)}
+          >
+            <X size={12} strokeWidth={3} />
+          </button>
+        </span>
+      ) : null}
 
       {facets.map(({ facet, value }) => (
         <span key={`${facet}:${value}`} className={styles.chip}>
@@ -119,8 +152,8 @@ export function FacetFilter({
         </span>
       ))}
 
-      {facets.length > 0 ? (
-        <button type="button" className={styles.clear} onClick={() => onChange([])}>
+      {anyActive ? (
+        <button type="button" className={styles.clear} onClick={clearAll}>
           {t((d) => d.tracks.clearFilters)}
         </button>
       ) : null}
@@ -129,6 +162,25 @@ export function FacetFilter({
         <div className={styles.menu} role="menu">
           {step == null ? (
             <ul className={styles.list}>
+              <li>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={missingMetadata}
+                  className={missingMetadata ? `${styles.row} ${styles.rowActive}` : styles.row}
+                  onClick={() => onMissingMetadataChange(!missingMetadata)}
+                >
+                  <span className={styles.rowLabel}>{t((d) => d.tracks.missingMetadata)}</span>
+                  {missingMetadata ? (
+                    <Check
+                      size={14}
+                      strokeWidth={2.4}
+                      className={styles.rowIcon}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </button>
+              </li>
               {FACET_KEYS.map((facet) => {
                 const count = options[facet].length;
                 return (

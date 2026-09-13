@@ -19,6 +19,9 @@ import { useAppStore } from "../store";
 // -- Engine Imports --
 import { applyCommand, commandToIpc, invertCommand } from "./orgCommands";
 
+// -- Utils Imports --
+import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
+
 // -- IPC Imports --
 import {
   addAlbumGenre as ipcAddAlbumGenre,
@@ -614,6 +617,18 @@ export const useUnsortedTracks = (): TrackRow[] => {
     const assigned = new Set(membership.map((r) => r.track_id));
     return tracks.filter((t) => !assigned.has(t.id));
   }, [tracks, membership]);
+};
+
+/**
+ * The track-to-album index: every membership row mapped to its AlbumRow, so a member resolves its album's
+ * title, album-artist, and year. Reads the shallow-stable membership and the raw all-albums slice - not
+ * the kind-filtered useAlbums, since a single's member needs its single's title - then derives the Map
+ * with useMemo, so it holds one stable reference rebuilt only when membership or albums change.
+ */
+export const useAlbumIndex = (): Map<number, AlbumRow> => {
+  const membership = useOrganizeStore(useShallow((s) => s.org.membership));
+  const albums = useOrganizeStore(useShallow((s) => s.org.albums));
+  return useMemo(() => buildAlbumIndex(membership, albums), [membership, albums]);
 };
 
 export const useGenres = (): GenreRow[] => useOrganizeStore(useShallow((s) => s.genres));

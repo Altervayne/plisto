@@ -52,7 +52,7 @@ import { useSetOpenTool } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
-import { filterByFacets } from "./trackFacets";
+import { EMPTY_INDEX, filterByFacets, isMissingMetadata } from "./trackFacets";
 import { UNTAGGED_KEY, flattenGroups, groupRows } from "./trackGrouping";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
@@ -64,7 +64,7 @@ import type { GridFacet, GroupDimension } from "./trackFacets";
 import type { TrackGroup } from "./trackGrouping";
 import type { MenuEntry } from "../common/ContextMenu";
 import type { FilesViewMode, GridSort } from "../../state/store";
-import type { PlaybackSource, TrackEditFields, TrackRow as TrackRowData } from "../../types";
+import type { AlbumRow, PlaybackSource, TrackEditFields, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -99,6 +99,8 @@ function filenameStem(filename: string): string {
  * drops the facet filter for a plain browser; `source` tags what the queue plays from. Passing
  * `onGroupByChange` arms the group-by control and the collapsible section headers; without it the body
  * stays flat. `onVisibleCount` reports the unique filtered row count so a caller's header stays honest.
+ * `albumIndex` joins each track to the album it is filed into, so All Tracks resolves album, album-artist,
+ * and year from the container; left at the empty default, the grid keeps the loose edit-over-raw.
  */
 export function TrackGrid({
   tracks,
@@ -106,6 +108,7 @@ export function TrackGrid({
   view = "table",
   columns = trackColumns,
   enableFacets = true,
+  albumIndex = EMPTY_INDEX,
   source = { kind: "files" },
   sort,
   onSortChange,
@@ -113,6 +116,8 @@ export function TrackGrid({
   onSearchChange,
   facets = NO_FACETS,
   onFacetsChange,
+  missingMetadata = false,
+  onMissingMetadataChange,
   groupBy = "none",
   onGroupByChange,
   onVisibleCount,
@@ -125,6 +130,9 @@ export function TrackGrid({
   view?: FilesViewMode;
   columns?: TrackColumn[];
   enableFacets?: boolean;
+  // The track-to-album join for All Tracks; the file browser and album drawer leave it at the empty
+  // default, so their rows stay on the loose edit-over-raw.
+  albumIndex?: Map<number, AlbumRow>;
   source?: PlaybackSource;
   sort: GridSort;
   onSortChange: (sort: GridSort) => void;
@@ -132,6 +140,9 @@ export function TrackGrid({
   onSearchChange: (search: string) => void;
   facets?: GridFacet[];
   onFacetsChange?: (facets: GridFacet[]) => void;
+  // The All Tracks missing-metadata narrowing, composed on top of the facets. Files leaves it unset.
+  missingMetadata?: boolean;
+  onMissingMetadataChange?: (on: boolean) => void;
   groupBy?: GroupDimension;
   onGroupByChange?: (groupBy: GroupDimension) => void;
   onVisibleCount?: (count: number) => void;
@@ -141,7 +152,7 @@ export function TrackGrid({
   const allTracks = useTracks();
   const t = useT();
   const scoped = tracks ?? allTracks;
-  const columnDefs = useMemo(() => toColumnDefs(columns), [columns]);
+  const columnDefs = useMemo(() => toColumnDefs(columns, albumIndex), [columns, albumIndex]);
   const template = useMemo(() => gridTemplate(columns), [columns]);
 
   const sorting = sort;
@@ -150,6 +161,7 @@ export function TrackGrid({
   const setGlobalFilter = onSearchChange;
   // A plain browser drops the facet control, so its chips are always empty and the pre-filter is a no-op.
   const activeFacets = enableFacets ? facets : NO_FACETS;
+  const activeMissing = enableFacets && missingMetadata;
 
   // Genre facets read the per-track vocabulary membership, so resolve ids to names through the vocabulary.
   const genres = useGenres();
@@ -158,12 +170,13 @@ export function TrackGrid({
     [genres],
   );
 
-  // The chip facets pre-filter the rows client-side; the table then runs the free-text search and sort
-  // over what is left, so all three compose and both the table and the card wall read the same rows.
-  const data = useMemo(
-    () => filterByFacets(scoped, activeFacets, genreNameById),
-    [scoped, activeFacets, genreNameById],
-  );
+  // The chip facets pre-filter the rows client-side, then the missing-metadata narrowing folds in (a
+  // track must pass the facets AND be missing metadata); the table runs the free-text search and sort
+  // over what is left, so all of it composes and both the table and the card wall read the same rows.
+  const data = useMemo(() => {
+    const byFacets = filterByFacets(scoped, activeFacets, genreNameById, albumIndex);
+    return activeMissing ? byFacets.filter((t) => isMissingMetadata(t, albumIndex)) : byFacets;
+  }, [scoped, activeFacets, activeMissing, genreNameById, albumIndex]);
 
   const table = useReactTable({
     data,
@@ -207,8 +220,8 @@ export function TrackGrid({
   const groups = useMemo(() => {
     // grouping narrows groupBy to a real dimension, so the "none" default never reaches groupRows.
     if (!grouping) return NO_GROUPS;
-    return groupRows(originals, groupBy, genreNameById);
-  }, [grouping, originals, groupBy, genreNameById]);
+    return groupRows(originals, groupBy, genreNameById, albumIndex);
+  }, [grouping, originals, groupBy, genreNameById, albumIndex]);
   const flat = useMemo(() => flattenGroups(groups, collapsed), [groups, collapsed]);
 
   const toggleCollapse = (key: string) =>
@@ -404,14 +417,16 @@ export function TrackGrid({
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const cards = view === "cards";
   const searching = globalFilter.trim().length > 0;
-  const noMatch = rows.length === 0 && (searching || activeFacets.length > 0);
+  const noMatch = rows.length === 0 && (searching || activeFacets.length > 0 || activeMissing);
   const onPlayRow = playerEnabled
     ? (played: TrackRowData) => play(queueIds, queueIds.indexOf(played.id), source)
     : undefined;
-  // Loosen a filter that matched nothing: clear the search and any facet chips back to the full view.
+  // Loosen a filter that matched nothing: clear the search, the facet chips, and the missing-metadata
+  // narrowing back to the full view.
   const clearFilters = () => {
     setGlobalFilter("");
     onFacetsChange?.([]);
+    onMissingMetadataChange?.(false);
   };
 
   return (
@@ -430,8 +445,11 @@ export function TrackGrid({
               <FacetFilter
                 tracks={scoped}
                 genreNameById={genreNameById}
+                albumIndex={albumIndex}
                 facets={facets}
                 onChange={onFacetsChange}
+                missingMetadata={missingMetadata}
+                onMissingMetadataChange={onMissingMetadataChange ?? (() => {})}
               />
             ) : null}
             <GroupByControl groupBy={groupBy} onChange={onGroupByChange} />
@@ -459,8 +477,11 @@ export function TrackGrid({
             <FacetFilter
               tracks={scoped}
               genreNameById={genreNameById}
+              albumIndex={albumIndex}
               facets={facets}
               onChange={onFacetsChange}
+              missingMetadata={missingMetadata}
+              onMissingMetadataChange={onMissingMetadataChange ?? (() => {})}
             />
           </div>
         ) : null}
@@ -498,6 +519,7 @@ export function TrackGrid({
           <TrackCardWall
             scrollRef={scrollRef}
             rows={originals}
+            albumIndex={albumIndex}
             grouping={grouping}
             groups={groups}
             collapsed={collapsed}
@@ -538,6 +560,7 @@ export function TrackGrid({
                   key={`r:${entry.groupKey}:${track.id}`}
                   track={track}
                   columns={columns}
+                  albumIndex={albumIndex}
                   active={track.id === selectedId}
                   selected={selection.has(track.id)}
                   selecting={selecting}
@@ -559,6 +582,7 @@ export function TrackGrid({
                   key={track.id}
                   track={track}
                   columns={columns}
+                  albumIndex={albumIndex}
                   active={track.id === selectedId}
                   selected={selection.has(track.id)}
                   selecting={selecting}

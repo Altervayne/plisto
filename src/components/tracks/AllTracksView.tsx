@@ -15,15 +15,20 @@ import { SegmentedControl } from "../common/SegmentedControl";
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 
+// -- Organize State Imports --
+import { useAlbumIndex } from "../../state/organize/store";
+
 // -- State Imports --
 import {
   useLibraryFacets,
   useLibraryGroupBy,
+  useLibraryMissingMetadata,
   useLibrarySearch,
   useLibrarySort,
   useLibraryView,
   useSetLibraryFacets,
   useSetLibraryGroupBy,
+  useSetLibraryMissingMetadata,
   useSetLibrarySearch,
   useSetLibrarySort,
   useSetLibraryView,
@@ -50,6 +55,7 @@ import styles from "./AllTracksView.module.css";
  */
 export function AllTracksView() {
   const tracks = useTracks();
+  const albumIndex = useAlbumIndex();
   const t = useT();
 
   const sort = useLibrarySort();
@@ -58,6 +64,8 @@ export function AllTracksView() {
   const setSearch = useSetLibrarySearch();
   const facets = useLibraryFacets();
   const setFacets = useSetLibraryFacets();
+  const missingMetadata = useLibraryMissingMetadata();
+  const setMissingMetadata = useSetLibraryMissingMetadata();
   const groupBy = useLibraryGroupBy();
   const setGroupBy = useSetLibraryGroupBy();
   const view = useLibraryView();
@@ -115,6 +123,7 @@ export function AllTracksView() {
           view={view}
           enableFacets
           columns={collectionColumns}
+          albumIndex={albumIndex}
           source={{ kind: "tracks" }}
           sort={sort}
           onSortChange={setSort}
@@ -122,6 +131,8 @@ export function AllTracksView() {
           onSearchChange={setSearch}
           facets={facets}
           onFacetsChange={setFacets}
+          missingMetadata={missingMetadata}
+          onMissingMetadataChange={setMissingMetadata}
           groupBy={groupBy}
           onGroupByChange={setGroupBy}
           onVisibleCount={setVisibleCount}

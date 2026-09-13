@@ -24,10 +24,10 @@ import { resolveFacet } from "../tracks/trackFacets";
 
 // -- State Imports --
 import { useNeedsCoverCount } from "../../state/covers/store";
-import { useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
+import { useAlbumIndex, useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
 import { useMostPlayed, useRecentlyPlayed } from "../../state/player/playHistory";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
-import { useSetLibraryFacets, useTracks } from "../../state/store";
+import { useSetLibraryFacets, useSetLibraryMissingMetadata, useTracks } from "../../state/store";
 
 // -- Type Imports --
 import type { BoxType } from "./boxCatalog";
@@ -134,14 +134,19 @@ function MostPlayedBox(_: HomeBoxProps) {
 
 function MissingMetadataBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
-  const count = countMissingMetadata(useTracks());
+  const count = countMissingMetadata(useTracks(), useAlbumIndex());
+  const setMissingMetadata = useSetLibraryMissingMetadata();
   return (
     <StatBox
       label={t((d) => d.home.missingMetaLabel)}
       count={count}
       verb={t((d) => d.home.missingMetaVerb)}
       settled={t((d) => d.home.missingMetaSettled)}
-      onClick={() => onNavigate("tracks")}
+      // Land on All Tracks already narrowed to these tracks, the chip naming why.
+      onClick={() => {
+        setMissingMetadata(true);
+        onNavigate("tracks");
+      }}
     />
   );
 }
@@ -156,6 +161,7 @@ function PlayNextBox(_: HomeBoxProps) {
   const membership = useMembership();
   const albumId = seed ? membership.find((r) => r.track_id === seed.id)?.album_id : undefined;
   const albumTracks = useAlbumTracks(albumId ?? -1);
+  const albumIndex = useAlbumIndex();
   const onPlay = usePreviewPlay();
 
   const suggestion = useMemo(() => {
@@ -166,8 +172,8 @@ function PlayNextBox(_: HomeBoxProps) {
       .filter((row): row is TrackRow => row != null);
     const artist = resolveFacet(seed, "artist");
     const artistTracks = artist ? tracksByArtist(tracks, artist, tracks.length, [seed.id]) : [];
-    return pickPlayNext(seed, seedAlbumTracks, artistTracks, recent.map((r) => r.id));
-  }, [seed, tracks, albumTracks, recent]);
+    return pickPlayNext(seed, seedAlbumTracks, artistTracks, recent.map((r) => r.id), albumIndex);
+  }, [seed, tracks, albumTracks, recent, albumIndex]);
 
   // The why-line: the album continuation or the artist fallback, each named. An empty name yields no
   // line rather than a bare "Next in".

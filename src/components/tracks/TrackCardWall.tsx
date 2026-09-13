@@ -13,11 +13,14 @@ import { TrackCard } from "./TrackCard";
 import { columnCount, flattenCardGroups } from "./trackCardLayout";
 import { UNTAGGED_KEY } from "./trackGrouping";
 
+// -- Utils Imports --
+import { EMPTY_INDEX } from "./trackFacets";
+
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
 import type { TrackGroup } from "./trackGrouping";
 import type { MenuEntry } from "../common/ContextMenu";
-import type { TrackRow as TrackRowData } from "../../types";
+import type { AlbumRow, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -47,6 +50,7 @@ const GROUP_HEADER_HEIGHT = 56;
 export function TrackCardWall({
   scrollRef,
   rows,
+  albumIndex = EMPTY_INDEX,
   grouping,
   groups,
   collapsed,
@@ -64,6 +68,8 @@ export function TrackCardWall({
   scrollRef: RefObject<HTMLDivElement | null>;
   // The sorted, filtered rows in flat visual order, chunked into card-rows when ungrouped.
   rows: TrackRowData[];
+  // The track-to-album join, passed to each card so a member's album line reads its container's title.
+  albumIndex?: Map<number, AlbumRow>;
   grouping: boolean;
   groups: TrackGroup[];
   collapsed: Set<string>;
@@ -134,6 +140,7 @@ export function TrackCardWall({
       <TrackCard
         key={track.id}
         track={track}
+        albumIndex={albumIndex}
         active={track.id === selectedId}
         checked={selection.has(track.id)}
         selecting={selecting}

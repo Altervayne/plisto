@@ -5,14 +5,18 @@ import { describe, expect, it } from "vitest";
 import {
   facetOptions,
   filterByFacets,
+  isMissingMetadata,
   resolveFacet,
   toggleFacet,
   trackGenreNames,
 } from "./trackFacets";
 
+// -- Unit Imports --
+import { buildAlbumIndex } from "./trackAlbum";
+
 // -- Type Imports --
 import type { GridFacet } from "./trackFacets";
-import type { TrackRow } from "../../types";
+import type { AlbumRow, AlbumTrackRow, TrackRow } from "../../types";
 
 // A minimal row with only the fields the facets read; the rest carry inert defaults.
 function row(over: Partial<TrackRow>): TrackRow {
@@ -132,6 +136,110 @@ describe("filterByFacets", () => {
     expect(filterByFacets(edited, [{ facet: "artist", value: "Trane" }], genres)).toHaveLength(0);
   });
 });
+
+describe("isMissingMetadata", () => {
+  const tagged = { raw_title: "Blue in Green", raw_artist: "Miles", raw_album: "Kind of Blue" };
+
+  it("is false when title, artist, and album all resolve", () => {
+    expect(isMissingMetadata(row(tagged))).toBe(false);
+  });
+
+  it("is true when the title is empty", () => {
+    expect(isMissingMetadata(row({ ...tagged, raw_title: null }))).toBe(true);
+    expect(isMissingMetadata(row({ ...tagged, raw_title: "" }))).toBe(true);
+  });
+
+  it("is true when the artist is empty", () => {
+    expect(isMissingMetadata(row({ ...tagged, raw_artist: null }))).toBe(true);
+  });
+
+  it("is true when the album is empty", () => {
+    expect(isMissingMetadata(row({ ...tagged, raw_album: null }))).toBe(true);
+  });
+
+  it("reads the edit over the raw tag, so an edit fills a missing field", () => {
+    expect(isMissingMetadata(row({ ...tagged, raw_title: null, title_edit: "Untitled cut" }))).toBe(
+      false,
+    );
+  });
+
+  it("composes with the facet pre-filter: facets first, then missing metadata", () => {
+    const tracks = [
+      row({ id: 1, raw_artist: "Miles", raw_title: "So What", raw_album: "Kind of Blue" }),
+      row({ id: 2, raw_artist: "Miles", raw_title: null, raw_album: "Kind of Blue" }),
+      row({ id: 3, raw_artist: "Bill", raw_title: null, raw_album: null }),
+    ];
+    const byFacets = filterByFacets(tracks, [{ facet: "artist", value: "Miles" }], genres);
+    expect(byFacets.filter((t) => isMissingMetadata(t)).map((t) => t.id)).toEqual([2]);
+  });
+
+  it("clears the album term for a member of a titled album, even with a blank raw tag", () => {
+    const track = row({ id: 10, raw_title: "Track", raw_artist: "Band", raw_album: null });
+    const index = memberIndex(10, album({ id: 1, title: "Real Album", kind: "album" }));
+    expect(isMissingMetadata(track, index)).toBe(false);
+  });
+
+  it("flags a member of an untitled album on the album term", () => {
+    const track = row({ id: 10, raw_title: "Track", raw_artist: "Band", raw_album: null });
+    const index = memberIndex(10, album({ id: 1, title: null, kind: "album" }));
+    expect(isMissingMetadata(track, index)).toBe(true);
+  });
+
+  it("exempts a single from the album term, even with no album title", () => {
+    const track = row({ id: 10, raw_title: "Track", raw_artist: "Band", raw_album: null });
+    const index = memberIndex(10, album({ id: 1, title: null, kind: "single" }));
+    expect(isMissingMetadata(track, index)).toBe(false);
+  });
+
+  it("keeps the loose behavior when the index is empty", () => {
+    const loose = row({ ...tagged, raw_album: null });
+    expect(isMissingMetadata(loose)).toBe(true);
+    expect(isMissingMetadata(row(tagged))).toBe(false);
+  });
+});
+
+// A minimal album carrying the fields the resolvers read.
+function album(over: Partial<AlbumRow>): AlbumRow {
+  return {
+    id: 1,
+    title: null,
+    album_artist: null,
+    year: null,
+    genre: null,
+    cover_id: null,
+    kind: "album",
+    track_count: 0,
+    created_at: 0,
+    updated_at: 0,
+    ...over,
+  };
+}
+
+// A membership row placing one track into one album, only the join keys filled.
+function memberRow(albumId: number, trackId: number): AlbumTrackRow {
+  return {
+    album_id: albumId,
+    track_id: trackId,
+    source_path: "",
+    filename: "",
+    duration_secs: null,
+    track_no: 1,
+    disc_no: 1,
+    raw_title: null,
+    raw_artist: null,
+    title_override: null,
+    artist_override: null,
+    has_embedded_cover: null,
+    missing_at: null,
+    keep_own_cover: false,
+    genre_ids: [],
+  };
+}
+
+// An index filing one track into one album.
+function memberIndex(trackId: number, a: AlbumRow): Map<number, AlbumRow> {
+  return buildAlbumIndex([memberRow(a.id, trackId)], [a]);
+}
 
 describe("toggleFacet", () => {
   it("adds a chip when absent and drops it when present", () => {

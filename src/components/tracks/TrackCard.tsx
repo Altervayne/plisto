@@ -13,10 +13,14 @@ import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 // -- Hook Imports --
 import { useTrackThumb } from "../covers/useTrackThumb";
 
+// -- Utils Imports --
+import { resolveTrackAlbum } from "./trackAlbum";
+import { EMPTY_INDEX } from "./trackFacets";
+
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
 import type { MenuEntry } from "../common/ContextMenu";
-import type { TrackRow as TrackRowData } from "../../types";
+import type { AlbumRow, TrackRow as TrackRowData } from "../../types";
 
 // -- Style Imports --
 import styles from "./TrackCard.module.css";
@@ -31,6 +35,7 @@ import styles from "./TrackCard.module.css";
  */
 export const TrackCard = memo(function TrackCard({
   track,
+  albumIndex = EMPTY_INDEX,
   active,
   checked,
   selecting,
@@ -40,6 +45,9 @@ export const TrackCard = memo(function TrackCard({
   buildMenu,
 }: {
   track: TrackRowData;
+  // The track-to-album join, so a member's album line reads its container's title; the empty default
+  // keeps the loose edit-over-raw everywhere else.
+  albumIndex?: Map<number, AlbumRow>;
   active: boolean;
   checked: boolean;
   // A selection is live somewhere on the wall: every tile shows its ring, so picking more is a plain
@@ -60,7 +68,7 @@ export const TrackCard = memo(function TrackCard({
 
   const title = track.title_edit ?? track.raw_title;
   const artist = track.artist_edit ?? track.raw_artist;
-  const album = track.album_edit ?? track.raw_album;
+  const album = resolveTrackAlbum(track, albumIndex);
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A modified click drives multi-select rather than opening: ctrl/cmd toggles, shift extends the range.

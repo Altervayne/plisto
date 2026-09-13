@@ -6,11 +6,11 @@
  */
 
 // -- Utils Imports --
-import { resolveFacet, sortValues, trackGenreNames } from "./trackFacets";
+import { EMPTY_INDEX, resolveFacet, sortValues, trackGenreNames } from "./trackFacets";
 
 // -- Type Imports --
 import type { FacetKey } from "./trackFacets";
-import type { TrackRow } from "../../types";
+import type { AlbumRow, TrackRow } from "../../types";
 
 /** The bucket key for rows with no value on the grouped dimension. Never a real tag: a resolved facet
  *  folds an empty value to null and a genre name is always non-empty, so this cannot collide. */
@@ -38,6 +38,7 @@ export function groupRows(
   rows: TrackRow[],
   groupBy: FacetKey,
   genreNameById: Map<number, string>,
+  index: Map<number, AlbumRow> = EMPTY_INDEX,
 ): TrackGroup[] {
   const buckets = new Map<string, TrackRow[]>();
   const push = (key: string, track: TrackRow) => {
@@ -52,7 +53,7 @@ export function groupRows(
       if (names.length === 0) push(UNTAGGED_KEY, track);
       else for (const name of names) push(name, track);
     } else {
-      push(resolveFacet(track, groupBy) ?? UNTAGGED_KEY, track);
+      push(resolveFacet(track, groupBy, index) ?? UNTAGGED_KEY, track);
     }
   }
 

@@ -337,6 +337,7 @@ export const fr: Dict = {
     noMatch: 'Aucune piste ne correspond à "{q}"',
     noFilterMatch: "Aucune piste ne correspond à ces filtres",
     filter: "Filtrer",
+    missingMetadata: "Métadonnées manquantes",
     clearFilters: "Effacer les filtres",
     removeFilter: "Retirer le filtre",
     groupBy: "Grouper par",

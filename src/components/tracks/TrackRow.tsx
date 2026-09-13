@@ -10,11 +10,12 @@ import { Play } from "lucide-react";
 
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
+import { EMPTY_INDEX } from "./trackFacets";
 import type { TrackColumn } from "./trackColumns";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
-import type { TrackRow as TrackRowData } from "../../types";
+import type { AlbumRow, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -28,10 +29,10 @@ export interface SelectModifiers {
   meta: boolean;
 }
 
-/** Resolves a cell to its display string, folding an absent tag to a deliberate dash. An edited
- *  column reads its effective `edit ?? raw` value through the column's resolver. */
-function cellText(col: TrackColumn, track: TrackRowData): string {
-  const raw = col.resolve ? col.resolve(track) : track[col.id];
+/** Resolves a cell to its display string, folding an absent tag to a deliberate dash. A resolved column
+ *  reads its effective value through the column's resolver, joining the album index where it applies. */
+function cellText(col: TrackColumn, track: TrackRowData, index: Map<number, AlbumRow>): string {
+  const raw = col.resolve ? col.resolve(track, index) : track[col.id];
   if (col.format) return col.format(raw);
   if (raw == null || raw === "") return "-";
   return String(raw);
@@ -61,6 +62,7 @@ function cellClass(col: TrackColumn, empty: boolean): string {
 export function TrackRow({
   track,
   columns = trackColumns,
+  albumIndex = EMPTY_INDEX,
   active,
   selected,
   selecting,
@@ -72,6 +74,9 @@ export function TrackRow({
 }: {
   track: TrackRowData;
   columns?: TrackColumn[];
+  // The track-to-album join, so a member's album, album-artist, and year cells read the container's
+  // fields; the file browser leaves it at the empty default for loose edit-over-raw.
+  albumIndex?: Map<number, AlbumRow>;
   active: boolean;
   selected: boolean;
   selecting: boolean;
@@ -126,7 +131,7 @@ export function TrackRow({
       </button>
 
       {columns.map((col) => {
-        const text = cellText(col, track);
+        const text = cellText(col, track, albumIndex);
         const empty = text === "-";
 
         // The play triangle, armed only when the caller passes onPlay. A gone source greys it inert with

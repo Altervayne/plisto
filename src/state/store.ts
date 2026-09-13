@@ -73,6 +73,9 @@ interface AppStore {
   librarySort: GridSort;
   librarySearch: string;
   libraryFacets: GridFacet[];
+  // Narrows All Tracks to the tracks the Home box flags, alongside the facet chips: a track must pass
+  // the facets AND be missing metadata. Its own slot so the chip clears apart from the facets.
+  libraryMissingMetadata: boolean;
   libraryGroupBy: GroupDimension;
   libraryView: FilesViewMode;
   filesSort: GridSort;
@@ -91,6 +94,7 @@ interface AppStore {
   setLibrarySort: (sort: GridSort) => void;
   setLibrarySearch: (search: string) => void;
   setLibraryFacets: (facets: GridFacet[]) => void;
+  setLibraryMissingMetadata: (on: boolean) => void;
   setLibraryGroupBy: (groupBy: GroupDimension) => void;
   setLibraryView: (view: FilesViewMode) => void;
   setFilesSort: (sort: GridSort) => void;
@@ -139,6 +143,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     librarySort: [],
     librarySearch: "",
     libraryFacets: [],
+    libraryMissingMetadata: false,
     libraryGroupBy: "none",
     libraryView: "table",
     filesSort: [],
@@ -256,6 +261,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setLibrarySort: (librarySort) => set({ librarySort }),
     setLibrarySearch: (librarySearch) => set({ librarySearch }),
     setLibraryFacets: (libraryFacets) => set({ libraryFacets }),
+    setLibraryMissingMetadata: (libraryMissingMetadata) => set({ libraryMissingMetadata }),
     setLibraryGroupBy: (libraryGroupBy) => set({ libraryGroupBy }),
     setLibraryView: (libraryView) => set({ libraryView }),
     setFilesSort: (filesSort) => set({ filesSort }),
@@ -270,6 +276,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         librarySort: [],
         librarySearch: "",
         libraryFacets: [],
+        libraryMissingMetadata: false,
         libraryGroupBy: "none",
         libraryView: "table",
         filesSort: [],
@@ -314,6 +321,8 @@ export const useTrack = (id: number): TrackRow | undefined =>
 export const useLibrarySort = (): GridSort => useAppStore((s) => s.librarySort);
 export const useLibrarySearch = (): string => useAppStore((s) => s.librarySearch);
 export const useLibraryFacets = (): GridFacet[] => useAppStore((s) => s.libraryFacets);
+export const useLibraryMissingMetadata = (): boolean =>
+  useAppStore((s) => s.libraryMissingMetadata);
 export const useLibraryGroupBy = (): GroupDimension => useAppStore((s) => s.libraryGroupBy);
 export const useLibraryView = (): FilesViewMode => useAppStore((s) => s.libraryView);
 export const useFilesSort = (): GridSort => useAppStore((s) => s.filesSort);
@@ -322,6 +331,7 @@ export const useFilesSearch = (): string => useAppStore((s) => s.filesSearch);
 export const useSetLibrarySort = () => useAppStore((s) => s.setLibrarySort);
 export const useSetLibrarySearch = () => useAppStore((s) => s.setLibrarySearch);
 export const useSetLibraryFacets = () => useAppStore((s) => s.setLibraryFacets);
+export const useSetLibraryMissingMetadata = () => useAppStore((s) => s.setLibraryMissingMetadata);
 export const useSetLibraryGroupBy = () => useAppStore((s) => s.setLibraryGroupBy);
 export const useSetLibraryView = () => useAppStore((s) => s.setLibraryView);
 export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);

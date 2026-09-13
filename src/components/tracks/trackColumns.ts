@@ -9,9 +9,11 @@ import type { ColumnDef, FilterFn } from "@tanstack/react-table";
 
 // -- Utils Imports --
 import { formatDuration } from "../../lib/format";
+import { EMPTY_INDEX } from "./trackFacets";
+import { resolveTrackAlbum, resolveTrackYear } from "./trackAlbum";
 
 // -- Type Imports --
-import type { TrackRow } from "../../types";
+import type { AlbumRow, TrackRow } from "../../types";
 
 /** The ink weight a cell carries: the one title anchor, the secondary tags, or quiet meta. */
 export type CellInk = "primary" | "secondary" | "meta";
@@ -52,11 +54,12 @@ export interface TrackColumn {
   /** Whether the global search reaches this column. Only the text tags and filename do. */
   searchable?: boolean;
   /**
-   * Pulls the effective value from the whole row, resolving `edit ?? raw` for the edited columns.
-   * Absent columns read their plain `id` field. The cell, the sort, and the search all read through
-   * this, so the grid shows and acts on the edited value, not the raw tag.
+   * Pulls the effective value from the whole row: `edit ?? raw` for the plain edited columns, or the
+   * album-join resolve for album and year, which inherit the filed album's field. Absent columns read
+   * their plain `id` field. The cell, the sort, and the search all read through this, so the grid shows
+   * and acts on the resolved value, not the raw tag.
    */
-  resolve?: (track: TrackRow) => TrackRow[keyof TrackRow];
+  resolve?: (track: TrackRow, index: Map<number, AlbumRow>) => TrackRow[keyof TrackRow];
 }
 
 /** Left-to-right column order for the default row. Album artist, disc, and genre live in the peek. */
@@ -87,7 +90,7 @@ export const trackColumns: TrackColumn[] = [
     align: "left",
     ink: "secondary",
     searchable: true,
-    resolve: (t) => t.album_edit ?? t.raw_album,
+    resolve: (t, index) => resolveTrackAlbum(t, index),
   },
   {
     id: "raw_year",
@@ -96,7 +99,7 @@ export const trackColumns: TrackColumn[] = [
     align: "right",
     ink: "meta",
     tabular: true,
-    resolve: (t) => t.year_edit ?? t.raw_year,
+    resolve: (t, index) => resolveTrackYear(t, index),
   },
   {
     id: "duration_secs",
@@ -143,7 +146,7 @@ export const collectionColumns: TrackColumn[] = [
     align: "left",
     ink: "secondary",
     searchable: true,
-    resolve: (t) => t.album_edit ?? t.raw_album,
+    resolve: (t, index) => resolveTrackAlbum(t, index),
   },
   {
     id: "raw_year",
@@ -152,7 +155,7 @@ export const collectionColumns: TrackColumn[] = [
     align: "right",
     ink: "meta",
     tabular: true,
-    resolve: (t) => t.year_edit ?? t.raw_year,
+    resolve: (t, index) => resolveTrackYear(t, index),
   },
   {
     id: "duration_secs",
@@ -179,21 +182,29 @@ export const trackGlobalFilter: FilterFn<TrackRow> = (row, columnId, value) => {
   return String(cell).toLowerCase().includes(String(value).toLowerCase());
 };
 
-/** Derives the TanStack column defs from the visible columns: sorting on all, search on the text tags. */
-export function toColumnDefs(columns: TrackColumn[] = trackColumns): ColumnDef<TrackRow>[] {
+/**
+ * Derives the TanStack column defs from the visible columns: sorting on all, search on the text tags. The
+ * album index is closed into each resolver's accessor, so sort and search read the album-joined value the
+ * cell shows; an empty index keeps the loose edit-over-raw for a plain browser.
+ */
+export function toColumnDefs(
+  columns: TrackColumn[] = trackColumns,
+  index: Map<number, AlbumRow> = EMPTY_INDEX,
+): ColumnDef<TrackRow>[] {
   return columns.map((col) => {
-    // The id stays the stable column key and the header's dict lookup; only the accessor differs. An
-    // edited column resolves `edit ?? raw` so sort and search read the effective value the cell
-    // shows, while a plain column keeps its raw field key.
-    // The lead affordance carries no value, so it is neither sortable nor searchable.
+    // The id stays the stable column key and the header's dict lookup; only the accessor differs. A
+    // resolved column reads its effective value so sort and search match the cell, while a plain column
+    // keeps its raw field key. The lead affordance carries no value, so it is neither sortable nor
+    // searchable.
     const shared = {
       id: col.id,
       header: col.id,
       enableSorting: !col.affordance,
       enableGlobalFilter: !col.affordance && (col.searchable ?? false),
     };
-    return col.resolve
-      ? { ...shared, accessorFn: col.resolve }
+    const resolve = col.resolve;
+    return resolve
+      ? { ...shared, accessorFn: (track: TrackRow) => resolve(track, index) }
       : { ...shared, accessorKey: col.id };
   });
 }
