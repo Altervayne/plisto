@@ -2,7 +2,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 // -- Unit Imports --
-import { BOX_ORDER, boxShape } from "./boxCatalog";
+import { BOX_CATALOG, BOX_ORDER, boxShape } from "./boxCatalog";
+
+// -- State Imports --
+import { useAppMode } from "../../state/player/store";
 
 // -- Type Imports --
 import type { BoxSeed, BoxType } from "./boxCatalog";
@@ -39,10 +42,11 @@ const DESC: Record<BoxType, (d: Dict) => string> = {
 };
 
 /**
- * The add-box picker: a floating menu listing every catalog box grouped by shape, each with its label
- * and a one-line description. A box already on the board reads disabled. It offers all types regardless
- * of mode - the mode only seeds the defaults, the user may add anything. A transparent backdrop behind
- * it catches the dismissing click.
+ * The add-box picker: a floating menu listing the current mode's catalog boxes grouped by shape, each
+ * with its label and a one-line description. A box already on the board reads disabled. Only boxes the
+ * mode carries are offered - a box routes to a destination its mode may hide, so an off-mode box would
+ * add a dead end. A group with no box in the mode drops out. A transparent backdrop behind it catches
+ * the dismissing click.
  */
 export function BoxPicker({
   layout,
@@ -67,12 +71,16 @@ export function BoxPicker({
     if (overflow > 0) setShift(overflow);
   }, []);
 
+  const appMode = useAppMode();
   const present = new Set(layout.map((box) => box.type));
-  const stats = BOX_ORDER.filter((type) => boxShape(type) === "stat");
-  const lists = BOX_ORDER.filter((type) => boxShape(type) === "list");
-  const suggestions = BOX_ORDER.filter((type) => boxShape(type) === "suggestion");
+  // Only the current mode's boxes, so the picker never offers one that routes to a hidden destination.
+  const inMode = (type: BoxType) => BOX_CATALOG[type].modes.includes(appMode);
+  const stats = BOX_ORDER.filter((type) => boxShape(type) === "stat" && inMode(type));
+  const lists = BOX_ORDER.filter((type) => boxShape(type) === "list" && inMode(type));
+  const suggestions = BOX_ORDER.filter((type) => boxShape(type) === "suggestion" && inMode(type));
 
-  const group = (title: string, types: readonly BoxType[]) => (
+  const group = (title: string, types: readonly BoxType[]) =>
+    types.length === 0 ? null : (
     <div className={styles.group}>
       <span className={styles.groupLabel}>{title}</span>
       {types.map((type) => {

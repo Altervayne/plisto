@@ -35,14 +35,15 @@ describe("isDestinationVisible", () => {
     }
   });
 
-  it("hides all-tracks and the player in organizer mode", () => {
-    for (const dest of ["tracks", "player"] as Mode[]) {
+  it("hides the player and its history in organizer mode, keeping all-tracks", () => {
+    for (const dest of ["player", "history"] as Mode[]) {
       expect(isDestinationVisible("organizer", dest)).toBe(false);
     }
     for (const dest of [
       "files",
       "unsorted",
       "covers",
+      "tracks",
       "albums",
       "singles",
       "playlists",

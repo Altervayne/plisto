@@ -1,7 +1,8 @@
 /*
  * The nav visibility rules for the app mode. The mode is the app's working identity - Player, Organizer,
  * or Both - and it shapes which sidebar destinations and section labels show. Both shows everything;
- * Player drops the file and utility surfaces; Organizer drops the all-tracks list and the player.
+ * Player drops the file and utility surfaces; Organizer drops the player and its listening history.
+ * All Tracks stays in both working modes - it is a library view for browsing and for organizing alike.
  *
  * The Mode type lives here rather than in the Sidebar so the sidebar and the shell can both read the
  * rules without importing each other. Settings sits in the foot, outside the sections, so no mode ever
@@ -45,7 +46,7 @@ const NAV_ORDER: readonly Mode[] = [
 const HIDDEN: Record<AppMode, ReadonlySet<Mode>> = {
   both: new Set(),
   player: new Set(["files", "unsorted", "covers", "editor", "export"]),
-  organizer: new Set(["tracks", "player", "history"]),
+  organizer: new Set(["player", "history"]),
 };
 
 /** Whether a destination's nav row shows under the mode. Home is the landing for every mode, outside
