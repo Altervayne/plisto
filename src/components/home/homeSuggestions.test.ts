@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   countMissingMetadata,
+  dominantArtist,
   pickPlayNext,
-  topArtistFrom,
   tracksByArtist,
 } from "./homeSuggestions";
 
@@ -133,21 +133,27 @@ describe("pickPlayNext", () => {
   });
 });
 
-describe("topArtistFrom", () => {
-  it("reads the resolved artist of the first row", () => {
-    expect(topArtistFrom([track({ raw_artist: "Band" })])).toBe("Band");
+describe("dominantArtist", () => {
+  it("reads the artist appearing most across the rows, edit over raw", () => {
+    const rows = [
+      track({ id: 1, raw_artist: "Raw", artist_edit: "Coltrane" }),
+      track({ id: 2, raw_artist: "Miles" }),
+      track({ id: 3, raw_artist: "Raw", artist_edit: "Coltrane" }),
+    ];
+    expect(dominantArtist(rows)).toBe("Coltrane");
   });
 
-  it("prefers the edit over the raw", () => {
-    expect(topArtistFrom([track({ raw_artist: "Raw", artist_edit: "Edited" })])).toBe("Edited");
+  it("breaks a tie for the more recent, since rows are newest-first", () => {
+    const rows = [
+      track({ id: 1, raw_artist: "Recent" }),
+      track({ id: 2, raw_artist: "Older" }),
+    ];
+    expect(dominantArtist(rows)).toBe("Recent");
   });
 
-  it("is null on a cold play-log", () => {
-    expect(topArtistFrom([])).toBeNull();
-  });
-
-  it("is null when the top row has no artist", () => {
-    expect(topArtistFrom([track({ raw_artist: null })])).toBeNull();
+  it("skips rows with no artist and is null when none carry one", () => {
+    expect(dominantArtist([track({ raw_artist: null }), track({ raw_artist: null })])).toBeNull();
+    expect(dominantArtist([])).toBeNull();
   });
 });
 

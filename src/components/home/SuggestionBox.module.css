@@ -108,13 +108,22 @@
   background: var(--accent-solid);
   color: var(--on-solid);
   cursor: pointer;
-  padding-left: 3px;
+  /* Drop the button's UA padding so justify-center places the glyph symmetrically; the optical nudge
+   * below then does the centering, not a lopsided padding. */
+  padding: 0;
   box-shadow:
     0 10px 24px -13px color-mix(in srgb, var(--accent-solid) 82%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition:
     filter var(--dur-fast) ease,
     transform var(--dur-fast) var(--ease-standard);
+}
+
+/* Optically center the play triangle: its visual mass sits a third in from the base, well left of the
+ * glyph box, so a geometrically-placed glyph reads left-heavy. Nudge it right onto the disc center -
+ * measured against the triangle centroid, not its bounding box. */
+.play svg {
+  transform: translateX(1.3px);
 }
 
 .play:hover {

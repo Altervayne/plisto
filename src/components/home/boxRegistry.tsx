@@ -16,8 +16,8 @@ import { SuggestionBox } from "./SuggestionBox";
 // -- Unit Imports --
 import {
   countMissingMetadata,
+  dominantArtist,
   pickPlayNext,
-  topArtistFrom,
   tracksByArtist,
 } from "./homeSuggestions";
 import { resolveFacet } from "../tracks/trackFacets";
@@ -41,6 +41,10 @@ import { useT } from "../../i18n";
 
 /** How many rows a preview asks for; the box shows only as many as its measured width fits. */
 const PREVIEW_LIMIT = 12;
+
+/** How deep into the recent plays the more-from-artist signal reads, so an album's worth of one artist
+ *  wins it over a scattering of others. */
+const RECENT_ARTIST_WINDOW = 24;
 
 /** The props every box takes: the one nav path the whole landing shares. */
 export interface HomeBoxProps {
@@ -214,7 +218,9 @@ function PlayNextBox(_: HomeBoxProps) {
 function MoreFromArtistBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
   const tracks = useTracks();
-  const artist = topArtistFrom(useMostPlayed(1));
+  // The artist the user has been playing, not the one holding the single most-played track - so a full
+  // album of a new artist actually moves this box off an old favorite.
+  const artist = dominantArtist(useRecentlyPlayed(RECENT_ARTIST_WINDOW));
   const setFacets = useSetLibraryFacets();
   const onPlay = usePreviewPlay();
 

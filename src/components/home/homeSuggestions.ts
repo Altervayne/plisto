@@ -76,10 +76,27 @@ export function pickPlayNext(
   return null;
 }
 
-/** The resolved artist of the most-played track, or null when there is no play-log yet. */
-export function topArtistFrom(mostPlayedRows: TrackRow[]): string | null {
-  const top = mostPlayedRows[0];
-  return top ? resolveFacet(top, "artist") : null;
+/**
+ * The artist appearing most across the given rows, by resolved name, or null when none carry one. Rows
+ * are read newest-first, so a tie favors the more recently played artist. Fed the recent plays, this is
+ * the artist the user has been listening to - a full album of one artist takes it, where the single
+ * most-played track never would once an old favorite pins the top.
+ */
+export function dominantArtist(rows: TrackRow[]): string | null {
+  const counts = new Map<string, number>();
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const row of rows) {
+    const artist = resolveFacet(row, "artist");
+    if (!artist) continue;
+    const next = (counts.get(artist) ?? 0) + 1;
+    counts.set(artist, next);
+    if (next > bestCount) {
+      best = artist;
+      bestCount = next;
+    }
+  }
+  return best;
 }
 
 /**
