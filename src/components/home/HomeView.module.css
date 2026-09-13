@@ -1,7 +1,8 @@
 /*
  * The Home destination: a page-title header over the scrolling bento. It fills the content slot as a
- * column, the header fixed and the bento scrolling under it, aligned to the region's rhythm so the
- * boxes sit on the same left edge as every other wall.
+ * column, the header fixed and the bento scrolling under it through the app's own ScrollArea (never the
+ * engine's native bar), aligned to the region's rhythm so the boxes sit on the same left edge as every
+ * other wall.
  */
 .view {
   flex: 1;
@@ -34,13 +35,15 @@
   color: var(--ink);
 }
 
-.body {
+/* The scroll wrapper fills the region under the fixed header; the bespoke bar overlays its right edge. */
+.scroll {
   flex: 1;
-  min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  /* Clip any transient horizontal overflow - a resize footprint ghost or a mid-measure box span - so
-   * the surface never grows a horizontal scrollbar. */
-  overflow-x: hidden;
+}
+
+/* The scrolling content: the region's rhythm padding, its right side clear of the scrollbar overlay. The
+ * ScrollArea viewport already clips horizontal overflow (a resize footprint ghost or a mid-measure box
+ * span), so the surface never grows a horizontal bar. */
+.body {
   padding: 4px 30px 24px 20px;
 }

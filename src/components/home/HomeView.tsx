@@ -3,6 +3,7 @@ import { useState } from "react";
 
 // -- Component Imports --
 import { Bento } from "./Bento";
+import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
@@ -56,7 +57,7 @@ export function HomeView({ onNavigate }: { onNavigate: (mode: Mode) => void }) {
           )}
         </div>
       </div>
-      <div className={styles.body}>
+      <ScrollArea className={styles.scroll} contentClassName={styles.body}>
         <Bento
           layout={layout}
           arranging={arranging}
@@ -67,7 +68,7 @@ export function HomeView({ onNavigate }: { onNavigate: (mode: Mode) => void }) {
           remove={remove}
           add={add}
         />
-      </div>
+      </ScrollArea>
 
       <ConfirmDialog
         open={resetOpen}
