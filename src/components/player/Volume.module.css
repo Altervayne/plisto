@@ -83,8 +83,10 @@
 
 /* While folded, the rail must not be a hover target - otherwise, in a drag surface that re-arms every
  * slider (the pop-out widget), the invisible rail would catch a hover over the empty space where it would
- * open and reveal itself. This outranks that blanket re-arm, so only a hover on the speaker opens it. */
-.volume:not(:hover):not(:focus-within) .rail {
+ * open and reveal itself. This outranks that blanket re-arm, so only a hover on the speaker opens it. A
+ * live drag is exempt: a pointer strayed above the rail must keep it interactive so the capture holds,
+ * never falling through to the cover behind. */
+.volume:not(:hover):not(:focus-within) .rail:not([data-dragging]) {
   pointer-events: none;
 }
 

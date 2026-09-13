@@ -1,6 +1,6 @@
 // -- Framework Imports --
-import { useRef } from "react";
-import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
+import { useRef, useState } from "react";
+import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent } from "react";
 
 // -- Icon Imports --
 import { Volume1, Volume2, VolumeX } from "lucide-react";
@@ -33,6 +33,9 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
   const actions = usePlayerActions();
   const t = useT();
   const railRef = useRef<HTMLDivElement>(null);
+  // A live drag keeps the rail interactive even after the pointer strays above it, so the reveal gate
+  // below cannot flip it pointer-events:none mid-drag and drop the capture onto the cover behind.
+  const [dragging, setDragging] = useState(false);
 
   const level = clamp01(volume);
   const pct = level * 100;
@@ -47,16 +50,18 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    setDragging(true);
     actions.setVolume(levelFromPointer(e));
     railRef.current?.setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!railRef.current?.hasPointerCapture(e.pointerId)) return;
+    if (!dragging) return;
     actions.setVolume(levelFromPointer(e));
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    setDragging(false);
     railRef.current?.releasePointerCapture(e.pointerId);
     // A pointer press focuses the rail, and focus-within would hold the chip open until a click elsewhere
     // blurred it. Dropping focus here lets it fold as soon as the pointer leaves; keyboard focus, which
@@ -110,10 +115,14 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(pct)}
+          data-dragging={dragging ? "" : undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onKeyDown={onKeyDown}
+          // A press-drag on the rail is never a native image/text drag; killing dragstart keeps the
+          // no-drop cursor off the cover behind.
+          onDragStart={(e: DragEvent) => e.preventDefault()}
         >
           <div className={styles.track}>
             <div className={styles.fill} />
