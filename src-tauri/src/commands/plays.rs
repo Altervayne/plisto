@@ -63,17 +63,19 @@ pub fn get_recently_played_rows(
 }
 
 /// The raw play-count ranking rows for the History surface, most plays first. `limit` caps the
-/// list, or None for the whole history.
+/// list, or None for the whole history. `since` (unix seconds) windows the count to recent plays,
+/// or None for all-time.
 #[tauri::command]
 pub fn get_most_played_rows(
     limit: Option<i64>,
+    since: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryRow>, String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::get_most_played_rows(&conn, limit).map_err(|e| e.to_string())
+    db::get_most_played_rows(&conn, limit, since).map_err(|e| e.to_string())
 }
 
 /// The raw play-log timeline for the History surface, every play newest first, not deduped. `limit`

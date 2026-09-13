@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 // -- Icon Imports --
@@ -9,6 +9,7 @@ import { LayoutGrid, Rows3 } from "lucide-react";
 import { TrackGrid } from "./TrackGrid";
 import { TimelineList } from "./TimelineList";
 import { TrackDetail } from "./TrackDetail";
+import { MostWindowControl } from "./MostWindowControl";
 import { EmptyState } from "../common/EmptyState";
 import { Resizer } from "../common/Resizer/Resizer";
 import { SegmentedControl } from "../common/SegmentedControl";
@@ -24,6 +25,7 @@ import { useHistory, usePlayTimeline } from "../../state/player/playHistory";
 import { historyMostColumns, historyRecentColumns } from "./trackColumns";
 
 // -- Type Imports --
+import type { MostWindow } from "./MostWindowControl";
 import type { HistoryLens } from "../../state/shell/store";
 import type { FilesViewMode, GridSort } from "../../state/store";
 import type { TrackRow } from "../../types";
@@ -37,6 +39,15 @@ import styles from "./HistoryView.module.css";
 /** The play-log column each lens sorts on by default, newest/most first. */
 function seedSort(lens: HistoryLens): GridSort {
   return [{ id: lens === "recent" ? "last_played" : "plays", desc: true }];
+}
+
+/** Each rolling window's day span; all-time carries none. */
+const WINDOW_DAYS: Record<MostWindow, number> = { all: 0, last30: 30, last365: 365 };
+
+/** The play-log `since` floor for a window, or undefined for all-time (no cutoff). */
+function windowToSince(window: MostWindow, nowSecs: number): number | undefined {
+  const days = WINDOW_DAYS[window];
+  return days === 0 ? undefined : nowSecs - days * 86400;
 }
 
 /**
@@ -54,10 +65,18 @@ export function HistoryView({ initialLens }: { initialLens: HistoryLens }) {
   const albumIndex = useAlbumIndex();
   const [lens, setLens] = useState<HistoryLens>(initialLens);
   const isTimeline = lens === "timeline";
+  // The most-played window survives a lens flip, so a return to the ranking keeps the chosen span.
+  const [mostWindow, setMostWindow] = useState<MostWindow>("all");
+  // The floor lands only on the most lens; recomputed when the window flips, so it stays a rolling cut
+  // without refetching on every render. A narrower window than all-time narrows which plays score.
+  const mostSince = useMemo(
+    () => (lens === "most" ? windowToSince(mostWindow, Math.floor(Date.now() / 1000)) : undefined),
+    [lens, mostWindow],
+  );
   // Both lens sources stay resident so a toggle swaps to data already in hand, never through an empty
   // frame. useHistory only knows recent/most, so under the timeline it holds the recent rows it never
   // renders. The timeline draws its own raw log.
-  const { rows, stats } = useHistory(isTimeline ? "recent" : lens);
+  const { rows, stats } = useHistory(isTimeline ? "recent" : lens, mostSince);
   const timeline = usePlayTimeline();
 
   const [search, setSearch] = useState("");
@@ -73,9 +92,12 @@ export function HistoryView({ initialLens }: { initialLens: HistoryLens }) {
     setSort(seedSort(lens));
   }, [lens]);
 
-  // Nothing has ever played: the play-invite rest, in the same voice as the Home previews. The grid's
-  // own no-match empty covers a search that narrowed to nothing.
-  if ((isTimeline ? timeline.length : rows.length) === 0) {
+  const activeEmpty = (isTimeline ? timeline.length : rows.length) === 0;
+  // A most-lens window that resolves to nothing keeps the header, so its window and lens stay reachable
+  // to widen back out; that empty rests in the body. Nothing-ever (no window) is the onboarding rest and
+  // takes the whole surface. The grid's own no-match empty covers a narrowed search.
+  const windowedEmpty = activeEmpty && lens === "most" && mostWindow !== "all";
+  if (activeEmpty && !windowedEmpty) {
     return (
       <EmptyState
         tone="idle"
@@ -104,8 +126,14 @@ export function HistoryView({ initialLens }: { initialLens: HistoryLens }) {
         <span className={styles.count}>
           {isTimeline
             ? t((d) => d.history.playCount, { n: timeline.length })
-            : t((d) => d.tracks.count, { n: visibleCount })}
+            : t((d) => d.tracks.count, { n: rows.length === 0 ? 0 : visibleCount })}
         </span>
+        {/* The ranking window rides the most lens alone; recent and timeline carry no window. */}
+        {lens === "most" ? (
+          <div className={styles.window}>
+            <MostWindowControl value={mostWindow} onChange={setMostWindow} />
+          </div>
+        ) : null}
         {/* The list/cards toggle governs the grid alone; the timeline is a single fixed layout. */}
         {isTimeline ? null : (
           <div className={styles.viewToggle}>
@@ -135,7 +163,13 @@ export function HistoryView({ initialLens }: { initialLens: HistoryLens }) {
         ref={containerRef}
         style={{ "--drawer-width": `${width}px` } as CSSProperties}
       >
-        {isTimeline ? (
+        {windowedEmpty ? (
+          <EmptyState
+            tone="idle"
+            title={t((d) => d.history.emptyTitle)}
+            line={t((d) => d.history.emptyWindowLine)}
+          />
+        ) : isTimeline ? (
           <TimelineList
             entries={timeline}
             albumIndex={albumIndex}

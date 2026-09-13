@@ -341,6 +341,11 @@ export const fr: Dict = {
     partialPlay: "Écoute partielle",
     emptyTitle: "Rien d'écouté pour l'instant",
     emptyLine: "Les titres que vous lisez apparaissent ici.",
+    emptyWindowLine: "Rien d'écouté sur cette période.",
+    windowLabel: "Période du classement",
+    windowAll: "Depuis toujours",
+    window30: "30 derniers jours",
+    window365: "Dernière année",
   },
 
   tracks: {

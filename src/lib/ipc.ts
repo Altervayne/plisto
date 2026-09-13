@@ -837,10 +837,11 @@ export function getRecentlyPlayedRows(limit?: number): Promise<HistoryRow[]> {
 
 /**
  * The raw play-count ranking rows for the History surface, most plays first. `limit` caps the list;
- * undefined returns the whole history.
+ * undefined returns the whole history. `since` (unix seconds) windows the count to recent plays; omit
+ * it for all-time.
  */
-export function getMostPlayedRows(limit?: number): Promise<HistoryRow[]> {
-  return invoke<HistoryRow[]>("get_most_played_rows", { limit });
+export function getMostPlayedRows(limit?: number, since?: number): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("get_most_played_rows", { limit, since });
 }
 
 /**

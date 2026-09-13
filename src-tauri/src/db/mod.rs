@@ -2185,20 +2185,28 @@ pub fn get_recently_played_rows(
 }
 
 /// The raw play-count ranking for the History surface: one row per track, most plays first, a count
-/// tie broken by the most recent play. All-time, no window. `limit` caps the list when `Some`; `None`
-/// returns the whole history. Ordered by the raw COUNT, not the completed-weighted score the Home
-/// most-played preview uses.
+/// tie broken by the most recent play. `since` (unix seconds) windows the count to plays at or after
+/// it, so the ranking and each count reflect only that window, or None for all-time. `limit` caps the
+/// list when `Some`; `None` returns the whole history. Ordered by the raw COUNT, not the completed-
+/// weighted score the Home most-played preview uses.
 pub fn get_most_played_rows(
     conn: &Connection,
     limit: Option<i64>,
+    since: Option<i64>,
 ) -> rusqlite::Result<Vec<HistoryRow>> {
+    let where_clause = if since.is_some() { " WHERE played_at >= ?" } else { "" };
     let limit_clause = if limit.is_some() { " LIMIT ?" } else { "" };
     let sql = format!(
         "SELECT track_id, COUNT(*) AS play_count, MAX(played_at) AS last_played_at, \
          SUM(completed) AS completed_count \
-         FROM plays GROUP BY track_id ORDER BY play_count DESC, last_played_at DESC{limit_clause}"
+         FROM plays{where_clause} \
+         GROUP BY track_id ORDER BY play_count DESC, last_played_at DESC{limit_clause}"
     );
+    // The optional `since` binds first, then the limit, so anonymous placeholders stay in order.
     let mut binds: Vec<i64> = Vec::new();
+    if let Some(s) = since {
+        binds.push(s);
+    }
     if let Some(l) = limit {
         binds.push(l);
     }
@@ -3483,7 +3491,7 @@ mod tests {
         add_play(&conn, 2, 40, false);
         add_play(&conn, 2, 50, false);
 
-        let rows = get_most_played_rows(&conn, None).unwrap();
+        let rows = get_most_played_rows(&conn, None, None).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].track_id, 2, "more plays leads, regardless of completion");
         assert_eq!(rows[0].play_count, 3);
@@ -3494,9 +3502,16 @@ mod tests {
         assert_eq!(rows[1].completed_count, 2);
 
         // The limit caps the ranking; None returned the whole list above.
-        let capped = get_most_played_rows(&conn, Some(1)).unwrap();
+        let capped = get_most_played_rows(&conn, Some(1), None).unwrap();
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0].track_id, 2);
+
+        // `since` windows the count: a floor above track 1's plays and track 2's first play drops
+        // track 1 out and cuts track 2's count to the two later plays.
+        let windowed = get_most_played_rows(&conn, None, Some(35)).unwrap();
+        assert_eq!(windowed.len(), 1, "a since floor drops a track with no play in the window");
+        assert_eq!(windowed[0].track_id, 2);
+        assert_eq!(windowed[0].play_count, 2, "only plays at or after the floor count");
     }
 
     #[test]

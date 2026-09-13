@@ -79,15 +79,19 @@ export function useMostPlayed(limit: number): TrackRow[] {
  * the read's order, plus a stat map the trailing column reads. Refetches on mount and on each recorded
  * play. An id whose track is gone drops from both the rows and the stats, so the two never disagree.
  */
-export function useHistory(lens: HistoryLens): { rows: TrackRow[]; stats: Map<number, HistoryStat> } {
+export function useHistory(
+  lens: HistoryLens,
+  since?: number,
+): { rows: TrackRow[]; stats: Map<number, HistoryStat> } {
   const tracks = useTracks();
   const playsVersion = usePlaysVersion();
   const [historyRows, setHistoryRows] = useState<Array<HistoryStat & { track_id: number }>>([]);
 
   useEffect(() => {
     let alive = true;
-    const fetch = lens === "recent" ? getRecentlyPlayedRows : getMostPlayedRows;
-    void fetch()
+    // `since` windows the most-played ranking only; the recent list has no window.
+    const load = lens === "recent" ? getRecentlyPlayedRows() : getMostPlayedRows(undefined, since);
+    void load
       .then((result) => {
         if (alive) {
           setHistoryRows(
@@ -103,7 +107,7 @@ export function useHistory(lens: HistoryLens): { rows: TrackRow[]; stats: Map<nu
     return () => {
       alive = false;
     };
-  }, [lens, playsVersion]);
+  }, [lens, since, playsVersion]);
 
   return useMemo(() => {
     const rows = resolveTrackRows(

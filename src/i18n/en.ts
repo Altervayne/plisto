@@ -340,6 +340,11 @@ export const en = {
     partialPlay: "Partial play",
     emptyTitle: "Nothing played yet",
     emptyLine: "Tracks you play show up here.",
+    emptyWindowLine: "Nothing played in this window.",
+    windowLabel: "Ranking window",
+    windowAll: "All time",
+    window30: "Last 30 days",
+    window365: "Last year",
   },
 
   tracks: {

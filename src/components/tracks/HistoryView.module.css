@@ -39,6 +39,11 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The most-played window picker is a menu button, so it centers against the baseline-set title row. */
+.window {
+  align-self: center;
+}
+
 /* The list/cards toggle trails at the far end of the title row, centered against the baseline-set text. */
 .viewToggle {
   margin-left: auto;
