@@ -11,7 +11,7 @@ import { CardMeta } from "../albums/CardMeta";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
 // -- Hook Imports --
-import { useTrackThumb } from "../covers/useTrackThumb";
+import { useTrackDetail } from "../covers/useTrackThumb";
 
 // -- Utils Imports --
 import { resolveTrackAlbum } from "./trackAlbum";
@@ -59,9 +59,10 @@ export const TrackCard = memo(function TrackCard({
   buildMenu: (track: TrackRowData) => MenuEntry[];
 }) {
   const menu = useContextMenu();
-  // The cached, cover-only thumb read, not the full cover hook: the wall mounts one card per track, and
-  // the picker's candidate scan would fire per card for data a card never shows.
-  const coverSrc = useTrackThumb(track.id);
+  // Detail res, not thumb: the tile is 168px (more on hi-DPI), so a 128px thumb reads crunchy - the album
+  // wall and drawer already use detail for the same reason. Still the cached cover-only read, not the full
+  // cover hook, whose per-card candidate scan would fire for data a card never shows.
+  const coverSrc = useTrackDetail(track.id);
 
   // The source is gone: the play disc greys and its click is dead, mirroring the row's triangle.
   const playable = track.missing_at == null;
