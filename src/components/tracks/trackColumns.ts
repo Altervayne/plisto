@@ -8,12 +8,12 @@
 import type { ColumnDef, FilterFn } from "@tanstack/react-table";
 
 // -- Utils Imports --
-import { formatDuration } from "../../lib/format";
-import { EMPTY_INDEX } from "./trackFacets";
+import { formatDuration, formatRelativeTime } from "../../lib/format";
+import { EMPTY_HISTORY, EMPTY_INDEX } from "./trackFacets";
 import { resolveTrackAlbum, resolveTrackYear } from "./trackAlbum";
 
 // -- Type Imports --
-import type { AlbumRow, TrackRow } from "../../types";
+import type { AlbumRow, HistoryStat, TrackRow } from "../../types";
 
 /** The ink weight a cell carries: the one title anchor, the secondary tags, or quiet meta. */
 export type CellInk = "primary" | "secondary" | "meta";
@@ -21,7 +21,8 @@ export type CellInk = "primary" | "secondary" | "meta";
 /** How a column's text sits horizontally. Numerics align right so digits stack. */
 export type CellAlign = "left" | "right";
 
-/** The visible columns, by row key. Doubles as the key into the localized header labels. */
+/** The visible columns, by row key. Doubles as the key into the localized header labels. The two
+ *  play-log columns carry no `tracks` field of their own; they resolve off the History stat index. */
 export type TrackColumnId =
   | "raw_track_no"
   | "raw_title"
@@ -30,7 +31,9 @@ export type TrackColumnId =
   | "raw_year"
   | "duration_secs"
   | "ext"
-  | "filename";
+  | "filename"
+  | "last_played"
+  | "plays";
 
 /** One visible column: its row key, track width, and how its cell reads. Labels live in the dict. */
 export interface TrackColumn {
@@ -54,12 +57,16 @@ export interface TrackColumn {
   /** Whether the global search reaches this column. Only the text tags and filename do. */
   searchable?: boolean;
   /**
-   * Pulls the effective value from the whole row: `edit ?? raw` for the plain edited columns, or the
-   * album-join resolve for album and year, which inherit the filed album's field. Absent columns read
-   * their plain `id` field. The cell, the sort, and the search all read through this, so the grid shows
-   * and acts on the resolved value, not the raw tag.
+   * Pulls the effective value from the whole row: `edit ?? raw` for the plain edited columns, the
+   * album-join resolve for album and year (which inherit the filed album's field), or the play-log
+   * stat for the History columns. Absent columns read their plain `id` field. The cell, the sort, and
+   * the search all read through this, so the grid shows and acts on the resolved value, not the raw tag.
    */
-  resolve?: (track: TrackRow, index: Map<number, AlbumRow>) => TrackRow[keyof TrackRow];
+  resolve?: (
+    track: TrackRow,
+    index: Map<number, AlbumRow>,
+    history: Map<number, HistoryStat>,
+  ) => TrackRow[keyof TrackRow];
 }
 
 /** Left-to-right column order for the default row. Album artist, disc, and genre live in the peek. */
@@ -168,6 +175,42 @@ export const collectionColumns: TrackColumn[] = [
   },
 ];
 
+// The History rows reuse the collection's title/artist/album/duration, dropping the year so the
+// trailing play-log column is the row's one right-most meta beside length. Album still joins through
+// the index, so a History caller must pass the real albumIndex.
+const historyBaseColumns: TrackColumn[] = collectionColumns.filter((col) => col.id !== "raw_year");
+
+/** The recently-played row: the shared base plus a trailing relative-age cell. The cell sorts on the
+ *  raw last-play timestamp (so newest-first is a real numeric sort) and shows the age string. */
+export const historyRecentColumns: TrackColumn[] = [
+  ...historyBaseColumns,
+  {
+    id: "last_played",
+    width: 100,
+    grow: 0,
+    align: "right",
+    ink: "meta",
+    tabular: true,
+    resolve: (t, _index, history) => history.get(t.id)?.lastPlayedAt ?? null,
+    format: (value) => (value == null ? "-" : formatRelativeTime(value as number)),
+  },
+];
+
+/** The most-played row: the shared base plus a trailing raw play-count cell. The integer sorts and
+ *  renders directly, so it carries no format. */
+export const historyMostColumns: TrackColumn[] = [
+  ...historyBaseColumns,
+  {
+    id: "plays",
+    width: 72,
+    grow: 0,
+    align: "right",
+    ink: "meta",
+    tabular: true,
+    resolve: (t, _index, history) => history.get(t.id)?.playCount ?? null,
+  },
+];
+
 /** The shared `grid-template-columns` value: fixed px for meta, `fr` weights for flexing text. */
 export function gridTemplate(columns: TrackColumn[] = trackColumns): string {
   return columns
@@ -184,12 +227,14 @@ export const trackGlobalFilter: FilterFn<TrackRow> = (row, columnId, value) => {
 
 /**
  * Derives the TanStack column defs from the visible columns: sorting on all, search on the text tags. The
- * album index is closed into each resolver's accessor, so sort and search read the album-joined value the
- * cell shows; an empty index keeps the loose edit-over-raw for a plain browser.
+ * album index and the play-log index are both closed into each resolver's accessor, so sort and search
+ * read the joined value the cell shows; empty indexes keep the loose edit-over-raw for a plain browser
+ * and leave the play-log columns reading nothing, which History alone ever supplies.
  */
 export function toColumnDefs(
   columns: TrackColumn[] = trackColumns,
   index: Map<number, AlbumRow> = EMPTY_INDEX,
+  history: Map<number, HistoryStat> = EMPTY_HISTORY,
 ): ColumnDef<TrackRow>[] {
   return columns.map((col) => {
     // The id stays the stable column key and the header's dict lookup; only the accessor differs. A
@@ -204,7 +249,7 @@ export function toColumnDefs(
     };
     const resolve = col.resolve;
     return resolve
-      ? { ...shared, accessorFn: (track: TrackRow) => resolve(track, index) }
-      : { ...shared, accessorKey: col.id };
+      ? { ...shared, accessorFn: (track: TrackRow) => resolve(track, index, history) }
+      : { ...shared, accessorKey: col.id as keyof TrackRow };
   });
 }

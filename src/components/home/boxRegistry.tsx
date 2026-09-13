@@ -27,6 +27,7 @@ import { useNeedsCoverCount } from "../../state/covers/store";
 import { useAlbumIndex, useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
 import { useMostPlayed, useRecentlyPlayed } from "../../state/player/playHistory";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { useSetHistoryLens } from "../../state/shell/store";
 import { useSetLibraryFacets, useSetLibraryMissingMetadata, useTracks } from "../../state/store";
 
 // -- Type Imports --
@@ -104,29 +105,43 @@ function UnsortedPreviewBox({ onNavigate }: HomeBoxProps) {
   );
 }
 
-function RecentlyPlayedBox(_: HomeBoxProps) {
+function RecentlyPlayedBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
   const rows = useRecentlyPlayed(PREVIEW_LIMIT);
   const onPlay = usePreviewPlay();
+  const setHistoryLens = useSetHistoryLens();
   return (
     <PreviewBox
       label={t((d) => d.home.recentlyPlayedLabel)}
       rows={rows}
       invite={t((d) => d.home.playInvite)}
+      seeAllLabel={t((d) => d.home.seeAll)}
+      // See-all lands on History under the matching lens; set it before the nav so the destination
+      // seeds onto it.
+      onSeeAll={() => {
+        setHistoryLens("recent");
+        onNavigate("history");
+      }}
       onPlay={onPlay}
     />
   );
 }
 
-function MostPlayedBox(_: HomeBoxProps) {
+function MostPlayedBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
   const rows = useMostPlayed(PREVIEW_LIMIT);
   const onPlay = usePreviewPlay();
+  const setHistoryLens = useSetHistoryLens();
   return (
     <PreviewBox
       label={t((d) => d.home.mostPlayedLabel)}
       rows={rows}
       invite={t((d) => d.home.playInvite)}
+      seeAllLabel={t((d) => d.home.seeAll)}
+      onSeeAll={() => {
+        setHistoryLens("most");
+        onNavigate("history");
+      }}
       onPlay={onPlay}
     />
   );

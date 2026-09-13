@@ -4,7 +4,7 @@ import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
 
 // -- Icon Imports --
-import { Home, LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, Images, AudioLines, Download, Settings } from "lucide-react";
+import { Home, LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, History, Images, AudioLines, Download, Settings } from "lucide-react";
 
 // -- State Imports --
 import { useAppMode } from "../../state/player/store";
@@ -151,6 +151,14 @@ export function Sidebar({
                   label={t((d) => d.nav.player)}
                   active={mode === "player"}
                   onClick={() => onModeChange("player")}
+                />
+              ) : null}
+              {isDestinationVisible(appMode, "history") ? (
+                <NavItem
+                  icon={<History size={17} strokeWidth={1.8} />}
+                  label={t((d) => d.nav.history)}
+                  active={mode === "history"}
+                  onClick={() => onModeChange("history")}
                 />
               ) : null}
             </div>

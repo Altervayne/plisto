@@ -14,10 +14,16 @@ import { useTracks } from "../store";
 import { usePlaysVersion } from "./store";
 
 // -- IPC Imports --
-import { getMostPlayed, getRecentlyPlayed } from "../../lib/ipc";
+import {
+  getMostPlayed,
+  getMostPlayedRows,
+  getRecentlyPlayed,
+  getRecentlyPlayedRows,
+} from "../../lib/ipc";
 
 // -- Type Imports --
-import type { TrackRow } from "../../types";
+import type { HistoryLens } from "../shell/store";
+import type { HistoryStat, TrackRow } from "../../types";
 
 /**
  * Resolves play-history ids to their library rows in id order, dropping any id the index no longer
@@ -65,4 +71,52 @@ export function useRecentlyPlayed(limit: number): TrackRow[] {
 /** The most played tracks by weighted score, highest first, resolved to rows. */
 export function useMostPlayed(limit: number): TrackRow[] {
   return usePlayHistory(getMostPlayed, limit);
+}
+
+/**
+ * The full History listing for a lens: every play-log row (unbounded), resolved to library rows in
+ * the read's order, plus a stat map the trailing column reads. Refetches on mount and on each recorded
+ * play. An id whose track is gone drops from both the rows and the stats, so the two never disagree.
+ */
+export function useHistory(lens: HistoryLens): { rows: TrackRow[]; stats: Map<number, HistoryStat> } {
+  const tracks = useTracks();
+  const playsVersion = usePlaysVersion();
+  const [historyRows, setHistoryRows] = useState<Array<HistoryStat & { track_id: number }>>([]);
+
+  useEffect(() => {
+    let alive = true;
+    const fetch = lens === "recent" ? getRecentlyPlayedRows : getMostPlayedRows;
+    void fetch()
+      .then((result) => {
+        if (alive) {
+          setHistoryRows(
+            result.map((r) => ({
+              track_id: r.track_id,
+              lastPlayedAt: r.last_played_at,
+              playCount: r.play_count,
+            })),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [lens, playsVersion]);
+
+  return useMemo(() => {
+    const rows = resolveTrackRows(
+      historyRows.map((r) => r.track_id),
+      tracks,
+    );
+    // Stats only for the ids that survived the resolve, so a gone track leaves no orphan stat behind.
+    const surviving = new Set(rows.map((r) => r.id));
+    const stats = new Map<number, HistoryStat>();
+    for (const r of historyRows) {
+      if (surviving.has(r.track_id)) {
+        stats.set(r.track_id, { lastPlayedAt: r.lastPlayedAt, playCount: r.playCount });
+      }
+    }
+    return { rows, stats };
+  }, [historyRows, tracks]);
 }

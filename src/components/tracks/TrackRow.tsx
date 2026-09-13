@@ -10,12 +10,12 @@ import { Play } from "lucide-react";
 
 // -- Utils Imports --
 import { trackColumns } from "./trackColumns";
-import { EMPTY_INDEX } from "./trackFacets";
+import { EMPTY_HISTORY, EMPTY_INDEX } from "./trackFacets";
 import type { TrackColumn } from "./trackColumns";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
-import type { AlbumRow, TrackRow as TrackRowData } from "../../types";
+import type { AlbumRow, HistoryStat, TrackRow as TrackRowData } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -30,9 +30,15 @@ export interface SelectModifiers {
 }
 
 /** Resolves a cell to its display string, folding an absent tag to a deliberate dash. A resolved column
- *  reads its effective value through the column's resolver, joining the album index where it applies. */
-function cellText(col: TrackColumn, track: TrackRowData, index: Map<number, AlbumRow>): string {
-  const raw = col.resolve ? col.resolve(track, index) : track[col.id];
+ *  reads its effective value through the column's resolver, joining the album and play-log indexes where
+ *  they apply; a plain column reads its own raw field. */
+function cellText(
+  col: TrackColumn,
+  track: TrackRowData,
+  index: Map<number, AlbumRow>,
+  history: Map<number, HistoryStat>,
+): string {
+  const raw = col.resolve ? col.resolve(track, index, history) : track[col.id as keyof TrackRowData];
   if (col.format) return col.format(raw);
   if (raw == null || raw === "") return "-";
   return String(raw);
@@ -63,6 +69,7 @@ export function TrackRow({
   track,
   columns = trackColumns,
   albumIndex = EMPTY_INDEX,
+  historyIndex = EMPTY_HISTORY,
   active,
   selected,
   selecting,
@@ -77,6 +84,9 @@ export function TrackRow({
   // The track-to-album join, so a member's album, album-artist, and year cells read the container's
   // fields; the file browser leaves it at the empty default for loose edit-over-raw.
   albumIndex?: Map<number, AlbumRow>;
+  // The play-log stat join, so the History last-played and plays cells read their track's aggregate;
+  // every other grid leaves it at the empty default and never shows those columns.
+  historyIndex?: Map<number, HistoryStat>;
   active: boolean;
   selected: boolean;
   selecting: boolean;
@@ -131,7 +141,7 @@ export function TrackRow({
       </button>
 
       {columns.map((col) => {
-        const text = cellText(col, track, albumIndex);
+        const text = cellText(col, track, albumIndex, historyIndex);
         const empty = text === "-";
 
         // The play triangle, armed only when the caller passes onPlay. A gone source greys it inert with

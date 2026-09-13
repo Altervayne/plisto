@@ -21,6 +21,7 @@ export const fr: Dict = {
     covers: "Pochettes",
     editor: "Éditeur de piste",
     player: "Lecteur",
+    history: "Historique",
     export: "Exporter",
   },
 
@@ -328,6 +329,14 @@ export const fr: Dict = {
     keepOwnCoverHint: "Cette piste n'a pas de pochette propre.",
   },
 
+  history: {
+    title: "Historique",
+    recent: "Écoutées récemment",
+    most: "Les plus écoutées",
+    emptyTitle: "Rien d'écouté pour l'instant",
+    emptyLine: "Les titres que vous lisez apparaissent ici.",
+  },
+
   tracks: {
     search: "Rechercher des pistes",
     count: { one: "{{n}} piste", other: "{{n}} pistes" },
@@ -370,6 +379,8 @@ export const fr: Dict = {
       duration_secs: "Durée",
       ext: "Format",
       filename: "Fichier",
+      last_played: "Dernière écoute",
+      plays: "Écoutes",
     },
     fields: {
       title: "Titre",
@@ -745,6 +756,7 @@ export const fr: Dict = {
     sourceTracks: "Toutes les Pistes",
     sourceSingles: "Singles",
     sourceUnsorted: "Non Triées",
+    sourceHistory: "Historique",
     upNext: "À suivre",
     addToQueue: "Ajouter à la file",
     removeFromQueue: "Retirer de la file",

@@ -1,8 +1,10 @@
 /*
  * The track-album resolver: a track's displayed album, album-artist, and year, joining the row's own
- * edits over the album it is filed into. A member inherits the album's fields; a per-track edit still
- * wins; the stale raw file tag is hidden for a member. A loose track keeps edit-over-raw. This is the one
- * place the membership-join precedence lives, so the grid, the facets, and the Home counts stay in step.
+ * edits over the album it is filed into. A member inherits the album's fields; for a real album the
+ * album is authoritative and the per-track edit is ignored; a single is track-owned, so its member's
+ * edit still wins. The stale raw file tag is hidden for a member. A loose track keeps edit-over-raw.
+ * This is the one place the membership-join precedence lives, so the grid, the facets, and the Home
+ * counts stay in step.
  */
 
 // -- Type Imports --
@@ -26,32 +28,43 @@ export function buildAlbumIndex(
   return index;
 }
 
-/** The displayed album: a member's per-track edit over its album's title, a loose track's edit over its
- *  raw tag. An empty result folds to null. */
+/** The displayed album: a real-album member takes its album's title outright, a single member's edit wins
+ *  over its single's title, a loose track's edit wins over its raw tag. An empty result folds to null. */
 export function resolveTrackAlbum(track: TrackRow, index: Map<number, AlbumRow>): string | null {
   const album = index.get(track.id);
-  const value = album ? track.album_edit ?? album.title : track.album_edit ?? track.raw_album;
+  const value = album
+    ? album.kind === "album"
+      ? album.title
+      : track.album_edit ?? album.title
+    : track.album_edit ?? track.raw_album;
   return value ? value : null;
 }
 
-/** The displayed album-artist: a member's per-track edit over its album's album-artist, a loose track's
- *  edit over its raw tag. An empty result folds to null. */
+/** The displayed album-artist: a real-album member takes its album's album-artist outright, a single
+ *  member's edit wins over its single's, a loose track's edit wins over its raw tag. An empty result
+ *  folds to null. */
 export function resolveTrackAlbumArtist(
   track: TrackRow,
   index: Map<number, AlbumRow>,
 ): string | null {
   const album = index.get(track.id);
   const value = album
-    ? track.album_artist_edit ?? album.album_artist
+    ? album.kind === "album"
+      ? album.album_artist
+      : track.album_artist_edit ?? album.album_artist
     : track.album_artist_edit ?? track.raw_album_artist;
   return value ? value : null;
 }
 
-/** The displayed year as a string: a member's per-track edit over its album's year, a loose track's edit
- *  over its raw tag. Null when absent. */
+/** The displayed year as a string: a real-album member takes its album's year outright, a single member's
+ *  edit wins over its single's, a loose track's edit wins over its raw tag. Null when absent. */
 export function resolveTrackYear(track: TrackRow, index: Map<number, AlbumRow>): string | null {
   const album = index.get(track.id);
-  const value = album ? track.year_edit ?? album.year : track.year_edit ?? track.raw_year;
+  const value = album
+    ? album.kind === "album"
+      ? album.year
+      : track.year_edit ?? album.year
+    : track.year_edit ?? track.raw_year;
   return value != null ? String(value) : null;
 }
 

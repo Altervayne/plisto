@@ -20,6 +20,7 @@ export const en = {
     covers: "Covers",
     editor: "Track Editor",
     player: "Player",
+    history: "History",
     export: "Export",
   },
 
@@ -327,6 +328,14 @@ export const en = {
     keepOwnCoverHint: "This track has no cover of its own.",
   },
 
+  history: {
+    title: "History",
+    recent: "Recently played",
+    most: "Most played",
+    emptyTitle: "Nothing played yet",
+    emptyLine: "Tracks you play show up here.",
+  },
+
   tracks: {
     search: "Search tracks",
     count: { one: "{{n}} track", other: "{{n}} tracks" },
@@ -369,6 +378,8 @@ export const en = {
       duration_secs: "Length",
       ext: "Format",
       filename: "File",
+      last_played: "Last played",
+      plays: "Plays",
     },
     fields: {
       title: "Title",
@@ -744,6 +755,7 @@ export const en = {
     sourceTracks: "All Tracks",
     sourceSingles: "Singles",
     sourceUnsorted: "Unsorted",
+    sourceHistory: "History",
     upNext: "Up next",
     addToQueue: "Add to queue",
     removeFromQueue: "Remove from queue",

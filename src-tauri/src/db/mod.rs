@@ -15,8 +15,8 @@ use rusqlite::{params, Connection};
 
 // -- Type Imports --
 use crate::dto::{
-    AlbumRow, AlbumTrackRow, GenreRow, PlaylistRow, PlaylistSnapshot, PlaylistTrackRow, Root,
-    TrackDisplay, TrackEdit, TrackPlacement,
+    AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlaylistRow, PlaylistSnapshot, PlaylistTrackRow,
+    Root, TrackDisplay, TrackEdit, TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{normalize_genre_key, normalize_path_key};
@@ -2152,6 +2152,70 @@ pub fn get_most_played(
     Ok(rows)
 }
 
+/// The deduped last-play list for the History surface: one row per track, its latest play newest
+/// first, each row carrying that latest stamp, the raw play count, and how many plays ran to the end.
+/// `limit` caps the list when `Some`; `None` returns the whole history. Unlike `get_recently_played`
+/// this returns full rows, since the History grid shows the last-played stamp beside the track.
+pub fn get_recently_played_rows(
+    conn: &Connection,
+    limit: Option<i64>,
+) -> rusqlite::Result<Vec<HistoryRow>> {
+    let limit_clause = if limit.is_some() { " LIMIT ?" } else { "" };
+    let sql = format!(
+        "SELECT track_id, MAX(played_at) AS last_played_at, COUNT(*) AS play_count, \
+         SUM(completed) AS completed_count \
+         FROM plays GROUP BY track_id ORDER BY last_played_at DESC{limit_clause}"
+    );
+    let mut binds: Vec<i64> = Vec::new();
+    if let Some(l) = limit {
+        binds.push(l);
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(binds.iter()), |r| {
+            Ok(HistoryRow {
+                track_id: r.get(0)?,
+                last_played_at: r.get(1)?,
+                play_count: r.get(2)?,
+                completed_count: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The raw play-count ranking for the History surface: one row per track, most plays first, a count
+/// tie broken by the most recent play. All-time, no window. `limit` caps the list when `Some`; `None`
+/// returns the whole history. Ordered by the raw COUNT, not the completed-weighted score the Home
+/// most-played preview uses.
+pub fn get_most_played_rows(
+    conn: &Connection,
+    limit: Option<i64>,
+) -> rusqlite::Result<Vec<HistoryRow>> {
+    let limit_clause = if limit.is_some() { " LIMIT ?" } else { "" };
+    let sql = format!(
+        "SELECT track_id, COUNT(*) AS play_count, MAX(played_at) AS last_played_at, \
+         SUM(completed) AS completed_count \
+         FROM plays GROUP BY track_id ORDER BY play_count DESC, last_played_at DESC{limit_clause}"
+    );
+    let mut binds: Vec<i64> = Vec::new();
+    if let Some(l) = limit {
+        binds.push(l);
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(binds.iter()), |r| {
+            Ok(HistoryRow {
+                track_id: r.get(0)?,
+                play_count: r.get(1)?,
+                last_played_at: r.get(2)?,
+                completed_count: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Whole seconds since the Unix epoch, stamped onto a play the moment it is recorded.
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -3350,5 +3414,60 @@ mod tests {
         // count, so track 1 drops out entirely.
         let windowed = get_most_played(&conn, 10, Some(25)).unwrap();
         assert_eq!(windowed, vec![2], "a since floor excludes older plays");
+    }
+
+    #[test]
+    fn get_recently_played_rows_dedupes_and_carries_counts() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        // Track 1 played twice, one full and one partial; track 2 once. Track 1's latest play (300)
+        // outranks track 2's (200), so it leads.
+        add_play(&conn, 1, 100, true);
+        add_play(&conn, 1, 300, false);
+        add_play(&conn, 2, 200, true);
+
+        let rows = get_recently_played_rows(&conn, None).unwrap();
+        assert_eq!(rows.len(), 2, "one row per track");
+        assert_eq!(rows[0].track_id, 1);
+        assert_eq!(rows[0].last_played_at, 300, "the latest play stamps the row");
+        assert_eq!(rows[0].play_count, 2);
+        assert_eq!(rows[0].completed_count, 1, "one of the two plays ran to the end");
+        assert_eq!(rows[1].track_id, 2);
+        assert_eq!(rows[1].play_count, 1);
+
+        // The limit caps to the most recent tracks; None returned them all above.
+        let capped = get_recently_played_rows(&conn, Some(1)).unwrap();
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].track_id, 1);
+    }
+
+    #[test]
+    fn get_most_played_rows_orders_by_raw_count() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        // Track 1: two completed plays. Track 2: three partial plays. Raw count puts track 2 first,
+        // even though the completed-weighted score would favor track 1 - this read counts plays.
+        add_play(&conn, 1, 10, true);
+        add_play(&conn, 1, 20, true);
+        add_play(&conn, 2, 30, false);
+        add_play(&conn, 2, 40, false);
+        add_play(&conn, 2, 50, false);
+
+        let rows = get_most_played_rows(&conn, None).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].track_id, 2, "more plays leads, regardless of completion");
+        assert_eq!(rows[0].play_count, 3);
+        assert_eq!(rows[0].completed_count, 0);
+        assert_eq!(rows[0].last_played_at, 50, "the latest play breaks a count tie");
+        assert_eq!(rows[1].track_id, 1);
+        assert_eq!(rows[1].play_count, 2);
+        assert_eq!(rows[1].completed_count, 2);
+
+        // The limit caps the ranking; None returned the whole list above.
+        let capped = get_most_played_rows(&conn, Some(1)).unwrap();
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].track_id, 2);
     }
 }

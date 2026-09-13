@@ -9,6 +9,7 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::db;
+use crate::dto::HistoryRow;
 use crate::state::AppState;
 
 /// Clears play history: a track id wipes just that track's plays, None wipes the whole log. A discrete
@@ -45,4 +46,32 @@ pub fn get_most_played(
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     db::get_most_played(&conn, limit, since).map_err(|e| e.to_string())
+}
+
+/// The deduped last-play rows for the History surface, newest last-play first. `limit` caps the
+/// list, or None for the whole history.
+#[tauri::command]
+pub fn get_recently_played_rows(
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HistoryRow>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::get_recently_played_rows(&conn, limit).map_err(|e| e.to_string())
+}
+
+/// The raw play-count ranking rows for the History surface, most plays first. `limit` caps the
+/// list, or None for the whole history.
+#[tauri::command]
+pub fn get_most_played_rows(
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HistoryRow>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::get_most_played_rows(&conn, limit).map_err(|e| e.to_string())
 }

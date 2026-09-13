@@ -514,7 +514,27 @@ export type PlaybackSource =
   | { kind: "tracks" }
   | { kind: "singles" }
   | { kind: "unsorted" }
+  | { kind: "history" }
   | { kind: "single"; id: number; label: string };
+
+/**
+ * One track's play-log aggregate for the History surface: its most recent play (unix seconds), its
+ * raw play count, and how many of those plays ran to the end. Mirrors HistoryRow in dto.rs. The
+ * frontend hydrates the track row from its own store and reads the count and last-play stamp off this.
+ */
+export interface HistoryRow {
+  track_id: number;
+  last_played_at: number;
+  play_count: number;
+  completed_count: number;
+}
+
+/** The play-log stat the History grid's trailing column reads for one track: its last-play stamp
+ *  (unix seconds) and raw play count. A light shape keyed by track id, built from HistoryRow. */
+export interface HistoryStat {
+  lastPlayedAt: number;
+  playCount: number;
+}
 
 /**
  * One selectable output device: its name and whether it is the current OS default. The settings

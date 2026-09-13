@@ -112,16 +112,22 @@ describe("resolveTrackAlbum", () => {
     expect(resolveTrackAlbum(track, index)).toBe("Kind of Blue");
   });
 
-  it("lets a per-track edit win over the album title", () => {
+  it("ignores a per-track edit for a real-album member, the album is authoritative", () => {
     const track = row({ id: 10, album_edit: "Renamed", raw_album: "Stale tag" });
     const index = indexOf(10, album({ id: 1, title: "Kind of Blue" }));
-    expect(resolveTrackAlbum(track, index)).toBe("Renamed");
+    expect(resolveTrackAlbum(track, index)).toBe("Kind of Blue");
   });
 
-  it("resolves a single member the same way, inheriting its title", () => {
+  it("resolves a single member inheriting its title", () => {
     const track = row({ id: 10, raw_album: "Stale tag" });
     const index = indexOf(10, album({ id: 1, kind: "single", title: "One Cut" }));
     expect(resolveTrackAlbum(track, index)).toBe("One Cut");
+  });
+
+  it("lets a single member's edit win over its single's title", () => {
+    const track = row({ id: 10, album_edit: "Renamed", raw_album: "Stale tag" });
+    const index = indexOf(10, album({ id: 1, kind: "single", title: "One Cut" }));
+    expect(resolveTrackAlbum(track, index)).toBe("Renamed");
   });
 
   it("folds an untitled album member to null, hiding the raw tag", () => {
@@ -140,11 +146,17 @@ describe("resolveTrackAlbum", () => {
 });
 
 describe("resolveTrackAlbumArtist", () => {
-  it("inherits the album's album-artist under a per-track edit", () => {
+  it("takes a real album's album-artist outright, ignoring a per-track edit", () => {
     const track = row({ id: 10, raw_album_artist: "Stale" });
     const index = indexOf(10, album({ id: 1, album_artist: "Miles Davis" }));
     expect(resolveTrackAlbumArtist(track, index)).toBe("Miles Davis");
     const edited = row({ id: 10, album_artist_edit: "Sextet", raw_album_artist: "Stale" });
+    expect(resolveTrackAlbumArtist(edited, index)).toBe("Miles Davis");
+  });
+
+  it("lets a single member's edit win over its single's album-artist", () => {
+    const index = indexOf(10, album({ id: 1, kind: "single", album_artist: "Miles Davis" }));
+    const edited = row({ id: 10, album_artist_edit: "Sextet" });
     expect(resolveTrackAlbumArtist(edited, index)).toBe("Sextet");
   });
 
@@ -155,11 +167,17 @@ describe("resolveTrackAlbumArtist", () => {
 });
 
 describe("resolveTrackYear", () => {
-  it("inherits the album's year as a string, under a per-track edit", () => {
+  it("takes a real album's year as a string outright, ignoring a per-track edit", () => {
     const track = row({ id: 10, raw_year: 1900 });
     const index = indexOf(10, album({ id: 1, year: 1959 }));
     expect(resolveTrackYear(track, index)).toBe("1959");
     const edited = row({ id: 10, year_edit: 1997, raw_year: 1900 });
+    expect(resolveTrackYear(edited, index)).toBe("1959");
+  });
+
+  it("lets a single member's edit win over its single's year", () => {
+    const index = indexOf(10, album({ id: 1, kind: "single", year: 1959 }));
+    const edited = row({ id: 10, year_edit: 1997 });
     expect(resolveTrackYear(edited, index)).toBe("1997");
   });
 

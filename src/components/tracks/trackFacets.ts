@@ -15,7 +15,7 @@ import {
 } from "./trackAlbum";
 
 // -- Type Imports --
-import type { AlbumRow, TrackRow } from "../../types";
+import type { AlbumRow, HistoryStat, TrackRow } from "../../types";
 
 /** The facets a chip can filter on. Genre is multi-valued per track; the rest are single resolved tags. */
 export type FacetKey = "artist" | "album_artist" | "album" | "genre" | "year";
@@ -29,6 +29,12 @@ export const EMPTY_INDEX: Map<number, AlbumRow> = Object.freeze(new Map<number, 
   number,
   AlbumRow
 >;
+
+/** A shared empty play-log index: the default for every grid but History, so its play-log columns
+ *  never appear elsewhere and the resolvers that ignore it read nothing. One frozen reference. */
+export const EMPTY_HISTORY: Map<number, HistoryStat> = Object.freeze(
+  new Map<number, HistoryStat>(),
+) as Map<number, HistoryStat>;
 
 /** A grouping dimension: one of the facets, or the flat ungrouped default. */
 export type GroupDimension = "none" | FacetKey;

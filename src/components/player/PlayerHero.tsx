@@ -121,6 +121,10 @@ function SourceLine({ onNavigate }: { onNavigate: (source: PlaybackSource) => vo
       label = t((d) => d.player.playingFrom);
       name = t((d) => d.player.sourceUnsorted);
       break;
+    case "history":
+      label = t((d) => d.player.playingFrom);
+      name = t((d) => d.player.sourceHistory);
+      break;
     case "single":
       // A lone track carries a track id, not a container to open, so its name is plain text.
       label = t((d) => d.player.playingFrom);

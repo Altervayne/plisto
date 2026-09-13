@@ -52,7 +52,7 @@ import { useSetOpenTool } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
-import { EMPTY_INDEX, filterByFacets, isMissingMetadata } from "./trackFacets";
+import { EMPTY_HISTORY, EMPTY_INDEX, filterByFacets, isMissingMetadata } from "./trackFacets";
 import { UNTAGGED_KEY, flattenGroups, groupRows } from "./trackGrouping";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
@@ -64,7 +64,13 @@ import type { GridFacet, GroupDimension } from "./trackFacets";
 import type { TrackGroup } from "./trackGrouping";
 import type { MenuEntry } from "../common/ContextMenu";
 import type { FilesViewMode, GridSort } from "../../state/store";
-import type { AlbumRow, PlaybackSource, TrackEditFields, TrackRow as TrackRowData } from "../../types";
+import type {
+  AlbumRow,
+  HistoryStat,
+  PlaybackSource,
+  TrackEditFields,
+  TrackRow as TrackRowData,
+} from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -101,6 +107,8 @@ function filenameStem(filename: string): string {
  * stays flat. `onVisibleCount` reports the unique filtered row count so a caller's header stays honest.
  * `albumIndex` joins each track to the album it is filed into, so All Tracks resolves album, album-artist,
  * and year from the container; left at the empty default, the grid keeps the loose edit-over-raw.
+ * `historyIndex` supplies the play-log stat the History columns read; every other caller leaves it empty
+ * and those columns never appear.
  */
 export function TrackGrid({
   tracks,
@@ -109,6 +117,7 @@ export function TrackGrid({
   columns = trackColumns,
   enableFacets = true,
   albumIndex = EMPTY_INDEX,
+  historyIndex = EMPTY_HISTORY,
   source = { kind: "files" },
   sort,
   onSortChange,
@@ -133,6 +142,8 @@ export function TrackGrid({
   // The track-to-album join for All Tracks; the file browser and album drawer leave it at the empty
   // default, so their rows stay on the loose edit-over-raw.
   albumIndex?: Map<number, AlbumRow>;
+  // The play-log stat join for History; every other caller leaves it empty and its columns never show.
+  historyIndex?: Map<number, HistoryStat>;
   source?: PlaybackSource;
   sort: GridSort;
   onSortChange: (sort: GridSort) => void;
@@ -152,7 +163,10 @@ export function TrackGrid({
   const allTracks = useTracks();
   const t = useT();
   const scoped = tracks ?? allTracks;
-  const columnDefs = useMemo(() => toColumnDefs(columns, albumIndex), [columns, albumIndex]);
+  const columnDefs = useMemo(
+    () => toColumnDefs(columns, albumIndex, historyIndex),
+    [columns, albumIndex, historyIndex],
+  );
   const template = useMemo(() => gridTemplate(columns), [columns]);
 
   const sorting = sort;
@@ -561,6 +575,7 @@ export function TrackGrid({
                   track={track}
                   columns={columns}
                   albumIndex={albumIndex}
+                  historyIndex={historyIndex}
                   active={track.id === selectedId}
                   selected={selection.has(track.id)}
                   selecting={selecting}
@@ -583,6 +598,7 @@ export function TrackGrid({
                   track={track}
                   columns={columns}
                   albumIndex={albumIndex}
+                  historyIndex={historyIndex}
                   active={track.id === selectedId}
                   selected={selection.has(track.id)}
                   selecting={selecting}

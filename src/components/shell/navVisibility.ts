@@ -23,13 +23,14 @@ export type Mode =
   | "covers"
   | "editor"
   | "player"
+  | "history"
   | "export"
   | "settings";
 
 /** The three labeled sidebar sections, each holding its destinations in nav order. */
 export const NAV_SECTIONS = {
   files: ["files", "unsorted", "covers"],
-  library: ["tracks", "albums", "singles", "playlists", "player"],
+  library: ["tracks", "albums", "singles", "playlists", "player", "history"],
   utilities: ["editor", "export"],
 } as const satisfies Record<string, readonly Mode[]>;
 
@@ -44,7 +45,7 @@ const NAV_ORDER: readonly Mode[] = [
 const HIDDEN: Record<AppMode, ReadonlySet<Mode>> = {
   both: new Set(),
   player: new Set(["files", "unsorted", "covers", "editor", "export"]),
-  organizer: new Set(["tracks", "player"]),
+  organizer: new Set(["tracks", "player", "history"]),
 };
 
 /** Whether a destination's nav row shows under the mode. Home is the landing for every mode, outside

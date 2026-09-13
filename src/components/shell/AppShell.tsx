@@ -13,6 +13,7 @@ import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { FilesView } from "../files/FilesView";
 import { AllTracksView } from "../tracks/AllTracksView";
+import { HistoryView } from "../tracks/HistoryView";
 import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
 import { PlaylistView } from "../playlists/PlaylistView";
@@ -60,7 +61,7 @@ import {
   usePlayerSync,
 } from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
-import { useOpenTool, useSetOpenTool } from "../../state/shell/store";
+import { useHistoryLens, useOpenTool, useSetOpenTool } from "../../state/shell/store";
 
 // -- IPC Imports --
 import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/ipc";
@@ -205,6 +206,10 @@ export function AppShell({
   const setOpenTool = useSetOpenTool();
   const closeTool = useCallback(() => setOpenTool(null), [setOpenTool]);
 
+  // The lens the History destination opens on. A Home See-all sets it before navigating, so History
+  // seeds its own local lens from it on mount.
+  const historyLens = useHistoryLens();
+
   // Entering the full pane closes the drawer: the two album surfaces never show at once. Stable across
   // renders so the memoized cards never re-render on its account.
   const openFull = useCallback((albumId: number) => {
@@ -235,6 +240,9 @@ export function AppShell({
         break;
       case "unsorted":
         setMode("unsorted");
+        break;
+      case "history":
+        setMode("history");
         break;
       case "single":
         break;
@@ -421,6 +429,8 @@ export function AppShell({
           ) : (
             <PlaylistsView onOpen={setOpenPlaylistId} />
           )
+        ) : mode === "history" ? (
+          <HistoryView initialLens={historyLens} />
         ) : count === 0 ? (
           // A library wall with no tracks: the add-a-folder onboarding. Only ever reached in standalone
           // (the normal path took the early return above), when "Open library" opened an empty library.

@@ -35,3 +35,27 @@ export function formatBytes(bytes: number): string {
 export function formatTimestamp(secs: number): string {
   return new Date(secs * 1000).toLocaleString();
 }
+
+const MINUTE = 60;
+const HOUR = 3600;
+const DAY = 86400;
+const WEEK = 604800;
+const MONTH = 2592000;
+const YEAR = 31536000;
+
+/**
+ * A compact relative age for a past unix-seconds timestamp: "just now", "5m ago", "2h ago",
+ * "yesterday", then days, weeks, months, years. `now` is injectable so the tests read one clock. A
+ * future or just-passed stamp reads "just now". ASCII only, so it sits in a right-aligned meta cell.
+ */
+export function formatRelativeTime(unixSeconds: number, now = Date.now()): string {
+  const d = Math.max(0, Math.floor(now / 1000) - unixSeconds);
+  if (d < 45) return "just now";
+  if (d < 45 * MINUTE) return `${Math.max(1, Math.round(d / MINUTE))}m ago`;
+  if (d < 22 * HOUR) return `${Math.round(d / HOUR)}h ago`;
+  if (d < 36 * HOUR) return "yesterday";
+  if (d < WEEK) return `${Math.round(d / DAY)}d ago`;
+  if (d < 4 * WEEK) return `${Math.round(d / WEEK)}w ago`;
+  if (d < YEAR) return `${Math.round(d / MONTH)}mo ago`;
+  return `${Math.round(d / YEAR)}y ago`;
+}

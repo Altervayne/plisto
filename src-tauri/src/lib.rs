@@ -361,6 +361,8 @@ pub fn run() {
             commands::plays::reset_play_history,
             commands::plays::get_recently_played,
             commands::plays::get_most_played,
+            commands::plays::get_recently_played_rows,
+            commands::plays::get_most_played_rows,
             commands::splice::splice_run,
             commands::splice::splice_cancel,
             commands::splice::splice_analyze,

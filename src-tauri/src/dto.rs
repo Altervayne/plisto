@@ -370,6 +370,18 @@ pub struct TrackDisplay {
     pub artist: Option<String>,
 }
 
+/// One track's play-log aggregate for the History surface: the track id, its most recent play (unix
+/// seconds), its raw play count, and how many of those plays ran to the end. The recently-played and
+/// most-played reads return this same shape ordered differently. The frontend hydrates the track row
+/// from its own store and reads the count and last-play stamp off this. Mirrors HistoryRow in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryRow {
+    pub track_id: i64,
+    pub last_played_at: i64,
+    pub play_count: i64,
+    pub completed_count: i64,
+}
+
 /// The load-all organize payload: every album (each with its track count) and every membership
 /// row. The frontend hydrates its organize state from this in one call.
 #[derive(Debug, Clone, Serialize)]

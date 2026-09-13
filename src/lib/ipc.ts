@@ -29,6 +29,7 @@ import type {
   ExtractRow,
   GenreRemovalImpact,
   GenreRow,
+  HistoryRow,
   ImageFolderGroup,
   ListTracksResponse,
   OrganizationSnapshot,
@@ -823,6 +824,22 @@ export function getRecentlyPlayed(limit: number): Promise<number[]> {
  */
 export function getMostPlayed(limit: number, since?: number): Promise<number[]> {
   return invoke<number[]>("get_most_played", { limit, since });
+}
+
+/**
+ * The deduped last-play rows for the History surface, newest last-play first. `limit` caps the list;
+ * undefined returns the whole history.
+ */
+export function getRecentlyPlayedRows(limit?: number): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("get_recently_played_rows", { limit });
+}
+
+/**
+ * The raw play-count ranking rows for the History surface, most plays first. `limit` caps the list;
+ * undefined returns the whole history.
+ */
+export function getMostPlayedRows(limit?: number): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("get_most_played_rows", { limit });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */
