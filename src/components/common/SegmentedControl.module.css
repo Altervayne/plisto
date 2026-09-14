@@ -34,6 +34,31 @@
   padding: 6px 10px;
 }
 
+/* Expanding fills the track's width: the inactive chips hold their square, the active one grows to take
+ * the slack so the row spans its container rather than sitting as a narrow cluster. */
+.expand {
+  display: flex;
+  width: 100%;
+}
+
+.expand .segment {
+  flex: none;
+  min-width: 0;
+}
+
+.expand .labelled {
+  flex: 1;
+  gap: 8px;
+  padding-inline: 14px;
+}
+
+/* The active chip's revealed label, clipped rather than forcing the row wider on a narrow rail. */
+.segmentLabel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .segment:not(.active):hover {
   background: var(--veil);
   color: var(--ink);

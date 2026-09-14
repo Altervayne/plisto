@@ -17,8 +17,8 @@ import styles from "./AppModeSwitch.module.css";
 /**
  * The identity switch at the foot of the rail: Player, Organizer, or Both. It only gates the scattered
  * play affordances (see usePlayerEnabled) and never touches the engine, so switching to Organizer
- * leaves a playing track running, still reachable from the mini. Icon-only, since three labels crowd the
- * narrow rail; each segment names itself for a reader.
+ * leaves a playing track running, still reachable from the mini. The inactive modes stay icon-only; the
+ * active one names itself and grows so the switch fills the rail rather than sitting as a narrow cluster.
  */
 export function AppModeSwitch() {
   const mode = useAppMode();
@@ -48,6 +48,7 @@ export function AppModeSwitch() {
         value={mode}
         onChange={setMode}
         label={t((d) => d.player.modeLabel)}
+        expandActive
       />
     </div>
   );

@@ -1,8 +1,6 @@
-/* Centers the compact segmented switch in the foot group, parted from the Settings row below it by a
- * touch of space. The control keeps its own pill width rather than stretching, so the three icon chips
- * sit as one tidy cluster above the full-width Settings row. */
+/* The segmented switch fills the rail width above the Settings row, parted from it by a touch of space.
+ * The control stretches, its active mode growing to take the slack, so the switch and the full-width
+ * Settings row share one edge rather than the switch sitting as a narrow centered cluster. */
 .wrap {
-  display: flex;
-  justify-content: center;
   padding: 2px 0 4px;
 }

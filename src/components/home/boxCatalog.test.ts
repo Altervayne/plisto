@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { BOX_CATALOG, BOX_ORDER, SIZE_SPAN, seedLayout } from "./boxCatalog";
+import { BOX_CATALOG, BOX_ORDER, SIZE_SPAN, boxInMode, seedLayout } from "./boxCatalog";
 
 // -- Type Imports --
 import type { BoxSize, BoxType } from "./boxCatalog";
@@ -30,6 +30,7 @@ describe("seedLayout", () => {
     expect(seedLayout("both")).toEqual([
       { type: "missingCovers", size: "1x1" },
       { type: "unsortedStat", size: "1x1" },
+      { type: "unsortedPreview", size: "2x1" },
       { type: "recentlyPlayed", size: "2x1" },
       { type: "mostPlayed", size: "2x1" },
       { type: "missingMetadata", size: "1x1" },
@@ -40,8 +41,13 @@ describe("seedLayout", () => {
 
   it("emits boxes in the catalog's placement order", () => {
     const order = seedLayout("both").map((seed) => seed.type);
-    const expected = BOX_ORDER.filter((type) => BOX_CATALOG[type].modes.includes("both"));
+    const expected = BOX_ORDER.filter((type) => boxInMode(type, "both"));
     expect(order).toEqual(expected);
+  });
+
+  it("treats the both landing as the union of the base modes", () => {
+    // Every box seeds organizer or player, so the union is every box in placement order.
+    expect(seedLayout("both").map((seed) => seed.type)).toEqual([...BOX_ORDER]);
   });
 });
 

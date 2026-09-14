@@ -16,14 +16,37 @@
   z-index: 21;
   width: min(320px, 78vw);
   max-height: 60vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* The bespoke scroll surface fills the card, so a long list scrolls under the app's own bar, never the
+ * engine's. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * The list caps on the real scroll viewport (ScrollArea's global hide-native-scrollbar element) with a
+ * definite length: a percentage height cannot resolve against the panel's max-height, so without this the
+ * list grows to its full content and spills the card. A definite cap clips and scrolls, and still shrinks
+ * to content when only a few boxes are offered.
+ */
+.scroll :global(.hide-native-scrollbar) {
+  max-height: 60vh;
+}
+
+/* The groups inside the scroll viewport: the stacking and padding the panel itself used to carry. */
+.scrollBody {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border-radius: var(--r-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-pop);
 }
 
 .group {

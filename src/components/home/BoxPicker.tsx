@@ -1,8 +1,11 @@
 // -- Framework Imports --
 import { useLayoutEffect, useRef, useState } from "react";
 
+// -- Component Imports --
+import { ScrollArea } from "../common/ScrollArea/ScrollArea";
+
 // -- Unit Imports --
-import { BOX_CATALOG, BOX_ORDER, boxShape } from "./boxCatalog";
+import { BOX_ORDER, boxInMode, boxShape } from "./boxCatalog";
 
 // -- State Imports --
 import { useAppMode } from "../../state/player/store";
@@ -62,19 +65,24 @@ export function BoxPicker({
   // Shift the panel left when its right edge would spill past the viewport, so an add tile near the
   // right edge opens the menu back onto the screen instead of forcing a horizontal scroll.
   const [shift, setShift] = useState(0);
+  // Open the panel upward when dropping down would spill past the viewport foot, so an add tile low on
+  // the page keeps the whole menu on-screen instead of growing the page and its scrollbar.
+  const [flipUp, setFlipUp] = useState(false);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
     const margin = 8;
-    const overflow = panel.getBoundingClientRect().right - (window.innerWidth - margin);
+    const rect = panel.getBoundingClientRect();
+    const overflow = rect.right - (window.innerWidth - margin);
     if (overflow > 0) setShift(overflow);
+    if (rect.bottom > window.innerHeight - margin) setFlipUp(true);
   }, []);
 
   const appMode = useAppMode();
   const present = new Set(layout.map((box) => box.type));
   // Only the current mode's boxes, so the picker never offers one that routes to a hidden destination.
-  const inMode = (type: BoxType) => BOX_CATALOG[type].modes.includes(appMode);
+  const inMode = (type: BoxType) => boxInMode(type, appMode);
   const stats = BOX_ORDER.filter((type) => boxShape(type) === "stat" && inMode(type));
   const lists = BOX_ORDER.filter((type) => boxShape(type) === "list" && inMode(type));
   const suggestions = BOX_ORDER.filter((type) => boxShape(type) === "suggestion" && inMode(type));
@@ -112,11 +120,13 @@ export function BoxPicker({
         ref={panelRef}
         className={styles.panel}
         role="menu"
-        style={{ left: -shift }}
+        style={flipUp ? { left: -shift, top: "auto", bottom: "calc(100% + 8px)" } : { left: -shift }}
       >
-        {group(t((d) => d.home.groupStats), stats)}
-        {group(t((d) => d.home.groupLists), lists)}
-        {group(t((d) => d.home.groupSuggestions), suggestions)}
+        <ScrollArea className={styles.scroll} contentClassName={styles.scrollBody}>
+          {group(t((d) => d.home.groupStats), stats)}
+          {group(t((d) => d.home.groupLists), lists)}
+          {group(t((d) => d.home.groupSuggestions), suggestions)}
+        </ScrollArea>
       </div>
     </>
   );
