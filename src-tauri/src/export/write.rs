@@ -83,8 +83,15 @@ pub fn export_track(
 
     fs::copy(source, &tmp).map_err(|_| ExportError::CopyFailed)?;
 
-    // A retag failure leaves the temp behind; the source is never touched, the final never appears.
-    let embed = retag(&tmp, tags, cover)?;
+    // A retag failure removes the temp, so a stray .plisto-tmp- copy never lingers to be re-indexed; the
+    // source is never touched and the final never appears.
+    let embed = match retag(&tmp, tags, cover) {
+        Ok(embed) => embed,
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
+    };
 
     fs::rename(&tmp, &final_path).map_err(|_| ExportError::CopyFailed)?;
     Ok(embed)

@@ -231,6 +231,12 @@ fn enumerate(root: &Path, cancel: &Arc<AtomicBool>) -> (Vec<PathBuf>, HashMap<St
         if !entry.file_type().is_file() {
             continue;
         }
+        // Skip Plisto's own staging files: an export writes `.plisto-tmp-<name>` beside the finals, and a
+        // failed retag can leave one behind. It carries a real audio extension, so without this the scan
+        // would index the temp as a track.
+        if entry.file_name().to_string_lossy().starts_with(".plisto-tmp-") {
+            continue;
+        }
         let is_aud = entry
             .path()
             .extension()
@@ -702,5 +708,20 @@ mod tests {
         assert_eq!(sum.seen, 0);
         assert_eq!(sum.inserted, 0);
         assert_eq!(sum.errors, 0);
+    }
+
+    #[test]
+    fn scan_skips_plisto_temp_staging_files() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        fs::write(music.path.join("real.mp3"), b"").unwrap();
+        // An export's leftover staging file carries a real audio extension; it must never be indexed.
+        fs::write(music.path.join(".plisto-tmp-30 - Song.mp3"), b"").unwrap();
+
+        let sum = scan(&music.path, &db_path);
+        assert_eq!(sum.total, 1, "only the real file is walked; the staging file is skipped");
+        assert_eq!(sum.inserted, 1);
     }
 }

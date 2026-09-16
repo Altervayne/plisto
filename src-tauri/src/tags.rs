@@ -95,9 +95,45 @@ pub fn tag_file(
 
     let embed = embed_cover(&mut tag, file_type, tag_type, cover);
 
-    tag.save_to_path(path, WriteOptions::default())
-        .map_err(|_| TagError::Write)?;
+    save_with_comment_repair(&mut tag, path)?;
     Ok(embed)
+}
+
+/// Saves the tag, repairing the file's comments if the first write is refused. A source can carry a
+/// comment frame lofty reads but cannot re-encode - a duplicate COMM, or an invalid language code such
+/// as the null-byte language some taggers leave behind - which fails the whole write. On a refusal the
+/// comments are rebuilt deduped and re-inserted, so lofty re-encodes them under a valid default language
+/// and keeps their text, then the write is retried; if even that is refused the comments are dropped so
+/// one bad frame never blocks the write. A clean file writes on the first pass and is never touched.
+fn save_with_comment_repair(tag: &mut Tag, path: &Path) -> Result<(), TagError> {
+    if tag.save_to_path(path, WriteOptions::default()).is_ok() {
+        return Ok(());
+    }
+    dedupe_comments(tag);
+    if tag.save_to_path(path, WriteOptions::default()).is_ok() {
+        return Ok(());
+    }
+    tag.remove_key(ItemKey::Comment);
+    tag.save_to_path(path, WriteOptions::default())
+        .map_err(|_| TagError::Write)
+}
+
+/// Rebuilds the tag's comments as a deduped set of plain text items, so lofty re-encodes them under a
+/// valid default language rather than preserving a malformed one, and never emits two frames that collide.
+fn dedupe_comments(tag: &mut Tag) {
+    let mut seen = std::collections::HashSet::new();
+    let unique: Vec<String> = tag
+        .get_strings(ItemKey::Comment)
+        .map(str::to_string)
+        .filter(|c| seen.insert(c.clone()))
+        .collect();
+    if unique.is_empty() {
+        return;
+    }
+    tag.remove_key(ItemKey::Comment);
+    for c in unique {
+        tag.push(TagItem::new(ItemKey::Comment, ItemValue::Text(c)));
+    }
 }
 
 /// Carries the source file's primary tag onto `dest`, so a freshly cut file keeps the metadata the
@@ -423,5 +459,32 @@ mod tests {
         assert_eq!(tag.title(), None, "an untitled piece drops the source title");
         assert_eq!(tag.artist().as_deref(), Some("New Artist"), "a Some artist replaces it");
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("2"));
+    }
+}
+
+#[cfg(test)]
+mod comment_repair_tests {
+    use super::*;
+
+    #[test]
+    fn dedupe_comments_collapses_duplicates_and_keeps_the_unique() {
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.push(TagItem::new(ItemKey::Comment, ItemValue::Text("same".into())));
+        tag.push(TagItem::new(ItemKey::Comment, ItemValue::Text("same".into())));
+        tag.push(TagItem::new(ItemKey::Comment, ItemValue::Text("other".into())));
+
+        dedupe_comments(&mut tag);
+
+        let got: Vec<String> = tag.get_strings(ItemKey::Comment).map(str::to_string).collect();
+        assert_eq!(got, vec!["same".to_string(), "other".to_string()]);
+    }
+
+    #[test]
+    fn dedupe_comments_leaves_a_commentless_tag_untouched() {
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title("Keep me".to_string());
+        dedupe_comments(&mut tag);
+        assert_eq!(tag.title().as_deref(), Some("Keep me"));
+        assert_eq!(tag.get_strings(ItemKey::Comment).count(), 0);
     }
 }
