@@ -16,7 +16,7 @@ use rusqlite::{params, Connection};
 // -- Type Imports --
 use crate::dto::{
     AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistRow, PlaylistSnapshot,
-    PlaylistTrackRow, Root, TrackDisplay, TrackEdit, TrackPlacement,
+    PlaylistTrackRow, PurgeSummary, Root, TrackDisplay, TrackEdit, TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{normalize_genre_key, normalize_path_key};
@@ -527,6 +527,37 @@ pub fn remove_root(conn: &mut Connection, root_id: i64) -> rusqlite::Result<()> 
     tx.execute("DELETE FROM roots WHERE id = ?1", params![root_id])?;
     delete_emptied_albums(&tx)?;
     tx.commit()
+}
+
+/// Purges the gone tracks in `track_ids`, in one transaction, and returns the tally. The DELETE is
+/// guarded by `missing_at IS NOT NULL`, so a present track passed by id is never dropped - only a row
+/// the scan already flagged gone can go. Each dropped track CASCADEs to its album membership, genres,
+/// edits, assigned cover, playlist slots and plays; the shared `covers` rows and blobs are content-
+/// addressed and never touched. Any album or single gutted to zero members is then swept, the same
+/// emptied-container cleanup remove_root runs. Empty `track_ids` is a no-op returning a zero tally, and a
+/// second call over the same ids drops nothing - the guard makes it idempotent.
+pub fn remove_missing_tracks(
+    conn: &mut Connection,
+    track_ids: &[i64],
+) -> rusqlite::Result<PurgeSummary> {
+    if track_ids.is_empty() {
+        return Ok(PurgeSummary {
+            removed: 0,
+            albums_emptied: 0,
+        });
+    }
+    let placeholders = vec!["?"; track_ids.len()].join(", ");
+    let sql = format!(
+        "DELETE FROM tracks WHERE id IN ({placeholders}) AND missing_at IS NOT NULL"
+    );
+    let tx = conn.transaction()?;
+    let removed = tx.execute(&sql, rusqlite::params_from_iter(track_ids.iter()))? as i64;
+    let albums_emptied = delete_emptied_albums(&tx)? as i64;
+    tx.commit()?;
+    Ok(PurgeSummary {
+        removed,
+        albums_emptied,
+    })
 }
 
 /// Deletes every album or single left with no members. The emptied-container cleanup a cascade
@@ -2896,6 +2927,220 @@ mod tests {
         assert_eq!(tracks, 3, "root A holds three tracks");
         assert_eq!(losing, 1, "one album is built partly from A");
         assert_eq!(emptied, 1, "one album is built entirely from A");
+    }
+
+    // Inserts a track at `path` and stamps it gone, the state the scan leaves a vanished file in.
+    fn gone(conn: &Connection, path: &str) -> i64 {
+        let id = genre_track(conn, path);
+        conn.execute("UPDATE tracks SET missing_at = 999 WHERE id = ?1", params![id])
+            .unwrap();
+        id
+    }
+
+    #[test]
+    fn remove_missing_deletes_gone_tracks_in_any_order() {
+        let mut conn = open_in_memory().unwrap();
+        let a = gone(&conn, "/music/a.mp3");
+        let b = gone(&conn, "/music/b.mp3");
+        let c = gone(&conn, "/music/c.mp3");
+
+        // The ids arrive out of order; the IN-list does not care.
+        let summary = remove_missing_tracks(&mut conn, &[c, a, b]).unwrap();
+        assert_eq!(summary.removed, 3);
+        assert_eq!(count_rows(&conn), 0, "every gone track is dropped");
+    }
+
+    #[test]
+    fn remove_missing_shrinks_an_album_but_keeps_its_survivor() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/gone.mp3");
+        let keep = genre_track(&conn, "/music/keep.mp3");
+        let album = create_album(
+            &mut conn,
+            Some("A".into()),
+            None,
+            None,
+            None,
+            None,
+            &[g, keep],
+            ALBUM_KIND,
+            1,
+        )
+        .unwrap();
+
+        let summary = remove_missing_tracks(&mut conn, &[g]).unwrap();
+        assert_eq!(summary.removed, 1);
+        assert_eq!(summary.albums_emptied, 0, "the album still has a member");
+
+        // The gone member's membership cascaded; the album survives, shrunk to its present member.
+        let row = get_album(&conn, album.id)
+            .unwrap()
+            .expect("the album survives");
+        assert_eq!(row.track_count, 1);
+        assert!(
+            get_track_source_path(&conn, keep).unwrap().is_some(),
+            "the present member is untouched",
+        );
+    }
+
+    #[test]
+    fn remove_missing_sweeps_a_single_emptied_by_the_purge() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/solo.mp3");
+        let single = create_album(
+            &mut conn,
+            Some("Solo".into()),
+            None,
+            None,
+            None,
+            None,
+            &[g],
+            SINGLE_KIND,
+            1,
+        )
+        .unwrap();
+
+        let summary = remove_missing_tracks(&mut conn, &[g]).unwrap();
+        assert_eq!(summary.removed, 1);
+        assert_eq!(summary.albums_emptied, 1, "the emptied single is swept");
+        assert!(
+            get_album(&conn, single.id).unwrap().is_none(),
+            "the single is deleted",
+        );
+    }
+
+    #[test]
+    fn remove_missing_cascades_plays() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/played.mp3");
+        insert_play(&conn, g, true).unwrap();
+        insert_play(&conn, g, false).unwrap();
+
+        remove_missing_tracks(&mut conn, &[g]).unwrap();
+        let plays: i64 = conn
+            .query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(plays, 0, "the track's plays cascade away");
+    }
+
+    #[test]
+    fn remove_missing_cascades_playlist_slots_and_keeps_the_playlist() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/inlist.mp3");
+        conn.execute(
+            "INSERT INTO playlists (id, name, created_at, updated_at) VALUES (1, 'P', 1, 1)",
+            [],
+        )
+        .unwrap();
+        // The same gone track sits in two slots; both must cascade.
+        add_tracks_to_playlist(&mut conn, 1, &[g, g], 1).unwrap();
+
+        remove_missing_tracks(&mut conn, &[g]).unwrap();
+        let slots: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(slots, 0, "both slots cascade away");
+        let playlists: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlists", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(playlists, 1, "the playlist row survives");
+    }
+
+    #[test]
+    fn remove_missing_cascades_edits_genres_and_cover_but_keeps_the_shared_cover() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/rich.mp3");
+        conn.execute(
+            "INSERT INTO track_edits (track_id, title, updated_at) VALUES (?1, 'T', 1)",
+            params![g],
+        )
+        .unwrap();
+        let rock = get_or_create_genre(&conn, "Rock", 1).unwrap();
+        set_track_genres(&conn, g, &[rock]).unwrap();
+
+        // A cover the gone track shares with a surviving track: the binding cascades, the blob stays.
+        let cover = upsert_cover(&conn, &sample_cover("shared")).unwrap();
+        let keep = genre_track(&conn, "/music/keep.mp3");
+        set_track_cover(&mut conn, &[g, keep], cover, 1).unwrap();
+
+        remove_missing_tracks(&mut conn, &[g]).unwrap();
+
+        let edits: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM track_edits WHERE track_id = ?1",
+                params![g],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(edits, 0, "the edit row cascades");
+        let genres: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM track_genres WHERE track_id = ?1",
+                params![g],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(genres, 0, "the genre memberships cascade");
+        let binding: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM track_covers WHERE track_id = ?1",
+                params![g],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(binding, 0, "the gone track's cover binding cascades");
+
+        // The content-addressed cover and the survivor's binding both stand.
+        let covers: i64 = conn
+            .query_row("SELECT COUNT(*) FROM covers WHERE id = ?1", params![cover], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(covers, 1, "the shared cover survives");
+        assert_eq!(
+            get_track_cover_id(&conn, keep).unwrap(),
+            Some(cover),
+            "the surviving track keeps its binding",
+        );
+    }
+
+    #[test]
+    fn remove_missing_never_deletes_a_present_track() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/gone.mp3");
+        let present = genre_track(&conn, "/music/here.mp3");
+
+        // Both ids are passed, but the missing_at guard drops only the gone one.
+        let summary = remove_missing_tracks(&mut conn, &[g, present]).unwrap();
+        assert_eq!(summary.removed, 1, "only the gone track counts");
+        assert!(
+            get_track_source_path(&conn, present).unwrap().is_some(),
+            "the present track stands",
+        );
+        assert!(
+            get_track_source_path(&conn, g).unwrap().is_none(),
+            "the gone track is dropped",
+        );
+    }
+
+    #[test]
+    fn remove_missing_is_idempotent_and_tolerates_absent_or_empty() {
+        let mut conn = open_in_memory().unwrap();
+        let g = gone(&conn, "/music/gone.mp3");
+
+        let first = remove_missing_tracks(&mut conn, &[g]).unwrap();
+        assert_eq!(first.removed, 1);
+
+        // A second purge of the same id drops nothing.
+        let second = remove_missing_tracks(&mut conn, &[g]).unwrap();
+        assert_eq!(second.removed, 0);
+
+        // An absent id and an empty list are both no-ops.
+        let absent = remove_missing_tracks(&mut conn, &[9999]).unwrap();
+        assert_eq!(absent.removed, 0);
+        let empty = remove_missing_tracks(&mut conn, &[]).unwrap();
+        assert_eq!(empty.removed, 0);
+        assert_eq!(empty.albums_emptied, 0);
     }
 
     #[test]

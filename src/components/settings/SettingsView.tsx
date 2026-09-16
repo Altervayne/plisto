@@ -10,6 +10,7 @@ import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
+import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 
 // -- State Imports --
 import {
@@ -18,6 +19,8 @@ import {
   useRescanAll,
   useRoots,
   useScanStatus,
+  useScanSummary,
+  useSetLibraryGone,
 } from "../../state/store";
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
 import { useCloseToTray, useSetCloseToTray } from "../../state/preferences/store";
@@ -43,14 +46,18 @@ import styles from "./SettingsView.module.css";
  * The settings screen: quiet labelled sections stacked on the continuous surface - no frames, no
  * cards, parted only by space and a dimmed micro-label. Folders holds the library roots and their
  * actions; Appearance and Language each carry an accent-free segmented control bound to a persisted
- * pref. A rescan reloads only the tracks, so both rescans reload the roots to keep the counts true.
+ * pref. A rescan reloads only the tracks, so both rescans reload the roots to keep the counts true. The
+ * last scan's summary sits under the rescan button; when it left files gone from disk, its Review link
+ * opens All Tracks filtered to them through `onReviewGone`.
  */
-export function SettingsView() {
+export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const roots = useRoots();
   const addRoot = useAddRoot();
   const rescanAll = useRescanAll();
   const loadRoots = useLoadRoots();
   const scanning = useScanStatus() === "scanning";
+  const scanSummary = useScanSummary();
+  const setGone = useSetLibraryGone();
   const genres = useGenres();
   const loadGenres = useLoadGenres();
   const createGenre = useCreateGenre();
@@ -70,6 +77,13 @@ export function SettingsView() {
   const onRescanAll = async () => {
     await rescanAll();
     await loadRoots();
+  };
+
+  // Review opens All Tracks already narrowed to the gone tracks, the chip naming why; it never purges,
+  // it only surfaces them for the user to act on there.
+  const onReviewGoneTracks = () => {
+    setGone(true);
+    onReviewGone?.();
   };
 
   // The store surfaces any failure through its error channel; swallow the rejection here.
@@ -124,6 +138,9 @@ export function SettingsView() {
               {t((d) => d.settings.rescanAll)}
             </QuietButton>
           </div>
+          {scanSummary ? (
+            <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
+          ) : null}
         </section>
 
         <section className={styles.section}>

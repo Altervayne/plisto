@@ -21,12 +21,14 @@ import { useAlbumIndex } from "../../state/organize/store";
 // -- State Imports --
 import {
   useLibraryFacets,
+  useLibraryGone,
   useLibraryGroupBy,
   useLibraryMissingMetadata,
   useLibrarySearch,
   useLibrarySort,
   useLibraryView,
   useSetLibraryFacets,
+  useSetLibraryGone,
   useSetLibraryGroupBy,
   useSetLibraryMissingMetadata,
   useSetLibrarySearch,
@@ -66,6 +68,8 @@ export function AllTracksView() {
   const setFacets = useSetLibraryFacets();
   const missingMetadata = useLibraryMissingMetadata();
   const setMissingMetadata = useSetLibraryMissingMetadata();
+  const gone = useLibraryGone();
+  const setGone = useSetLibraryGone();
   const groupBy = useLibraryGroupBy();
   const setGroupBy = useSetLibraryGroupBy();
   const view = useLibraryView();
@@ -133,6 +137,8 @@ export function AllTracksView() {
           onFacetsChange={setFacets}
           missingMetadata={missingMetadata}
           onMissingMetadataChange={setMissingMetadata}
+          gone={gone}
+          onGoneChange={setGone}
           groupBy={groupBy}
           onGroupByChange={setGroupBy}
           onVisibleCount={setVisibleCount}

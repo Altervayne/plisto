@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod export;
 pub mod extract;
 mod list_query;
+pub mod missing;
 pub mod organize;
 pub mod player;
 pub mod plays;

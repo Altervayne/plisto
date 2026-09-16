@@ -328,6 +328,7 @@ pub fn run() {
             commands::roots::rescan_root,
             commands::roots::rescan_all,
             commands::roots::root_removal_impact,
+            commands::missing::remove_missing_tracks,
             commands::window::show_main_window,
             commands::window::quit_app,
             commands::window::confirm_quit,

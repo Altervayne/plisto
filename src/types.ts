@@ -93,6 +93,12 @@ export interface GenreRemovalImpact {
   tracks: number;
 }
 
+/** The tally of a gone-track purge: rows dropped and albums the sweep emptied. Mirrors PurgeSummary. */
+export interface PurgeSummary {
+  removed: number;
+  albums_emptied: number;
+}
+
 /** Sort direction for `list_tracks`. Mirrors SortDir in dto.rs. */
 export type SortDir = 'asc' | 'desc';
 

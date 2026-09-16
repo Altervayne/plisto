@@ -117,6 +117,7 @@ export function TrackRow({
     <div
       className={rowClass}
       style={style}
+      data-missing={track.missing_at != null ? "" : undefined}
       role="button"
       tabIndex={0}
       aria-label={track.raw_title ?? track.filename}
@@ -177,6 +178,18 @@ export function TrackRow({
             <span key={col.id} className={`${cellClass(col, empty)} ${styles.numCell}`}>
               <span className={styles.no}>{text}</span>
               {armedGlyph}
+            </span>
+          );
+        }
+
+        // The title cell carries the gone tag: a warn-tinted word beside the title when the source file is
+        // off disk, the title itself still truncating on its own inner span.
+        if (col.id === "raw_title" && track.missing_at != null) {
+          const titleText = <span className={styles.titleText}>{text}</span>;
+          return (
+            <span key={col.id} className={`${cellClass(col, empty)} ${styles.titleCell}`}>
+              {empty ? titleText : <Tooltip label={text}>{titleText}</Tooltip>}
+              <span className={styles.goneTag}>{t((d) => d.tracks.goneTag)}</span>
             </span>
           );
         }

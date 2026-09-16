@@ -67,6 +67,15 @@ pub struct RootRemovalImpact {
     pub albums_emptied: i64,
 }
 
+/// The tally of a gone-track purge: `removed` is how many gone rows the DELETE dropped, `albums_emptied`
+/// how many albums the follow-up sweep deleted because that purge left them with no members. Distinct from
+/// ScanSummary.removed, which stays 0 during a scan. Mirrors PurgeSummary in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct PurgeSummary {
+    pub removed: i64,
+    pub albums_emptied: i64,
+}
+
 /// One vocabulary genre shaped for the frontend: its display name and how many tracks carry it,
 /// from a COUNT join over `track_genres`. Genre is per-track and multi-valued behind this managed
 /// vocabulary, so a row here is a vocabulary entry, not a per-track membership. Mirrors GenreRow.

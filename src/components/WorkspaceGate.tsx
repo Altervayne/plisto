@@ -14,10 +14,14 @@ import { useBoot, useBooted, useRescanAll, useRoots, useScanError, useScanStatus
 // -- i18n Imports --
 import { useT } from "../i18n";
 
+// -- Style Imports --
+import styles from "./WorkspaceGate.module.css";
+
 /**
  * The top-level switch. Boots once on mount by hydrating the roots (and the last index when any
- * exist), then picks the view: nothing until booted, the scanning view mid-scan, an error state on
- * failure, the app shell over a stocked library, and onboarding when the library is empty.
+ * exist), then picks the view: nothing until booted, an error state on failure, the app shell over a
+ * stocked library, and onboarding when the library is empty. A scan overlays the shell rather than
+ * replacing it, so a rescan keeps the shell mounted and returns the user to the view they were on.
  */
 export function WorkspaceGate() {
   const boot = useBoot();
@@ -35,8 +39,6 @@ export function WorkspaceGate() {
   // Hold nothing until the roots hydrate, so the picker never flashes before the library opens.
   if (!booted) return null;
 
-  if (status === "scanning") return <ScanProgress />;
-
   if (status === "error") {
     return (
       <EmptyState
@@ -50,7 +52,23 @@ export function WorkspaceGate() {
     );
   }
 
-  if (roots.length > 0) return <AppShell />;
+  // A stocked workspace keeps its shell mounted; a running scan lays over it rather than replacing it, so
+  // a rescan never unmounts the shell and returns the user to the view they were on. Before a workspace
+  // exists there is no shell to preserve, so the scan owns the screen.
+  if (roots.length > 0) {
+    return (
+      <>
+        <AppShell />
+        {status === "scanning" ? (
+          <div className={styles.scanOverlay}>
+            <ScanProgress />
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  if (status === "scanning") return <ScanProgress />;
 
   return <WorkspacePicker />;
 }

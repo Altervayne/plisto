@@ -40,6 +40,7 @@ import type {
   PlaylistM3uSummary,
   PlaylistRow,
   PlaylistSnapshot,
+  PurgeSummary,
   RepeatMode,
   Root,
   RootRemovalImpact,
@@ -108,6 +109,11 @@ export function rescanAll(channel: Channel<ScanProgress>): Promise<ScanSummary> 
 /** The blast radius of removing a root: tracks dropped, albums shrunk, albums deleted. */
 export function rootRemovalImpact(id: number): Promise<RootRemovalImpact> {
   return invoke<RootRemovalImpact>("root_removal_impact", { id });
+}
+
+/** Purges the gone tracks in `trackIds` (only rows the scan flagged gone), resolving with the tally. */
+export function removeMissingTracks(trackIds: number[]): Promise<PurgeSummary> {
+  return invoke<PurgeSummary>("remove_missing_tracks", { trackIds });
 }
 
 /** Wraps a progress callback in a fresh channel the export streams ticks over. */

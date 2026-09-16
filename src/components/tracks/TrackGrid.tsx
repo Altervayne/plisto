@@ -12,13 +12,14 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, Play, Scissors } from "lucide-react";
+import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, Play, Scissors, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SearchField } from "../common/SearchField";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
+import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
 import { FacetFilter } from "./FacetFilter";
 import { GroupByControl } from "./GroupByControl";
 import { GroupHeader } from "./GroupHeader";
@@ -30,7 +31,7 @@ import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
 // -- State Imports --
-import { useEditTrack, useTracks } from "../../state/store";
+import { useEditTrack, usePurgeGoneTracks, useTracks } from "../../state/store";
 import {
   useAddSelection,
   useAlbums,
@@ -127,6 +128,8 @@ export function TrackGrid({
   onFacetsChange,
   missingMetadata = false,
   onMissingMetadataChange,
+  gone = false,
+  onGoneChange,
   groupBy = "none",
   onGroupByChange,
   onVisibleCount,
@@ -154,6 +157,10 @@ export function TrackGrid({
   // The All Tracks missing-metadata narrowing, composed on top of the facets. Files leaves it unset.
   missingMetadata?: boolean;
   onMissingMetadataChange?: (on: boolean) => void;
+  // The All Tracks gone-from-disk narrowing, composed on top of the facets. While on, the toolbar arms
+  // the purge. Files leaves it unset.
+  gone?: boolean;
+  onGoneChange?: (on: boolean) => void;
   groupBy?: GroupDimension;
   onGroupByChange?: (groupBy: GroupDimension) => void;
   onVisibleCount?: (count: number) => void;
@@ -176,6 +183,7 @@ export function TrackGrid({
   // A plain browser drops the facet control, so its chips are always empty and the pre-filter is a no-op.
   const activeFacets = enableFacets ? facets : NO_FACETS;
   const activeMissing = enableFacets && missingMetadata;
+  const activeGone = enableFacets && gone;
 
   // Genre facets read the per-track vocabulary membership, so resolve ids to names through the vocabulary.
   const genres = useGenres();
@@ -189,8 +197,11 @@ export function TrackGrid({
   // over what is left, so all of it composes and both the table and the card wall read the same rows.
   const data = useMemo(() => {
     const byFacets = filterByFacets(scoped, activeFacets, genreNameById, albumIndex);
-    return activeMissing ? byFacets.filter((t) => isMissingMetadata(t, albumIndex)) : byFacets;
-  }, [scoped, activeFacets, activeMissing, genreNameById, albumIndex]);
+    const byMissing = activeMissing
+      ? byFacets.filter((t) => isMissingMetadata(t, albumIndex))
+      : byFacets;
+    return activeGone ? byMissing.filter((t) => t.missing_at != null) : byMissing;
+  }, [scoped, activeFacets, activeMissing, activeGone, genreNameById, albumIndex]);
 
   const table = useReactTable({
     data,
@@ -431,17 +442,40 @@ export function TrackGrid({
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const cards = view === "cards";
   const searching = globalFilter.trim().length > 0;
-  const noMatch = rows.length === 0 && (searching || activeFacets.length > 0 || activeMissing);
+  const noMatch =
+    rows.length === 0 && (searching || activeFacets.length > 0 || activeMissing || activeGone);
+  // A settled gone-filter view: the gone narrowing is the only active one and nothing is left, so every
+  // source is in place. It reads as done, not as a dead filter, so it carries no clear-filters escape.
+  const goneSettled =
+    activeGone && rows.length === 0 && !searching && activeFacets.length === 0 && !activeMissing;
   const onPlayRow = playerEnabled
     ? (played: TrackRowData) => play(queueIds, queueIds.indexOf(played.id), source)
     : undefined;
-  // Loosen a filter that matched nothing: clear the search, the facet chips, and the missing-metadata
-  // narrowing back to the full view.
+  // Loosen a filter that matched nothing: clear the search, the facet chips, and both the missing-metadata
+  // and gone narrowings back to the full view.
   const clearFilters = () => {
     setGlobalFilter("");
     onFacetsChange?.([]);
     onMissingMetadataChange?.(false);
+    onGoneChange?.(false);
   };
+
+  // The purge acts on the whole gone set currently shown: with the gone filter on, every visible row is
+  // gone, so their ids are the target. The confirm holds the count; on confirm the store drops them and
+  // reloads, so the rows vanish here and everywhere they were derived.
+  const purgeGoneTracks = usePurgeGoneTracks();
+  const [confirmPurge, setConfirmPurge] = useState(false);
+  const goneIds = useMemo(
+    () => originals.filter((r) => r.missing_at != null).map((r) => r.id),
+    [originals],
+  );
+
+  // The settled gone-empty copy is one sentence; split on its " - " into a headline and a calmer line so
+  // it reads like every other terminal state. Both locales carry the same separator.
+  const goneEmpty = t((d) => d.tracks.goneEmpty);
+  const goneDash = goneEmpty.indexOf(" - ");
+  const goneEmptyTitle = goneDash > 0 ? goneEmpty.slice(0, goneDash) : goneEmpty;
+  const goneEmptyLine = goneDash > 0 ? goneEmpty.slice(goneDash + 3) : "";
 
   return (
     <div className={styles.grid} style={{ "--track-cols": template } as CSSProperties}>
@@ -464,7 +498,17 @@ export function TrackGrid({
                 onChange={onFacetsChange}
                 missingMetadata={missingMetadata}
                 onMissingMetadataChange={onMissingMetadataChange ?? (() => {})}
+                gone={gone}
+                onGoneChange={onGoneChange ?? (() => {})}
               />
+            ) : null}
+            {/* The purge arms only while the gone filter is on and something is shown, so it is unreachable
+             * from the ordinary view - a deliberate accident guard. */}
+            {activeGone && goneIds.length > 0 ? (
+              <QuietButton onClick={() => setConfirmPurge(true)}>
+                <Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />
+                {t((d) => d.tracks.removeGone)}
+              </QuietButton>
             ) : null}
             <GroupByControl groupBy={groupBy} onChange={onGroupByChange} />
             {/* Cards carry no column headers, so their sort lives here; the list keeps its header sort. */}
@@ -496,6 +540,8 @@ export function TrackGrid({
               onChange={onFacetsChange}
               missingMetadata={missingMetadata}
               onMissingMetadataChange={onMissingMetadataChange ?? (() => {})}
+              gone={gone}
+              onGoneChange={onGoneChange ?? (() => {})}
             />
           </div>
         ) : null}
@@ -517,18 +563,22 @@ export function TrackGrid({
         viewportRef={scrollRef}
       >
         {noMatch ? (
-          <EmptyState
-            tone="idle"
-            title={t((d) => d.tracks.noMatchTitle)}
-            line={
-              searching
-                ? t((d) => d.tracks.noMatch, { q: globalFilter.trim() })
-                : t((d) => d.tracks.noFilterMatch)
-            }
-            action={
-              <QuietButton onClick={clearFilters}>{t((d) => d.tracks.clearFilters)}</QuietButton>
-            }
-          />
+          goneSettled ? (
+            <EmptyState tone="good" title={goneEmptyTitle} line={goneEmptyLine} />
+          ) : (
+            <EmptyState
+              tone="idle"
+              title={t((d) => d.tracks.noMatchTitle)}
+              line={
+                searching
+                  ? t((d) => d.tracks.noMatch, { q: globalFilter.trim() })
+                  : t((d) => d.tracks.noFilterMatch)
+              }
+              action={
+                <QuietButton onClick={clearFilters}>{t((d) => d.tracks.clearFilters)}</QuietButton>
+              }
+            />
+          )
         ) : cards ? (
           <TrackCardWall
             scrollRef={scrollRef}
@@ -643,6 +693,16 @@ export function TrackGrid({
           onClose={() => setPlaylistPickerTrack(null)}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={confirmPurge}
+        prompt={t((d) => d.tracks.goneConfirm, { n: goneIds.length })}
+        confirmLabel={t((d) => d.tracks.goneConfirmButton, { n: goneIds.length })}
+        cancelLabel={t((d) => d.common.cancel)}
+        destructive
+        onConfirm={() => void purgeGoneTracks(goneIds)}
+        onClose={() => setConfirmPurge(false)}
+      />
     </div>
   );
 }

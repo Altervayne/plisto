@@ -43,9 +43,9 @@ export const FACET_LABEL: Record<FacetKey, (d: Dict) => string> = {
  * active filters trailing as removable accent-weak chips. Values within a facet OR, chips across facets
  * AND, matching filterByFacets. Options come from the passed rows, so the menu offers only values present
  * in the current scope. Presentational over the store: the parent holds the chips and what a pick does.
- * A top-level "Missing metadata" entry toggles a whole-row narrowing that composes with the facets, its
- * own accent-weak chip trailing beside them. Escape closes the open menu, or clears every filter when the
- * menu is already closed.
+ * Two top-level entries, "Missing metadata" and "Gone from disk", each toggle a whole-row narrowing that
+ * composes with the facets, each its own accent-weak chip trailing beside them. Escape closes the open
+ * menu, or clears every filter when the menu is already closed.
  */
 export function FacetFilter({
   tracks,
@@ -55,6 +55,8 @@ export function FacetFilter({
   onChange,
   missingMetadata,
   onMissingMetadataChange,
+  gone,
+  onGoneChange,
 }: {
   tracks: TrackRow[];
   genreNameById: Map<number, string>;
@@ -63,6 +65,8 @@ export function FacetFilter({
   onChange: (facets: GridFacet[]) => void;
   missingMetadata: boolean;
   onMissingMetadataChange: (on: boolean) => void;
+  gone: boolean;
+  onGoneChange: (on: boolean) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -75,11 +79,13 @@ export function FacetFilter({
     [tracks, genreNameById, albumIndex],
   );
 
-  const anyActive = facets.length > 0 || missingMetadata;
-  // Loosen everything at once: the facet chips and the missing-metadata narrowing both back off.
+  const anyActive = facets.length > 0 || missingMetadata || gone;
+  // Loosen everything at once: the facet chips, the missing-metadata narrowing, and the gone narrowing
+  // all back off.
   const clearAll = () => {
     onChange([]);
     onMissingMetadataChange(false);
+    onGoneChange(false);
   };
 
   const close = () => {
@@ -136,6 +142,20 @@ export function FacetFilter({
         </span>
       ) : null}
 
+      {gone ? (
+        <span className={styles.chip}>
+          <span className={styles.chipText}>{t((d) => d.tracks.goneFromDisk)}</span>
+          <button
+            type="button"
+            className={styles.chipRemove}
+            aria-label={t((d) => d.tracks.removeFilter)}
+            onClick={() => onGoneChange(false)}
+          >
+            <X size={12} strokeWidth={3} />
+          </button>
+        </span>
+      ) : null}
+
       {facets.map(({ facet, value }) => (
         <span key={`${facet}:${value}`} className={styles.chip}>
           <span className={styles.chipText}>
@@ -172,6 +192,25 @@ export function FacetFilter({
                 >
                   <span className={styles.rowLabel}>{t((d) => d.tracks.missingMetadata)}</span>
                   {missingMetadata ? (
+                    <Check
+                      size={14}
+                      strokeWidth={2.4}
+                      className={styles.rowIcon}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={gone}
+                  className={gone ? `${styles.row} ${styles.rowActive}` : styles.row}
+                  onClick={() => onGoneChange(!gone)}
+                >
+                  <span className={styles.rowLabel}>{t((d) => d.tracks.goneFromDisk)}</span>
+                  {gone ? (
                     <Check
                       size={14}
                       strokeWidth={2.4}

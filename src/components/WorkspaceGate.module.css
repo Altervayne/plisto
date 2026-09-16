@@ -1,0 +1,12 @@
+/*
+ * The running-scan overlay. A scan lays over the mounted workspace instead of replacing it, so a rescan
+ * never unmounts the shell and drops the user out of the view they were on. Fixed and opaque over the
+ * same ambient ground the body wears, above the whole shell.
+ */
+.scanOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--ambient);
+  background-attachment: fixed;
+}

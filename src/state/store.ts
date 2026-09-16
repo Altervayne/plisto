@@ -14,6 +14,7 @@ import {
   createScanChannel,
   listRoots,
   listTracks,
+  removeMissingTracks as removeMissingTracksCmd,
   removeRoot as removeRootCmd,
   rescanAll as rescanAllCmd,
   rescanRoot as rescanRootCmd,
@@ -28,12 +29,16 @@ import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets
 
 // -- State Imports --
 // The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
-// touched solely inside actions, to mirror a peek edit into the album membership projection.
+// touched solely inside actions, to mirror a peek edit into the album membership projection. The
+// playlists store never touches this one, so importing it here is cycle-free; the purge reloads it so a
+// gone track's cascaded slots leave the playlist view too.
 import { useOrganizeStore } from "./organize/store";
+import { usePlaylistsStore } from "./playlists/store";
 
 // -- Type Imports --
 import type { Channel } from "@tauri-apps/api/core";
 import type {
+  PurgeSummary,
   Root,
   ScanProgress,
   ScanSummary,
@@ -76,6 +81,10 @@ interface AppStore {
   // Narrows All Tracks to the tracks the Home box flags, alongside the facet chips: a track must pass
   // the facets AND be missing metadata. Its own slot so the chip clears apart from the facets.
   libraryMissingMetadata: boolean;
+  // Narrows All Tracks to the tracks whose source file is gone from disk (missing_at set), alongside the
+  // facet chips: a track must pass the facets AND be gone. Its own slot, parallel to missing-metadata, so
+  // its chip clears apart and the purge action keys off it.
+  libraryGone: boolean;
   libraryGroupBy: GroupDimension;
   libraryView: FilesViewMode;
   filesSort: GridSort;
@@ -89,12 +98,14 @@ interface AppStore {
   rescanAll: () => Promise<void>;
   cancel: () => Promise<void>;
   loadTracks: () => Promise<void>;
+  purgeGoneTracks: (trackIds: number[]) => Promise<PurgeSummary>;
   editTrack: (trackId: number, fields: TrackEditFields) => Promise<void>;
   setTrackGenres: (trackId: number, genreIds: number[]) => Promise<void>;
   setLibrarySort: (sort: GridSort) => void;
   setLibrarySearch: (search: string) => void;
   setLibraryFacets: (facets: GridFacet[]) => void;
   setLibraryMissingMetadata: (on: boolean) => void;
+  setLibraryGone: (on: boolean) => void;
   setLibraryGroupBy: (groupBy: GroupDimension) => void;
   setLibraryView: (view: FilesViewMode) => void;
   setFilesSort: (sort: GridSort) => void;
@@ -144,6 +155,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     librarySearch: "",
     libraryFacets: [],
     libraryMissingMetadata: false,
+    libraryGone: false,
     libraryGroupBy: "none",
     libraryView: "table",
     filesSort: [],
@@ -218,6 +230,19 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
 
+    // Purges the gone tracks in `trackIds` for good, then reloads every projection they touched: the
+    // track store (All Tracks, History, Home), the roots (their counts drop), the organize view (an
+    // emptied album is swept), and the playlists (a gone track's slots cascade away). The backend guards
+    // the DELETE on missing_at, so a present id can never be dropped.
+    purgeGoneTracks: async (trackIds) => {
+      const summary = await removeMissingTracksCmd(trackIds);
+      await get().loadRoots();
+      await get().loadTracks();
+      await useOrganizeStore.getState().loadOrganization();
+      await usePlaylistsStore.getState().load();
+      return summary;
+    },
+
     // The Files-view peek edits tags and genres optimistically: patch the row, fire the write, reload
     // from truth on a failed persist. The album drawer edits the same commands through the organize
     // store, so either surface's next reload reconciles the two views.
@@ -262,6 +287,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setLibrarySearch: (librarySearch) => set({ librarySearch }),
     setLibraryFacets: (libraryFacets) => set({ libraryFacets }),
     setLibraryMissingMetadata: (libraryMissingMetadata) => set({ libraryMissingMetadata }),
+    setLibraryGone: (libraryGone) => set({ libraryGone }),
     setLibraryGroupBy: (libraryGroupBy) => set({ libraryGroupBy }),
     setLibraryView: (libraryView) => set({ libraryView }),
     setFilesSort: (filesSort) => set({ filesSort }),
@@ -277,6 +303,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         librarySearch: "",
         libraryFacets: [],
         libraryMissingMetadata: false,
+        libraryGone: false,
         libraryGroupBy: "none",
         libraryView: "table",
         filesSort: [],
@@ -323,6 +350,7 @@ export const useLibrarySearch = (): string => useAppStore((s) => s.librarySearch
 export const useLibraryFacets = (): GridFacet[] => useAppStore((s) => s.libraryFacets);
 export const useLibraryMissingMetadata = (): boolean =>
   useAppStore((s) => s.libraryMissingMetadata);
+export const useLibraryGone = (): boolean => useAppStore((s) => s.libraryGone);
 export const useLibraryGroupBy = (): GroupDimension => useAppStore((s) => s.libraryGroupBy);
 export const useLibraryView = (): FilesViewMode => useAppStore((s) => s.libraryView);
 export const useFilesSort = (): GridSort => useAppStore((s) => s.filesSort);
@@ -332,6 +360,8 @@ export const useSetLibrarySort = () => useAppStore((s) => s.setLibrarySort);
 export const useSetLibrarySearch = () => useAppStore((s) => s.setLibrarySearch);
 export const useSetLibraryFacets = () => useAppStore((s) => s.setLibraryFacets);
 export const useSetLibraryMissingMetadata = () => useAppStore((s) => s.setLibraryMissingMetadata);
+export const useSetLibraryGone = () => useAppStore((s) => s.setLibraryGone);
+export const usePurgeGoneTracks = () => useAppStore((s) => s.purgeGoneTracks);
 export const useSetLibraryGroupBy = () => useAppStore((s) => s.setLibraryGroupBy);
 export const useSetLibraryView = () => useAppStore((s) => s.setLibraryView);
 export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);

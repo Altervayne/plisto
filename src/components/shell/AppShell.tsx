@@ -408,7 +408,7 @@ export function AppShell({
             <PlayerView onNavigate={onNavigate} />
           )
         ) : mode === "settings" ? (
-          <SettingsView />
+          <SettingsView onReviewGone={() => setMode("tracks")} />
         ) : mode === "editor" ? (
           // The workbench layer covers this while a session holds; the prompt shows only when idle.
           openTool ? null : (

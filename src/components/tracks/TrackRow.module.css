@@ -150,6 +150,36 @@
   font-weight: 400;
 }
 
+/* The title cell holds the title beside the gone tag: the title truncates on its own inner span, the
+ * tag keeps its width so the word stays legible. */
+.titleCell {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.titleText {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A gone track's source file is off disk: a quiet warn-tinted word, never a chip, never alarm-red. The
+ * word carries the state; the row's data-missing lets the surrounding ink step back. */
+.goneTag {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.row[data-missing] .primary {
+  color: var(--ink-2);
+}
+
 /*
  * The number cell doubles as a hover play affordance: the raw number sits in flow, the accent triangle
  * overlays its right text edge. On row hover the two swap by opacity alone, so the digit count never

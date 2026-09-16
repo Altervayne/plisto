@@ -22,6 +22,9 @@ import type { SelectModifiers } from "./TrackRow";
 import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumRow, TrackRow as TrackRowData } from "../../types";
 
+// -- i18n Imports --
+import { useT } from "../../i18n";
+
 // -- Style Imports --
 import styles from "./TrackCard.module.css";
 
@@ -58,6 +61,7 @@ export const TrackCard = memo(function TrackCard({
   onPlay?: (track: TrackRowData) => void;
   buildMenu: (track: TrackRowData) => MenuEntry[];
 }) {
+  const t = useT();
   const menu = useContextMenu();
   // Detail res, not thumb: the tile is 168px (more on hi-DPI), so a 128px thumb reads crunchy - the album
   // wall and drawer already use detail for the same reason. Still the cached cover-only read, not the full
@@ -88,6 +92,7 @@ export const TrackCard = memo(function TrackCard({
     <button
       type="button"
       className={cardClass}
+      data-missing={playable ? undefined : ""}
       aria-pressed={checked || active}
       aria-label={title ?? track.filename}
       onClick={handleClick}
@@ -128,6 +133,7 @@ export const TrackCard = memo(function TrackCard({
         secondary={artist ?? ""}
         sub={album ?? ""}
       />
+      {playable ? null : <span className={styles.goneTag}>{t((d) => d.tracks.goneTag)}</span>}
 
       <ContextMenu
         open={menu.open}

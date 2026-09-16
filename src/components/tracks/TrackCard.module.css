@@ -143,6 +143,23 @@
   pointer-events: auto;
 }
 
+/* A gone cover reads "not here" calmly: desaturated and dimmed, not hidden. */
+.card[data-missing] .frame {
+  filter: grayscale(0.7);
+  opacity: 0.62;
+}
+
+/* The gone tag: a quiet warn-tinted word tucked under the meta, never a chip, never alarm-red. The word
+ * carries the state; the greyed cover echoes it. */
+.goneTag {
+  margin-top: -6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
 .card:focus-visible {
   outline: none;
 }
