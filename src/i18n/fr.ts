@@ -541,11 +541,10 @@ export const fr: Dict = {
   settings: {
     nav: "Paramètres",
     title: "Paramètres",
-    sub: "Vos répertoires d'audiothèque, l'apparence et la langue.",
+    sub: "Votre audiothèque, la lecture, et l'apparence et le comportement de Plisto.",
     sectionFolders: "Répertoires",
     sectionPlayback: "Lecture",
-    sectionAppearance: "Apparence",
-    sectionLanguage: "Langue",
+    sectionAppearance: "Apparence et langue",
     sectionSystem: "Système",
     closeBehavior: "À la fermeture de la fenêtre",
     closeQuit: "Quitter Plisto",

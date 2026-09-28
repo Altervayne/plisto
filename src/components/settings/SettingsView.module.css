@@ -1,7 +1,8 @@
 /*
- * The settings region: a titled header over the scrolling sections. It fills the main region like
- * Export, but left-aligned on the ambient ground - no frame, no card. The sections part from each
- * other by space and a dimmed micro-label alone, keeping the surface continuous.
+ * The settings region: a titled header over the scrolling sections, on the ambient ground - no frame,
+ * no card. Like Export, the sections hold one capped reading column flush left under the title, so a
+ * label and its control never drift apart on a wide window. They part by space and a dimmed
+ * micro-label alone, keeping the surface continuous.
  */
 .view {
   flex: 1;
@@ -38,10 +39,14 @@
   min-height: 0;
 }
 
+/* A 640px column plus the scrollbar clearance, border-box. The right margin keeps the focus ring of a
+ * pulled control inside the viewport once the column fills it. */
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 32px;
+  max-width: 654px;
+  margin-right: 3px;
   /* Clear of the scrollbar overlay on the right edge. */
   padding-right: 14px;
 }
@@ -49,7 +54,7 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .label {
@@ -100,22 +105,53 @@
   padding: 0 8px;
 }
 
-/* A preference row: its readable label leading, the control trailing on the same line. */
+/* One preference: its row over its helper, held tighter than the section so the hint stays with it. */
+.pref {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Sits after the scan status, whatever that line shows, spaced so it reads as a setting of its own. */
+.keepPref {
+  margin-top: 8px;
+}
+
+/* A preference row: its label leading, the control trailing. A control that no longer fits wraps to its
+ * own line, where a lone item in space-between sits left under the label. */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  row-gap: 8px;
+  column-gap: 24px;
+  min-height: 32px;
 }
 
 .rowLabel {
   font-size: 13px;
   font-weight: 550;
-  color: var(--ink-2);
+  color: var(--ink);
+}
+
+/* The trailing control. The modifiers pull a padded control out by its own inner padding, so its text
+ * lines up with the column edge where a segmented track already sits flush. */
+.control {
+  display: flex;
+}
+
+.controlQuiet {
+  margin-inline-end: -12px;
+}
+
+.controlSelect {
+  margin-inline-end: -10px;
 }
 
 /* A persistent hint under a row, explaining the choice above it. */
 .helper {
+  max-width: 68ch;
   margin: 0;
   font-size: 12px;
   line-height: 1.4;

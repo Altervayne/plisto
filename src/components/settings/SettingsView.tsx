@@ -53,14 +53,14 @@ import type { Locale } from "../../i18n/types";
 import styles from "./SettingsView.module.css";
 
 /**
- * The settings screen: quiet labelled sections stacked on the continuous surface - no frames, no
- * cards, parted only by space and a dimmed micro-label. Folders holds the library roots and their
- * actions; Appearance and Language each carry an accent-free segmented control bound to a persisted
- * pref. Rescans run quiet, as does the background sync: while a quiet scan runs its progress and a
- * Cancel sit under the buttons, which stay live since a request joins it and adding a folder preempts
- * it. A failed check leaves a warn line there. Otherwise the last summary sits under the buttons; when it
- * left files gone from disk, its Review link opens All Tracks filtered to them through `onReviewGone`.
- * The keep-up-to-date switch closes the section.
+ * The settings screen: quiet labelled sections in one capped reading column, flush left under the
+ * title - no frames, no cards, parted only by space and a dimmed micro-label. Each preference groups
+ * its row with its helper; a control sits trailing and wraps under its label when the column narrows.
+ * Folders holds the library roots and their actions. Rescans run quiet, as does the background sync:
+ * while a quiet scan runs its progress and a Cancel sit under the buttons, which stay live since a
+ * request joins it and adding a folder preempts it. A failed check leaves a warn line there. Otherwise
+ * the last summary sits under the buttons; when it left files gone from disk, its Review link opens All
+ * Tracks filtered to them through `onReviewGone`. The keep-up-to-date switch closes the section.
  */
 export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const roots = useRoots();
@@ -173,16 +173,20 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               ) : null}
             </>
           )}
-          <div className={styles.row}>
-            <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
-            <SegmentedControl
-              segments={keepSegments}
-              value={keepUpToDate ? "on" : "off"}
-              onChange={(value) => setKeepUpToDate(value === "on")}
-              label={t((d) => d.settings.keepUpToDate)}
-            />
+          <div className={`${styles.pref} ${styles.keepPref}`}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
+              <span className={styles.control}>
+                <SegmentedControl
+                  segments={keepSegments}
+                  value={keepUpToDate ? "on" : "off"}
+                  onChange={(value) => setKeepUpToDate(value === "on")}
+                  label={t((d) => d.settings.keepUpToDate)}
+                />
+              </span>
+            </div>
+            <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
           </div>
-          <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
         </section>
 
         <section className={styles.section}>
@@ -210,61 +214,75 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
 
         <section className={styles.section}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionPlayback)}</h2>
-          <div className={styles.row}>
-            <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
-            <PlaybackDeviceRow />
+          <div className={styles.pref}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
+              <span className={`${styles.control} ${styles.controlSelect}`}>
+                <PlaybackDeviceRow />
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>
+          <div className={styles.pref}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.settings.theme)}</span>
+              <span className={styles.control}>
+                <SegmentedControl
+                  segments={themeSegments}
+                  value={theme}
+                  onChange={setTheme}
+                  label={t((d) => d.settings.theme)}
+                />
+              </span>
+            </div>
+          </div>
+          <div className={styles.pref}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.settings.language)}</span>
+              <span className={styles.control}>
+                <SegmentedControl
+                  segments={localeSegments}
+                  value={locale}
+                  onChange={setLocale}
+                  label={t((d) => d.settings.language)}
+                />
+              </span>
+            </div>
           </div>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionSystem)}</h2>
-          <div className={styles.row}>
-            <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
-            <SegmentedControl
-              segments={closeSegments}
-              value={closeToTray ? "tray" : "quit"}
-              onChange={(value) => setCloseToTray(value === "tray")}
-              label={t((d) => d.settings.closeBehavior)}
-            />
+          <div className={styles.pref}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
+              <span className={styles.control}>
+                <SegmentedControl
+                  segments={closeSegments}
+                  value={closeToTray ? "tray" : "quit"}
+                  onChange={(value) => setCloseToTray(value === "tray")}
+                  label={t((d) => d.settings.closeBehavior)}
+                />
+              </span>
+            </div>
+            <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
           </div>
-          <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
           {isWindows ? (
-            <>
+            <div className={styles.pref}>
               <div className={styles.row}>
                 <span className={styles.rowLabel}>{t((d) => d.settings.defaultApp)}</span>
-                <QuietButton onClick={() => void openDefaultAppsSettings().catch(() => {})}>
-                  {t((d) => d.settings.makeDefault)}
-                </QuietButton>
+                <span className={`${styles.control} ${styles.controlQuiet}`}>
+                  <QuietButton onClick={() => void openDefaultAppsSettings().catch(() => {})}>
+                    {t((d) => d.settings.makeDefault)}
+                  </QuietButton>
+                </span>
               </div>
               <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
-            </>
+            </div>
           ) : null}
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>
-          <div className={styles.row}>
-            <span className={styles.rowLabel}>{t((d) => d.settings.theme)}</span>
-            <SegmentedControl
-              segments={themeSegments}
-              value={theme}
-              onChange={setTheme}
-              label={t((d) => d.settings.theme)}
-            />
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionLanguage)}</h2>
-          <div className={styles.row}>
-            <span className={styles.rowLabel}>{t((d) => d.settings.language)}</span>
-            <SegmentedControl
-              segments={localeSegments}
-              value={locale}
-              onChange={setLocale}
-              label={t((d) => d.settings.language)}
-            />
-          </div>
         </section>
       </ScrollArea>
     </div>

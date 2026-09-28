@@ -540,11 +540,10 @@ export const en = {
   settings: {
     nav: "Settings",
     title: "Settings",
-    sub: "Your library folders, appearance, and language.",
+    sub: "Your library, playback, and how Plisto looks and behaves.",
     sectionFolders: "Folders",
     sectionPlayback: "Playback",
-    sectionAppearance: "Appearance",
-    sectionLanguage: "Language",
+    sectionAppearance: "Appearance & language",
     sectionSystem: "System",
     closeBehavior: "When you close the window",
     closeQuit: "Quit Plisto",
