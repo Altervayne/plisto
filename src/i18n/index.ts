@@ -69,9 +69,8 @@ export function useSetLocale(): (locale: Locale) => void {
   return (locale) => setPreference(PREF_KEYS.locale, locale);
 }
 
-/** A `t` bound to the active locale's dict: resolve a leaf, choose its plural form, interpolate. */
-export function useT(): Translate {
-  const locale = useLocale();
+/** A `t` bound to one locale's dict: resolve a leaf, choose its plural form, interpolate. */
+export function createT(locale: Locale): Translate {
   const dict = DICTS[locale];
   const t = (pick: (d: Dict) => string | Plural, vars?: Vars): string => {
     const node = pick(dict);
@@ -79,4 +78,9 @@ export function useT(): Translate {
     return interpolate(text, vars, locale);
   };
   return t as Translate;
+}
+
+/** A `t` bound to the active locale. */
+export function useT(): Translate {
+  return createT(useLocale());
 }

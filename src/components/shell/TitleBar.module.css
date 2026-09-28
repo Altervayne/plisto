@@ -27,8 +27,8 @@
   color: var(--ink);
 }
 
-/* The active workspace: a good-status dot beside the monospaced path, truncated to one line. Shrinks
- * before the brand and controls so a long path never pushes the controls off the edge. */
+/* The player-only slot where the library status sits in the full app. Shrinks before the brand and
+ * controls so it never pushes the controls off the edge. */
 .workspace {
   display: flex;
   align-items: center;
@@ -36,24 +36,6 @@
   min-width: 0;
   flex: 0 1 auto;
   font-size: 12px;
-  color: var(--ink-2);
-}
-
-.dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--good);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
-}
-
-/* The folder name in the UI face, not mono - mono stays reserved for raw source filenames, and it was
- * the mono path that made this cluster read heavy. */
-.path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--ink-2);
 }
 

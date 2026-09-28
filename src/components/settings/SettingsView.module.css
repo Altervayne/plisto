@@ -80,6 +80,20 @@
   margin-top: 2px;
 }
 
+/* A running quiet scan under the folder actions: the progress pill, then its Cancel. */
+.scanRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A failed quiet check, in the warn tone, where the summary line would sit. */
+.scanFailed {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}
+
 /* The genre add field holds a modest width rather than stretching the whole foot. */
 .genreAdd {
   width: min(280px, 100%);

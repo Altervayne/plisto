@@ -4,8 +4,9 @@
  * command engine - capture the prior value, apply optimistically, push onto `past`, clear `future`, and
  * fire the write - so undo/redo is a stack of inverse Commands. Create, delete and cover-set are
  * structural: they reload from the backend and clear the whole history, since a new or gone album is the
- * natural undo boundary. Selection is keyed by track_id so it survives sort and filter, and never lands
- * on the stack.
+ * natural undo boundary. The albums-from-tags batch is the one structural write that does land on the
+ * stack: its receipt preserves album ids, so its undo and redo replay against the backend and reload.
+ * Selection is keyed by track_id so it survives sort and filter, and never lands on the stack.
  */
 
 // -- Library Imports --
@@ -18,6 +19,8 @@ import { useAppStore } from "../store";
 
 // -- Engine Imports --
 import { applyCommand, commandToIpc, invertCommand } from "./orgCommands";
+import { planAssign } from "./assignPlan";
+import { inPlayOrder } from "./groupByAlbumTags";
 
 // -- Utils Imports --
 import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
@@ -26,11 +29,13 @@ import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
 import {
   addAlbumGenre as ipcAddAlbumGenre,
   createAlbum as ipcCreateAlbum,
+  createAlbumsFromTags as ipcCreateAlbumsFromTags,
   createGenre as ipcCreateGenre,
   createSingle as ipcCreateSingle,
   deleteAlbum as ipcDeleteAlbum,
   deleteGenre as ipcDeleteGenre,
   genreRemovalImpact as ipcGenreRemovalImpact,
+  isStaleProposal,
   listGenres as ipcListGenres,
   loadOrganization as ipcLoadOrganization,
   mergeGenres as ipcMergeGenres,
@@ -48,11 +53,13 @@ import type {
   AlbumRow,
   AlbumTrackRow,
   GenreRow,
+  TagAlbumPlan,
+  TagAlbumReceipt,
   TrackOverride,
   TrackPlacement,
   TrackRow,
 } from "../../types";
-import type { Command, OrgState, Placement } from "./orgCommands";
+import type { Command, OrgState, Placement, TagBatch } from "./orgCommands";
 
 interface OrganizeStore {
   org: OrgState;
@@ -64,13 +71,13 @@ interface OrganizeStore {
   error: string | null;
 
   loadOrganization: () => Promise<void>;
+  refreshOrganization: () => Promise<boolean>;
   loadGenres: () => Promise<void>;
   clearError: () => void;
   resetHistory: () => void;
 
   commitAlbumFields: (albumId: number, next: AlbumFields) => void;
   commitTrackOverrides: (albumId: number, trackId: number, next: TrackOverride) => void;
-  reorderTracks: (albumId: number, nextOrder: number[]) => void;
   setAlbumLayout: (albumId: number, nextPlacements: TrackPlacement[]) => void;
   assignTracks: (albumId: number, trackIds: number[]) => void;
   unassignTracks: (albumId: number, trackIds: number[]) => void;
@@ -79,6 +86,7 @@ interface OrganizeStore {
   redo: () => void;
 
   createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<number>;
+  createAlbumsFromTags: (plans: TagAlbumPlan[]) => Promise<TagAlbumReceipt>;
   createSingle: (trackId: number) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
   deleteAlbums: (albumIds: number[]) => Promise<void>;
@@ -111,12 +119,36 @@ interface OrganizeStore {
 
 const emptyOrg: OrgState = { albums: [], membership: [] };
 
+const SAVE_ERROR = "A change could not be saved. Reloaded from the library.";
+
 export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // Resyncs from the DB when a write fails: the optimistic projection is now ahead of it, so a reload
   // is the correct recovery. The undo stack is left intact - a reload is not itself an undo boundary.
   const reloadOnFailure = (): void => {
     void get().loadOrganization();
-    set({ error: "A change could not be saved. Reloaded from the library." });
+    set({ error: SAVE_ERROR });
+  };
+
+  // True while a batch undo or redo is on the wire, so a second keypress cannot replay out of order.
+  let replaying = false;
+
+  // Replays one side of an albums-from-tags batch, then reloads: its rows live in the backend, so the
+  // projection is never patched locally. A stale receipt means the library moved on underneath it, so the
+  // history resets with the reload; any other failure left the library as it was, so `restore` puts the
+  // entry back on the side it came from.
+  const replayTagBatch = async (cmd: TagBatch, restore: () => void): Promise<void> => {
+    replaying = true;
+    try {
+      await commandToIpc(cmd);
+      await get().loadOrganization();
+    } catch (e) {
+      await get().loadOrganization();
+      if (isStaleProposal(e)) set({ past: [], future: [] });
+      else restore();
+      set({ error: SAVE_ERROR });
+    } finally {
+      replaying = false;
+    }
   };
 
   // Fires a command's write, and on a failed persist resyncs from the DB and surfaces a quiet error.
@@ -154,42 +186,6 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     persist(cmd);
   };
 
-  // Builds the appended row for a track joining `albumId` at `trackNo`. Track-level fields come from the
-  // track's current membership row when it is moving, or the scan index when it is loose.
-  const appendedRow = (albumId: number, trackId: number, trackNo: number): AlbumTrackRow | null => {
-    const current = get().org.membership.find((r) => r.track_id === trackId);
-    if (current) {
-      return {
-        ...current,
-        album_id: albumId,
-        track_no: trackNo,
-        disc_no: 1,
-        title_override: null,
-        artist_override: null,
-      };
-    }
-    const track = useAppStore.getState().tracks.find((t) => t.id === trackId);
-    if (!track) return null;
-    return {
-      album_id: albumId,
-      track_id: trackId,
-      source_path: track.source_path,
-      filename: track.filename,
-      duration_secs: track.duration_secs,
-      track_no: trackNo,
-      disc_no: 1,
-      raw_title: track.raw_title,
-      raw_artist: track.raw_artist,
-      title_override: null,
-      artist_override: null,
-      has_embedded_cover: null,
-      missing_at: track.missing_at,
-      // A freshly assigned membership takes the container cover, the default; a later peek can opt out.
-      keep_own_cover: false,
-      genre_ids: [],
-    };
-  };
-
   return {
     org: emptyOrg,
     genres: [],
@@ -199,14 +195,20 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     error: null,
 
     loadOrganization: async () => {
+      if (!(await get().refreshOrganization())) set({ org: emptyOrg });
+    },
+
+    // The keep-on-error read: a failed snapshot leaves the current projection in place.
+    refreshOrganization: async () => {
       try {
         const snapshot = await ipcLoadOrganization();
         set({
           org: { albums: snapshot.albums, membership: snapshot.membership },
           genres: snapshot.genres,
         });
+        return true;
       } catch {
-        set({ org: emptyOrg });
+        return false;
       }
     },
 
@@ -282,15 +284,6 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       commit({ kind: "setTrackOverrides", albumId, trackId, next, prev });
     },
 
-    reorderTracks: (albumId, nextOrder) => {
-      const prevOrder = get()
-        .org.membership.filter((r) => r.album_id === albumId)
-        .sort((a, b) => (a.track_no ?? 0) - (b.track_no ?? 0))
-        .map((r) => r.track_id);
-      if (sameOrder(prevOrder, nextOrder)) return;
-      commit({ kind: "reorderTracks", albumId, nextOrder, prevOrder });
-    },
-
     // Captures the album's current placements as `prev`, then commits the disc grouping and per-disc
     // numbering the caller computed. The list routes every within-disc reorder and disc move here, so
     // the stored track_no is always the per-disc position.
@@ -303,28 +296,8 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     assignTracks: (albumId, trackIds) => {
-      const membership = get().org.membership;
-      const before: Placement[] = [];
-      const after: Placement[] = [];
-      const affected: number[] = [];
-      let nextNo = membership
-        .filter((r) => r.album_id === albumId)
-        .reduce((max, r) => Math.max(max, r.track_no ?? 0), 0);
-
-      for (const trackId of trackIds) {
-        const current = membership.find((r) => r.track_id === trackId);
-        // A track already in this album is left untouched, matching the backend move-or-add.
-        if (current && current.album_id === albumId) continue;
-        const row = appendedRow(albumId, trackId, nextNo + 1);
-        if (!row) continue;
-        nextNo += 1;
-        affected.push(trackId);
-        before.push(current ? { assigned: true, row: current } : { assigned: false, trackId });
-        after.push({ assigned: true, row });
-      }
-
-      if (affected.length === 0) return;
-      commit({ kind: "assign", albumId, trackIds: affected, before, after });
+      const cmd = planAssign(get().org.membership, useAppStore.getState().tracks, albumId, trackIds);
+      if (cmd) commit(cmd);
     },
 
     unassignTracks: (albumId, trackIds) => {
@@ -347,7 +320,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
     undo: () => {
       const { past } = get();
-      if (past.length === 0) return;
+      if (past.length === 0 || replaying) return;
       const cmd = past[past.length - 1];
       const inverse = invertCommand(cmd);
       set((s) => ({
@@ -356,12 +329,18 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         future: [...s.future, cmd],
         error: null,
       }));
+      if (inverse.kind === "tagBatch") {
+        void replayTagBatch(inverse, () =>
+          set((s) => ({ past: [...s.past, cmd], future: s.future.filter((c) => c !== cmd) })),
+        );
+        return;
+      }
       persist(inverse);
     },
 
     redo: () => {
       const { future } = get();
-      if (future.length === 0) return;
+      if (future.length === 0 || replaying) return;
       const cmd = future[future.length - 1];
       set((s) => ({
         org: applyCommand(s.org, cmd),
@@ -369,15 +348,33 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         past: [...s.past, cmd],
         error: null,
       }));
+      if (cmd.kind === "tagBatch") {
+        void replayTagBatch(cmd, () =>
+          set((s) => ({ future: [...s.future, cmd], past: s.past.filter((c) => c !== cmd) })),
+        );
+        return;
+      }
       persist(cmd);
     },
 
+    // The selection is filed in play order, the same order the tag grouping files a proposal in.
     createAlbum: async (fields, trackIds) => {
-      const row = await ipcCreateAlbum(fields, trackIds);
+      const ordered = inPlayOrder(trackIds, useAppStore.getState().tracks);
+      const row = await ipcCreateAlbum(fields, ordered);
       await get().loadOrganization();
       // A new album is a structural change: past references stay valid, but the future branch cannot.
       set({ past: [], future: [] });
       return row.id;
+    },
+
+    // One write for the whole batch, one reload, then the batch lands on the undo stack. Unlike a plain
+    // create it keeps the history: its receipt replays under the same album ids, so no entry goes stale.
+    createAlbumsFromTags: async (plans) => {
+      const receipt = await ipcCreateAlbumsFromTags(plans);
+      await get().loadOrganization();
+      const entry: TagBatch = { kind: "tagBatch", receipt, applied: true };
+      set((s) => ({ past: [...s.past, entry], future: [], error: null }));
+      return receipt;
     },
 
     createSingle: async (trackId) => {
@@ -537,15 +534,14 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
 /**
  * The album a committed edit bumps the updated_at of, mirroring the backend's `touch_album`, or null
- * when the edit does not change an album's own row. Field edits, membership moves, reorders and layout
- * changes touch their album; a per-track override does not.
+ * when the edit does not change an album's own row. Field edits, membership moves and layout changes
+ * touch their album; a per-track override does not.
  */
 function touchedAlbumId(cmd: Command): number | null {
   switch (cmd.kind) {
     case "setAlbumFields":
     case "assign":
     case "unassign":
-    case "reorderTracks":
     case "setAlbumLayout":
       return cmd.albumId;
     default:
@@ -571,11 +567,6 @@ function sameOverride(a: TrackOverride, b: TrackOverride): boolean {
     a.track_no === b.track_no &&
     a.disc_no === b.disc_no
   );
-}
-
-// Two orders are equal when they list the same ids in the same sequence.
-function sameOrder(a: number[], b: number[]): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
 // Two layouts are equal when every track lands on the same disc and per-disc position. Keyed by
@@ -705,6 +696,13 @@ export const useAlbumTracks = (albumId: number): AlbumTrackRow[] =>
 export const useSelection = (): Set<number> => useOrganizeStore((s) => s.selection);
 export const useCanUndo = (): boolean => useOrganizeStore((s) => s.past.length > 0);
 export const useCanRedo = (): boolean => useOrganizeStore((s) => s.future.length > 0);
+
+/** True while the given albums-from-tags batch is the latest undo step, so undo would revert it. */
+export const useIsLatestTagBatch = (receipt: TagAlbumReceipt | null): boolean =>
+  useOrganizeStore((s) => {
+    const top = s.past[s.past.length - 1];
+    return receipt != null && top?.kind === "tagBatch" && top.receipt === receipt;
+  });
 export const useOrgError = (): string | null => useOrganizeStore((s) => s.error);
 
 export const useLoadOrganization = () => useOrganizeStore((s) => s.loadOrganization);
@@ -713,13 +711,13 @@ export const useLoadGenres = () => useOrganizeStore((s) => s.loadGenres);
 export const useClearError = () => useOrganizeStore((s) => s.clearError);
 export const useCommitAlbumFields = () => useOrganizeStore((s) => s.commitAlbumFields);
 export const useCommitTrackOverrides = () => useOrganizeStore((s) => s.commitTrackOverrides);
-export const useReorderTracks = () => useOrganizeStore((s) => s.reorderTracks);
 export const useSetAlbumLayout = () => useOrganizeStore((s) => s.setAlbumLayout);
 export const useAssignTracks = () => useOrganizeStore((s) => s.assignTracks);
 export const useUnassignTracks = () => useOrganizeStore((s) => s.unassignTracks);
 export const useUndo = () => useOrganizeStore((s) => s.undo);
 export const useRedo = () => useOrganizeStore((s) => s.redo);
 export const useCreateAlbum = () => useOrganizeStore((s) => s.createAlbum);
+export const useCreateAlbumsFromTags = () => useOrganizeStore((s) => s.createAlbumsFromTags);
 export const useCreateSingle = () => useOrganizeStore((s) => s.createSingle);
 export const useDeleteAlbum = () => useOrganizeStore((s) => s.deleteAlbum);
 export const useDeleteAlbums = () => useOrganizeStore((s) => s.deleteAlbums);

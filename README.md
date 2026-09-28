@@ -87,11 +87,6 @@ SQLite database placed under `%APPDATA%`. This means every edit is non-destructi
   onto a connected phone, with progress and cancel, including an update-in-place
   merge mode.
 
-## Screenshots
-
-> _To add: the library grid, the Player destination, the Track Editor, and the
-> pop-out widget._
-
 ## Tech stack
 
 - **[Tauri 2](https://tauri.app/)** gives Plisto a Rust core behind a WebView2

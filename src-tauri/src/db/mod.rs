@@ -6,12 +6,20 @@
  */
 
 // -- Module Declarations --
+mod album_numbering;
 mod migrations;
+mod tag_albums;
+
+pub use tag_albums::{create_albums_from_tags, reapply_albums_from_tags, revert_albums_from_tags};
 
 // -- Library Imports --
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
+
+// -- Local Imports --
+use album_numbering::{disc_highest, next_on_disc, number_per_disc, read_incoming};
 
 // -- Type Imports --
 use crate::dto::{
@@ -19,7 +27,7 @@ use crate::dto::{
     PlaylistTrackRow, PurgeSummary, Root, TrackDisplay, TrackEdit, TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
-use crate::normalize::{normalize_genre_key, normalize_path_key};
+use crate::normalize::{clean_text, normalize_genre_key, normalize_path_key};
 
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
 /// current. This is the connection the app owns in managed state.
@@ -54,13 +62,13 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// the UNIQUE path means a re-scan updates in place under the same `id` rather than
 /// duplicating; every column but the key and `id` is refreshed from the incoming record.
 /// `root_id` stamps the track's origin root and is re-stamped on every pass, so a re-scan keeps
-/// the association current.
+/// the association current. Returns the row's id, inserted or updated.
 pub fn upsert_track(
     conn: &Connection,
     rec: &TrackRecord,
     root_id: Option<i64>,
-) -> rusqlite::Result<()> {
-    conn.execute(
+) -> rusqlite::Result<i64> {
+    conn.query_row(
         "INSERT INTO tracks (
             source_path, display_path, filename, ext, size_bytes, mtime, duration_secs,
             raw_title, raw_artist, raw_album, raw_album_artist,
@@ -85,7 +93,8 @@ pub fn upsert_track(
             raw_genre = excluded.raw_genre,
             has_embedded_cover = excluded.has_embedded_cover,
             scanned_at = excluded.scanned_at,
-            root_id = excluded.root_id",
+            root_id = excluded.root_id
+         RETURNING id",
         params![
             rec.source_path,
             rec.display_path,
@@ -106,8 +115,8 @@ pub fn upsert_track(
             rec.scanned_at,
             root_id,
         ],
-    )?;
-    Ok(())
+        |r| r.get(0),
+    )
 }
 
 /// Inserts a cover into the content-addressed manifest, or returns the existing row's id when
@@ -940,6 +949,9 @@ pub enum WriteError {
     BlankGenre,
     // A rename would fold to a key another genre already owns; merging is a separate, explicit act.
     GenreExists,
+    // A batch built from an earlier read no longer fits the library: a track got filed, a target
+    // vanished, or a receipt's rows drifted. Nothing is written; the caller re-reads and retries.
+    StaleProposal,
 }
 
 impl std::fmt::Display for WriteError {
@@ -950,6 +962,7 @@ impl std::fmt::Display for WriteError {
             WriteError::AddToSingle => write!(f, "a single cannot take another track"),
             WriteError::BlankGenre => write!(f, "a genre name cannot be blank"),
             WriteError::GenreExists => write!(f, "a genre with that name already exists"),
+            WriteError::StaleProposal => write!(f, "the proposal is out of date"),
         }
     }
 }
@@ -1240,10 +1253,11 @@ pub fn load_album_tracks(conn: &Connection) -> rusqlite::Result<Vec<AlbumTrackRo
     Ok(rows)
 }
 
-/// Inserts an album of the given `kind` and appends `track_ids` as membership rows in order
-/// (track_no 1..N, disc_no 1) in one transaction, then returns the new row. A single is rejected
-/// unless its membership is exactly one track. `cover_id` is the caller's create-time pre-fill (a
-/// shared folder cover) or None. `created_at` and `updated_at` both take `now`.
+/// Inserts an album of the given `kind` and appends `track_ids` as membership rows in the given
+/// order, each disc numbered 1..k on its own, in one transaction, then returns the new row. A single
+/// is rejected unless its membership is exactly one track, and an unknown track id rejects the whole
+/// create. `cover_id` is the caller's create-time pre-fill (a shared folder cover) or None.
+/// `created_at` and `updated_at` both take `now`.
 pub fn create_album(
     conn: &mut Connection,
     title: Option<String>,
@@ -1266,8 +1280,12 @@ pub fn create_album(
         params![title, album_artist, year, genre, cover_id, kind, now],
     )?;
     let album_id = tx.last_insert_rowid();
-    for (i, &track_id) in track_ids.iter().enumerate() {
-        insert_album_track(&tx, album_id, track_id, (i as i64) + 1)?;
+    let tracks = track_ids
+        .iter()
+        .map(|&id| read_incoming(&tx, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows))
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for m in number_per_disc(&tracks, HashMap::new()) {
+        insert_album_track(&tx, album_id, m.track_id, m.track_no)?;
     }
     tx.commit()?;
 
@@ -1275,9 +1293,9 @@ pub fn create_album(
 }
 
 /// Promotes one loose track into a single: an album-of-one with kind='single', its release fields
-/// seeded from the track's raw tags. Title takes the raw title, else the filename stem, so a single
-/// always has a name; album_artist takes the raw album-artist, else the raw artist; year and genre
-/// carry over. The single's title is the SONG's title, never the track's raw album tag.
+/// seeded from the track's effective tags, each edit over its raw tag. Title falls back to the
+/// filename stem, so a single always has a name; album_artist falls back to the track artist; year
+/// and genre carry over. The single's title is the SONG's title, never the track's album tag.
 pub fn create_single(
     conn: &mut Connection,
     track_id: i64,
@@ -1297,7 +1315,7 @@ pub fn create_single(
     )
 }
 
-/// The release-field seeds a new single takes from its track's raw tags.
+/// The release-field seeds a new single takes from its track's effective tags.
 struct SingleSeed {
     title: Option<String>,
     album_artist: Option<String>,
@@ -1305,23 +1323,28 @@ struct SingleSeed {
     genre: Option<String>,
 }
 
-/// Reads the seed fields for a single from its track's raw tags. Title falls back to the filename
-/// stem so a single is never nameless; album_artist falls back to the raw track artist.
+/// Reads the seed fields for a single, each edit over its raw tag. Every text value is trimmed and a
+/// blank one reads as unset, so a cleared edit falls through to the next source. Title falls back to
+/// the filename stem so a single is never nameless; album_artist falls back to the track artist, edit
+/// first. Genre stays the raw tag: managed genres live in `track_genres`, not `track_edits`.
 fn single_seed(conn: &Connection, track_id: i64) -> rusqlite::Result<SingleSeed> {
     conn.query_row(
-        "SELECT raw_title, raw_album_artist, raw_artist, raw_year, raw_genre, filename
-         FROM tracks WHERE id = ?1",
+        "SELECT te.title, t.raw_title, te.album_artist, t.raw_album_artist, te.artist, t.raw_artist,
+                te.year, t.raw_year, t.raw_genre, t.filename
+         FROM tracks t
+         LEFT JOIN track_edits te ON te.track_id = t.id
+         WHERE t.id = ?1",
         params![track_id],
         |r| {
-            let raw_title: Option<String> = r.get(0)?;
-            let raw_album_artist: Option<String> = r.get(1)?;
-            let raw_artist: Option<String> = r.get(2)?;
-            let filename: String = r.get(5)?;
+            let text = |i: usize| -> rusqlite::Result<Option<String>> { Ok(clean_text(&r.get(i)?)) };
+            let filename: String = r.get(9)?;
             Ok(SingleSeed {
-                title: raw_title.or_else(|| Some(filename_stem(&filename))),
-                album_artist: raw_album_artist.or(raw_artist),
-                year: r.get(3)?,
-                genre: r.get(4)?,
+                title: text(0)?
+                    .or(text(1)?)
+                    .or_else(|| Some(filename_stem(&filename))),
+                album_artist: text(2)?.or(text(3)?).or(text(4)?).or(text(5)?),
+                year: r.get::<_, Option<i64>>(6)?.or(r.get(7)?),
+                genre: text(8)?,
             })
         },
     )
@@ -1356,9 +1379,10 @@ fn touch_album(conn: &Connection, album_id: i64) -> rusqlite::Result<()> {
 }
 
 /// Move-or-add under single membership: each track already in this album is left untouched; each
-/// track elsewhere is unbound from its current album first; the rest are appended after the current
-/// max track_no, in the given order. All in one transaction so a half-move can never persist. Both the
-/// target album and any album a track moved out of are touched, so the change shows in the date filter.
+/// track elsewhere is unbound from its current album first and keeps its keep-own-cover flag; the rest
+/// are appended in the given order, each after the highest position on its own disc in this album. A
+/// loose track joins with the container cover. All in one transaction so a half-move can never persist. Both the target album and any album a track moved out of are touched,
+/// so the change shows in the date filter.
 pub fn add_tracks_to_album(
     conn: &mut Connection,
     album_id: i64,
@@ -1368,20 +1392,28 @@ pub fn add_tracks_to_album(
     if album_kind(&tx, album_id)?.as_deref() == Some(SINGLE_KIND) {
         return Err(WriteError::AddToSingle);
     }
-    let mut next = max_track_no(&tx, album_id)?;
+    let mut highest = disc_highest(&tx, album_id)?;
     let mut changed = false;
     let mut sources: std::collections::HashSet<i64> = std::collections::HashSet::new();
     for &track_id in track_ids {
-        match membership_album(&tx, track_id)? {
+        let keep_own_cover = match membership_album(&tx, track_id)? {
             Some(current) if current == album_id => continue,
             Some(other) => {
                 sources.insert(other);
-                remove_membership(&tx, track_id)?;
+                remove_membership(&tx, track_id)?
             }
-            None => {}
+            None => false,
+        };
+        let disc = read_incoming(&tx, track_id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?
+            .disc;
+        insert_album_track(&tx, album_id, track_id, next_on_disc(&mut highest, disc))?;
+        if keep_own_cover {
+            tx.execute(
+                "UPDATE album_tracks SET keep_own_cover = 1 WHERE track_id = ?1",
+                params![track_id],
+            )?;
         }
-        next += 1;
-        insert_album_track(&tx, album_id, track_id, next)?;
         changed = true;
     }
     if changed {
@@ -1418,22 +1450,28 @@ pub fn remove_tracks_from_album(
     tx.commit()
 }
 
-/// Rewrites the whole track order: assigns track_no 1..N in the given order, in one transaction so
-/// no intermediate numbering is ever visible. Leaves disc_no untouched. Touches the album, since a
-/// reorder is a change worth surfacing in the date filter.
-pub fn set_track_order(
+/// Sets one member's placement - its position within its disc and its keep-own-cover flag - and
+/// nothing else: `track_edits` is never read or written, so a track's title, artist and disc edits
+/// follow it across a move untouched. A None track_no sorts last. A track not in the album matches
+/// nothing. The album is touched only when the placement actually changed, the way
+/// remove_tracks_from_album touches only on a real removal.
+pub fn set_member_placement(
     conn: &mut Connection,
     album_id: i64,
-    ordered_track_ids: &[i64],
+    track_id: i64,
+    track_no: Option<i64>,
+    keep_own_cover: bool,
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    for (i, &track_id) in ordered_track_ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE album_tracks SET track_no = ?1 WHERE album_id = ?2 AND track_id = ?3",
-            params![(i as i64) + 1, album_id, track_id],
-        )?;
+    let changed = tx.execute(
+        "UPDATE album_tracks SET track_no = ?1, keep_own_cover = ?2
+         WHERE album_id = ?3 AND track_id = ?4
+           AND (track_no IS NOT ?1 OR keep_own_cover IS NOT ?2)",
+        params![track_no, keep_own_cover, album_id, track_id],
+    )?;
+    if changed > 0 {
+        touch_album(&tx, album_id)?;
     }
-    touch_album(&tx, album_id)?;
     tx.commit()
 }
 
@@ -1688,15 +1726,6 @@ fn insert_album_track(
     Ok(())
 }
 
-/// The highest track_no in an album, or 0 when it is empty. The append point is this plus one.
-fn max_track_no(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
-    conn.query_row(
-        "SELECT COALESCE(MAX(track_no), 0) FROM album_tracks WHERE album_id = ?1",
-        params![album_id],
-        |r| r.get(0),
-    )
-}
-
 /// The kind of an album ('album' or 'single'), or None when the id is absent. The add-to-album
 /// writer reads it to reject appending to a single.
 fn album_kind(conn: &Connection, album_id: i64) -> rusqlite::Result<Option<String>> {
@@ -1727,13 +1756,24 @@ pub fn membership_album(conn: &Connection, track_id: i64) -> rusqlite::Result<Op
     })
 }
 
-/// Unbinds a track from whatever album holds it. A no-op when it is loose.
-fn remove_membership(conn: &Connection, track_id: i64) -> rusqlite::Result<()> {
+/// Unbinds a track from whatever album holds it and returns the keep-own-cover flag it carried, so a
+/// move can carry it over. False when the track was loose.
+fn remove_membership(conn: &Connection, track_id: i64) -> rusqlite::Result<bool> {
+    let keep_own_cover = conn
+        .query_row(
+            "SELECT keep_own_cover FROM album_tracks WHERE track_id = ?1",
+            params![track_id],
+            |r| r.get(0),
+        )
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(false),
+            other => Err(other),
+        })?;
     conn.execute(
         "DELETE FROM album_tracks WHERE track_id = ?1",
         params![track_id],
     )?;
-    Ok(())
+    Ok(keep_own_cover)
 }
 
 // ---- Playlists ----
@@ -2342,7 +2382,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
 
         for table in [
             "tracks",
@@ -2418,7 +2458,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
     }
 
     #[test]
@@ -2728,6 +2768,123 @@ mod tests {
         );
     }
 
+    // Upserts `rec`, gives it an edit row with the given title/artist/album_artist/year, and returns
+    // the track id.
+    fn edited_track(
+        conn: &Connection,
+        rec: &TrackRecord,
+        title: Option<&str>,
+        artist: Option<&str>,
+        album_artist: Option<&str>,
+        year: Option<i64>,
+    ) -> i64 {
+        upsert_track(conn, rec, None).unwrap();
+        let id: i64 = conn
+            .query_row(
+                "SELECT id FROM tracks WHERE source_path = ?1",
+                params![rec.source_path],
+                |r| r.get(0),
+            )
+            .unwrap();
+        conn.execute(
+            "INSERT INTO track_edits (track_id, title, artist, album_artist, year, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+            params![id, title, artist, album_artist, year],
+        )
+        .unwrap();
+        id
+    }
+
+    #[test]
+    fn create_single_seeds_from_title_and_artist_edits() {
+        let mut conn = open_in_memory().unwrap();
+        let id = edited_track(
+            &conn,
+            &sample(100),
+            Some("Neck Hurts"),
+            Some("DJ Melon"),
+            None,
+            None,
+        );
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.title.as_deref(), Some("Neck Hurts"));
+        assert_eq!(single.album_artist.as_deref(), Some("DJ Melon"));
+        assert_eq!(
+            single.year,
+            Some(1997),
+            "an unedited year keeps the raw tag"
+        );
+    }
+
+    #[test]
+    fn create_single_prefers_an_album_artist_edit_over_the_artist_edit() {
+        let mut conn = open_in_memory().unwrap();
+        let mut rec = sample(100);
+        rec.raw_album_artist = Some("Raw Album Artist".to_string());
+        let id = edited_track(
+            &conn,
+            &rec,
+            None,
+            Some("DJ Melon"),
+            Some("Melon Crew"),
+            None,
+        );
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.album_artist.as_deref(), Some("Melon Crew"));
+    }
+
+    #[test]
+    fn create_single_uses_the_artist_edit_before_the_raw_artist() {
+        let mut conn = open_in_memory().unwrap();
+        let id = edited_track(&conn, &sample(100), None, Some("DJ Melon"), None, None);
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.album_artist.as_deref(), Some("DJ Melon"));
+        assert_eq!(
+            single.title.as_deref(),
+            Some("Song"),
+            "no title edit keeps the raw title"
+        );
+    }
+
+    #[test]
+    fn create_single_lets_a_blank_edit_fall_through_to_raw() {
+        let mut conn = open_in_memory().unwrap();
+        let id = edited_track(&conn, &sample(100), Some("   "), Some(""), Some(" "), None);
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.title.as_deref(), Some("Song"));
+        assert_eq!(single.album_artist.as_deref(), Some("Artist"));
+    }
+
+    #[test]
+    fn create_single_falls_back_to_the_stem_with_no_title_anywhere() {
+        let mut conn = open_in_memory().unwrap();
+        let mut rec = sample(100);
+        rec.raw_title = None;
+        let id = edited_track(&conn, &rec, Some(" "), None, None, None);
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.title.as_deref(), Some("song"));
+    }
+
+    #[test]
+    fn create_single_prefers_a_year_edit() {
+        let mut conn = open_in_memory().unwrap();
+        let id = edited_track(&conn, &sample(100), None, None, None, Some(2004));
+
+        let single = create_single(&mut conn, id, 200).unwrap();
+
+        assert_eq!(single.year, Some(2004));
+    }
+
     #[test]
     fn create_album_rejects_a_single_without_exactly_one_member() {
         let mut conn = open_in_memory().unwrap();
@@ -2809,6 +2966,242 @@ mod tests {
             .unwrap();
         remove_tracks_from_album(&mut conn, album.id, &[t2]).unwrap();
         assert_eq!(read(&conn), 0, "a no-op removal does not bump updated_at");
+    }
+
+    // Inserts a loose track at `path` with the given raw disc tag and returns its id.
+    fn disc_track(conn: &Connection, path: &str, disc: Option<i64>) -> i64 {
+        conn.execute(
+            "INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, has_embedded_cover, scanned_at, raw_disc_no)
+             VALUES (?1, 'song.mp3', 'mp3', 10, 20, 0, 30, ?2)",
+            params![path, disc],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    // An album's memberships as (track_id, track_no), ordered by track id.
+    fn positions(conn: &Connection, album_id: i64) -> Vec<(i64, Option<i64>)> {
+        conn.prepare(
+            "SELECT track_id, track_no FROM album_tracks WHERE album_id = ?1 ORDER BY track_id",
+        )
+        .unwrap()
+        .query_map(params![album_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    }
+
+    // A plain album built from `track_ids`, every descriptive field unset.
+    fn plain_album(conn: &mut Connection, track_ids: &[i64]) -> i64 {
+        create_album(conn, None, None, None, None, None, track_ids, ALBUM_KIND, 1)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn create_album_numbers_each_disc_from_one_without_writing_edits() {
+        let mut conn = open_in_memory().unwrap();
+        let a = disc_track(&conn, "/m/1.mp3", Some(1));
+        let b = disc_track(&conn, "/m/2.mp3", None);
+        let c = disc_track(&conn, "/m/3.mp3", Some(2));
+        let d = disc_track(&conn, "/m/4.mp3", Some(2));
+        let e = disc_track(&conn, "/m/5.mp3", Some(1));
+
+        let album = plain_album(&mut conn, &[a, b, c, d, e]);
+
+        assert_eq!(
+            positions(&conn, album),
+            vec![
+                (a, Some(1)),
+                (b, Some(2)),
+                (c, Some(1)),
+                (d, Some(2)),
+                (e, Some(3))
+            ],
+        );
+        let edits: i64 = conn
+            .query_row("SELECT COUNT(*) FROM track_edits", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(edits, 0, "numbering never writes the edit layer");
+    }
+
+    #[test]
+    fn create_album_rejects_an_unknown_track_and_writes_nothing() {
+        let mut conn = open_in_memory().unwrap();
+        let a = disc_track(&conn, "/m/1.mp3", None);
+
+        let result = create_album(
+            &mut conn,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[a, 999],
+            ALBUM_KIND,
+            1,
+        );
+
+        assert!(result.is_err());
+        let albums: i64 = conn
+            .query_row("SELECT COUNT(*) FROM albums", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(albums, 0, "the rejected create rolls back its album row");
+    }
+
+    #[test]
+    fn add_tracks_appends_each_track_after_the_top_of_its_own_disc() {
+        let mut conn = open_in_memory().unwrap();
+        let d1: Vec<i64> = (1..=3)
+            .map(|i| disc_track(&conn, &format!("/m/1-{i}.mp3"), Some(1)))
+            .collect();
+        let d2: Vec<i64> = (1..=2)
+            .map(|i| disc_track(&conn, &format!("/m/2-{i}.mp3"), Some(2)))
+            .collect();
+        let album = plain_album(&mut conn, &[d1.clone(), d2.clone()].concat());
+
+        let late_two = disc_track(&conn, "/m/2-3.mp3", Some(2));
+        let late_one = disc_track(&conn, "/m/1-4.mp3", None);
+        add_tracks_to_album(&mut conn, album, &[late_two, late_one]).unwrap();
+
+        let rows = positions(&conn, album);
+        assert!(rows.contains(&(late_two, Some(3))), "disc 2 continues at 3");
+        assert!(
+            rows.contains(&(late_one, Some(4))),
+            "an unset disc continues disc 1 at 4"
+        );
+        assert!(rows.contains(&(d1[2], Some(3))));
+        assert!(rows.contains(&(d2[1], Some(2))));
+    }
+
+    #[test]
+    fn add_tracks_numbers_a_moved_track_on_its_disc_in_the_target() {
+        let mut conn = open_in_memory().unwrap();
+        let a = disc_track(&conn, "/m/a1.mp3", Some(1));
+        let b = disc_track(&conn, "/m/a2.mp3", Some(2));
+        let target = plain_album(&mut conn, &[a, b]);
+        let x = disc_track(&conn, "/m/x1.mp3", Some(1));
+        let y = disc_track(&conn, "/m/x2.mp3", Some(1));
+        let z = disc_track(&conn, "/m/x3.mp3", Some(1));
+        let source = plain_album(&mut conn, &[x, y, z]);
+        // z's disc is edited to 2, so it lands after b rather than after a.
+        conn.execute(
+            "INSERT INTO track_edits (track_id, disc_no, updated_at) VALUES (?1, 2, 0)",
+            params![z],
+        )
+        .unwrap();
+
+        add_tracks_to_album(&mut conn, target, &[z]).unwrap();
+
+        assert_eq!(
+            positions(&conn, target),
+            vec![(a, Some(1)), (b, Some(1)), (z, Some(2))]
+        );
+        assert_eq!(positions(&conn, source), vec![(x, Some(1)), (y, Some(2))]);
+    }
+
+    // Every edit-layer row as a comparable tuple, stamp included.
+    #[allow(clippy::type_complexity)]
+    fn edit_layer(
+        conn: &Connection,
+    ) -> Vec<(
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        i64,
+    )> {
+        conn.prepare(
+            "SELECT track_id, title, artist, album, album_artist, year, disc_no, updated_at
+             FROM track_edits ORDER BY track_id",
+        )
+        .unwrap()
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+            ))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    }
+
+    // A member's keep-own-cover flag.
+    fn keeps_own_cover(conn: &Connection, track_id: i64) -> bool {
+        conn.query_row(
+            "SELECT keep_own_cover FROM album_tracks WHERE track_id = ?1",
+            params![track_id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn set_member_placement_writes_membership_only() {
+        let mut conn = open_in_memory().unwrap();
+        let edited = disc_track(&conn, "/m/1.mp3", Some(1));
+        let pristine = disc_track(&conn, "/m/2.mp3", Some(1));
+        let album = plain_album(&mut conn, &[edited, pristine]);
+        conn.execute(
+            "INSERT INTO track_edits (track_id, title, artist, disc_no, updated_at)
+             VALUES (?1, 'Edited', 'Someone', 2, 42)",
+            params![edited],
+        )
+        .unwrap();
+        let before = edit_layer(&conn);
+
+        set_member_placement(&mut conn, album, edited, Some(5), true).unwrap();
+        set_member_placement(&mut conn, album, pristine, None, false).unwrap();
+
+        assert_eq!(
+            positions(&conn, album),
+            vec![(edited, Some(5)), (pristine, None)]
+        );
+        assert!(keeps_own_cover(&conn, edited), "the flag is restored");
+        assert!(!keeps_own_cover(&conn, pristine));
+        assert_eq!(edit_layer(&conn), before, "the edit layer is untouched");
+    }
+
+    #[test]
+    fn set_member_placement_ignores_a_track_outside_the_album() {
+        let mut conn = open_in_memory().unwrap();
+        let member = disc_track(&conn, "/m/1.mp3", None);
+        let loose = disc_track(&conn, "/m/2.mp3", None);
+        let album = plain_album(&mut conn, &[member]);
+
+        set_member_placement(&mut conn, album, loose, Some(3), true).unwrap();
+
+        assert_eq!(positions(&conn, album), vec![(member, Some(1))]);
+        assert_eq!(membership_album(&conn, loose).unwrap(), None);
+        assert!(edit_layer(&conn).is_empty());
+    }
+
+    #[test]
+    fn add_tracks_carries_keep_own_cover_across_a_move() {
+        let mut conn = open_in_memory().unwrap();
+        let flagged = disc_track(&conn, "/m/a1.mp3", None);
+        let plain = disc_track(&conn, "/m/a2.mp3", None);
+        let source = plain_album(&mut conn, &[flagged, plain]);
+        set_track_keep_own_cover(&mut conn, source, &[flagged], true).unwrap();
+        let target = plain_album(&mut conn, &[]);
+        let loose = disc_track(&conn, "/m/b1.mp3", None);
+
+        add_tracks_to_album(&mut conn, target, &[flagged, plain, loose]).unwrap();
+
+        assert_eq!(membership_album(&conn, flagged).unwrap(), Some(target));
+        assert!(keeps_own_cover(&conn, flagged), "a moved flag stays set");
+        assert!(!keeps_own_cover(&conn, plain), "an unset flag stays unset");
+        assert!(!keeps_own_cover(&conn, loose), "a loose track joins with 0");
     }
 
     // Inserts a track at `path` stamped with `root_id` and returns its id.

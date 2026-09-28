@@ -1,0 +1,224 @@
+/*
+ * One proposed album in the review list and its parts: the pick row, the chips, the target control and
+ * the expanded track list. The warn chip tints from the warn token so it reads in both themes.
+ */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* The checkbox, cover and text form one click target for the box. */
+.pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.check {
+  flex: none;
+  margin-top: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.check:disabled {
+  cursor: default;
+}
+
+.cover {
+  flex: none;
+  width: 40px;
+}
+
+/* The placeholder glyph sized down to the small tile. */
+.cover svg {
+  width: 16px;
+  height: 16px;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An unchecked row recedes so the checked set reads at a glance. */
+.row:not([data-checked]) .title,
+.row:not([data-checked]) .meta {
+  color: var(--ink-3);
+}
+
+.expand {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.expand:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.chevron {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+/* -- Chips -- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.warn {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+/* -- Target -- */
+
+/* Indented under the text so the control reads as part of this row, not the next. */
+.target {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-left: 78px;
+}
+
+.target[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.adds {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* -- Tracks -- */
+
+.tracks {
+  margin: 0;
+  padding: 0 36px 0 78px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.track {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.no {
+  flex: none;
+  width: 34px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A track whose file is gone still rides along, marked by a warn-tinted number. */
+.track[data-missing] .no {
+  color: var(--warn);
+}
+
+.trackTitle {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.folder {
+  flex: 0 1 auto;
+  max-width: 40%;
+  color: var(--ink-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron,
+  .chevronOpen {
+    transition: none;
+  }
+}

@@ -25,7 +25,8 @@
   padding-top: 4px;
 }
 
-/* The count leads the meta line, the delete control sitting to its right, parted by space. */
+/* Play leads the meta line when the player is on, the count and the quiet controls following, parted by
+ * space. */
 .line {
   display: flex;
   align-items: center;

@@ -118,7 +118,9 @@ pub struct ScanProgress {
 /// processed; on a full pass it equals `total`, on a cancel it is lower. `errors` counts
 /// files whose tags could not be read but were still indexed from their path and stats.
 /// `missing`/`returned` are rows flagged gone and rows cleared as returned this pass; `removed`
-/// is reserved for a future purge command and reads 0 during a scan.
+/// is reserved for a future purge command and reads 0 during a scan. `offline_roots` are the ids
+/// of roots that could not be read this pass; their rows were left untouched. `deferred` counts
+/// files still being written, left unindexed until a later pass; their paths stay backend-side.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanSummary {
     pub total: u32,
@@ -131,6 +133,69 @@ pub struct ScanSummary {
     pub returned: u32,
     pub errors: u32,
     pub cancelled: bool,
+    pub offline_roots: Vec<i64>,
+    pub deferred: u32,
+    #[serde(skip)]
+    pub deferred_paths: Vec<std::path::PathBuf>,
+}
+
+/// The `library:sync` tick: whether a background session runs and its running totals across passes.
+/// Mirrors LibrarySyncTick in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct LibrarySyncTick {
+    pub running: bool,
+    pub scanned: u32,
+    pub total: u32,
+    pub deferred: u32,
+}
+
+/// The `library:delta` payload: the ids of rows a session changed, or a reload when too many changed
+/// to fetch one by one. Mirrors LibraryDelta in types.ts.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum LibraryDelta {
+    Ids { ids: Vec<i64> },
+    Reload { reload: bool },
+}
+
+/// The `library:summary` payload: one background session's totals, sent once at its end. Mirrors
+/// LibrarySyncSummary in types.ts.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LibrarySyncSummary {
+    pub inserted: u32,
+    pub updated: u32,
+    pub missing: u32,
+    pub returned: u32,
+    pub deferred: u32,
+    pub errors: u32,
+    pub offline_roots: Vec<i64>,
+}
+
+/// How a root is kept current: `watching` on live change notifications, `polling` on a pass when the
+/// window regains focus, `offline` while it cannot be read. Mirrors RootWatchMode in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RootWatchMode {
+    Watching,
+    Polling,
+    Offline,
+}
+
+/// One root's watch mode, as sent on `library:roots-state`. Mirrors RootWatchState in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RootWatchState {
+    pub id: i64,
+    pub mode: RootWatchMode,
+}
+
+/// The library-sync snapshot `get_library_sync_status` returns. Mirrors LibrarySyncStatus in types.ts.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LibrarySyncStatus {
+    pub enabled: bool,
+    pub running: bool,
+    pub scanned: u32,
+    pub total: u32,
+    pub roots: Vec<RootWatchState>,
 }
 
 /// Sort direction for `list_tracks`.
@@ -276,6 +341,64 @@ pub struct AlbumFields {
     pub album_artist: Option<String>,
     pub year: Option<i64>,
     pub genre: Option<String>,
+}
+
+/// One group of an albums-from-tags batch: the loose tracks to file, in play order, and where they
+/// go. Mirrors TagAlbumPlan in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TagAlbumPlan {
+    pub track_ids: Vec<i64>,
+    pub target: TagAlbumTarget,
+}
+
+/// Where a plan's tracks land: a new album seeded with `fields`, or appended to an existing album.
+/// Tagged on `kind` ('new' / 'existing'). Mirrors TagAlbumTarget in types.ts.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TagAlbumTarget {
+    New { fields: AlbumFields },
+    Existing { album_id: i64 },
+}
+
+/// One membership an albums-from-tags batch wrote: the track and its per-disc position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagAlbumMember {
+    pub track_id: i64,
+    pub track_no: i64,
+}
+
+/// A new album an albums-from-tags batch created: its whole row and its members, enough to delete it
+/// on undo and to re-insert it under the same id on redo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagAlbumCreated {
+    pub id: i64,
+    pub title: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i64>,
+    pub genre: Option<String>,
+    pub cover_id: Option<i64>,
+    pub kind: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub members: Vec<TagAlbumMember>,
+}
+
+/// An existing album an albums-from-tags batch appended to: the added members and the updated_at
+/// stamps on either side, so undo restores the prior stamp and redo the batch's own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagAlbumExtended {
+    pub album_id: i64,
+    pub members: Vec<TagAlbumMember>,
+    pub prev_updated_at: i64,
+    pub updated_at: i64,
+}
+
+/// Everything one albums-from-tags batch wrote. It travels to the frontend and back, so the undo and
+/// redo of the batch replay exactly these rows. Mirrors TagAlbumReceipt in types.ts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagAlbumReceipt {
+    pub created: Vec<TagAlbumCreated>,
+    pub extended: Vec<TagAlbumExtended>,
 }
 
 /// The per-track override patch for one membership row: a full-set replace of its overrides and

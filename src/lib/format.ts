@@ -83,3 +83,20 @@ export function formatRelativeTime(unixSeconds: number, now = Date.now()): strin
   if (d < YEAR) return `${Math.round(d / MONTH)}mo ago`;
   return `${Math.round(d / YEAR)}y ago`;
 }
+
+/** A relative age as a unit and a count, for a view to word through its own locale. */
+export type RelativeAge =
+  | { unit: "now" }
+  | { unit: "minutes" | "hours" | "days"; n: number };
+
+/**
+ * How long ago an epoch-ms instant was, in the largest whole unit that fits: under a minute reads as
+ * now, then minutes, hours, and days. A future instant reads as now.
+ */
+export function relativeAge(atMs: number, nowMs: number): RelativeAge {
+  const d = Math.max(0, Math.floor((nowMs - atMs) / 1000));
+  if (d < MINUTE) return { unit: "now" };
+  if (d < HOUR) return { unit: "minutes", n: Math.floor(d / MINUTE) };
+  if (d < DAY) return { unit: "hours", n: Math.floor(d / HOUR) };
+  return { unit: "days", n: Math.floor(d / DAY) };
+}

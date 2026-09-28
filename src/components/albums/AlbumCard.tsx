@@ -19,6 +19,9 @@ import { useAlbumCover } from "./useAlbumCover";
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
+// -- Utils Imports --
+import { sourceForContainer } from "./playbackSource";
+
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumRow } from "../../types";
@@ -109,14 +112,9 @@ export const AlbumCard = memo(function AlbumCard({
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();
-  // Play the album: its members in order, cursor on the first, tagged with the album as the source.
-  // Shared by the cover button and the menu item.
-  const playAlbum = () =>
-    play(tracks.map((track) => track.track_id), 0, {
-      kind: "album",
-      id: album.id,
-      label: album.title ?? t((d) => d.albums.untitled),
-    });
+  const source = sourceForContainer(album, t((d) => d.albums.untitled));
+  // Play the album: its members in order, cursor on the first. Shared by the cover button and the menu item.
+  const playAlbum = () => play(tracks.map((track) => track.track_id), 0, source);
   const single = album.kind === "single";
   const lead = single
     ? t((d) => d.singles.marker)
@@ -138,12 +136,7 @@ export const AlbumCard = memo(function AlbumCard({
         {
           icon: <ListEnd size={16} strokeWidth={1.8} />,
           label: t((d) => d.player.addToQueue),
-          onSelect: () =>
-            addToQueue(tracks.map((track) => track.track_id), {
-              kind: "album",
-              id: album.id,
-              label: album.title ?? t((d) => d.albums.untitled),
-            }),
+          onSelect: () => addToQueue(tracks.map((track) => track.track_id), source),
         },
       );
     }

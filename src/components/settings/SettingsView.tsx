@@ -11,19 +11,29 @@ import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
+import { ProgressLine } from "../scan/ProgressLine";
 
 // -- State Imports --
 import {
   useAddRoot,
-  useLoadRoots,
-  useRescanAll,
+  useBlockingScan,
+  useCancelScan,
+  useQuietCheckFailed,
+  useRescanQuiet,
   useRoots,
+  useScanMode,
+  useScanProgress,
   useScanStatus,
   useScanSummary,
   useSetLibraryGone,
 } from "../../state/store";
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
-import { useCloseToTray, useSetCloseToTray } from "../../state/preferences/store";
+import {
+  useCloseToTray,
+  useKeepLibraryUpToDate,
+  useSetCloseToTray,
+  useSetKeepLibraryUpToDate,
+} from "../../state/preferences/store";
 
 // -- IPC Imports --
 import { openDefaultAppsSettings } from "../../lib/ipc";
@@ -46,16 +56,22 @@ import styles from "./SettingsView.module.css";
  * The settings screen: quiet labelled sections stacked on the continuous surface - no frames, no
  * cards, parted only by space and a dimmed micro-label. Folders holds the library roots and their
  * actions; Appearance and Language each carry an accent-free segmented control bound to a persisted
- * pref. A rescan reloads only the tracks, so both rescans reload the roots to keep the counts true. The
- * last scan's summary sits under the rescan button; when it left files gone from disk, its Review link
- * opens All Tracks filtered to them through `onReviewGone`.
+ * pref. Rescans run quiet, as does the background sync: while a quiet scan runs its progress and a
+ * Cancel sit under the buttons, which stay live since a request joins it and adding a folder preempts
+ * it. A failed check leaves a warn line there. Otherwise the last summary sits under the buttons; when it
+ * left files gone from disk, its Review link opens All Tracks filtered to them through `onReviewGone`.
+ * The keep-up-to-date switch closes the section.
  */
 export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const roots = useRoots();
   const addRoot = useAddRoot();
-  const rescanAll = useRescanAll();
-  const loadRoots = useLoadRoots();
+  const rescanQuiet = useRescanQuiet();
+  const cancelScan = useCancelScan();
   const scanning = useScanStatus() === "scanning";
+  const quiet = useScanMode() === "quiet";
+  const blocking = useBlockingScan();
+  const progress = useScanProgress();
+  const checkFailed = useQuietCheckFailed();
   const scanSummary = useScanSummary();
   const setGone = useSetLibraryGone();
   const genres = useGenres();
@@ -67,17 +83,14 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const setLocale = useSetLocale();
   const closeToTray = useCloseToTray();
   const setCloseToTray = useSetCloseToTray();
+  const keepUpToDate = useKeepLibraryUpToDate();
+  const setKeepUpToDate = useSetKeepLibraryUpToDate();
   const t = useT();
 
   // Settings can open before Organize ever loads, so pull the vocabulary in on mount.
   useEffect(() => {
     void loadGenres();
   }, [loadGenres]);
-
-  const onRescanAll = async () => {
-    await rescanAll();
-    await loadRoots();
-  };
 
   // Review opens All Tracks already narrowed to the gone tracks, the chip naming why; it never purges,
   // it only surfaces them for the user to act on there.
@@ -101,6 +114,11 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const localeSegments: Segment<Locale>[] = [
     { value: "en", label: "English" },
     { value: "fr", label: "Français" },
+  ];
+
+  const keepSegments: Segment<"on" | "off">[] = [
+    { value: "on", label: t((d) => d.settings.keepOn) },
+    { value: "off", label: t((d) => d.settings.keepOff) },
   ];
 
   // The two close behaviors, mapped to a boolean pref: "tray" keeps it alive, "quit" exits.
@@ -131,16 +149,40 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
             )}
           </div>
           <div className={styles.foot}>
-            <PrimaryButton onClick={() => void addRoot()} disabled={scanning}>
+            <PrimaryButton onClick={() => void addRoot()} disabled={blocking}>
               {t((d) => d.settings.addFolder)}
             </PrimaryButton>
-            <QuietButton onClick={() => void onRescanAll()} disabled={scanning}>
+            <QuietButton onClick={() => void rescanQuiet()} disabled={blocking}>
               {t((d) => d.settings.rescanAll)}
             </QuietButton>
           </div>
-          {scanSummary ? (
-            <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
-          ) : null}
+          {scanning && quiet ? (
+            <div className={styles.scanRow}>
+              <ProgressLine
+                value={progress && progress.total > 0 ? progress.scanned / progress.total : null}
+              />
+              <QuietButton onClick={() => void cancelScan()}>{t((d) => d.common.cancel)}</QuietButton>
+            </div>
+          ) : (
+            <>
+              {checkFailed ? (
+                <p className={styles.scanFailed}>{t((d) => d.window.checkFailed)}</p>
+              ) : null}
+              {scanSummary ? (
+                <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
+              ) : null}
+            </>
+          )}
+          <div className={styles.row}>
+            <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
+            <SegmentedControl
+              segments={keepSegments}
+              value={keepUpToDate ? "on" : "off"}
+              onChange={(value) => setKeepUpToDate(value === "on")}
+              label={t((d) => d.settings.keepUpToDate)}
+            />
+          </div>
+          <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
         </section>
 
         <section className={styles.section}>

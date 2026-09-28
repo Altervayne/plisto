@@ -29,6 +29,8 @@ export const PREF_KEYS = {
   // The backend reads this same kv key by name to seed its close-behavior mirror, so both sides
   // spell it identically.
   closeToTray: "closeToTray",
+  // Read by the backend under this same name to start or stop the background library sync.
+  keepLibraryUpToDate: "keepLibraryUpToDate",
   // Epoch seconds of the last full-library export, stamped on its completion. Feeds the "Since last
   // export" filter preset - the baseline for "what changed since I last synced everything".
   lastExportAt: "last_export_at",
@@ -98,4 +100,17 @@ export const useCloseToTray = (): boolean => usePreference(PREF_KEYS.closeToTray
 export const useSetCloseToTray = (): ((on: boolean) => void) => {
   const setPreference = useSetPreference();
   return (on) => setPreference(PREF_KEYS.closeToTray, on ? "1" : "0");
+};
+
+/**
+ * Whether the library keeps itself current in the background. Persisted, default on: only an explicit
+ * "0" turns it off, matching how the backend reads the same key.
+ */
+export const useKeepLibraryUpToDate = (): boolean =>
+  usePreference(PREF_KEYS.keepLibraryUpToDate) !== "0";
+
+/** Flips the keep-up-to-date pref; the backend hears the write and starts or stops the sync. */
+export const useSetKeepLibraryUpToDate = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.keepLibraryUpToDate, on ? "1" : "0");
 };

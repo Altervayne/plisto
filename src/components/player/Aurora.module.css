@@ -1,9 +1,11 @@
 /* The ambient aurora: a full-panel canvas between the cover glow and the ridge. The backing store is
  * small and the field is blurred and blended from the component, so this only places and masks the
- * element. A radial feather protects the title/artist zone at the exact centre (dipping ~15%) and
- * fades the field to nothing just past the panel edges, mirroring the glow's masking idiom. Blur,
- * blend mode and opacity are set on the element from the component, so they stay theme- and
- * breath-driven in one place. */
+ * element. A radial feather centred on the cover holds the field at full strength through its core and
+ * fades it to nothing toward the edges, mirroring the glow's masking idiom. The component sets the
+ * centre and radius from the cover's box; the defaults centre it on the panel. Nothing is cut out
+ * under the text: the hero text and glyphs carry their own surface halo instead. Blur, blend mode and
+ * opacity are set on the element from the component, so they stay theme- and breath-driven in one
+ * place. */
 .aurora {
   position: absolute;
   inset: 0;

@@ -1,0 +1,131 @@
+/* The library cluster in the title bar: the status label, the refresh glyph, and the passing caption.
+ * Shrinks before the brand and controls so a long name never pushes the controls off the edge. */
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* The dot and the name as one bare button: no chrome, the name warming to full ink on hover. */
+.label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+  transition:
+    background var(--dur-soft) ease,
+    box-shadow var(--dur-soft) ease;
+}
+
+.dot[data-warn] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+/* The folder name in the UI face, not mono - mono stays reserved for raw source filenames. */
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  transition: color var(--dur-fast) ease;
+}
+
+.label:hover .path {
+  color: var(--ink);
+}
+
+/* The refresh glyph: dim at rest, full ink on hover and while a check runs. */
+.refresh {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color var(--dur-fast) ease;
+}
+
+.refresh:hover,
+.refresh[data-spinning] {
+  color: var(--ink);
+}
+
+/* The global reduced-motion rule collapses this to a single instant turn, so the glyph holds still and
+ * the ink shift alone marks the running check. */
+.refresh[data-spinning] svg {
+  animation: refresh-spin 0.9s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The passing "added" caption right after the glyph: fades in, holds, fades out. */
+.added {
+  flex: none;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.added[data-state="enter"] {
+  animation: caption-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.added[data-state="exit"] {
+  animation: caption-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes caption-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes caption-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Tooltip bodies: a lead line over dimmer detail lines, each on its own row. */
+.tipLead,
+.tipDetail {
+  display: block;
+}
+
+.tipDetail {
+  color: var(--ink-3);
+}

@@ -8,12 +8,14 @@ mod discovery;
 mod dto;
 mod export;
 mod intake;
+mod library_sync;
 mod model;
 mod normalize;
 mod paths;
 mod plays;
 mod resolve;
 mod scan;
+mod scan_lock;
 mod smtc;
 mod splice;
 mod startup;
@@ -30,7 +32,8 @@ use tauri::{Manager, WindowEvent};
 
 // -- State Imports --
 use covers::InFlightGuard;
-use dto::ExportStatus;
+use dto::{ExportStatus, LibrarySyncStatus};
+use library_sync::SyncCmd;
 use state::AppState;
 use tray::TrayState;
 
@@ -98,6 +101,12 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } if window.label() == "nowplaying" => {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            // A main window coming back into focus is the cue to poll roots that cannot be watched.
+            WindowEvent::Focused(true) if window.label() == "main" => {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    let _ = state.library_sync.send(SyncCmd::Focus);
+                }
             }
             // The popup dismisses itself when it loses focus, like a native popover.
             WindowEvent::Focused(false) if window.label() == "tray" => {
@@ -178,6 +187,13 @@ pub fn run() {
             // read above. Absent means quit on close, the shipped default.
             let close_to_tray =
                 db::get_setting(&conn, "closeToTray").ok().flatten().as_deref() == Some("1");
+            // The keep-up-to-date mirror, seeded the same way. Absent means on.
+            let keep_library_up_to_date = db::get_setting(&conn, "keepLibraryUpToDate")
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some("0");
+            let (sync_tx, sync_rx) = crossbeam_channel::unbounded::<SyncCmd>();
 
             // Stash the file the OS cold-launched Plisto with, if any, for the frontend to pull on
             // mount. This stays the standalone tree signal - the pull tells the webview to render the
@@ -192,7 +208,13 @@ pub fn run() {
                 db: Mutex::new(conn),
                 db_path,
                 cancel: Arc::new(AtomicBool::new(false)),
+                scan_holder: Mutex::new(None),
                 scan_running: AtomicBool::new(false),
+                bg_active: AtomicBool::new(false),
+                bg_cancel: Arc::new(AtomicBool::new(false)),
+                library_sync: sync_tx.clone(),
+                library_sync_status: Mutex::new(LibrarySyncStatus::default()),
+                keep_library_up_to_date: AtomicBool::new(keep_library_up_to_date),
                 covers_dir,
                 covers_in_flight,
                 export_cancel: Arc::new(AtomicBool::new(false)),
@@ -243,6 +265,10 @@ pub fn run() {
             // are open.
             plays::init(app.handle());
 
+            // Start the library sync once state and the roots it reads are in place. It owns the
+            // watches and the background passes for the app's life.
+            library_sync::spawn(app.handle().clone(), sync_rx, sync_tx);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -250,6 +276,9 @@ pub fn run() {
             commands::scan_workspace,
             commands::cancel_scan,
             commands::list_tracks,
+            commands::get_tracks_by_ids,
+            commands::library_sync::rescan_library,
+            commands::library_sync::get_library_sync_status,
             commands::settings::workspace_root,
             commands::settings::get_setting,
             commands::settings::set_setting,
@@ -272,10 +301,13 @@ pub fn run() {
             commands::discovery::cancel_discovery,
             commands::organize::create_album,
             commands::organize::create_single,
+            commands::organize::create_albums_from_tags,
+            commands::organize::revert_albums_from_tags,
+            commands::organize::reapply_albums_from_tags,
             commands::organize::delete_album,
             commands::organize::add_tracks_to_album,
             commands::organize::remove_tracks_from_album,
-            commands::organize::set_track_order,
+            commands::organize::set_member_placement,
             commands::organize::set_album_layout,
             commands::organize::set_album_fields,
             commands::organize::set_track_overrides,
@@ -376,9 +408,14 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             // Every quit funnels through app.exit(0), which fires RunEvent::Exit. Tear the OS media
-            // controls down here so the now-playing overlay does not ghost after the process ends.
+            // controls down here so the now-playing overlay does not ghost after the process ends,
+            // and stop the library sync, cutting short any pass it is running.
             if let tauri::RunEvent::Exit = event {
                 smtc::teardown(app);
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.bg_cancel.store(true, Ordering::SeqCst);
+                    let _ = state.library_sync.send(SyncCmd::Shutdown);
+                }
             }
         });
 }

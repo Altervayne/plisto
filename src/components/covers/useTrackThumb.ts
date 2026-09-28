@@ -40,6 +40,20 @@ export function invalidateTrackThumb(trackId: number): void {
 }
 
 /**
+ * Resolves a track's cover at one size through the shared cache, reading it only on a miss. A null
+ * result (no art) is cached too; a failed read is not, so the next call retries.
+ */
+export async function loadCachedCover(trackId: number, size: CoverSize): Promise<string | null> {
+  const key = cacheKey(size, trackId);
+  const cached = coverCache.get(key);
+  if (cached !== undefined) return cached;
+  const ref = await readCover(trackId, size);
+  const resolved = ref ? toSrc(ref.path) : null;
+  coverCache.set(key, resolved);
+  return resolved;
+}
+
+/**
  * Loads a track's resolved cover at one size, mirroring the album cover hook: IPC-only, a shared cache
  * hydrates a known resolution synchronously on mount, and a stale load from a fast change is discarded. Reads
  * the default source order (embedded, adjacent, then folder cover), so a track with no art shows the recess.
@@ -49,18 +63,15 @@ export function useCachedCover(trackId: number, size: CoverSize): string | null 
   const requestId = useRef(0);
 
   useEffect(() => {
-    const key = cacheKey(size, trackId);
-    const cached = coverCache.get(key);
+    const cached = coverCache.get(cacheKey(size, trackId));
     if (cached !== undefined) {
       setSrc(cached);
       return;
     }
     const id = ++requestId.current;
-    void readCover(trackId, size)
-      .then((ref) => {
+    void loadCachedCover(trackId, size)
+      .then((resolved) => {
         if (id !== requestId.current) return;
-        const resolved = ref ? toSrc(ref.path) : null;
-        coverCache.set(key, resolved);
         setSrc(resolved);
       })
       .catch(() => {

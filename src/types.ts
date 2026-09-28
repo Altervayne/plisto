@@ -62,6 +62,50 @@ export interface ScanSummary {
   returned: number;
   errors: number;
   cancelled: boolean;
+  /** Roots that could not be read this pass; their tracks were left untouched. */
+  offline_roots: number[];
+  /** Files still being written, left unindexed until a later pass. */
+  deferred: number;
+}
+
+/** How a root is kept current. Mirrors RootWatchMode in dto.rs. */
+export type RootWatchMode = 'watching' | 'polling' | 'offline';
+
+/** One root's watch mode, the `library:roots-state` payload item. Mirrors RootWatchState. */
+export interface RootWatchState {
+  id: number;
+  mode: RootWatchMode;
+}
+
+/** The library-sync snapshot from `get_library_sync_status`. Mirrors LibrarySyncStatus. */
+export interface LibrarySyncStatus {
+  enabled: boolean;
+  running: boolean;
+  scanned: number;
+  total: number;
+  roots: RootWatchState[];
+}
+
+/** The `library:sync` tick: a background session's running totals. Mirrors LibrarySyncTick. */
+export interface LibrarySyncTick {
+  running: boolean;
+  scanned: number;
+  total: number;
+  deferred: number;
+}
+
+/** The `library:delta` payload: changed row ids, or a reload when too many changed. Mirrors LibraryDelta. */
+export type LibraryDelta = { ids: number[] } | { reload: true };
+
+/** The `library:summary` payload: one background session's totals. Mirrors LibrarySyncSummary. */
+export interface LibrarySyncSummary {
+  inserted: number;
+  updated: number;
+  missing: number;
+  returned: number;
+  deferred: number;
+  errors: number;
+  offline_roots: number[];
 }
 
 /** One library root: its folder path and indexed track count. Mirrors Root in dto.rs. */
@@ -206,6 +250,54 @@ export interface AlbumFields {
   album_artist: string | null;
   year: number | null;
   genre: string | null;
+}
+
+/** Where an albums-from-tags plan files its tracks: a new album or an existing one. Mirrors TagAlbumTarget. */
+export type TagAlbumTarget =
+  | { kind: 'new'; fields: AlbumFields }
+  | { kind: 'existing'; album_id: number };
+
+/** One group of an albums-from-tags batch: loose tracks in play order and their target. Mirrors TagAlbumPlan. */
+export interface TagAlbumPlan {
+  track_ids: number[];
+  target: TagAlbumTarget;
+}
+
+/** One membership an albums-from-tags batch wrote. Mirrors TagAlbumMember in dto.rs. */
+export interface TagAlbumMember {
+  track_id: number;
+  track_no: number;
+}
+
+/** A new album an albums-from-tags batch created: its whole row and members. Mirrors TagAlbumCreated. */
+export interface TagAlbumCreated {
+  id: number;
+  title: string | null;
+  album_artist: string | null;
+  year: number | null;
+  genre: string | null;
+  cover_id: number | null;
+  kind: AlbumKind;
+  created_at: number;
+  updated_at: number;
+  members: TagAlbumMember[];
+}
+
+/** An existing album a batch appended to, with its updated_at on either side. Mirrors TagAlbumExtended. */
+export interface TagAlbumExtended {
+  album_id: number;
+  members: TagAlbumMember[];
+  prev_updated_at: number;
+  updated_at: number;
+}
+
+/**
+ * Everything one albums-from-tags batch wrote. Held opaque by the frontend and sent back as-is, so the
+ * batch's undo and redo replay exactly these rows. Mirrors TagAlbumReceipt in dto.rs.
+ */
+export interface TagAlbumReceipt {
+  created: TagAlbumCreated[];
+  extended: TagAlbumExtended[];
 }
 
 /** The per-track override patch: a full-set replace, a null clears a column. Mirrors TrackOverride. */

@@ -22,7 +22,8 @@ export interface SelectOption {
  * of options where the one highlighted row is the sole accent. Presentational - the parent owns the
  * options and what a pick does. `onOpen` fires as the menu opens, so a caller can refresh a list that
  * drifts while the panel sits open. Keyboard mirrors the genre adder: arrows move the highlight, Enter
- * picks, Escape closes; the trigger opens on Enter, Space, or ArrowDown.
+ * picks, Escape closes; the trigger opens on Enter, Space, or ArrowDown. `showHint` repeats the chosen
+ * option's hint on the closed trigger, for lists whose labels alone can repeat.
  */
 export function Select({
   value,
@@ -30,12 +31,14 @@ export function Select({
   onChange,
   ariaLabel,
   onOpen,
+  showHint = false,
 }: {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
   ariaLabel: string;
   onOpen?: () => void;
+  showHint?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -92,7 +95,10 @@ export function Select({
         onKeyDown={onKeyDown}
         onBlur={() => setOpen(false)}
       >
-        <span className={styles.value}>{selected?.label ?? ""}</span>
+        <span className={styles.current}>
+          <span className={styles.value}>{selected?.label ?? ""}</span>
+          {showHint && selected?.hint ? <span className={styles.hint}>{selected.hint}</span> : null}
+        </span>
         <ChevronDown
           size={16}
           className={open ? `${styles.chevron} ${styles.chevronOpen}` : styles.chevron}

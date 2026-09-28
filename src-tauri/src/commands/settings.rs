@@ -11,6 +11,7 @@ use tauri::State;
 
 // -- Local Imports --
 use crate::db;
+use crate::library_sync::SyncCmd;
 use crate::state::AppState;
 
 /// The first library root's path, or None when the library is empty. The interim single-folder
@@ -46,6 +47,11 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
     // Keep the close-behavior mirror fresh, so the window-event handler never has to read the kv.
     if key == "closeToTray" {
         state.close_to_tray.store(value == "1", Ordering::Relaxed);
+    }
+    if key == "keepLibraryUpToDate" {
+        let on = value != "0";
+        state.keep_library_up_to_date.store(on, Ordering::Relaxed);
+        let _ = state.library_sync.send(SyncCmd::SetEnabled(on));
     }
     Ok(())
 }

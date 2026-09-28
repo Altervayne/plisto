@@ -10,10 +10,12 @@
 // -- IPC Imports --
 import {
   addTracksToAlbum,
+  reapplyAlbumsFromTags,
   removeTracksFromAlbum,
+  revertAlbumsFromTags,
   setAlbumFields as ipcSetAlbumFields,
   setAlbumLayout as ipcSetAlbumLayout,
-  setTrackOrder,
+  setMemberPlacement,
   setTrackOverrides as ipcSetTrackOverrides,
 } from "../../lib/ipc";
 
@@ -22,6 +24,7 @@ import type {
   AlbumFields,
   AlbumRow,
   AlbumTrackRow,
+  TagAlbumReceipt,
   TrackOverride,
   TrackPlacement,
 } from "../../types";
@@ -49,14 +52,6 @@ export interface SetTrackOverrides {
   trackId: number;
   next: TrackOverride;
   prev: TrackOverride;
-}
-
-/** Rewrites an album's track order (track_ids in the new sequence); `prevOrder` restores it. */
-export interface ReorderTracks {
-  kind: "reorderTracks";
-  albumId: number;
-  nextOrder: number[];
-  prevOrder: number[];
 }
 
 /**
@@ -93,14 +88,28 @@ export interface UnassignTracks {
   after: Placement[];
 }
 
-/** The six undoable in-place edits. Create, delete and cover-set are structural, not on this stack. */
+/**
+ * An albums-from-tags batch, already written when it lands on the stack. `applied` says which side the
+ * library sits on: undo reverts the receipt, redo reapplies it under the same album ids. The projection
+ * is not patched locally - the store reloads from the backend after each replay.
+ */
+export interface TagBatch {
+  kind: "tagBatch";
+  receipt: TagAlbumReceipt;
+  applied: boolean;
+}
+
+/**
+ * The undoable edits: five in-place edits plus the albums-from-tags batch. Create, delete and cover-set
+ * are structural, not on this stack.
+ */
 export type Command =
   | SetAlbumFields
   | SetTrackOverrides
-  | ReorderTracks
   | SetAlbumLayout
   | AssignTracks
-  | UnassignTracks;
+  | UnassignTracks
+  | TagBatch;
 
 /** Applies a Command to the projection, returning the next one. Pure: no clock, no IO, no mutation. */
 export function applyCommand(state: OrgState, cmd: Command): OrgState {
@@ -137,16 +146,6 @@ export function applyCommand(state: OrgState, cmd: Command): OrgState {
         ),
       };
 
-    case "reorderTracks": {
-      const position = new Map(cmd.nextOrder.map((id, i) => [id, i + 1]));
-      const membership = state.membership.map((r) =>
-        r.album_id === cmd.albumId && position.has(r.track_id)
-          ? { ...r, track_no: position.get(r.track_id)! }
-          : r,
-      );
-      return { albums: state.albums, membership: sortMembership(membership) };
-    }
-
     case "setAlbumLayout": {
       const byId = new Map(cmd.next.map((p) => [p.track_id, p]));
       const membership = state.membership.map((r) => {
@@ -159,6 +158,9 @@ export function applyCommand(state: OrgState, cmd: Command): OrgState {
     case "assign":
     case "unassign":
       return applyTransition(state, cmd.after);
+
+    case "tagBatch":
+      return state;
   }
 }
 
@@ -175,14 +177,6 @@ export function invertCommand(cmd: Command): Command {
         trackId: cmd.trackId,
         next: cmd.prev,
         prev: cmd.next,
-      };
-
-    case "reorderTracks":
-      return {
-        kind: "reorderTracks",
-        albumId: cmd.albumId,
-        nextOrder: cmd.prevOrder,
-        prevOrder: cmd.nextOrder,
       };
 
     case "setAlbumLayout":
@@ -205,6 +199,9 @@ export function invertCommand(cmd: Command): Command {
         before: cmd.after,
         after: cmd.before,
       };
+
+    case "tagBatch":
+      return { ...cmd, applied: !cmd.applied };
   }
 }
 
@@ -219,10 +216,6 @@ export async function commandToIpc(cmd: Command): Promise<void> {
       await ipcSetTrackOverrides(cmd.albumId, cmd.trackId, cmd.next);
       return;
 
-    case "reorderTracks":
-      await setTrackOrder(cmd.albumId, cmd.nextOrder);
-      return;
-
     case "setAlbumLayout":
       await ipcSetAlbumLayout(cmd.albumId, cmd.next);
       return;
@@ -230,6 +223,10 @@ export async function commandToIpc(cmd: Command): Promise<void> {
     case "assign":
     case "unassign":
       await transitionToIpc(cmd.before, cmd.after);
+      return;
+
+    case "tagBatch":
+      await (cmd.applied ? reapplyAlbumsFromTags(cmd.receipt) : revertAlbumsFromTags(cmd.receipt));
       return;
   }
 }
@@ -248,8 +245,9 @@ function applyTransition(state: OrgState, after: Placement[]): OrgState {
 /**
  * Realizes an `after` placement set against the backend, reading `before` for where a track leaves
  * from. A track going loose is removed from its prior album; a track landing in one is moved there,
- * then its exact per-disc numbering is stamped (a move alone appends it last). Its tag edits ride in
- * track_edits, keyed by track_id, and are untouched by the move, so restamping them here is a no-op.
+ * then its exact position and keep-own-cover flag are stamped, so an undo puts it back in its old slot
+ * even from loose, where a re-add alone appends it last with the flag cleared. Only membership is
+ * written: the track's title, artist and disc edits live in track_edits and follow it untouched.
  */
 async function transitionToIpc(before: Placement[], after: Placement[]): Promise<void> {
   const priorAlbum = new Map<number, number>();
@@ -266,12 +264,7 @@ async function transitionToIpc(before: Placement[], after: Placement[]): Promise
   for (const p of after) {
     if (!p.assigned) continue;
     await addTracksToAlbum(p.row.album_id, [p.row.track_id]);
-    await ipcSetTrackOverrides(p.row.album_id, p.row.track_id, {
-      title_override: p.row.title_override,
-      artist_override: p.row.artist_override,
-      track_no: p.row.track_no,
-      disc_no: p.row.disc_no,
-    });
+    await setMemberPlacement(p.row.album_id, p.row.track_id, p.row.track_no, p.row.keep_own_cover);
   }
 }
 

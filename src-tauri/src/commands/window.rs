@@ -13,12 +13,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 // -- Local Imports --
 use crate::state::AppState;
 
-/// The running jobs whose output would be lost to an abrupt quit, in a stable order. Discovery is
-/// left out on purpose: the covers image sweep is a read-only, re-runnable pass, not lost work. The
-/// keys name each job for the confirm dialog. An absent AppState (never, past setup) reads none.
+/// The running jobs whose output would be lost to an abrupt quit, in a stable order. Discovery and
+/// background sync passes are left out on purpose: both are re-runnable, not lost work. The keys name
+/// each job for the confirm dialog. An absent AppState (never, past setup) reads none.
 fn work_losing_jobs(state: &AppState) -> Vec<&'static str> {
     let mut jobs = Vec::new();
-    if state.scan_running.load(Ordering::Relaxed) {
+    if state.scan_running.load(Ordering::Relaxed) && !state.bg_active.load(Ordering::Relaxed) {
         jobs.push("scan");
     }
     // Covers MTP too: the device transfer runs under the export guard, with no separate flag.
@@ -73,6 +73,7 @@ pub fn quit_app(app: AppHandle) {
 #[tauri::command]
 pub fn confirm_quit(app: AppHandle, state: State<'_, AppState>) {
     state.cancel.store(true, Ordering::Relaxed);
+    state.bg_cancel.store(true, Ordering::Relaxed);
     state.export_cancel.store(true, Ordering::Relaxed);
     state.splice_cancel.store(true, Ordering::Relaxed);
     state.discovery_cancel.store(true, Ordering::Relaxed);
@@ -111,5 +112,32 @@ pub fn toggle_now_playing_widget(app: AppHandle) {
 pub fn hide_now_playing_widget(app: AppHandle) {
     if let Some(window) = app.get_webview_window("nowplaying") {
         let _ = window.hide();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scan_lock::{acquire_scan_lock, Holder};
+
+    fn state() -> AppState {
+        AppState::for_test(
+            crate::db::open_in_memory().unwrap(),
+            std::path::PathBuf::new(),
+        )
+    }
+
+    #[test]
+    fn a_background_pass_does_not_block_quit() {
+        let state = state();
+        let _bg = acquire_scan_lock(&state, Holder::Background).unwrap();
+        assert!(work_losing_jobs(&state).is_empty());
+    }
+
+    #[test]
+    fn a_user_scan_blocks_quit() {
+        let state = state();
+        let _user = acquire_scan_lock(&state, Holder::User).unwrap();
+        assert_eq!(work_losing_jobs(&state), vec!["scan"]);
     }
 }

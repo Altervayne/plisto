@@ -45,19 +45,32 @@ import type { TrackRow } from "../../types";
 import styles from "./LibraryBrowser.module.css";
 
 /**
+ * The folder the browser stands in, handed to a header action: its folded id, every track beneath it
+ * whatever the lens or search, and its real-case name - null at the anchor, where it spans the library.
+ */
+export interface BrowseScope {
+  id: string;
+  tracks: TrackRow[];
+  name: string | null;
+}
+
+/**
  * Folder-hierarchy navigation over a set of tracks. A breadcrumb and a lens toggle head a nav column
  * that shows the current folder's subfolders over its own tracks (Folders lens) or every file beneath it
  * flat (All-files lens). Drilling changes the scope; the organize selection lives in the store, so it
  * rides across folders untouched. A row peek opens beside the grid. The tree, breadcrumb, and folder band
  * all derive from the passed tracks, so feeding a subset scopes the whole browser to it. An empty set
  * with an emptyState shows that in place of the browser; without one it falls through to the empty grid.
+ * `headerAction` renders beside the lens toggle from the current scope, so a caller adds its own control.
  */
 export function LibraryBrowser({
   tracks,
   emptyState,
+  headerAction,
 }: {
   tracks: TrackRow[];
   emptyState?: ReactNode;
+  headerAction?: (scope: BrowseScope) => ReactNode;
 }) {
   const roots = useRoots();
   const t = useT();
@@ -143,6 +156,11 @@ export function LibraryBrowser({
           />
         </div>
         <div className={styles.lenses}>
+          {headerAction?.({
+            id: scope,
+            tracks: descendant,
+            name: scope === initialScope ? null : (crumbs[crumbs.length - 1]?.name ?? null),
+          })}
           <LensToggle value={lens} onChange={setLens} />
         </div>
       </div>

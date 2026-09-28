@@ -61,7 +61,13 @@ import {
   usePlayerSync,
 } from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
-import { useHistoryLens, useOpenTool, useSetOpenTool } from "../../state/shell/store";
+import { useLibrarySync } from "../../state/useLibrarySync";
+import {
+  useHistoryLens,
+  useOpenTool,
+  useSetOpenTool,
+  useSettingsRequest,
+} from "../../state/shell/store";
 
 // -- IPC Imports --
 import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/ipc";
@@ -137,6 +143,8 @@ export function AppShell({
   usePlayerSync();
   // The live spectrum feed into its own off-render singleton, running the app's life alongside the status.
   useSpectrumSync();
+  // The background library sync feeds its progress, row changes and root states in for the shell's life.
+  useLibrarySync();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
   // already has the right rows.
   const appMode = useAppMode();
@@ -315,6 +323,16 @@ export function AppShell({
   useEffect(() => {
     if (openTool != null) setMode("editor");
   }, [openTool]);
+
+  // The title bar's folder label lands on Settings. Only a request made while this shell is mounted
+  // counts, so a remount never replays an old one.
+  const settingsRequest = useSettingsRequest();
+  const seenSettingsRequest = useRef(settingsRequest);
+  useEffect(() => {
+    if (settingsRequest === seenSettingsRequest.current) return;
+    seenSettingsRequest.current = settingsRequest;
+    setMode("settings");
+  }, [settingsRequest]);
 
   // A mode flip can hide the destination you are standing on. When it does, land on the first the new
   // mode still shows, in nav order. Settings lives in the foot and stays reachable, and an editor with a
@@ -532,7 +550,7 @@ export function AppShell({
                   ) : null}
                 </>
               ) : mode === "unsorted" ? (
-                <UnsortedView />
+                <UnsortedView onShowAlbums={() => setMode("albums")} />
               ) : mode === "tracks" ? (
                 <AllTracksView />
               ) : (

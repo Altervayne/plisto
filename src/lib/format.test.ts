@@ -2,7 +2,13 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { dayKey, formatClockTime, formatRelativeTime, sameCalendarDay } from "./format";
+import {
+  dayKey,
+  formatClockTime,
+  formatRelativeTime,
+  relativeAge,
+  sameCalendarDay,
+} from "./format";
 
 // A local wall-clock stamp built from its own components, so the round-trip through the local-zone
 // readers holds whatever zone the test runner sits in. Month is 0-indexed, matching Date.
@@ -36,6 +42,23 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(at(14 * 86400), NOW_MS)).toBe("2w ago");
     expect(formatRelativeTime(at(4 * 2592000), NOW_MS)).toBe("4mo ago");
     expect(formatRelativeTime(at(31536000), NOW_MS)).toBe("1y ago");
+  });
+});
+
+describe("relativeAge", () => {
+  const ago = (seconds: number) => NOW_MS - seconds * 1000;
+
+  it("reads under a minute, or a future instant, as now", () => {
+    expect(relativeAge(ago(59), NOW_MS)).toEqual({ unit: "now" });
+    expect(relativeAge(ago(-30), NOW_MS)).toEqual({ unit: "now" });
+  });
+
+  it("floors to whole minutes, hours, and days", () => {
+    expect(relativeAge(ago(60), NOW_MS)).toEqual({ unit: "minutes", n: 1 });
+    expect(relativeAge(ago(5 * 60 + 59), NOW_MS)).toEqual({ unit: "minutes", n: 5 });
+    expect(relativeAge(ago(3600), NOW_MS)).toEqual({ unit: "hours", n: 1 });
+    expect(relativeAge(ago(23 * 3600 + 3599), NOW_MS)).toEqual({ unit: "hours", n: 23 });
+    expect(relativeAge(ago(2 * 86400), NOW_MS)).toEqual({ unit: "days", n: 2 });
   });
 });
 

@@ -4,16 +4,21 @@ import { useState } from "react";
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 import { QuietButton } from "../common/QuietButton";
+import { PrimaryButton } from "../common/PrimaryButton";
 import { PlaylistCoverField } from "./PlaylistCoverField";
 import { PlaylistDescriptionField } from "./PlaylistDescriptionField";
 import { PlaylistDeleteControl } from "./PlaylistDeleteControl";
 import { PlaylistExportDialog } from "./PlaylistExportDialog";
 
 // -- Icon Imports --
-import { Share } from "lucide-react";
+import { Play, Share } from "lucide-react";
+
+// -- Hook Imports --
+import { usePlayPlaylist } from "./usePlayPlaylist";
 
 // -- State Imports --
 import { useRenamePlaylist, useSetPlaylistDescription } from "../../state/playlists/store";
+import { usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
 import type { PlaylistRow } from "../../types";
@@ -28,7 +33,7 @@ import styles from "./PlaylistHeader.module.css";
  * The playlist header for the full-pane view: the cover on the left, the big editable name over its
  * description and meta line on the right - laid wide like the album folder header. The name commits a
  * rename and the description its blurb, a null on either clearing it back to the default. The meta line
- * carries the slot count and the delete control.
+ * leads with Play, the view's one solid-accent action, then the slot count, export, and delete.
  */
 export function PlaylistHeader({
   playlist,
@@ -39,6 +44,8 @@ export function PlaylistHeader({
 }) {
   const rename = useRenamePlaylist();
   const setDescription = useSetPlaylistDescription();
+  const playback = usePlayPlaylist(playlist.id);
+  const playerEnabled = usePlayerEnabled();
   const t = useT();
 
   const [exporting, setExporting] = useState(false);
@@ -63,6 +70,12 @@ export function PlaylistHeader({
           onCommit={(next) => void setDescription(playlist.id, next === "" ? null : next)}
         />
         <div className={styles.line}>
+          {playerEnabled ? (
+            <PrimaryButton onClick={playback.play} disabled={!playback.playable}>
+              <Play size={15} strokeWidth={2} fill="currentColor" aria-hidden="true" />
+              {t((d) => d.player.play)}
+            </PrimaryButton>
+          ) : null}
           <span className={styles.count}>
             {t((d) => d.playlists.trackCount, { n: playlist.track_count })}
           </span>

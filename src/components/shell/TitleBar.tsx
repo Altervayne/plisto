@@ -19,7 +19,7 @@ import { useT } from "../../i18n";
 // -- Component Imports --
 import { PlistoLogo } from "../common/PlistoLogo";
 import { QuietButton } from "../common/QuietButton";
-import { Tooltip } from "../common/Tooltip/Tooltip";
+import { LibraryStatus } from "./LibraryStatus";
 
 // -- Icon Imports --
 import { Minus, Square, Copy, X } from "lucide-react";
@@ -27,16 +27,11 @@ import { Minus, Square, Copy, X } from "lucide-react";
 // -- Style Imports --
 import styles from "./TitleBar.module.css";
 
-/** The trailing folder of a path, so the indicator reads as a name rather than a full mono path. */
-function folderName(path: string): string {
-  const leaf = path.split(/[\\/]/).filter(Boolean).pop();
-  return leaf ?? path;
-}
-
 /**
- * The custom window chrome replacing the native title bar: the brand and active workspace path on the
+ * The custom window chrome replacing the native title bar: the brand and the library status on the
  * left, a drag region in the middle, and minimize / maximize / close on the right. Ambient ground, no
- * divider. The window calls are guarded so the bar still renders outside the desktop shell.
+ * divider. The window calls are guarded so the bar still renders outside the desktop shell. Only the
+ * bar itself carries the drag attribute, so its buttons keep their clicks.
  *
  * Player-only mode is the standalone player's bar: no workspace to name, so the label slot carries the
  * "Open library" affordance instead. Every window control stays.
@@ -88,17 +83,7 @@ export function TitleBar({
           <QuietButton onClick={onOpenLibrary}>{t((d) => d.window.openLibrary)}</QuietButton>
         </div>
       ) : label ? (
-        <Tooltip label={label.kind === "single" ? label.path : undefined}>
-          <div className={styles.workspace}>
-            <span className={styles.dot} aria-hidden="true" />
-            {/* One root reads as its folder name (full path on hover); several as a plain count. */}
-            <span className={styles.path}>
-              {label.kind === "single"
-                ? folderName(label.path)
-                : t((d) => d.window.folders, { n: label.count })}
-            </span>
-          </div>
-        </Tooltip>
+        <LibraryStatus label={label} />
       ) : null}
 
       <div className={styles.controls}>

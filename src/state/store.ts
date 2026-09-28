@@ -1,28 +1,33 @@
 /*
  * The app store: the library of roots, the state of a scan, and the indexed rows. Actions own the IPC
- * orchestration so components stay presentational and read narrow slices. Every scanning action shares
- * one channel/progress/done/error runner; the grid sorts and filters the rows client-side.
+ * orchestration so components stay presentational and read narrow slices. A blocking scan runs through
+ * one channel/progress/done/error runner; a quiet scan is the backend's background sync, whose events
+ * drive the same scan state and patch the rows by id. The grid sorts and filters the rows client-side.
  */
 
 // -- Library Imports --
 import { create } from "zustand";
+import { useMemo } from "react";
 
 // -- Local Imports --
 import {
   addRoot as addRootCmd,
   cancelScan,
   createScanChannel,
+  getTracksByIds,
   listRoots,
   listTracks,
   removeMissingTracks as removeMissingTracksCmd,
   removeRoot as removeRootCmd,
   rescanAll as rescanAllCmd,
-  rescanRoot as rescanRootCmd,
+  rescanLibrary,
   setTrackEdit as setTrackEditCmd,
   setTrackGenres as setTrackGenresCmd,
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
 import { withRetry } from "../lib/withRetry";
+import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } from "./librarySync";
+import type { LibrarySummary, PendingDelta } from "./librarySync";
 
 // -- Type Imports --
 import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets";
@@ -38,8 +43,13 @@ import { usePlaylistsStore } from "./playlists/store";
 // -- Type Imports --
 import type { Channel } from "@tauri-apps/api/core";
 import type {
+  LibraryDelta,
+  LibrarySyncStatus,
+  LibrarySyncSummary,
+  LibrarySyncTick,
   PurgeSummary,
   Root,
+  RootWatchState,
   ScanProgress,
   ScanSummary,
   TrackEditFields,
@@ -48,6 +58,19 @@ import type {
 
 /** Where a scan is in its life: never started, running, finished, or failed. */
 export type ScanStatus = "idle" | "scanning" | "done" | "error";
+
+/**
+ * How a scan presents. A blocking scan owns the screen (the first library scan, adding a folder): the
+ * gate overlays its progress and replaces the shell on failure. A quiet scan runs behind the shell and
+ * reports only through the title bar and Settings.
+ */
+export type ScanMode = "blocking" | "quiet";
+
+/**
+ * A surface that must not see rows shift under it: the albums-from-tags write, the gone-tracks purge
+ * (its confirm and its run), and a running export. While any is held, sync deltas gather unapplied.
+ */
+export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "export";
 
 /** The grid's sort, structurally the table lib's SortingState but without the coupling. */
 export type GridSort = { id: string; desc: boolean }[];
@@ -62,9 +85,16 @@ export type LibraryLabel =
 
 interface ScanState {
   status: ScanStatus;
+  mode: ScanMode;
   progress: ScanProgress | null;
-  summary: ScanSummary | null;
+  // The last landed scan's or background session's summary. Kept while the next one runs, so its
+  // offline roots stay flagged until a fresh summary replaces them.
+  summary: LibrarySummary | null;
   error: string | null;
+  // Epoch ms of the last background session's end; null until one has ended.
+  checkedAt: number | null;
+  // The tracks the last quiet scan added, stamped so the same count twice still reads as a new event.
+  added: { n: number; at: number } | null;
 }
 
 interface AppStore {
@@ -72,6 +102,11 @@ interface AppStore {
   booted: boolean;
   scan: ScanState;
   tracks: TrackRow[];
+  // Each root's watch mode as the background sync last reported it.
+  rootStates: RootWatchState[];
+  // The surfaces currently holding sync deltas back, and the deltas gathered meanwhile.
+  syncHolds: SyncHold[];
+  pendingDelta: PendingDelta;
   // Each flat destination owns its own sort/search so their filters never leak into one another. The
   // library surface (All Tracks) also carries facet chips and a view mode; Files keeps only sort and
   // search. All of it lives here, not in the grid, so a re-scan (which unmounts the grid) does not lose it.
@@ -90,14 +125,22 @@ interface AppStore {
   filesSort: GridSort;
   filesSearch: string;
   boot: () => Promise<void>;
-  loadRoots: () => Promise<void>;
+  loadRoots: () => Promise<boolean>;
   addRoot: () => Promise<void>;
   addRootPath: (path: string) => Promise<boolean>;
   removeRoot: (id: number) => Promise<void>;
-  rescanRoot: (id: number) => Promise<void>;
   rescanAll: () => Promise<void>;
+  rescanQuiet: (rootId?: number) => Promise<void>;
   cancel: () => Promise<void>;
-  loadTracks: () => Promise<void>;
+  loadTracks: () => Promise<boolean>;
+  seedSync: (status: LibrarySyncStatus) => void;
+  applySyncTick: (tick: LibrarySyncTick) => void;
+  applySyncSummary: (summary: LibrarySyncSummary) => void;
+  setRootStates: (states: RootWatchState[]) => void;
+  queueDelta: (delta: LibraryDelta) => void;
+  flushDelta: () => Promise<void>;
+  holdSync: (hold: SyncHold) => void;
+  releaseSync: (hold: SyncHold) => void;
   purgeGoneTracks: (trackIds: number[]) => Promise<PurgeSummary>;
   editTrack: (trackId: number, fields: TrackEditFields) => Promise<void>;
   setTrackGenres: (trackId: number, genreIds: number[]) => Promise<void>;
@@ -115,19 +158,39 @@ interface AppStore {
 
 const idleScan: ScanState = {
   status: "idle",
+  mode: "blocking",
   progress: null,
   summary: null,
   error: null,
+  checkedAt: null,
+  added: null,
 };
 
+// The backend's rejection when a scan already holds the lock; every scan command words it the same.
+const SCAN_BUSY = "a scan is already running";
+
+// The quiet error when the rows could not be reloaded after a background change. Never shown raw.
+const RELOAD_FAILED = "library reload failed";
+
+/** Whether a scan rejection is the busy guard rather than a real failure. */
+function isScanBusy(error: unknown): boolean {
+  return String(error).includes(SCAN_BUSY);
+}
+
+/** Whether the scan state belongs to a blocking scan still running, which nothing quiet may touch. */
+function blockingRun(scan: ScanState): boolean {
+  return scan.status === "scanning" && scan.mode === "blocking";
+}
+
 export const useAppStore = create<AppStore>((set, get) => {
-  // Drives the scan state from a scanning job's progress and outcome, over a fresh channel. A
+  // Drives the scan state from a blocking job's progress and outcome, over a fresh channel. A
   // cancelled run still resolves with a summary, so it lands in 'done' with the partial index intact.
-  // Returns whether the job succeeded, so the caller reloads only on a landed scan.
+  // Returns the summary of a landed scan, or null, so the caller reloads only on a landed scan.
   const runScanJob = async (
     job: (channel: Channel<ScanProgress>) => Promise<ScanSummary>,
-  ): Promise<boolean> => {
-    set({ scan: { status: "scanning", progress: null, summary: null, error: null } });
+  ): Promise<ScanSummary | null> => {
+    const before = get().scan;
+    set({ scan: { ...before, status: "scanning", mode: "blocking", progress: null, error: null } });
 
     const channel = createScanChannel((progress) => {
       // scanned is monotonic on the backend; guard against an out-of-order tick regressing it.
@@ -138,19 +201,66 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     try {
       const summary = await job(channel);
-      set((s) => ({ scan: { ...s.scan, status: "done", summary } }));
-      return true;
+      set((s) => ({ scan: { ...s.scan, status: "done", summary: { ...summary, source: "blocking" } } }));
+      return summary;
     } catch (e) {
+      // Background passes yield to this scan, so a busy lock means a user write is mid-flight. That
+      // is worth a quiet note, never the full-screen failure.
+      if (isScanBusy(e)) {
+        set({ scan: { ...before, status: "error", mode: "quiet", error: String(e) } });
+        return null;
+      }
       set((s) => ({ scan: { ...s.scan, status: "error", error: String(e) } }));
-      return false;
+      return null;
     }
   };
+
+  // Reloads the roots, tracks and organization. Each read keeps its current rows on failure; the
+  // result says whether all three landed.
+  const refreshLibrary = async (): Promise<boolean> => {
+    const roots = await get().loadRoots();
+    const tracks = await get().loadTracks();
+    const org = await useOrganizeStore.getState().refreshOrganization();
+    return roots && tracks && org;
+  };
+
+  // Marks the last quiet check as failed, unless a blocking scan owns the state.
+  const failQuietly = (error: string) => {
+    const { scan } = get();
+    if (blockingRun(scan)) return;
+    set({ scan: { ...scan, status: "error", mode: "quiet", error } });
+  };
+
+  // Applies one batch of gathered deltas: fetch the changed rows and patch them in by id, falling
+  // back to a full keep-on-error refresh on a reload or a failed fetch. Album membership rows carry
+  // missing_at too, so a filed track also refreshes the organization.
+  const applyDelta = async ({ ids, reload }: PendingDelta) => {
+    if (!reload) {
+      const rows = await getTracksByIds(ids).catch(() => null);
+      if (rows) {
+        set((s) => ({ tracks: mergeRowsById(s.tracks, rows) }));
+        const changed = new Set(ids);
+        const org = useOrganizeStore.getState();
+        if (org.org.membership.some((m) => changed.has(m.track_id))) {
+          if (!(await org.refreshOrganization())) failQuietly(RELOAD_FAILED);
+        }
+        return;
+      }
+    }
+    if (!(await refreshLibrary())) failQuietly(RELOAD_FAILED);
+  };
+
+  // One flush at a time; a delta that lands mid-flush is picked up by the same loop.
+  let flushing = false;
 
   return {
     roots: [],
     booted: false,
     scan: idleScan,
     tracks: [],
+    rootStates: [],
+    syncHolds: [],
+    pendingDelta: NO_DELTA,
     librarySort: [],
     librarySearch: "",
     libraryFacets: [],
@@ -163,27 +273,31 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     boot: async () => {
       await get().loadRoots();
-      // Open into the last index when the library has roots; no auto-rescan on launch.
+      // Open into the last index when the library has roots; the background sync runs its own startup
+      // pass to catch up on what changed while the app was closed.
       if (get().roots.length > 0) await get().loadTracks();
       set({ booted: true });
     },
 
+    // A read that still fails after its retries keeps the current roots: at boot that is the empty
+    // list, and later a failed reload never drops a stocked library back to onboarding.
     loadRoots: async () => {
       try {
         // Retried: an early boot read can reject before managed state is ready. An empty result is not
         // a rejection, so a genuinely empty library still resolves at once and shows onboarding.
         const roots = await withRetry(listRoots);
         set({ roots });
+        return true;
       } catch {
-        set({ roots: [] });
+        return false;
       }
     },
 
     addRoot: async () => {
       const path = await pickFolder();
       if (!path) return;
-      const ok = await runScanJob((channel) => addRootCmd(path, channel));
-      if (ok) {
+      const summary = await runScanJob((channel) => addRootCmd(path, channel));
+      if (summary) {
         await get().loadRoots();
         await get().loadTracks();
       }
@@ -192,12 +306,12 @@ export const useAppStore = create<AppStore>((set, get) => {
     // Indexes an already-known folder as a root, the same ingest addRoot runs once a folder is picked.
     // The splicer hands its finished output folder here to bring the fresh cuts into the library.
     addRootPath: async (path) => {
-      const ok = await runScanJob((channel) => addRootCmd(path, channel));
-      if (ok) {
+      const summary = await runScanJob((channel) => addRootCmd(path, channel));
+      if (summary) {
         await get().loadRoots();
         await get().loadTracks();
       }
-      return ok;
+      return summary != null;
     },
 
     removeRoot: async (id) => {
@@ -206,41 +320,150 @@ export const useAppStore = create<AppStore>((set, get) => {
       await get().loadTracks();
     },
 
-    rescanRoot: async (id) => {
-      const ok = await runScanJob((channel) => rescanRootCmd(id, channel));
-      if (ok) await get().loadTracks();
+    // The gate's retry after a failed blocking scan, so it stays blocking. Every other rescan is quiet.
+    rescanAll: async () => {
+      const summary = await runScanJob((channel) => rescanAllCmd(channel));
+      if (summary) await get().loadTracks();
     },
 
-    rescanAll: async () => {
-      const ok = await runScanJob((channel) => rescanAllCmd(channel));
-      if (ok) await get().loadTracks();
+    // The one entry for every quiet rescan: one root when given, else the whole library. It only
+    // queues a background pass, joining a running session; progress and results arrive as sync events.
+    rescanQuiet: async (rootId) => {
+      try {
+        await rescanLibrary(rootId);
+      } catch (e) {
+        failQuietly(String(e));
+      }
     },
 
     cancel: async () => {
       await cancelScan();
     },
 
+    // Like loadRoots, a read that still fails after its retries keeps the current rows, so a stocked
+    // library is never emptied by one failed read.
     loadTracks: async () => {
       try {
         // Retried for the same boot-race reason as loadRoots: it runs right after the roots hydrate.
         const { rows } = await withRetry(() => listTracks({}));
         set({ tracks: rows });
+        return true;
       } catch {
-        set({ tracks: [] });
+        return false;
       }
+    },
+
+    // ---- Background sync ----
+
+    // The snapshot read once on subscribe, for whatever the sync sent before anyone listened.
+    seedSync: (status) => {
+      set({ rootStates: status.roots });
+      if (status.running) {
+        get().applySyncTick({
+          running: true,
+          scanned: status.scanned,
+          total: status.total,
+          deferred: 0,
+        });
+      }
+    },
+
+    // A running session reads as a quiet scan; its last tick ends it. A blocking scan owns the state
+    // while it runs, so ticks are ignored until it lands.
+    applySyncTick: (tick) => {
+      const { scan } = get();
+      if (blockingRun(scan)) return;
+      if (tick.running) {
+        set({
+          scan: {
+            ...scan,
+            status: "scanning",
+            mode: "quiet",
+            error: null,
+            progress: {
+              phase: tick.total > 0 ? "reading" : "enumerating",
+              scanned: tick.scanned,
+              total: tick.total,
+              errors: 0,
+              done: false,
+            },
+          },
+        });
+        return;
+      }
+      if (scan.status !== "scanning") return;
+      set({ scan: { ...scan, status: "done", mode: "quiet", progress: null } });
+    },
+
+    // A session's end: its totals become the summary line, it counts as a check, and what it added
+    // shows as the passing caption. Unreadable files are reported, not treated as a failed check.
+    applySyncSummary: (totals) => {
+      const { scan } = get();
+      const at = Date.now();
+      set({
+        scan: {
+          ...scan,
+          summary: summaryFromSync(totals),
+          checkedAt: at,
+          added: totals.inserted > 0 ? { n: totals.inserted, at } : scan.added,
+        },
+      });
+      // The roots' track counts are not in the deltas, so read them fresh.
+      void get()
+        .loadRoots()
+        .then((ok) => {
+          if (!ok) failQuietly(RELOAD_FAILED);
+        });
+    },
+
+    setRootStates: (rootStates) => set({ rootStates }),
+
+    queueDelta: (delta) => {
+      set((s) => ({ pendingDelta: mergeDelta(s.pendingDelta, delta) }));
+      void get().flushDelta();
+    },
+
+    // Applies the gathered deltas unless a surface holds them back; a release flushes again.
+    flushDelta: async () => {
+      if (flushing) return;
+      flushing = true;
+      try {
+        while (get().syncHolds.length === 0) {
+          const pending = get().pendingDelta;
+          if (!pending.reload && pending.ids.length === 0) break;
+          set({ pendingDelta: NO_DELTA });
+          await applyDelta(pending);
+        }
+      } finally {
+        flushing = false;
+      }
+    },
+
+    holdSync: (hold) => {
+      set((s) => (s.syncHolds.includes(hold) ? s : { syncHolds: [...s.syncHolds, hold] }));
+    },
+
+    releaseSync: (hold) => {
+      set((s) => ({ syncHolds: s.syncHolds.filter((h) => h !== hold) }));
+      void get().flushDelta();
     },
 
     // Purges the gone tracks in `trackIds` for good, then reloads every projection they touched: the
     // track store (All Tracks, History, Home), the roots (their counts drop), the organize view (an
     // emptied album is swept), and the playlists (a gone track's slots cascade away). The backend guards
-    // the DELETE on missing_at, so a present id can never be dropped.
+    // the DELETE on missing_at, so a present id can never be dropped. Sync deltas wait until it is done.
     purgeGoneTracks: async (trackIds) => {
-      const summary = await removeMissingTracksCmd(trackIds);
-      await get().loadRoots();
-      await get().loadTracks();
-      await useOrganizeStore.getState().loadOrganization();
-      await usePlaylistsStore.getState().load();
-      return summary;
+      get().holdSync("purge");
+      try {
+        const summary = await removeMissingTracksCmd(trackIds);
+        await get().loadRoots();
+        await get().loadTracks();
+        await useOrganizeStore.getState().loadOrganization();
+        await usePlaylistsStore.getState().load();
+        return summary;
+      } finally {
+        get().releaseSync("purge");
+      }
     },
 
     // The Files-view peek edits tags and genres optimistically: patch the row, fire the write, reload
@@ -299,6 +522,9 @@ export const useAppStore = create<AppStore>((set, get) => {
         booted: false,
         scan: idleScan,
         tracks: [],
+        rootStates: [],
+        syncHolds: [],
+        pendingDelta: NO_DELTA,
         librarySort: [],
         librarySearch: "",
         libraryFacets: [],
@@ -331,9 +557,40 @@ export const useLibraryLabel = (): LibraryLabel | null => {
 export const useScanStatus = (): ScanStatus => useAppStore((s) => s.scan.status);
 export const useScanProgress = (): ScanProgress | null =>
   useAppStore((s) => s.scan.progress);
-export const useScanSummary = (): ScanSummary | null =>
+export const useScanSummary = (): LibrarySummary | null =>
   useAppStore((s) => s.scan.summary);
 export const useScanError = (): string | null => useAppStore((s) => s.scan.error);
+export const useScanMode = (): ScanMode => useAppStore((s) => s.scan.mode);
+export const useScanCheckedAt = (): number | null => useAppStore((s) => s.scan.checkedAt);
+export const useScanAdded = (): { n: number; at: number } | null =>
+  useAppStore((s) => s.scan.added);
+
+const NO_ROOTS: number[] = [];
+
+/** Whether a blocking scan is running; a quiet one never locks the folder actions. */
+export const useBlockingScan = (): boolean => useAppStore((s) => blockingRun(s.scan));
+
+/**
+ * The roots to flag offline: unreachable by the sync's latest report, or skipped by the last summary.
+ * Built here from two stable references, so the fresh list never destabilizes a subscription.
+ */
+export const useOfflineRoots = (): number[] => {
+  const states = useAppStore((s) => s.rootStates);
+  const lastSummary = useAppStore((s) => s.scan.summary?.offline_roots ?? NO_ROOTS);
+  return useMemo(() => offlineRootIds(states, lastSummary), [states, lastSummary]);
+};
+
+/** Whether the last quiet scan, or the reload after it, failed. */
+export const useQuietCheckFailed = (): boolean =>
+  useAppStore((s) => s.scan.status === "error" && s.scan.mode === "quiet");
+
+/** How many indexed tracks have their source file gone from disk. */
+export const useGoneCount = (): number =>
+  useAppStore((s) => {
+    let n = 0;
+    for (const r of s.tracks) if (r.missing_at != null) n += 1;
+    return n;
+  });
 
 export const useTracks = (): TrackRow[] => useAppStore((s) => s.tracks);
 
@@ -372,8 +629,10 @@ export const useLoadRoots = () => useAppStore((s) => s.loadRoots);
 export const useAddRoot = () => useAppStore((s) => s.addRoot);
 export const useAddRootPath = () => useAppStore((s) => s.addRootPath);
 export const useRemoveRoot = () => useAppStore((s) => s.removeRoot);
-export const useRescanRoot = () => useAppStore((s) => s.rescanRoot);
 export const useRescanAll = () => useAppStore((s) => s.rescanAll);
+export const useRescanQuiet = () => useAppStore((s) => s.rescanQuiet);
+export const useHoldSync = () => useAppStore((s) => s.holdSync);
+export const useReleaseSync = () => useAppStore((s) => s.releaseSync);
 export const useCancelScan = () => useAppStore((s) => s.cancel);
 export const useEditTrack = () => useAppStore((s) => s.editTrack);
 export const useSetTrackGenres = () => useAppStore((s) => s.setTrackGenres);

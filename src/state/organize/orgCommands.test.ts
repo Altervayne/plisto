@@ -1,12 +1,28 @@
 // -- Test Imports --
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { applyCommand, invertCommand } from "./orgCommands";
-import type { Command, OrgState, Placement } from "./orgCommands";
+import { applyCommand, commandToIpc, invertCommand } from "./orgCommands";
+import { planAssign } from "./assignPlan";
+import type { Command, OrgState } from "./orgCommands";
+
+// -- IPC Imports --
+import * as ipc from "../../lib/ipc";
 
 // -- Type Imports --
 import type { AlbumRow, AlbumTrackRow } from "../../types";
+
+// The write sink the engine calls, stubbed so a test can see which writes a command makes.
+vi.mock("../../lib/ipc", () => ({
+  addTracksToAlbum: vi.fn(async () => {}),
+  reapplyAlbumsFromTags: vi.fn(async () => {}),
+  removeTracksFromAlbum: vi.fn(async () => {}),
+  revertAlbumsFromTags: vi.fn(async () => {}),
+  setAlbumFields: vi.fn(async () => {}),
+  setAlbumLayout: vi.fn(async () => {}),
+  setMemberPlacement: vi.fn(async () => {}),
+  setTrackOverrides: vi.fn(async () => {}),
+}));
 
 // A membership row with the track-level fields a fixture does not care about defaulted.
 function row(albumId: number, trackId: number, trackNo: number, over: Partial<AlbumTrackRow> = {}): AlbumTrackRow {
@@ -54,18 +70,9 @@ function fixture(): OrgState {
   };
 }
 
-// Rebuilds the exact assign command the store would build for moving one track into an album.
+// The assign command the store builds for moving one track into an album.
 function moveCommand(state: OrgState, albumId: number, trackId: number): Command {
-  const current = state.membership.find((r) => r.track_id === trackId)!;
-  const nextNo = state.membership
-    .filter((r) => r.album_id === albumId)
-    .reduce((max, r) => Math.max(max, r.track_no ?? 0), 0);
-  const before: Placement = { assigned: true, row: current };
-  const after: Placement = {
-    assigned: true,
-    row: { ...current, album_id: albumId, track_no: nextNo + 1, disc_no: 1, title_override: null, artist_override: null },
-  };
-  return { kind: "assign", albumId, trackIds: [trackId], before: [before], after: [after] };
+  return planAssign(state.membership, [], albumId, [trackId])!;
 }
 
 describe("applyCommand", () => {
@@ -87,13 +94,6 @@ describe("applyCommand", () => {
     });
     const r = state.membership.find((x) => x.track_id === 11)!;
     expect([r.title_override, r.track_no, r.disc_no]).toEqual(["Clean", 5, 2]);
-  });
-
-  it("rewrites track_no to the new order", () => {
-    const state = applyCommand(fixture(), { kind: "reorderTracks", albumId: 1, nextOrder: [11, 10], prevOrder: [10, 11] });
-    const byId = new Map(state.membership.map((r) => [r.track_id, r.track_no]));
-    expect(byId.get(11)).toBe(1);
-    expect(byId.get(10)).toBe(2);
   });
 
   it("moves a track into another album and leaves it there only", () => {
@@ -119,6 +119,20 @@ describe("applyCommand", () => {
   });
 });
 
+// Swaps album A's two tracks on disc 1.
+const swapLayout: Command = {
+  kind: "setAlbumLayout",
+  albumId: 1,
+  next: [
+    { track_id: 11, disc_no: 1, track_no: 1 },
+    { track_id: 10, disc_no: 1, track_no: 2 },
+  ],
+  prev: [
+    { track_id: 10, disc_no: 1, track_no: 1 },
+    { track_id: 11, disc_no: 1, track_no: 2 },
+  ],
+};
+
 describe("invertCommand", () => {
   const cases: Record<string, Command> = {
     setAlbumFields: {
@@ -134,7 +148,7 @@ describe("invertCommand", () => {
       next: { title_override: "Clean", artist_override: "X", track_no: 5, disc_no: 2 },
       prev: { title_override: null, artist_override: null, track_no: 2, disc_no: 1 },
     },
-    reorderTracks: { kind: "reorderTracks", albumId: 1, nextOrder: [11, 10], prevOrder: [10, 11] },
+    setAlbumLayout: swapLayout,
     assign: moveCommand(fixture(), 2, 11),
     unassign: {
       kind: "unassign",
@@ -181,7 +195,7 @@ describe("command sequences", () => {
       state = applyCommand(state, cmd);
     };
 
-    step({ kind: "reorderTracks", albumId: 1, nextOrder: [11, 10], prevOrder: [10, 11] });
+    step(swapLayout);
     step({
       kind: "setAlbumFields",
       albumId: 2,
@@ -200,5 +214,46 @@ describe("command sequences", () => {
     // Redo the first command re-applies it.
     const redone = applyCommand(state, sequence[0]);
     expect(redone).toEqual(before[1]);
+  });
+});
+
+describe("commandToIpc", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("writes membership only for a move and for its undo, never the track's edits", async () => {
+    const start = fixture();
+    start.membership = start.membership.map((r) =>
+      r.track_id === 11 ? { ...r, title_override: "Edited", artist_override: "Someone" } : r,
+    );
+    const cmd = moveCommand(start, 2, 11);
+
+    await commandToIpc(cmd);
+    expect(ipc.addTracksToAlbum).toHaveBeenCalledWith(2, [11]);
+    expect(ipc.setMemberPlacement).toHaveBeenCalledWith(2, 11, 2, false);
+
+    await commandToIpc(invertCommand(cmd));
+    expect(ipc.addTracksToAlbum).toHaveBeenLastCalledWith(1, [11]);
+    expect(ipc.setMemberPlacement).toHaveBeenLastCalledWith(1, 11, 2, false);
+
+    expect(ipc.setTrackOverrides).not.toHaveBeenCalled();
+  });
+
+  it("writes membership only for an unassign, and its undo restores the keep-own-cover flag", async () => {
+    const cmd: Command = {
+      kind: "unassign",
+      albumId: 1,
+      trackIds: [10],
+      before: [{ assigned: true, row: row(1, 10, 1, { title_override: "Edited", keep_own_cover: true }) }],
+      after: [{ assigned: false, trackId: 10 }],
+    };
+
+    await commandToIpc(cmd);
+    expect(ipc.removeTracksFromAlbum).toHaveBeenCalledWith(1, [10]);
+
+    await commandToIpc(invertCommand(cmd));
+    expect(ipc.addTracksToAlbum).toHaveBeenCalledWith(1, [10]);
+    expect(ipc.setMemberPlacement).toHaveBeenCalledWith(1, 10, 1, true);
+
+    expect(ipc.setTrackOverrides).not.toHaveBeenCalled();
   });
 });

@@ -119,7 +119,7 @@ pub fn needs_reread(stored: (i64, i64), current: (i64, i64), art_known: bool) ->
 
 /// Trims a tag and drops it to None when empty. A blank or whitespace-only tag is the same as
 /// no tag: we never persist an empty string.
-fn clean_text(opt: &Option<String>) -> Option<String> {
+pub(crate) fn clean_text(opt: &Option<String>) -> Option<String> {
     opt.as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())

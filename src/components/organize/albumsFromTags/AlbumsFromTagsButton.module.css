@@ -1,0 +1,5 @@
+/* The proposal count beside the label, quieter than the label so it reads as a tally. */
+.count {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

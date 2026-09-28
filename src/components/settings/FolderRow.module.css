@@ -55,6 +55,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A root the last scan could not reach, flagged in the warn tone ahead of its kept count. */
+.offline {
+  margin-right: 10px;
+  font-weight: 550;
+  color: var(--warn);
+}
+
 /* The row's glyph controls hold their slot but dissolve at rest, surfacing on row hover or focus. */
 .controls {
   display: inline-flex;

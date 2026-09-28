@@ -127,6 +127,13 @@ pub fn build_list_query(
     })
 }
 
+/// The row select for `count` ids bound as `?1..`, through the same projection and join as
+/// `build_list_query`, so a row fetched by id matches the one a full load returns.
+pub fn build_ids_query(count: usize) -> String {
+    let placeholders = vec!["?"; count].join(", ");
+    format!("SELECT {ROW_COLUMNS} FROM {FROM_CLAUSE} WHERE tracks.id IN ({placeholders})")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +199,15 @@ mod tests {
     fn limit_and_offset_shape_the_window() {
         let q = build_list_query(None, None, Some(50), Some(100)).unwrap();
         assert!(q.rows_sql.ends_with("LIMIT 100 OFFSET 50"));
+    }
+
+    #[test]
+    fn ids_query_shares_the_list_projection() {
+        let sql = build_ids_query(3);
+        assert_eq!(
+            sql,
+            format!("SELECT {ROW_COLUMNS} FROM {FROM_CLAUSE} WHERE tracks.id IN (?, ?, ?)")
+        );
     }
 
     #[test]

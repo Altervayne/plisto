@@ -21,6 +21,8 @@
   align-items: center;
   padding: 0 24px;
   text-align: center;
+  /* Inherited, so every line of text in the column holds its own over the aurora. */
+  text-shadow: var(--text-halo);
 }
 
 /* The identity group: source, cover and title, centred in the flexible space above the controls, so the
@@ -52,6 +54,10 @@
   align-items: center;
   gap: 3px;
   max-width: 100%;
+  /* Here and on .text: the lines inside clip their own boxes, which cuts a text-shadow square, so the
+   * halo is a filter on the unclipped wrapper instead. */
+  text-shadow: none;
+  filter: var(--text-halo-filter);
 }
 
 .sourceLabel {
@@ -59,7 +65,7 @@
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* The name as a field affordance: a bare link that underlines on hover, no box. */
@@ -104,6 +110,8 @@
   align-items: center;
   gap: 2px;
   width: 100%;
+  text-shadow: none;
+  filter: var(--text-halo-filter);
 }
 
 .title {
@@ -127,6 +135,21 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Dark gives the secondary lines full ink so they read over a bright bloom; size and weight hold the hierarchy. */
+:root[data-theme="dark"] .artist,
+:root[data-theme="dark"] .sourceName,
+:root[data-theme="dark"] .sourceNamePlain {
+  color: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .artist,
+  :root:not([data-theme="light"]) .sourceName,
+  :root:not([data-theme="light"]) .sourceNamePlain {
+    color: var(--ink);
+  }
 }
 
 /* The seek bar spans the column so the fill reads across the full width. */
@@ -159,4 +182,11 @@
   display: flex;
   align-items: center;
   justify-self: end;
+}
+
+/* The transport and speaker glyphs carry the same surface halo as the text. The volume chip holds no svg,
+ * so its rail stays clean on its own opaque surface. */
+.cluster svg,
+.volumeSlot svg {
+  filter: var(--glyph-halo);
 }

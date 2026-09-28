@@ -1,6 +1,7 @@
 /*
- * Seeds an album's metadata from a track selection: the most-common non-null raw value per column,
- * ties broken by first appearance so the result is deterministic. Pure and side-effect free - the
+ * Seeds an album's metadata from a track selection: the most-common non-null value per column, ties
+ * broken by first appearance so the result is deterministic. Title, album artist and year read the
+ * effective value (edit over raw tag), so a track the user already retagged seeds what it now shows. Pure and side-effect free - the
  * action bar computes it once from the selected rows before it creates the album. An all-null column
  * across the selection stays null (unset, resolved to "Untitled" at display, never an empty string).
  */
@@ -9,7 +10,7 @@
 import type { AlbumFields, TrackRow } from "../../types";
 
 /** The most-frequent non-null value, or null when every entry is null. Ties keep the first seen. */
-function mostCommon<T extends string | number>(values: (T | null)[]): T | null {
+export function mostCommon<T extends string | number>(values: (T | null)[]): T | null {
   const counts = new Map<T, number>();
   const firstSeen = new Map<T, number>();
 
@@ -31,14 +32,18 @@ function mostCommon<T extends string | number>(values: (T | null)[]): T | null {
 }
 
 /**
- * Suggests album fields from the selected tracks. Album artist prefers a track's album-artist tag and
+ * Suggests album fields from the selected tracks. Album artist prefers a track's album artist and
  * falls back to its artist, so a clean selection resolves even when only the per-track artist is set.
  */
 export function suggestAlbumFields(tracks: TrackRow[]): AlbumFields {
   return {
-    title: mostCommon(tracks.map((t) => t.raw_album)),
-    album_artist: mostCommon(tracks.map((t) => t.raw_album_artist ?? t.raw_artist)),
-    year: mostCommon(tracks.map((t) => t.raw_year)),
+    title: mostCommon(tracks.map((t) => t.album_edit ?? t.raw_album)),
+    album_artist: mostCommon(
+      tracks.map(
+        (t) => t.album_artist_edit ?? t.raw_album_artist ?? t.artist_edit ?? t.raw_artist,
+      ),
+    ),
+    year: mostCommon(tracks.map((t) => t.year_edit ?? t.raw_year)),
     genre: mostCommon(tracks.map((t) => t.raw_genre)),
   };
 }

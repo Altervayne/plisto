@@ -9,7 +9,12 @@ import { Tooltip } from "../common/Tooltip/Tooltip";
 import { RotateCw, X } from "lucide-react";
 
 // -- State Imports --
-import { useLoadRoots, useRemoveRoot, useRescanRoot, useScanStatus } from "../../state/store";
+import {
+  useBlockingScan,
+  useOfflineRoots,
+  useRemoveRoot,
+  useRescanQuiet,
+} from "../../state/store";
 
 // -- IPC Imports --
 import { rootRemovalImpact } from "../../lib/ipc";
@@ -31,23 +36,20 @@ function folderName(path: string): string {
 
 /**
  * One library root as a quiet row: its folder name over the dimmed full path, the track count trailing,
- * and rescan/remove glyphs that dissolve until the row is hovered. Remove is never bare - it first reads
- * the removal impact, then arms a counted two-step confirm naming the blast radius before the drop.
+ * and rescan/remove glyphs that dissolve until the row is hovered. A root the sync reports unreachable,
+ * or the last scan skipped, reads Offline before its count, its tracks kept as they were. Remove is
+ * never bare - it first reads the removal impact, then arms a counted two-step confirm naming the blast
+ * radius before the drop.
  */
 export function FolderRow({ root }: { root: Root }) {
-  const rescanRoot = useRescanRoot();
+  const rescanQuiet = useRescanQuiet();
   const removeRoot = useRemoveRoot();
-  const loadRoots = useLoadRoots();
-  const scanning = useScanStatus() === "scanning";
+  // A quiet scan never locks the row: a rescan joins it and a remove preempts it.
+  const scanning = useBlockingScan();
+  const offline = useOfflineRoots().includes(root.id);
   const t = useT();
 
   const [impact, setImpact] = useState<RootRemovalImpact | null>(null);
-
-  const onRescan = async () => {
-    await rescanRoot(root.id);
-    // A rescan reloads only the tracks, so refresh the roots to true up this row's count.
-    await loadRoots();
-  };
 
   const onRemoveClick = async () => {
     try {
@@ -89,6 +91,7 @@ export function FolderRow({ root }: { root: Root }) {
           </Tooltip>
         </div>
         <span className={styles.count}>
+          {offline ? <span className={styles.offline}>{t((d) => d.settings.offline)}</span> : null}
           {t((d) => d.settings.trackCount, { n: root.track_count })}
         </span>
         <div className={styles.controls}>
@@ -96,7 +99,7 @@ export function FolderRow({ root }: { root: Root }) {
             type="button"
             className={styles.glyph}
             aria-label={t((d) => d.settings.rescan)}
-            onClick={() => void onRescan()}
+            onClick={() => void rescanQuiet(root.id)}
             disabled={scanning}
           >
             <RotateCw size={15} strokeWidth={1.8} />

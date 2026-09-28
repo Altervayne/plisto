@@ -2,15 +2,15 @@
  * The schema migration runner, keyed on PRAGMA user_version. Each step bumps the version once
  * its statements land, so migrate() is idempotent: an already-current DB runs nothing. Steps are
  * additive - columns and tables are added - save for the deliberate retirement of a dead column
- * once nothing reads it (v8), which still preserves every row. So a running index survives an
- * upgrade with its rows intact.
+ * once nothing reads it (v8) and the per-disc renumbering repair (v14), which both still preserve
+ * every row. So a running index survives an upgrade with its rows intact.
  */
 
 // -- Library Imports --
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 13;
+const LATEST_VERSION: i64 = 14;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -298,6 +298,31 @@ CREATE INDEX idx_plays_played_at ON plays(played_at);
 CREATE INDEX idx_track_genres_genre ON track_genres(genre_id);
 ";
 
+// Version 14: repairs membership numbering to per-disc positions. `track_no` is a track's position
+// within its disc, but older rows can carry album-wide numbering, so a second disc may start at 4 or a
+// disc may hold gaps. Each album's members renumber 1..k per resolved disc (the edit over the raw
+// scan, unset reading as disc 1), in the order the album drawer lists them: disc, then track_no with a
+// null first, then track id. The stored numbers then match what the drawer shows. Only
+// `album_tracks.track_no` is written, and only where it differs, so a correct album is left alone and
+// a re-run changes nothing.
+const MIGRATION_V14: &str = "
+WITH ranked AS (
+    SELECT at.track_id,
+           ROW_NUMBER() OVER (
+               PARTITION BY at.album_id, COALESCE(te.disc_no, t.raw_disc_no, 1)
+               ORDER BY COALESCE(at.track_no, 0), at.track_id
+           ) AS position
+    FROM album_tracks at
+    JOIN tracks t ON t.id = at.track_id
+    LEFT JOIN track_edits te ON te.track_id = at.track_id
+)
+UPDATE album_tracks
+SET track_no = ranked.position
+FROM ranked
+WHERE ranked.track_id = album_tracks.track_id
+  AND album_tracks.track_no IS NOT ranked.position;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -318,6 +343,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             10 => conn.execute_batch(MIGRATION_V11)?,
             11 => conn.execute_batch(MIGRATION_V12)?,
             12 => conn.execute_batch(MIGRATION_V13)?,
+            13 => conn.execute_batch(MIGRATION_V14)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -607,7 +633,7 @@ mod tests {
             .unwrap();
         assert_eq!(version, LATEST_VERSION);
 
-        // The membership row survives the drop with its position intact.
+        // The membership row survives the drop; v14 then renumbers its lone disc from 1.
         let track_no: i64 = conn
             .query_row(
                 "SELECT track_no FROM album_tracks WHERE track_id = 1",
@@ -615,7 +641,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(track_no, 5, "the membership row survives with its track_no");
+        assert_eq!(track_no, 1, "the membership row survives, numbered on its disc");
 
         // The three retired columns are gone.
         for col in ["title_override", "artist_override", "disc_no"] {
@@ -906,6 +932,153 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0))
             .unwrap();
         assert_eq!(after, 0, "deleting a track cascades its plays");
+    }
+
+    // A v13 DB, one step short of the per-disc renumbering repair.
+    fn v13_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for step in [
+            MIGRATION_V1,
+            MIGRATION_V2,
+            MIGRATION_V3,
+            MIGRATION_V4,
+            MIGRATION_V5,
+            MIGRATION_V6,
+            MIGRATION_V7,
+            MIGRATION_V8,
+            MIGRATION_V9,
+            MIGRATION_V10,
+            MIGRATION_V11,
+            MIGRATION_V12,
+            MIGRATION_V13,
+        ] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 13).unwrap();
+        conn
+    }
+
+    // Inserts a track with the given raw disc tag.
+    fn insert_track(conn: &Connection, id: i64, disc: Option<i64>) {
+        conn.execute(
+            "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at, raw_disc_no)
+             VALUES (?1, '/music/' || ?1 || '.mp3', 'a.mp3', 'mp3', 10, 20, 30, ?2)",
+            rusqlite::params![id, disc],
+        )
+        .unwrap();
+    }
+
+    // Every membership as (album_id, track_id, track_no), ordered for comparison.
+    fn numbering(conn: &Connection) -> Vec<(i64, i64, Option<i64>)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT album_id, track_id, track_no FROM album_tracks ORDER BY album_id, track_id",
+            )
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    /// A v13 album numbered across its discs renumbers per disc: disc 1 keeps 1..3 and disc 2 restarts
+    /// at 1. A disc edit wins over the raw tag, and no edit or album row is written.
+    #[test]
+    fn v13_renumbers_album_wide_numbering_per_disc() {
+        let conn = v13_db();
+        for (id, disc) in [(1, 1), (2, 1), (3, 1), (4, 2), (5, 1)] {
+            insert_track(&conn, id, Some(disc));
+        }
+        conn.execute_batch(
+            "INSERT INTO track_edits (track_id, disc_no, updated_at) VALUES (5, 2, 0);
+             INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 7);
+             INSERT INTO album_tracks (album_id, track_id, track_no)
+             VALUES (1, 1, 1), (1, 2, 2), (1, 3, 3), (1, 4, 4), (1, 5, 5);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(
+            numbering(&conn),
+            vec![
+                (1, 1, Some(1)),
+                (1, 2, Some(2)),
+                (1, 3, Some(3)),
+                (1, 4, Some(1)),
+                (1, 5, Some(2)),
+            ],
+        );
+        let (edit_disc, edits): (i64, i64) = conn
+            .query_row(
+                "SELECT disc_no, (SELECT COUNT(*) FROM track_edits) FROM track_edits WHERE track_id = 5",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((edit_disc, edits), (2, 1), "the edit layer is untouched");
+        let updated_at: i64 = conn
+            .query_row("SELECT updated_at FROM albums WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(updated_at, 7, "the album row is untouched");
+    }
+
+    /// A null track_no numbers first on its disc, where the drawer lists it, and a gapped disc closes
+    /// up to 1..k in its existing order.
+    #[test]
+    fn v13_numbers_a_null_first_and_closes_gaps() {
+        let conn = v13_db();
+        for id in 1..=6 {
+            insert_track(&conn, id, None);
+        }
+        conn.execute_batch(
+            "INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0), (2, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no)
+             VALUES (1, 1, 1), (1, 2, NULL), (1, 3, 2),
+                    (2, 4, 7), (2, 5, 1), (2, 6, 3);",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(
+            numbering(&conn),
+            vec![
+                (1, 1, Some(2)),
+                (1, 2, Some(1)),
+                (1, 3, Some(3)),
+                (2, 4, Some(3)),
+                (2, 5, Some(1)),
+                (2, 6, Some(2)),
+            ],
+        );
+    }
+
+    /// An album already numbered per disc and a single keep their rows, and re-running the repair
+    /// changes nothing.
+    #[test]
+    fn v13_leaves_correct_numbering_alone_and_is_idempotent() {
+        let conn = v13_db();
+        for (id, disc) in [(1, Some(1)), (2, Some(1)), (3, Some(2)), (4, None)] {
+            insert_track(&conn, id, disc);
+        }
+        conn.execute_batch(
+            "INSERT INTO albums (id, kind, created_at, updated_at)
+             VALUES (1, 'album', 0, 0), (2, 'single', 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no)
+             VALUES (1, 1, 1), (1, 2, 2), (1, 3, 1), (2, 4, 1);",
+        )
+        .unwrap();
+        let before = numbering(&conn);
+
+        migrate(&conn).unwrap();
+        assert_eq!(numbering(&conn), before);
+
+        conn.execute_batch(MIGRATION_V14).unwrap();
+        assert_eq!(numbering(&conn), before);
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

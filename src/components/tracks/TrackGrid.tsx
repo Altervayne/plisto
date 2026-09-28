@@ -31,7 +31,13 @@ import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
 // -- State Imports --
-import { useEditTrack, usePurgeGoneTracks, useTracks } from "../../state/store";
+import {
+  useEditTrack,
+  useHoldSync,
+  usePurgeGoneTracks,
+  useReleaseSync,
+  useTracks,
+} from "../../state/store";
 import {
   useAddSelection,
   useAlbums,
@@ -465,6 +471,14 @@ export function TrackGrid({
   // reloads, so the rows vanish here and everywhere they were derived.
   const purgeGoneTracks = usePurgeGoneTracks();
   const [confirmPurge, setConfirmPurge] = useState(false);
+  const holdSync = useHoldSync();
+  const releaseSync = useReleaseSync();
+  // The confirm names a count, so background sync deltas wait while it is open.
+  useEffect(() => {
+    if (!confirmPurge) return;
+    holdSync("purgeConfirm");
+    return () => releaseSync("purgeConfirm");
+  }, [confirmPurge, holdSync, releaseSync]);
   const goneIds = useMemo(
     () => originals.filter((r) => r.missing_at != null).map((r) => r.id),
     [originals],

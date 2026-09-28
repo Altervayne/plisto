@@ -31,6 +31,7 @@ import type {
   GenreRow,
   HistoryRow,
   ImageFolderGroup,
+  LibrarySyncStatus,
   ListTracksResponse,
   OrganizationSnapshot,
   OutputDeviceInfo,
@@ -51,11 +52,14 @@ import type {
   SpliceJob,
   SpliceProgress,
   SpliceReport,
+  TagAlbumPlan,
+  TagAlbumReceipt,
   TrackDisplay,
   TrackEdit,
   TrackEditFields,
   TrackOverride,
   TrackPlacement,
+  TrackRow,
   WaveformAnalysis,
 } from "../types";
 
@@ -114,6 +118,24 @@ export function rootRemovalImpact(id: number): Promise<RootRemovalImpact> {
 /** Purges the gone tracks in `trackIds` (only rows the scan flagged gone), resolving with the tally. */
 export function removeMissingTracks(trackIds: number[]): Promise<PurgeSummary> {
   return invoke<PurgeSummary>("remove_missing_tracks", { trackIds });
+}
+
+/**
+ * Queues a background rescan of one root, or of every root when `rootId` is omitted, and resolves at
+ * once. Progress and results arrive as `library:*` events.
+ */
+export function rescanLibrary(rootId?: number): Promise<void> {
+  return invoke("rescan_library", { rootId: rootId ?? null });
+}
+
+/** The library-sync snapshot: keep-up-to-date on or off, session progress, each root's watch mode. */
+export function getLibrarySyncStatus(): Promise<LibrarySyncStatus> {
+  return invoke<LibrarySyncStatus>("get_library_sync_status");
+}
+
+/** The rows for `ids`, shaped exactly as `list_tracks` returns them. Missing ids are left out. */
+export function getTracksByIds(ids: number[]): Promise<TrackRow[]> {
+  return invoke<TrackRow[]>("get_tracks_by_ids", { ids });
 }
 
 /** Wraps a progress callback in a fresh channel the export streams ticks over. */
@@ -337,6 +359,32 @@ export function createSingle(trackId: number): Promise<AlbumRow> {
   return invoke<AlbumRow>("create_single", { trackId });
 }
 
+// The backend's StaleProposal message: a batch or receipt no longer fits the library, nothing written.
+const STALE_PROPOSAL = "the proposal is out of date";
+
+/** True when an albums-from-tags call was rejected because its plans or receipt went stale. */
+export function isStaleProposal(error: unknown): boolean {
+  return String(error).includes(STALE_PROPOSAL);
+}
+
+/**
+ * Files many groups of loose tracks into new or existing albums in one transaction. Resolves with the
+ * receipt that undo and redo replay; rejects the whole batch, writing nothing, when a plan went stale.
+ */
+export function createAlbumsFromTags(plans: TagAlbumPlan[]): Promise<TagAlbumReceipt> {
+  return invoke<TagAlbumReceipt>("create_albums_from_tags", { plans });
+}
+
+/** Undoes an albums-from-tags batch from its receipt. Rejects, changing nothing, when it drifted. */
+export function revertAlbumsFromTags(receipt: TagAlbumReceipt): Promise<void> {
+  return invoke<void>("revert_albums_from_tags", { receipt });
+}
+
+/** Redoes a reverted albums-from-tags batch under the same album ids. Rejects when it no longer fits. */
+export function reapplyAlbumsFromTags(receipt: TagAlbumReceipt): Promise<void> {
+  return invoke<void>("reapply_albums_from_tags", { receipt });
+}
+
 /** Deletes an album (or single). Its membership cascades away; the track rows fall back to loose. */
 export function deleteAlbum(albumId: number): Promise<void> {
   return invoke("delete_album", { albumId });
@@ -347,14 +395,22 @@ export function addTracksToAlbum(albumId: number, trackIds: number[]): Promise<v
   return invoke("add_tracks_to_album", { albumId, trackIds });
 }
 
+/**
+ * Sets one member's position within its disc and its keep-own-cover flag. Membership only: the track's
+ * edits are untouched.
+ */
+export function setMemberPlacement(
+  albumId: number,
+  trackId: number,
+  trackNo: number | null,
+  keepOwnCover: boolean,
+): Promise<void> {
+  return invoke("set_member_placement", { albumId, trackId, trackNo, keepOwnCover });
+}
+
 /** Removes tracks from an album. They become loose again; their track rows are untouched. */
 export function removeTracksFromAlbum(albumId: number, trackIds: number[]): Promise<void> {
   return invoke("remove_tracks_from_album", { albumId, trackIds });
-}
-
-/** Rewrites an album's whole track order to `orderedTrackIds` (track_no 1..N). */
-export function setTrackOrder(albumId: number, orderedTrackIds: number[]): Promise<void> {
-  return invoke("set_track_order", { albumId, orderedTrackIds });
 }
 
 /** Rewrites an album's disc grouping and per-disc numbering atomically (disc + track_no together). */

@@ -1,6 +1,6 @@
 [package]
 name = "plisto"
-version = "2.2.1"
+version = "2.2.2"
 description = "A local-first music library manager"
 authors = ["Altervayne"]
 edition = "2021"
@@ -40,6 +40,9 @@ mp4 = "0.14"
 # stream, no decode. Only the cut path uses it; analysis and playback demux Opus via symphonia.
 ogg = "0.9"
 crossbeam-channel = "0.5"
+# Filesystem change notifications for keeping the library current. RecommendedWatcher is used bare:
+# notify-debouncer-full's Windows file-id cache walks the whole tree on every watch.
+notify = "8"
 # The decode half of the shared audio core. default-features off, then only the codecs/containers the
 # library indexes: WAV/PCM, FLAC, MP3, AAC, ALAC in ISO-MP4, and Ogg Vorbis. Opus is left out on
 # purpose - symphonia ships no production Opus decoder, so it is deferred end to end.
@@ -75,7 +78,9 @@ windows-core = "0.58"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_WindowsProgramming",
     "Win32_System_WinRT",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",

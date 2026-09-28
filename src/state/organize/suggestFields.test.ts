@@ -83,6 +83,29 @@ describe("suggestAlbumFields", () => {
     });
   });
 
+  it("reads the edit layer over the raw tags", () => {
+    const tracks = [
+      track(1, { raw_album: "Blu", album_edit: "Blue", raw_year: 1970, year_edit: 1971 }),
+      track(2, { raw_album: "Blu", album_edit: "Blue", raw_year: 1970, year_edit: 1971 }),
+    ];
+    const fields = suggestAlbumFields(tracks);
+    expect(fields.title).toBe("Blue");
+    expect(fields.year).toBe(1971);
+  });
+
+  it("prefers an album artist edit, then the raw album artist, then the artist", () => {
+    expect(
+      suggestAlbumFields([track(1, { raw_album_artist: "Joni", album_artist_edit: "Joni Mitchell" })])
+        .album_artist,
+    ).toBe("Joni Mitchell");
+    expect(
+      suggestAlbumFields([track(1, { raw_album_artist: "Joni", artist_edit: "Someone" })]).album_artist,
+    ).toBe("Joni");
+    expect(
+      suggestAlbumFields([track(1, { raw_artist: "Joni", artist_edit: "Joni Mitchell" })]).album_artist,
+    ).toBe("Joni Mitchell");
+  });
+
   it("breaks a tie on first appearance", () => {
     const tracks = [
       track(1, { raw_genre: "Jazz" }),

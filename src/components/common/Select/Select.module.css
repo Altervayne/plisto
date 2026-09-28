@@ -32,6 +32,14 @@
   background: var(--veil);
 }
 
+/* The chosen label and, when shown, its hint; the label ellipses first so the hint stays readable. */
+.current {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
 .value {
   min-width: 0;
   overflow: hidden;
@@ -100,7 +108,7 @@
   white-space: nowrap;
 }
 
-/* The default marker trails a touch quieter than the device name it qualifies. */
+/* A hint, like the default marker, trails a touch quieter than the label it qualifies. */
 .hint {
   flex-shrink: 0;
   color: var(--ink-3);

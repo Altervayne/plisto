@@ -19,8 +19,10 @@ use tauri::State;
 use crate::db;
 use crate::dto::{
     AlbumFields, AlbumRow, AppliedResult, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
-    OrganizationSnapshot, TrackDisplay, TrackEdit, TrackEditFields, TrackOverride, TrackPlacement,
+    OrganizationSnapshot, TagAlbumPlan, TagAlbumReceipt, TagAlbumTarget, TrackDisplay, TrackEdit,
+    TrackEditFields, TrackOverride, TrackPlacement,
 };
+use crate::scan_lock::{acquire_scan_lock, Holder};
 use crate::state::AppState;
 
 /// Creates an album from a track selection: inserts the album, appends the tracks in order, and
@@ -52,6 +54,68 @@ pub fn create_album(
         super::now_unix(),
     )
     .map_err(|e| e.to_string())
+}
+
+/// Files many groups of loose tracks at once, each into a new album or an existing one, in one
+/// transaction. Each new album's cover is pre-filled the way create_album does it. Returns the
+/// receipt the frontend holds for undo and redo. Rejects while a scan runs, and rejects the whole
+/// batch when any plan no longer fits the library.
+#[tauri::command]
+pub async fn create_albums_from_tags(
+    plans: Vec<TagAlbumPlan>,
+    state: State<'_, AppState>,
+) -> Result<TagAlbumReceipt, String> {
+    with_scan_guard(&state, |conn| {
+        let covers = plans
+            .iter()
+            .map(|plan| match plan.target {
+                TagAlbumTarget::New { .. } => resolve_prefill_cover(conn, &plan.track_ids),
+                TagAlbumTarget::Existing { .. } => Ok(None),
+            })
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        db::create_albums_from_tags(conn, &plans, &covers, super::now_unix())
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// Undoes an albums-from-tags batch from its receipt. Rejects while a scan runs, and changes nothing
+/// when the receipt's rows have drifted since.
+#[tauri::command]
+pub async fn revert_albums_from_tags(
+    receipt: TagAlbumReceipt,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    with_scan_guard(&state, |conn| {
+        db::revert_albums_from_tags(conn, &receipt).map_err(|e| e.to_string())
+    })
+}
+
+/// Redoes a reverted albums-from-tags batch under the same album ids. Rejects while a scan runs, and
+/// changes nothing when the receipt no longer fits the library.
+#[tauri::command]
+pub async fn reapply_albums_from_tags(
+    receipt: TagAlbumReceipt,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    with_scan_guard(&state, |conn| {
+        db::reapply_albums_from_tags(conn, &receipt).map_err(|e| e.to_string())
+    })
+}
+
+/// Runs a batch write under the same scan lock the purge command takes, so it never races a scan on
+/// the WAL, then releases the lock whatever the outcome. Its callers are async so the wait for a
+/// preempted background pass never holds the main thread.
+fn with_scan_guard<T>(
+    state: &AppState,
+    write: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let _lock = acquire_scan_lock(state, Holder::User)?;
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    write(&mut conn)
 }
 
 /// Promotes one loose track into a single: an album-of-one with kind='single', its release fields
@@ -92,6 +156,24 @@ pub fn add_tracks_to_album(
     db::add_tracks_to_album(&mut conn, album_id, &track_ids).map_err(|e| e.to_string())
 }
 
+/// Sets one member's position within its disc and its keep-own-cover flag. Membership only: the
+/// track's edits are untouched.
+#[tauri::command]
+pub fn set_member_placement(
+    album_id: i64,
+    track_id: i64,
+    track_no: Option<i64>,
+    keep_own_cover: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_member_placement(&mut conn, album_id, track_id, track_no, keep_own_cover)
+        .map_err(|e| e.to_string())
+}
+
 /// Removes tracks from an album. They become loose again; their rows are untouched.
 #[tauri::command]
 pub fn remove_tracks_from_album(
@@ -104,20 +186,6 @@ pub fn remove_tracks_from_album(
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
     db::remove_tracks_from_album(&mut conn, album_id, &track_ids).map_err(|e| e.to_string())
-}
-
-/// Rewrites an album's track order to the given sequence (track_no 1..N).
-#[tauri::command]
-pub fn set_track_order(
-    album_id: i64,
-    ordered_track_ids: Vec<i64>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let mut conn = state
-        .db
-        .lock()
-        .map_err(|_| "index is unavailable".to_string())?;
-    db::set_track_order(&mut conn, album_id, &ordered_track_ids).map_err(|e| e.to_string())
 }
 
 /// Replaces an album's title, artist, year and genre with the given full set (a None clears one).
@@ -737,34 +805,6 @@ mod tests {
         let rows = db::load_album_tracks(&conn).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].track_no, position);
-    }
-
-    #[test]
-    fn set_track_order_rewrites_contiguous_and_is_idempotent() {
-        let mut conn = db::open_in_memory().unwrap();
-        let a = insert_track(&conn, "/m/1.mp3");
-        let b = insert_track(&conn, "/m/2.mp3");
-        let c = insert_track(&conn, "/m/3.mp3");
-        let album = db::create_album(
-            &mut conn,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &[a, b, c],
-            "album",
-            1,
-        )
-        .unwrap();
-
-        db::set_track_order(&mut conn, album.id, &[c, a, b]).unwrap();
-        let expected = vec![(c, Some(1)), (a, Some(2)), (b, Some(3))];
-        assert_eq!(membership_order(&conn), expected);
-
-        // Re-running the same order is a no-op.
-        db::set_track_order(&mut conn, album.id, &[c, a, b]).unwrap();
-        assert_eq!(membership_order(&conn), expected);
     }
 
     #[test]

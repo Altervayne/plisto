@@ -53,10 +53,11 @@ import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from ".
 import { revealFile } from "../../lib/opener";
 import { importTrackCover } from "../../lib/ipc";
 import { pickImageFile } from "../../lib/dialog";
+import { sourceForContainer } from "./playbackSource";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
-import type { AlbumTrackRow as AlbumTrackRowData, PlaybackSource } from "../../types";
+import type { AlbumTrackRow as AlbumTrackRowData } from "../../types";
 import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- i18n Imports --
@@ -103,12 +104,12 @@ export function AlbumTrackList({
   const album = useAlbum(albumId);
   const t = useT();
 
-  // Every play from this list is tagged with the album as its source, for the "playing from" line.
-  const source: PlaybackSource = {
-    kind: "album",
-    id: albumId,
-    label: album?.title ?? t((d) => d.albums.untitled),
-  };
+  // Every play from this list shares one source, for the "playing from" line. Until the row loads, the
+  // list reads as a plain album.
+  const source = sourceForContainer(
+    album ?? { id: albumId, kind: "album", title: null },
+    t((d) => d.albums.untitled),
+  );
 
   // The extractor opens over a snapshot of the selection, so a later selection clear leaves it intact.
   const [extractTracks, setExtractTracks] = useState<ExtractTrack[] | null>(null);

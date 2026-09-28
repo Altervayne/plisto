@@ -41,6 +41,21 @@
   --shadow-soft: 0 6px 20px -14px rgba(20, 20, 45, 0.3);
   --shadow-pop: 0 18px 40px -20px rgba(20, 20, 45, 0.35);
 
+  /* A zero-offset halo in the surface color for text and glyphs over a color bloom: invisible on a calm
+   * ground, it clears a soft patch around each glyph where the bloom runs hot. The filter form is the same
+   * halo for a wrapper whose text clips its own box. */
+  --text-halo:
+    0 0 1px color-mix(in srgb, var(--surface) 70%, transparent),
+    0 0 6px color-mix(in srgb, var(--surface) 60%, transparent),
+    0 0 16px color-mix(in srgb, var(--surface) 45%, transparent);
+  --text-halo-filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 70%, transparent))
+    drop-shadow(0 0 6px color-mix(in srgb, var(--surface) 60%, transparent))
+    drop-shadow(0 0 16px color-mix(in srgb, var(--surface) 45%, transparent));
+  --glyph-halo:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 70%, transparent))
+    drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 55%, transparent));
+
   /* A pearl sheen over --surface for the Home cards: faint corner light-catches, the hue drifting
    * across a narrow band so none reads as accent, fading before the centre so card text stays clean. */
   --surface-pearl:
@@ -112,6 +127,19 @@
     --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
     --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
 
+    /* Denser on dark: the bloom lightens under screen, so the halo has to push back harder. */
+    --text-halo:
+      0 0 1px color-mix(in srgb, var(--surface) 85%, transparent),
+      0 0 5px color-mix(in srgb, var(--surface) 80%, transparent),
+      0 0 14px color-mix(in srgb, var(--surface) 65%, transparent);
+    --text-halo-filter:
+      drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
+      drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 80%, transparent))
+      drop-shadow(0 0 14px color-mix(in srgb, var(--surface) 65%, transparent));
+    --glyph-halo:
+      drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
+      drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 70%, transparent));
+
     /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
      * same narrow hue drift, so a dark card looks like it catches a little light. */
     --surface-pearl:
@@ -163,6 +191,19 @@
   --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
   --shadow-soft: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
   --shadow-pop: 0 22px 46px -22px rgba(0, 0, 0, 0.75);
+
+  /* Denser on dark: the bloom lightens under screen, so the halo has to push back harder. */
+  --text-halo:
+    0 0 1px color-mix(in srgb, var(--surface) 85%, transparent),
+    0 0 5px color-mix(in srgb, var(--surface) 80%, transparent),
+    0 0 14px color-mix(in srgb, var(--surface) 65%, transparent);
+  --text-halo-filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
+    drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 80%, transparent))
+    drop-shadow(0 0 14px color-mix(in srgb, var(--surface) 65%, transparent));
+  --glyph-halo:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
+    drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 70%, transparent));
 
   /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
    * same narrow hue drift, so a dark card looks like it catches a little light. */

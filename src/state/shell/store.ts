@@ -26,6 +26,10 @@ interface ShellStore {
   // previews route to their matching lens; the destination seeds its own local lens from it.
   historyLens: HistoryLens;
   setHistoryLens: (lens: HistoryLens) => void;
+  // Bumped by a surface outside the shell (the title bar) to land on Settings. A counter, not a flag,
+  // so a second request after navigating away still fires.
+  settingsRequest: number;
+  openSettings: () => void;
 }
 
 const useShellStore = create<ShellStore>((set) => ({
@@ -33,9 +37,11 @@ const useShellStore = create<ShellStore>((set) => ({
   setOpenTool: (openTool) => set({ openTool }),
   historyLens: "recent",
   setHistoryLens: (historyLens) => set({ historyLens }),
+  settingsRequest: 0,
+  openSettings: () => set((s) => ({ settingsRequest: s.settingsRequest + 1 })),
 }));
 
-// -- Selectors (narrow: the session, the history lens, and their stable setters) --
+// -- Selectors (narrow: the session, the history lens, the settings request, and their stable setters) --
 
 export const useOpenTool = (): ToolSession | null => useShellStore((s) => s.openTool);
 export const useSetOpenTool = (): ((tool: ToolSession | null) => void) =>
@@ -44,3 +50,6 @@ export const useSetOpenTool = (): ((tool: ToolSession | null) => void) =>
 export const useHistoryLens = (): HistoryLens => useShellStore((s) => s.historyLens);
 export const useSetHistoryLens = (): ((lens: HistoryLens) => void) =>
   useShellStore((s) => s.setHistoryLens);
+
+export const useSettingsRequest = (): number => useShellStore((s) => s.settingsRequest);
+export const useOpenSettings = (): (() => void) => useShellStore((s) => s.openSettings);

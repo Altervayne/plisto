@@ -1,8 +1,9 @@
 /*
  * The IPC command surface for scanning and reading the index. scan_workspace runs the pipeline
- * on a blocking thread and awaits it, so the runtime stays free to service cancel_scan; a
- * running guard rejects a second concurrent scan. list_tracks reads through the shared read
- * connection, building its SQL through the pure allowlisted query builder.
+ * on a blocking thread and awaits it, so the runtime stays free to service cancel_scan; the scan
+ * lock rejects a second concurrent scan. list_tracks reads through the shared read connection,
+ * building its SQL through the pure allowlisted query builder; get_tracks_by_ids reuses the same
+ * projection for the rows a background sync changed.
  */
 
 // -- Module Declarations --
@@ -11,6 +12,7 @@ pub mod covers;
 pub mod discovery;
 pub mod export;
 pub mod extract;
+pub mod library_sync;
 mod list_query;
 pub mod missing;
 pub mod organize;
@@ -35,9 +37,11 @@ use tauri::State;
 // -- Local Imports --
 use crate::db;
 use crate::dto::{ListTracksResponse, ScanProgress, ScanSummary, SortSpec, TrackRow};
-use crate::scan;
+use crate::library_sync::SyncCmd;
+use crate::scan::{self, ScanEmit};
+use crate::scan_lock::{acquire_scan_lock, Holder};
 use crate::state::AppState;
-use list_query::build_list_query;
+use list_query::{build_ids_query, build_list_query};
 
 /// Scans `path` into the index, streaming progress over `on_progress` and returning the summary.
 /// Rejects while another scan is running. Resets the cancel flag at the start so a prior cancel
@@ -49,9 +53,7 @@ pub async fn scan_workspace(
     on_progress: Channel<ScanProgress>,
     state: State<'_, AppState>,
 ) -> Result<ScanSummary, String> {
-    if state.scan_running.swap(true, Ordering::SeqCst) {
-        return Err("a scan is already running".to_string());
-    }
+    let _lock = acquire_scan_lock(&state, Holder::User)?;
     state.cancel.store(false, Ordering::SeqCst);
 
     let db_path = state.db_path.clone();
@@ -59,7 +61,7 @@ pub async fn scan_workspace(
     let scanned_at = now_unix();
 
     // Get-or-create the root for this path under the write lock, then walk just it.
-    let prepared = (|| -> Result<scan::ScanRoot, String> {
+    let root = (|| -> Result<scan::ScanRoot, String> {
         let conn = state
             .db
             .lock()
@@ -69,25 +71,23 @@ pub async fn scan_workspace(
         Ok(scan::ScanRoot {
             id,
             path: PathBuf::from(real),
+            units: None,
         })
-    })();
-    let root = match prepared {
-        Ok(r) => r,
-        Err(e) => {
-            state.scan_running.store(false, Ordering::SeqCst);
-            return Err(e);
-        }
-    };
+    })()?;
+    let _ = state.library_sync.send(SyncCmd::RootsChanged);
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         let roots = [root];
-        scan::run_scan(&roots, &db_path, &cancel, scanned_at, move |p| {
-            let _ = on_progress.send(p);
-        })
+        scan::run_scan(
+            &roots,
+            &db_path,
+            &cancel,
+            scanned_at,
+            &HashMap::new(),
+            move |e| forward_progress(&on_progress, e),
+        )
     })
     .await;
-
-    state.scan_running.store(false, Ordering::SeqCst);
 
     match outcome {
         Ok(result) => result,
@@ -95,11 +95,22 @@ pub async fn scan_workspace(
     }
 }
 
+/// Sends a scan's progress ticks over a user command's channel. The changed ids are for the
+/// background sync; a user scan reloads the whole index when it ends.
+pub(crate) fn forward_progress(channel: &Channel<ScanProgress>, emit: ScanEmit) {
+    if let ScanEmit::Progress(p) = emit {
+        let _ = channel.send(p);
+    }
+}
+
 /// Signals a running scan to stop. The workers stop feeding, the writer commits what it has,
-/// and the summary reports the run as cancelled.
+/// and the summary reports the run as cancelled. A running background sync session stops too.
 #[tauri::command]
 pub fn cancel_scan(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel.store(true, Ordering::SeqCst);
+    if state.bg_active.load(Ordering::SeqCst) {
+        state.bg_cancel.store(true, Ordering::SeqCst);
+    }
     Ok(())
 }
 
@@ -138,24 +149,58 @@ pub fn list_tracks(
         .map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<Vec<TrackRow>>>()
         .map_err(|e| e.to_string())?;
+    attach_genres(&conn, &mut rows)?;
 
-    // Genre is per-track and multi-valued, so it rides beside the flat projection: a second grouped
-    // read scoped to just the ids this window returned. The rows arrive ordered by position, so
-    // grouping keeps display order; a track with none keeps its empty vec.
+    Ok(ListTracksResponse { rows, total })
+}
+
+// Ids bound per statement, well under SQLite's bound-parameter limit.
+const IDS_PER_QUERY: usize = 500;
+
+/// The rows for `ids`, shaped exactly as list_tracks returns them (edits joined, genres attached),
+/// so a changed row can replace its copy without a full reload. An id with no row is left out.
+#[tauri::command]
+pub fn get_tracks_by_ids(
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<TrackRow>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    let mut rows = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(IDS_PER_QUERY) {
+        let mut stmt = conn
+            .prepare(&build_ids_query(chunk.len()))
+            .map_err(|e| e.to_string())?;
+        let found = stmt
+            .query_map(rusqlite::params_from_iter(chunk.iter()), row_from_sql)
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<TrackRow>>>()
+            .map_err(|e| e.to_string())?;
+        rows.extend(found);
+    }
+    attach_genres(&conn, &mut rows)?;
+    Ok(rows)
+}
+
+/// Fills each row's genre ids. Genre is per-track and multi-valued, so it rides beside the flat
+/// projection: a second grouped read scoped to just these ids. The genres arrive ordered by
+/// position, so grouping keeps display order; a track with none keeps its empty vec.
+fn attach_genres(conn: &rusqlite::Connection, rows: &mut [TrackRow]) -> Result<(), String> {
     let track_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
     let mut by_track: HashMap<i64, Vec<i64>> = HashMap::new();
     for (track_id, genre_id) in
-        db::load_track_genre_ids_for(&conn, &track_ids).map_err(|e| e.to_string())?
+        db::load_track_genre_ids_for(conn, &track_ids).map_err(|e| e.to_string())?
     {
         by_track.entry(track_id).or_default().push(genre_id);
     }
-    for row in &mut rows {
+    for row in rows {
         if let Some(ids) = by_track.remove(&row.id) {
             row.genre_ids = ids;
         }
     }
-
-    Ok(ListTracksResponse { rows, total })
+    Ok(())
 }
 
 /// Maps one result row into a TrackRow. The column order matches the projection in the query
@@ -193,7 +238,7 @@ fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
 
 /// Current wall-clock time as whole seconds since the Unix epoch, stamped onto every row a scan
 /// writes.
-fn now_unix() -> i64 {
+pub(crate) fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

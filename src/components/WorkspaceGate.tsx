@@ -9,7 +9,15 @@ import { ScanProgress } from "./scan/ScanProgress";
 import { WorkspacePicker } from "./workspace/WorkspacePicker";
 
 // -- State Imports --
-import { useBoot, useBooted, useRescanAll, useRoots, useScanError, useScanStatus } from "../state/store";
+import {
+  useBoot,
+  useBooted,
+  useRescanAll,
+  useRoots,
+  useScanError,
+  useScanMode,
+  useScanStatus,
+} from "../state/store";
 
 // -- i18n Imports --
 import { useT } from "../i18n";
@@ -20,14 +28,16 @@ import styles from "./WorkspaceGate.module.css";
 /**
  * The top-level switch. Boots once on mount by hydrating the roots (and the last index when any
  * exist), then picks the view: nothing until booted, an error state on failure, the app shell over a
- * stocked library, and onboarding when the library is empty. A scan overlays the shell rather than
- * replacing it, so a rescan keeps the shell mounted and returns the user to the view they were on.
+ * stocked library, and onboarding when the library is empty. A blocking scan overlays the shell rather
+ * than replacing it, so it keeps the shell mounted and returns the user to the view they were on. A quiet
+ * scan never reaches this switch: its progress and failure live in the title bar and Settings.
  */
 export function WorkspaceGate() {
   const boot = useBoot();
   const booted = useBooted();
   const roots = useRoots();
   const status = useScanStatus();
+  const blocking = useScanMode() === "blocking";
   const error = useScanError();
   const rescanAll = useRescanAll();
   const t = useT();
@@ -39,7 +49,7 @@ export function WorkspaceGate() {
   // Hold nothing until the roots hydrate, so the picker never flashes before the library opens.
   if (!booted) return null;
 
-  if (status === "error") {
+  if (status === "error" && blocking) {
     return (
       <EmptyState
         tone="warn"
@@ -59,7 +69,7 @@ export function WorkspaceGate() {
     return (
       <>
         <AppShell />
-        {status === "scanning" ? (
+        {status === "scanning" && blocking ? (
           <div className={styles.scanOverlay}>
             <ScanProgress />
           </div>
@@ -68,7 +78,7 @@ export function WorkspaceGate() {
     );
   }
 
-  if (status === "scanning") return <ScanProgress />;
+  if (status === "scanning" && blocking) return <ScanProgress />;
 
   return <WorkspacePicker />;
 }

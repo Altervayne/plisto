@@ -1,8 +1,8 @@
 /*
  * The managed application state. It owns the read connection behind a Mutex so any command can
  * reach the index while a scan writes through its own connection. It also carries what the scan
- * needs: the DB path (for the writer to open its own write connection), the cancel flag, and a
- * guard that rejects a second concurrent scan.
+ * needs: the DB path (for the writer to open its own write connection), the cancel flags, and the
+ * scan lock that keeps a second writer out.
  */
 
 // -- Library Imports --
@@ -17,7 +17,9 @@ use rusqlite::Connection;
 use crate::adhoc::AdHocTrack;
 use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus};
 use crate::covers::InFlightGuard;
-use crate::dto::ExportStatus;
+use crate::dto::{ExportStatus, LibrarySyncStatus};
+use crate::library_sync::SyncCmd;
+use crate::scan_lock::Holder;
 
 /// Everything shared across commands and background threads, held by Tauri for the app's life. The
 /// wrapper on each field says how it is shared.
@@ -28,7 +30,20 @@ pub struct AppState {
     // Each long job owns a cancel flag and an overlap guard, kept as separate pairs so cancelling or
     // running one never touches another: scan, export, splice, playlist export, discovery sweep.
     pub cancel: Arc<AtomicBool>,
+    /// Who holds the scan lock; taken and released only through `scan_lock`.
+    pub scan_holder: Mutex<Option<Holder>>,
+    /// Mirrors of `scan_holder` for readers that only peek: any holder, and a background holder.
     pub scan_running: AtomicBool,
+    pub bg_active: AtomicBool,
+    /// The background pass's own cancel flag, raised by a preempting user taker, a user cancel, or
+    /// quit. Kept apart from `cancel` so a user scan never reads a background stop.
+    pub bg_cancel: Arc<AtomicBool>,
+    /// The handle to the library-sync thread.
+    pub library_sync: crossbeam_channel::Sender<SyncCmd>,
+    /// The library-sync snapshot the thread writes and the status command reads.
+    pub library_sync_status: Mutex<LibrarySyncStatus>,
+    /// Atomic like `close_to_tray`, so the sync thread and the status read never touch the kv.
+    pub keep_library_up_to_date: AtomicBool,
     pub covers_dir: PathBuf,
     /// Collapses identical concurrent thumbnail generations to a single decode.
     pub covers_in_flight: Arc<InFlightGuard>,
@@ -62,16 +77,23 @@ pub struct AppState {
 #[cfg(test)]
 impl AppState {
     /// A minimal state for the resolver tests: the given index connection and covers dir, every
-    /// background guard idle, and a dead player channel (its receiver is dropped, so a transport send
-    /// is a silent no-op). Lets a sentinel test drive the real command helpers without launching
+    /// background guard idle, and dead player and sync channels (their receivers are dropped, so a
+    /// send is a silent no-op). Lets a sentinel test drive the real command helpers without launching
     /// Tauri or the resident engine.
     pub(crate) fn for_test(db: Connection, covers_dir: PathBuf) -> Self {
         let (player, _rx) = crossbeam_channel::unbounded();
+        let (library_sync, _sync_rx) = crossbeam_channel::unbounded();
         Self {
             db: Mutex::new(db),
             db_path: PathBuf::new(),
             cancel: Arc::new(AtomicBool::new(false)),
+            scan_holder: Mutex::new(None),
             scan_running: AtomicBool::new(false),
+            bg_active: AtomicBool::new(false),
+            bg_cancel: Arc::new(AtomicBool::new(false)),
+            library_sync,
+            library_sync_status: Mutex::new(LibrarySyncStatus::default()),
+            keep_library_up_to_date: AtomicBool::new(true),
             covers_dir,
             covers_in_flight: Arc::new(crate::covers::InFlightGuard::default()),
             export_cancel: Arc::new(AtomicBool::new(false)),
