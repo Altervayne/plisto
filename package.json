@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "prune:target": "node scripts/prune-target.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
