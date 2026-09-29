@@ -6,6 +6,7 @@ import {
   dayKey,
   formatClockTime,
   formatRelativeTime,
+  formatShortDate,
   relativeAge,
   sameCalendarDay,
 } from "./format";
@@ -82,5 +83,25 @@ describe("day bucketing", () => {
     const nextDay = localStamp(2024, 8, 10, 0, 1);
     expect(sameCalendarDay(morning, night)).toBe(true);
     expect(sameCalendarDay(night, nextDay)).toBe(false);
+  });
+});
+
+describe("formatShortDate", () => {
+  const now = new Date(2026, 8, 29, 12, 0).getTime();
+
+  it("drops the year within the current year", () => {
+    const stamp = localStamp(2026, 8, 12, 14, 32);
+    expect(formatShortDate(stamp, "en", now)).toMatch(/^12 Sept?$/);
+    expect(formatShortDate(stamp, "fr", now)).toBe("12 sept.");
+  });
+
+  it("keeps the year for an earlier year", () => {
+    const stamp = localStamp(2025, 11, 3, 9, 0);
+    expect(formatShortDate(stamp, "en", now)).toBe("3 Dec 2025");
+    expect(formatShortDate(stamp, "fr", now)).toBe("3 déc. 2025");
+  });
+
+  it("never shows a time", () => {
+    expect(formatShortDate(localStamp(2026, 0, 5, 23, 59), "en", now)).not.toMatch(/\d:\d/);
   });
 });

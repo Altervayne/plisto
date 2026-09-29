@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 14;
+const LATEST_VERSION: i64 = 15;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -323,6 +323,22 @@ WHERE ranked.track_id = album_tracks.track_id
   AND album_tracks.track_no IS NOT ranked.position;
 ";
 
+// Version 15: the export record. `export_ledger` holds, per destination, the fingerprint of every file
+// an export landed there, keyed on the folded destination and the file's path relative to it, so a
+// changed-only export writes just the files whose fingerprint moved or that carry no row. No foreign
+// key ties it to the library: a row describes a file sitting on the destination, which stays there
+// whatever the library does. A new table only, so every existing row is untouched and the record
+// starts empty.
+const MIGRATION_V15: &str = "
+CREATE TABLE export_ledger (
+    dest_key    TEXT NOT NULL,
+    rel_path    TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    exported_at INTEGER NOT NULL,
+    PRIMARY KEY (dest_key, rel_path)
+) WITHOUT ROWID;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -344,6 +360,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             11 => conn.execute_batch(MIGRATION_V12)?,
             12 => conn.execute_batch(MIGRATION_V13)?,
             13 => conn.execute_batch(MIGRATION_V14)?,
+            14 => conn.execute_batch(MIGRATION_V15)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1079,6 +1096,47 @@ mod tests {
 
         conn.execute_batch(MIGRATION_V14).unwrap();
         assert_eq!(numbering(&conn), before);
+    }
+
+    /// A v14 DB with rows upgrades to v15 additively: every existing row survives and the new
+    /// `export_ledger` table exists empty.
+    #[test]
+    fn v14_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        conn.execute_batch(MIGRATION_V14).unwrap();
+        conn.pragma_update(None, "user_version", 14).unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+        conn.execute_batch(
+            "INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no) VALUES (1, 1, 1), (1, 2, 2);
+             INSERT INTO plays (track_id, played_at, completed) VALUES (1, 100, 1);",
+        )
+        .unwrap();
+        let before = numbering(&conn);
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let counts: (i64, i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM tracks), (SELECT COUNT(*) FROM albums),
+                        (SELECT COUNT(*) FROM plays)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(counts, (2, 1, 1), "every existing row survives the upgrade");
+        assert_eq!(numbering(&conn), before, "the membership is untouched");
+
+        let ledger: i64 = conn
+            .query_row("SELECT COUNT(*) FROM export_ledger", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(ledger, 0, "the export record starts empty");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

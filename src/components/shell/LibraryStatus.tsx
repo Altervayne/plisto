@@ -27,11 +27,11 @@ import {
 import { useOpenSettings } from "../../state/shell/store";
 
 // -- Utils Imports --
-import { relativeAge } from "../../lib/format";
 import { healthReasons } from "./libraryHealth";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
+import { ageText } from "../../i18n/ageText";
 import type { Translate } from "../../i18n";
 
 // -- Type Imports --
@@ -52,16 +52,7 @@ function folderName(path: string): string {
 
 /** "Checked 5 min ago", worded in the active locale. */
 function checkedLine(t: Translate, atMs: number, nowMs: number): string {
-  const age = relativeAge(atMs, nowMs);
-  const time =
-    age.unit === "now"
-      ? t((d) => d.time.justNow)
-      : age.unit === "minutes"
-        ? t((d) => d.time.minutesAgo, { n: age.n })
-        : age.unit === "hours"
-          ? t((d) => d.time.hoursAgo, { n: age.n })
-          : t((d) => d.time.daysAgo, { n: age.n });
-  return t((d) => d.window.checked, { time });
+  return t((d) => d.window.checked, { time: ageText(t, atMs, nowMs) });
 }
 
 /** A tooltip body: a lead line over dimmer detail lines. */

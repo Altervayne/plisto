@@ -3,18 +3,22 @@ import { useCallback, useMemo, useState } from "react";
 
 // -- Component Imports --
 import { CenteredStage } from "../common/CenteredStage";
-import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { ProgressLine } from "../scan/ProgressLine";
 import { StaffSpinner } from "../scan/StaffSpinner";
+import { ExportActions } from "./ExportActions";
 import { ExportDestination } from "./ExportDestination";
 import { ExportLayout } from "./ExportLayout";
 import { ExportReadiness } from "./ExportReadiness";
 import { ExportReport } from "./ExportReport";
+import { ExportScope } from "./ExportScope";
 import { ExportSections } from "./ExportSections";
+
+// -- Hook Imports --
+import { useExportChanges } from "./useExportChanges";
 
 // -- State Imports --
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
@@ -23,9 +27,11 @@ import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferen
 
 // -- IPC Imports --
 import {
+  adoptExportDestination,
   cancelExport,
   checkDevice,
   createExportChannel,
+  exportConfig,
   exportLibrary,
   pickDeviceFolder,
   validateExportDestination,
@@ -36,12 +42,14 @@ import { pickFolder } from "../../lib/dialog";
 import { openFolder } from "../../lib/opener";
 
 // -- Local Imports --
+import { scopeState, showsChangedCounts } from "./scopeState";
 import { DEFAULT_PRESET, presetIdFor } from "./templates";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Type Imports --
+import type { ExportScope as Scope } from "./scopeState";
 import type { ExportPreset } from "./templates";
 import type { PlaylistShape } from "./ExportSections";
 import type { DestinationCheck, ExportProgress, ExportSummary, ExportTarget } from "../../types";
@@ -56,7 +64,8 @@ type Phase = "idle" | "running" | "done";
  * The export screen. Idle is a titled region: the readiness summary upfront, a destination control, the
  * layout template picker, and the solid Export CTA, dead until a valid destination holds exportable
  * tracks. Running and done stay a centered column - determinate progress, then the report. A destination
- * inside the workspace is refused; a non-empty one takes a two-step confirm before writing.
+ * inside the workspace is refused; a non-empty one takes a two-step confirm before writing. The
+ * changed-only scope previews what a run would write against the destination's own export record.
  */
 export function ExportView() {
   const albums = useAlbums();
@@ -85,6 +94,8 @@ export function ExportView() {
   const [includeSingles, setIncludeSingles] = useState(true);
   const [includePlaylists, setIncludePlaylists] = useState(false);
   const [playlistShape, setPlaylistShape] = useState<PlaylistShape>("mimic");
+  const [scope, setScope] = useState<Scope>("all");
+  const [adopting, setAdopting] = useState(false);
 
   const setPreference = useSetPreference();
   // The template is the two persisted album patterns; absent, the Artist/Album default stands in. An
@@ -112,6 +123,33 @@ export function ExportView() {
     };
   }, [albums, singles, membership, tracks]);
 
+  // A dated device snapshot lands in a fresh folder every time, so it has nothing to diff against.
+  const datedSnapshot = target?.kind === "device" && !deviceInPlace;
+  const changedOnly = scope === "changed" && !datedSnapshot;
+
+  const options = useMemo(
+    () => ({
+      albums: includeAlbums,
+      singles: includeSingles,
+      playlists: includePlaylists,
+      playlistShape,
+      deviceInPlace,
+      changedOnly,
+    }),
+    [includeAlbums, includeSingles, includePlaylists, playlistShape, deviceInPlace, changedOnly],
+  );
+
+  // The preview reads the exact config the run would send, so its counts match what Export writes.
+  const previewConfig = useMemo(
+    () => (target && changedOnly ? exportConfig(target, folder, file, options) : null),
+    [target, changedOnly, folder, file, options],
+  );
+  const { changes, refresh } = useExportChanges(previewConfig);
+  const scopeView = scopeState(scope, changes, datedSnapshot, !!check?.non_empty);
+  // Merging into a recorded export is the point of a changed-only run, so its non-empty caution and
+  // confirm stand down; a full export keeps them.
+  const mergesIntoRecord = changedOnly && !!changes?.has_record;
+
   const onPickFolder = useCallback(async () => {
     const picked = await pickFolder();
     if (!picked) return;
@@ -131,11 +169,23 @@ export function ExportView() {
     setTarget({ kind: "device", target: picked });
     setConfirming(false);
     setError(null);
+    if (!deviceInPlace) setScope("all");
     try {
       setCheck(await checkDevice(picked.pidl));
     } catch {
       setCheck(null);
     }
+  }, [deviceInPlace]);
+
+  // A dated snapshot always holds everything, so switching to one drops a changed-only scope.
+  const onDeviceMode = useCallback((mode: "snapshot" | "inplace") => {
+    setDeviceInPlace(mode === "inplace");
+    if (mode === "snapshot") setScope("all");
+  }, []);
+
+  const onScope = useCallback((next: Scope) => {
+    setScope(next);
+    setConfirming(false);
   }, []);
 
   const onSelectPreset = useCallback(
@@ -174,20 +224,9 @@ export function ExportView() {
       });
     });
 
-    const sections = {
-      albums: includeAlbums,
-      singles: includeSingles,
-      playlists: includePlaylists,
-      playlistShape,
-      deviceInPlace,
-    };
-
     try {
-      setSummary(await exportLibrary(target, channel, folder, file, sections));
+      setSummary(await exportLibrary(target, channel, folder, file, options));
       setPhase("done");
-      // Stamp the sync baseline: only the full-library export moves it, so "Since last export" tracks
-      // the last time everything was written, not a scoped selection or playlist run.
-      setPreference(PREF_KEYS.lastExportAt, String(Math.floor(Date.now() / 1000)));
     } catch {
       // A failed run drops back to idle with the reason surfaced rather than vanishing. The library
       // source is untouched either way; a device that dropped off mid-copy may hold a partial copy (no
@@ -199,18 +238,23 @@ export function ExportView() {
           : t((d) => d.export.exportFailed),
       );
     }
-  }, [
-    target,
-    t,
-    folder,
-    file,
-    includeAlbums,
-    includeSingles,
-    includePlaylists,
-    playlistShape,
-    deviceInPlace,
-    setPreference,
-  ]);
+    // Even a failed run may have recorded what landed, so the preview reads the destination afresh.
+    refresh();
+  }, [target, t, folder, file, options, refresh]);
+
+  // Records the destination as matching the library without copying a file, then re-reads the preview.
+  const onAdopt = useCallback(async () => {
+    if (!target) return;
+    setError(null);
+    setAdopting(true);
+    try {
+      await adoptExportDestination(exportConfig(target, folder, file, options));
+    } catch {
+      setError(t((d) => d.export.adoptFailed));
+    }
+    setAdopting(false);
+    refresh();
+  }, [target, folder, file, options, t, refresh]);
 
   const onToggleSection = useCallback(
     (section: "albums" | "singles" | "playlists", value: boolean) => {
@@ -223,12 +267,12 @@ export function ExportView() {
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.
   const onExport = useCallback(() => {
-    if (check?.non_empty) {
+    if (check?.non_empty && !mergesIntoRecord) {
       setConfirming(true);
       return;
     }
     void runExport();
-  }, [check, runExport]);
+  }, [check, mergesIntoRecord, runExport]);
 
   const onAgain = useCallback(() => {
     setSummary(null);
@@ -331,11 +375,13 @@ export function ExportView() {
 
   // At least one section must be on and hold something to export: an album/single section counts only
   // when the library has that kind, while playlists is taken on trust (an empty playlist set simply
-  // writes nothing). All three off leaves nothing to write, so the CTA stays dead.
+  // writes nothing). All three off leaves nothing to write, so the CTA stays dead. A changed-only
+  // preview overrules the trust: with nothing changed there is nothing to write.
   const hasContent =
-    (includeAlbums && counts.albums > 0) ||
-    (includeSingles && counts.singles > 0) ||
-    includePlaylists;
+    scopeView !== "nothingChanged" &&
+    ((includeAlbums && counts.albums > 0) ||
+      (includeSingles && counts.singles > 0) ||
+      includePlaylists);
   // A validated target with something to write is ready - a folder or a connected device alike.
   const canExport = !!target && !!check?.ok && hasContent;
   return (
@@ -348,6 +394,7 @@ export function ExportView() {
           singles={counts.singles}
           unsorted={counts.unsorted}
           missing={counts.missing}
+          changes={changes && showsChangedCounts(scopeView) ? changes : undefined}
         />
       </div>
 
@@ -371,12 +418,11 @@ export function ExportView() {
                 : t((d) => d.export.notWritable)}
             </p>
           ) : null}
-          {check?.ok && check.non_empty ? (
+          {check?.ok && check.non_empty && !mergesIntoRecord ? (
             <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
           ) : null}
           {/* A device offers two shapes: a fresh dated snapshot, or an in-place merge that updates a
-              living library on the phone (pairs with the "since last export" filter for incremental
-              syncs). Only shown once a device is the target. */}
+              living library on the phone. Only shown once a device is the target. */}
           {target?.kind === "device" ? (
             <div className={styles.deviceMode}>
               <SegmentedControl
@@ -385,7 +431,7 @@ export function ExportView() {
                   { value: "inplace", label: t((d) => d.export.deviceUpdate) },
                 ]}
                 value={deviceInPlace ? "inplace" : "snapshot"}
-                onChange={(v) => setDeviceInPlace(v === "inplace")}
+                onChange={onDeviceMode}
                 label={t((d) => d.export.deviceModeLabel)}
               />
               <p className={styles.hint}>
@@ -407,6 +453,7 @@ export function ExportView() {
 
         <section className={styles.section}>
           <span className={styles.label}>{t((d) => d.export.include)}</span>
+          <ExportScope scope={scope} state={scopeView} changes={changes} onScope={onScope} />
           <ExportSections
             albums={includeAlbums}
             singles={includeSingles}
@@ -430,25 +477,17 @@ export function ExportView() {
         </section>
       </ScrollArea>
 
-      <div className={styles.cta}>
-        {confirming ? (
-          <div className={styles.confirm}>
-            <span className={styles.warn}>{t((d) => d.export.nonEmpty)}</span>
-            <div className={styles.confirmActions}>
-              <PrimaryButton onClick={() => void runExport()}>
-                {t((d) => d.export.confirm)}
-              </PrimaryButton>
-              <QuietButton onClick={() => setConfirming(false)}>
-                {t((d) => d.export.cancel)}
-              </QuietButton>
-            </div>
-          </div>
-        ) : (
-          <PrimaryButton onClick={onExport} disabled={!canExport}>
-            {t((d) => d.export.action)}
-          </PrimaryButton>
-        )}
-      </div>
+      <ExportActions
+        state={scopeView}
+        confirming={confirming}
+        canExport={canExport}
+        canAdopt={!!target && !!check?.ok && !adopting}
+        onExport={onExport}
+        onConfirm={() => void runExport()}
+        onCancelConfirm={() => setConfirming(false)}
+        onAdopt={() => void onAdopt()}
+        onExportEverything={() => onScope("all")}
+      />
     </div>
   );
 }

@@ -345,6 +345,8 @@ pub fn run() {
             commands::export::get_export_status,
             commands::export::pick_device_folder,
             commands::export::check_device,
+            commands::export::export_changes,
+            commands::export::adopt_export_destination,
             commands::playlist_export::export_playlist_m3u,
             commands::playlist_export::export_playlist_rich_m3u8,
             commands::playlist_export::export_playlist_folder,

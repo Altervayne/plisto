@@ -27,7 +27,6 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { useDeleteAlbums, useOrganizeStore } from "../../state/organize/store";
-import { PREF_KEYS, usePreference } from "../../state/preferences/store";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -72,11 +71,6 @@ export function AlbumGrid({
   // them on their own remount, the same way the multi-selection resets. An empty range shows everything.
   const [dateField, setDateField] = useState<"created" | "updated">("updated");
   const [range, setRange] = useState<DateRange>({ from: null, to: null });
-
-  // The last full-export stamp, feeding the picker's "Since last export" preset. Absent until the first
-  // full export, in which case the preset is simply not offered.
-  const lastExportRaw = usePreference(PREF_KEYS.lastExportAt);
-  const lastExport = lastExportRaw ? Number(lastExportRaw) : null;
 
   const visible = useMemo(() => {
     if (range.from == null && range.to == null) return albums;
@@ -225,7 +219,7 @@ export function AlbumGrid({
             onChange={setDateField}
             label={t((d) => d.albums.dateField)}
           />
-          <DateRangePicker value={range} onChange={setRange} lastExport={lastExport} />
+          <DateRangePicker value={range} onChange={setRange} />
           <div className={styles.toolbarEnd}>
             <QuietButton onClick={handleSelectAll} disabled={visible.length === 0}>
               {allVisibleSelected ? t((d) => d.albums.deselectAll) : t((d) => d.albums.selectAll)}

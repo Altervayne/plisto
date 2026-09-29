@@ -402,6 +402,12 @@ export interface ExportConfig {
   destination: string;
   folder_pattern: string;
   file_pattern: string;
+  // The sections to include; absent, albums and singles export and playlists do not.
+  include_albums?: boolean;
+  include_singles?: boolean;
+  include_playlists?: boolean;
+  // 'file' for a portable .m3u8 per playlist, anything else for the flat mimic album.
+  playlist_shape?: string;
   // Device mode: false drops a fresh dated snapshot folder, true merges into the picked device folder
   // in place (incremental update). Ignored for a folder export.
   device_in_place?: boolean;
@@ -411,6 +417,9 @@ export interface ExportConfig {
   // A scoped export's explicit album/single id set: present narrows the plan to those containers,
   // absent exports every album/single (the general export).
   album_ids?: number[];
+  // Writes only the files the destination's export record shows as new or changed. A dated device
+  // snapshot refuses it.
+  changed_only: boolean;
 }
 
 /** The stage a running export is in. Mirrors ExportPhase in dto.rs. */
@@ -442,9 +451,26 @@ export interface ExportSummary {
   exported: number;
   skipped: number;
   errors: number;
+  // Tracks a changed-only run left alone because the destination already holds them; outside `total`.
+  unchanged: number;
   cancelled: boolean;
   containers_written: number;
   items: ExportItem[];
+}
+
+/**
+ * What a changed-only export would write to a destination, read against its export record. `files`
+ * counts the files to write out of `total_files`; `albums`/`singles`/`playlists` count the containers
+ * holding at least one. Mirrors ExportChangeSet in dto.rs.
+ */
+export interface ExportChangeSet {
+  has_record: boolean;
+  last_exported_at: number | null;
+  albums: number;
+  singles: number;
+  playlists: number;
+  files: number;
+  total_files: number;
 }
 
 /**

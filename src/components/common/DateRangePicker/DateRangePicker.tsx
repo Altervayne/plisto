@@ -4,9 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // -- Icon Imports --
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 
-// -- Component Imports --
-import { Tooltip } from "../Tooltip/Tooltip";
-
 // -- i18n Imports --
 import { useT } from "../../../i18n";
 
@@ -49,14 +46,9 @@ function viewFor(range: DateRange): View {
 export function DateRangePicker({
   value,
   onChange,
-  lastExport,
 }: {
   value: DateRange;
   onChange: (range: DateRange) => void;
-  // Epoch seconds of the last full export, or null when there has been none. Present, it offers a
-  // "Since last export" preset that opens the range at that stamp - the caller's field toggle then reads
-  // it as changed-since (Updated) or added-since (Created).
-  lastExport?: number | null;
 }) {
   const t = useT();
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -184,27 +176,6 @@ export function DateRangePicker({
             <button type="button" className={styles.preset} onClick={() => onChange(presetThisYear(new Date()))}>
               {t((d) => d.dateRange.thisYear)}
             </button>
-            {/* Always shown so the filter is discoverable; before a full export has stamped a baseline it
-                is inert and dimmed, with a hint on hover explaining what sets it. */}
-            {lastExport != null ? (
-              <button
-                type="button"
-                className={styles.preset}
-                onClick={() => onChange({ from: lastExport, to: null })}
-              >
-                {t((d) => d.dateRange.sinceExport)}
-              </button>
-            ) : (
-              <Tooltip label={t((d) => d.dateRange.sinceExportHint)}>
-                <button
-                  type="button"
-                  className={`${styles.preset} ${styles.presetOff}`}
-                  aria-disabled="true"
-                >
-                  {t((d) => d.dateRange.sinceExport)}
-                </button>
-              </Tooltip>
-            )}
           </div>
 
           <div className={styles.head}>

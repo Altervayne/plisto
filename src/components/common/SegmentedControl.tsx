@@ -6,12 +6,14 @@ import styles from "./SegmentedControl.module.css";
 
 /**
  * One choice in the control: a stable value and its already-localized label. With an `icon`, the chip
- * shows the icon and the label becomes its accessible name, so an icon-only toggle stays labelled.
+ * shows the icon and the label becomes its accessible name, so an icon-only toggle stays labelled. A
+ * `disabled` chip stays in the row, dimmed, and ignores clicks.
  */
 export interface Segment<T extends string> {
   value: T;
   label: string;
   icon?: ReactNode;
+  disabled?: boolean;
 }
 
 /**
@@ -52,8 +54,11 @@ export function SegmentedControl<T extends string>({
               isActive ? styles.active : ""
             } ${withLabel ? styles.labelled : ""}`}
             aria-pressed={isActive}
+            aria-disabled={segment.disabled ? true : undefined}
             aria-label={segment.icon && !withLabel ? segment.label : undefined}
-            onClick={() => onChange(segment.value)}
+            onClick={() => {
+              if (!segment.disabled) onChange(segment.value);
+            }}
           >
             {segment.icon ?? segment.label}
             {withLabel ? <span className={styles.segmentLabel}>{segment.label}</span> : null}

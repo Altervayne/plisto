@@ -11,9 +11,10 @@ import styles from "./ExportView.module.css";
 const LIST_CAP = 10;
 
 /**
- * The persistent done report: the exported count, then skip and error counts only when non-zero, over
- * a short collapsed list of the skipped and failed containers with their notes. The full per-file
- * table is a later concern; this is the scannable fix-and-rerun summary. Accent-free by design.
+ * The persistent done report: the exported count, then unchanged, skip and error counts only when
+ * non-zero, over a short collapsed list of the skipped and failed containers with their notes. The
+ * full per-file table is a later concern; this is the scannable fix-and-rerun summary. Accent-free by
+ * design.
  */
 export function ExportReport({ summary }: { summary: ExportSummary }) {
   const t = useT();
@@ -28,6 +29,11 @@ export function ExportReport({ summary }: { summary: ExportSummary }) {
   return (
     <div className={styles.report}>
       <span className={styles.written}>{t((d) => d.export.written, { n: summary.exported })}</span>
+      {summary.unchanged > 0 ? (
+        <span className={styles.unchanged}>
+          {t((d) => d.export.unchanged, { n: summary.unchanged })}
+        </span>
+      ) : null}
       {summary.skipped > 0 ? (
         <span className={styles.skipped}>{t((d) => d.export.skipped, { n: summary.skipped })}</span>
       ) : null}

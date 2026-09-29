@@ -199,8 +199,6 @@ export const fr: Dict = {
     last7: "7 derniers jours",
     last30: "30 derniers jours",
     thisYear: "Cette année",
-    sinceExport: "Depuis le dernier export",
-    sinceExportHint: "Faites un export complet pour l'activer.",
     clear: "Effacer",
   },
 
@@ -665,7 +663,7 @@ export const fr: Dict = {
     deviceUpdate: "Mettre à jour mon audiothèque",
     deviceSnapshotHint: "Dépose un répertoire autonome, horodaté à la date et l'heure.",
     deviceUpdateHint:
-      "Fusionne dans le répertoire choisi, en remplaçant ce qui a changé. À combiner avec « Depuis le dernier export » pour une synchro incrémentale rapide.",
+      "Fusionne dans le répertoire choisi en écrasant ce qui a changé. Utilisez « Modifications seulement » pour une synchro rapide.",
     deviceTransferFailed:
       "Le transfert n'a pas abouti. Certains fichiers sont peut-être arrivés sur l'appareil ; votre audiothèque n'a pas été touchée. Reconnectez-le et exportez à nouveau.",
     exportFailed: "L'export n'a pas abouti. Votre audiothèque n'a pas été touchée.",
@@ -675,6 +673,25 @@ export const fr: Dict = {
     skipped: { one: "{{n}} ignorée", other: "{{n}} ignorées" },
     errors: { one: "{{n}} erreur", other: "{{n}} erreurs" },
     more: "et {{n}} de plus",
+    unchanged: { one: "{{n}} inchangée", other: "{{n}} inchangées" },
+    scopeLabel: "Portée de l'export",
+    scopeAll: "Tout",
+    scopeChanged: "Modifications seulement",
+    lastHere: "Dernier export ici : {when} ({date})",
+    snapshotAll: "Un nouveau répertoire daté contient toujours tout.",
+    firstExport: "Rien n'a encore été exporté ici, le premier export envoie tout.",
+    noRecord: "Plisto n'a encore aucune trace de cette destination.",
+    noRecordHint: "Marquez-la à jour pour n'envoyer que les modifications à partir de maintenant. Rien n'est copié.",
+    markUpToDate: "Marquer à jour",
+    exportEverythingInstead: "Tout exporter plutôt",
+    adoptFailed: "Plisto n'a pas pu marquer cette destination à jour. Rien n'a été copié.",
+    nothingChanged: "Rien n'a changé depuis le {date}",
+    nothingHint: "Les nouveaux albums et modifications apparaîtront ici.",
+    layoutChanged: "La disposition a changé depuis le dernier export ici, tout sera donc réécrit.",
+    noRemoval: "Rien n'est supprimé. Les albums supprimés ou renommés y gardent leur ancienne copie.",
+    changedParts: "Modifications : {parts} ({files})",
+    playlists: { one: "{{n}} playlist", other: "{{n}} playlists" },
+    files: { one: "{{n}} fichier", other: "{{n}} fichiers" },
   },
 
   extract: {

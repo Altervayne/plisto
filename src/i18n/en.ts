@@ -198,8 +198,6 @@ export const en = {
     last7: "Last 7 days",
     last30: "Last 30 days",
     thisYear: "This year",
-    sinceExport: "Since last export",
-    sinceExportHint: "Run a full export to set this.",
     clear: "Clear",
   },
 
@@ -664,7 +662,7 @@ export const en = {
     deviceUpdate: "Update my library",
     deviceSnapshotHint: "Drops a fresh, self-contained folder stamped with the date and time.",
     deviceUpdateHint:
-      "Merges into the folder you picked, overwriting what changed. Pair with \"Since last export\" for a quick incremental sync.",
+      "Merges into the folder you picked, overwriting what changed. Use \"Only changes\" for a quick sync.",
     deviceTransferFailed:
       "The transfer didn't finish. Some files may have reached your device; your library is untouched. Reconnect it and export again.",
     exportFailed: "The export didn't finish. Your library is untouched.",
@@ -674,6 +672,25 @@ export const en = {
     skipped: { one: "{{n}} skipped", other: "{{n}} skipped" },
     errors: { one: "{{n}} error", other: "{{n}} errors" },
     more: "and {{n}} more",
+    unchanged: { one: "{{n}} unchanged", other: "{{n}} unchanged" },
+    scopeLabel: "Export scope",
+    scopeAll: "Everything",
+    scopeChanged: "Only changes",
+    lastHere: "Last export here: {when} ({date})",
+    snapshotAll: "A new dated folder always holds everything.",
+    firstExport: "Nothing exported here yet, so the first export sends everything.",
+    noRecord: "Plisto has no record of this destination yet.",
+    noRecordHint: "Mark it as up to date to only send what changes from now on. Nothing is copied.",
+    markUpToDate: "Mark as up to date",
+    exportEverythingInstead: "Export everything instead",
+    adoptFailed: "Plisto couldn't mark this destination as up to date. Nothing was copied.",
+    nothingChanged: "Nothing changed since {date}",
+    nothingHint: "New albums and edits will show up here.",
+    layoutChanged: "The layout changed since the last export here, so everything will be rewritten.",
+    noRemoval: "Nothing is removed. Deleted or renamed albums keep their old copy there.",
+    changedParts: "{parts} changed ({files})",
+    playlists: { one: "{{n}} playlist", other: "{{n}} playlists" },
+    files: { one: "{{n}} file", other: "{{n}} files" },
   },
 
   extract: {

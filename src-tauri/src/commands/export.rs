@@ -3,11 +3,13 @@
  * reset cancel flag, a brief DB snapshot, then a blocking worker awaited so the runtime stays free
  * to service a cancel. The snapshot and the workspace-root read happen under one lock, which is
  * then dropped - the worker is DB-free. validate_export_destination is the up-front pre-check the
- * idle screen gates and warns on; cancel_export signals a running export to stop.
+ * idle screen gates and warns on; cancel_export signals a running export to stop. export_changes
+ * previews a changed-only run against the destination's export record, and adopt_export_destination
+ * records a destination as already current.
  */
 
 // -- Library Imports --
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -15,10 +17,11 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
+use super::now_unix;
 use crate::db;
 use crate::dto::{
-    DestinationCheck, DeviceTarget, ExportConfig, ExportPhase, ExportProgress, ExportStatus,
-    ExportSummary,
+    DestinationCheck, DeviceTarget, ExportChangeSet, ExportConfig, ExportPhase, ExportProgress,
+    ExportStatus, ExportSummary,
 };
 use crate::export;
 use crate::state::AppState;
@@ -99,13 +102,32 @@ pub fn check_device(app: AppHandle, pidl: String) -> Result<DestinationCheck, St
         .map_err(|_| "the device check did not respond".to_string())
 }
 
+/// Whether a folder config's destination is missing or empty, so its export record describes nothing
+/// that is there. Always false for a device, which is never enumerated.
+fn fresh_folder(config: &ExportConfig) -> bool {
+    config.device.is_none() && !export::dir_non_empty(Path::new(&config.destination))
+}
+
+/// Files the rows a run earned into the destination's record. A failed write only costs a re-export
+/// of those files next time, so it never fails the run that already landed them.
+fn record_rows(state: &AppState, dest_key: &str, rows: &[(String, String)]) {
+    if rows.is_empty() {
+        return;
+    }
+    if let Ok(mut conn) = state.db.lock() {
+        let _ = db::record_export_files(&mut conn, dest_key, rows, now_unix());
+    }
+}
+
 /// Exports the organized library to `config.destination`, streaming progress over `on_progress`
-/// and returning the report. Rejects while another export runs. Snapshots the plan under a brief
-/// lock, then releases it; validates the destination before any write (refusing one inside the
-/// workspace or not writable); runs the worker on a blocking thread and awaits it. Alongside the
-/// per-invocation channel it drives the app-global export events (`export:started`/`:progress`/
-/// `:finished`/`:failed`) and the shared `export_status`, so the tray popup and the notification
-/// listener follow the same run without touching the channel path the export view uses.
+/// and returning the report. Rejects while another export runs. Plans the run under a brief lock -
+/// the layout over the whole library, and for a changed-only run the diff against the destination's
+/// record - then releases it; validates the destination before any write (refusing one inside the
+/// workspace or not writable); runs the worker on a blocking thread and awaits it. A folder or
+/// in-place device destination then records what landed. Alongside the per-invocation channel it
+/// drives the app-global export events (`export:started`/`:progress`/`:finished`/`:failed`) and the
+/// shared `export_status`, so the tray popup and the notification listener follow the same run
+/// without touching the channel path the export view uses.
 #[tauri::command]
 pub async fn export_library(
     config: ExportConfig,
@@ -127,26 +149,19 @@ pub async fn export_library(
         done: false,
     });
 
-    // Snapshot the plan and read every root path under one lock, then drop it.
+    // Plan the run and read every root path under one lock, then drop it. A folder found missing or
+    // empty drops its record first, since nothing recorded is there.
+    let fresh = fresh_folder(&config);
     let prepared = (|| -> Result<_, String> {
         let conn = state
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        let plan = export::build_export_plan(&conn, &config)?;
+        let run = export::plan_run(&conn, &config, fresh)?;
         let roots = db::all_root_paths(&conn).map_err(|e| e.to_string())?;
-        // The playlist-file shape writes a portable .m3u8 per playlist after the copies land; snapshot
-        // each playlist's play-order slots here, under the same lock, so the worker stays DB-free.
-        let mut playlist_files = Vec::new();
-        if config.include_playlists && config.playlist_shape == "file" {
-            for p in db::load_playlists(&conn).map_err(|e| e.to_string())?.playlists {
-                playlist_files
-                    .push(export::playlist_export_plan(&conn, p.id).map_err(|e| e.to_string())?);
-            }
-        }
-        Ok((plan, roots, playlist_files))
+        Ok((run, roots))
     })();
-    let (plan, roots, playlist_files) = match prepared {
+    let (run, roots) = match prepared {
         Ok(v) => v,
         Err(e) => {
             state.export_running.store(false, Ordering::SeqCst);
@@ -159,7 +174,6 @@ pub async fn export_library(
     // there is nothing for check_destination to probe. Everything the worker needs is snapshotted
     // here, so the dedicated STA thread stays free of managed state.
     if let Some(device) = config.device.clone() {
-        let template = export::AlbumTemplate::resolve(&config.folder_pattern, &config.file_pattern);
         let covers_dir = state.covers_dir.clone();
         let cancel = Arc::clone(&state.export_cancel);
         let status = Arc::clone(&state.export_status);
@@ -200,6 +214,7 @@ pub async fn export_library(
 
         let worker_app = app.clone();
         let device_pidl = device.pidl;
+        let dest_key = run.dest_key.clone();
 
         // The whole COM job runs on a dedicated STA std::thread under a ComApartment guard, so
         // apartment state can never leak onto a reused Tokio pool thread on an early return (the
@@ -207,7 +222,7 @@ pub async fn export_library(
         // staying free to service cancel_export.
         let spawned = std::thread::Builder::new()
             .name("plisto-mtp-export".to_string())
-            .spawn(move || -> Result<ExportSummary, String> {
+            .spawn(move || -> Result<(ExportSummary, Vec<(String, String)>), String> {
                 // Declared before the apartment so it drops AFTER it: CoUninitialize runs first, the
                 // temp cleanup second.
                 let _staging = StagingGuard {
@@ -238,13 +253,13 @@ pub async fn export_library(
                     let _ = on_progress.send(p);
                 };
 
-                // Staging: run_export verbatim into the timestamped subfolder (COM-free). Its own
+                // Staging: the planned run into the stage dir (COM-free), its playlist .m3u8s landing
+                // in the staging tree beside the copies they reference once the copies finish. Its own
                 // terminal Done is rewritten to Copying/false, since staging completion must never read
                 // as the whole export's done while the transfer is still to come.
-                let summary = export::run_export(
-                    &plan,
+                let (summary, rows) = export::run_planned(
+                    &run,
                     &stage_dir,
-                    &template,
                     &covers_dir,
                     &cancel,
                     |p| {
@@ -261,20 +276,10 @@ pub async fn export_library(
                     },
                 );
 
-                let final_summary = if summary.cancelled {
+                let (final_summary, landed) = if summary.cancelled {
                     // A cancel during staging never reaches the device; the guard cleans the temp.
-                    summary
+                    (summary, Vec::new())
                 } else {
-                    // Parity with the folder path: the portable playlist .m3u8s land in the staging
-                    // tree so they transfer beside the copies they reference (their relative paths
-                    // resolve on the device). Off the cancel path, like the folder export.
-                    export::write_general_playlist_m3us(
-                        &plan,
-                        &playlist_files,
-                        &stage_dir,
-                        &template,
-                    );
-
                     // The transfer: push the staged tree onto the device, streaming Transferring
                     // ticks. A hard error (disconnect / failure) bubbles as Err - no terminal Done,
                     // the UI drops to idle - while a mid-transfer cancel returns a cancelled outcome.
@@ -284,10 +289,18 @@ pub async fn export_library(
                         &cancel,
                         |p| emit_tick(p),
                     )?;
-                    ExportSummary {
+                    // Only a whole in-place transfer says which files are on the device; a cancelled
+                    // one leaves an unknown part there, and a dated snapshot keeps no record.
+                    let landed = if in_place && !outcome.cancelled {
+                        rows
+                    } else {
+                        Vec::new()
+                    };
+                    let summary = ExportSummary {
                         cancelled: outcome.cancelled,
                         ..summary
-                    }
+                    };
+                    (summary, landed)
                 };
 
                 // The single real terminal Done, for both a completed and a cancelled run - the tick
@@ -299,7 +312,7 @@ pub async fn export_library(
                     errors: final_summary.errors,
                     done: true,
                 });
-                Ok(final_summary)
+                Ok((final_summary, landed))
                 // _com drops here (CoUninitialize), then _staging (the temp is removed).
             });
 
@@ -322,6 +335,16 @@ pub async fn export_library(
         // Await the worker without blocking the async runtime: a blocking-pool thread parks on the
         // join while cancel_export stays serviceable.
         let joined = tauri::async_runtime::spawn_blocking(move || handle.join()).await;
+
+        // Record before the guard drops, so the next preview or run reads what landed.
+        let joined = joined.map(|j| {
+            j.map(|r| {
+                r.map(|(summary, landed)| {
+                    record_rows(&state, &dest_key, &landed);
+                    summary
+                })
+            })
+        });
 
         state.export_running.store(false, Ordering::SeqCst);
         if let Ok(mut s) = state.export_status.lock() {
@@ -361,9 +384,9 @@ pub async fn export_library(
     }
 
     let destination = PathBuf::from(config.destination);
-    let template = export::AlbumTemplate::resolve(&config.folder_pattern, &config.file_pattern);
     let covers_dir = state.covers_dir.clone();
     let cancel = Arc::clone(&state.export_cancel);
+    let dest_key = run.dest_key.clone();
 
     // The run begins here, past every validation, so a started event always pairs with a terminal
     // one. Mark the shared status running and announce it before the first copy.
@@ -378,29 +401,22 @@ pub async fn export_library(
     let status = Arc::clone(&state.export_status);
     let worker_app = app.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let summary = export::run_export(
-            &plan,
-            &destination,
-            &template,
-            &covers_dir,
-            &cancel,
-            move |p| {
-                if let Ok(mut status) = status.lock() {
-                    status.progress = Some(p.clone());
-                }
-                let _ = worker_app.emit("export:progress", &p);
-                let _ = on_progress.send(p);
-            },
-        );
-        // The portable playlist files land after the copies, only on a run that finished, so a
-        // cancelled export never leaves an .m3u8 pointing at copies it never wrote. Empty for every
-        // other shape, where the loop is a no-op.
-        if !summary.cancelled {
-            export::write_general_playlist_m3us(&plan, &playlist_files, &destination, &template);
-        }
-        summary
+        export::run_planned(&run, &destination, &covers_dir, &cancel, move |p| {
+            if let Ok(mut status) = status.lock() {
+                status.progress = Some(p.clone());
+            }
+            let _ = worker_app.emit("export:progress", &p);
+            let _ = on_progress.send(p);
+        })
     })
     .await;
+
+    // A folder keeps what landed even from a cancelled run. Recorded before the guard drops, so the
+    // next preview or run reads it.
+    let outcome = outcome.map(|(summary, rows)| {
+        record_rows(&state, &dest_key, &rows);
+        summary
+    });
 
     state.export_running.store(false, Ordering::SeqCst);
     if let Ok(mut status) = state.export_status.lock() {
@@ -421,6 +437,45 @@ pub async fn export_library(
             Err(message)
         }
     }
+}
+
+/// Previews a changed-only export of `config`: how many files it would write, grouped by the albums,
+/// singles and playlists holding them, and whether the destination carries a record at all. Read-only:
+/// the same diff a changed-only run uses, touching neither the destination nor the record. A folder
+/// found missing or empty reads as carrying no record.
+#[tauri::command]
+pub async fn export_changes(
+    config: ExportConfig,
+    state: State<'_, AppState>,
+) -> Result<ExportChangeSet, String> {
+    let fresh = fresh_folder(&config);
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    export::preview_changes(&conn, &config, fresh)
+}
+
+/// Marks `config`'s destination as up to date: records the current fingerprint of every file an
+/// export would write, without writing any file, and returns how many. For a destination that already
+/// holds this library but carries no record. Rejects while an export runs and for a dated snapshot.
+#[tauri::command]
+pub async fn adopt_export_destination(
+    config: ExportConfig,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    if state.export_running.swap(true, Ordering::SeqCst) {
+        return Err("an export is already running".to_string());
+    }
+    let result = (|| -> Result<u32, String> {
+        let mut conn = state
+            .db
+            .lock()
+            .map_err(|_| "index is unavailable".to_string())?;
+        export::adopt_destination(&mut conn, &config, now_unix())
+    })();
+    state.export_running.store(false, Ordering::SeqCst);
+    result
 }
 
 /// The current app-global export snapshot, for the tray popup opening mid-run. Reads the shared

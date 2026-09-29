@@ -7,9 +7,13 @@
 
 // -- Module Declarations --
 mod album_numbering;
+mod export_ledger;
 mod migrations;
 mod tag_albums;
 
+pub use export_ledger::{
+    clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
+};
 pub use tag_albums::{create_albums_from_tags, reapply_albums_from_tags, revert_albums_from_tags};
 
 // -- Library Imports --
@@ -1013,6 +1017,9 @@ pub struct ExportTrackRow {
     pub display_path: Option<String>,
     pub source_path: String,
     pub ext: String,
+    // The source file's stats as the last scan saw them; the export record fingerprints them.
+    pub size_bytes: i64,
+    pub mtime: i64,
     pub track_no: Option<i64>,
     pub disc_no: Option<i64>,
     pub raw_title: Option<String>,
@@ -1039,7 +1046,7 @@ pub struct ExportTrackRow {
 // against its container's value. Ordered by album then track number so a container's tracks arrive
 // in play order and a null track_no lands last.
 const EXPORT_TRACK_SELECT: &str = "
-    SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext,
+    SELECT at.album_id, at.track_id, t.display_path, t.source_path, t.ext, t.size_bytes, t.mtime,
            at.track_no, COALESCE(te.disc_no, t.raw_disc_no), t.raw_title, t.raw_artist,
            te.title, te.artist, te.album, te.album_artist, te.year,
            t.has_embedded_cover, t.missing_at, at.keep_own_cover, tc.cover_id
@@ -1057,19 +1064,21 @@ fn export_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<ExportTr
         display_path: r.get(2)?,
         source_path: r.get(3)?,
         ext: r.get(4)?,
-        track_no: r.get(5)?,
-        disc_no: r.get(6)?,
-        raw_title: r.get(7)?,
-        raw_artist: r.get(8)?,
-        title_override: r.get(9)?,
-        artist_override: r.get(10)?,
-        album_override: r.get(11)?,
-        album_artist_override: r.get(12)?,
-        year_override: r.get(13)?,
-        has_embedded_cover: r.get(14)?,
-        missing_at: r.get(15)?,
-        keep_own_cover: r.get(16)?,
-        own_cover_id: r.get(17)?,
+        size_bytes: r.get(5)?,
+        mtime: r.get(6)?,
+        track_no: r.get(7)?,
+        disc_no: r.get(8)?,
+        raw_title: r.get(9)?,
+        raw_artist: r.get(10)?,
+        title_override: r.get(11)?,
+        artist_override: r.get(12)?,
+        album_override: r.get(13)?,
+        album_artist_override: r.get(14)?,
+        year_override: r.get(15)?,
+        has_embedded_cover: r.get(16)?,
+        missing_at: r.get(17)?,
+        keep_own_cover: r.get(18)?,
+        own_cover_id: r.get(19)?,
     })
 }
 
@@ -1880,6 +1889,8 @@ pub struct PlaylistExportRow {
     pub display_path: Option<String>,
     pub source_path: String,
     pub ext: String,
+    pub size_bytes: i64,
+    pub mtime: i64,
     pub duration_secs: Option<f64>,
     pub missing_at: Option<i64>,
     pub raw_title: Option<String>,
@@ -1906,7 +1917,7 @@ const PLAYLIST_EXPORT_SELECT: &str = "
            t.raw_title, t.raw_artist,
            te.title, te.artist, te.album, te.album_artist, te.year,
            t.raw_album, t.raw_album_artist, t.raw_year,
-           a.id IS NOT NULL, t.has_embedded_cover
+           a.id IS NOT NULL, t.has_embedded_cover, t.size_bytes, t.mtime
     FROM playlist_tracks pt
     JOIN tracks t ON t.id = pt.track_id
     LEFT JOIN track_edits te ON te.track_id = pt.track_id
@@ -1936,6 +1947,8 @@ fn playlist_export_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<Playl
         raw_year: r.get(15)?,
         in_album: r.get(16)?,
         has_embedded: r.get::<_, Option<bool>>(17)? == Some(true),
+        size_bytes: r.get(18)?,
+        mtime: r.get(19)?,
     })
 }
 
@@ -2382,7 +2395,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
 
         for table in [
             "tracks",
@@ -2400,6 +2413,7 @@ mod tests {
             "playlist_tracks",
             "track_covers",
             "plays",
+            "export_ledger",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -2458,7 +2472,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 14);
+        assert_eq!(version, 15);
     }
 
     #[test]

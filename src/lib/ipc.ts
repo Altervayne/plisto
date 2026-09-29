@@ -21,6 +21,8 @@ import type {
   CueSheet,
   DestinationCheck,
   DeviceTarget,
+  ExportChangeSet,
+  ExportConfig,
   ExportProgress,
   ExportStatus,
   ExportSummary,
@@ -147,47 +149,76 @@ export function createExportChannel(
   return channel;
 }
 
+/** The sections, scope and device mode an export run takes beside its target and layout templates. */
+export interface ExportOptions {
+  albums?: boolean;
+  singles?: boolean;
+  playlists?: boolean;
+  playlistShape?: "mimic" | "file";
+  albumIds?: number[];
+  deviceInPlace?: boolean;
+  changedOnly?: boolean;
+}
+
 /**
- * Exports the organized library to `target`, streaming progress, resolving with the report. A folder
- * target writes straight into its path; a device target stages the library to a temp folder and
- * transfers it onto the device, so `destination` goes empty and `device` carries the picked target.
- * The album layout follows `folderPattern`/`filePattern` (token language); left empty, the backend
- * falls back to the shipped default layout. Singles ignore the template.
+ * The config an export of `target` sends. A folder target writes straight into its path; a device
+ * target leaves `destination` empty and carries the picked target. The one builder behind both the run
+ * and its changed-only preview, so the preview reads exactly what the run would write.
+ */
+export function exportConfig(
+  target: ExportTarget,
+  folderPattern = "",
+  filePattern = "",
+  sections: ExportOptions = {},
+): ExportConfig {
+  return {
+    destination: target.kind === "folder" ? target.path : "",
+    device: target.kind === "device" ? target.target : undefined,
+    // Device mode: merge into the picked folder in place, or drop a dated snapshot. Only a device
+    // target reads it.
+    device_in_place: target.kind === "device" ? sections.deviceInPlace ?? false : false,
+    folder_pattern: folderPattern,
+    file_pattern: filePattern,
+    // Sections default to the pre-1.5 shape: albums + singles on, playlists opt-in.
+    include_albums: sections.albums ?? true,
+    include_singles: sections.singles ?? true,
+    include_playlists: sections.playlists ?? false,
+    playlist_shape: sections.playlistShape ?? "mimic",
+    // Scoping is opt-in: an explicit id set narrows the plan to those albums/singles. Omitted, the
+    // key drops out and the export stays general.
+    album_ids: sections.albumIds,
+    // Writes only what changed since the destination's last export; off unless asked for.
+    changed_only: sections.changedOnly ?? false,
+  };
+}
+
+/**
+ * Exports the organized library to `target`, streaming progress, resolving with the report. A device
+ * target stages the library to a temp folder and transfers it onto the device. The album layout
+ * follows `folderPattern`/`filePattern` (token language); left empty, the backend falls back to the
+ * shipped default layout. Singles ignore the template.
  */
 export function exportLibrary(
   target: ExportTarget,
   channel: Channel<ExportProgress>,
   folderPattern = "",
   filePattern = "",
-  sections: {
-    albums?: boolean;
-    singles?: boolean;
-    playlists?: boolean;
-    playlistShape?: "mimic" | "file";
-    albumIds?: number[];
-    deviceInPlace?: boolean;
-  } = {},
+  sections: ExportOptions = {},
 ): Promise<ExportSummary> {
   return invoke<ExportSummary>("export_library", {
-    config: {
-      destination: target.kind === "folder" ? target.path : "",
-      device: target.kind === "device" ? target.target : undefined,
-      // Device mode: merge into the picked folder in place, or drop a dated snapshot. Only a device
-      // target reads it.
-      device_in_place: target.kind === "device" ? sections.deviceInPlace ?? false : false,
-      folder_pattern: folderPattern,
-      file_pattern: filePattern,
-      // Sections default to the pre-1.5 shape: albums + singles on, playlists opt-in.
-      include_albums: sections.albums ?? true,
-      include_singles: sections.singles ?? true,
-      include_playlists: sections.playlists ?? false,
-      playlist_shape: sections.playlistShape ?? "mimic",
-      // Scoping is opt-in: an explicit id set narrows the plan to those albums/singles. Omitted, the
-      // key drops out and the export stays general.
-      album_ids: sections.albumIds,
-    },
+    config: exportConfig(target, folderPattern, filePattern, sections),
     onProgress: channel,
   });
+}
+
+/** Previews a changed-only export of `config`: the files and containers it would write, read-only. */
+export function exportChanges(config: ExportConfig): Promise<ExportChangeSet> {
+  return invoke<ExportChangeSet>("export_changes", { config });
+}
+
+/** Records `config`'s destination as up to date without writing a file; resolves with the file count. */
+export function adoptExportDestination(config: ExportConfig): Promise<number> {
+  return invoke<number>("adopt_export_destination", { config });
 }
 
 /** Renders a sample export path for the album templates, using the backend's real derivation. */

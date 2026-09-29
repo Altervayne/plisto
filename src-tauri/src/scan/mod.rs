@@ -794,6 +794,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn scans_never_touch_the_export_record() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        scan(&music.path, &db_path);
+
+        let rows = vec![
+            ("Albums/X/Y/01 - A.mp3".to_string(), "f1".to_string()),
+            ("Albums/X/Y/02 - B.flac".to_string(), "f2".to_string()),
+        ];
+        {
+            let mut conn = db::open_db(&db_path).unwrap();
+            db::record_export_files(&mut conn, "dest", &rows, 50).unwrap();
+        }
+        let record = || {
+            let conn = db::open_db(&db_path).unwrap();
+            (
+                db::export_ledger(&conn, "dest").unwrap(),
+                db::export_ledger_last(&conn, "dest").unwrap(),
+            )
+        };
+        let before = record();
+
+        // A vanished file, a new one, and a return: the record stays exactly as it was.
+        fs::remove_file(music.path.join("b.flac")).unwrap();
+        fs::write(music.path.join("c.mp3"), b"").unwrap();
+        scan(&music.path, &db_path);
+        assert_eq!(record(), before);
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        scan(&music.path, &db_path);
+        assert_eq!(record(), before);
+    }
+
     // Count rows on the db whose has_embedded_cover is still NULL.
     fn null_art_count(db_path: &Path) -> i64 {
         let conn = Connection::open(db_path).unwrap();

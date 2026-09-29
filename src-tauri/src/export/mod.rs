@@ -8,9 +8,12 @@
  */
 
 // -- Module Declarations --
+mod changes;
 mod derive;
 pub mod device;
 pub mod extract;
+mod job;
+mod ledger;
 pub mod plan;
 pub mod playlist;
 mod write;
@@ -32,12 +35,14 @@ use crate::dto::{
 use crate::paths::paths_overlap;
 use crate::scan::progress::ProgressThrottle;
 use crate::tags::{EmbedResult, TrackTags};
-use derive::derive_layout;
-use plan::{ContainerKind, CoverPlan, ExportPlan};
+use derive::{derive_layout, ContainerLayout};
+use job::PlaylistFile;
+use plan::{ContainerKind, CoverPlan, ExportContainer, ExportPlan, ExportTrack};
 use write::{export_track, write_sidecars, ExportError};
 
-pub use derive::{safe_component, template_preview, AlbumTemplate};
-pub use plan::{build_export_plan, mimic_album_plan, playlist_folder_plan};
+pub use changes::{adopt_destination, plan_run, preview_changes, run_planned};
+pub use derive::{folder_dest_len, safe_component, template_preview, AlbumTemplate, DEVICE_DEST_LEN};
+pub use plan::{mimic_album_plan, playlist_folder_plan};
 pub use playlist::{
     playlist_cover_plan, playlist_export_plan, render_m3u, render_rich_m3u8, PlaylistExportPlan,
 };
@@ -57,13 +62,13 @@ const NOTE_RETAG: &str = "could not write tags";
 const NOTE_UNSUPPORTED: &str = "format does not support embedded art";
 const NOTE_COVER_UNAVAILABLE: &str = "cover art unavailable";
 
-/// Runs the export over `plan`, writing into `destination`, streaming throttled progress through
-/// `emit`, and returning the report. The worker never touches the DB. `cancel` stops it between
-/// containers and before each track; a cancelled run leaves whatever landed and reports the rest
-/// unattempted. Sources and the cover store are read-only; nothing is written outside `destination`.
+/// Runs the export over the whole of `plan`, writing into `destination`, streaming throttled progress
+/// through `emit`, and returning the report. `dest_len` is the length the layout budgets full paths
+/// against: the folder's own (`folder_dest_len`), or `DEVICE_DEST_LEN` when staging for a device.
 pub fn run_export<E>(
     plan: &ExportPlan,
     destination: &Path,
+    dest_len: usize,
     template: &AlbumTemplate,
     covers_dir: &Path,
     cancel: &Arc<AtomicBool>,
@@ -72,11 +77,28 @@ pub fn run_export<E>(
 where
     E: Fn(ExportProgress) + Sync,
 {
-    let dest_len = destination.to_string_lossy().chars().count();
     let layout = derive_layout(&plan.containers, dest_len, template);
+    run_containers(&plan.containers, &layout, destination, covers_dir, cancel, emit)
+}
 
-    let present: usize = plan.containers.iter().map(|c| c.tracks.len()).sum();
-    let skipped: usize = plan.containers.iter().map(|c| c.skipped.len()).sum();
+/// Writes `containers` into `destination` at their already-derived `layout`, paired by position. The
+/// worker never touches the DB. A container with no track to write gets no folder and no sidecars;
+/// its missing-source skips are still reported. `cancel` stops the run between containers and before
+/// each track; a cancelled run leaves whatever landed and reports the rest unattempted. Sources and
+/// the cover store are read-only; nothing is written outside `destination`.
+fn run_containers<E>(
+    containers: &[ExportContainer],
+    layout: &[ContainerLayout],
+    destination: &Path,
+    covers_dir: &Path,
+    cancel: &Arc<AtomicBool>,
+    emit: E,
+) -> ExportSummary
+where
+    E: Fn(ExportProgress) + Sync,
+{
+    let present: usize = containers.iter().map(|c| c.tracks.len()).sum();
+    let skipped: usize = containers.iter().map(|c| c.skipped.len()).sum();
     let total = (present + skipped) as u32;
 
     let exported = AtomicUsize::new(0);
@@ -86,7 +108,7 @@ where
     let items: Mutex<Vec<ExportItem>> = Mutex::new(Vec::new());
 
     // The missing-source skips are known from the plan; record them before any write.
-    for (container, clayout) in plan.containers.iter().zip(&layout) {
+    for (container, clayout) in containers.iter().zip(layout) {
         let name = container_name(clayout.rel_dir.as_path());
         for &track_id in &container.skipped {
             record(
@@ -129,9 +151,12 @@ where
         });
 
         // Sequential over containers: prepare the folder and cover once, then fan the tracks out.
-        for (container, clayout) in plan.containers.iter().zip(&layout) {
+        for (container, clayout) in containers.iter().zip(layout) {
             if cancel.load(Ordering::Relaxed) {
                 break;
+            }
+            if container.tracks.is_empty() {
+                continue;
             }
             let name = container_name(clayout.rel_dir.as_path());
             let dir = destination.join(&clayout.rel_dir);
@@ -173,31 +198,7 @@ where
                     if cancel.load(Ordering::Relaxed) {
                         return;
                     }
-                    // album_artist and year resolve per track: the track's own edit wins, else it
-                    // inherits the container's value - two tiers, always defined, so an un-edited
-                    // track lands exactly the container value. The album NAME is different: a track
-                    // that sits in a Plisto album takes that album's name outright, so a stale
-                    // per-track album edit (a former tag the file carried in) can never survive the
-                    // export. A single or a loose bag owns no album, so its own resolved album rides
-                    // through. The album view's "apply to tracks" pushes the other fields on demand.
-                    let album = if matches!(container.kind, ContainerKind::Album) {
-                        container.title.as_deref()
-                    } else {
-                        track.album_override.as_deref().or(container.title.as_deref())
-                    };
-                    let tags = TrackTags {
-                        title: track.title.as_deref(),
-                        artist: track.artist.as_deref(),
-                        album,
-                        album_artist: track
-                            .album_artist_override
-                            .as_deref()
-                            .or(container.album_artist.as_deref()),
-                        year: track.year_override.or(container.year),
-                        genres: &track.genres,
-                        track_no: track.track_no,
-                        disc_no: track.disc_no,
-                    };
+                    let tags = track_tags(container, track);
                     // Cover precedence, top down: a per-track assigned cover embeds its stored blob;
                     // else a keep-own membership embeds the track's own embedded/adjacent art; else
                     // the shared container cover. Each tier decodes and re-encodes at most once here.
@@ -260,9 +261,38 @@ where
         exported: exported.load(Ordering::Relaxed) as u32,
         skipped: skipped as u32,
         errors: errors.load(Ordering::Relaxed) as u32,
+        unchanged: 0,
         cancelled: cancel.load(Ordering::Relaxed),
         containers_written: containers_written.load(Ordering::Relaxed) as u32,
         items: items.into_inner().unwrap_or_default(),
+    }
+}
+
+/// The tags one exported copy carries. album_artist and year resolve per track: the track's own edit
+/// wins, else it inherits the container's value - two tiers, always defined, so an un-edited track
+/// lands exactly the container value. The album NAME is different: a track that sits in a Plisto album
+/// takes that album's name outright, so a stale per-track album edit (a former tag the file carried
+/// in) can never survive the export. A single or a loose bag owns no album, so its own resolved album
+/// rides through. The album view's "apply to tracks" pushes the other fields on demand. The export
+/// record fingerprints these same values, so both read them from here.
+fn track_tags<'a>(container: &'a ExportContainer, track: &'a ExportTrack) -> TrackTags<'a> {
+    let album = if matches!(container.kind, ContainerKind::Album) {
+        container.title.as_deref()
+    } else {
+        track.album_override.as_deref().or(container.title.as_deref())
+    };
+    TrackTags {
+        title: track.title.as_deref(),
+        artist: track.artist.as_deref(),
+        album,
+        album_artist: track
+            .album_artist_override
+            .as_deref()
+            .or(container.album_artist.as_deref()),
+        year: track.year_override.or(container.year),
+        genres: &track.genres,
+        track_no: track.track_no,
+        disc_no: track.disc_no,
     }
 }
 
@@ -272,14 +302,15 @@ where
 /// bundled `.m3u8` at the root. `cover` is the playlist's own art, written once at the root; the
 /// per-album covers ride inside their containers through run_export. `m3u` is the play-order slot
 /// snapshot the bundled playlist lists. `template` lays out each member album's folder and filename,
-/// and the bundled m3u re-derives paths from the same one so they match. A cancelled or
-/// container-less run skips the three root files. Sources and the cover store are read-only; nothing
-/// is written outside `destination`.
+/// and the bundled m3u re-derives paths from the same one and the same `dest_len` so they match. A
+/// cancelled or container-less run skips the three root files. Sources and the cover store are
+/// read-only; nothing is written outside `destination`.
 pub fn run_playlist_folder<E>(
     plan: &ExportPlan,
     m3u: &PlaylistExportPlan,
     cover: &CoverPlan,
     destination: &Path,
+    dest_len: usize,
     covers_dir: &Path,
     template: &AlbumTemplate,
     cancel: &Arc<AtomicBool>,
@@ -288,7 +319,7 @@ pub fn run_playlist_folder<E>(
 where
     E: Fn(ExportProgress) + Sync,
 {
-    let summary = run_export(plan, destination, template, covers_dir, cancel, emit);
+    let summary = run_export(plan, destination, dest_len, template, covers_dir, cancel, emit);
 
     // The root files land beside the copies once at least one container was written and the run was
     // not cancelled - the same gate the bundle used, and enough to know the destination exists.
@@ -298,20 +329,18 @@ where
         }
         // The empty .nomedia keeps the exported cover out of gallery scanners.
         write_root_file(destination, ".nomedia", b"");
-        write_bundled_m3u(plan, m3u, destination, template);
+        write_bundled_m3u(plan, m3u, destination, dest_len, template);
     }
 
     summary
 }
 
 /// Writes one file at the destination root through a temp-then-rename, so a reader never sees a
-/// half-written file. A failed write is quiet - the copies still landed.
-fn write_root_file(destination: &Path, name: &str, bytes: &[u8]) {
+/// half-written file, and says whether it landed. A failed write is quiet - the copies still landed.
+fn write_root_file(destination: &Path, name: &str, bytes: &[u8]) -> bool {
     let final_path = destination.join(name);
     let tmp = destination.join(format!(".plisto-tmp-{name}"));
-    if fs::write(&tmp, bytes).is_ok() {
-        let _ = fs::rename(&tmp, &final_path);
-    }
+    fs::write(&tmp, bytes).is_ok() && fs::rename(&tmp, &final_path).is_ok()
 }
 
 /// Writes the bundled `.m3u8` at the destination root, listing each present slot in play order by its
@@ -322,9 +351,9 @@ fn write_bundled_m3u(
     plan: &ExportPlan,
     m3u: &PlaylistExportPlan,
     destination: &Path,
+    dest_len: usize,
     template: &AlbumTemplate,
 ) {
-    let dest_len = destination.to_string_lossy().chars().count();
     let content = bundled_m3u_content(plan, m3u, dest_len, template);
 
     let stem = safe_component(m3u.name.as_deref().unwrap_or("Playlist"), "Playlist");
@@ -352,55 +381,27 @@ fn bundled_m3u_content(
     render_m3u(m3u, |t| rel.get(&t.track_id).cloned().unwrap_or_default())
 }
 
-/// Writes one portable `.m3u8` per playlist into the general export's `Playlists/` folder, each
-/// pointing at the copies the run already landed rather than duplicating them: a member or single at
-/// its `Albums/`/`Singles/` path is reached with a `../` out of `Playlists/`, while a bagged orphan
-/// living under the playlist's own folder is reached without. The path map is the same derivation
-/// run_export wrote, keyed by track id, so a slot the playlist holds twice names the one copy and a
-/// missing-source slot drops out. The files sit beside the copies, so the whole export travels as one
-/// portable bundle. Called after the copies, off the cancel path; a failed write is quiet.
-pub fn write_general_playlist_m3us(
-    plan: &ExportPlan,
-    playlists: &[PlaylistExportPlan],
+/// Writes the general export's portable playlist files into its `Playlists/` folder and returns the
+/// relative paths of the ones that landed. Called after the copies, off the cancel path; a failed
+/// write is quiet and simply goes unreported.
+fn write_playlist_files<'a>(
+    files: impl IntoIterator<Item = &'a PlaylistFile>,
     destination: &Path,
-    template: &AlbumTemplate,
-) {
-    if playlists.is_empty() {
-        return;
-    }
-
-    // The track -> root-relative exported path map, re-derived from the same layout run_export wrote.
-    let dest_len = destination.to_string_lossy().chars().count();
-    let layout = derive_layout(&plan.containers, dest_len, template);
-    let mut rel: HashMap<i64, String> = HashMap::new();
-    for clayout in &layout {
-        for track in &clayout.tracks {
-            let path = clayout.rel_dir.join(&track.filename);
-            rel.insert(track.track_id, path.to_string_lossy().replace('\\', "/"));
-        }
+) -> Vec<String> {
+    let mut files = files.into_iter().peekable();
+    if files.peek().is_none() {
+        return Vec::new();
     }
 
     // A fully-referenced playlist bags nothing, so `Playlists/` may not exist yet; make it once.
     let playlists_dir = destination.join(derive::PLAYLISTS_ROOT);
     if fs::create_dir_all(&playlists_dir).is_err() {
-        return;
+        return Vec::new();
     }
-    let inside_prefix = format!("{}/", derive::PLAYLISTS_ROOT);
-
-    for pl in playlists {
-        // Each slot's path is relative to `Playlists/`: a bagged orphan already sits under it, so its
-        // prefix is stripped; every other copy is one level up, reached with `../`. render_m3u drops a
-        // missing-source slot, and a slot with no mapped copy renders no path.
-        let content = render_m3u(pl, |t| match rel.get(&t.track_id) {
-            Some(path) => match path.strip_prefix(&inside_prefix) {
-                Some(inside) => inside.to_string(),
-                None => format!("../{path}"),
-            },
-            None => String::new(),
-        });
-        let stem = safe_component(pl.name.as_deref().unwrap_or("Playlist"), "Playlist");
-        write_root_file(&playlists_dir, &format!("{stem}.m3u8"), content.as_bytes());
-    }
+    files
+        .filter(|file| write_root_file(&playlists_dir, &file.file_name, file.content.as_bytes()))
+        .map(PlaylistFile::rel_path)
+        .collect()
 }
 
 /// The note for an exported track: none when its art embedded, a caveat when the format could not
@@ -469,7 +470,7 @@ pub fn check_destination(destination: &str, roots: &[String]) -> DestinationChec
 }
 
 /// Whether a directory exists and holds at least one entry. A missing directory reads as empty.
-fn dir_non_empty(dir: &Path) -> bool {
+pub(crate) fn dir_non_empty(dir: &Path) -> bool {
     fs::read_dir(dir)
         .map(|mut entries| entries.next().is_some())
         .unwrap_or(false)
@@ -504,6 +505,8 @@ mod tests {
             track_id,
             source: format!("/m/{track_id}.mp3"),
             ext: "mp3".into(),
+            size_bytes: 10,
+            mtime: 20,
             title: Some(title.into()),
             artist: Some(artist.into()),
             album_override: None,
@@ -615,12 +618,15 @@ mod tests {
             tracks: vec![slot(10, "Art", "Song"), slot(20, "Solo", "Loose")],
         };
 
-        write_general_playlist_m3us(
-            &export_plan,
+        let job = job::ExportJob::new(
+            export_plan,
+            None,
             &[pl],
-            dest.path.as_path(),
+            folder_dest_len(&dest.path),
             &AlbumTemplate::resolve("", ""),
         );
+        let landed = write_playlist_files(&job.playlist_files, dest.path.as_path());
+        assert_eq!(landed, vec!["Playlists/Mix.m3u8".to_string()]);
 
         let content =
             fs::read_to_string(dest.path.join("Playlists").join("Mix.m3u8")).unwrap();
@@ -750,6 +756,7 @@ mod tests {
         let summary = run_export(
             &plan,
             dest.path.as_path(),
+            folder_dest_len(&dest.path),
             &template,
             covers.path.as_path(),
             &cancel,
@@ -798,6 +805,7 @@ mod tests {
         run_export(
             &plan,
             dest.path.as_path(),
+            folder_dest_len(&dest.path),
             &AlbumTemplate::resolve("", ""),
             covers.path.as_path(),
             &cancel,
@@ -831,6 +839,8 @@ mod tests {
             track_id,
             source: source.to_string_lossy().into_owned(),
             ext: "flac".into(),
+            size_bytes: 10,
+            mtime: 20,
             title: Some(title.into()),
             artist: Some("Artist".into()),
             album_override: None,
@@ -900,6 +910,7 @@ mod tests {
         run_export(
             &plan,
             dest.path.as_path(),
+            folder_dest_len(&dest.path),
             &AlbumTemplate::resolve("", ""),
             covers.path.as_path(),
             &cancel,

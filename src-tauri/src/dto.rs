@@ -632,6 +632,10 @@ pub struct ExportConfig {
     // files that changed). Overwrite is device-dependent over MTP - the accepted trade for in-place.
     #[serde(default)]
     pub device_in_place: bool,
+    // Writes only the files the destination's export record shows as new or changed since they last
+    // landed there. No default: every caller states it. A dated device snapshot refuses it, since each
+    // snapshot is a fresh folder with nothing to compare against.
+    pub changed_only: bool,
 }
 
 /// The serde default for the include-albums/singles flags: on, so a caller that sends only a
@@ -699,18 +703,37 @@ pub struct ExportItem {
     pub note: Option<String>,
 }
 
-/// The result of a finished (or cancelled) export. `total` counts every member track considered;
-/// `exported`/`skipped`/`errors` partition it. `containers_written` is how many folders were
-/// created. `items` is the per-track detail the done screen reads.
+/// The result of a finished (or cancelled) export. `total` counts every member track the run worked
+/// on; `exported`/`skipped`/`errors` partition it. `unchanged` sits outside `total`: the tracks a
+/// changed-only run left alone because the destination already holds them as they are.
+/// `containers_written` is how many folders were created. `items` is the per-track detail the done
+/// screen reads.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExportSummary {
     pub total: u32,
     pub exported: u32,
     pub skipped: u32,
     pub errors: u32,
+    pub unchanged: u32,
     pub cancelled: bool,
     pub containers_written: u32,
     pub items: Vec<ExportItem>,
+}
+
+/// What a changed-only export would write to a destination, read against its export record.
+/// `has_record` says whether the destination carries any record; `last_exported_at` is when it last
+/// received a file. `files` counts the files to write out of the `total_files` the export covers, and
+/// `albums`/`singles`/`playlists` count the containers holding at least one of them. Mirrors
+/// ExportChangeSet in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportChangeSet {
+    pub has_record: bool,
+    pub last_exported_at: Option<i64>,
+    pub albums: u32,
+    pub singles: u32,
+    pub playlists: u32,
+    pub files: u32,
+    pub total_files: u32,
 }
 
 /// The shared, app-global snapshot of the current export, read by the tray popup when it opens

@@ -3,6 +3,9 @@
  * and sizes read the same everywhere. Locale-aware where it helps a human read big numbers.
  */
 
+// -- Type Imports --
+import type { Locale } from "../i18n/types";
+
 /** Groups a whole number with the locale's thousands separators (1240 -> "1,240"). */
 export function formatCount(n: number): string {
   return n.toLocaleString();
@@ -34,6 +37,23 @@ export function formatBytes(bytes: number): string {
 /** Renders a unix-seconds timestamp as the local date and time. */
 export function formatTimestamp(secs: number): string {
   return new Date(secs * 1000).toLocaleString();
+}
+
+// English reads day-first ("12 Sep") to sit beside the French "12 sept.".
+const DATE_TAGS: Record<Locale, string> = { en: "en-GB", fr: "fr-FR" };
+
+/**
+ * A unix-seconds stamp as a short local date in the app locale: day and month within the current
+ * year, with the year otherwise. `now` is injectable so the tests read one clock.
+ */
+export function formatShortDate(secs: number, locale: Locale, now = Date.now()): string {
+  const date = new Date(secs * 1000);
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  return new Intl.DateTimeFormat(DATE_TAGS[locale], {
+    day: "numeric",
+    month: "short",
+    year: sameYear ? undefined : "numeric",
+  }).format(date);
 }
 
 /** The time of day for a unix-seconds stamp: "14:32", 24h, zero-padded, in the local zone. ASCII, so

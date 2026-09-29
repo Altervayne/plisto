@@ -304,10 +304,11 @@
   color: var(--ink-3);
 }
 
-/* The device mode toggle over its explaining hint: a small stack under the chosen device. The control
- * hugs its two chips (align-start beats the column's stretch); the hint stretches back to full width so
- * its longer copy wraps normally rather than running off as one line. */
-.deviceMode {
+/* The device mode and export scope toggles over their explaining hints: a small stack. The control
+ * hugs its two chips (align-start beats the column's stretch); the hints stretch back to full width so
+ * their longer copy wraps normally rather than running off as one line. */
+.deviceMode,
+.scope {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -315,7 +316,8 @@
   margin-top: 2px;
 }
 
-.deviceMode p {
+.deviceMode p,
+.scope p {
   align-self: stretch;
 }
 
@@ -356,6 +358,13 @@
 
 .written {
   font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* Files a changed-only run left alone because the destination already holds them: plain news in the
+ * written ink, not the muted skip tone. */
+.unchanged {
+  font-size: 12.5px;
   color: var(--ink-2);
 }
 

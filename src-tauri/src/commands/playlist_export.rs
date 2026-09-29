@@ -210,6 +210,7 @@ pub async fn export_playlist_folder(
                     &m3u,
                     &cover,
                     &stage_dir,
+                    export::DEVICE_DEST_LEN,
                     &covers_dir,
                     &template,
                     &cancel,
@@ -300,6 +301,7 @@ pub async fn export_playlist_folder(
             &m3u,
             &cover,
             &destination,
+            export::folder_dest_len(&destination),
             &covers_dir,
             &template,
             &cancel,
@@ -384,7 +386,8 @@ pub async fn export_playlist_mimic_album(
     let cancel = Arc::clone(&state.playlist_export_cancel);
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        export::run_export(&plan, &destination, &template, &covers_dir, &cancel, move |p| {
+        let dest_len = export::folder_dest_len(&destination);
+        export::run_export(&plan, &destination, dest_len, &template, &covers_dir, &cancel, move |p| {
             let _ = on_progress.send(p);
         })
     })

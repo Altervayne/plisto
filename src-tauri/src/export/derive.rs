@@ -8,7 +8,7 @@
 
 // -- Library Imports --
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -49,6 +49,12 @@ const RESERVED: &[&str] = &[
 // terminator), leaving a small margin for a collision suffix.
 const MAX_COMPONENT: usize = 255;
 const MAX_PATH_BUDGET: usize = 255;
+
+// The destination length a device export derives its layout against. Its staging path carries a pid
+// and a clock, so budgeting from it would truncate a long name differently from run to run and land a
+// second copy on an in-place device. This fixed length leaves room for the staging root under the app
+// cache dir plus a dated snapshot folder.
+pub const DEVICE_DEST_LEN: usize = 128;
 
 // The album layout applied when a caller sends no template: the artist/album folder tree and the
 // `<track_no> - <title>` filename.
@@ -99,6 +105,11 @@ impl AlbumTemplate {
             },
         }
     }
+}
+
+/// The destination length a folder export derives its layout against: the folder path's own length.
+pub fn folder_dest_len(destination: &Path) -> usize {
+    destination.to_string_lossy().chars().count()
 }
 
 /// Derives the whole export layout from the plan. `dest_len` is the destination path's character
@@ -514,6 +525,8 @@ pub fn template_preview(folder: &str, file: &str) -> String {
         track_id: 1,
         source: String::new(),
         ext: "mp3".to_string(),
+        size_bytes: 0,
+        mtime: 0,
         title: Some("15 Step".to_string()),
         artist: Some("Radiohead".to_string()),
         album_override: None,
@@ -558,6 +571,8 @@ mod tests {
             track_id,
             source: format!("/m/{track_id}.mp3"),
             ext: "mp3".into(),
+            size_bytes: 10,
+            mtime: 20,
             title: (!title.is_empty()).then(|| title.to_string()),
             artist: (!artist.is_empty()).then(|| artist.to_string()),
             album_override: None,

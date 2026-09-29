@@ -59,9 +59,15 @@
   text-overflow: ellipsis;
 }
 
-.segment:not(.active):hover {
+.segment:not(.active):not([aria-disabled="true"]):hover {
   background: var(--veil);
   color: var(--ink);
+}
+
+/* A disabled chip keeps its place in the row so the choice it stands for stays visible, just inert. */
+.segment[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .active {
