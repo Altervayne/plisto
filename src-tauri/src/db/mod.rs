@@ -1267,6 +1267,7 @@ pub fn load_album_tracks(conn: &Connection) -> rusqlite::Result<Vec<AlbumTrackRo
 /// is rejected unless its membership is exactly one track, and an unknown track id rejects the whole
 /// create. `cover_id` is the caller's create-time pre-fill (a shared folder cover) or None.
 /// `created_at` and `updated_at` both take `now`.
+#[allow(clippy::too_many_arguments)]
 pub fn create_album(
     conn: &mut Connection,
     title: Option<String>,

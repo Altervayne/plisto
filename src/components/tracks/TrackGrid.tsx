@@ -280,20 +280,6 @@ export function TrackGrid({
   // adds or removes only these rows, so selections held in other folders ride through untouched.
   const rowIds = rows.map((r) => r.original.id);
   const selectedInView = rowIds.reduce((n, id) => (selection.has(id) ? n + 1 : n), 0);
-  // The play queue walks the screen: grouped, it follows the flattened visual order and drops a
-  // genre-duplicated track after its first sighting so next and prev never land on it twice; flat, it is
-  // the plain row order. Collapsed groups contribute nothing, since their rows are off screen.
-  const queueIds = useMemo(() => {
-    if (!grouping) return rows.map((r) => r.original.id);
-    const ids: number[] = [];
-    const seen = new Set<number>();
-    for (const item of flat) {
-      if (item.type !== "row" || seen.has(item.track.id)) continue;
-      seen.add(item.track.id);
-      ids.push(item.track.id);
-    }
-    return ids;
-  }, [grouping, rows, flat]);
   const selectAll =
     rowIds.length > 0 && selectedInView === rowIds.length
       ? "all"
@@ -330,6 +316,9 @@ export function TrackGrid({
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const createPlaylist = useCreatePlaylist();
   const setOpenTool = useSetOpenTool();
+  // A flat list is not a container, so playing from it plays just that track; the source tag still
+  // names where it came from.
+  const playTrack = (trackId: number) => play([trackId], 0, source);
   const [albumPickerTrack, setAlbumPickerTrack] = useState<number | null>(null);
   const [playlistPickerTrack, setPlaylistPickerTrack] = useState<number | null>(null);
 
@@ -347,8 +336,8 @@ export function TrackGrid({
     void editTrack(track.id, { ...edits, title: filenameStem(track.filename) });
   };
 
-  // Play is the keyboard and assistive route the hover triangle cannot be: it queues the whole view,
-  // cursor on this track. A gone source greys it out with the reason.
+  // Play is the keyboard and assistive route the hover triangle cannot be. A gone source greys it out
+  // with the reason.
   const buildMenu = (track: TrackRowData): MenuEntry[] => {
     // Split and Trim are gated on a container the cutter can slice; a format it cannot greys them out
     // with the reason.
@@ -361,7 +350,7 @@ export function TrackGrid({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(queueIds, queueIds.indexOf(track.id), source),
+              onSelect: () => playTrack(track.id),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -455,7 +444,7 @@ export function TrackGrid({
   const goneSettled =
     activeGone && rows.length === 0 && !searching && activeFacets.length === 0 && !activeMissing;
   const onPlayRow = playerEnabled
-    ? (played: TrackRowData) => play(queueIds, queueIds.indexOf(played.id), source)
+    ? (played: TrackRowData) => playTrack(played.id)
     : undefined;
   // Loosen a filter that matched nothing: clear the search, the facet chips, and both the missing-metadata
   // and gone narrowings back to the full view.

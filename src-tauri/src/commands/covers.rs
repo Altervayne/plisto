@@ -88,10 +88,9 @@ pub async fn list_cover_candidates(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        match db::get_track_cover_inputs(&conn, track_id).map_err(|e| e.to_string())? {
-            Some((source_path, art)) => Some((source_path, art == Some(true))),
-            None => None,
-        }
+        db::get_track_cover_inputs(&conn, track_id)
+            .map_err(|e| e.to_string())?
+            .map(|(source_path, art)| (source_path, art == Some(true)))
     };
     let Some((source_path, has_embedded)) = prepared else {
         return Ok(Vec::new());

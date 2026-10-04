@@ -83,6 +83,7 @@ pub fn export_playlist_m3u(
 /// `export_library`'s device branch (`device_in_place` merges into the picked device folder, else a
 /// dated snapshot subfolder). The library source is only ever read; the temp staging is always cleaned.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn export_playlist_folder(
     playlist_id: i64,
     destination: String,
@@ -239,7 +240,7 @@ pub async fn export_playlist_folder(
                         &staging_root,
                         &device_pidl,
                         &cancel,
-                        |p| emit_tick(p),
+                        emit_tick,
                     )?;
                     ExportSummary {
                         cancelled: outcome.cancelled,

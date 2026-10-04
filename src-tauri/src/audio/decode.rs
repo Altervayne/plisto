@@ -53,7 +53,7 @@ impl std::error::Error for DecodeError {}
 /// demuxes but ships no decoder for.
 enum Backend {
     Symphonia(Box<dyn SymphoniaDecoder>),
-    Opus(OpusBackend),
+    Opus(Box<OpusBackend>),
 }
 
 /// The opus-rs decode state for one Opus track. `out` is the reused interleaved f32 target, sized for
@@ -138,12 +138,12 @@ impl Decoder {
             // OpusHead pre-skip: the encoder's priming frames, dropped from the front of the stream.
             let pre_skip = params.delay.unwrap_or(0);
             let dec = OpusDecoder::new(48_000, channels).map_err(|_| DecodeError::Open)?;
-            let backend = Backend::Opus(OpusBackend {
+            let backend = Backend::Opus(Box::new(OpusBackend {
                 dec,
                 channels,
                 out: vec![0.0; MAX_OPUS_FRAME * channels],
                 skip: pre_skip,
-            });
+            }));
             let spec = AudioSpec {
                 sample_rate: 48_000,
                 channels: channels as u16,

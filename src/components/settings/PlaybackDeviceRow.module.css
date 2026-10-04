@@ -11,8 +11,11 @@
   min-width: 0;
 }
 
+/* The select's wrapper pulls past the column edge for an optical right edge; the padding brings the
+ * readout text back onto the edge every other control ends on. */
 .readout {
   margin: 0;
+  padding-inline-end: 10px;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;

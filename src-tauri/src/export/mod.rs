@@ -305,6 +305,7 @@ fn track_tags<'a>(container: &'a ExportContainer, track: &'a ExportTrack) -> Tra
 /// and the bundled m3u re-derives paths from the same one and the same `dest_len` so they match. A
 /// cancelled or container-less run skips the three root files. Sources and the cover store are
 /// read-only; nothing is written outside `destination`.
+#[allow(clippy::too_many_arguments)]
 pub fn run_playlist_folder<E>(
     plan: &ExportPlan,
     m3u: &PlaylistExportPlan,

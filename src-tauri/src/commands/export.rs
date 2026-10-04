@@ -287,7 +287,7 @@ pub async fn export_library(
                         &staging_root,
                         &device_pidl,
                         &cancel,
-                        |p| emit_tick(p),
+                        emit_tick,
                     )?;
                     // Only a whole in-place transfer says which files are on the device; a cancelled
                     // one leaves an unknown part there, and a dated snapshot keeps no record.

@@ -52,7 +52,7 @@ pub fn discover_adjacent_images(track_source_path: &Path) -> Vec<PathBuf> {
         matches.push((stem_rank, ext_rank, path));
     }
 
-    matches.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    matches.sort_by_key(|&(stem_rank, ext_rank, _)| (stem_rank, ext_rank));
     matches.into_iter().map(|(_, _, path)| path).collect()
 }
 
