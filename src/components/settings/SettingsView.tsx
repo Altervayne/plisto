@@ -34,6 +34,7 @@ import {
   useSetCloseToTray,
   useSetKeepLibraryUpToDate,
 } from "../../state/preferences/store";
+import { useSetShortcutsOpen } from "../../state/shell/store";
 
 // -- IPC Imports --
 import { openDefaultAppsSettings } from "../../lib/ipc";
@@ -85,6 +86,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const setCloseToTray = useSetCloseToTray();
   const keepUpToDate = useKeepLibraryUpToDate();
   const setKeepUpToDate = useSetKeepLibraryUpToDate();
+  const setShortcutsOpen = useSetShortcutsOpen();
   const t = useT();
 
   // Settings can open before Organize ever loads, so pull the vocabulary in on mount.
@@ -283,6 +285,16 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
             </div>
           ) : null}
+          <div className={styles.pref}>
+            <div className={styles.row}>
+              <span className={styles.rowLabel}>{t((d) => d.shortcuts.title)}</span>
+              <span className={`${styles.control} ${styles.controlQuiet}`}>
+                <QuietButton onClick={() => setShortcutsOpen(true)}>
+                  {t((d) => d.shortcuts.show)}
+                </QuietButton>
+              </span>
+            </div>
+          </div>
         </section>
       </ScrollArea>
     </div>

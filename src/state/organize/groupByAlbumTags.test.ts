@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { fold, groupByAlbumTags, inPlayOrder } from "./groupByAlbumTags";
+import { groupByAlbumTags, inPlayOrder } from "./groupByAlbumTags";
 
 // -- Type Imports --
 import type { AlbumRow, AlbumTrackRow, TrackRow } from "../../types";
@@ -82,13 +82,6 @@ function pair(firstId: number, tags: Partial<TrackRow>, folder = "/m/a"): TrackR
     track(firstId + 1, `${folder}/2.mp3`, { raw_track_no: 2, ...tags }),
   ];
 }
-
-describe("fold", () => {
-  it("collapses whitespace, trims, composes and lowercases", () => {
-    expect(fold("  The   Wall ")).toBe("the wall");
-    expect(fold("Cafe\u0301")).toBe(fold("Caf\u00e9"));
-  });
-});
 
 describe("groupByAlbumTags", () => {
   it("groups on the folded album and album artist", () => {

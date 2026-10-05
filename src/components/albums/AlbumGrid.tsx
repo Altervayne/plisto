@@ -27,6 +27,7 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { useDeleteAlbums, useOrganizeStore } from "../../state/organize/store";
+import { useViewKeys } from "../../state/shell/viewKeys";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -140,34 +141,35 @@ export function AlbumGrid({
   // Select-all works over the visible set, so it honours an active date filter rather than reaching the
   // whole wall. When every visible tile is already picked it flips to a clear, so the one control toggles.
   const allVisibleSelected = visible.length > 0 && visible.every((a) => selected.has(a.id));
-  const handleSelectAll = useCallback(() => {
-    if (allVisibleSelected) {
-      setSelected(new Set());
-      return;
-    }
+  const selectVisible = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
       for (const album of visible) next.add(album.id);
       return next;
     });
-  }, [allVisibleSelected, visible]);
+  }, [visible]);
+  const handleSelectAll = useCallback(() => {
+    if (allVisibleSelected) setSelected(new Set());
+    else selectVisible();
+  }, [allVisibleSelected, selectVisible]);
 
-  // Wall-scoped keys: ctrl/cmd-A picks the whole visible set, Escape drops the selection. Bound to the
-  // wall, so they only fire while the focus sits on a card or a toolbar control here.
+  // The shell's Ctrl+A only ever adds, so a second press never clears the pick.
+  useViewKeys({
+    selectAll: () => {
+      if (visible.length > 0) selectVisible();
+    },
+  });
+
+  // Escape drops the selection. Bound to the wall, so it only fires while the focus sits on a card or a
+  // toolbar control here.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
-        if (visible.length === 0) return;
-        event.preventDefault();
-        handleSelectAll();
-        return;
-      }
       if (event.key === "Escape" && selected.size > 0) {
         event.preventDefault();
         setSelected(new Set());
       }
     },
-    [visible.length, handleSelectAll, selected.size],
+    [selected.size],
   );
 
   // The member track ids behind the current pick, for the bar's add-to-playlist. Read imperatively at

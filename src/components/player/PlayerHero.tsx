@@ -73,10 +73,10 @@ export function PlayerHero({
 
           <div className={styles.transport}>
             <div className={styles.cluster}>
-              <Transport size="lg" />
+              <Transport size="lg" shortcutHints />
             </div>
             <div className={styles.volumeSlot}>
-              <Volume volume={status.volume} />
+              <Volume volume={status.volume} shortcutHints />
             </div>
           </div>
         </div>

@@ -1,0 +1,21 @@
+/* The row lead: a small cover tile, or a glyph recess of the same footprint so labels align. */
+.thumb {
+  flex: none;
+  width: 34px;
+}
+
+/* The cover's placeholder glyph sized down to the small tile. */
+.thumb svg {
+  width: 15px;
+  height: 15px;
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink-2);
+}

@@ -148,8 +148,11 @@ export function TrackDetail({
   const t = useT();
 
   useEffect(() => {
+    // Consumed, so the shell does not also back out of the pane holding this peek.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

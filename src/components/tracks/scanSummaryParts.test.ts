@@ -45,9 +45,9 @@ const quietSession: LibrarySummary = {
   deferred: 0,
 };
 
-// The line as the view would read it, the gone count standing in as a tag.
+// The line as the view would read it, each linked count standing in as a tag.
 const read = (parts: SummaryPart[]) =>
-  parts.map((p) => (p.kind === "text" ? p.text : `gone:${p.n}`));
+  parts.map((p) => (p.kind === "text" ? p.text : `${p.kind}:${p.n}`));
 
 describe("scanSummaryParts after a blocking scan", () => {
   it("words every part in English, gone last", () => {
@@ -133,5 +133,26 @@ describe("goneSummary", () => {
     expect(en((d) => d.tracks.goneSummary, { n: 3 })).toBe("3 gone from disk");
     expect(fr((d) => d.tracks.goneSummary, { n: 1 })).toBe("1 absente du disque");
     expect(fr((d) => d.tracks.goneSummary, { n: 3 })).toBe("3 absentes du disque");
+  });
+});
+
+describe("scanSummaryParts with possible duplicates", () => {
+  it("closes the line with the duplicates count after either source", () => {
+    const en = createT("en");
+    expect(read(scanSummaryParts(quietSession, en, 2))).toEqual(["Up to date", "duplicates:2"]);
+    expect(read(scanSummaryParts(busy, en, 1)).slice(-2)).toEqual(["gone:4", "duplicates:1"]);
+  });
+
+  it("leaves the line alone with none", () => {
+    expect(read(scanSummaryParts(quietSession, createT("en"), 0))).toEqual(["Up to date"]);
+  });
+
+  it("words the count in both locales", () => {
+    const en = createT("en");
+    const fr = createT("fr");
+    expect(en((d) => d.duplicates.scanSummary, { n: 1 })).toBe("1 possible duplicate");
+    expect(en((d) => d.duplicates.scanSummary, { n: 3 })).toBe("3 possible duplicates");
+    expect(fr((d) => d.duplicates.scanSummary, { n: 1 })).toBe("1 doublon possible");
+    expect(fr((d) => d.duplicates.scanSummary, { n: 3 })).toBe("3 doublons possibles");
   });
 });

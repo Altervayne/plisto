@@ -20,10 +20,12 @@ import { useAlbumIndex } from "../../state/organize/store";
 
 // -- State Imports --
 import {
+  useClearLibraryReveal,
   useLibraryFacets,
   useLibraryGone,
   useLibraryGroupBy,
   useLibraryMissingMetadata,
+  useLibraryRevealId,
   useLibrarySearch,
   useLibrarySort,
   useLibraryView,
@@ -74,8 +76,16 @@ export function AllTracksView() {
   const setGroupBy = useSetLibraryGroupBy();
   const view = useLibraryView();
   const setView = useSetLibraryView();
+  const revealId = useLibraryRevealId();
+  const clearReveal = useClearLibraryReveal();
 
   const [selected, setSelected] = useState<TrackRow | null>(null);
+  // A reveal request from outside opens that track's peek; the grid scrolls its row into view and
+  // clears the request.
+  if (revealId != null && selected?.id !== revealId) {
+    const row = tracks.find((track) => track.id === revealId);
+    if (row) setSelected(row);
+  }
   // The filtered row count reported up from the grid, so the header counts the narrowed view rather than
   // the whole library. It seeds at the total, the value an unfiltered grid reports back at once.
   const [visibleCount, setVisibleCount] = useState(tracks.length);
@@ -144,6 +154,8 @@ export function AllTracksView() {
           onVisibleCount={setVisibleCount}
           selectedId={selected?.id ?? null}
           onSelect={setSelected}
+          revealId={revealId}
+          onRevealed={clearReveal}
         />
         {selected ? (
           <div className={styles.panel}>

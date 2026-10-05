@@ -4,8 +4,9 @@
  * command engine - capture the prior value, apply optimistically, push onto `past`, clear `future`, and
  * fire the write - so undo/redo is a stack of inverse Commands. Create, delete and cover-set are
  * structural: they reload from the backend and clear the whole history, since a new or gone album is the
- * natural undo boundary. The albums-from-tags batch is the one structural write that does land on the
- * stack: its receipt preserves album ids, so its undo and redo replay against the backend and reload.
+ * natural undo boundary. The albums-from-tags batch and the duplicate merge are the structural writes
+ * that do land on the stack: each holds a receipt, so its undo and redo replay against the backend and
+ * reload.
  * Selection is keyed by track_id so it survives sort and filter, and never lands on the stack.
  */
 
@@ -16,14 +17,16 @@ import { useShallow } from "zustand/react/shallow";
 
 // -- State Imports --
 import { useAppStore } from "../store";
+import { refreshAfterMerge } from "../duplicates/store";
 
 // -- Engine Imports --
-import { applyCommand, commandToIpc, invertCommand } from "./orgCommands";
+import { applyCommand, commandToIpc, invertCommand, replayDuplicateMerge } from "./orgCommands";
 import { planAssign } from "./assignPlan";
 import { inPlayOrder } from "./groupByAlbumTags";
 
 // -- Utils Imports --
 import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
+import { compareMemberOrder } from "../../components/albums/albumLayout";
 
 // -- IPC Imports --
 import {
@@ -35,9 +38,11 @@ import {
   deleteAlbum as ipcDeleteAlbum,
   deleteGenre as ipcDeleteGenre,
   genreRemovalImpact as ipcGenreRemovalImpact,
+  isStaleMerge,
   isStaleProposal,
   listGenres as ipcListGenres,
   loadOrganization as ipcLoadOrganization,
+  mergeDuplicates as ipcMergeDuplicates,
   mergeGenres as ipcMergeGenres,
   removeAlbumCover as ipcRemoveAlbumCover,
   removeAlbumGenre as ipcRemoveAlbumGenre,
@@ -53,13 +58,14 @@ import type {
   AlbumRow,
   AlbumTrackRow,
   GenreRow,
+  MergeReceipt,
   TagAlbumPlan,
   TagAlbumReceipt,
   TrackOverride,
   TrackPlacement,
   TrackRow,
 } from "../../types";
-import type { Command, OrgState, Placement, TagBatch } from "./orgCommands";
+import type { Command, DuplicateMerge, OrgState, Placement, TagBatch } from "./orgCommands";
 
 interface OrganizeStore {
   org: OrgState;
@@ -87,6 +93,7 @@ interface OrganizeStore {
 
   createAlbum: (fields: AlbumFields, trackIds: number[]) => Promise<number>;
   createAlbumsFromTags: (plans: TagAlbumPlan[]) => Promise<TagAlbumReceipt>;
+  mergeDuplicates: (keeperId: number, discardIds: number[]) => Promise<MergeReceipt>;
   createSingle: (trackId: number) => Promise<number>;
   deleteAlbum: (albumId: number) => Promise<void>;
   deleteAlbums: (albumIds: number[]) => Promise<void>;
@@ -144,6 +151,33 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     } catch (e) {
       await get().loadOrganization();
       if (isStaleProposal(e)) set({ past: [], future: [] });
+      else restore();
+      set({ error: SAVE_ERROR });
+    } finally {
+      replaying = false;
+    }
+  };
+
+  // Reloads everything a duplicate merge touches: the projection, plus the slots, plays and dismissed
+  // pairs outside it.
+  const reloadAfterMerge = (): Promise<unknown> =>
+    Promise.all([get().loadOrganization(), refreshAfterMerge()]);
+
+  // Replays one side of a duplicate merge, recovering the way a tag batch does. `entry` is the stack
+  // entry the side came from: a redo merges afresh, so that entry takes the new receipt for the next undo.
+  const replayMerge = async (
+    side: DuplicateMerge,
+    entry: DuplicateMerge,
+    restore: () => void,
+  ): Promise<void> => {
+    replaying = true;
+    try {
+      const next = await replayDuplicateMerge(side);
+      if (next !== side) set((s) => ({ past: s.past.map((c) => (c === entry ? next : c)) }));
+      await reloadAfterMerge();
+    } catch (e) {
+      await reloadAfterMerge();
+      if (isStaleMerge(e)) set({ past: [], future: [] });
       else restore();
       set({ error: SAVE_ERROR });
     } finally {
@@ -329,10 +363,14 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         future: [...s.future, cmd],
         error: null,
       }));
+      const putBack = () =>
+        set((s) => ({ past: [...s.past, cmd], future: s.future.filter((c) => c !== cmd) }));
       if (inverse.kind === "tagBatch") {
-        void replayTagBatch(inverse, () =>
-          set((s) => ({ past: [...s.past, cmd], future: s.future.filter((c) => c !== cmd) })),
-        );
+        void replayTagBatch(inverse, putBack);
+        return;
+      }
+      if (inverse.kind === "duplicateMerge" && cmd.kind === "duplicateMerge") {
+        void replayMerge(inverse, cmd, putBack);
         return;
       }
       persist(inverse);
@@ -348,10 +386,14 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         past: [...s.past, cmd],
         error: null,
       }));
+      const putBack = () =>
+        set((s) => ({ future: [...s.future, cmd], past: s.past.filter((c) => c !== cmd) }));
       if (cmd.kind === "tagBatch") {
-        void replayTagBatch(cmd, () =>
-          set((s) => ({ future: [...s.future, cmd], past: s.past.filter((c) => c !== cmd) })),
-        );
+        void replayTagBatch(cmd, putBack);
+        return;
+      }
+      if (cmd.kind === "duplicateMerge") {
+        void replayMerge(cmd, cmd, putBack);
         return;
       }
       persist(cmd);
@@ -373,6 +415,22 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       const receipt = await ipcCreateAlbumsFromTags(plans);
       await get().loadOrganization();
       const entry: TagBatch = { kind: "tagBatch", receipt, applied: true };
+      set((s) => ({ past: [...s.past, entry], future: [], error: null }));
+      return receipt;
+    },
+
+    // A refused merge rejects to the caller with nothing changed. A landed one reloads, then goes on the
+    // stack like a tag batch.
+    mergeDuplicates: async (keeperId, discardIds) => {
+      const receipt = await ipcMergeDuplicates(keeperId, discardIds);
+      await reloadAfterMerge();
+      const entry: DuplicateMerge = {
+        kind: "duplicateMerge",
+        keeperId,
+        discardIds,
+        receipt,
+        applied: true,
+      };
       set((s) => ({ past: [...s.past, entry], future: [], error: null }));
       return receipt;
     },
@@ -686,10 +744,7 @@ export const useAlbumTracks = (albumId: number): AlbumTrackRow[] =>
     useShallow((s) =>
       s.org.membership
         .filter((r) => r.album_id === albumId)
-        .sort(
-          (a, b) =>
-            (a.disc_no ?? 1) - (b.disc_no ?? 1) || (a.track_no ?? 0) - (b.track_no ?? 0),
-        ),
+        .sort(compareMemberOrder),
     ),
   );
 
@@ -702,6 +757,13 @@ export const useIsLatestTagBatch = (receipt: TagAlbumReceipt | null): boolean =>
   useOrganizeStore((s) => {
     const top = s.past[s.past.length - 1];
     return receipt != null && top?.kind === "tagBatch" && top.receipt === receipt;
+  });
+
+/** True while the given duplicate merge is the latest undo step, so undo would revert it. */
+export const useIsLatestMerge = (receipt: MergeReceipt | null): boolean =>
+  useOrganizeStore((s) => {
+    const top = s.past[s.past.length - 1];
+    return receipt != null && top?.kind === "duplicateMerge" && top.receipt === receipt;
   });
 export const useOrgError = (): string | null => useOrganizeStore((s) => s.error);
 
@@ -718,6 +780,7 @@ export const useUndo = () => useOrganizeStore((s) => s.undo);
 export const useRedo = () => useOrganizeStore((s) => s.redo);
 export const useCreateAlbum = () => useOrganizeStore((s) => s.createAlbum);
 export const useCreateAlbumsFromTags = () => useOrganizeStore((s) => s.createAlbumsFromTags);
+export const useMergeDuplicates = () => useOrganizeStore((s) => s.mergeDuplicates);
 export const useCreateSingle = () => useOrganizeStore((s) => s.createSingle);
 export const useDeleteAlbum = () => useOrganizeStore((s) => s.deleteAlbum);
 export const useDeleteAlbums = () => useOrganizeStore((s) => s.deleteAlbums);

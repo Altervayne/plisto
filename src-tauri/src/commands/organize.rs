@@ -106,7 +106,7 @@ pub async fn reapply_albums_from_tags(
 /// Runs a batch write under the same scan lock the purge command takes, so it never races a scan on
 /// the WAL, then releases the lock whatever the outcome. Its callers are async so the wait for a
 /// preempted background pass never holds the main thread.
-fn with_scan_guard<T>(
+pub(super) fn with_scan_guard<T>(
     state: &AppState,
     write: impl FnOnce(&mut Connection) -> Result<T, String>,
 ) -> Result<T, String> {

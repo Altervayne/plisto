@@ -7,10 +7,15 @@
 
 // -- Module Declarations --
 mod album_numbering;
+mod duplicates;
 mod export_ledger;
 mod migrations;
 mod tag_albums;
 
+pub use duplicates::{
+    dismiss_duplicates, list_duplicate_dismissals, merge_duplicates, undismiss_duplicates,
+    undo_merge_duplicates,
+};
 pub use export_ledger::{
     clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
 };
@@ -2396,7 +2401,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 16);
 
         for table in [
             "tracks",
@@ -2415,6 +2420,7 @@ mod tests {
             "track_covers",
             "plays",
             "export_ledger",
+            "duplicate_dismissals",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -2473,7 +2479,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 16);
     }
 
     #[test]

@@ -73,8 +73,11 @@ export function AlbumDrawer({
   useEffect(() => {
     // Capture phase: this runs before a focused field handles Escape and blurs, so activeElement still
     // reads as the field and the drawer yields the key to it rather than closing.
+    // A close consumes the key, so the shell never backs out on the same press.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !editingField()) onClose();
+      if (e.key !== "Escape" || editingField()) return;
+      e.preventDefault();
+      onClose();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);

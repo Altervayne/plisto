@@ -7,6 +7,7 @@ import { Check, ChevronLeft, ChevronRight, ListFilter, X } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
+import { DuplicatesFilterRow } from "./DuplicatesFilterRow";
 
 // -- Utils Imports --
 import {
@@ -44,8 +45,9 @@ export const FACET_LABEL: Record<FacetKey, (d: Dict) => string> = {
  * AND, matching filterByFacets. Options come from the passed rows, so the menu offers only values present
  * in the current scope. Presentational over the store: the parent holds the chips and what a pick does.
  * Two top-level entries, "Missing metadata" and "Gone from disk", each toggle a whole-row narrowing that
- * composes with the facets, each its own accent-weak chip trailing beside them. Escape closes the open
- * menu, or clears every filter when the menu is already closed.
+ * composes with the facets, each its own accent-weak chip trailing beside them. A third, "Possible
+ * duplicates...", opens the review sheet instead of narrowing. Escape closes the open menu, or clears
+ * every filter when the menu is already closed.
  */
 export function FacetFilter({
   tracks,
@@ -220,6 +222,7 @@ export function FacetFilter({
                   ) : null}
                 </button>
               </li>
+              <DuplicatesFilterRow onPick={close} />
               {FACET_KEYS.map((facet) => {
                 const count = options[facet].length;
                 return (

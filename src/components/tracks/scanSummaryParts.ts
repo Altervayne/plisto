@@ -2,15 +2,19 @@
  * The worded parts of a scan summary line, built through a translator so the counts read in the active
  * locale. Only the parts that carry a number show, so a clean run reads short. A blocking scan leads
  * with how many it indexed; a background session walks only what changed, so it lists changes alone
- * and reads "Up to date" when there were none.
+ * and reads "Up to date" when there were none. Possible duplicates close the line whatever the source,
+ * since they describe the library rather than the pass.
  */
 
 // -- Type Imports --
 import type { Translate } from "../../i18n";
 import type { LibrarySummary } from "../../state/librarySync";
 
-/** One part of the line: plain text, or the gone count the view pairs with its Review link. */
-export type SummaryPart = { kind: "text"; text: string } | { kind: "gone"; n: number };
+/** One part of the line: plain text, or a count the view pairs with its Review link. */
+export type SummaryPart =
+  | { kind: "text"; text: string }
+  | { kind: "gone"; n: number }
+  | { kind: "duplicates"; n: number };
 
 const text = (value: string): SummaryPart => ({ kind: "text", text: value });
 
@@ -47,6 +51,11 @@ function syncParts(summary: LibrarySummary, t: Translate): SummaryPart[] {
 }
 
 /** The summary's parts in reading order, worded for where the summary came from. */
-export function scanSummaryParts(summary: LibrarySummary, t: Translate): SummaryPart[] {
-  return summary.source === "sync" ? syncParts(summary, t) : blockingParts(summary, t);
+export function scanSummaryParts(
+  summary: LibrarySummary,
+  t: Translate,
+  duplicates = 0,
+): SummaryPart[] {
+  const parts = summary.source === "sync" ? syncParts(summary, t) : blockingParts(summary, t);
+  return duplicates > 0 ? [...parts, { kind: "duplicates", n: duplicates }] : parts;
 }

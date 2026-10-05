@@ -77,7 +77,7 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
             <PopOutButton />
           </span>
           <span className={styles.pill}>
-            <Transport />
+            <Transport shortcutHints />
           </span>
           <span className={styles.side}>
             <StopButton />

@@ -1,0 +1,43 @@
+/* A finder result: lead, then the label over a dim sublabel. The cursor row takes the soft veil, never
+   an accent fill, so the palette stays as quiet as the rest of the surface. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 44px;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row[data-active] {
+  background: var(--veil);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.label,
+.sublabel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.label {
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.sublabel {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

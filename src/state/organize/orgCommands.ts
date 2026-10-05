@@ -10,6 +10,7 @@
 // -- IPC Imports --
 import {
   addTracksToAlbum,
+  mergeDuplicates,
   reapplyAlbumsFromTags,
   removeTracksFromAlbum,
   revertAlbumsFromTags,
@@ -17,6 +18,7 @@ import {
   setAlbumLayout as ipcSetAlbumLayout,
   setMemberPlacement,
   setTrackOverrides as ipcSetTrackOverrides,
+  undoMergeDuplicates,
 } from "../../lib/ipc";
 
 // -- Type Imports --
@@ -24,6 +26,7 @@ import type {
   AlbumFields,
   AlbumRow,
   AlbumTrackRow,
+  MergeReceipt,
   TagAlbumReceipt,
   TrackOverride,
   TrackPlacement,
@@ -100,8 +103,21 @@ export interface TagBatch {
 }
 
 /**
- * The undoable edits: five in-place edits plus the albums-from-tags batch. Create, delete and cover-set
- * are structural, not on this stack.
+ * A possible-duplicates merge into a keeper, already written when it lands on the stack. Undo replays
+ * the receipt back; redo runs the merge again over the same ids, which yields a fresh receipt. Like the
+ * tag batch, the store reloads from the backend after each replay.
+ */
+export interface DuplicateMerge {
+  kind: "duplicateMerge";
+  keeperId: number;
+  discardIds: number[];
+  receipt: MergeReceipt;
+  applied: boolean;
+}
+
+/**
+ * The undoable edits: five in-place edits plus the albums-from-tags batch and the duplicate merge.
+ * Create, delete and cover-set are structural, not on this stack.
  */
 export type Command =
   | SetAlbumFields
@@ -109,7 +125,8 @@ export type Command =
   | SetAlbumLayout
   | AssignTracks
   | UnassignTracks
-  | TagBatch;
+  | TagBatch
+  | DuplicateMerge;
 
 /** Applies a Command to the projection, returning the next one. Pure: no clock, no IO, no mutation. */
 export function applyCommand(state: OrgState, cmd: Command): OrgState {
@@ -160,6 +177,7 @@ export function applyCommand(state: OrgState, cmd: Command): OrgState {
       return applyTransition(state, cmd.after);
 
     case "tagBatch":
+    case "duplicateMerge":
       return state;
   }
 }
@@ -201,6 +219,7 @@ export function invertCommand(cmd: Command): Command {
       };
 
     case "tagBatch":
+    case "duplicateMerge":
       return { ...cmd, applied: !cmd.applied };
   }
 }
@@ -228,7 +247,23 @@ export async function commandToIpc(cmd: Command): Promise<void> {
     case "tagBatch":
       await (cmd.applied ? reapplyAlbumsFromTags(cmd.receipt) : revertAlbumsFromTags(cmd.receipt));
       return;
+
+    case "duplicateMerge":
+      await replayDuplicateMerge(cmd);
+      return;
   }
+}
+
+/**
+ * Writes one side of a duplicate merge and returns the entry as it now stands: undoing replays the
+ * receipt, merging again swaps in the receipt that run produced.
+ */
+export async function replayDuplicateMerge(cmd: DuplicateMerge): Promise<DuplicateMerge> {
+  if (!cmd.applied) {
+    await undoMergeDuplicates(cmd.receipt);
+    return cmd;
+  }
+  return { ...cmd, receipt: await mergeDuplicates(cmd.keeperId, cmd.discardIds) };
 }
 
 // ---- Membership transition ----

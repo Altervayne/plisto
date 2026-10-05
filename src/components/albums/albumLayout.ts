@@ -11,6 +11,12 @@ import type { AlbumTrackRow, TrackPlacement } from "../../types";
 /** A member's disc, an unset disc falling to disc 1 - the key the drawer groups and numbers by. */
 export const discOf = (row: AlbumTrackRow): number => row.disc_no ?? 1;
 
+/** Drawer order: disc, then track number, an unnumbered member leading its disc. The drawer and an
+ *  album play both read this, so a play queues the members in the order they show. */
+export function compareMemberOrder(a: AlbumTrackRow, b: AlbumTrackRow): number {
+  return discOf(a) - discOf(b) || (a.track_no ?? 0) - (b.track_no ?? 0);
+}
+
 /** One disc group: its number and its members, in the order they render. */
 export interface DiscGroup {
   disc: number;

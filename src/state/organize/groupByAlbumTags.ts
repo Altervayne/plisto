@@ -7,6 +7,7 @@
  */
 
 // -- Utils Imports --
+import { fold } from "../../lib/fold";
 import { foldId, parentId } from "../files/folderTree";
 import { mostCommon } from "./suggestFields";
 
@@ -50,14 +51,6 @@ export interface TagAlbumPreview {
   trackCount: number;
   looseCount: number;
   skippedMissing: number;
-}
-
-/**
- * The comparison form of a tag: whitespace runs collapse to one space, ends trim, NFC, lowercase. The
- * same fold the backend applies to genre keys, so both sides agree on what counts as one spelling.
- */
-export function fold(s: string): string {
-  return s.replace(/\s+/g, " ").trim().normalize("NFC").toLowerCase();
 }
 
 /** The folded tag, or null when it is absent or blank. */

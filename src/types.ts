@@ -300,6 +300,47 @@ export interface TagAlbumReceipt {
   extended: TagAlbumExtended[];
 }
 
+/** Two tracks marked as not duplicates, lower id first. Mirrors DismissedPair in dto.rs. */
+export interface DismissedPair {
+  track_lo: number;
+  track_hi: number;
+}
+
+/** A playlist slot or play row a merge re-pointed, with the track it held before. Mirrors MergeMovedRow. */
+export interface MergeMovedRow {
+  id: number;
+  track_id: number;
+}
+
+/** One album membership row a merge removed or added. Mirrors MergeMembership. */
+export interface MergeMembership {
+  album_id: number;
+  track_id: number;
+  track_no: number | null;
+  keep_own_cover: boolean;
+}
+
+/** An album whose membership a merge changed, with its updated_at before the merge. Mirrors MergeAlbumStamp. */
+export interface MergeAlbumStamp {
+  album_id: number;
+  prev_updated_at: number;
+}
+
+/**
+ * Everything one duplicate merge wrote. Held opaque by the frontend and sent back as-is, so the undo
+ * replays exactly these rows. `dismissed` holds only the pairs the merge inserted. Mirrors MergeReceipt
+ * in dto.rs.
+ */
+export interface MergeReceipt {
+  keeper_id: number;
+  moved_slots: MergeMovedRow[];
+  moved_plays: MergeMovedRow[];
+  removed_memberships: MergeMembership[];
+  added_membership: MergeMembership | null;
+  album_stamps: MergeAlbumStamp[];
+  dismissed: DismissedPair[];
+}
+
 /** The per-track override patch: a full-set replace, a null clears a column. Mirrors TrackOverride. */
 export interface TrackOverride {
   title_override: string | null;

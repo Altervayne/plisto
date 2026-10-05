@@ -5,10 +5,12 @@
  */
 
 // -- Library Imports --
-import type { ColumnDef, FilterFn } from "@tanstack/react-table";
+import type { ColumnDef, FilterFn, Row } from "@tanstack/react-table";
 
 // -- Utils Imports --
 import { formatDuration, formatRelativeTime } from "../../lib/format";
+import { searchFold } from "../../lib/fold";
+import { matchesTokens, searchTokens } from "../../lib/tokenMatch";
 import { EMPTY_HISTORY, EMPTY_INDEX } from "./trackFacets";
 import { resolveTrackAlbum, resolveTrackYear } from "./trackAlbum";
 
@@ -218,12 +220,41 @@ export function gridTemplate(columns: TrackColumn[] = trackColumns): string {
     .join(" ");
 }
 
-/** Case-insensitive substring match, run only over the columns flagged searchable. */
-export const trackGlobalFilter: FilterFn<TrackRow> = (row, columnId, value) => {
-  const cell = row.getValue(columnId);
-  if (cell == null) return false;
-  return String(cell).toLowerCase().includes(String(value).toLowerCase());
+/** The search as the filter holds it for one pass: the folded tokens and each row's verdict so far. */
+interface ResolvedSearch {
+  tokens: string[];
+  verdicts: WeakMap<Row<TrackRow>, boolean>;
+}
+
+/** A row's searchable text, folded: every searchable column's resolved value, plus the filename. */
+function rowSearchFields(row: Row<TrackRow>): string[] {
+  const fields: string[] = [];
+  for (const cell of row.getAllCells()) {
+    if (!cell.column.getCanGlobalFilter()) continue;
+    const value = row.getValue(cell.column.id);
+    if (value != null) fields.push(searchFold(String(value)));
+  }
+  fields.push(searchFold(row.original.filename));
+  return fields;
+}
+
+/**
+ * Case- and accent-insensitive search: a row passes when every query token sits in one of its
+ * searchable fields, the same rule the quick finder counts by. The table asks once per column, but the
+ * verdict is the row's, so it is worked out once and reused. The query folds once per change through
+ * resolveFilterValue.
+ */
+export const trackGlobalFilter: FilterFn<TrackRow> = (row, _columnId, search: ResolvedSearch) => {
+  const known = search.verdicts.get(row);
+  if (known !== undefined) return known;
+  const verdict = matchesTokens(rowSearchFields(row), search.tokens);
+  search.verdicts.set(row, verdict);
+  return verdict;
 };
+trackGlobalFilter.resolveFilterValue = (value): ResolvedSearch => ({
+  tokens: searchTokens(String(value)),
+  verdicts: new WeakMap(),
+});
 
 /**
  * Derives the TanStack column defs from the visible columns: sorting on all, search on the text tags. The

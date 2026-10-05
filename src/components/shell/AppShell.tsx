@@ -30,11 +30,15 @@ import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
 import { Resizer } from "../common/Resizer/Resizer";
 import { SelectionActionBar } from "../organize/SelectionActionBar";
+import { Finder } from "../finder/Finder";
+import { DuplicatesHost } from "../duplicates/DuplicatesHost";
+import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useMountTransition } from "../../hooks/useMountTransition";
 import { useFileDrop } from "../../hooks/useFileDrop";
+import { useShellShortcuts } from "./useShellShortcuts";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -67,6 +71,8 @@ import {
   useOpenTool,
   useSetOpenTool,
   useSettingsRequest,
+  useSetShortcutsOpen,
+  useShortcutsOpen,
 } from "../../state/shell/store";
 
 // -- IPC Imports --
@@ -78,6 +84,7 @@ import type { Mode } from "./navVisibility";
 
 // -- Type Imports --
 import type { AlbumRow, PlaybackSource } from "../../types";
+import type { FinderNav } from "../finder/useFinderActions";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -153,6 +160,7 @@ export function AppShell({
   const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
   const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
+  const [finderOpen, setFinderOpen] = useState(false);
   const { width, containerRef, resizer } = useDrawerResize();
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.
@@ -347,27 +355,50 @@ export function AppShell({
     setMode(firstVisibleDestination(appMode));
   }, [appMode, mode, openTool, standalone]);
 
-  // Global undo/redo, but only when focus is not in a field - a field keeps its own text undo.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const el = document.activeElement;
-      const inField =
-        el instanceof HTMLElement &&
-        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
-      if (inField) return;
-      const key = e.key.toLowerCase();
-      if (key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if ((key === "z" && e.shiftKey) || key === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  // The quick finder searches the library, so it opens only over one: never on the player-only
+  // standalone surface, nor before a library holds any track.
+  const finderEnabled = count > 0 && (!standalone || sidebarExpanded);
+
+  // The app-wide keys. Escape backs out of the full pane showing on its own destination. The album grid
+  // stays mounted under its pane, so its select-all is off while the pane covers it.
+  const shortcutsOpen = useShortcutsOpen();
+  const setShortcutsOpen = useSetShortcutsOpen();
+  const paneBack =
+    mode === "albums" && openAlbum != null
+      ? () => setOpenAlbumId(null)
+      : mode === "playlists" && openPlaylist != null
+        ? () => setOpenPlaylistId(null)
+        : null;
+  useShellShortcuts({
+    finderEnabled,
+    openFinder: () => setFinderOpen(true),
+    undo,
+    redo,
+    onBack: paneBack,
+    editorSession: mode === "editor" && openTool != null,
+    viewKeysLive: !(mode === "albums" && openAlbum != null),
+    playerEnabled: appMode !== "organizer",
+    openShortcuts: () => setShortcutsOpen(true),
+  });
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), [setShortcutsOpen]);
+
+  // The finder's jumps, mirroring the routes the walls and the Player's "playing from" link take.
+  const finderNav: FinderNav = {
+    go: setMode,
+    openAlbum: (albumId) => {
+      openFull(albumId);
+      setMode("albums");
+    },
+    openSingle: (albumId) => {
+      setSelectedAlbumId(albumId);
+      setMode("singles");
+    },
+    openPlaylist: (playlistId) => {
+      setOpenPlaylistId(playlistId);
+      setMode("playlists");
+    },
+  };
+  const closeFinder = useCallback(() => setFinderOpen(false), []);
 
   // A scanned library with no audio is onboarding to add a folder. On the normal path this is the shell's
   // terminal state. Standalone never takes this early return - it keeps the player painting and shows the
@@ -609,6 +640,11 @@ export function AppShell({
             standalone all-fail case shows the refusal body instead and suppresses the toast, so the same
             file notice never doubles - and leaving it mounted would clear the notice and unlatch the body. */}
         {playbackErrored ? null : <PlayerErrorToast />}
+
+        {finderOpen ? <Finder nav={finderNav} onClose={closeFinder} /> : null}
+        <DuplicatesHost />
+
+        {shortcutsOpen ? <ShortcutsSheet onClose={closeShortcuts} /> : null}
       </main>
     </div>
   );

@@ -21,6 +21,7 @@ import type {
   CueSheet,
   DestinationCheck,
   DeviceTarget,
+  DismissedPair,
   ExportChangeSet,
   ExportConfig,
   ExportProgress,
@@ -35,6 +36,7 @@ import type {
   ImageFolderGroup,
   LibrarySyncStatus,
   ListTracksResponse,
+  MergeReceipt,
   OrganizationSnapshot,
   OutputDeviceInfo,
   PlayEvent,
@@ -966,6 +968,46 @@ export function listTracks(args: {
     offset: args.offset,
     limit: args.limit,
   });
+}
+
+// -- Duplicates --
+// Detection runs in the frontend; these persist its outcome. A merge returns the receipt its undo
+// sends back as-is.
+
+/** Marks every pair among the tracks as not duplicates. A pair already dismissed is left as is. */
+export function dismissDuplicates(trackIds: number[]): Promise<void> {
+  return invoke("dismiss_duplicates", { trackIds });
+}
+
+/** Clears every dismissed pair among the tracks. */
+export function undismissDuplicates(trackIds: number[]): Promise<void> {
+  return invoke("undismiss_duplicates", { trackIds });
+}
+
+/** Every dismissed pair, lower id first. */
+export function listDuplicateDismissals(): Promise<DismissedPair[]> {
+  return invoke<DismissedPair[]>("list_duplicate_dismissals");
+}
+
+/**
+ * Folds the duplicates into the keeper: their playlist slots, plays and album place move to it, and
+ * the group is dismissed. Rejects, changing nothing, while a scan runs or when the merge is refused.
+ */
+export function mergeDuplicates(keeperId: number, discardIds: number[]): Promise<MergeReceipt> {
+  return invoke<MergeReceipt>("merge_duplicates", { keeperId, discardIds });
+}
+
+/** Undoes a merge from its receipt. Rejects, changing nothing, when its rows moved since. */
+export function undoMergeDuplicates(receipt: MergeReceipt): Promise<void> {
+  return invoke<void>("undo_merge_duplicates", { receipt });
+}
+
+// The backend's MergeError::Stale message: a receipt's rows moved since the merge, nothing written.
+const STALE_MERGE = "the library changed since the merge";
+
+/** True when a merge undo was refused because the library moved on since the merge. */
+export function isStaleMerge(error: unknown): boolean {
+  return String(error).includes(STALE_MERGE);
 }
 
 // -- Splicer / cropper --

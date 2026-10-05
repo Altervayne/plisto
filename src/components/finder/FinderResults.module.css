@@ -1,0 +1,54 @@
+/* The finder's result list: labelled sections that scroll on the app's own bar once they run long. */
+.results {
+  display: flex;
+  flex-direction: column;
+}
+
+.results :global(.hide-native-scrollbar) {
+  max-height: min(440px, 56vh);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 10px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sectionLabel {
+  padding: 4px 8px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The hand-off to All Tracks: a plain text row under the capped tracks, lit like any other row. */
+.showAll {
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--dur-fast) ease;
+}
+
+.showAll[data-active] {
+  background: var(--veil);
+}
+
+.quiet {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--ink-3);
+}

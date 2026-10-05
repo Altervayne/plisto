@@ -5,17 +5,21 @@ import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent } from "reac
 // -- Icon Imports --
 import { Volume1, Volume2, VolumeX } from "lucide-react";
 
+// -- Component Imports --
+import { Tooltip } from "../common/Tooltip";
+
 // -- State Imports --
 import { usePlayerActions } from "../../state/player/store";
+import { VOLUME_STEP } from "../../state/player/nudge";
+
+// -- Utils Imports --
+import { COMBOS, withShortcut } from "../shortcuts/shortcutCatalog";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./Volume.module.css";
-
-/** How far the arrow keys nudge the level, as a fraction of full. */
-const KEY_STEP = 0.05;
 
 /** Clamps a level into 0..1. */
 function clamp01(v: number): number {
@@ -28,8 +32,18 @@ function clamp01(v: number): number {
  * vocabulary but its fill is neutral ink, never accent. The speaker glyph tracks the level so the state
  * reads while the chip is folded. Wired straight to the engine: dragging sets the level live, the pointer
  * mapped inverted so up is louder. `railHeight` shortens the rail where the default travel would clip.
+ * `shortcutHints` names the volume keys in a tooltip under the speaker, clear of the chip above it; only
+ * the main window binds those keys, so the other windows leave it off.
  */
-export function Volume({ volume, railHeight }: { volume: number; railHeight?: number }) {
+export function Volume({
+  volume,
+  railHeight,
+  shortcutHints = false,
+}: {
+  volume: number;
+  railHeight?: number;
+  shortcutHints?: boolean;
+}) {
   const actions = usePlayerActions();
   const t = useT();
   const railRef = useRef<HTMLDivElement>(null);
@@ -40,6 +54,11 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
   const level = clamp01(volume);
   const pct = level * 100;
   const Glyph = level === 0 ? VolumeX : level < 0.5 ? Volume1 : Volume2;
+  const glyph = (
+    <span className={styles.glyph} aria-hidden="true">
+      <Glyph size={17} strokeWidth={1.8} />
+    </span>
+  );
 
   // The level under the pointer, measured from the rail's floor up, so dragging toward the top raises it.
   const levelFromPointer = (e: PointerEvent<HTMLDivElement>): number => {
@@ -74,12 +93,12 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
       case "ArrowLeft":
       case "ArrowDown":
         e.preventDefault();
-        actions.setVolume(clamp01(level - KEY_STEP));
+        actions.setVolume(clamp01(level - VOLUME_STEP));
         break;
       case "ArrowRight":
       case "ArrowUp":
         e.preventDefault();
-        actions.setVolume(clamp01(level + KEY_STEP));
+        actions.setVolume(clamp01(level + VOLUME_STEP));
         break;
       case "Home":
         e.preventDefault();
@@ -130,9 +149,16 @@ export function Volume({ volume, railHeight }: { volume: number; railHeight?: nu
           <div className={styles.handle} aria-hidden="true" />
         </div>
       </div>
-      <span className={styles.glyph} aria-hidden="true">
-        <Glyph size={17} strokeWidth={1.8} />
-      </span>
+      {shortcutHints ? (
+        <Tooltip
+          label={withShortcut(t((d) => d.player.volume), [COMBOS.volumeUp, COMBOS.volumeDown], t)}
+          placement="bottom"
+        >
+          {glyph}
+        </Tooltip>
+      ) : (
+        glyph
+      )}
     </div>
   );
 }

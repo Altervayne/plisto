@@ -122,6 +122,9 @@ interface AppStore {
   libraryGone: boolean;
   libraryGroupBy: GroupDimension;
   libraryView: FilesViewMode;
+  // A track a surface outside All Tracks asked to show: All Tracks opens its peek and scrolls it into
+  // view, then clears the request. Null when nothing is pending.
+  libraryRevealId: number | null;
   filesSort: GridSort;
   filesSearch: string;
   boot: () => Promise<void>;
@@ -151,6 +154,8 @@ interface AppStore {
   setLibraryGone: (on: boolean) => void;
   setLibraryGroupBy: (groupBy: GroupDimension) => void;
   setLibraryView: (view: FilesViewMode) => void;
+  revealLibraryTrack: (trackId: number) => void;
+  clearLibraryReveal: () => void;
   setFilesSort: (sort: GridSort) => void;
   setFilesSearch: (search: string) => void;
   reset: () => void;
@@ -268,6 +273,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     libraryGone: false,
     libraryGroupBy: "none",
     libraryView: "table",
+    libraryRevealId: null,
     filesSort: [],
     filesSearch: "",
 
@@ -513,6 +519,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     setLibraryGone: (libraryGone) => set({ libraryGone }),
     setLibraryGroupBy: (libraryGroupBy) => set({ libraryGroupBy }),
     setLibraryView: (libraryView) => set({ libraryView }),
+    revealLibraryTrack: (libraryRevealId) => set({ libraryRevealId }),
+    clearLibraryReveal: () => set({ libraryRevealId: null }),
     setFilesSort: (filesSort) => set({ filesSort }),
     setFilesSearch: (filesSearch) => set({ filesSearch }),
 
@@ -532,6 +540,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         libraryGone: false,
         libraryGroupBy: "none",
         libraryView: "table",
+        libraryRevealId: null,
         filesSort: [],
         filesSearch: "",
       }),
@@ -610,6 +619,7 @@ export const useLibraryMissingMetadata = (): boolean =>
 export const useLibraryGone = (): boolean => useAppStore((s) => s.libraryGone);
 export const useLibraryGroupBy = (): GroupDimension => useAppStore((s) => s.libraryGroupBy);
 export const useLibraryView = (): FilesViewMode => useAppStore((s) => s.libraryView);
+export const useLibraryRevealId = (): number | null => useAppStore((s) => s.libraryRevealId);
 export const useFilesSort = (): GridSort => useAppStore((s) => s.filesSort);
 export const useFilesSearch = (): string => useAppStore((s) => s.filesSearch);
 
@@ -621,6 +631,8 @@ export const useSetLibraryGone = () => useAppStore((s) => s.setLibraryGone);
 export const usePurgeGoneTracks = () => useAppStore((s) => s.purgeGoneTracks);
 export const useSetLibraryGroupBy = () => useAppStore((s) => s.setLibraryGroupBy);
 export const useSetLibraryView = () => useAppStore((s) => s.setLibraryView);
+export const useRevealLibraryTrack = () => useAppStore((s) => s.revealLibraryTrack);
+export const useClearLibraryReveal = () => useAppStore((s) => s.clearLibraryReveal);
 export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);
 export const useSetFilesSearch = () => useAppStore((s) => s.setFilesSearch);
 

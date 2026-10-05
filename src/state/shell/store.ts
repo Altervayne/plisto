@@ -30,6 +30,13 @@ interface ShellStore {
   // so a second request after navigating away still fires.
   settingsRequest: number;
   openSettings: () => void;
+  // The possible-duplicates sheet, mounted once in the shell and opened from any entry point.
+  duplicatesOpen: boolean;
+  openDuplicates: () => void;
+  closeDuplicates: () => void;
+  // Whether the keyboard shortcuts sheet is up. Settings and the shell's own key both open it.
+  shortcutsOpen: boolean;
+  setShortcutsOpen: (open: boolean) => void;
 }
 
 const useShellStore = create<ShellStore>((set) => ({
@@ -39,9 +46,14 @@ const useShellStore = create<ShellStore>((set) => ({
   setHistoryLens: (historyLens) => set({ historyLens }),
   settingsRequest: 0,
   openSettings: () => set((s) => ({ settingsRequest: s.settingsRequest + 1 })),
+  duplicatesOpen: false,
+  openDuplicates: () => set({ duplicatesOpen: true }),
+  closeDuplicates: () => set({ duplicatesOpen: false }),
+  shortcutsOpen: false,
+  setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 }));
 
-// -- Selectors (narrow: the session, the history lens, the settings request, and their stable setters) --
+// -- Selectors (narrow: one value or one stable setter each) --
 
 export const useOpenTool = (): ToolSession | null => useShellStore((s) => s.openTool);
 export const useSetOpenTool = (): ((tool: ToolSession | null) => void) =>
@@ -53,3 +65,11 @@ export const useSetHistoryLens = (): ((lens: HistoryLens) => void) =>
 
 export const useSettingsRequest = (): number => useShellStore((s) => s.settingsRequest);
 export const useOpenSettings = (): (() => void) => useShellStore((s) => s.openSettings);
+
+export const useDuplicatesOpen = (): boolean => useShellStore((s) => s.duplicatesOpen);
+export const useOpenDuplicates = (): (() => void) => useShellStore((s) => s.openDuplicates);
+export const useCloseDuplicates = (): (() => void) => useShellStore((s) => s.closeDuplicates);
+
+export const useShortcutsOpen = (): boolean => useShellStore((s) => s.shortcutsOpen);
+export const useSetShortcutsOpen = (): ((open: boolean) => void) =>
+  useShellStore((s) => s.setShortcutsOpen);

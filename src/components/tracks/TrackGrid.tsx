@@ -56,6 +56,7 @@ import {
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { useSetOpenTool } from "../../state/shell/store";
+import { useViewKeys } from "../../state/shell/viewKeys";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
@@ -115,7 +116,8 @@ function filenameStem(filename: string): string {
  * `albumIndex` joins each track to the album it is filed into, so All Tracks resolves album, album-artist,
  * and year from the container; left at the empty default, the grid keeps the loose edit-over-raw.
  * `historyIndex` supplies the play-log stat the History columns read; every other caller leaves it empty
- * and those columns never appear.
+ * and those columns never appear. `revealId` asks the list to scroll one track's row into view once;
+ * `onRevealed` fires after, found or not, so the caller can drop the request.
  */
 export function TrackGrid({
   tracks,
@@ -141,6 +143,8 @@ export function TrackGrid({
   onVisibleCount,
   selectedId,
   onSelect,
+  revealId = null,
+  onRevealed,
 }: {
   tracks?: TrackRowData[];
   summary?: ReactNode;
@@ -172,6 +176,8 @@ export function TrackGrid({
   onVisibleCount?: (count: number) => void;
   selectedId: number | null;
   onSelect: (track: TrackRowData) => void;
+  revealId?: number | null;
+  onRevealed?: () => void;
 }) {
   const allTracks = useTracks();
   const t = useT();
@@ -290,6 +296,18 @@ export function TrackGrid({
     if (selectAll === "all") removeSelection(rowIds);
     else addSelection(rowIds);
   };
+
+  // The shell's Ctrl+F lands in this grid's search, and Ctrl+A picks the rows the view shows.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useViewKeys({
+    focusSearch: () => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    },
+    selectAll: () => {
+      if (rowIds.length > 0) addSelection(rowIds);
+    },
+  });
 
   const handleToggle = (trackId: number, mods: SelectModifiers) => {
     const index = rows.findIndex((r) => r.original.id === trackId);
@@ -436,6 +454,21 @@ export function TrackGrid({
 
   const headers = table.getHeaderGroups()[0]?.headers ?? [];
   const cards = view === "cards";
+
+  // Scroll a revealed row to the middle of the list. The card wall windows its own rows, so it keeps its
+  // scroll; a row the view does not hold (filtered out, or under a collapsed group) has nowhere to go.
+  // Either way the request is spent.
+  useEffect(() => {
+    if (revealId == null) return;
+    if (!cards) {
+      const index = grouping
+        ? flat.findIndex((item) => item.type === "row" && item.track.id === revealId)
+        : rows.findIndex((row) => row.original.id === revealId);
+      if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+    }
+    onRevealed?.();
+  }, [revealId, cards, grouping, flat, rows, virtualizer, onRevealed]);
+
   const searching = globalFilter.trim().length > 0;
   const noMatch =
     rows.length === 0 && (searching || activeFacets.length > 0 || activeMissing || activeGone);
@@ -485,6 +518,7 @@ export function TrackGrid({
       <div className={styles.toolbar}>
         <div className={styles.search}>
           <SearchField
+            ref={searchRef}
             value={globalFilter}
             onChange={setGlobalFilter}
             placeholder={t((d) => d.tracks.search)}

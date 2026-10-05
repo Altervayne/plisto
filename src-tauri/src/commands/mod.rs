@@ -10,6 +10,7 @@
 pub mod bulk_edit;
 pub mod covers;
 pub mod discovery;
+pub mod duplicates;
 pub mod export;
 pub mod extract;
 pub mod library_sync;

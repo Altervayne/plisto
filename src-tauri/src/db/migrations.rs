@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 15;
+const LATEST_VERSION: i64 = 16;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -339,6 +339,22 @@ CREATE TABLE export_ledger (
 ) WITHOUT ROWID;
 ";
 
+// Version 16: dismissed duplicate pairs. `duplicate_dismissals` holds each pair of tracks the user said
+// are not duplicates, stored once as (lower id, higher id) so a pair has a single row whichever way it
+// was named; the CHECK rules out a reversed or self pair. Both track FKs CASCADE, so dropping either
+// track drops its pairs, and the `track_hi` index covers the lookup the primary key does not
+// left-prefix. A new table only, so every existing row is untouched and the set starts empty.
+const MIGRATION_V16: &str = "
+CREATE TABLE duplicate_dismissals (
+    track_lo     INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    track_hi     INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    dismissed_at INTEGER NOT NULL,
+    PRIMARY KEY (track_lo, track_hi),
+    CHECK (track_lo < track_hi)
+) WITHOUT ROWID;
+CREATE INDEX idx_duplicate_dismissals_hi ON duplicate_dismissals(track_hi);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -361,6 +377,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             12 => conn.execute_batch(MIGRATION_V13)?,
             13 => conn.execute_batch(MIGRATION_V14)?,
             14 => conn.execute_batch(MIGRATION_V15)?,
+            15 => conn.execute_batch(MIGRATION_V16)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1137,6 +1154,66 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM export_ledger", [], |r| r.get(0))
             .unwrap();
         assert_eq!(ledger, 0, "the export record starts empty");
+    }
+
+    /// A v15 DB with rows upgrades to v16 additively: every existing row survives and the new
+    /// `duplicate_dismissals` table exists empty.
+    #[test]
+    fn v15_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        conn.execute_batch(MIGRATION_V14).unwrap();
+        conn.execute_batch(MIGRATION_V15).unwrap();
+        conn.pragma_update(None, "user_version", 15).unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+        conn.execute_batch(
+            "INSERT INTO albums (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no) VALUES (1, 1, 1), (1, 2, 2);
+             INSERT INTO plays (track_id, played_at, completed) VALUES (1, 100, 1);
+             INSERT INTO playlists (id, created_at, updated_at) VALUES (1, 0, 0);
+             INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 2, 1);
+             INSERT INTO export_ledger (dest_key, rel_path, fingerprint, exported_at)
+                 VALUES ('d', 'a.mp3', 'f', 1);",
+        )
+        .unwrap();
+        let before = numbering(&conn);
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+        assert_eq!(version, 16);
+
+        let counts: (i64, i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM tracks), (SELECT COUNT(*) FROM albums),
+                        (SELECT COUNT(*) FROM plays), (SELECT COUNT(*) FROM playlist_tracks),
+                        (SELECT COUNT(*) FROM export_ledger)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            counts,
+            (2, 1, 1, 1, 1),
+            "every existing row survives the upgrade"
+        );
+        assert_eq!(numbering(&conn), before, "the membership is untouched");
+
+        let dismissals: i64 = conn
+            .query_row("SELECT COUNT(*) FROM duplicate_dismissals", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(dismissals, 0, "the dismissal set starts empty");
+
+        let reversed = conn.execute(
+            "INSERT INTO duplicate_dismissals (track_lo, track_hi, dismissed_at) VALUES (2, 1, 0)",
+            [],
+        );
+        assert!(reversed.is_err(), "a reversed pair is rejected");
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

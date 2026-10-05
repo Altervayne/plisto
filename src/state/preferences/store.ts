@@ -36,6 +36,8 @@ export const PREF_KEYS = {
   homeLayoutPlayer: "home_layout_player",
   homeLayoutOrganizer: "home_layout_organizer",
   homeLayoutBoth: "home_layout_both",
+  // The quick finder's last opened entries, a JSON list of kind and id.
+  finderRecent: "finder_recent",
 } as const;
 
 interface PreferencesStore {

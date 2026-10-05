@@ -1,17 +1,8 @@
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
 
-/** Whether focus sits in a text entry, where the workbench shortcuts must not fire. */
-function inTextEntry(el: Element | null): boolean {
-  if (!(el instanceof HTMLElement)) return false;
-  const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
-}
-
-/** Whether a modal dialog is up, where its own keys (Escape, Enter, Space) must win over the shortcuts. */
-function modalOpen(): boolean {
-  return document.querySelector('[role="alertdialog"], [aria-modal="true"]') != null;
-}
+// -- Utils Imports --
+import { inTextEntry, modalOpen } from "../../lib/keyScope";
 
 /**
  * The workbench editing-surface shortcuts. Tool and marker keys are optional so the cropper, which has

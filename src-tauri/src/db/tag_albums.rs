@@ -239,7 +239,7 @@ fn member_ids(conn: &Connection, album_id: i64) -> rusqlite::Result<Vec<i64>> {
     Ok(rows)
 }
 
-fn album_updated_at(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
+pub(super) fn album_updated_at(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT updated_at FROM albums WHERE id = ?1",
         params![album_id],
@@ -247,7 +247,11 @@ fn album_updated_at(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
     )
 }
 
-fn set_updated_at(conn: &Connection, album_id: i64, updated_at: i64) -> rusqlite::Result<()> {
+pub(super) fn set_updated_at(
+    conn: &Connection,
+    album_id: i64,
+    updated_at: i64,
+) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE albums SET updated_at = ?1 WHERE id = ?2",
         params![updated_at, album_id],

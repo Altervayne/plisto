@@ -401,6 +401,50 @@ pub struct TagAlbumReceipt {
     pub extended: Vec<TagAlbumExtended>,
 }
 
+/// Two tracks the user marked as not duplicates, lower id first. Mirrors DismissedPair in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DismissedPair {
+    pub track_lo: i64,
+    pub track_hi: i64,
+}
+
+/// A playlist slot or play row a merge re-pointed at the keeper, with the track it held before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeMovedRow {
+    pub id: i64,
+    pub track_id: i64,
+}
+
+/// One album membership row as a merge removed or added it, enough to put it back exactly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeMembership {
+    pub album_id: i64,
+    pub track_id: i64,
+    pub track_no: Option<i64>,
+    pub keep_own_cover: bool,
+}
+
+/// An album whose membership a merge changed, with its updated_at before the merge stamped it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeAlbumStamp {
+    pub album_id: i64,
+    pub prev_updated_at: i64,
+}
+
+/// Everything one duplicate merge wrote. It travels to the frontend and back, so the undo replays
+/// exactly these rows. `dismissed` holds only the pairs the merge inserted, not those already there.
+/// Mirrors MergeReceipt in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeReceipt {
+    pub keeper_id: i64,
+    pub moved_slots: Vec<MergeMovedRow>,
+    pub moved_plays: Vec<MergeMovedRow>,
+    pub removed_memberships: Vec<MergeMembership>,
+    pub added_membership: Option<MergeMembership>,
+    pub album_stamps: Vec<MergeAlbumStamp>,
+    pub dismissed: Vec<DismissedPair>,
+}
+
 /// The per-track override patch for one membership row: a full-set replace of its overrides and
 /// numbering. As with album fields, a None clears its column.
 #[derive(Debug, Clone, Deserialize)]

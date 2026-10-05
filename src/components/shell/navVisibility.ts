@@ -36,7 +36,7 @@ export const NAV_SECTIONS = {
 } as const satisfies Record<string, readonly Mode[]>;
 
 /** Every browse destination in nav order, the sections laid end to end. Settings stays out: it is foot. */
-const NAV_ORDER: readonly Mode[] = [
+export const NAV_ORDER: readonly Mode[] = [
   ...NAV_SECTIONS.files,
   ...NAV_SECTIONS.library,
   ...NAV_SECTIONS.utilities,

@@ -7,14 +7,14 @@ import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
 // -- Format Imports --
 import { formatDuration } from "../../lib/format";
 
+// -- State Imports --
+import { SEEK_STEP } from "../../state/player/nudge";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./SeekBar.module.css";
-
-/** How far the arrow keys nudge the playhead, in seconds. */
-const KEY_STEP = 5;
 
 /** Clamps a ratio into 0..1. */
 function clamp01(v: number): number {
@@ -82,11 +82,11 @@ export function SeekBar({
     switch (e.key) {
       case "ArrowLeft":
         e.preventDefault();
-        onSeek(Math.max(0, position - KEY_STEP));
+        onSeek(Math.max(0, position - SEEK_STEP));
         break;
       case "ArrowRight":
         e.preventDefault();
-        onSeek(Math.min(duration, position + KEY_STEP));
+        onSeek(Math.min(duration, position + SEEK_STEP));
         break;
       case "Home":
         e.preventDefault();
