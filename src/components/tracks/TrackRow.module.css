@@ -44,6 +44,8 @@
   left: 8px;
   top: 50%;
   transform: translateY(-50%);
+  /* Stacks above the positioned number cell it overlaps, which would otherwise take the click. */
+  z-index: 1;
   width: 16px;
   height: 16px;
   padding: 0;
