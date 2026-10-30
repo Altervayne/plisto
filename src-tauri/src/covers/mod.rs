@@ -20,7 +20,9 @@ pub use cache::{
     ensure_full_res, ensure_thumb, full_res_cache_path, read_full_res_blob, thumb_cache_path,
     InFlightGuard,
 };
-pub use embedded::read_embedded_cover_bytes;
+#[cfg(test)]
+pub(crate) use embedded::test_support;
+pub use embedded::{read_embedded_cover_bytes, read_with_art};
 pub use thumbnail::read_image_dimensions;
 
 /// Where a cover came from, stored as a stable string on the manifest row. All three kinds are

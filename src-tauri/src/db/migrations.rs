@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 16;
+const LATEST_VERSION: i64 = 17;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -355,6 +355,14 @@ CREATE TABLE duplicate_dismissals (
 CREATE INDEX idx_duplicate_dismissals_hi ON duplicate_dismissals(track_hi);
 ";
 
+// Version 17: re-examine MP4-family art. Earlier scans read embedded art through lofty's generic tag,
+// which drops the MP4 `covr` atom, so every .m4a/.m4b/.mp4 row recorded no cover. Clearing the cached
+// `has_embedded_cover` on those rows makes the next scan re-read them. That column is the only thing
+// touched: no other column changes and no row is removed.
+const MIGRATION_V17: &str = "
+UPDATE tracks SET has_embedded_cover = NULL WHERE lower(ext) IN ('m4a', 'm4b', 'mp4');
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -378,6 +386,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             13 => conn.execute_batch(MIGRATION_V14)?,
             14 => conn.execute_batch(MIGRATION_V15)?,
             15 => conn.execute_batch(MIGRATION_V16)?,
+            16 => conn.execute_batch(MIGRATION_V17)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1184,7 +1193,6 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(version, LATEST_VERSION);
-        assert_eq!(version, 16);
 
         let counts: (i64, i64, i64, i64, i64) = conn
             .query_row(
@@ -1214,6 +1222,60 @@ mod tests {
             [],
         );
         assert!(reversed.is_err(), "a reversed pair is rejected");
+    }
+
+    /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row
+    /// survives, other formats keep their flag, and no other column of an MP4 row changes.
+    #[test]
+    fn v16_db_clears_the_art_flag_on_mp4_family_rows_only() {
+        let conn = v13_db();
+        for step in [MIGRATION_V14, MIGRATION_V15, MIGRATION_V16] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 16).unwrap();
+        for (id, ext, art) in [
+            (1, "m4a", Some(0)),
+            (2, "M4B", Some(0)),
+            (3, "mp4", Some(1)),
+            (4, "mp3", Some(0)),
+            (5, "flac", Some(1)),
+            (6, "m4a", None::<i64>),
+        ] {
+            conn.execute(
+                "INSERT INTO tracks (id, source_path, filename, ext, size_bytes, mtime, scanned_at,
+                                     raw_title, has_embedded_cover)
+                 VALUES (?1, '/music/' || ?1, 'f.' || ?2, ?2, 10, 20, 30, 'Keep', ?3)",
+                rusqlite::params![id, ext, art],
+            )
+            .unwrap();
+        }
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 17);
+
+        let rows: Vec<(i64, Option<i64>, String, i64, i64)> = conn
+            .prepare("SELECT id, has_embedded_cover, raw_title, size_bytes, mtime FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let flags: Vec<Option<i64>> = rows.iter().map(|r| r.1).collect();
+        assert_eq!(
+            flags,
+            vec![None, None, None, Some(0), Some(1), None],
+            "only the MP4-family rows are cleared"
+        );
+        assert!(
+            rows.iter().all(|r| r.2 == "Keep" && r.3 == 10 && r.4 == 20),
+            "every row survives with its other columns intact"
+        );
     }
 
     /// A fresh v5 DB with no workspace seeds no root on the v6 upgrade: the onboarding state.

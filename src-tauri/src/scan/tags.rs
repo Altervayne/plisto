@@ -8,8 +8,10 @@
 // -- Library Imports --
 use std::path::Path;
 
-use lofty::picture::PictureType;
 use lofty::prelude::{Accessor, AudioFile, ItemKey, TaggedFileExt};
+
+// -- Cover Imports --
+use crate::covers::read_with_art;
 
 // -- Type Imports --
 use crate::model::RawTags;
@@ -19,8 +21,8 @@ use crate::model::RawTags;
 /// duration is missing. `has_embedded_cover` is always set here (Some) - any file lofty opens,
 /// tags or not, and any file it cannot, counts as examined, so the row never stays NULL.
 pub fn read_tags(path: &Path) -> (RawTags, bool) {
-    let tagged = match lofty::read_from_path(path) {
-        Ok(t) => t,
+    let art = match read_with_art(path) {
+        Ok(a) => a,
         Err(_) => {
             return (
                 RawTags {
@@ -32,6 +34,7 @@ pub fn read_tags(path: &Path) -> (RawTags, bool) {
         }
     };
 
+    let tagged = art.tagged();
     let mut raw = RawTags {
         duration_secs: Some(tagged.properties().duration().as_secs_f64()),
         has_embedded_cover: Some(false),
@@ -50,17 +53,28 @@ pub fn read_tags(path: &Path) -> (RawTags, bool) {
             .get_string(ItemKey::Year)
             .or_else(|| tag.get_string(ItemKey::RecordingDate))
             .map(str::to_string);
-
-        // Prefer a front-cover frame, fall back to any picture. This rides the tag lofty
-        // already holds, so it costs no extra read.
-        let pictures = tag.pictures();
-        raw.has_embedded_cover = Some(
-            pictures
-                .iter()
-                .any(|p| p.pic_type() == PictureType::CoverFront)
-                || !pictures.is_empty(),
-        );
     }
 
+    // Rides the file already read, so it costs no extra read.
+    raw.has_embedded_cover = Some(art.cover().is_some());
+
     (raw, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::covers::test_support::{png_bytes, png_picture, write_mp4_with_pictures};
+
+    #[test]
+    fn an_mp4_cover_reads_as_embedded() {
+        let path = std::env::temp_dir().join(format!("plisto_scan_tags_{}.m4a", std::process::id()));
+        write_mp4_with_pictures(&path, vec![png_picture(png_bytes(8, 8))]);
+
+        let (raw, errored) = read_tags(&path);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(!errored);
+        assert_eq!(raw.has_embedded_cover, Some(true));
+    }
 }

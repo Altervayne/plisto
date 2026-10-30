@@ -65,7 +65,7 @@ opus-rs = "0.1.32"
 # feature set is dead weight. Pinned to 0.20 - 0.21 replaced OutputStream::try_default()/Sink::try_new
 # with an OutputStreamBuilder, and the engine uses the 0.19/0.20 API.
 rodio = { version = "0.20", default-features = false }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 blake3 = "1"
 dunce = "1"
 unicode-normalization = "0.1"
