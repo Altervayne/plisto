@@ -465,7 +465,7 @@ export const fr: Dict = {
   splice: {
     split: "Découper en pistes...",
     trim: "Rogner les silences...",
-    unsupported: "Seuls les fichiers WAV, FLAC et MP3 peuvent être découpés pour le moment.",
+    unsupported: "Seuls les fichiers WAV, FLAC, MP3, M4A, M4B et Opus peuvent être découpés pour le moment.",
     editorTitle: "Éditeur de piste",
     editorHint: "Faites un clic droit sur une piste et choisissez Découper ou Rogner pour commencer l'édition ici.",
     splitTitle: "Découper en pistes",

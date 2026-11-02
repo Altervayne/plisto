@@ -22,6 +22,7 @@ mod startup;
 mod state;
 mod tags;
 mod tray;
+mod window_fit;
 
 // -- Library Imports --
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -373,6 +374,7 @@ pub fn run() {
             commands::window::confirm_quit,
             commands::window::toggle_now_playing_widget,
             commands::window::hide_now_playing_widget,
+            commands::window::settle_now_playing_widget,
             commands::player::player_play_tracks,
             commands::player::player_play_file,
             commands::player::player_play_files,

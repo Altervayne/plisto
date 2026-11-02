@@ -281,6 +281,11 @@ export function hideNowPlayingWidget(): Promise<void> {
   return invoke("hide_now_playing_widget");
 }
 
+/** Pulls the pop-out now-playing widget back inside a monitor's work area and remembers its seat. */
+export function settleNowPlayingWidget(): Promise<void> {
+  return invoke("settle_now_playing_widget");
+}
+
 /**
  * Resolves a track's single cover at `size`, or null when it has no art from any source. `keepOwn`
  * mirrors the membership's keep-own-cover flag: when set, the folder cover steps aside so the track

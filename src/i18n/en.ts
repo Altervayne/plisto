@@ -463,7 +463,7 @@ export const en = {
   splice: {
     split: "Split into tracks...",
     trim: "Trim silence...",
-    unsupported: "Only WAV, FLAC and MP3 files can be split for now.",
+    unsupported: "Only WAV, FLAC, MP3, M4A, M4B and Opus files can be split for now.",
     editorTitle: "Track Editor",
     editorHint: "Right-click any track and choose Split or Trim to start editing here.",
     splitTitle: "Split into tracks",

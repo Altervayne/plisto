@@ -33,7 +33,7 @@ import {
 import { useSpectrumSync } from "../../state/player/spectrum";
 
 // -- IPC Imports --
-import { hideNowPlayingWidget, setSetting } from "../../lib/ipc";
+import { hideNowPlayingWidget, settleNowPlayingWidget } from "../../lib/ipc";
 import { onWindowMoved } from "../../lib/appWindow";
 
 // -- i18n Imports --
@@ -42,7 +42,7 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./NowPlayingWidget.module.css";
 
-/** How long a drag rests before its new position is persisted, so a move writes once, not per frame. */
+/** How long a drag rests before it settles, so a move settles once, not per frame. */
 const MOVE_DEBOUNCE = 400;
 
 /**
@@ -50,7 +50,7 @@ const MOVE_DEBOUNCE = 400;
  * own webview. It hydrates preferences, theme and the playback snapshot itself like the tray, then
  * shows the current track over a blurred-cover ground with a scrubbable playhead and the transport.
  * Nothing playing folds to an idle placeholder rather than yanking the window away. Its position is
- * remembered across sessions: the move listener writes the physical top-left, the Rust seat reads it.
+ * remembered across sessions: once a drag rests, Rust pulls the window inside a work area and stores it.
  */
 export function NowPlayingWidget() {
   const loadPreferences = useLoadPreferences();
@@ -66,22 +66,22 @@ export function NowPlayingWidget() {
   }, []);
   usePlayerSync();
   useSpectrumSync();
-  usePersistPosition();
+  useSettlePosition();
 
   return trackId == null ? <IdleCard /> : <WidgetBody trackId={trackId} />;
 }
 
-/** Persists the window's top-left after a drag settles, debounced so a move writes once. */
-function usePersistPosition() {
+/** Asks Rust to settle the window after a drag rests: clamp it on-screen and remember the seat. */
+function useSettlePosition() {
   useEffect(() => {
     let unlisten = () => {};
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    void onWindowMoved(({ x, y }) => {
+    void onWindowMoved(() => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        void setSetting("nowplaying_pos", `${x},${y}`).catch(() => {});
+        void settleNowPlayingWidget().catch(() => {});
       }, MOVE_DEBOUNCE);
     }).then((fn) => {
       // A late resolve after unmount tears down at once, so no listener leaks past the window.

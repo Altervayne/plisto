@@ -9,10 +9,12 @@
 // -- Library Imports --
 use std::path::Path;
 
-use lofty::config::WriteOptions;
-use lofty::file::FileType;
+use lofty::config::{ParseOptions, WriteOptions};
+use lofty::file::{AudioFile, FileType, TaggedFile};
+use lofty::mp4::{Ilst, Mp4File};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::{Accessor, ItemKey, TagExt, TaggedFileExt};
+use lofty::probe::Probe;
 use lofty::tag::{ItemValue, Tag, TagItem, TagType};
 
 /// How a file's art embedding landed. `Embedded` wrote the cover; `Unsupported` skipped it because
@@ -66,13 +68,24 @@ pub fn tag_file(
     tags: &TrackTags<'_>,
     cover: Option<&[u8]>,
 ) -> Result<EmbedResult, TagError> {
-    let tagged = lofty::read_from_path(path).map_err(|_| TagError::Read)?;
-    let file_type = tagged.file_type();
-    let tag_type = tagged.primary_tag_type();
-    let mut tag = tagged
-        .primary_tag()
-        .cloned()
-        .unwrap_or_else(|| Tag::new(tag_type));
+    let (mut tag, file_type, tag_type) = match open_tags(path)? {
+        OpenedTags::Mp4(mut ilst) => {
+            // lofty carries `covr` and unmapped atoms beside the generic tag and merges them back on
+            // save, where the old art would win over a new picture. A new cover clears them first.
+            if cover.is_some() {
+                ilst.remove_pictures();
+            }
+            (Tag::from(ilst), FileType::Mp4, TagType::Mp4Ilst)
+        }
+        OpenedTags::Other(tagged) => {
+            let tag_type = tagged.primary_tag_type();
+            let tag = tagged
+                .primary_tag()
+                .cloned()
+                .unwrap_or_else(|| Tag::new(tag_type));
+            (tag, tagged.file_type(), tag_type)
+        }
+    };
 
     write_accessor(&mut tag, tags);
     write_genres(&mut tag, tags.genres);
@@ -136,13 +149,44 @@ fn dedupe_comments(tag: &mut Tag) {
     }
 }
 
+/// A file opened for tag work. MP4-family files keep their native `Ilst`, because lofty's generic
+/// `Tag` conversion drops the `covr` atom and every other atom it has no key for; every other format
+/// goes through the generic tag.
+enum OpenedTags {
+    Mp4(Ilst),
+    Other(TaggedFile),
+}
+
+/// Opens `path` once and returns its tags in the form that loses nothing. An MP4 with no `ilst` yet
+/// yields an empty one.
+fn open_tags(path: &Path) -> Result<OpenedTags, TagError> {
+    let probe = Probe::open(path).map_err(|_| TagError::Read)?;
+    if probe.file_type() != Some(FileType::Mp4) {
+        return Ok(OpenedTags::Other(probe.read().map_err(|_| TagError::Read)?));
+    }
+    let mut reader = probe.into_inner();
+    let file =
+        Mp4File::read_from(&mut reader, ParseOptions::default()).map_err(|_| TagError::Read)?;
+    Ok(OpenedTags::Mp4(file.ilst().cloned().unwrap_or_default()))
+}
+
 /// Carries the source file's primary tag onto `dest`, so a freshly cut file keeps the metadata the
-/// cut itself drops. A source with no primary tag is a no-op. The source is only read.
+/// cut itself drops. An MP4 source carries its whole `ilst`, cover included. A source with no tag is
+/// a no-op. The source is only read.
 pub fn copy_tags(source: &Path, dest: &Path) -> Result<(), TagError> {
-    let tagged = lofty::read_from_path(source).map_err(|_| TagError::Read)?;
-    if let Some(tag) = tagged.primary_tag() {
-        tag.save_to_path(dest, WriteOptions::default())
-            .map_err(|_| TagError::Write)?;
+    match open_tags(source)? {
+        OpenedTags::Mp4(ilst) => {
+            if !ilst.is_empty() {
+                ilst.save_to_path(dest, WriteOptions::default())
+                    .map_err(|_| TagError::Write)?;
+            }
+        }
+        OpenedTags::Other(tagged) => {
+            if let Some(tag) = tagged.primary_tag() {
+                tag.save_to_path(dest, WriteOptions::default())
+                    .map_err(|_| TagError::Write)?;
+            }
+        }
     }
     Ok(())
 }
@@ -152,20 +196,41 @@ pub fn copy_tags(source: &Path, dest: &Path) -> Result<(), TagError> {
 /// keep the source's whole-file title; artist is set only when Some, leaving the source's own when
 /// None; the track number always lands, each piece being a distinct track. Everything else the source
 /// carried (album, album_artist, year, genre, cover, disc) rides through untouched. A file with no tag
-/// yet (a WAV source that carried none) gets a fresh native tag holding just these fields.
+/// yet (a WAV source that carried none) gets a fresh native tag holding just these fields. An MP4
+/// output is edited as its native `ilst`, so the cover and any other unmapped atom survive.
 pub fn retag_split_segment(
     output: &Path,
     title: Option<&str>,
     artist: Option<&str>,
     track_no: i64,
 ) -> Result<(), TagError> {
-    let tagged = lofty::read_from_path(output).map_err(|_| TagError::Read)?;
-    let tag_type = tagged.primary_tag_type();
-    let mut tag = tagged
-        .primary_tag()
-        .cloned()
-        .unwrap_or_else(|| Tag::new(tag_type));
+    match open_tags(output)? {
+        OpenedTags::Mp4(mut ilst) => {
+            overlay_title_artist(&mut ilst, title, artist);
+            // `trkn` holds 16-bit numbers; `set_track` keeps an existing total, as the generic path does.
+            if let Ok(n) = u16::try_from(track_no) {
+                ilst.set_track(u32::from(n));
+            }
+            ilst.save_to_path(output, WriteOptions::default())
+                .map_err(|_| TagError::Write)
+        }
+        OpenedTags::Other(tagged) => {
+            let tag_type = tagged.primary_tag_type();
+            let mut tag = tagged
+                .primary_tag()
+                .cloned()
+                .unwrap_or_else(|| Tag::new(tag_type));
+            overlay_title_artist(&mut tag, title, artist);
+            set_text(&mut tag, ItemKey::TrackNumber, Some(track_no.to_string()));
+            tag.save_to_path(output, WriteOptions::default())
+                .map_err(|_| TagError::Write)
+        }
+    }
+}
 
+/// Sets the title (removed when None) and, when Some, the artist, through the `Accessor` that both
+/// `Tag` and `Ilst` implement.
+fn overlay_title_artist<T: Accessor>(tag: &mut T, title: Option<&str>, artist: Option<&str>) {
     match title {
         Some(v) => tag.set_title(v.to_string()),
         None => tag.remove_title(),
@@ -173,11 +238,6 @@ pub fn retag_split_segment(
     if let Some(v) = artist {
         tag.set_artist(v.to_string());
     }
-    set_text(&mut tag, ItemKey::TrackNumber, Some(track_no.to_string()));
-
-    tag.save_to_path(output, WriteOptions::default())
-        .map_err(|_| TagError::Write)?;
-    Ok(())
 }
 
 /// Writes the three accessor fields (title, artist, album), clearing any the caller resolved to None
@@ -459,6 +519,199 @@ mod tests {
         assert_eq!(tag.title(), None, "an untitled piece drops the source title");
         assert_eq!(tag.artist().as_deref(), Some("New Artist"), "a Some artist replaces it");
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("2"));
+    }
+}
+
+#[cfg(test)]
+mod mp4_tests {
+    use super::*;
+    use crate::covers::read_with_art;
+    use crate::covers::test_support::{minimal_mp4, png_bytes, png_picture};
+    use lofty::mp4::{Atom, AtomData, AtomIdent};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("plisto_tags_mp4_{}_{n}_{nanos}", std::process::id()));
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn freeform() -> AtomIdent<'static> {
+        AtomIdent::Freeform {
+            mean: "com.apple.iTunes".into(),
+            name: "MOOD".into(),
+        }
+    }
+
+    // A source m4a with a cover, mapped fields, a track 1/12 pair and one atom with no generic key.
+    fn write_source(path: &Path, png: &[u8]) {
+        fs::write(path, minimal_mp4()).unwrap();
+        let mut ilst = Ilst::new();
+        ilst.insert_picture(png_picture(png.to_vec()));
+        ilst.set_title("Whole Title".to_string());
+        ilst.set_artist("Whole Artist".to_string());
+        ilst.set_album("Whole Album".to_string());
+        ilst.set_track(1);
+        ilst.set_track_total(12);
+        ilst.insert(Atom::new(freeform(), AtomData::UTF8("calm".to_string())));
+        ilst.save_to_path(path, WriteOptions::default()).unwrap();
+    }
+
+    fn bare_dest(dir: &TempDir) -> PathBuf {
+        let dest = dir.path.join("dst.m4a");
+        fs::write(&dest, minimal_mp4()).unwrap();
+        dest
+    }
+
+    fn read_ilst(path: &Path) -> Ilst {
+        match open_tags(path).unwrap() {
+            OpenedTags::Mp4(ilst) => ilst,
+            OpenedTags::Other(_) => panic!("expected an MP4"),
+        }
+    }
+
+    #[test]
+    fn copy_tags_carries_the_mp4_cover_and_every_atom() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.m4a");
+        let png = png_bytes(8, 8);
+        write_source(&source, &png);
+        let dest = bare_dest(&dir);
+
+        copy_tags(&source, &dest).unwrap();
+
+        let art = read_with_art(&dest).unwrap();
+        assert_eq!(art.pictures().len(), 1, "the cover rides along");
+        assert_eq!(art.cover().unwrap().data(), png.as_slice());
+        let ilst = read_ilst(&dest);
+        assert_eq!(ilst.title().as_deref(), Some("Whole Title"));
+        assert_eq!(ilst.album().as_deref(), Some("Whole Album"));
+        assert!(ilst.get(&freeform()).is_some(), "an unmapped atom rides along");
+    }
+
+    #[test]
+    fn retag_split_segment_keeps_the_mp4_cover_and_overlays_the_fields() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.m4a");
+        let png = png_bytes(8, 8);
+        write_source(&source, &png);
+        let dest = bare_dest(&dir);
+        copy_tags(&source, &dest).unwrap();
+
+        retag_split_segment(&dest, Some("Piece Title"), Some("Piece Artist"), 5).unwrap();
+
+        let art = read_with_art(&dest).unwrap();
+        assert_eq!(art.cover().unwrap().data(), png.as_slice(), "the cover survives");
+        let ilst = read_ilst(&dest);
+        assert_eq!(ilst.title().as_deref(), Some("Piece Title"));
+        assert_eq!(ilst.artist().as_deref(), Some("Piece Artist"));
+        assert_eq!(ilst.track(), Some(5));
+        assert_eq!(ilst.track_total(), Some(12), "the track total is kept");
+        assert_eq!(ilst.album().as_deref(), Some("Whole Album"));
+        assert!(ilst.get(&freeform()).is_some(), "an unmapped atom survives");
+    }
+
+    #[test]
+    fn retag_split_segment_on_mp4_removes_the_title_on_none() {
+        let dir = TempDir::new();
+        let source = dir.path.join("src.m4a");
+        write_source(&source, &png_bytes(8, 8));
+        let dest = bare_dest(&dir);
+        copy_tags(&source, &dest).unwrap();
+
+        retag_split_segment(&dest, None, None, 2).unwrap();
+
+        let ilst = read_ilst(&dest);
+        assert_eq!(ilst.title(), None, "an untitled piece drops the source title");
+        assert_eq!(
+            ilst.artist().as_deref(),
+            Some("Whole Artist"),
+            "a None artist keeps the source's own"
+        );
+        assert_eq!(ilst.track(), Some(2));
+        assert_eq!(read_with_art(&dest).unwrap().pictures().len(), 1);
+    }
+
+    fn export_tags() -> TrackTags<'static> {
+        TrackTags {
+            title: Some("Export Title"),
+            artist: Some("Export Artist"),
+            album: Some("Export Album"),
+            album_artist: None,
+            year: Some(2020),
+            genres: &[],
+            track_no: Some(4),
+            disc_no: None,
+        }
+    }
+
+    #[test]
+    fn tag_file_keeps_the_mp4_cover_when_no_cover_is_given() {
+        let dir = TempDir::new();
+        let path = dir.path.join("a.m4a");
+        let png = png_bytes(8, 8);
+        write_source(&path, &png);
+
+        let result = tag_file(&path, &export_tags(), None).unwrap();
+
+        assert_eq!(result, EmbedResult::NoArt);
+        let art = read_with_art(&path).unwrap();
+        assert_eq!(art.pictures().len(), 1, "the embedded cover survives");
+        assert_eq!(art.cover().unwrap().data(), png.as_slice());
+        let ilst = read_ilst(&path);
+        assert_eq!(ilst.title().as_deref(), Some("Export Title"));
+        assert_eq!(ilst.artist().as_deref(), Some("Export Artist"));
+        assert_eq!(ilst.album().as_deref(), Some("Export Album"));
+        assert_eq!(ilst.track(), Some(4));
+    }
+
+    #[test]
+    fn tag_file_replaces_the_mp4_cover_with_the_given_one() {
+        let dir = TempDir::new();
+        let path = dir.path.join("a.m4a");
+        write_source(&path, &png_bytes(8, 8));
+        let new_cover = png_bytes(16, 16);
+
+        let result = tag_file(&path, &export_tags(), Some(&new_cover)).unwrap();
+
+        assert_eq!(result, EmbedResult::Embedded);
+        let art = read_with_art(&path).unwrap();
+        assert_eq!(art.pictures().len(), 1, "the old cover does not stack");
+        assert_eq!(art.cover().unwrap().data(), new_cover.as_slice());
+        assert_eq!(read_ilst(&path).title().as_deref(), Some("Export Title"));
+    }
+
+    #[test]
+    fn retag_split_segment_seeds_a_bare_mp4() {
+        let dir = TempDir::new();
+        let dest = bare_dest(&dir);
+
+        retag_split_segment(&dest, Some("Only Title"), None, 3).unwrap();
+
+        let ilst = read_ilst(&dest);
+        assert_eq!(ilst.title().as_deref(), Some("Only Title"));
+        assert_eq!(ilst.track(), Some(3));
     }
 }
 

@@ -115,6 +115,15 @@ pub fn hide_now_playing_widget(app: AppHandle) {
     }
 }
 
+/// Pulls the pop-out now-playing widget fully inside a monitor's work area once a drag settles, and
+/// remembers where it ends up. Safe to call repeatedly: a widget already inside is left alone.
+#[tauri::command]
+pub fn settle_now_playing_widget(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("nowplaying") {
+        crate::tray::settle_now_playing(&app, &window);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

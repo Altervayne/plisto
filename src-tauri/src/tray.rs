@@ -12,10 +12,11 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 use crate::db;
 use crate::state::AppState;
+use crate::window_fit::{fit_into_work_area, Rect};
 
 /// The edge margin and the assumed taskbar band, in logical pixels, used to seat the popup above
 /// the tray. The taskbar height is not exposed to the app, so the reserve is a close-enough band.
@@ -153,18 +154,68 @@ fn position_popup(app: &AppHandle, window: &WebviewWindow) {
 /// The pop-out now-playing widget's edge margin, in logical pixels, matching the popup's.
 const WIDGET_MARGIN: f64 = 12.0;
 
-/// Seats the pop-out now-playing widget before it shows: the remembered position when it still
-/// lands on a connected monitor, else the top-right of the primary monitor - a distinct corner from
-/// the tray popup's bottom-right. Physical pixels throughout, to match what the webview's move
-/// listener persists. Best-effort: a failed read or place just leaves the last seat.
+/// Seats the pop-out now-playing widget before it shows: the remembered position pulled fully inside
+/// the work area it lands on, else the top-right of the primary monitor - a distinct corner from the
+/// tray popup's bottom-right. A remembered seat that overlaps no work area (a since-unplugged display,
+/// or an old drag that left it off-screen) is dropped for the default corner. Physical pixels
+/// throughout. Best-effort: a failed read or place just leaves the last seat.
 pub fn seat_now_playing(app: &AppHandle, window: &WebviewWindow) {
-    if let Some(pos) = remembered_widget_pos(app) {
-        if point_on_some_monitor(app, pos) {
-            let _ = window.set_position(pos);
+    if let (Some(pos), Ok(size)) = (remembered_widget_pos(app), window.outer_size()) {
+        if let Some(fitted) = fit_widget(app, pos, size) {
+            let _ = window.set_position(fitted);
             return;
         }
     }
     seat_widget_top_right(app, window);
+}
+
+/// Pulls the widget back inside a work area after a drag, then remembers where it ended up. Called
+/// once a drag settles. A position already inside is left alone, so the move event that a correction
+/// itself raises settles to a no-op. A widget wholly off every work area falls back to the default
+/// corner. Best-effort: a failed read or place leaves the window where it is.
+pub fn settle_now_playing(app: &AppHandle, window: &WebviewWindow) {
+    let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    match fit_widget(app, pos, size) {
+        Some(fitted) => {
+            if fitted != pos {
+                let _ = window.set_position(fitted);
+            }
+            remember_widget_pos(app, fitted);
+        }
+        None => {
+            seat_widget_top_right(app, window);
+            if let Ok(seated) = window.outer_position() {
+                remember_widget_pos(app, seated);
+            }
+        }
+    }
+}
+
+/// The top-left that puts a widget of `size` at `pos` fully inside one monitor's work area (clear of
+/// the taskbar), or None when it overlaps none or the monitors cannot be read.
+fn fit_widget(
+    app: &AppHandle,
+    pos: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+) -> Option<PhysicalPosition<i32>> {
+    let areas: Vec<Rect> = app
+        .available_monitors()
+        .ok()?
+        .iter()
+        .map(|m| {
+            let area = m.work_area();
+            Rect::new(
+                area.position.x,
+                area.position.y,
+                area.size.width,
+                area.size.height,
+            )
+        })
+        .collect();
+    let window = Rect::new(pos.x, pos.y, size.width, size.height);
+    fit_into_work_area(&window, &areas).map(|(x, y)| PhysicalPosition::new(x, y))
 }
 
 /// Reads the persisted widget top-left, parsed from the "x,y" physical-pixel pair the webview writes.
@@ -180,20 +231,16 @@ fn remembered_widget_pos(app: &AppHandle) -> Option<PhysicalPosition<i32>> {
     ))
 }
 
-/// Whether a point falls inside any connected monitor, so a remembered seat on a since-unplugged
-/// display is dropped for the default corner rather than placing the widget off-screen.
-fn point_on_some_monitor(app: &AppHandle, pos: PhysicalPosition<i32>) -> bool {
-    let Ok(monitors) = app.available_monitors() else {
-        return false;
+/// Persists the widget top-left as the "x,y" physical-pixel pair `remembered_widget_pos` reads back.
+/// Best-effort: a busy or failed store just keeps the previous value.
+fn remember_widget_pos(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
     };
-    monitors.iter().any(|m| {
-        let o = m.position();
-        let s = m.size();
-        pos.x >= o.x
-            && pos.y >= o.y
-            && pos.x < o.x + s.width as i32
-            && pos.y < o.y + s.height as i32
-    })
+    let Ok(conn) = state.db.lock() else {
+        return;
+    };
+    let _ = db::set_setting(&conn, "nowplaying_pos", &format!("{},{}", pos.x, pos.y));
 }
 
 /// Seats the widget at the top-right of the primary monitor, clamped on-screen.
