@@ -10,8 +10,6 @@ mod album_numbering;
 mod duplicates;
 mod export_ledger;
 mod migrations;
-// TODO: drop both allows once the relocate commands call the relocate writer.
-#[allow(dead_code)]
 mod relocate;
 mod tag_albums;
 
@@ -22,10 +20,9 @@ pub use duplicates::{
 pub use export_ledger::{
     clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
 };
-#[allow(unused_imports)]
 pub use relocate::{
-    backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, MergePlan,
-    RelocateError, RelocateReport, RootMove, RootTrackPath,
+    backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,
+    RootMove, RootTrackPath,
 };
 pub use tag_albums::{create_albums_from_tags, reapply_albums_from_tags, revert_albums_from_tags};
 

@@ -109,6 +109,20 @@ struct Deferral {
     due: Option<Instant>,
 }
 
+/// The ids among `current` that `targets` no longer holds at the same path: removed roots and roots
+/// that moved.
+fn changed_roots(current: &[(i64, PathBuf)], targets: &[(i64, PathBuf)]) -> Vec<i64> {
+    current
+        .iter()
+        .filter(|(id, path)| {
+            !targets
+                .iter()
+                .any(|(tid, tpath)| tid == id && tpath == path)
+        })
+        .map(|(id, _)| *id)
+        .collect()
+}
+
 /// Whether the gap after the last pass lets the next one start. A manual request skips the gap, so a
 /// click right after another pass still starts at once; every other trigger waits it out.
 fn gap_allows(last_pass_end: Option<Instant>, now: Instant, requested: bool) -> bool {
@@ -388,8 +402,9 @@ impl Coordinator {
 
     // ---- Roots and watches ----
 
-    /// Re-reads the roots from the index: a removed root loses its watch and pending work, a new one
-    /// is probed and armed.
+    /// Re-reads the roots from the index: a removed root, or one now at another path, loses its watch,
+    /// pending work and deferred files. A new or moved root is probed and armed, after every old
+    /// watch is gone, so a path handed from one root to another is never watched twice.
     fn sync_roots(&mut self) {
         let targets = {
             let state = self.app.state::<AppState>();
@@ -403,9 +418,12 @@ impl Coordinator {
             .map(|(id, path)| (id, PathBuf::from(path)))
             .collect();
 
+        let current: Vec<(i64, PathBuf)> =
+            self.roots.iter().map(|r| (r.id, r.path.clone())).collect();
+        let changed = changed_roots(&current, &targets);
         let mut kept = Vec::new();
         for root in std::mem::take(&mut self.roots) {
-            if targets.iter().any(|(id, _)| *id == root.id) {
+            if !changed.contains(&root.id) {
                 kept.push(root);
             } else if root.watched {
                 self.watches.disarm(&root.path);
@@ -428,8 +446,9 @@ impl Coordinator {
         }
         self.roots.sort_by_key(|r| r.id);
         self.dirty.set_roots(&targets);
-        self.deferred
-            .retain(|_, d| targets.iter().any(|(id, _)| *id == d.root));
+        self.deferred.retain(|_, d| {
+            !changed.contains(&d.root) && targets.iter().any(|(id, _)| *id == d.root)
+        });
         self.publish_roots();
     }
 
@@ -544,6 +563,30 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn target(id: i64, path: &str) -> (i64, PathBuf) {
+        (id, PathBuf::from(path))
+    }
+
+    #[test]
+    fn changed_roots_reports_removed_and_moved_ids() {
+        let current = [target(1, "/a"), target(2, "/b"), target(3, "/c")];
+        let targets = [target(1, "/a"), target(3, "/elsewhere"), target(4, "/d")];
+        assert_eq!(changed_roots(&current, &targets), vec![2, 3]);
+    }
+
+    #[test]
+    fn changed_roots_ignores_new_and_unchanged_roots() {
+        let current = [target(1, "/a")];
+        assert!(changed_roots(&current, &[target(1, "/a"), target(2, "/b")]).is_empty());
+        assert!(changed_roots(&[], &[target(1, "/a")]).is_empty());
+    }
+
+    #[test]
+    fn changed_roots_sees_a_case_only_path_change() {
+        let current = [target(1, "/music")];
+        assert_eq!(changed_roots(&current, &[target(1, "/Music")]), vec![1]);
+    }
 
     #[test]
     fn the_first_pass_needs_no_gap() {

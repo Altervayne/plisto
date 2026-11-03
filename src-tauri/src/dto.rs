@@ -71,6 +71,72 @@ pub struct RootRemovalImpact {
     pub plays: i64,
 }
 
+/// Why a relocate was refused before anything changed. Tagged on `code`. Mirrors RelocateRefusal in
+/// types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum RelocateRefusal {
+    Same,
+    Overlap { other: String },
+    Unreadable,
+    NoMatch { sampled: u32, matched: u32 },
+    Inconclusive,
+    Failed { message: String },
+}
+
+/// What relocating a root to a folder would do, from a stat sample or an exact database match. A
+/// Move counts `matched` of `sampled` checked tracks out of `total`; a Merge counts exact pairs.
+/// `partial` is the backend's call that some tracks were not found. Tagged on `kind`. Mirrors
+/// RelocatePreview in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RelocatePreview {
+    Move {
+        total: i64,
+        sampled: u32,
+        matched: u32,
+        partial: bool,
+    },
+    Merge {
+        other_id: i64,
+        other_tracks: i64,
+        total: i64,
+        matched: i64,
+        albums_replaced: i64,
+        partial: bool,
+    },
+    Refused {
+        reason: RelocateRefusal,
+    },
+}
+
+/// An offline or all-gone root whose files look like they now live in a picked folder. `path` is the
+/// root's own folder. Mirrors RelinkCandidate in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelinkCandidate {
+    pub root_id: i64,
+    pub path: String,
+    pub total: i64,
+    pub sampled: u32,
+    pub matched: u32,
+    pub partial: bool,
+}
+
+/// The result of a relocate command. `Done` carries the follow-up scan's summary; `Refused` means
+/// nothing changed. Tagged on `kind`. Mirrors RelocateOutcome in types.ts.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RelocateOutcome {
+    Done {
+        summary: ScanSummary,
+        merged: bool,
+        albums_replaced: i64,
+    },
+    Refused {
+        reason: RelocateRefusal,
+    },
+}
+
 /// The tally of a gone-track purge: `removed` is how many gone rows the DELETE dropped, `albums_emptied`
 /// how many albums the follow-up sweep deleted because that purge left them with no members. Distinct from
 /// ScanSummary.removed, which stays 0 during a scan. Mirrors PurgeSummary in types.ts.

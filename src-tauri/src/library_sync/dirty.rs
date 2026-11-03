@@ -66,14 +66,24 @@ pub struct DirtySet {
 }
 
 impl DirtySet {
-    /// Replaces the known roots. A root no longer present loses its pending work.
+    /// Replaces the known roots. A root no longer present, or now at another path, loses its pending
+    /// work: its units name folders of the old location.
     pub fn set_roots(&mut self, roots: &[(i64, PathBuf)]) {
-        self.roots = roots
+        let next: Vec<(i64, String)> = roots
             .iter()
             .map(|(id, path)| (*id, dir_key(path)))
             .collect();
-        let known: Vec<i64> = self.roots.iter().map(|(id, _)| *id).collect();
-        self.pending.retain(|id, _| known.contains(id));
+        let before = &self.roots;
+        self.pending.retain(|id, _| {
+            next.iter().any(|(next_id, key)| {
+                next_id == id
+                    && before
+                        .iter()
+                        .find(|(old_id, _)| old_id == id)
+                        .is_none_or(|(_, old_key)| old_key == key)
+            })
+        });
+        self.roots = next;
     }
 
     /// The root `path` lies in, if any.
@@ -297,6 +307,31 @@ mod tests {
 
     fn later(t: Instant) -> Instant {
         t + SETTLE
+    }
+
+    #[test]
+    fn a_root_that_changes_path_loses_its_pending_work() {
+        let t = Instant::now();
+        let mut set = set();
+        set.note(&root().join("Album").join("01.flac"), PathKind::File, t);
+        assert!(!set.is_empty());
+
+        let moved = if cfg!(windows) {
+            PathBuf::from(r"D:\Music")
+        } else {
+            PathBuf::from("/moved")
+        };
+        set.set_roots(&[(1, moved)]);
+        assert!(set.is_empty(), "the old location's units are dropped");
+    }
+
+    #[test]
+    fn a_root_at_the_same_path_keeps_its_pending_work() {
+        let t = Instant::now();
+        let mut set = set();
+        set.note(&root().join("Album").join("01.flac"), PathKind::File, t);
+        set.set_roots(&[(1, root())]);
+        assert!(!set.is_empty());
     }
 
     #[test]

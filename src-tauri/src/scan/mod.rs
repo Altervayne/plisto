@@ -1300,6 +1300,64 @@ mod tests {
         assert_eq!(missing_at_of(&db_path, "keep.mp3"), None);
     }
 
+    // Every track's (filename, id), by filename.
+    fn ids_by_name(db_path: &Path) -> Vec<(String, i64)> {
+        let conn = Connection::open(db_path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT filename, id FROM tracks ORDER BY filename")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_moved_root_rescans_in_place_and_flags_only_the_absent_files() {
+        let old = TempDir::new("scan_old");
+        let new = TempDir::new("scan_new");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        fs::create_dir_all(old.path.join("sub")).unwrap();
+        fs::write(old.path.join("a.mp3"), b"").unwrap();
+        fs::write(old.path.join("sub").join("b.mp3"), b"").unwrap();
+        fs::write(old.path.join("c.mp3"), b"").unwrap();
+        scan(&old.path, &db_path);
+        let before = ids_by_name(&db_path);
+        let root_id = root_id_of(&db_path, &old.path);
+
+        // The folder moved, and c.mp3 did not make the trip.
+        fs::create_dir_all(new.path.join("sub")).unwrap();
+        fs::write(new.path.join("a.mp3"), b"").unwrap();
+        fs::write(new.path.join("sub").join("b.mp3"), b"").unwrap();
+        {
+            let mut conn = db::open_db(&db_path).unwrap();
+            db::move_root(&mut conn, root_id, &new.path.to_string_lossy()).unwrap();
+        }
+        let roots = [ScanRoot {
+            id: root_id,
+            path: new.path.clone(),
+            units: None,
+        }];
+        let cancel = Arc::new(AtomicBool::new(false));
+        let sum = run_scan(
+            &roots,
+            &db_path,
+            &cancel,
+            2000,
+            &HashMap::new(),
+            no_progress,
+        )
+        .unwrap();
+
+        assert_eq!(sum.inserted, 0, "the rewritten keys equal the walk's keys");
+        assert_eq!(sum.missing, 1);
+        assert_eq!(ids_by_name(&db_path), before, "every id survives");
+        assert_eq!(missing_at_of(&db_path, "c.mp3"), Some(2000));
+        assert_eq!(missing_at_of(&db_path, "a.mp3"), None);
+        assert_eq!(missing_at_of(&db_path, "b.mp3"), None);
+    }
+
     #[test]
     fn unit_scope_matches_its_folder_or_subtree() {
         let s = MAIN_SEPARATOR;

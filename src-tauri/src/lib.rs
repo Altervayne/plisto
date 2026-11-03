@@ -13,6 +13,7 @@ mod model;
 mod normalize;
 mod paths;
 mod plays;
+mod relocate;
 mod resolve;
 mod scan;
 mod scan_lock;
@@ -368,6 +369,9 @@ pub fn run() {
             commands::roots::rescan_root,
             commands::roots::rescan_all,
             commands::roots::root_removal_impact,
+            commands::relocate::relink_candidates,
+            commands::relocate::preview_relocate,
+            commands::relocate::relocate_root,
             commands::missing::remove_missing_tracks,
             commands::window::show_main_window,
             commands::window::quit_app,

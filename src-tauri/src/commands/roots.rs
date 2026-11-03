@@ -170,7 +170,7 @@ pub fn root_removal_impact(
 
 /// Runs the root-aware scan on a blocking thread and awaits it, so the runtime stays free to
 /// service a cancel. The caller holds the scan lock; this only spawns the walk.
-async fn run_scan_blocking(
+pub(super) async fn run_scan_blocking(
     state: &State<'_, AppState>,
     roots: Vec<scan::ScanRoot>,
     scanned_at: i64,
