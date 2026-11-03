@@ -16,7 +16,9 @@ use rusqlite::Connection;
 // -- Local Imports --
 use super::derive::{folder_dest_len, AlbumTemplate, DEVICE_DEST_LEN};
 use super::job::{ExportJob, WriteSet};
-use super::ledger::{change_set, changed, dest_key, export_files, landed_rows, ExportFile};
+use super::ledger::{
+    change_set, changed_with_moves, dest_key, export_files, landed_rows, ExportFile, SourceMoves,
+};
 use super::plan::build_export_plan;
 use super::playlist::playlist_export_plan;
 use super::{run_containers, write_playlist_files};
@@ -27,11 +29,13 @@ use crate::dto::{ExportChangeSet, ExportConfig, ExportProgress, ExportSummary};
 const SNAPSHOT_NO_RECORD: &str = "a dated device snapshot keeps no export record";
 
 /// One general export ready to run: its laid-out job, every file it covers with its fingerprint, the
-/// part this run writes, and the destination's record key.
+/// part this run writes, the destination's record key, and the rows of files recognized as current
+/// under an earlier source path.
 pub struct PlannedRun {
     job: ExportJob,
     files: Vec<ExportFile>,
     write: WriteSet,
+    healed: Vec<(String, String)>,
     pub dest_key: String,
 }
 
@@ -70,10 +74,17 @@ fn prepare_job(conn: &Connection, config: &ExportConfig) -> Result<ExportJob, St
     ))
 }
 
+/// The earlier source paths of every relocated root.
+fn source_moves(conn: &Connection) -> Result<SourceMoves, String> {
+    let moves = db::root_moves(conn).map_err(|e| e.to_string())?;
+    Ok(SourceMoves::new(&moves))
+}
+
 /// Plans one run. `fresh` marks a folder destination found missing or empty: its record describes
 /// nothing that is there, so it is dropped first. A changed-only run writes just the files whose
-/// fingerprint differs from the record or that carry no row; any other run writes every file. A
-/// dated snapshot refuses changed-only.
+/// fingerprint differs from the record or that carry no row, and treats a file recorded under a moved
+/// root's earlier path as current; any other run writes every file. A dated snapshot refuses
+/// changed-only.
 pub fn plan_run(
     conn: &Connection,
     config: &ExportConfig,
@@ -89,17 +100,18 @@ pub fn plan_run(
     }
 
     let files = export_files(&job);
-    let write = if config.changed_only {
+    let (write, healed) = if config.changed_only {
         let recorded = db::export_ledger(conn, &key).map_err(|e| e.to_string())?;
-        changed(&files, &recorded)
+        changed_with_moves(&job, &files, &recorded, &source_moves(conn)?)
     } else {
-        vec![true; files.len()]
+        (vec![true; files.len()], Vec::new())
     };
     let write = job.write_set(&files, &write);
     Ok(PlannedRun {
         job,
         files,
         write,
+        healed,
         dest_key: key,
     })
 }
@@ -122,7 +134,7 @@ pub fn preview_changes(
             db::export_ledger_last(conn, &key).map_err(|e| e.to_string())?,
         )
     };
-    let diff = changed(&files, &recorded);
+    let (diff, _) = changed_with_moves(&job, &files, &recorded, &source_moves(conn)?);
     Ok(change_set(&job, &files, &diff, last))
 }
 
@@ -147,7 +159,9 @@ pub fn adopt_destination(
 
 /// Runs a planned export into `destination`: the copies first, then the playlist files once the run
 /// was not cancelled, so no playlist points at copies that never landed. Returns the report and the
-/// `(rel_path, fingerprint)` rows it earns, for the caller to record when the destination keeps one.
+/// `(rel_path, fingerprint)` rows it earns, for the caller to record when the destination keeps one. The
+/// earned rows include the files recognized as current under an earlier source path, cancelled or not,
+/// since those copies are already at the destination.
 pub fn run_planned<E>(
     run: &PlannedRun,
     destination: &Path,
@@ -180,7 +194,8 @@ where
             .map(|&i| &run.job.playlist_files[i]);
         write_playlist_files(files, destination)
     };
-    let rows = landed_rows(&run.job, &run.files, &summary.items, &landed);
+    let mut rows = landed_rows(&run.job, &run.files, &summary.items, &landed);
+    rows.extend(run.healed.iter().cloned());
     (summary, rows)
 }
 
@@ -189,8 +204,9 @@ mod tests {
     use super::*;
     use crate::dto::{DeviceTarget, ExportItem, ExportItemStatus};
     use crate::export::container_name;
-    use crate::export::ledger::FileKind;
-    use std::collections::BTreeSet;
+    use crate::export::ledger::{changed, FileKind};
+    use crate::normalize::normalize_path_key;
+    use std::collections::{BTreeSet, HashMap};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -353,19 +369,60 @@ mod tests {
         db::upsert_cover(conn, &record).unwrap()
     }
 
-    // The labels of the containers holding a changed file, against the destination's record.
-    fn changed_labels(conn: &Connection, config: &ExportConfig) -> BTreeSet<String> {
-        let job = prepare_job(conn, config).unwrap();
-        let files = export_files(&job);
-        let recorded = db::export_ledger(conn, &dest_key(config)).unwrap();
+    // The labels of the containers holding a flagged file.
+    fn flagged_labels(job: &ExportJob, files: &[ExportFile], flags: Vec<bool>) -> BTreeSet<String> {
         files
             .iter()
-            .zip(changed(&files, &recorded))
+            .zip(flags)
             .filter(|(_, c)| *c)
             .map(|(f, _)| match f.kind {
                 FileKind::Track { container, .. } => container_name(&job.layout[container].rel_dir),
                 FileKind::Playlist { .. } => f.rel_path.clone(),
             })
+            .collect()
+    }
+
+    // The labels of the containers holding a changed file, against the destination's record and the
+    // library's moved roots, and the rows that diff heals.
+    fn diff_labels(
+        conn: &Connection,
+        config: &ExportConfig,
+    ) -> (BTreeSet<String>, Vec<(String, String)>) {
+        let job = prepare_job(conn, config).unwrap();
+        let files = export_files(&job);
+        let recorded = db::export_ledger(conn, &dest_key(config)).unwrap();
+        let moves = source_moves(conn).unwrap();
+        let (diff, healed) = changed_with_moves(&job, &files, &recorded, &moves);
+        (flagged_labels(&job, &files, diff), healed)
+    }
+
+    fn changed_labels(conn: &Connection, config: &ExportConfig) -> BTreeSet<String> {
+        diff_labels(conn, config).0
+    }
+
+    // As `changed_labels`, with no root history.
+    fn plain_labels(conn: &Connection, config: &ExportConfig) -> BTreeSet<String> {
+        let job = prepare_job(conn, config).unwrap();
+        let files = export_files(&job);
+        let recorded = db::export_ledger(conn, &dest_key(config)).unwrap();
+        let diff = changed(&files, &recorded);
+        flagged_labels(&job, &files, diff)
+    }
+
+    // Adds a root at `dir` holding every track not yet in a root.
+    fn root_over(conn: &Connection, dir: &Path) -> i64 {
+        let path = dir.to_string_lossy().into_owned();
+        let id = db::insert_root(conn, &normalize_path_key(&path), &path, 1).unwrap();
+        conn.execute("UPDATE tracks SET root_id = ?1 WHERE root_id IS NULL", [id])
+            .unwrap();
+        id
+    }
+
+    // The current `(rel_path, fingerprint)` of every file the config exports.
+    fn current_prints(conn: &Connection, config: &ExportConfig) -> HashMap<String, String> {
+        export_files(&prepare_job(conn, config).unwrap())
+            .into_iter()
+            .map(|f| (f.rel_path, f.fingerprint))
             .collect()
     }
 
@@ -833,5 +890,120 @@ mod tests {
         let preview = preview_changes(&fx.conn, &cfg, false).unwrap();
         assert!(!preview.has_record);
         assert_eq!(preview.files, preview.total_files);
+    }
+
+    #[test]
+    fn a_moved_root_reads_as_current_and_the_next_run_heals_its_rows() {
+        let mut fx = fixture();
+        let root = root_over(&fx.conn, &fx.src.path);
+        let dest = TempDir::new("dest");
+        let mut cfg = config(&dest.path);
+        export(&mut fx.conn, &cfg, &dest.path);
+
+        let moved = TempDir::new("moved");
+        db::move_root(&mut fx.conn, root, &moved.path.to_string_lossy()).unwrap();
+        assert!(
+            !plain_labels(&fx.conn, &cfg).is_empty(),
+            "the new paths alone read as changed"
+        );
+        let (changed_now, healed) = diff_labels(&fx.conn, &cfg);
+        assert!(changed_now.is_empty());
+        assert_eq!(healed.len(), 5, "every track file heals");
+        let preview = preview_changes(&fx.conn, &cfg, false).unwrap();
+        assert_eq!((preview.files, preview.total_files), (0, 5));
+
+        cfg.changed_only = true;
+        let again = export(&mut fx.conn, &cfg, &dest.path);
+        assert_eq!(again.exported, 0, "a changed-only run writes nothing");
+        assert_eq!((again.unchanged, again.total), (5, 0));
+        assert_eq!(
+            db::export_ledger(&fx.conn, &dest_key(&cfg)).unwrap(),
+            current_prints(&fx.conn, &cfg),
+            "the record now holds the current fingerprints"
+        );
+        assert!(plain_labels(&fx.conn, &cfg).is_empty());
+    }
+
+    #[test]
+    fn an_edit_after_a_move_flips_only_its_own_file() {
+        let mut fx = fixture();
+        let root = root_over(&fx.conn, &fx.src.path);
+        let cfg = config(Path::new("/out"));
+        adopt_destination(&mut fx.conn, &cfg, 1).unwrap();
+        let moved = TempDir::new("moved");
+        db::move_root(&mut fx.conn, root, &moved.path.to_string_lossy()).unwrap();
+        db::set_track_edit(
+            &fx.conn,
+            fx.a1,
+            Some("New".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let (changed_now, healed) = diff_labels(&fx.conn, &cfg);
+        assert_eq!(changed_now, labels(&[LABEL_A]));
+        assert_eq!(healed.len(), 4, "the other files still heal");
+        let preview = preview_changes(&fx.conn, &cfg, false).unwrap();
+        assert_eq!((preview.files, preview.albums), (1, 1));
+    }
+
+    #[test]
+    fn a_root_moved_twice_matches_its_first_path() {
+        let mut fx = fixture();
+        let root = root_over(&fx.conn, &fx.src.path);
+        let cfg = config(Path::new("/out"));
+        adopt_destination(&mut fx.conn, &cfg, 1).unwrap();
+        for tag in ["b", "c"] {
+            let to = TempDir::new(tag);
+            db::move_root(&mut fx.conn, root, &to.path.to_string_lossy()).unwrap();
+        }
+        assert!(changed_labels(&fx.conn, &cfg).is_empty());
+    }
+
+    #[test]
+    fn a_merge_reads_as_current_when_the_record_predates_it() {
+        let mut fx = fixture();
+        let old = root_over(&fx.conn, &fx.src.path);
+        let cfg = config(Path::new("/out"));
+        adopt_destination(&mut fx.conn, &cfg, 1).unwrap();
+
+        // The same files scanned again at the new location, as a second root.
+        let there = TempDir::new("there");
+        for (name, title) in [
+            ("a1", "A One"),
+            ("a2", "A Two"),
+            ("b1", "B One"),
+            ("b2", "B Two"),
+            ("s", "Hit"),
+        ] {
+            insert_flac(&fx.conn, &there.path, name, title);
+        }
+        let new = root_over(&fx.conn, &there.path);
+        db::merge_root(&mut fx.conn, old, new, 5).unwrap();
+
+        assert!(!plain_labels(&fx.conn, &cfg).is_empty());
+        let (changed_now, healed) = diff_labels(&fx.conn, &cfg);
+        assert!(changed_now.is_empty());
+        assert_eq!(healed.len(), 5);
+    }
+
+    #[test]
+    fn an_unmoved_root_behaves_as_before() {
+        let mut fx = fixture();
+        root_over(&fx.conn, &fx.src.path);
+        let cfg = config(Path::new("/out"));
+        adopt_destination(&mut fx.conn, &cfg, 1).unwrap();
+        assert!(diff_labels(&fx.conn, &cfg).0.is_empty());
+
+        fx.conn
+            .execute("UPDATE tracks SET size_bytes = 11 WHERE id = ?1", [fx.b1])
+            .unwrap();
+        let (changed_now, healed) = diff_labels(&fx.conn, &cfg);
+        assert_eq!(changed_now, labels(&[LABEL_B]));
+        assert!(healed.is_empty());
     }
 }

@@ -7,14 +7,18 @@
  */
 
 // -- Library Imports --
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 // -- Local Imports --
 use super::job::ExportJob;
 use super::plan::{Bucket, ContainerKind, CoverPlan, ExportContainer, ExportTrack};
 use super::{container_name, track_tags};
+use crate::db::RootMove;
 use crate::dto::{ExportChangeSet, ExportConfig, ExportItem, ExportItemStatus};
 use crate::normalize::normalize_path_key;
+use crate::paths::relative_under;
 
 // Bumped whenever the fingerprint inputs or the way the writer turns them into bytes change, so every
 // recorded file reads as changed and lands again.
@@ -94,6 +98,81 @@ pub fn changed(files: &[ExportFile], recorded: &HashMap<String, String>) -> Vec<
         .iter()
         .map(|f| recorded.get(&f.rel_path) != Some(&f.fingerprint))
         .collect()
+}
+
+/// The paths each moved root held before its relocates, so a fingerprint recorded under an earlier
+/// path can still be recognized.
+#[derive(Debug)]
+pub struct SourceMoves {
+    roots: Vec<(PathBuf, Vec<PathBuf>)>,
+}
+
+impl SourceMoves {
+    /// Keeps each root that has at least one earlier path.
+    pub fn new(moves: &[RootMove]) -> Self {
+        let roots = moves
+            .iter()
+            .filter(|m| !m.earlier.is_empty())
+            .map(|m| {
+                (
+                    PathBuf::from(&m.path),
+                    m.earlier.iter().map(PathBuf::from).collect(),
+                )
+            })
+            .collect();
+        Self { roots }
+    }
+}
+
+/// `source` re-anchored from `root` to `earlier`, or unchanged when it is not under `root`.
+fn remap_source<'a>(source: &'a str, root: &Path, earlier: &Path) -> Cow<'a, str> {
+    match relative_under(Path::new(source), root) {
+        // An empty remainder is the root itself, which `join` would suffix with a separator.
+        Some(rel) if rel.as_os_str().is_empty() => {
+            Cow::Owned(earlier.to_string_lossy().into_owned())
+        }
+        Some(rel) => Cow::Owned(earlier.join(rel).to_string_lossy().into_owned()),
+        None => Cow::Borrowed(source),
+    }
+}
+
+/// As `changed`, but a track file whose recorded fingerprint differs is retried with the sources under
+/// each moved root mapped back to each earlier path of that root. A match reads as unchanged. Returns
+/// the diff and the `(rel_path, current fingerprint)` rows of the files that matched, for the caller to
+/// record so the next diff matches without the history.
+pub fn changed_with_moves(
+    job: &ExportJob,
+    files: &[ExportFile],
+    recorded: &HashMap<String, String>,
+    moves: &SourceMoves,
+) -> (Vec<bool>, Vec<(String, String)>) {
+    let mut diff = changed(files, recorded);
+    let mut healed = Vec::new();
+    if moves.roots.is_empty() {
+        return (diff, healed);
+    }
+    for (file, flag) in files.iter().zip(diff.iter_mut()) {
+        let FileKind::Track { container, track } = file.kind else {
+            continue;
+        };
+        // A file with no row is new, not moved.
+        let Some(old) = recorded.get(&file.rel_path).filter(|_| *flag) else {
+            continue;
+        };
+        let container = &job.plan.containers[container];
+        let track = &container.tracks[track];
+        let matches_earlier = moves.roots.iter().any(|(root, earlier)| {
+            earlier.iter().any(|path| {
+                let map: &dyn Fn(&str) -> Cow<str> = &|source| remap_source(source, root, path);
+                track_fingerprint_as(&file.rel_path, container, track, map) == *old
+            })
+        });
+        if matches_earlier {
+            *flag = false;
+            healed.push((file.rel_path.clone(), file.fingerprint.clone()));
+        }
+    }
+    (diff, healed)
 }
 
 /// Tallies a diff for the preview: the changed files, and the albums, singles and playlists holding at
@@ -181,11 +260,21 @@ pub fn landed_rows(
 /// A track copy's fingerprint: where it lands, the source it copies with that file's stats, the exact
 /// tags written, and the identity of the art it embeds.
 fn track_fingerprint(rel_path: &str, container: &ExportContainer, track: &ExportTrack) -> String {
+    track_fingerprint_as(rel_path, container, track, &|s| Cow::Borrowed(s))
+}
+
+/// As `track_fingerprint`, with every hashed source path passed through `source` first.
+fn track_fingerprint_as(
+    rel_path: &str,
+    container: &ExportContainer,
+    track: &ExportTrack,
+    source: &dyn Fn(&str) -> Cow<str>,
+) -> String {
     let mut h = blake3::Hasher::new();
     h.update(&LEDGER_VERSION.to_le_bytes());
     put_bytes(&mut h, TRACK_FILE);
     put_str(&mut h, Some(rel_path));
-    put_str(&mut h, Some(&track.source));
+    put_str(&mut h, Some(&source(&track.source)));
     put_int(&mut h, Some(track.size_bytes));
     put_int(&mut h, Some(track.mtime));
 
@@ -202,7 +291,7 @@ fn track_fingerprint(rel_path: &str, container: &ExportContainer, track: &Export
     put_int(&mut h, tags.track_no);
     put_int(&mut h, tags.disc_no);
 
-    put_cover(&mut h, container, track);
+    put_cover(&mut h, container, track, source);
     h.finalize().to_hex().to_string()
 }
 
@@ -220,32 +309,45 @@ fn playlist_fingerprint(rel_path: &str, content: &str) -> String {
 /// cover is its stored blob; a keep-own track hashes its own source, then the container cover it falls
 /// back to when it has no art; everything else hashes the container cover. The folder-cover tier never
 /// reaches an export, so it plays no part.
-fn put_cover(h: &mut blake3::Hasher, container: &ExportContainer, track: &ExportTrack) {
+fn put_cover(
+    h: &mut blake3::Hasher,
+    container: &ExportContainer,
+    track: &ExportTrack,
+    source: &dyn Fn(&str) -> Cow<str>,
+) {
     if let CoverPlan::Store { content_hash, .. } = &track.own_cover {
         put_bytes(h, COVER_STORE);
         put_str(h, Some(content_hash));
         return;
     }
     if track.keep_own_cover {
-        put_member(h, Some(track), &track.source);
+        put_member(h, Some(track), &track.source, source);
     }
     match &container.cover {
         CoverPlan::Store { content_hash, .. } => {
             put_bytes(h, COVER_STORE);
             put_str(h, Some(content_hash));
         }
-        CoverPlan::Member { source, .. } => {
-            let member = container.tracks.iter().find(|t| t.source == *source);
-            put_member(h, member, source);
+        CoverPlan::Member {
+            source: member_source,
+            ..
+        } => {
+            let member = container.tracks.iter().find(|t| t.source == *member_source);
+            put_member(h, member, member_source, source);
         }
         CoverPlan::None => put_bytes(h, COVER_NONE),
     }
 }
 
 /// Hashes embedded or adjacent art by the member source that carries it: its path, size and mtime.
-fn put_member(h: &mut blake3::Hasher, member: Option<&ExportTrack>, source: &str) {
+fn put_member(
+    h: &mut blake3::Hasher,
+    member: Option<&ExportTrack>,
+    member_source: &str,
+    source: &dyn Fn(&str) -> Cow<str>,
+) {
     put_bytes(h, COVER_MEMBER);
-    put_str(h, Some(source));
+    put_str(h, Some(&source(member_source)));
     put_int(h, member.map(|t| t.size_bytes));
     put_int(h, member.map(|t| t.mtime));
 }
@@ -337,6 +439,34 @@ mod tests {
         assert_eq!(a, print(&c.clone()));
         assert_eq!(a.len(), 64);
         assert!(a.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    // Recorded values: a change to how a fingerprint is built must not move these, or every user's
+    // export record reads as changed.
+    #[test]
+    fn fingerprints_keep_their_recorded_values() {
+        let c = container(vec![track()]);
+        assert_eq!(
+            print(&c),
+            "9532399fc56fa15633e7d2f3d47ececfbbb712222755ce6886b0b332c81ae694"
+        );
+
+        let mut keep_own = c.clone();
+        keep_own.tracks[0].keep_own_cover = true;
+        assert_eq!(
+            print(&keep_own),
+            "cdb7b4c75565942daeff7cd3fb3619ba907693922792eb6bf111c870f85fc25c"
+        );
+
+        let mut stored = c.clone();
+        stored.cover = CoverPlan::Store {
+            content_hash: "def".into(),
+            byte_len: 3,
+        };
+        assert_eq!(
+            print(&stored),
+            "7282ecd6feae1a214e58a144a07444dbd045040d4882c8a830ac00c3ad57cb04"
+        );
     }
 
     // One change applied to a copy of the base container.
@@ -458,5 +588,37 @@ mod tests {
             dest_key(&config.clone()),
             "the key is deterministic"
         );
+    }
+
+    fn remap(source: &str, root: &str, earlier: &str) -> String {
+        remap_source(source, Path::new(root), Path::new(earlier)).into_owned()
+    }
+
+    #[test]
+    fn a_source_remaps_below_its_root_only() {
+        let expect = Path::new("/old").join("Sub").join("a.flac");
+        assert_eq!(Path::new(&remap("/new/Sub/a.flac", "/new", "/old")), expect);
+        assert_eq!(
+            Path::new(&remap("/NEW/Sub/a.flac", "/new", "/old")),
+            expect,
+            "the root compares on folded case"
+        );
+        assert_eq!(remap("/newer/a.flac", "/new", "/old"), "/newer/a.flac");
+        assert_eq!(remap("/other/a.flac", "/new", "/old"), "/other/a.flac");
+        assert_eq!(remap("/new", "/new", "/old"), "/old", "the root itself");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_root_remaps_without_doubling_a_separator() {
+        assert_eq!(
+            remap(r"F:\Album\a.flac", r"F:\", r"E:\Music"),
+            r"E:\Music\Album\a.flac"
+        );
+        assert_eq!(
+            remap(r"F:\Music\Album\a.flac", r"F:\Music", r"E:\"),
+            r"E:\Album\a.flac"
+        );
+        assert_eq!(remap(r"F:\Music", r"F:\Music", r"E:\"), r"E:\");
     }
 }
