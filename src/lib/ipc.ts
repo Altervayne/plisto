@@ -46,6 +46,9 @@ import type {
   PlaylistRow,
   PlaylistSnapshot,
   PurgeSummary,
+  RelinkCandidate,
+  RelocateOutcome,
+  RelocatePreview,
   RepeatMode,
   Root,
   RootRemovalImpact,
@@ -117,6 +120,29 @@ export function rescanAll(channel: Channel<ScanProgress>): Promise<ScanSummary> 
 /** The blast radius of removing a root: tracks dropped, albums shrunk, albums deleted. */
 export function rootRemovalImpact(id: number): Promise<RootRemovalImpact> {
   return invoke<RootRemovalImpact>("root_removal_impact", { id });
+}
+
+/** Offline or all-missing roots whose files look to live under `path`, best match first. Read-only. */
+export function relinkCandidates(path: string): Promise<RelinkCandidate[]> {
+  return invoke<RelinkCandidate[]>("relink_candidates", { path });
+}
+
+/** What pointing root `rootId` at `newPath` would do: a verified move, a merge, or a refusal. Read-only. */
+export function previewRelocate(rootId: number, newPath: string): Promise<RelocatePreview> {
+  return invoke<RelocatePreview>("preview_relocate", { rootId, newPath });
+}
+
+/**
+ * Points root `rootId` at `newPath`, keeping its tracks, then rescans it, streaming progress. Resolves
+ * with a refusal (nothing changed) or the rescan summary; rejects when the scan lock is held or the
+ * rescan after the commit fails.
+ */
+export function relocateRoot(
+  rootId: number,
+  newPath: string,
+  channel: Channel<ScanProgress>,
+): Promise<RelocateOutcome> {
+  return invoke<RelocateOutcome>("relocate_root", { rootId, newPath, onProgress: channel });
 }
 
 /** Purges the gone tracks in `trackIds` (only rows the scan flagged gone), resolving with the tally. */

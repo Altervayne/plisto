@@ -7,10 +7,11 @@ import { useOrganizeStore } from "./organize/store";
 import { usePlayerStore } from "./player/store";
 
 // -- IPC Imports --
+import * as dialog from "../lib/dialog";
 import * as ipc from "../lib/ipc";
 
 // -- Type Imports --
-import type { AlbumTrackRow, LibrarySyncSummary, Root, TrackRow } from "../types";
+import type { AlbumTrackRow, LibrarySyncSummary, RelinkCandidate, Root, TrackRow } from "../types";
 
 // The scan, sync and read commands the store drives, stubbed per test.
 vi.mock("../lib/ipc", () => ({
@@ -21,6 +22,9 @@ vi.mock("../lib/ipc", () => ({
   listRoots: vi.fn(),
   listTracks: vi.fn(),
   loadOrganization: vi.fn(async () => ({ albums: [], membership: [], genres: [] })),
+  loadPlaylists: vi.fn(),
+  relinkCandidates: vi.fn(),
+  relocateRoot: vi.fn(),
   rescanAll: vi.fn(),
   rescanLibrary: vi.fn(async () => {}),
 }));
@@ -28,6 +32,7 @@ vi.mock("../lib/ipc", () => ({
 vi.mock("../lib/dialog", () => ({ pickFolder: vi.fn() }));
 
 const mocked = vi.mocked(ipc);
+const mockedDialog = vi.mocked(dialog);
 
 function syncTotals(over: Partial<LibrarySyncSummary> = {}): LibrarySyncSummary {
   return {
@@ -257,5 +262,180 @@ describe("boot", () => {
     expect(s.booted).toBe(true);
     expect(s.roots).toEqual([root]);
     expect(ids()).toEqual([1, 2]);
+  });
+});
+
+const doneSummary = {
+  total: 5,
+  seen: 5,
+  inserted: 0,
+  updated: 5,
+  skipped: 0,
+  removed: 0,
+  missing: 2,
+  returned: 0,
+  errors: 0,
+  cancelled: false,
+  offline_roots: [],
+  deferred: 0,
+};
+
+const candidate = (over: Partial<RelinkCandidate> = {}): RelinkCandidate => ({
+  root_id: 1,
+  path: "/music",
+  total: 100,
+  sampled: 48,
+  matched: 46,
+  partial: false,
+  ...over,
+});
+
+describe("adding a folder", () => {
+  beforeEach(() => {
+    mockedDialog.pickFolder.mockResolvedValue("/new");
+    mocked.addRoot.mockResolvedValue(doneSummary);
+    useAppStore.setState({ roots: [root] });
+  });
+
+  it("skips the relink check when no root is offline or all-missing", async () => {
+    await settle(useAppStore.getState().addRoot());
+    expect(mocked.relinkCandidates).not.toHaveBeenCalled();
+    expect(mocked.addRoot).toHaveBeenCalledWith("/new", expect.anything());
+  });
+
+  it("holds an offer, and does not add, when a candidate matches", async () => {
+    useAppStore.getState().setRootStates([{ id: 1, mode: "offline" }]);
+    mocked.relinkCandidates.mockResolvedValue([candidate()]);
+
+    await settle(useAppStore.getState().addRoot());
+    expect(useAppStore.getState().relinkOffer).toEqual({ path: "/new", candidate: candidate() });
+    expect(mocked.addRoot).not.toHaveBeenCalled();
+  });
+
+  it("checks an all-missing root that is online", async () => {
+    useAppStore.setState({ roots: [{ ...root, track_count: 3, missing_count: 3 }] });
+    mocked.relinkCandidates.mockResolvedValue([]);
+    await settle(useAppStore.getState().addRoot());
+    expect(mocked.relinkCandidates).toHaveBeenCalledWith("/new");
+    expect(mocked.addRoot).toHaveBeenCalled();
+  });
+
+  it("adds as today when the candidates tie", async () => {
+    useAppStore.getState().setRootStates([{ id: 1, mode: "offline" }]);
+    mocked.relinkCandidates.mockResolvedValue([
+      candidate({ root_id: 1 }),
+      candidate({ root_id: 2 }),
+    ]);
+    await settle(useAppStore.getState().addRoot());
+    expect(useAppStore.getState().relinkOffer).toBeNull();
+    expect(mocked.addRoot).toHaveBeenCalled();
+  });
+
+  it("adds as today when the check fails", async () => {
+    useAppStore.getState().setRootStates([{ id: 1, mode: "offline" }]);
+    mocked.relinkCandidates.mockRejectedValue("boom");
+    await settle(useAppStore.getState().addRoot());
+    expect(mocked.addRoot).toHaveBeenCalled();
+  });
+
+  it("adds nothing when the picker is cancelled", async () => {
+    mockedDialog.pickFolder.mockResolvedValue(null);
+    await settle(useAppStore.getState().addRoot());
+    expect(mocked.relinkCandidates).not.toHaveBeenCalled();
+    expect(mocked.addRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe("the relink prompt", () => {
+  beforeEach(() => {
+    useAppStore.setState({ relinkOffer: { path: "/new", candidate: candidate({ root_id: 7 }) } });
+    mocked.addRoot.mockResolvedValue(doneSummary);
+    mocked.relocateRoot.mockResolvedValue({
+      kind: "done",
+      summary: doneSummary,
+      merged: false,
+      albums_replaced: 0,
+    });
+  });
+
+  it("adds the folder as new on asNew", async () => {
+    await settle(useAppStore.getState().resolveRelink("asNew"));
+    expect(mocked.addRoot).toHaveBeenCalledWith("/new", expect.anything());
+    expect(mocked.relocateRoot).not.toHaveBeenCalled();
+    expect(useAppStore.getState().relinkOffer).toBeNull();
+  });
+
+  it("relocates the candidate's root on relink", async () => {
+    const result = await settle(useAppStore.getState().resolveRelink("relink"));
+    expect(mocked.relocateRoot).toHaveBeenCalledWith(7, "/new", expect.anything());
+    expect(mocked.addRoot).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: "done" });
+    expect(useAppStore.getState().relinkOffer).toBeNull();
+  });
+
+  it("does nothing on cancel beyond clearing the offer", async () => {
+    await settle(useAppStore.getState().resolveRelink("cancel"));
+    expect(mocked.addRoot).not.toHaveBeenCalled();
+    expect(mocked.relocateRoot).not.toHaveBeenCalled();
+    expect(useAppStore.getState().relinkOffer).toBeNull();
+  });
+
+  it("ignores a choice when no offer is held", async () => {
+    useAppStore.setState({ relinkOffer: null });
+    expect(await settle(useAppStore.getState().resolveRelink("relink"))).toBeNull();
+    expect(mocked.relocateRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe("relocating a root", () => {
+  beforeEach(() => {
+    mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [] });
+  });
+
+  it("reloads roots, tracks, organization and playlists when done", async () => {
+    const outcome = { kind: "done", summary: doneSummary, merged: true, albums_replaced: 2 } as const;
+    mocked.relocateRoot.mockResolvedValue(outcome);
+
+    const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
+    expect(result).toEqual(outcome);
+    expect(mocked.listRoots).toHaveBeenCalled();
+    expect(mocked.listTracks).toHaveBeenCalled();
+    expect(mocked.loadOrganization).toHaveBeenCalled();
+    expect(mocked.loadPlaylists).toHaveBeenCalled();
+    expect(useAppStore.getState().scan).toMatchObject({
+      status: "done",
+      summary: { source: "blocking", missing: 2 },
+    });
+  });
+
+  it("restores the scan state on a refusal, with no blocking error", async () => {
+    const before = useAppStore.getState().scan;
+    mocked.relocateRoot.mockResolvedValue({ kind: "refused", reason: { code: "same" } });
+
+    const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
+    expect(result).toEqual({ kind: "refused", reason: { code: "same" } });
+    expect(useAppStore.getState().scan).toEqual(before);
+    expect(mocked.listRoots).not.toHaveBeenCalled();
+    expect(mocked.loadPlaylists).not.toHaveBeenCalled();
+  });
+
+  it("returns busy and leaves the scan state as it was when a scan holds the lock", async () => {
+    mocked.relocateRoot.mockRejectedValue("a scan is already running");
+    const before = useAppStore.getState().scan;
+
+    const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
+    expect(result).toEqual({ kind: "busy" });
+    expect(useAppStore.getState().scan).toEqual(before);
+    expect(mocked.listRoots).not.toHaveBeenCalled();
+  });
+
+  it("reloads and reports failed when the rescan after the commit breaks", async () => {
+    mocked.relocateRoot.mockRejectedValue("disk error");
+
+    const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
+    expect(result).toEqual({ kind: "failed" });
+    expect(useAppStore.getState().scan).toMatchObject({ status: "error", mode: "blocking" });
+    expect(mocked.listRoots).toHaveBeenCalled();
+    expect(mocked.loadPlaylists).toHaveBeenCalled();
   });
 });

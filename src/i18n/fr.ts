@@ -607,6 +607,49 @@ export const fr: Dict = {
       other: "{{n}} albums sont vidés et supprimés.",
     },
     removeAction: "Retirer",
+    removeOffline: "{name} est déconnecté, ses fichiers ont peut-être simplement été déplacés.",
+    removeOfflineDrops: {
+      one: "Le retirer supprime définitivement {{n}} piste, avec son album et ses écoutes.",
+      other: "Le retirer supprime définitivement {{n}} pistes, avec leurs albums et leurs écoutes.",
+    },
+    removeOfflineSlots: {
+      one: "{{n}} entrée de playlist est retirée aussi.",
+      other: "{{n}} entrées de playlist sont retirées aussi.",
+    },
+    removeAnyway: "Retirer quand même",
+    locateInstead: "Localiser plutôt",
+    locate: "Localiser...",
+    locateChecking: "Vérification de {folder}...",
+    locateConfirm:
+      "{{n}} pistes sur {{total}} vérifiées retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+    locatePartial:
+      "Les pistes introuvables restent marquées absentes et reviennent si leurs fichiers réapparaissent.",
+    locateUse: "Utiliser ce répertoire",
+    locateDone: "{name} pointe désormais vers {folder}.",
+    locateDoneMissing: {
+      one: "{{n}} autre piste reste marquée absente et reviendra si son fichier réapparaît.",
+      other:
+        "Les {{n}} autres pistes restent marquées absentes et reviendront si leurs fichiers réapparaissent.",
+    },
+    locateNoMatch:
+      "{folder} ne ressemble pas à {name}. Choisissez le répertoire qui contient les mêmes sous-répertoires et fichiers qu'avant.",
+    locateSame: "{name} pointe déjà ici. Rebranchez le disque, ou choisissez son nouvel emplacement.",
+    locateOverlap: "{folder} chevauche {other}, déjà dans votre audiothèque.",
+    locateUnreadable:
+      "Impossible de lire {folder} pour l'instant. Vérifiez que le disque est branché et réessayez.",
+    locateInconclusive: "Plisto n'a pas pu vérifier assez de pistes dans {folder} à temps. Réessayez.",
+    locateFailed: "Impossible de relocaliser {name}. Rien n'a été modifié.",
+    locateBusy: "Une analyse est déjà en cours. Réessayez quand elle sera terminée.",
+    locateMerge: {
+      one: "{folder} est déjà dans votre audiothèque ({{n}} piste). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Plisto ne modifie jamais vos fichiers.",
+      other:
+        "{folder} est déjà dans votre audiothèque ({{n}} pistes). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Plisto ne modifie jamais vos fichiers.",
+    },
+    locateMergeReplaced: {
+      one: "{{n}} album créé depuis le déplacement est remplacé.",
+      other: "{{n}} albums créés depuis le déplacement sont remplacés.",
+    },
+    locateHint: "Il semble se trouver maintenant dans {folder}.",
     sectionGenres: "Genres",
     genresEmpty: "Aucun genre pour l'instant. Ajoutez-en un, ou ils apparaîtront à mesure que vous taguez des pistes.",
     addGenre: "Ajouter un genre",
@@ -624,6 +667,13 @@ export const fr: Dict = {
       one: "Déplacer {{n}} piste vers {name} et supprimer {old} ?",
       other: "Déplacer {{n}} pistes vers {name} et supprimer {old} ?",
     },
+  },
+
+  relink: {
+    title: "Cela ressemble à {name}, déplacé",
+    body: "{folder} contient {{n}} des {{total}} pistes vérifiées de {name}. Reliez-le pour conserver ses albums, playlists et écoutes.",
+    action: "Relier",
+    asNew: "Ajouter comme nouveau répertoire",
   },
 
   genre: {
@@ -861,8 +911,8 @@ export const fr: Dict = {
     checkProgress: "{{scanned}} sur {{total}}",
     checkFailed: "Impossible de vérifier les changements",
     added: { one: "{{n}} ajoutée", other: "{{n}} ajoutées" },
-    offline: "{folder} est déconnecté - rebranchez-le pour retrouver ses pistes",
-    offlineMany: "{{n}} répertoires sont déconnectés - rebranchez-les pour retrouver leurs pistes",
+    offline: "{folder} est déconnecté - rebranchez-le, ou localisez-le dans les Paramètres",
+    offlineMany: "{{n}} répertoires sont déconnectés - rebranchez-les, ou localisez-les dans les Paramètres",
   },
 
   tray: {

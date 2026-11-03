@@ -125,6 +125,47 @@ export interface RootRemovalImpact {
   plays: number;
 }
 
+/** Why a relocate was refused before anything changed. Mirrors RelocateRefusal in dto.rs. */
+export type RelocateRefusal =
+  | { code: 'same' }
+  | { code: 'overlap'; other: string }
+  | { code: 'unreadable' }
+  | { code: 'no_match'; sampled: number; matched: number }
+  | { code: 'inconclusive' }
+  | { code: 'failed'; message: string };
+
+/**
+ * What picking a new folder for a root would do. A move is verified by a stat sample (`partial` is the
+ * backend's verdict); a merge is exact, folding an already-indexed root into this one. Mirrors RelocatePreview.
+ */
+export type RelocatePreview =
+  | { kind: 'move'; total: number; sampled: number; matched: number; partial: boolean }
+  | {
+      kind: 'merge';
+      other_id: number;
+      other_tracks: number;
+      total: number;
+      matched: number;
+      albums_replaced: number;
+      partial: boolean;
+    }
+  | { kind: 'refused'; reason: RelocateRefusal };
+
+/** An offline or all-missing root whose files look to be under a freshly picked folder. Mirrors RelinkCandidate. */
+export interface RelinkCandidate {
+  root_id: number;
+  path: string;
+  total: number;
+  sampled: number;
+  matched: number;
+  partial: boolean;
+}
+
+/** The result of a relocate: done with the rescan summary, or refused with nothing changed. Mirrors RelocateOutcome. */
+export type RelocateOutcome =
+  | { kind: 'done'; summary: ScanSummary; merged: boolean; albums_replaced: number }
+  | { kind: 'refused'; reason: RelocateRefusal };
+
 /**
  * One vocabulary genre: its display name and how many tracks carry it. Genre is per-track and
  * multi-valued behind this managed vocabulary. Mirrors GenreRow in dto.rs.

@@ -19,6 +19,8 @@ import {
   listTracks,
   removeMissingTracks as removeMissingTracksCmd,
   removeRoot as removeRootCmd,
+  relinkCandidates,
+  relocateRoot as relocateRootCmd,
   rescanAll as rescanAllCmd,
   rescanLibrary,
   setTrackEdit as setTrackEditCmd,
@@ -28,6 +30,8 @@ import { pickFolder } from "../lib/dialog";
 import { withRetry } from "../lib/withRetry";
 import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } from "./librarySync";
 import type { LibrarySummary, PendingDelta } from "./librarySync";
+import { bestCandidate, needsRelinkCheck } from "./relocate";
+import type { RelinkOffer, RelocateResult } from "./relocate";
 
 // -- Type Imports --
 import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets";
@@ -71,6 +75,9 @@ export type ScanMode = "blocking" | "quiet";
  * (its confirm and its run), and a running export. While any is held, sync deltas gather unapplied.
  */
 export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "export";
+
+/** What the user chose on the relink prompt: move the offline root here, add the folder anew, or neither. */
+export type RelinkChoice = "relink" | "asNew" | "cancel";
 
 /** The grid's sort, structurally the table lib's SortingState but without the coupling. */
 export type GridSort = { id: string; desc: boolean }[];
@@ -127,10 +134,14 @@ interface AppStore {
   libraryRevealId: number | null;
   filesSort: GridSort;
   filesSearch: string;
+  // A picked folder that looks like a moved root, held while the relink prompt asks what to do.
+  relinkOffer: RelinkOffer | null;
   boot: () => Promise<void>;
   loadRoots: () => Promise<boolean>;
   addRoot: () => Promise<void>;
   addRootPath: (path: string) => Promise<boolean>;
+  relocateRoot: (rootId: number, path: string) => Promise<RelocateResult>;
+  resolveRelink: (choice: RelinkChoice) => Promise<RelocateResult | null>;
   removeRoot: (id: number) => Promise<void>;
   rescanAll: () => Promise<void>;
   rescanQuiet: (rootId?: number) => Promise<void>;
@@ -190,10 +201,13 @@ function blockingRun(scan: ScanState): boolean {
 export const useAppStore = create<AppStore>((set, get) => {
   // Drives the scan state from a blocking job's progress and outcome, over a fresh channel. A
   // cancelled run still resolves with a summary, so it lands in 'done' with the partial index intact.
-  // Returns the summary of a landed scan, or null, so the caller reloads only on a landed scan.
-  const runScanJob = async (
-    job: (channel: Channel<ScanProgress>) => Promise<ScanSummary>,
-  ): Promise<ScanSummary | null> => {
+  // The job may resolve with more than a summary: `summaryOf` reads the summary out of its result, or
+  // null when the job was refused and nothing ran, which restores the scan state from before the run.
+  // Returns the job's result, or null on a failure, so the caller reloads only on a landed scan.
+  const runScanJob = async <T>(
+    job: (channel: Channel<ScanProgress>) => Promise<T>,
+    summaryOf: (result: T) => ScanSummary | null,
+  ): Promise<T | null> => {
     const before = get().scan;
     set({ scan: { ...before, status: "scanning", mode: "blocking", progress: null, error: null } });
 
@@ -205,9 +219,14 @@ export const useAppStore = create<AppStore>((set, get) => {
     });
 
     try {
-      const summary = await job(channel);
+      const result = await job(channel);
+      const summary = summaryOf(result);
+      if (!summary) {
+        set({ scan: before });
+        return result;
+      }
       set((s) => ({ scan: { ...s.scan, status: "done", summary: { ...summary, source: "blocking" } } }));
-      return summary;
+      return result;
     } catch (e) {
       // Background passes yield to this scan, so a busy lock means a user write is mid-flight. That
       // is worth a quiet note, never the full-screen failure.
@@ -227,6 +246,16 @@ export const useAppStore = create<AppStore>((set, get) => {
     const tracks = await get().loadTracks();
     const org = await useOrganizeStore.getState().refreshOrganization();
     return roots && tracks && org;
+  };
+
+  // Scans `path` in as a new root behind the blocking overlay and reloads the roots and rows on success.
+  const ingestRoot = async (path: string): Promise<boolean> => {
+    const summary = await runScanJob((channel) => addRootCmd(path, channel), (s) => s);
+    if (summary) {
+      await get().loadRoots();
+      await get().loadTracks();
+    }
+    return summary != null;
   };
 
   // Marks the last quiet check as failed, unless a blocking scan owns the state.
@@ -276,6 +305,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     libraryRevealId: null,
     filesSort: [],
     filesSearch: "",
+    relinkOffer: null,
 
     boot: async () => {
       await get().loadRoots();
@@ -299,25 +329,69 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
 
+    // While a root is offline or all-missing, a picked folder is first checked against it: a likely
+    // match parks as an offer for the relink prompt instead of being added. A failed check reads as no
+    // match, so the add always goes ahead.
     addRoot: async () => {
       const path = await pickFolder();
       if (!path) return;
-      const summary = await runScanJob((channel) => addRootCmd(path, channel));
-      if (summary) {
-        await get().loadRoots();
-        await get().loadTracks();
+      const { roots, rootStates, scan } = get();
+      const offline = offlineRootIds(rootStates, scan.summary?.offline_roots ?? []);
+      if (needsRelinkCheck(roots, offline)) {
+        const candidate = await relinkCandidates(path).then(bestCandidate, () => null);
+        if (candidate) {
+          set({ relinkOffer: { path, candidate } });
+          return;
+        }
       }
+      await ingestRoot(path);
     },
 
     // Indexes an already-known folder as a root, the same ingest addRoot runs once a folder is picked.
     // The splicer hands its finished output folder here to bring the fresh cuts into the library.
-    addRootPath: async (path) => {
-      const summary = await runScanJob((channel) => addRootCmd(path, channel));
-      if (summary) {
-        await get().loadRoots();
-        await get().loadTracks();
+    addRootPath: ingestRoot,
+
+    // Points a root at a new folder and rescans it behind the blocking overlay. A refusal changed
+    // nothing, so it leaves the scan state as it was. A done relocate reloads every projection it
+    // touched: roots (paths and counts), tracks, the organize view (a merge can empty albums) and the
+    // playlists (a merge repoints slots). A rescan failure after the commit still changed the roots,
+    // so it reloads the same way and reports failed; the gate carries the error. A busy refusal is
+    // reported inline by the caller, so it leaves the scan state as it was rather than a quiet error.
+    relocateRoot: async (rootId, path) => {
+      const before = get().scan;
+      let busy = false;
+      const outcome = await runScanJob(
+        (channel) =>
+          relocateRootCmd(rootId, path, channel).catch((e) => {
+            busy = isScanBusy(e);
+            throw e;
+          }),
+        (o) => (o.kind === "done" ? o.summary : null),
+      );
+      if (!outcome) {
+        if (busy) {
+          set({ scan: before });
+          return { kind: "busy" };
+        }
+        await refreshLibrary();
+        await usePlaylistsStore.getState().load();
+        return { kind: "failed" };
       }
-      return summary != null;
+      if (outcome.kind === "done") {
+        await refreshLibrary();
+        await usePlaylistsStore.getState().load();
+      }
+      return outcome;
+    },
+
+    // Closes the relink prompt and carries out the choice. Only a relink has a result to report.
+    resolveRelink: async (choice) => {
+      const offer = get().relinkOffer;
+      if (!offer) return null;
+      set({ relinkOffer: null });
+      if (choice === "relink") return get().relocateRoot(offer.candidate.root_id, offer.path);
+      if (choice === "asNew") await ingestRoot(offer.path);
+      return null;
     },
 
     removeRoot: async (id) => {
@@ -328,7 +402,7 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     // The gate's retry after a failed blocking scan, so it stays blocking. Every other rescan is quiet.
     rescanAll: async () => {
-      const summary = await runScanJob((channel) => rescanAllCmd(channel));
+      const summary = await runScanJob((channel) => rescanAllCmd(channel), (s) => s);
       if (summary) await get().loadTracks();
     },
 
@@ -543,6 +617,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         libraryRevealId: null,
         filesSort: [],
         filesSearch: "",
+        relinkOffer: null,
       }),
   };
 });
@@ -640,6 +715,9 @@ export const useBoot = () => useAppStore((s) => s.boot);
 export const useLoadRoots = () => useAppStore((s) => s.loadRoots);
 export const useAddRoot = () => useAppStore((s) => s.addRoot);
 export const useAddRootPath = () => useAppStore((s) => s.addRootPath);
+export const useRelinkOffer = (): RelinkOffer | null => useAppStore((s) => s.relinkOffer);
+export const useResolveRelink = () => useAppStore((s) => s.resolveRelink);
+export const useRelocateRoot = () => useAppStore((s) => s.relocateRoot);
 export const useRemoveRoot = () => useAppStore((s) => s.removeRoot);
 export const useRescanAll = () => useAppStore((s) => s.rescanAll);
 export const useRescanQuiet = () => useAppStore((s) => s.rescanQuiet);

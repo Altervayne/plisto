@@ -605,6 +605,46 @@ export const en = {
       other: "{{n}} albums are emptied and removed.",
     },
     removeAction: "Remove",
+    removeOffline: "{name} is offline, so its files may only have moved.",
+    removeOfflineDrops: {
+      one: "Removing it permanently drops its {{n}} track, with its album and play history.",
+      other: "Removing it permanently drops its {{n}} tracks, with their albums and play history.",
+    },
+    removeOfflineSlots: {
+      one: "{{n}} playlist entry goes too.",
+      other: "{{n}} playlist entries go too.",
+    },
+    removeAnyway: "Remove anyway",
+    locateInstead: "Locate instead",
+    locate: "Locate...",
+    locateChecking: "Checking {folder}...",
+    locateConfirm:
+      "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+    locatePartial: "Tracks not found stay marked gone and come back if their files appear.",
+    locateUse: "Use this folder",
+    locateDone: "{name} now points to {folder}.",
+    locateDoneMissing: {
+      one: "The other {{n}} track stays marked gone and comes back if its file appears.",
+      other: "The other {{n}} tracks stay marked gone and come back if their files appear.",
+    },
+    locateNoMatch:
+      "{folder} does not look like {name}. Pick the folder that holds the same folders and files as before.",
+    locateSame: "{name} already points here. Reconnect the drive, or choose where it lives now.",
+    locateOverlap: "{folder} overlaps {other}, already in your library.",
+    locateUnreadable: "Can't read {folder} right now. Check the drive is connected and try again.",
+    locateInconclusive: "Plisto couldn't check enough of {folder} in time. Try again.",
+    locateFailed: "Couldn't relocate {name}. Nothing was changed.",
+    locateBusy: "A scan is already running. Try again when it finishes.",
+    locateMerge: {
+      one: "{folder} is already in your library ({{n}} track). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. Plisto never changes your files.",
+      other:
+        "{folder} is already in your library ({{n}} tracks). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. Plisto never changes your files.",
+    },
+    locateMergeReplaced: {
+      one: "{{n}} album made since the move is replaced.",
+      other: "{{n}} albums made since the move are replaced.",
+    },
+    locateHint: "Looks like it's now at {folder}.",
     sectionGenres: "Genres",
     genresEmpty: "No genres yet. Add one, or they appear as you tag tracks.",
     addGenre: "Add genre",
@@ -622,6 +662,13 @@ export const en = {
       one: "Move {{n}} track to {name} and remove {old}?",
       other: "Move {{n}} tracks to {name} and remove {old}?",
     },
+  },
+
+  relink: {
+    title: "This looks like {name}, moved",
+    body: "{folder} has {{n}} of {{total}} checked tracks from {name}. Relink to keep its albums, playlists and plays.",
+    action: "Relink",
+    asNew: "Add as new folder",
   },
 
   genre: {
@@ -859,8 +906,8 @@ export const en = {
     checkProgress: "{{scanned}} of {{total}}",
     checkFailed: "Couldn't check for changes",
     added: { one: "{{n}} added", other: "{{n}} added" },
-    offline: "{folder} is offline - reconnect it to bring its tracks back",
-    offlineMany: "{{n}} folders are offline - reconnect them to bring their tracks back",
+    offline: "{folder} is offline - reconnect it, or locate it in Settings",
+    offlineMany: "{{n}} folders are offline - reconnect them, or locate them in Settings",
   },
 
   tray: {
