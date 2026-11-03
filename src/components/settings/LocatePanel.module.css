@@ -1,0 +1,14 @@
+/* The step line sits under its folder row like the counted remove confirm: one quiet sentence, then its choices. */
+.panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 8px 8px;
+}
+
+.line {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}

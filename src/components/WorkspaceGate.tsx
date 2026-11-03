@@ -6,6 +6,7 @@ import { AppShell } from "./shell/AppShell";
 import { EmptyState } from "./common/EmptyState";
 import { QuietButton } from "./common/QuietButton";
 import { ScanProgress } from "./scan/ScanProgress";
+import { RelinkPrompt } from "./settings/RelinkPrompt";
 import { WorkspacePicker } from "./workspace/WorkspacePicker";
 
 // -- State Imports --
@@ -29,8 +30,9 @@ import styles from "./WorkspaceGate.module.css";
  * The top-level switch. Boots once on mount by hydrating the roots (and the last index when any
  * exist), then picks the view: nothing until booted, an error state on failure, the app shell over a
  * stocked library, and onboarding when the library is empty. A blocking scan overlays the shell rather
- * than replacing it, so it keeps the shell mounted and returns the user to the view they were on. A quiet
- * scan never reaches this switch: its progress and failure live in the title bar and Settings.
+ * than replacing it, so it keeps the shell mounted and returns the user to the view they were on. The
+ * relink prompt, for a picked folder that looks like a moved root, mounts beside the shell. A quiet scan
+ * never reaches this switch: its progress and failure live in the title bar and Settings.
  */
 export function WorkspaceGate() {
   const boot = useBoot();
@@ -69,6 +71,7 @@ export function WorkspaceGate() {
     return (
       <>
         <AppShell />
+        <RelinkPrompt />
         {status === "scanning" && blocking ? (
           <div className={styles.scanOverlay}>
             <ScanProgress />

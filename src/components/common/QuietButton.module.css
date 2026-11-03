@@ -36,3 +36,18 @@
   background: transparent;
   color: var(--ink-2);
 }
+
+/* A destructive action reads danger-red at rest and fills its weak tint on hover. */
+.quiet.destructive {
+  color: var(--danger);
+}
+
+.quiet.destructive:hover {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.quiet.destructive:disabled:hover {
+  background: transparent;
+  color: var(--danger);
+}

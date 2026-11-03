@@ -1,0 +1,24 @@
+/*
+ * The refusal note: a pill at the foot of the window on the same material as the toasts, but wrapping,
+ * since a reason runs longer than a toast line. A press dismisses it.
+ */
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  max-width: min(480px, 92vw);
+  padding: 10px 16px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  z-index: 6;
+}
