@@ -10,6 +10,9 @@ mod album_numbering;
 mod duplicates;
 mod export_ledger;
 mod migrations;
+// TODO: drop both allows once the relocate commands call the relocate writer.
+#[allow(dead_code)]
+mod relocate;
 mod tag_albums;
 
 pub use duplicates::{
@@ -18,6 +21,11 @@ pub use duplicates::{
 };
 pub use export_ledger::{
     clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
+};
+#[allow(unused_imports)]
+pub use relocate::{
+    backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, MergePlan,
+    RelocateError, RelocateReport, RootMove, RootTrackPath,
 };
 pub use tag_albums::{create_albums_from_tags, reapply_albums_from_tags, revert_albums_from_tags};
 
@@ -33,7 +41,8 @@ use album_numbering::{disc_highest, next_on_disc, number_per_disc, read_incoming
 // -- Type Imports --
 use crate::dto::{
     AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistRow, PlaylistSnapshot,
-    PlaylistTrackRow, PurgeSummary, Root, TrackDisplay, TrackEdit, TrackPlacement,
+    PlaylistTrackRow, PurgeSummary, Root, RootRemovalImpact, TrackDisplay, TrackEdit,
+    TrackPlacement,
 };
 use crate::model::{CoverRecord, TrackRecord};
 use crate::normalize::{clean_text, normalize_genre_key, normalize_path_key};
@@ -446,11 +455,12 @@ pub fn get_or_create_root(
     Ok((id, path.to_string()))
 }
 
-/// Every root with its live track count, ordered by id. The count is a LEFT JOIN so a root with no
-/// indexed tracks still returns a row with a zero count.
+/// Every root with its live track and gone-track counts, ordered by id. The counts are a LEFT JOIN
+/// so a root with no indexed tracks still returns a row with zero counts.
 pub fn list_roots(conn: &Connection) -> rusqlite::Result<Vec<Root>> {
     let mut stmt = conn.prepare(
-        "SELECT r.id, r.path, COUNT(t.id) AS track_count
+        "SELECT r.id, r.path, COUNT(t.id) AS track_count,
+                SUM(t.missing_at IS NOT NULL) AS missing_count
          FROM roots r
          LEFT JOIN tracks t ON t.root_id = r.id
          GROUP BY r.id
@@ -462,6 +472,7 @@ pub fn list_roots(conn: &Connection) -> rusqlite::Result<Vec<Root>> {
                 id: r.get(0)?,
                 path: r.get(1)?,
                 track_count: r.get(2)?,
+                missing_count: r.get(3)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -539,11 +550,12 @@ pub fn fill_root_keys(conn: &Connection) -> rusqlite::Result<()> {
 /// Removes a root and everything that hung off it, in one transaction. Deleting the root CASCADEs
 /// to its tracks (root_id FK), and each dropped track CASCADEs to its album membership (track_id
 /// FK). Any album or single gutted to zero members by that cascade is then deleted, restoring the
-/// "every container holds at least one member" invariant.
+/// "every container holds at least one member" invariant. The root's recorded earlier paths go too.
 pub fn remove_root(conn: &mut Connection, root_id: i64) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM roots WHERE id = ?1", params![root_id])?;
     delete_emptied_albums(&tx)?;
+    relocate::forget_root_moves(&tx, root_id)?;
     tx.commit()
 }
 
@@ -588,11 +600,11 @@ fn delete_emptied_albums(conn: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
-/// The blast radius of removing `root_id`, for the counted confirm. Returns
-/// `(tracks, albums_losing_members, albums_emptied)`: how many indexed tracks the root holds; how
-/// many albums are built partly from it (>=1 member under it and >=1 not - they shrink); and how
-/// many are built entirely from it (every member under it - they get deleted). Read-only.
-pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<(i64, i64, i64)> {
+/// The blast radius of removing `root_id`, for the counted confirm: how many indexed tracks the root
+/// holds; how many albums are built partly from it (>=1 member under it and >=1 not - they shrink);
+/// how many are built entirely from it (every member under it - they get deleted); and how many
+/// playlist slots and plays its tracks carry. Read-only.
+pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<RootRemovalImpact> {
     let tracks: i64 = conn.query_row(
         "SELECT COUNT(*) FROM tracks WHERE root_id = ?1",
         params![root_id],
@@ -625,7 +637,25 @@ pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<
         |r| r.get(0),
     )?;
 
-    Ok((tracks, losing, emptied))
+    let playlist_entries: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id
+         WHERE t.root_id = ?1",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+    let plays: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM plays p JOIN tracks t ON t.id = p.track_id WHERE t.root_id = ?1",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+
+    Ok(RootRemovalImpact {
+        tracks,
+        albums_losing_members: losing,
+        albums_emptied: emptied,
+        playlist_entries,
+        plays,
+    })
 }
 
 // ---- Genre vocabulary ----
@@ -2669,10 +2699,21 @@ mod tests {
         rb.source_path = "/music/b/1.mp3".to_string();
         upsert_track(&conn, &rb, Some(b)).unwrap();
 
+        conn.execute(
+            "UPDATE tracks SET missing_at = 5 WHERE source_path = '/music/a/2.mp3'",
+            [],
+        )
+        .unwrap();
+        get_or_create_root(&conn, "/music/c", 1).unwrap();
+
         let roots = list_roots(&conn).unwrap();
-        assert_eq!(roots.len(), 2);
+        assert_eq!(roots.len(), 3);
         assert_eq!(roots[0].track_count, 2, "root a holds two tracks");
+        assert_eq!(roots[0].missing_count, 1, "one of them is gone");
         assert_eq!(roots[1].track_count, 1, "root b holds one track");
+        assert_eq!(roots[1].missing_count, 0);
+        assert_eq!(roots[2].track_count, 0, "an empty root still lists");
+        assert_eq!(roots[2].missing_count, 0);
     }
 
     #[test]
@@ -3337,10 +3378,51 @@ mod tests {
         )
         .unwrap();
 
-        let (tracks, losing, emptied) = root_removal_impact(&conn, a).unwrap();
-        assert_eq!(tracks, 3, "root A holds three tracks");
-        assert_eq!(losing, 1, "one album is built partly from A");
-        assert_eq!(emptied, 1, "one album is built entirely from A");
+        let impact = root_removal_impact(&conn, a).unwrap();
+        assert_eq!(impact.tracks, 3, "root A holds three tracks");
+        assert_eq!(
+            impact.albums_losing_members, 1,
+            "one album is built partly from A"
+        );
+        assert_eq!(
+            impact.albums_emptied, 1,
+            "one album is built entirely from A"
+        );
+    }
+
+    #[test]
+    fn root_removal_impact_counts_slots_and_plays() {
+        let conn = open_in_memory().unwrap();
+        let (a, _) = get_or_create_root(&conn, "/music/a", 1).unwrap();
+        let (b, _) = get_or_create_root(&conn, "/music/b", 1).unwrap();
+        let a1 = track_under(&conn, "/music/a/1.mp3", a);
+        let a2 = track_under(&conn, "/music/a/2.mp3", a);
+        let b1 = track_under(&conn, "/music/b/1.mp3", b);
+
+        conn.execute(
+            "INSERT INTO playlists (id, created_at, updated_at) VALUES (1, 0, 0)",
+            [],
+        )
+        .unwrap();
+        // a1 sits twice; b1's slot belongs to the other root.
+        for (track, pos) in [(a1, 1), (b1, 2), (a1, 3), (a2, 4)] {
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, ?1, ?2)",
+                params![track, pos],
+            )
+            .unwrap();
+        }
+        for track in [a1, a2, a2, b1] {
+            conn.execute(
+                "INSERT INTO plays (track_id, played_at, completed) VALUES (?1, 100, 1)",
+                params![track],
+            )
+            .unwrap();
+        }
+
+        let impact = root_removal_impact(&conn, a).unwrap();
+        assert_eq!(impact.playlist_entries, 3);
+        assert_eq!(impact.plays, 3);
     }
 
     // Inserts a track at `path` and stamps it gone, the state the scan leaves a vanished file in.

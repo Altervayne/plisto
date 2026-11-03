@@ -108,11 +108,12 @@ export interface LibrarySyncSummary {
   offline_roots: number[];
 }
 
-/** One library root: its folder path and indexed track count. Mirrors Root in dto.rs. */
+/** One library root: its folder path, indexed track count and gone-track count. Mirrors Root in dto.rs. */
 export interface Root {
   id: number;
   path: string;
   track_count: number;
+  missing_count: number;
 }
 
 /** The blast radius of removing a root, for the counted confirm. Mirrors RootRemovalImpact. */
@@ -120,6 +121,8 @@ export interface RootRemovalImpact {
   tracks: number;
   albums_losing_members: number;
   albums_emptied: number;
+  playlist_entries: number;
+  plays: number;
 }
 
 /**

@@ -44,7 +44,7 @@ function syncTotals(over: Partial<LibrarySyncSummary> = {}): LibrarySyncSummary 
 
 // A track row with only the id and title meaningful; the store never reads the rest here.
 const track = (id: number, title = `t${id}`) => ({ id, title, missing_at: null }) as unknown as TrackRow;
-const root: Root = { id: 1, path: "/music", track_count: 1 };
+const root: Root = { id: 1, path: "/music", track_count: 1, missing_count: 0 };
 const ids = () => useAppStore.getState().tracks.map((r) => r.id);
 
 // Runs an action to completion, flushing the retry backoff timers it may sleep on.

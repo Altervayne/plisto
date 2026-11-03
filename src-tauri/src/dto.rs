@@ -48,23 +48,27 @@ pub struct TrackRow {
     pub genre_ids: Vec<i64>,
 }
 
-/// One library root shaped for the frontend: the real-case folder path and how many indexed
-/// tracks it holds, from a COUNT join over its tracks. Mirrors Root in types.ts.
+/// One library root shaped for the frontend: the real-case folder path, how many indexed tracks it
+/// holds, and how many of those are flagged gone. Mirrors Root in types.ts.
 #[derive(Debug, Clone, Serialize)]
 pub struct Root {
     pub id: i64,
     pub path: String,
     pub track_count: i64,
+    pub missing_count: i64,
 }
 
 /// The blast radius of removing one root, for the counted confirm. `tracks` is how many indexed
 /// tracks the root holds; `albums_losing_members` is albums built partly from it that will shrink;
-/// `albums_emptied` is albums built entirely from it that will be deleted. Mirrors RootRemovalImpact.
+/// `albums_emptied` is albums built entirely from it that will be deleted; `playlist_entries` and
+/// `plays` are the slots and play rows its tracks take with them. Mirrors RootRemovalImpact.
 #[derive(Debug, Clone, Serialize)]
 pub struct RootRemovalImpact {
     pub tracks: i64,
     pub albums_losing_members: i64,
     pub albums_emptied: i64,
+    pub playlist_entries: i64,
+    pub plays: i64,
 }
 
 /// The tally of a gone-track purge: `removed` is how many gone rows the DELETE dropped, `albums_emptied`

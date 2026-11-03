@@ -1,5 +1,5 @@
 /*
- * Shared path-overlap checks. Two folders overlap when one contains the other; the comparison is
+ * Shared path-overlap checks and the root-relative remainder. Two folders overlap when one contains the other; the comparison is
  * component-wise on folded keys, not raw string prefixes, so `/musicX` never matches `/music`. It
  * resolves `..`, symlinks and casing through canonicalization where the path exists, falling back
  * to a lexical normalize where it does not. The roots guard and export both lean on this, so the
@@ -27,6 +27,24 @@ pub fn any_overlap(existing: &[String], candidate: &Path) -> bool {
     existing
         .iter()
         .any(|p| paths_overlap(candidate, Path::new(p)))
+}
+
+/// The real-case remainder of `path` below `root`, or None when `path` is not under it. Lexical,
+/// never canonicalized, so an offline root still resolves. Components compare on folded keys, so
+/// `/musicX` is not under `/music`. An equal path gives an empty remainder.
+pub fn relative_under(path: &Path, root: &Path) -> Option<PathBuf> {
+    let mut rest = path.components().filter(|c| *c != Component::CurDir);
+    for want in root.components().filter(|c| *c != Component::CurDir) {
+        let got = rest.next()?;
+        if component_key(got) != component_key(want) {
+            return None;
+        }
+    }
+    Some(rest.collect())
+}
+
+fn component_key(c: Component<'_>) -> String {
+    normalize_path_key(&c.as_os_str().to_string_lossy())
 }
 
 /// The folded component keys of a path, canonicalized where it exists so `..`, symlinks and casing
@@ -107,5 +125,68 @@ mod tests {
         // A sibling that only shares a string prefix does not overlap.
         assert!(!any_overlap(&existing, Path::new("/music/libraryX")));
         assert!(!any_overlap(&existing, Path::new("/pictures")));
+    }
+
+    #[test]
+    fn relative_under_misses_a_sibling_prefix() {
+        assert_eq!(
+            relative_under(Path::new("/musicX/a.mp3"), Path::new("/music")),
+            None
+        );
+        assert_eq!(
+            relative_under(Path::new("/pictures/a.mp3"), Path::new("/music")),
+            None
+        );
+    }
+
+    #[test]
+    fn relative_under_returns_the_real_case_remainder() {
+        assert_eq!(
+            relative_under(Path::new("/music/Sub/Song.mp3"), Path::new("/music")),
+            Some(PathBuf::from("Sub").join("Song.mp3"))
+        );
+    }
+
+    #[test]
+    fn relative_under_an_equal_path_is_empty() {
+        assert_eq!(
+            relative_under(Path::new("/music/"), Path::new("/music")),
+            Some(PathBuf::new())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_under_matches_folded_case() {
+        assert_eq!(
+            relative_under(Path::new(r"c:\music\sub\song.mp3"), Path::new(r"C:\Music")),
+            Some(PathBuf::from(r"sub\song.mp3"))
+        );
+        assert_eq!(
+            relative_under(Path::new(r"C:\Music\Sub\Song.mp3"), Path::new(r"c:\music")),
+            Some(PathBuf::from(r"Sub\Song.mp3"))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_under_a_drive_root() {
+        assert_eq!(
+            relative_under(Path::new(r"E:\Album\Song.mp3"), Path::new(r"e:\")),
+            Some(PathBuf::from(r"Album\Song.mp3"))
+        );
+        assert_eq!(
+            relative_under(Path::new(r"F:\Album\Song.mp3"), Path::new(r"E:\")),
+            None
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn relative_under_the_filesystem_root() {
+        assert_eq!(
+            relative_under(Path::new("/Album/Song.mp3"), Path::new("/")),
+            Some(PathBuf::from("Album/Song.mp3"))
+        );
     }
 }

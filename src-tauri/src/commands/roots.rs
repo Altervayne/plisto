@@ -154,7 +154,7 @@ pub async fn rescan_all(
 }
 
 /// The blast radius of removing `id`, for the counted confirm: how many tracks the root holds, how
-/// many albums shrink (built partly from it), and how many are deleted (built entirely from it).
+/// many albums shrink or are deleted, and how many playlist entries and plays go with its tracks.
 /// Read-only.
 #[tauri::command]
 pub fn root_removal_impact(
@@ -165,13 +165,7 @@ pub fn root_removal_impact(
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    let (tracks, albums_losing_members, albums_emptied) =
-        db::root_removal_impact(&conn, id).map_err(|e| e.to_string())?;
-    Ok(RootRemovalImpact {
-        tracks,
-        albums_losing_members,
-        albums_emptied,
-    })
+    db::root_removal_impact(&conn, id).map_err(|e| e.to_string())
 }
 
 /// Runs the root-aware scan on a blocking thread and awaits it, so the runtime stays free to

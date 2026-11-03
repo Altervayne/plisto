@@ -17,8 +17,8 @@ use super::{album_kind, membership_album, remove_membership};
 use crate::dto::{DismissedPair, MergeAlbumStamp, MergeMembership, MergeMovedRow, MergeReceipt};
 
 // The two track-id tables a merge re-points, each keyed on its own row id.
-const SLOTS: &str = "playlist_tracks";
-const PLAYS: &str = "plays";
+pub(super) const SLOTS: &str = "playlist_tracks";
+pub(super) const PLAYS: &str = "plays";
 
 /// Why a merge or its undo was refused. Nothing is written in any case.
 #[derive(Debug)]
@@ -281,7 +281,7 @@ pub fn undo_merge_duplicates(
 
 /// Inserts each pair not already dismissed and returns just those, so an undo never clears a pair
 /// that was there before.
-fn insert_pairs(
+pub(super) fn insert_pairs(
     conn: &Connection,
     pairs: &[DismissedPair],
     now: i64,
@@ -319,7 +319,7 @@ fn track_present(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<bo
 }
 
 /// The track's whole membership row, or None when it is loose.
-fn membership_row(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<MergeMembership>> {
+pub(super) fn membership_row(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<MergeMembership>> {
     conn.query_row(
         "SELECT album_id, track_no, keep_own_cover FROM album_tracks WHERE track_id = ?1",
         params![track_id],
@@ -336,7 +336,7 @@ fn membership_row(conn: &Connection, track_id: i64) -> rusqlite::Result<Option<M
 }
 
 /// Writes a membership row with its exact position and keep-own-cover flag.
-fn insert_membership(conn: &Connection, m: &MergeMembership) -> rusqlite::Result<()> {
+pub(super) fn insert_membership(conn: &Connection, m: &MergeMembership) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO album_tracks (album_id, track_id, track_no, keep_own_cover)
          VALUES (?1, ?2, ?3, ?4)",
@@ -345,7 +345,7 @@ fn insert_membership(conn: &Connection, m: &MergeMembership) -> rusqlite::Result
     Ok(())
 }
 
-fn member_count(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
+pub(super) fn member_count(conn: &Connection, album_id: i64) -> rusqlite::Result<i64> {
     conn.query_row(
         "SELECT COUNT(*) FROM album_tracks WHERE album_id = ?1",
         params![album_id],
@@ -367,7 +367,7 @@ fn album_label(conn: &Connection, album_id: i64) -> rusqlite::Result<String> {
 }
 
 /// Points every row of `table` held by `from` at `to` and returns each row with its former track.
-fn repoint(
+pub(super) fn repoint(
     conn: &Connection,
     table: &str,
     from: i64,

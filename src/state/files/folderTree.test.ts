@@ -52,7 +52,7 @@ function track(id: number, source: string, display: string | null): TrackRow {
 
 // A library root: real-case path plus the count the backend reports (unused by the tree engine).
 function root(id: number, path: string): Root {
-  return { id, path, track_count: 0 };
+  return { id, path, track_count: 0, missing_count: 0 };
 }
 
 describe("foldId", () => {
