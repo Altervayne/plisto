@@ -64,6 +64,9 @@ pub(super) struct DecoderSource {
     pub(super) duration: Option<Duration>,
     // Set once the stream has yielded its last sample, read by the engine. Same split as `frames`.
     pub(super) ended: Arc<AtomicBool>,
+    // Set by the engine to drop a queued source: it then yields None at once, so rodio moves past it
+    // without playing a sample. `ended` stays unset, since the stream did not drain.
+    pub(super) cancel: Arc<AtomicBool>,
 }
 
 impl DecoderSource {
@@ -98,6 +101,7 @@ impl DecoderSource {
             chan_cursor: 0,
             duration,
             ended: Arc::new(AtomicBool::new(false)),
+            cancel: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -124,6 +128,9 @@ impl Iterator for DecoderSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return None;
+        }
         if self.pos >= self.buffer.len() {
             match self.decoder.next_packet() {
                 Some(chunk) => {
@@ -166,9 +173,10 @@ impl Iterator for DecoderSource {
 
 impl Source for DecoderSource {
     fn current_frame_len(&self) -> Option<usize> {
-        // The samples left in the current buffer. None (never Some(0)) at a packet boundary tells
-        // rodio to re-read the spec on the next pull, which is where a mid-stream layout change
-        // would take effect.
+        // The samples left in the current buffer, or None (never Some(0)) at a packet boundary.
+        // rodio's queue does not re-read the spec on None: a source whose layout differs from the
+        // one before it has its first block misread, which is why spec-changing boundaries stay
+        // cold (see the boundary tests below).
         let rem = self.buffer.len().saturating_sub(self.pos);
         if rem == 0 {
             None
@@ -193,6 +201,7 @@ impl Source for DecoderSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rodio::source::UniformSourceIterator;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -362,5 +371,159 @@ mod tests {
         assert_eq!(ring_bits(&halved_tap), expect_ring);
         let expect_out: Vec<f32> = plain_out.iter().map(|s| s * 0.5).collect();
         assert_eq!(halved_out, expect_out);
+    }
+
+    // ---- The rodio queue boundary ----
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|s| s.to_bits()).collect()
+    }
+
+    // Drains `it` sample by sample. `collect` would ask rodio's converters for a size hint, and their
+    // channel arithmetic overflows in debug builds.
+    fn drain(it: impl Iterator<Item = f32>) -> Vec<f32> {
+        let mut out = Vec::new();
+        for s in it {
+            out.push(s);
+        }
+        out
+    }
+
+    fn src(path: &Path) -> DecoderSource {
+        identity_source(path, None).expect("primes the first packet")
+    }
+
+    // What the output mixer renders for `sources` played back to back through one rodio queue,
+    // converted to `channels` at `rate`: the mixer wraps a sink's queue in exactly this converter.
+    fn through_queue(sources: Vec<DecoderSource>, channels: u16, rate: u32) -> Vec<f32> {
+        let (input, output) = rodio::queue::queue::<f32>(false);
+        for s in sources {
+            input.append(s);
+        }
+        drain(UniformSourceIterator::<_, f32>::new(output, channels, rate))
+    }
+
+    // `path` converted with nothing before it: how the track renders when its spec is read cleanly.
+    fn converted_alone(path: &Path, channels: u16, rate: u32) -> Vec<f32> {
+        drain(UniformSourceIterator::<_, f32>::new(
+            src(path),
+            channels,
+            rate,
+        ))
+    }
+
+    // The queue reads its first block at its idle spec, so the outgoing track is measured through the
+    // same queue on its own rather than assumed to be the raw samples. Frame counts that are not a
+    // multiple of the ramp period make a shifted boundary change the content, not only the length.
+    #[test]
+    fn a_same_spec_boundary_keeps_every_sample() {
+        let dir = TempDir::new("boundary_same");
+        let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
+        write_wav(&a, 44_100, 2, 5_123);
+        write_wav(&b, 44_100, 2, 7_077);
+
+        // At the tracks' own spec the converter is a pass-through, so a clean boundary is the second
+        // track's samples straight after the first.
+        let lead = through_queue(vec![src(&a)], 2, 44_100);
+        let pair = through_queue(vec![src(&a), src(&b)], 2, 44_100);
+        let tail = raw_samples(&b);
+        assert_eq!(pair.len(), lead.len() + tail.len());
+        assert_eq!(bits(&pair[..lead.len()]), bits(&lead));
+        assert_eq!(bits(&pair[lead.len()..]), bits(&tail));
+    }
+
+    #[test]
+    fn a_spec_changing_boundary_misreads_the_incoming_track() {
+        let dir = TempDir::new("boundary_spec");
+        let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
+        write_wav(&a, 44_100, 2, 5_123);
+        write_wav(&b, 48_000, 1, 7_077);
+
+        // The queue reports the outgoing spec until it pulls the next source, so the converter reads
+        // the incoming track's first block as 44.1 kHz stereo. That is why such a boundary is played
+        // cold rather than queued.
+        for (channels, rate) in [(2u16, 48_000u32), (2, 44_100)] {
+            let lead = through_queue(vec![src(&a)], channels, rate);
+            let pair = through_queue(vec![src(&a), src(&b)], channels, rate);
+            let clean = converted_alone(&b, channels, rate);
+            assert_eq!(bits(&pair[..lead.len()]), bits(&lead));
+            let tail = &pair[lead.len()..];
+            assert!(
+                tail.len() < clean.len(),
+                "{channels}ch {rate}: the incoming track loses samples, {} vs {}",
+                tail.len(),
+                clean.len()
+            );
+            assert_ne!(bits(&tail[..64]), bits(&clean[..64]));
+        }
+    }
+
+    #[test]
+    fn a_queued_source_takes_over_with_the_sink_still_busy() {
+        let dir = TempDir::new("boundary_sink");
+        let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
+        write_wav(&a, 44_100, 2, 5_123);
+        write_wav(&b, 44_100, 2, 7_077);
+        let lead = through_queue(vec![src(&a)], 2, 44_100);
+        let tail = raw_samples(&b);
+
+        // The sink's own wrapping of each source, as the engine appends it.
+        let (sink, output) = rodio::Sink::new_idle();
+        let (first, second) = (src(&a), src(&b));
+        let (a_ended, b_frames, b_ended) = (
+            Arc::clone(&first.ended),
+            Arc::clone(&second.frames),
+            Arc::clone(&second.ended),
+        );
+        sink.append(first);
+        sink.append(second);
+
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+        let mut got = Vec::new();
+        while !a_ended.load(Ordering::Relaxed) {
+            got.push(out.next().expect("the keep-alive queue never ends"));
+        }
+        // The pull that drains the first source returns the second one's first sample.
+        assert_eq!(got.len(), lead.len() + 1);
+        assert_eq!(b_frames.load(Ordering::Relaxed), 0);
+        assert_eq!(sink.len(), 1, "the sink stays busy, so no cold end fires");
+
+        while !b_ended.load(Ordering::Relaxed) {
+            got.push(out.next().expect("the keep-alive queue never ends"));
+        }
+        assert!(sink.empty());
+        // The ending pull already returns the keep-alive silence.
+        assert_eq!(got.pop(), Some(0.0));
+        assert_eq!(bits(&got[..lead.len()]), bits(&lead));
+        assert_eq!(bits(&got[lead.len()..]), bits(&tail));
+    }
+
+    #[test]
+    fn a_cancelled_source_yields_nothing() {
+        let dir = TempDir::new("cancel");
+        let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
+        write_wav(&a, 44_100, 2, 5_123);
+        write_wav(&b, 44_100, 2, 7_077);
+        let lead = through_queue(vec![src(&a)], 2, 44_100);
+
+        let mut alone = src(&b);
+        alone.cancel.store(true, Ordering::Relaxed);
+        assert_eq!(alone.next(), None);
+        assert!(!alone.ended.load(Ordering::Relaxed));
+
+        // Cancelled while queued behind a playing track: the sink empties the moment the first track
+        // drains, and nothing of the cancelled one is heard.
+        let (sink, output) = rodio::Sink::new_idle();
+        let (first, second) = (src(&a), src(&b));
+        let cancel = Arc::clone(&second.cancel);
+        sink.append(first);
+        sink.append(second);
+        cancel.store(true, Ordering::Relaxed);
+
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+        let got = drain(out.by_ref().take(lead.len()));
+        assert_eq!(bits(&got), bits(&lead));
+        assert_eq!(out.next(), Some(0.0));
+        assert!(sink.empty());
     }
 }

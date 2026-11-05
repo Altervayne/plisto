@@ -133,6 +133,28 @@ pub(crate) fn on_track_end(index: usize, len: usize, repeat: RepeatMode) -> EndA
     }
 }
 
+/// The slot that plays when the track at `index` ends on its own, or None when playback stops there.
+/// Built on `on_track_end`, so a preloaded next track and the cold end always pick the same slot.
+pub(crate) fn preload_target(index: usize, len: usize, repeat: RepeatMode) -> Option<usize> {
+    let slot = match on_track_end(index, len, repeat) {
+        EndAction::Replay => index,
+        EndAction::Advance(i) => i,
+        EndAction::Stop => return None,
+    };
+    (slot < len).then_some(slot)
+}
+
+/// Where a preload holding track `id` sits after the queue, cursor or repeat mode changed: the target
+/// slot when it still holds `id`, else None and the preload is stale.
+pub(crate) fn pending_slot(
+    queue: &[QueueTrack],
+    index: usize,
+    repeat: RepeatMode,
+    id: i64,
+) -> Option<usize> {
+    preload_target(index, queue.len(), repeat).filter(|&slot| queue[slot].id == id)
+}
+
 // ---- Shuffle ----
 
 /// A tiny seeded xorshift64 PRNG, so shuffle needs no crate. Deterministic from its seed: the same
@@ -453,5 +475,140 @@ mod tests {
         assert_eq!(ids(&queue), vec![10, 20]);
         // Shuffled: the pristine order drops the removed id in place, staying pristine otherwise.
         assert_eq!(ids(&original), vec![10, 20]);
+    }
+
+    // ---- Preload target and validation ----
+
+    #[test]
+    fn preload_targets_the_next_slot_when_off() {
+        assert_eq!(preload_target(0, 3, RepeatMode::Off), Some(1));
+        assert_eq!(preload_target(2, 3, RepeatMode::Off), None);
+    }
+
+    #[test]
+    fn preload_wraps_under_repeat_all() {
+        assert_eq!(preload_target(1, 3, RepeatMode::All), Some(2));
+        assert_eq!(preload_target(2, 3, RepeatMode::All), Some(0));
+    }
+
+    #[test]
+    fn preload_targets_the_same_slot_under_repeat_one() {
+        assert_eq!(preload_target(1, 3, RepeatMode::One), Some(1));
+        assert_eq!(preload_target(2, 3, RepeatMode::One), Some(2));
+    }
+
+    #[test]
+    fn preload_on_an_empty_queue_is_none() {
+        for repeat in [RepeatMode::Off, RepeatMode::All, RepeatMode::One] {
+            assert_eq!(preload_target(0, 0, repeat), None);
+        }
+    }
+
+    #[test]
+    fn preload_agrees_with_the_cold_end() {
+        for repeat in [RepeatMode::Off, RepeatMode::All, RepeatMode::One] {
+            for index in 0..4 {
+                let cold = match on_track_end(index, 4, repeat) {
+                    EndAction::Replay => Some(index),
+                    EndAction::Advance(i) => Some(i),
+                    EndAction::Stop => None,
+                };
+                assert_eq!(preload_target(index, 4, repeat), cold);
+            }
+        }
+    }
+
+    #[test]
+    fn pending_holds_while_its_slot_is_unchanged() {
+        let queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        assert_eq!(pending_slot(&queue, 0, RepeatMode::Off, 20), Some(1));
+    }
+
+    #[test]
+    fn pending_is_stale_after_a_repeat_change() {
+        let queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        // Armed for id 20 behind id 10; repeat-one now replays id 10 instead.
+        assert_eq!(pending_slot(&queue, 0, RepeatMode::One, 20), None);
+        // Armed for id 10 replaying itself; turning repeat-one off moves on to id 20.
+        assert_eq!(pending_slot(&queue, 0, RepeatMode::Off, 10), None);
+        // Armed at the end under repeat-all; repeat off stops there instead.
+        assert_eq!(pending_slot(&queue, 2, RepeatMode::All, 10), Some(0));
+        assert_eq!(pending_slot(&queue, 2, RepeatMode::Off, 10), None);
+    }
+
+    #[test]
+    fn pending_is_stale_after_a_shuffle() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30), qtrack(40), qtrack(50)];
+        // Playing id 10 with id 20 armed. Seed 3 puts a different track behind the pinned one.
+        let order = shuffle_order(queue.len(), 0, &mut Xorshift::new(3));
+        queue = order.into_iter().map(|i| queue[i].clone()).collect();
+        assert_eq!(queue[0].id, 10);
+        assert_ne!(queue[1].id, 20);
+        assert_eq!(pending_slot(&queue, 0, RepeatMode::Off, 20), None);
+    }
+
+    #[test]
+    fn pending_follows_its_track_when_an_earlier_slot_moves() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30), qtrack(40)];
+        let mut original = queue.clone();
+        // Playing id 20 (slot 1) with id 30 armed (slot 2). Moving the played id 10 behind them
+        // shifts both up one slot, and the preload stays valid at its new slot.
+        assert!(move_queue_item(&mut queue, &mut original, false, 0, 3));
+        let index = reseat_index(&queue, Some(20), 1);
+        assert_eq!(index, 0);
+        assert_eq!(pending_slot(&queue, index, RepeatMode::Off, 30), Some(1));
+    }
+
+    #[test]
+    fn pending_is_stale_when_another_track_moves_into_its_slot() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30), qtrack(40)];
+        let mut original = queue.clone();
+        // Playing id 10 with id 20 armed; id 40 is dragged to play next.
+        assert!(move_queue_item(&mut queue, &mut original, false, 3, 1));
+        let index = reseat_index(&queue, Some(10), 0);
+        assert_eq!(pending_slot(&queue, index, RepeatMode::Off, 20), None);
+    }
+
+    #[test]
+    fn pending_is_stale_when_its_track_is_removed() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        // Playing id 10 with id 20 armed; id 20 is removed and id 30 slides in.
+        assert_eq!(
+            remove_queue_item(&mut queue, &mut original, false, 1),
+            Some(20)
+        );
+        let index = reseat_index(&queue, Some(10), 0);
+        assert_eq!(pending_slot(&queue, index, RepeatMode::Off, 20), None);
+    }
+
+    #[test]
+    fn pending_follows_its_track_when_a_played_track_is_removed() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        // Playing id 20 with id 30 armed; the played id 10 is removed.
+        remove_queue_item(&mut queue, &mut original, false, 0);
+        let index = reseat_index(&queue, Some(20), 1);
+        assert_eq!(pending_slot(&queue, index, RepeatMode::Off, 30), Some(1));
+    }
+
+    #[test]
+    fn pending_is_stale_when_a_track_is_inserted_before_it() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        // Playing id 10 with id 20 armed; id 99 is inserted to play next.
+        queue.insert(1, qtrack(99));
+        let index = reseat_index(&queue, Some(10), 0);
+        assert_eq!(pending_slot(&queue, index, RepeatMode::Off, 20), None);
+    }
+
+    #[test]
+    fn an_append_keeps_a_pending_target_or_supersedes_the_wrap() {
+        let mut queue = vec![qtrack(10), qtrack(20)];
+        let mut original = queue.clone();
+        enqueue_tracks(&mut queue, &mut original, vec![qtrack(30)]);
+        // Playing id 10 with id 20 armed: an append lands behind it.
+        assert_eq!(pending_slot(&queue, 0, RepeatMode::Off, 20), Some(1));
+        // Playing the last id 20 under repeat-all with id 10 armed: the appended id 30 now plays next.
+        assert_eq!(pending_slot(&queue, 1, RepeatMode::All, 10), None);
     }
 }

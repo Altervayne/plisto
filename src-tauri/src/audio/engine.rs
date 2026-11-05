@@ -7,7 +7,7 @@
 
 // -- Library Imports --
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -20,8 +20,9 @@ use tauri::Emitter;
 // -- Local Imports --
 use super::dsp::DspShared;
 use super::queue::{
-    advance_index, clamp_index, enqueue_tracks, move_queue_item, on_track_end, prev_index,
-    remove_queue_item, reseat_index, shuffle_order, EndAction, Xorshift,
+    advance_index, clamp_index, enqueue_tracks, move_queue_item, on_track_end, pending_slot,
+    preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
+    Xorshift,
 };
 use super::source::{self, DecoderSource, SpectrumTap, BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW};
 use super::{
@@ -30,7 +31,42 @@ use super::{
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
 
+// How close to its end the current track gets before the next one is opened and queued behind it.
+const PRELOAD_SECS: f64 = 10.0;
+
 // ---- The resident engine ----
+
+/// The engine's read side of one source, taken before the source moves into the sink.
+struct SourceHandles {
+    frames: Arc<AtomicU64>,
+    spectrum: Arc<SpectrumTap>,
+    ended: Arc<AtomicBool>,
+    rate: u32,
+    channels: u16,
+    duration: f64,
+}
+
+impl SourceHandles {
+    fn of(src: &DecoderSource) -> Self {
+        Self {
+            frames: Arc::clone(&src.frames),
+            spectrum: Arc::clone(&src.spectrum),
+            ended: Arc::clone(&src.ended),
+            rate: src.spec.sample_rate,
+            channels: src.spec.channels,
+            duration: src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0),
+        }
+    }
+}
+
+/// The next track, opened ahead and queued on the sink behind the current source so it starts on the
+/// current one's last sample. `slot` follows the track through queue edits.
+struct Pending {
+    slot: usize,
+    id: i64,
+    handles: SourceHandles,
+    cancel: Arc<AtomicBool>,
+}
 
 /// All playback state, single-owner on the audio thread and never locked. `_stream` is held only to
 /// keep the device alive - dropping it silences output - and it is what forces this struct to stay
@@ -60,12 +96,20 @@ struct Engine {
     // The live DSP parameters every source's stage reads.
     dsp: Arc<DspShared>,
     cur_rate: u32,
+    cur_channels: u16,
     cur_duration: f64,
     cur_track_id: Option<i64>,
+    // The current source's drained flag. Once set with a preload queued, the sink is already playing
+    // the preload and the engine promotes it.
+    cur_ended: Option<Arc<AtomicBool>>,
+    pending: Option<Pending>,
+    // The (slot, id) of the last preload attempt, so a dead or mismatched next file is opened once per
+    // window rather than on every tick. Cleared with `pending`.
+    preload_tried: Option<(usize, i64)>,
     // Latched true once the play head crosses the half mark of the current listen, so a manual end past
-    // it counts as a partial play. Reset per start_source, the one place a new listen begins.
+    // it counts as a partial play. Reset by begin_listen.
     played_half: bool,
-    // Guards the play-log emit to at most once per listen. Reset per start_source alongside played_half.
+    // Guards the play-log emit to at most once per listen. Reset by begin_listen.
     listen_recorded: bool,
     // Set only while a preview is auditioning: the frame the current source stops at. `tick` ends the
     // preview when the play head reaches it. None for ordinary library playback, which runs to the
@@ -93,10 +137,7 @@ impl Engine {
     /// Builds the current snapshot from engine-local state. Position is derived from the shared
     /// frame counter over the source's sample rate, so it advances without polling the sink.
     fn snapshot(&self) -> PlayerStatus {
-        let position_secs = match (&self.cur_frames, self.cur_rate) {
-            (Some(frames), rate) if rate > 0 => frames.load(Ordering::Relaxed) as f64 / rate as f64,
-            _ => 0.0,
-        };
+        let position_secs = self.position_secs();
         PlayerStatus {
             // `playing` here means actively producing sound, so a paused track reports false. Whether
             // a track session is loaded is `track_id`. Internally `self.playing` is the session flag,
@@ -111,6 +152,14 @@ impl Engine {
             queue_len: self.queue.len(),
             shuffle: self.shuffle,
             output_device: self.bound_device.clone(),
+        }
+    }
+
+    /// The play head in seconds, from the current source's frame counter over its rate.
+    fn position_secs(&self) -> f64 {
+        match (&self.cur_frames, self.cur_rate) {
+            (Some(frames), rate) if rate > 0 => frames.load(Ordering::Relaxed) as f64 / rate as f64,
+            _ => 0.0,
         }
     }
 
@@ -236,21 +285,13 @@ impl Engine {
         }
     }
 
-    /// Reseats engine state onto `src` and hands it to the sink. Reads the shared counter, rate and
-    /// duration off the source before it is moved into the sink; with no device the state still
-    /// updates so the snapshot is coherent, only the append is skipped.
+    /// Reseats engine state onto `src` and hands it to the sink. Reads the source's handles before it
+    /// is moved into the sink; with no device the state still updates so the snapshot is coherent,
+    /// only the append is skipped.
     fn start_source(&mut self, i: usize, src: DecoderSource) {
-        self.index = i;
-        self.cur_frames = Some(Arc::clone(&src.frames));
-        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
-        self.cur_rate = src.spec.sample_rate;
-        self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
-        self.cur_track_id = Some(self.queue[i].id);
-        // A real track supersedes any preview: drop the boundary so it plays to its natural end.
-        self.stop_at_frame = None;
-        // A fresh listen begins: neither the half mark nor the record has fired for it yet.
-        self.played_half = false;
-        self.listen_recorded = false;
+        self.clear_pending();
+        self.begin_listen(i, self.queue[i].id);
+        self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();
             sink.append(src);
@@ -261,9 +302,130 @@ impl Engine {
         self.playing = true;
     }
 
+    /// Starts a new listen on queue slot `i` holding track `id`: neither the half mark nor the record
+    /// has fired for it yet, and a real track supersedes any preview boundary.
+    fn begin_listen(&mut self, i: usize, id: i64) {
+        self.index = i;
+        self.cur_track_id = Some(id);
+        self.stop_at_frame = None;
+        self.played_half = false;
+        self.listen_recorded = false;
+    }
+
+    /// Points the position, spectrum and end reads at a new source.
+    fn seat(&mut self, h: SourceHandles) {
+        self.cur_frames = Some(h.frames);
+        self.cur_spectrum = Some(h.spectrum);
+        self.cur_ended = Some(h.ended);
+        self.cur_rate = h.rate;
+        self.cur_channels = h.channels;
+        self.cur_duration = h.duration;
+    }
+
+    /// Cancels the queued preload, if any, and forgets the last attempt so the window can re-arm.
+    /// Every path that clears or replaces the sink calls this first: a preload outliving its sink
+    /// would be promoted onto a source that never plays.
+    fn clear_pending(&mut self) {
+        if let Some(p) = self.pending.take() {
+            p.cancel.store(true, Ordering::Relaxed);
+        }
+        self.preload_tried = None;
+    }
+
+    /// Keeps the preload only while it is still the track that plays next, following it to its new
+    /// slot after a queue edit. Otherwise it is cancelled, and the next tick arms the right one.
+    fn revalidate_pending(&mut self) {
+        let id = match &self.pending {
+            Some(p) => p.id,
+            None => return,
+        };
+        match pending_slot(&self.queue, self.index, self.repeat, id) {
+            Some(slot) => {
+                if let Some(p) = &mut self.pending {
+                    p.slot = slot;
+                }
+            }
+            None => self.clear_pending(),
+        }
+    }
+
+    /// Opens the track that plays next and queues it behind the current source, once the current
+    /// track is within PRELOAD_SECS of its end, or at once when its length is unknown. A next file
+    /// that fails to open, or whose rate or channel count differs from the current source, is left to
+    /// the cold end: rodio's queue reads the first block after a layout change in the old layout.
+    fn arm_preload(&mut self) {
+        let drained = self
+            .cur_ended
+            .as_ref()
+            .is_some_and(|e| e.load(Ordering::Relaxed));
+        if self.pending.is_some()
+            || self.sink.is_none()
+            || !self.playing
+            || self.cur_track_id.is_none()
+            || self.stop_at_frame.is_some()
+            || drained
+        {
+            return;
+        }
+        if self.cur_duration > 0.0 && self.cur_duration - self.position_secs() > PRELOAD_SECS {
+            return;
+        }
+        let slot = match preload_target(self.index, self.queue.len(), self.repeat) {
+            Some(slot) => slot,
+            None => return,
+        };
+        let id = self.queue[slot].id;
+        if self.preload_tried == Some((slot, id)) {
+            return;
+        }
+        self.preload_tried = Some((slot, id));
+        let src = match self.open_source(&self.queue[slot].path, None, 0.0) {
+            Some(s) => s,
+            None => return,
+        };
+        if src.spec.sample_rate != self.cur_rate || src.spec.channels != self.cur_channels {
+            return;
+        }
+        let handles = SourceHandles::of(&src);
+        let cancel = Arc::clone(&src.cancel);
+        if let Some(sink) = &self.sink {
+            sink.append(src);
+        }
+        self.pending = Some(Pending {
+            slot,
+            id,
+            handles,
+            cancel,
+        });
+    }
+
+    /// Promotes the preload once the current source has drained into it. The sink never empties
+    /// between the two, so the finished track's completed play is recorded here; then every piece of
+    /// current-track state moves onto the preload and a forced status retitles the now-playing
+    /// surfaces.
+    fn promote(&mut self) {
+        let drained = self
+            .cur_ended
+            .as_ref()
+            .is_some_and(|e| e.load(Ordering::Relaxed));
+        if !drained {
+            return;
+        }
+        let p = match self.pending.take() {
+            Some(p) => p,
+            None => return,
+        };
+        self.record_play(true);
+        self.preload_tried = None;
+        self.begin_listen(p.slot, p.id);
+        self.seat(p.handles);
+        self.emit(true);
+    }
+
     /// Stops playback and clears the current-track state. The sink is emptied so the next play
     /// starts clean.
     fn stop_playback(&mut self) {
+        self.clear_pending();
         if let Some(sink) = &self.sink {
             sink.clear();
         }
@@ -271,7 +433,9 @@ impl Engine {
         self.paused = false;
         self.cur_frames = None;
         self.cur_spectrum = None;
+        self.cur_ended = None;
         self.cur_rate = 0;
+        self.cur_channels = 0;
         self.cur_duration = 0.0;
         self.cur_track_id = None;
         self.stop_at_frame = None;
@@ -321,10 +485,8 @@ impl Engine {
             None => return,
         };
         let rate = src.spec.sample_rate;
-        self.cur_frames = Some(Arc::clone(&src.frames));
-        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
-        self.cur_rate = rate;
-        self.cur_duration = src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        self.clear_pending();
+        self.seat(SourceHandles::of(&src));
         self.cur_track_id = None;
         self.stop_at_frame = if rate > 0 {
             Some((end_secs.max(0.0) * rate as f64).round() as u64)
@@ -379,9 +541,9 @@ impl Engine {
             Some(s) => s,
             None => return,
         };
-        self.cur_frames = Some(Arc::clone(&src.frames));
-        self.cur_spectrum = Some(Arc::clone(&src.spectrum));
-        self.cur_rate = src.spec.sample_rate;
+        // Inside the window the next tick re-arms the preload this drops.
+        self.clear_pending();
+        self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();
             sink.append(src);
@@ -399,13 +561,14 @@ impl Engine {
     /// preserving the current track and play head across the swap. Any failure to open leaves the
     /// engine device-less but coherent, never panicking.
     fn rebind(&mut self, pref: Option<String>) {
+        // A boundary already crossed resumes the track now playing, not the one that just ended.
+        self.promote();
         // Capture the play head and session before the old device drops, so the rebuilt sink resumes
         // the same track at the same spot. Same math the snapshot uses.
-        let resume_secs = match (&self.cur_frames, self.cur_rate) {
-            (Some(frames), rate) if rate > 0 => frames.load(Ordering::Relaxed) as f64 / rate as f64,
-            _ => 0.0,
-        };
+        let resume_secs = self.position_secs();
         let was_playing = self.cur_track_id.is_some();
+        // A preload queued on the old sink drops with it.
+        self.clear_pending();
 
         // Resolve the target device and its real name. A pinned name that no longer enumerates falls
         // back to the system default with a one-off error.
@@ -492,6 +655,9 @@ impl Engine {
 
     /// Applies one transport command, then emits a forced status since every command changes state.
     fn handle(&mut self, cmd: PlayerCmd) {
+        // A boundary crossed since the last tick is promoted first, so the command acts on the track
+        // actually playing.
+        self.promote();
         match cmd {
             PlayerCmd::Play { queue, index } => {
                 // The outgoing listen ends by hand: count it if it passed half, before the queue is
@@ -584,6 +750,7 @@ impl Engine {
                     self.play_at(first_new);
                 } else {
                     // The sink is untouched: a playing track plays on, a paused track stays paused.
+                    self.revalidate_pending();
                     self.emit(true);
                 }
             }
@@ -598,6 +765,7 @@ impl Engine {
                     return;
                 }
                 self.reseat_cursor();
+                self.revalidate_pending();
                 self.emit_queue();
                 self.emit(true);
             }
@@ -627,6 +795,7 @@ impl Engine {
                 } else {
                     // Removing an up-next or played track: the sink plays on, only the cursor moves.
                     self.reseat_cursor();
+                    self.revalidate_pending();
                     self.emit_queue();
                     self.emit(true);
                 }
@@ -641,6 +810,7 @@ impl Engine {
             }
             PlayerCmd::SetRepeat(m) => {
                 self.repeat = m;
+                self.revalidate_pending();
                 self.emit(true);
             }
             PlayerCmd::SetShuffle(on) => {
@@ -653,6 +823,7 @@ impl Engine {
                     } else {
                         self.restore_order();
                     }
+                    self.revalidate_pending();
                     self.emit_queue();
                 }
                 self.emit(true);
@@ -667,7 +838,8 @@ impl Engine {
         }
     }
 
-    /// The idle tick between commands: detects a track that played out and moves the queue, then
+    /// The idle tick between commands: promotes a preload the sink crossed into, detects a track that
+    /// played out with nothing queued behind it and moves the queue, arms the next preload, then
     /// writes a periodic status. An unplugged device mid-play is not handled here - `sink.empty()`
     /// reads as track-end.
     fn tick(&mut self) {
@@ -685,18 +857,15 @@ impl Engine {
                 }
             }
         }
+        self.promote();
         // Latch the half-play mark while audio genuinely advances through the source, so a manual end
         // past it counts and a seek alone never does. The latch only sets; record_play gates the id.
-        if self.is_audible() && self.cur_duration > 0.0 && !self.played_half {
-            let pos = match (&self.cur_frames, self.cur_rate) {
-                (Some(frames), rate) if rate > 0 => {
-                    frames.load(Ordering::Relaxed) as f64 / rate as f64
-                }
-                _ => 0.0,
-            };
-            if pos >= 0.5 * self.cur_duration {
-                self.played_half = true;
-            }
+        if self.is_audible()
+            && self.cur_duration > 0.0
+            && !self.played_half
+            && self.position_secs() >= 0.5 * self.cur_duration
+        {
+            self.played_half = true;
         }
         if let Some(stop) = self.stop_at_frame {
             // A preview stops at its out-point, or if the file ends first, without ever moving the
@@ -721,6 +890,7 @@ impl Engine {
                 EndAction::Stop => self.stop_playback(),
             }
         }
+        self.arm_preload();
         // Self-gates on is_audible, so an idle tick emits nothing; the status path keeps its own throttle.
         self.emit_spectrum();
         self.emit(false);
@@ -791,8 +961,12 @@ fn run(
         prev_bands: [0.0; BAND_COUNT],
         dsp: Arc::new(DspShared::default()),
         cur_rate: 0,
+        cur_channels: 0,
         cur_duration: 0.0,
         cur_track_id: None,
+        cur_ended: None,
+        pending: None,
+        preload_tried: None,
         played_half: false,
         listen_recorded: false,
         stop_at_frame: None,
