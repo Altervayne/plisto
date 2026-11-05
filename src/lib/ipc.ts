@@ -36,6 +36,7 @@ import type {
   ImageFolderGroup,
   LibrarySyncStatus,
   ListTracksResponse,
+  LoudnessCoverage,
   MergeReceipt,
   OrganizationSnapshot,
   OutputDeviceInfo,
@@ -161,6 +162,11 @@ export function rescanLibrary(rootId?: number): Promise<void> {
 /** The library-sync snapshot: keep-up-to-date on or off, session progress, each root's watch mode. */
 export function getLibrarySyncStatus(): Promise<LibrarySyncStatus> {
   return invoke<LibrarySyncStatus>("get_library_sync_status");
+}
+
+/** How the present tracks stand for levelling: tagged, measured, unmeasurable and still pending. */
+export function loudnessCoverage(): Promise<LoudnessCoverage> {
+  return invoke<LoudnessCoverage>("loudness_coverage");
 }
 
 /** The rows for `ids`, shaped exactly as `list_tracks` returns them. Missing ids are left out. */

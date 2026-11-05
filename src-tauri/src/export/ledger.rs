@@ -468,6 +468,50 @@ mod tests {
     }
 
     #[test]
+    fn the_loudness_writer_never_moves_a_track_fingerprint() {
+        use crate::db;
+        use crate::export::plan::build_plan;
+        use crate::loudness::writer::{write_gain_tags, write_loudness, GainTags, Loudness, Stamp};
+
+        let mut conn = db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO tracks (source_path, display_path, filename, ext, size_bytes, mtime,
+                                 raw_title, raw_artist, has_embedded_cover, scanned_at)
+             VALUES ('/m/1.mp3', '/m/1.mp3', '1.mp3', 'mp3', 10, 20, 'One', 'Artist', 1, 30)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        db::create_album(&mut conn, None, None, None, None, None, &[id], "album", 1).unwrap();
+
+        let print_of = |conn: &rusqlite::Connection| {
+            let plan = build_plan(conn).unwrap();
+            let c = &plan.containers[0];
+            track_fingerprint("Albums/A/B/01 - One.mp3", c, &c.tracks[0])
+        };
+        let before = print_of(&conn);
+
+        let stamp = Stamp {
+            size_bytes: 10,
+            mtime: 20,
+        };
+        let tags = GainTags {
+            track_gain: None,
+            track_peak: Some(0.9),
+            album_gain: Some(-7.0),
+            album_peak: Some(0.95),
+        };
+        assert!(write_gain_tags(&conn, id, stamp, &tags).unwrap());
+        let measured = Loudness {
+            lufs: -14.0,
+            peak: 0.8,
+        };
+        assert!(write_loudness(&conn, id, stamp, Some(measured)).unwrap());
+
+        assert_eq!(print_of(&conn), before);
+    }
+
+    #[test]
     fn a_fingerprint_is_deterministic_hex() {
         let c = container(vec![track()]);
         let a = print(&c);

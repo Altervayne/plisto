@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 // -- Local Imports --
+use crate::loudness::LoudnessCmd;
 use crate::state::AppState;
 
 /// How long a user taker waits for a preempted background pass to let go.
@@ -44,6 +45,8 @@ impl Drop for ScanLockGuard<'_> {
         *holder = None;
         self.state.scan_running.store(false, Ordering::SeqCst);
         self.state.bg_active.store(false, Ordering::SeqCst);
+        // Every scan and batch write ends here, so the loudness worker re-sweeps what it changed.
+        let _ = self.state.loudness.send(LoudnessCmd::Kick);
     }
 }
 

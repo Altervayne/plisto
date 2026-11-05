@@ -441,7 +441,7 @@ fn walk_dir(walk: &mut Walk, dir: &Path, recursive: bool, is_root: bool, cancel:
 
 /// Reads a file's size and mtime. Returns None when the file cannot be stat'd, in which case
 /// the worker leaves it out of this pass rather than indexing a row it cannot describe.
-fn file_stats(path: &Path) -> Option<(i64, i64)> {
+pub(crate) fn file_stats(path: &Path) -> Option<(i64, i64)> {
     let md = std::fs::metadata(path).ok()?;
     let mtime = md
         .modified()
@@ -899,6 +899,41 @@ mod tests {
                 [],
             )
             .unwrap();
+        }
+
+        let again = scan(&music.path, &db_path);
+        assert_eq!(again.total, 2);
+        assert_eq!(again.skipped, again.total, "no row reads as changed");
+        assert_eq!(again.updated, 0);
+        assert_eq!(again.inserted, 0);
+    }
+
+    #[test]
+    fn a_loudness_worker_visit_does_not_make_a_rescan_re_read() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        scan(&music.path, &db_path);
+
+        // Rows indexed before the tag gains existed, so the visit runs the tags backfill and the stamp.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute("UPDATE tracks SET gain_tags_read = NULL", [])
+                .unwrap();
+            crate::loudness::test_support::visit_all(&conn);
+            let stamped: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM tracks
+                     WHERE gain_tags_read = 1 AND loudness_size = size_bytes
+                       AND loudness_mtime = mtime",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(stamped, 2);
         }
 
         let again = scan(&music.path, &db_path);

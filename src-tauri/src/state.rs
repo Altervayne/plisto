@@ -19,6 +19,7 @@ use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus};
 use crate::covers::InFlightGuard;
 use crate::dto::{ExportStatus, LibrarySyncStatus};
 use crate::library_sync::SyncCmd;
+use crate::loudness::LoudnessCmd;
 use crate::scan_lock::Holder;
 
 /// Everything shared across commands and background threads, held by Tauri for the app's life. The
@@ -44,6 +45,8 @@ pub struct AppState {
     pub library_sync_status: Mutex<LibrarySyncStatus>,
     /// Atomic like `close_to_tray`, so the sync thread and the status read never touch the kv.
     pub keep_library_up_to_date: AtomicBool,
+    /// The handle to the loudness worker.
+    pub loudness: crossbeam_channel::Sender<LoudnessCmd>,
     pub covers_dir: PathBuf,
     /// Collapses identical concurrent thumbnail generations to a single decode.
     pub covers_in_flight: Arc<InFlightGuard>,
@@ -83,6 +86,7 @@ impl AppState {
     pub(crate) fn for_test(db: Connection, covers_dir: PathBuf) -> Self {
         let (player, _rx) = crossbeam_channel::unbounded();
         let (library_sync, _sync_rx) = crossbeam_channel::unbounded();
+        let (loudness, _loudness_rx) = crossbeam_channel::unbounded();
         Self {
             db: Mutex::new(db),
             db_path: PathBuf::new(),
@@ -94,6 +98,7 @@ impl AppState {
             library_sync,
             library_sync_status: Mutex::new(LibrarySyncStatus::default()),
             keep_library_up_to_date: AtomicBool::new(true),
+            loudness,
             covers_dir,
             covers_in_flight: Arc::new(crate::covers::InFlightGuard::default()),
             export_cancel: Arc::new(AtomicBool::new(false)),

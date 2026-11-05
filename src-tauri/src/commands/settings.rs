@@ -12,6 +12,8 @@ use tauri::State;
 // -- Local Imports --
 use crate::db;
 use crate::library_sync::SyncCmd;
+use crate::loudness::LoudnessCmd;
+use crate::sound_settings::{self, Levelling};
 use crate::state::AppState;
 
 /// The first library root's path, or None when the library is empty. The interim single-folder
@@ -52,6 +54,10 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
         let on = value != "0";
         state.keep_library_up_to_date.store(on, Ordering::Relaxed);
         let _ = state.library_sync.send(SyncCmd::SetEnabled(on));
+    }
+    if key == "sound" {
+        let on = sound_settings::parse(&value).levelling != Levelling::Off;
+        let _ = state.loudness.send(LoudnessCmd::SetEnabled(on));
     }
     Ok(())
 }

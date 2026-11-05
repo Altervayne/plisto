@@ -94,6 +94,18 @@ export interface LibrarySyncTick {
   deferred: number;
 }
 
+/**
+ * How the present tracks stand for loudness levelling, from `loudness_coverage` and the `loudness:progress`
+ * event. The four buckets sum to `total`. Mirrors LoudnessCoverage in dto.rs.
+ */
+export interface LoudnessCoverage {
+  total: number;
+  tagged: number;
+  measured: number;
+  unmeasurable: number;
+  pending: number;
+}
+
 /** The `library:delta` payload: changed row ids, or a reload when too many changed. Mirrors LibraryDelta. */
 export type LibraryDelta = { ids: number[] } | { reload: true };
 

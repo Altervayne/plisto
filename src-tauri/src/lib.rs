@@ -9,6 +9,7 @@ mod dto;
 mod export;
 mod intake;
 mod library_sync;
+mod loudness;
 mod model;
 mod normalize;
 mod paths;
@@ -18,7 +19,7 @@ mod resolve;
 mod scan;
 mod scan_lock;
 mod smtc;
-#[allow(dead_code)] // No consumer wired yet; the loudness worker and the EQ engine remove this.
+#[allow(dead_code)] // The band table and the wire form have no consumer until the EQ engine lands.
 mod sound_settings;
 mod splice;
 mod startup;
@@ -38,6 +39,8 @@ use tauri::{Manager, WindowEvent};
 use covers::InFlightGuard;
 use dto::{ExportStatus, LibrarySyncStatus};
 use library_sync::SyncCmd;
+use loudness::LoudnessCmd;
+use sound_settings::Levelling;
 use state::AppState;
 use tray::TrayState;
 
@@ -199,6 +202,14 @@ pub fn run() {
                 != Some("0");
             let (sync_tx, sync_rx) = crossbeam_channel::unbounded::<SyncCmd>();
 
+            // The loudness worker measures only while levelling is on, so its start state comes from
+            // the stored `sound` blob through the same parser the settings hook uses. Absent reads off.
+            let levelling_on = db::get_setting(&conn, "sound")
+                .ok()
+                .flatten()
+                .is_some_and(|raw| sound_settings::parse(&raw).levelling != Levelling::Off);
+            let (loudness_tx, loudness_rx) = crossbeam_channel::unbounded::<LoudnessCmd>();
+
             // Stash the file the OS cold-launched Plisto with, if any, for the frontend to pull on
             // mount. This stays the standalone tree signal - the pull tells the webview to render the
             // player - never the play trigger: the intake buffer below plays the batch, so the cold file
@@ -219,6 +230,7 @@ pub fn run() {
                 library_sync: sync_tx.clone(),
                 library_sync_status: Mutex::new(LibrarySyncStatus::default()),
                 keep_library_up_to_date: AtomicBool::new(keep_library_up_to_date),
+                loudness: loudness_tx,
                 covers_dir,
                 covers_in_flight,
                 export_cancel: Arc::new(AtomicBool::new(false)),
@@ -272,6 +284,9 @@ pub fn run() {
             // Start the library sync once state and the roots it reads are in place. It owns the
             // watches and the background passes for the app's life.
             library_sync::spawn(app.handle().clone(), sync_rx, sync_tx);
+
+            // Start the loudness worker on its own connection, once the state it reads is managed.
+            loudness::spawn(app.handle().clone(), loudness_rx, levelling_on);
 
             Ok(())
         })
@@ -375,6 +390,7 @@ pub fn run() {
             commands::relocate::preview_relocate,
             commands::relocate::relocate_root,
             commands::missing::remove_missing_tracks,
+            commands::loudness::loudness_coverage,
             commands::window::show_main_window,
             commands::window::quit_app,
             commands::window::confirm_quit,

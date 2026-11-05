@@ -268,6 +268,18 @@ pub struct LibrarySyncStatus {
     pub roots: Vec<RootWatchState>,
 }
 
+/// How the present tracks stand for loudness levelling, from `loudness_coverage` and the
+/// `loudness:progress` event: a tag track gain, a measured value, tried with no value, or still to visit.
+/// The four buckets sum to `total`. Mirrors LoudnessCoverage in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct LoudnessCoverage {
+    pub total: u32,
+    pub tagged: u32,
+    pub measured: u32,
+    pub unmeasurable: u32,
+    pub pending: u32,
+}
+
 /// Sort direction for `list_tracks`.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
