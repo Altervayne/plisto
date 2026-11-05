@@ -58,6 +58,24 @@
     inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
 }
 
+/* Dot cover draws the matrix on its own backing under this clear tile, which keeps the shadow and a faint
+ * edge. */
+.dotTile {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  box-shadow: var(--shadow-pop);
+}
+
+.dotTile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--veil);
+}
+
 /* No art: the quiet recess the empty Player uses, with a music glyph. */
 .noCover {
   display: grid;

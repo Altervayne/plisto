@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 // -- Icon Imports --
@@ -62,6 +62,10 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const t = useT();
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverRef = useRef<HTMLSpanElement | null>(null);
+  // The seek bar the visualizer rests on, and the words it quiets itself behind.
+  const seekRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const hushRefs = useMemo(() => [textRef], []);
   const [hint, setHint] = useState(true);
   const [toast, setToast] = useState<{ label: string; id: number; gone: boolean } | null>(null);
 
@@ -98,7 +102,6 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
 
   useAmbientKeys({ stage: stageRef, onExit, onCycle: cycle, onTogglePlay: actions.toggle, onWake: wake });
 
-  const liquid = choice.kind === "liquid";
   const fade = faded ? "" : undefined;
 
   return createPortal(
@@ -113,12 +116,21 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       onPointerDown={wake}
     >
       <Aurora trackId={trackId} coverRef={coverRef} eased />
-      <Visualizer choice={choice} trackId={trackId} ambient coverRef={coverRef} />
+      <Visualizer
+        choice={choice}
+        trackId={trackId}
+        ambient
+        coverRef={coverRef}
+        floorRef={seekRef}
+        hushRefs={hushRefs}
+      />
 
       <div className={styles.body}>
         <span ref={coverRef} className={styles.cover}>
-          {liquid ? (
+          {choice.kind === "liquid" ? (
             <span className={styles.liquidTile} aria-hidden="true" />
+          ) : choice.kind === "dot-cover" ? (
+            <span className={styles.dotTile} aria-hidden="true" />
           ) : coverSrc ? (
             <Cover src={coverSrc} alt="" />
           ) : (
@@ -127,7 +139,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
             </span>
           )}
         </span>
-        <AmbientText trackId={trackId} faded={faded} />
+        <AmbientText trackId={trackId} faded={faded} textRef={textRef} />
       </div>
 
       <div className={styles.pill} data-place="hint" data-gone={hint ? undefined : ""} aria-hidden={!hint}>
@@ -155,7 +167,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       </div>
 
       <div className={styles.chrome} data-faded={fade}>
-        <div className={styles.seek}>
+        <div ref={seekRef} className={styles.seek}>
           <SeekBar position={status.position_secs} duration={status.duration_secs} onSeek={actions.seek} />
         </div>
         <div className={styles.row}>

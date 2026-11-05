@@ -14,8 +14,10 @@ import { getSetting, setSetting } from "../../lib/ipc";
 // -- State Imports --
 import {
   normalizeReactivity,
+  normalizeSpectrumLayout,
   normalizeVisualizerKind,
   type Reactivity,
+  type SpectrumLayout,
   type VisualizerKind,
 } from "../player/visualizerKind";
 
@@ -50,6 +52,7 @@ export const PREF_KEYS = {
   sound: "sound",
   playerVisualizer: "player_visualizer",
   playerVisualizerReactivity: "player_visualizer_reactivity",
+  playerSpectrumLayout: "player_spectrum_layout",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
   playerResume: "player_resume",
   // The update version the user put off with Later; that version no longer prompts on its own.
@@ -148,4 +151,14 @@ export const usePlayerVisualizerReactivity = (): Reactivity =>
 export const useSetPlayerVisualizerReactivity = (): ((level: Reactivity) => void) => {
   const setPreference = useSetPreference();
   return (level) => setPreference(PREF_KEYS.playerVisualizerReactivity, level);
+};
+
+/** How the dot spectrum lays out its columns. An absent or unknown pref reads bass-left. */
+export const usePlayerSpectrumLayout = (): SpectrumLayout =>
+  normalizeSpectrumLayout(usePreference(PREF_KEYS.playerSpectrumLayout));
+
+/** Persists the dot spectrum's layout. Best-effort like every other pref. */
+export const useSetPlayerSpectrumLayout = (): ((layout: SpectrumLayout) => void) => {
+  const setPreference = useSetPreference();
+  return (layout) => setPreference(PREF_KEYS.playerSpectrumLayout, layout);
 };

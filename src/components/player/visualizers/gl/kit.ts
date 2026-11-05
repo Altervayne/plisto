@@ -3,6 +3,9 @@
  * the full-screen triangle. Every candidate draws through this, so none touches context setup.
  */
 
+// -- Local Imports --
+import { HUSH_SLOTS } from "./shaders";
+
 // -- Type Imports --
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
@@ -17,6 +20,8 @@ export interface Geometry {
   mask: Rect | null;
   // The height of the element the layer rests on, such as the seek bar's top edge; null for none.
   floor: number | null;
+  // The text blocks a visualizer may hush behind, up to HUSH_SLOTS of them.
+  hush: Rect[];
 }
 
 /** One frame's inputs. */
@@ -33,6 +38,10 @@ export interface Frame {
   fine: number[] | null;
   // The cover's pixels, flipped for GL, or null when there are none.
   cover: ImageBitmap | null;
+  // The dot spectrum lays its columns out from the centre rather than from the left.
+  mirrored: boolean;
+  // The ground under a cover-sized dot matrix, as sRGB in 0..1: paper on light, near-black on dark.
+  backing: [number, number, number];
 }
 
 /** The feedback a trail candidate applies to the previous frame. */
@@ -55,6 +64,10 @@ export interface Candidate {
   trailCenter?: () => [number, number];
   trailZoom?: (frame: Frame) => number;
   trailDecay?: (frame: Frame) => number;
+  // The corner darkening ambient applies, 0..1; absent, the stage default.
+  vignette?: number;
+  // Draws across the whole stage, ignoring the mask.
+  fullBleed?: boolean;
   dispose: () => void;
 }
 
@@ -90,12 +103,16 @@ export interface Kit {
   dispose: () => void;
 }
 
+// The hush's falloff width around a text block, in CSS pixels.
+const HUSH_FEATHER = 110;
+
 /** Builds the kit over a fresh context. Throws on a shader that fails to compile or link. */
 export function createKit(gl: WebGL2RenderingContext): Kit {
   const floatOk = gl.getExtension("EXT_color_buffer_float") != null;
   const programs = new Map<string, Program>();
   const size = { w: 1, h: 1, dpr: 1 };
-  const geo: Geometry = { cover: [0, 0, 1, 1], radius: 16, mask: null, floor: null };
+  const geo: Geometry = { cover: [0, 0, 1, 1], radius: 16, mask: null, floor: null, hush: [] };
+  const hush = new Float32Array(HUSH_SLOTS * 4);
 
   const quad = gl.createVertexArray();
   const quadVbo = gl.createBuffer();
@@ -184,6 +201,13 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
     set4(p, "uCover", geo.cover);
     set1(p, "uRadius", geo.radius);
     set1(p, "uAmbient", f.ambient ? 1 : 0);
+    const lh = uniform(p, "uHush");
+    if (lh) {
+      hush.fill(0);
+      geo.hush.slice(0, HUSH_SLOTS).forEach((r, i) => hush.set(r, i * 4));
+      gl.uniform4fv(lh, hush);
+      set1(p, "uHushFeather", HUSH_FEATHER * size.dpr);
+    }
   };
 
   const drawQuad = () => {

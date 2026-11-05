@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // -- Component Imports --
 import { AmbientButton } from "./ambient/AmbientButton";
@@ -97,8 +97,9 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
  * The playing stage: the two columns over the current cover, spread as a soft ambient glow behind both,
  * an aurora of drifting colour blooms above it, and the picked visualizer rising around the cover. Mounts
  * only with a real track id, so its id-typed cover hook never runs empty. The ambient layers sit under the
- * content, which carries the only lit mark. While ambient mode is up, the aurora and visualizer stand
- * down here, so only the full-screen stage draws.
+ * content, which carries the only lit mark. Liquid alone fills the whole panel, so under it the queue
+ * takes a frosted backing. While ambient mode is up, the aurora and visualizer stand down here, so only
+ * the full-screen stage draws.
  */
 function PlayerStage({
   trackId,
@@ -121,7 +122,15 @@ function PlayerStage({
   const heroRef = useRef<HTMLDivElement | null>(null);
   // The seek bar, which the visualizer can rest on.
   const seekRef = useRef<HTMLDivElement | null>(null);
+  // The source line and the title block, which the visualizer can quiet itself behind.
+  const sourceRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const hushRefs = useMemo(() => [sourceRef, textRef], []);
   const choice = useVisualizerChoice(coverSrc);
+  // Liquid and Dot cover draw the art themselves, under a clear tile in place of the cover.
+  let drawnArt: "liquid" | "dots" | null = null;
+  if (!ambient && choice.kind === "liquid") drawnArt = "liquid";
+  else if (!ambient && choice.kind === "dot-cover") drawnArt = "dots";
 
   return (
     <div className={`${styles.panel} ${styles.view}`}>
@@ -134,6 +143,7 @@ function PlayerStage({
           coverRef={coverRef}
           maskRef={heroRef}
           floorRef={seekRef}
+          hushRefs={hushRefs}
         />
       )}
       <div className={styles.content}>
@@ -143,11 +153,13 @@ function PlayerStage({
           coverRef={coverRef}
           heroRef={heroRef}
           seekRef={seekRef}
-          liquid={!ambient && choice.kind === "liquid"}
+          sourceRef={sourceRef}
+          textRef={textRef}
+          drawnArt={drawnArt}
           onEnterAmbient={onEnterAmbient}
           ambientRef={entryRef}
         />
-        <QueueList />
+        <QueueList frosted={!ambient && choice.kind === "liquid"} />
       </div>
     </div>
   );

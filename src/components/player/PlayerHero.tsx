@@ -27,8 +27,8 @@ import styles from "./PlayerHero.module.css";
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
  * transport with the Sound button leading it and the ambient entry and volume rail trailing it. Mounts
  * only with a real track id, so its id-typed hooks never run empty. The seek fill is the one lit accent
- * of the view; every other control reads by weight and material. Under the Liquid visualizer the art is
- * drawn by the visualizer beneath a clear tile that keeps the cover's shadow.
+ * of the view; every other control reads by weight and material. Under the Liquid and Dot cover
+ * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow.
  */
 export function PlayerHero({
   trackId,
@@ -36,7 +36,9 @@ export function PlayerHero({
   coverRef,
   heroRef,
   seekRef,
-  liquid = false,
+  sourceRef,
+  textRef,
+  drawnArt = null,
   onEnterAmbient,
   ambientRef,
 }: {
@@ -48,7 +50,11 @@ export function PlayerHero({
   heroRef?: RefObject<HTMLDivElement | null>;
   // The seek bar's wrapper, which the visualizer rests on.
   seekRef?: RefObject<HTMLDivElement | null>;
-  liquid?: boolean;
+  // The source line and the title block, which the visualizer quiets itself behind.
+  sourceRef?: RefObject<HTMLDivElement | null>;
+  textRef?: RefObject<HTMLDivElement | null>;
+  // Which visualizer draws the art itself, if any.
+  drawnArt?: "liquid" | "dots" | null;
   onEnterAmbient?: () => void;
   ambientRef?: Ref<HTMLButtonElement>;
 }) {
@@ -64,13 +70,17 @@ export function PlayerHero({
       <div className={styles.column}>
         {/* The identity - source, cover, title - centers in the flexible upper space. */}
         <div className={styles.identity}>
-          <SourceLine onNavigate={onNavigate} />
+          <SourceLine onNavigate={onNavigate} sourceRef={sourceRef} />
 
           <span ref={coverRef} className={styles.cover}>
-            {liquid ? <span className={styles.liquidTile} aria-hidden="true" /> : <Cover src={coverSrc} alt="" />}
+            {drawnArt ? (
+              <span className={drawnArt === "dots" ? styles.dotTile : styles.liquidTile} aria-hidden="true" />
+            ) : (
+              <Cover src={coverSrc} alt="" />
+            )}
           </span>
 
-          <div className={styles.text}>
+          <div ref={textRef} className={styles.text}>
             <h1 className={styles.title}>{title ?? t((d) => d.albums.untitled)}</h1>
             <p className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</p>
           </div>
@@ -109,7 +119,13 @@ export function PlayerHero({
  * playlist and the flat library views link to their destination; a lone single names its track without
  * one. Nothing shows before the first play, when the source is still null.
  */
-function SourceLine({ onNavigate }: { onNavigate: (source: PlaybackSource) => void }) {
+function SourceLine({
+  onNavigate,
+  sourceRef,
+}: {
+  onNavigate: (source: PlaybackSource) => void;
+  sourceRef?: RefObject<HTMLDivElement | null>;
+}) {
   const source = usePlayingFrom();
   const t = useT();
   if (source == null) return null;
@@ -157,7 +173,7 @@ function SourceLine({ onNavigate }: { onNavigate: (source: PlaybackSource) => vo
   }
 
   return (
-    <div className={styles.source}>
+    <div ref={sourceRef} className={styles.source}>
       <span className={styles.sourceLabel}>{label}</span>
       {link ? (
         <button type="button" className={styles.sourceName} onClick={() => onNavigate(source)}>

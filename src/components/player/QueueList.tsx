@@ -54,9 +54,10 @@ const SAVED_MS = 2000;
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
  * The header counts the tracks still ahead and holds the save-as-playlist action, the visualizer pick
- * and the sequencing control; the footer clears the queue by stopping the engine.
+ * and the sequencing control; the footer clears the queue by stopping the engine. `frosted` lays a glass
+ * backing under the column, for a visualizer that runs beneath it.
  */
-export function QueueList() {
+export function QueueList({ frosted = false }: { frosted?: boolean }) {
   const queue = usePlayerQueue();
   const meta = usePlayerQueueMeta();
   const queueIndex = usePlayerQueueIndex();
@@ -117,7 +118,7 @@ export function QueueList() {
   };
 
   return (
-    <div className={styles.queue}>
+    <div className={styles.queue} data-frosted={frosted ? "" : undefined}>
       <div className={styles.header}>
         <div className={styles.heading}>
           <span className={styles.label}>{t((d) => d.player.upNext)}</span>

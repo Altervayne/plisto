@@ -11,12 +11,20 @@ import { VisualizerGlyph } from "./VisualizerGlyph";
 
 // -- State Imports --
 import {
+  usePlayerSpectrumLayout,
   usePlayerVisualizer,
   usePlayerVisualizerReactivity,
+  useSetPlayerSpectrumLayout,
   useSetPlayerVisualizer,
   useSetPlayerVisualizerReactivity,
 } from "../../../state/preferences/store";
-import { REACTIVITY_LEVELS, VISUALIZER_KINDS, type Reactivity } from "../../../state/player/visualizerKind";
+import {
+  REACTIVITY_LEVELS,
+  SPECTRUM_LAYOUTS,
+  VISUALIZER_KINDS,
+  type Reactivity,
+  type SpectrumLayout,
+} from "../../../state/player/visualizerKind";
 
 // -- Type Imports --
 import type { Segment } from "../../common/SegmentedControl";
@@ -35,15 +43,17 @@ import rowStyles from "../../sound/PresetRow.module.css";
 
 /**
  * The visualizer pick: a quiet button in the queue header opening a small popover with one radio row per
- * visualizer, then a segmented reactivity row. Both persist as prefs and reach the Player and ambient
- * mode alike. The chosen row reads by a check and its ink, never the accent; the button lifts into a chip
- * only while open.
+ * visualizer, then a segmented reactivity row, and a layout row while the dot spectrum is picked. All
+ * persist as prefs and reach the Player and ambient mode alike. The chosen row reads by a check and its
+ * ink, never the accent; the button lifts into a chip only while open.
  */
 export function VisualizerPicker() {
   const picked = usePlayerVisualizer();
   const setPicked = useSetPlayerVisualizer();
   const reactivity = usePlayerVisualizerReactivity();
   const setReactivity = useSetPlayerVisualizerReactivity();
+  const layout = usePlayerSpectrumLayout();
+  const setLayout = useSetPlayerSpectrumLayout();
   const t = useT();
   const reactivityLabels: Record<Reactivity, string> = {
     calm: t((d) => d.player.reactivityCalm),
@@ -53,6 +63,14 @@ export function VisualizerPicker() {
   const reactivitySegments: Segment<Reactivity>[] = REACTIVITY_LEVELS.map((value) => ({
     value,
     label: reactivityLabels[value],
+  }));
+  const layoutLabels: Record<SpectrumLayout, string> = {
+    "bass-left": t((d) => d.player.spectrumBassLeft),
+    mirrored: t((d) => d.player.spectrumMirrored),
+  };
+  const layoutSegments: Segment<SpectrumLayout>[] = SPECTRUM_LAYOUTS.map((value) => ({
+    value,
+    label: layoutLabels[value],
   }));
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const checkedRef = useRef<HTMLButtonElement | null>(null);
@@ -135,6 +153,22 @@ export function VisualizerPicker() {
               />
             </div>
           </div>
+          {picked === "dot-spectrum" ? (
+            <>
+              <div className={styles.sep} />
+              <div className={styles.group}>
+                <span className={styles.groupLabel}>{t((d) => d.player.spectrumLayout)}</span>
+                <div className={rowStyles.compact}>
+                  <SegmentedControl
+                    segments={layoutSegments}
+                    value={layout}
+                    onChange={setLayout}
+                    label={t((d) => d.player.spectrumLayout)}
+                  />
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

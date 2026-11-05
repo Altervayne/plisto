@@ -126,6 +126,24 @@
     inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
 }
 
+/* Under Dot cover the visualizer draws the matrix on its own backing below this clear tile, which keeps the
+ * cover's shadow and a faint edge. */
+.dotTile {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  box-shadow: var(--cover-shadow);
+}
+
+.dotTile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--veil);
+}
+
 .text {
   display: flex;
   flex-direction: column;

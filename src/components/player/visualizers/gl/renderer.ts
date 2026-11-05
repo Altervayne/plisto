@@ -3,13 +3,17 @@
  * into a half-float scene buffer, optionally fed back from the previous frame for trails. A shared pass
  * adds a two-level bloom and maps the result onto the stage: screen-blended light on a dark ground,
  * multiplied ink on a light one, or a straight premultiplied image for a candidate that paints real
- * color. Switching candidates keeps the context; only the outgoing candidate's buffers are freed.
+ * color. The dot kinds paint their own ink on a light ground, so they composite straight there with no
+ * bloom. Switching candidates keeps the context; only the outgoing candidate's buffers are freed.
  */
 
 // -- Local Imports --
 import { createKit, type Candidate, type Frame, type Kit, type Rect, type Target } from "./kit";
 import { BLUR_FS, COMPOSITE_FS, DOWN_FS, FS_VS, TRAIL_FS } from "./shaders";
 import { createBloom } from "./bloom";
+import { createDotCover } from "./dotCover";
+import { createDotSpectrum } from "./dotSpectrum";
+import { createHalftone } from "./halftone";
 import { createLiquid } from "./liquid";
 import { createNebula } from "./nebula";
 import { createTerrain } from "./terrain";
@@ -30,6 +34,8 @@ export interface Layout {
   mask: Rect | null;
   // The top edge of the element the layer rests on, or null for none.
   floor: number | null;
+  // The text blocks a visualizer may hush behind.
+  hush: Rect[];
 }
 
 export interface Renderer {
@@ -46,6 +52,9 @@ const FACTORIES: Record<GlKind, (kit: Kit) => Candidate> = {
   warp: createWarp,
   nebula: createNebula,
   bloom: createBloom,
+  halftone: createHalftone,
+  "dot-spectrum": createDotSpectrum,
+  "dot-cover": createDotCover,
 };
 
 const MODE_INDEX: Record<BlendMode, number> = { screen: 0, multiply: 1, normal: 2 };
@@ -62,10 +71,16 @@ interface Targets {
 
 // Device pixels per CSS pixel, capped so a high-DPI screen never quadruples the fill past 2x.
 const MAX_DPR = 2;
+// The corner darkening ambient applies unless a candidate sets its own.
+const AMBIENT_VIGNETTE = 0.35;
 
-/** The blend a kind needs: Liquid paints real color; every glow screens on dark and multiplies on light. */
+/**
+ * The blend a kind needs: Liquid and Dot cover paint real color; the other dot kinds screen on dark and
+ * paint their own ink on light; every other glow screens on dark and multiplies on light.
+ */
 export function blendModeFor(kind: GlKind, light: boolean): BlendMode {
-  if (kind === "liquid") return "normal";
+  if (kind === "liquid" || kind === "dot-cover") return "normal";
+  if (kind === "halftone" || kind === "dot-spectrum") return light ? "normal" : "screen";
   return light ? "multiply" : "screen";
 }
 
@@ -119,6 +134,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     kit.geo.radius = layout.radius * dpr;
     kit.geo.mask = layout.mask ? toGl(layout.mask) : null;
     kit.geo.floor = layout.floor != null ? h - layout.floor * dpr : null;
+    kit.geo.hush = layout.hush.map(toGl);
   };
 
   const bloomChain = (T: Targets, src: Target, threshold: number) => {
@@ -151,7 +167,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     pass(T.e1, T.e0, 0, 2);
   };
 
-  const composite = (T: Targets, src: Target, kind: GlKind, c: Candidate, f: Frame) => {
+  const composite = (T: Targets, src: Target, mode: BlendMode, bloom: number, c: Candidate, f: Frame) => {
     const { gl: g } = kit;
     const p = kit.program("composite", FS_VS, COMPOSITE_FS);
     kit.bindTarget(null);
@@ -160,15 +176,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     kit.bindTex(p, "uScene", 0, src.tex);
     kit.bindTex(p, "uB1", 1, T.q0.tex);
     kit.bindTex(p, "uB2", 2, T.e0.tex);
-    kit.seti(p, "uMode", MODE_INDEX[blendModeFor(kind, f.light)]);
-    kit.set1(p, "uBloomK", c.bloom);
+    kit.seti(p, "uMode", MODE_INDEX[mode]);
+    kit.set1(p, "uBloomK", bloom);
     // Ink on a light ground needs more gain than light on a dark one to read at the same weight.
     kit.set1(p, "uExposure", f.light && c.mode === "glow" ? c.exposure * c.inkGain : c.exposure);
     kit.set2(p, "uRes", kit.size.w, kit.size.h);
-    kit.set1(p, "uMaskOn", kit.geo.mask ? 1 : 0);
+    kit.set1(p, "uMaskOn", kit.geo.mask && !c.fullBleed ? 1 : 0);
     kit.set4(p, "uMask", kit.geo.mask ?? [0, 0, kit.size.w, kit.size.h]);
     kit.set1(p, "uFeather", 90 * kit.size.dpr);
-    kit.set1(p, "uVignette", f.ambient ? 0.35 : 0);
+    kit.set1(p, "uVignette", f.ambient ? (c.vignette ?? AMBIENT_VIGNETTE) : 0);
     kit.drawQuad();
   };
 
@@ -210,8 +226,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
     c.draw(f);
-    bloomChain(T, dst, c.mode === "image" ? 0.55 : 0.0);
-    composite(T, dst, kind, c, f);
+    const mode = blendModeFor(kind, f.light);
+    // A glow composited straight is ink painted by the candidate itself, which takes no bloom.
+    const bloom = mode === "normal" && c.mode === "glow" ? 0 : c.bloom;
+    if (bloom > 0) bloomChain(T, dst, c.mode === "image" ? 0.55 : 0.0);
+    composite(T, dst, mode, bloom, c, f);
   };
 
   const still = (kind: GlKind, f: Frame) => {

@@ -1,3 +1,6 @@
+// -- Type Imports --
+import type { RefObject } from "react";
+
 // -- Hook Imports --
 import { useTrackDisplay } from "../useTrackDisplay";
 
@@ -14,8 +17,17 @@ import styles from "./AmbientStage.module.css";
 /**
  * The words beside the cover in ambient mode: the source kind over the title and artist, and the album
  * with its year beneath. The source and album lines fade with the chrome; the title and artist stay.
+ * `textRef` takes the whole block, which the visualizer quiets itself behind.
  */
-export function AmbientText({ trackId, faded }: { trackId: number; faded: boolean }) {
+export function AmbientText({
+  trackId,
+  faded,
+  textRef,
+}: {
+  trackId: number;
+  faded: boolean;
+  textRef?: RefObject<HTMLDivElement | null>;
+}) {
   const { title, artist } = useTrackDisplay(trackId);
   const source = usePlayingFrom();
   const album = useAlbum(source?.kind === "album" ? source.id : -1);
@@ -32,7 +44,7 @@ export function AmbientText({ trackId, faded }: { trackId: number; faded: boolea
   }
 
   return (
-    <div className={styles.text}>
+    <div ref={textRef} className={styles.text}>
       {kind ? (
         <span className={styles.sourceLabel} data-faded={faded ? "" : undefined}>
           {kind}

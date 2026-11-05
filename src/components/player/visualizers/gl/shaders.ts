@@ -1,7 +1,34 @@
 /*
  * The shader sources every WebGL visualizer shares: the full-screen triangle, the uniform prelude with
- * its band and palette helpers, and the trail, bloom and composite passes.
+ * its band and palette helpers, the readability hush, and the trail, bloom and composite passes.
  */
+
+/** How many text blocks the hush can hold at once: the Player's source line and its title block. */
+export const HUSH_SLOTS = 2;
+
+/**
+ * The readability hush: 1 over each text block, easing to 0 across a wide feathered ellipse around it,
+ * so a visualizer can quiet itself behind the words with no visible edge. Each slot is a rect in GL
+ * pixels; an empty slot has zero width. The ellipse passes through the rect's corners, and the falloff
+ * runs on its approximate distance so the feather keeps one width all the way round.
+ */
+export const HUSH = `
+uniform vec4 uHush[${HUSH_SLOTS}];
+uniform float uHushFeather;
+float hushAt(vec2 p) {
+  float h = 0.0;
+  for (int i = 0; i < ${HUSH_SLOTS}; i++) {
+    vec4 r = uHush[i];
+    if (r.z <= 0.0) continue;
+    vec2 rad = r.zw * 0.7071;
+    vec2 q = p - (r.xy + r.zw * 0.5);
+    float k1 = length(q / rad);
+    float sd = k1 < 1.0 ? (k1 - 1.0) * min(rad.x, rad.y) : k1 * (k1 - 1.0) / length(q / (rad * rad));
+    h = max(h, 1.0 - smoothstep(-0.25 * uHushFeather, uHushFeather, sd));
+  }
+  return h;
+}
+`;
 
 /** A full-screen triangle; vUv runs 0..1 across the stage. */
 export const FS_VS = `#version 300 es

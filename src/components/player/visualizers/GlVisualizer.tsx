@@ -16,7 +16,7 @@ import {
   smoothBands,
 } from "../../../state/player/spectrum";
 import { createSignalFollower, restSignal } from "../../../state/player/visualSignal";
-import type { GlKind, Reactivity } from "../../../state/player/visualizerKind";
+import { needsFineSpectrum, type GlKind, type Reactivity } from "../../../state/player/visualizerKind";
 
 // -- Utils Imports --
 import { isDarkTheme } from "../../../theme";
@@ -30,12 +30,20 @@ const FINE_DECAY = 0.15;
 // Layout, theme and blend are re-read on this frame interval rather than every frame.
 const REMEASURE_EVERY = 30;
 
+/** Reads a color token as sRGB in 0..1, through the slot's own computed color. */
+function tokenRgb(el: HTMLElement, token: string): [number, number, number] {
+  el.style.color = `var(${token})`;
+  const m = getComputedStyle(el).color.match(/[\d.]+/g);
+  return m && m.length >= 3 ? [Number(m[0]) / 255, Number(m[1]) / 255, Number(m[2]) / 255] : [0, 0, 0];
+}
+
 /**
  * One WebGL2 visualizer surface: a canvas filling its positioned parent, drawing the picked kind around
- * the cover. The canvas is made here rather than rendered, so every mount gets a fresh context. The
- * signal and the draw loop stay off React; props reach the loop through a ref, so a kind change swaps
- * candidates on the same context. A missing context, a lost one or a shader error calls `onFail` once.
- * Under a reduced-motion preference it draws one still frame and runs no loop.
+ * the cover and hushing behind the given text blocks. The canvas is made here rather than rendered, so
+ * every mount gets a fresh context. The signal and the draw loop stay off React; props reach the loop
+ * through a ref, so a kind change swaps candidates on the same context. A missing context, a lost one or
+ * a shader error calls `onFail` once. Under a reduced-motion preference it draws one still frame and runs
+ * no loop.
  */
 export function GlVisualizer({
   kind,
@@ -43,9 +51,11 @@ export function GlVisualizer({
   coverRef,
   maskRef,
   floorRef,
+  hushRefs,
   palette,
   reactivity,
   pixels,
+  mirrored,
   onFail,
 }: {
   kind: GlKind;
@@ -55,22 +65,28 @@ export function GlVisualizer({
   maskRef?: RefObject<HTMLElement | null>;
   // The element whose top edge the layer rests on, such as the seek bar.
   floorRef?: RefObject<HTMLElement | null>;
+  // The text blocks the layer may quiet itself behind, such as the source line and the title. A stable
+  // list: a new one remounts the surface.
+  hushRefs?: readonly RefObject<HTMLElement | null>[];
   palette: Float32Array;
   reactivity: Reactivity;
   pixels: ImageBitmap | null;
+  // The dot spectrum mirrors its columns from the centre.
+  mirrored: boolean;
   onFail: () => void;
 }) {
   const slotRef = useRef<HTMLDivElement>(null);
-  const live = useRef({ kind, palette, reactivity, pixels, onFail });
-  live.current = { kind, palette, reactivity, pixels, onFail };
+  const live = useRef({ kind, palette, reactivity, pixels, mirrored, onFail });
+  live.current = { kind, palette, reactivity, pixels, mirrored, onFail };
   // Reduced motion has no loop; this holds its repaint so a prop change can trigger one.
   const repaintRef = useRef<(() => void) | null>(null);
 
-  // The fine spectrum costs the engine a second analysis, so it runs only while Terrain is up.
+  // The fine spectrum costs the engine a second analysis, so it runs only while a kind that draws it is up.
+  const fineWanted = needsFineSpectrum(kind);
   useEffect(() => {
-    if (kind !== "terrain") return;
+    if (!fineWanted) return;
     return acquireFineSpectrum();
-  }, [kind]);
+  }, [fineWanted]);
 
   useEffect(() => {
     const slot = slotRef.current;
@@ -106,13 +122,21 @@ export function GlVisualizer({
 
     const measure = () => {
       const stage = canvas.getBoundingClientRect();
-      const rel = (el: HTMLElement): Rect => {
-        const b = el.getBoundingClientRect();
-        return [b.left - stage.left, b.top - stage.top, b.width, b.height];
-      };
+      const toStage = (b: DOMRect): Rect => [b.left - stage.left, b.top - stage.top, b.width, b.height];
+      const rel = (el: HTMLElement): Rect => toStage(el.getBoundingClientRect());
       const cover = coverRef.current;
       const mask = maskRef?.current ?? null;
       const floor = floorRef?.current ?? null;
+      // A text block's box can span its column, so the hush takes the extent of the words inside it.
+      const hush: Rect[] = [];
+      for (const ref of hushRefs ?? []) {
+        const el = ref.current;
+        if (!el) continue;
+        const words = document.createRange();
+        words.selectNodeContents(el);
+        const box = words.getBoundingClientRect();
+        if (box.width > 0 && box.height > 0) hush.push(toStage(box));
+      }
       const layout: Layout = {
         width: stage.width,
         height: stage.height,
@@ -120,11 +144,14 @@ export function GlVisualizer({
         radius: cover ? parseFloat(getComputedStyle(cover).borderTopLeftRadius) || 0 : 0,
         mask: mask ? rel(mask) : null,
         floor: floor ? rel(floor)[1] : null,
+        hush,
       };
       r.fit(layout);
+      backing = tokenRgb(slot, light ? "--surface-2" : "--sunken");
     };
 
     let light = !isDarkTheme();
+    let backing: [number, number, number] = [0, 0, 0];
     // The blend sits on the slot, not the canvas: the slot's z-index makes it an isolated group, so a
     // blend inside it would only see the empty slot instead of the aurora and ground beneath.
     const applyBlend = () => {
@@ -147,6 +174,8 @@ export function GlVisualizer({
       still,
       fine,
       cover: live.current.pixels,
+      mirrored: live.current.mirrored,
+      backing,
     });
 
     const teardown = () => {
@@ -206,7 +235,7 @@ export function GlVisualizer({
         playing,
         reactivity: live.current.reactivity,
       });
-      const rawFine = live.current.kind === "terrain" ? getLatestFineSpectrum() : null;
+      const rawFine = needsFineSpectrum(live.current.kind) ? getLatestFineSpectrum() : null;
       fine = rawFine ? smoothBands(fine ?? [], rawFine, FINE_ATTACK, FINE_DECAY) : null;
       applyBlend();
       draw(() => r.render(live.current.kind, { ...frameOf(now / 1000, dt, false, fine), sig }));
@@ -219,12 +248,13 @@ export function GlVisualizer({
       ro.disconnect();
       teardown();
     };
-  }, [ambient, coverRef, maskRef, floorRef]);
+  }, [ambient, coverRef, maskRef, floorRef, hushRefs]);
 
-  // Reduced motion repaints its still frame when the kind, palette or cover changes; a no-op while animating.
+  // Reduced motion repaints its still frame when the kind, palette, cover or layout changes; a no-op while
+  // animating.
   useEffect(() => {
     repaintRef.current?.();
-  }, [kind, palette, pixels]);
+  }, [kind, palette, pixels, mirrored]);
 
   return <div ref={slotRef} className={styles.slot} aria-hidden="true" />;
 }

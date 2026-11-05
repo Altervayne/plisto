@@ -1,7 +1,8 @@
 /*
  * Liquid: the cover as a liquid surface. A noise flow whose depth swells with the eased bass, and a soft
  * lens that draws the art inward as the swell rises, so the cover breathes with the music. Behind it a
- * blurred liquid copy of the cover drifts across the whole stage, in ambient and the Player alike.
+ * blurred liquid copy of the cover drifts across the whole stage, in ambient and the Player alike. Ambient
+ * fades it toward the screen edges; the Player keeps it flat to the panel's edges, under the queue too.
  *
  * The motion channel rides on top: the bass envelope punches the depth and the lens, each beat drops one
  * smooth ring from the centre, the mids speed the flow and the highs add a fine shimmer to the refraction
@@ -35,6 +36,7 @@ const RIPPLE_HEIGHT = 0.2;
 const FS = `${PRELUDE}
 uniform sampler2D uCoverTex;
 uniform float uLight;
+uniform float uEdge;
 uniform float uFlow;
 uniform float uSwell;
 uniform float uPunchDepth;
@@ -80,7 +82,7 @@ void main() {
   w += (vec2(vnoise(bq * 4.0 - uFlow * 0.12), vnoise(bq * 4.0 + 9.1 + uFlow * 0.1)) - 0.5) * 0.4;
   bq += w * (0.38 + uSwell * 0.25);
   vec3 bd = textureLod(uCoverTex, fract(bq), 4.6).rgb;
-  float v = smoothstep(1.15, 0.2, length((su - 0.5) * vec2(1.1, 1.0)));
+  float v = mix(1.0, smoothstep(1.15, 0.2, length((su - 0.5) * vec2(1.1, 1.0))), uEdge);
   bd = uLight > 0.5 ? mix(vec3(1.0), bd, 0.46 * v + 0.1) : bd * (0.2 + 0.42 * v) * (0.92 + uRms * 0.2);
   outColor = vec4(mix(bd, col, a), 1.0);
 }`;
@@ -132,6 +134,7 @@ export function createLiquid(kit: Kit): Candidate {
     exposure: 1,
     inkGain: 1,
     trail: null,
+    fullBleed: true,
     draw(f: Frame) {
       if (!f.cover) return;
       if (f.cover !== uploaded) upload(f.cover);
@@ -143,6 +146,7 @@ export function createLiquid(kit: Kit): Candidate {
       kit.setCommon(p, f);
       kit.bindTex(p, "uCoverTex", 0, tex);
       kit.set1(p, "uLight", f.light ? 1 : 0);
+      kit.set1(p, "uEdge", f.ambient ? 1 : 0);
       kit.set1(p, "uFlow", flow);
       kit.set1(p, "uSwell", Math.min(1, s.swell * 1.6));
       kit.set1(p, "uPunchDepth", s.bassMotion * PUNCH_DEPTH);

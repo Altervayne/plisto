@@ -25,6 +25,7 @@ export function Visualizer({
   coverRef,
   maskRef,
   floorRef,
+  hushRefs,
 }: {
   choice: VisualizerChoice;
   trackId: number;
@@ -32,6 +33,7 @@ export function Visualizer({
   coverRef: RefObject<HTMLElement | null>;
   maskRef?: RefObject<HTMLElement | null>;
   floorRef?: RefObject<HTMLElement | null>;
+  hushRefs?: readonly RefObject<HTMLElement | null>[];
 }) {
   const palette = useCoverPalette(trackId);
   const colors = useMemo(() => paletteFloats(palette), [palette]);
@@ -46,9 +48,11 @@ export function Visualizer({
       coverRef={coverRef}
       maskRef={maskRef}
       floorRef={floorRef}
+      hushRefs={hushRefs}
       palette={colors}
       reactivity={choice.reactivity}
       pixels={choice.pixels}
+      mirrored={choice.spectrumLayout === "mirrored"}
       onFail={choice.onGlFail}
     />
   );

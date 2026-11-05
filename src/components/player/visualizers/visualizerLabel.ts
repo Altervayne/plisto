@@ -9,6 +9,9 @@ const LABELS: Record<VisualizerKind, (d: Dict) => string> = {
   warp: (d) => d.player.visualizerWarp,
   nebula: (d) => d.player.visualizerNebula,
   bloom: (d) => d.player.visualizerBloom,
+  halftone: (d) => d.player.visualizerHalftone,
+  "dot-spectrum": (d) => d.player.visualizerDotSpectrum,
+  "dot-cover": (d) => d.player.visualizerDotCover,
   off: (d) => d.player.visualizerOff,
 };
 

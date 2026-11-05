@@ -40,6 +40,44 @@ const PATHS: Record<VisualizerKind, ReactNode> = {
       <path d="M12 16.5A4.5 4.5 0 1 1 7.5 12 4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 1 1 4.5 4.5 4.5 4.5 0 1 1-4.5 4.5" />
     </>
   ),
+  halftone: (
+    <g fill="currentColor" stroke="none">
+      <circle cx="4.5" cy="19.5" r="2.5" />
+      <circle cx="12" cy="19.5" r="2.5" />
+      <circle cx="19.5" cy="19.5" r="2.5" />
+      <circle cx="8.25" cy="13" r="1.8" />
+      <circle cx="15.75" cy="13" r="1.8" />
+      <circle cx="4.5" cy="6.5" r="1.1" />
+      <circle cx="12" cy="6.5" r="1.1" />
+      <circle cx="19.5" cy="6.5" r="1.1" />
+    </g>
+  ),
+  "dot-spectrum": (
+    <g fill="currentColor">
+      <circle cx="5" cy="19" r="1.6" />
+      <circle cx="12" cy="19" r="1.6" />
+      <circle cx="19" cy="19" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="19" cy="12" r="1.6" />
+      <circle cx="12" cy="5" r="1.6" />
+    </g>
+  ),
+  "dot-cover": (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <g fill="currentColor" stroke="none">
+        <circle cx="8" cy="8" r="1.3" />
+        <circle cx="12" cy="8" r="1.3" />
+        <circle cx="16" cy="8" r="1.3" />
+        <circle cx="8" cy="12" r="1.3" />
+        <circle cx="12" cy="12" r="1.3" />
+        <circle cx="16" cy="12" r="1.3" />
+        <circle cx="8" cy="16" r="1.3" />
+        <circle cx="12" cy="16" r="1.3" />
+        <circle cx="16" cy="16" r="1.3" />
+      </g>
+    </>
+  ),
   off: (
     <>
       <circle cx="12" cy="12" r="9" />
