@@ -18,6 +18,8 @@ mod resolve;
 mod scan;
 mod scan_lock;
 mod smtc;
+#[allow(dead_code)] // No consumer wired yet; the loudness worker and the EQ engine remove this.
+mod sound_settings;
 mod splice;
 mod startup;
 mod state;
