@@ -1,0 +1,13 @@
+/* The compact row: the segmented control stretched across a popover, its chips sharing the width with
+ * tighter padding so six of them still fit. */
+.compact > div {
+  display: flex;
+  width: 100%;
+}
+
+.compact button {
+  flex: 1;
+  padding: 4px 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}

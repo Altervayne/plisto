@@ -1,0 +1,10 @@
+/* The EQ-on dot: a small flat accent disc on the top-right corner of its positioned parent. */
+.dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}

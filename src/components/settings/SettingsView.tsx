@@ -10,6 +10,7 @@ import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
+import { SoundSection } from "./SoundSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { ProgressLine } from "../scan/ProgressLine";
 
@@ -225,6 +226,8 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
             </div>
           </div>
         </section>
+
+        <SoundSection />
 
         <section className={styles.section}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>

@@ -38,6 +38,8 @@ export const PREF_KEYS = {
   homeLayoutBoth: "home_layout_both",
   // The quick finder's last opened entries, a JSON list of kind and id.
   finderRecent: "finder_recent",
+  // The EQ, preamp and levelling blob. The backend parses and applies this same key by name.
+  sound: "sound",
 } as const;
 
 interface PreferencesStore {

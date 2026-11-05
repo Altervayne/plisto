@@ -67,9 +67,36 @@
   gap: 10px;
 }
 
+/* The text row: the open-Player button taking the slack, the Sound button trailing it. Unlike the flanks
+ * below, the Sound button stays visible, so the EQ is always one click away. */
+.nowLine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sound {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+
+/* Over the cover wash the raised chip is a light veil, and the EQ-on dot takes the brighter cyan so it
+ * reads on the dark ground in either theme. */
+.sound button[aria-pressed="true"],
+.sound button[aria-pressed="true"]:hover {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+  color: #fff;
+}
+
+.sound [data-eq-indicator] {
+  background: #4fb8d4;
+}
+
 /* The now-playing line doubles as the open-Player button: a bare button reset so it lays out like the
  * text row it wraps, warming faintly on hover to read as reachable. */
 .now {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 10px;

@@ -8,6 +8,7 @@ import { CoverBackdrop } from "./CoverBackdrop";
 import { PlayerHero } from "./PlayerHero";
 import { QueueList } from "./QueueList";
 import { SpectrumRidge } from "./SpectrumRidge";
+import { SoundMenu } from "../sound/SoundMenu";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
@@ -27,7 +28,8 @@ import styles from "./PlayerView.module.css";
 /**
  * The Player destination: the now-playing hero beside the up-next queue, in a rounded inset panel floating
  * on the ambient ground, with no undo/redo or action-bar chrome. Nothing playing folds to a calm empty
- * stage in the same panel rather than an empty two-column shell. The one lit accent is the seek fill.
+ * stage in the same panel rather than an empty two-column shell, keeping the Sound button since the EQ is
+ * a setting that needs no track. The one lit accent is the seek fill.
  *
  * `onNavigate` routes the hero's source link back to the library - the shell owns the mode and open-id
  * state, so this only forwards the chosen source.
@@ -44,6 +46,9 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
           <h1 className={styles.emptyTitle}>{t((d) => d.player.nothingPlaying)}</h1>
           <p className={styles.emptyHint}>{t((d) => d.player.nothingPlayingHint)}</p>
         </CenteredStage>
+        <div className={styles.emptySound}>
+          <SoundMenu />
+        </div>
       </div>
     );
   }

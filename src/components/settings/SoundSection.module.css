@@ -1,0 +1,21 @@
+/* The preamp control: the stepper beside Reset, wrapping under the label on a narrow column. */
+.preamp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.value {
+  min-width: 76px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}

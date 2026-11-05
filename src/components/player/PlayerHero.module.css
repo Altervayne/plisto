@@ -176,6 +176,14 @@
   gap: 6px;
 }
 
+/* The Sound button in the leading flank, mirroring the volume rail so the cluster stays centred. */
+.soundSlot {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+
 /* The volume rail in the trailing flank, pulled to the far edge so the cluster is not pushed off centre. */
 .volumeSlot {
   grid-column: 3;
@@ -187,6 +195,7 @@
 /* The transport and speaker glyphs carry the same surface halo as the text. The volume chip holds no svg,
  * so its rail stays clean on its own opaque surface. */
 .cluster svg,
+.soundSlot svg,
 .volumeSlot svg {
   filter: var(--glyph-halo);
 }

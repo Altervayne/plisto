@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
+import { SoundMenu } from "../sound/SoundMenu";
 import { SeekBar } from "./SeekBar";
 import { Transport } from "./Transport";
 import { Volume } from "./Volume";
@@ -23,7 +24,7 @@ import styles from "./PlayerHero.module.css";
 
 /**
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
- * transport with the volume rail trailing it. Mounts only with a real track id, so its id-typed hooks
+ * transport with the Sound button leading it and the volume rail trailing it. Mounts only with a real track id, so its id-typed hooks
  * never run empty. The seek fill is the one lit accent of the view; every other control reads by weight
  * and material.
  */
@@ -72,6 +73,9 @@ export function PlayerHero({
           </div>
 
           <div className={styles.transport}>
+            <div className={styles.soundSlot}>
+              <SoundMenu />
+            </div>
             <div className={styles.cluster}>
               <Transport size="lg" shortcutHints />
             </div>

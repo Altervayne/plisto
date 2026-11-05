@@ -1,0 +1,22 @@
+/* The Sound button: a shrink-wrapped anchor, so the card positions against the glyph it opens from. */
+.wrap {
+  display: inline-flex;
+}
+
+.button {
+  display: inline-flex;
+}
+
+/* The glyph box carries the EQ-on dot on its corner. */
+.glyph {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The fixed layer the card lives in, above the shell's own floating panels. */
+.layer {
+  position: fixed;
+  z-index: 60;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+}

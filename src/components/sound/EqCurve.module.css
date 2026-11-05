@@ -1,0 +1,128 @@
+/* The EQ curve: a hairline at 0 dB, the response as an accent line over a faint accent fill, eight round
+ * handles, and faint band labels beneath. No dB ticks, faders or knobs. The view box scales to the
+ * container; a handle is a vertical slider, so touch never pans it. */
+.eq {
+  width: 100%;
+  user-select: none;
+  touch-action: none;
+}
+
+/* The positioned frame the value bubble floats in, sized by the drawing alone. */
+.stage {
+  position: relative;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.zero {
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+
+.area {
+  fill: var(--accent-weak);
+  stroke: none;
+}
+
+.line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.label {
+  fill: var(--ink-3);
+  font-size: 10px;
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.handle {
+  cursor: ns-resize;
+  outline: none;
+}
+
+.hit {
+  fill: transparent;
+}
+
+.knob {
+  fill: var(--surface);
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+  transition: r var(--dur-fast) ease;
+}
+
+.handle:hover .knob {
+  r: 6.5;
+}
+
+.active .knob,
+.handle:focus-visible .knob {
+  r: 7;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+/* The keyboard focus ring, the accent halo the rest of the app uses for focus. */
+.ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  display: none;
+}
+
+.handle:focus-visible .ring {
+  display: block;
+}
+
+/* EQ off: the curve greys and the handles stop taking the pointer. */
+.off .line {
+  stroke: var(--ink-3);
+}
+
+.off .area {
+  fill: var(--veil);
+}
+
+.off .handle {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.bubble {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.bubble small {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.idle {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}

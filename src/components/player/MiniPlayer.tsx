@@ -1,5 +1,9 @@
+// -- Framework Imports --
+import { useRef } from "react";
+
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
+import { SoundMenu } from "../sound/SoundMenu";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { PopOutButton } from "./PopOutButton";
 import { StopButton } from "./StopButton";
@@ -31,8 +35,9 @@ export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
 }
 
 /**
- * The bar itself: cover, one text line, and a compact prev / play-pause / next transport. The cover and
- * text area is its own button opening the full Player; the transport buttons below keep their own clicks.
+ * The bar itself: cover, one text line with the Sound button trailing it, and a compact prev /
+ * play-pause / next transport. The cover and text area is its own button opening the full Player and
+ * truncates before the Sound button; the transport buttons below keep their own clicks.
  *
  * An ad-hoc file (a negative id) carries no library row, so its text comes from the resolved display over
  * IPC - the title from the stash, the artist hidden when the file has none. A library id keeps the
@@ -52,26 +57,33 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
     ? display.artist
     : track?.artist_edit ?? track?.raw_artist ?? t((d) => d.albums.unknownArtist);
   const coverSrc = cover?.src ?? null;
+  // The Sound card lines up with the mini's left edge, not the button at the trailing end of the line.
+  const miniRef = useRef<HTMLDivElement | null>(null);
 
   return (
-    <div className={styles.mini}>
+    <div ref={miniRef} className={styles.mini}>
       <CoverBackdrop src={coverSrc} className={styles.bg} />
       <div className={styles.scrim} />
       <div className={styles.content}>
-        <button
-          type="button"
-          className={styles.now}
-          aria-label={t((d) => d.player.openPlayer)}
-          onClick={onExpand}
-        >
-          <span className={styles.cover}>
-            <Cover src={coverSrc} alt="" />
+        <div className={styles.nowLine}>
+          <button
+            type="button"
+            className={styles.now}
+            aria-label={t((d) => d.player.openPlayer)}
+            onClick={onExpand}
+          >
+            <span className={styles.cover}>
+              <Cover src={coverSrc} alt="" />
+            </span>
+            <span className={styles.text}>
+              <span className={styles.title}>{title}</span>
+              {artist ? <span className={styles.artist}>{artist}</span> : null}
+            </span>
+          </button>
+          <span className={styles.sound}>
+            <SoundMenu size="sm" alignRef={miniRef} />
           </span>
-          <span className={styles.text}>
-            <span className={styles.title}>{title}</span>
-            {artist ? <span className={styles.artist}>{artist}</span> : null}
-          </span>
-        </button>
+        </div>
         <div className={styles.controls}>
           <span className={styles.side}>
             <PopOutButton />
