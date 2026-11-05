@@ -6,7 +6,7 @@
  */
 
 // -- Library Imports --
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -18,13 +18,14 @@ use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
+use super::dsp::DspShared;
 use super::queue::{
     advance_index, clamp_index, enqueue_tracks, move_queue_item, on_track_end, prev_index,
     remove_queue_item, reseat_index, shuffle_order, EndAction, Xorshift,
 };
-use super::source::{DecoderSource, SpectrumTap, BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW};
+use super::source::{self, DecoderSource, SpectrumTap, BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW};
 use super::{
-    decode, spectrum, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
+    spectrum, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
 };
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
@@ -53,6 +54,11 @@ struct Engine {
     // The current source's spectrum tap, tracked alongside cur_frames and read by emit_spectrum. None
     // when nothing plays.
     cur_spectrum: Option<Arc<SpectrumTap>>,
+    // The last emitted band frame, the baseline the next frame's flux is measured against. Zeroed on
+    // every rest edge, matching what the visualizers last drew.
+    prev_bands: [f32; BAND_COUNT],
+    // The live DSP parameters every source's stage reads.
+    dsp: Arc<DspShared>,
     cur_rate: u32,
     cur_duration: f64,
     cur_track_id: Option<i64>,
@@ -138,10 +144,11 @@ impl Engine {
         self.playing && !self.paused
     }
 
-    /// Analyzes the trailing window of played audio and emits it as `player:spectrum`. Gated on active
-    /// output, so it is silent while paused or stopped. Snapshots the tap ring without locking: the
-    /// audio thread may write mid-copy, but a torn window is immaterial to a visualizer.
-    fn emit_spectrum(&self) {
+    /// Analyzes the trailing window of played audio and emits it as `player:spectrum`, with its level
+    /// and flux as `player:level`. Gated on active output, so both are silent while paused or stopped.
+    /// Snapshots the tap ring without locking: the audio thread may write mid-copy, but a torn window
+    /// is immaterial to a visualizer.
+    fn emit_spectrum(&mut self) {
         let tap = match &self.cur_spectrum {
             Some(tap) if self.is_audible() => tap,
             _ => return,
@@ -156,13 +163,35 @@ impl Engine {
             *out = f32::from_bits(tap.ring[slot].load(Ordering::Relaxed));
         }
         let bands = spectrum::spectrum(&window, self.cur_rate, BAND_COUNT);
+        let level = spectrum::level(&window);
+        let frame = LevelFrame {
+            rms: level.rms,
+            peak: level.peak,
+            flux: spectrum::flux(&self.prev_bands, &bands),
+        };
+        for (prev, cur) in self.prev_bands.iter_mut().zip(&bands) {
+            *prev = *cur;
+        }
         let _ = self.app.emit("player:spectrum", &bands);
+        let _ = self.app.emit("player:level", frame);
     }
 
-    /// Emits one zeroed spectrum frame so a visualizer settles to rest. Called on the edge into
-    /// paused or stopped, never every idle tick.
-    fn emit_spectrum_rest(&self) {
+    /// Emits one zeroed spectrum frame and one zeroed level frame so a visualizer settles to rest.
+    /// Called on the edge into paused or stopped, never every idle tick.
+    fn emit_spectrum_rest(&mut self) {
+        self.prev_bands = [0.0; BAND_COUNT];
         let _ = self.app.emit("player:spectrum", &vec![0.0f32; BAND_COUNT]);
+        let _ = self.app.emit("player:level", LevelFrame::default());
+    }
+
+    /// Builds a source over `path` on the engine's DSP parameters. See `source::open_source`.
+    fn open_source(
+        &self,
+        path: &Path,
+        start_secs: Option<f64>,
+        gain_db: f32,
+    ) -> Option<DecoderSource> {
+        source::open_source(path, start_secs, gain_db, &self.dsp)
     }
 
     /// Loads and starts the track at `start`, skipping forward over any that fail to open until one
@@ -188,24 +217,18 @@ impl Engine {
                 return;
             }
             let opened_file = is_ad_hoc(self.queue[i].id);
-            match decode::Decoder::open(&self.queue[i].path) {
-                Ok(dec) => match DecoderSource::new(dec, 0) {
-                    Some(src) => {
-                        self.start_source(i, src);
-                        self.emit(true);
-                        // A dead opened file was skipped before this one played: report it once so
-                        // the user learns the failed file did not just vanish.
-                        if skipped_opened_file {
-                            let _ = self.app.emit("player:error", PlayerNotice::File);
-                        }
-                        return;
+            match self.open_source(&self.queue[i].path, None, 0.0) {
+                Some(src) => {
+                    self.start_source(i, src);
+                    self.emit(true);
+                    // A dead opened file was skipped before this one played: report it once so the
+                    // user learns the failed file did not just vanish.
+                    if skipped_opened_file {
+                        let _ = self.app.emit("player:error", PlayerNotice::File);
                     }
-                    None => {
-                        skipped_opened_file |= opened_file;
-                        i += 1;
-                    }
-                },
-                Err(_) => {
+                    return;
+                }
+                None => {
                     skipped_opened_file |= opened_file;
                     i += 1;
                 }
@@ -291,23 +314,9 @@ impl Engine {
     /// `index` untouched, and holds `cur_track_id` at None since a preview is not a library track, so
     /// library playback restores after. A missing file or a seek failure leaves playback untouched.
     fn preview(&mut self, path: PathBuf, start_secs: f64, end_secs: f64) {
-        let mut dec = match decode::Decoder::open(&path) {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        let start = start_secs.max(0.0);
-        if dec.seek(start).is_err() {
-            return;
-        }
-        // Seed the shared counter at the in-point so the play head and the boundary agree; the rate
-        // comes from the container up front, the same value the primed source reports.
-        let rate = dec.spec().sample_rate;
-        let start_frame = if rate > 0 {
-            (start * rate as f64).floor() as u64
-        } else {
-            0
-        };
-        let src = match DecoderSource::new(dec, start_frame) {
+        // The factory seeds the counter at the in-point on the primed rate, the same rate the
+        // out-point below uses, so the play head and the boundary agree.
+        let src = match self.open_source(&path, Some(start_secs.max(0.0)), 0.0) {
             Some(s) => s,
             None => return,
         };
@@ -342,21 +351,7 @@ impl Engine {
             Some(t) => t.path.clone(),
             None => return,
         };
-        let mut dec = match decode::Decoder::open(&path) {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        let start = secs.max(0.0);
-        if dec.seek(start).is_err() {
-            return;
-        }
-        let rate = dec.spec().sample_rate;
-        let start_frame = if rate > 0 {
-            (start * rate as f64).floor() as u64
-        } else {
-            0
-        };
-        let src = match DecoderSource::new(dec, start_frame) {
+        let src = match self.open_source(&path, Some(secs.max(0.0)), 0.0) {
             Some(s) => s,
             None => return,
         };
@@ -380,20 +375,7 @@ impl Engine {
             Some(t) if self.cur_track_id.is_some() => t.path.clone(),
             _ => return,
         };
-        let mut dec = match decode::Decoder::open(&path) {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        if dec.seek(secs).is_err() {
-            return;
-        }
-        let rate = self.cur_rate;
-        let start_frame = if rate > 0 {
-            (secs.max(0.0) * rate as f64).floor() as u64
-        } else {
-            0
-        };
-        let src = match DecoderSource::new(dec, start_frame) {
+        let src = match self.open_source(&path, Some(secs), 0.0) {
             Some(s) => s,
             None => return,
         };
@@ -806,6 +788,8 @@ fn run(
         volume: 1.0,
         cur_frames: None,
         cur_spectrum: None,
+        prev_bands: [0.0; BAND_COUNT],
+        dsp: Arc::new(DspShared::default()),
         cur_rate: 0,
         cur_duration: 0.0,
         cur_track_id: None,

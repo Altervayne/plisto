@@ -1,17 +1,20 @@
 /*
- * The decoded-audio source the engine feeds rodio: a pull-based decoder adapted into a `Source`, plus
- * the lock-free spectrum tap it writes while it plays. Both run on rodio's mixer thread and are read
- * back on the engine thread through shared atomics.
+ * The decoded-audio source the engine feeds rodio: a pull-based decoder adapted into a `Source`, its
+ * DSP stage, and the lock-free spectrum tap it writes while it plays. All run on rodio's mixer thread
+ * and are read back on the engine thread through shared atomics. `open_source` is the one way a
+ * source is built, so every path gets the same stage and the same start seed.
  */
 
 // -- Library Imports --
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use rodio::Source;
 
 // -- Local Imports --
+use super::dsp::{DspShared, DspStage};
 use super::{decode, AudioSpec};
 
 // The ring of recent mono samples the spectrum reader taps. A power of two so the write index masks
@@ -41,14 +44,15 @@ impl SpectrumTap {
 }
 
 /// Adapts a pull-based `decode::Decoder` into a rodio `Source`: rodio pulls one interleaved f32
-/// sample at a time, and this refills from the decoder a packet at a time as it drains. A shared
-/// frame counter ticks once per full frame so the engine can read the play position without locking
-/// or querying the sink.
+/// sample at a time, and this refills from the decoder a packet at a time as it drains. Each sample
+/// runs through the DSP stage before anything else sees it. A shared frame counter ticks once per
+/// full frame so the engine can read the play position without locking or querying the sink.
 pub(super) struct DecoderSource {
     decoder: decode::Decoder,
     buffer: Vec<f32>,
     pos: usize,
     pub(super) spec: AudioSpec,
+    stage: DspStage,
     // Shared with the engine so it reads the play head while the audio thread writes it. Single
     // writer here, read for display only, so Relaxed is the right ordering - not a sync gate.
     pub(super) frames: Arc<AtomicU64>,
@@ -58,32 +62,62 @@ pub(super) struct DecoderSource {
     frame_sum: f32,
     chan_cursor: u16,
     pub(super) duration: Option<Duration>,
-    done: bool,
+    // Set once the stream has yielded its last sample, read by the engine. Same split as `frames`.
+    pub(super) ended: Arc<AtomicBool>,
 }
 
 impl DecoderSource {
     /// Primes the first packet so `channels()`/`sample_rate()` report the real layout immediately,
-    /// never zero, and seeds the frame counter to `start_frame` (the resume point after a seek).
-    /// Returns None when the stream yields no first packet - an empty or unreadable file.
-    pub(super) fn new(mut decoder: decode::Decoder, start_frame: u64) -> Option<Self> {
+    /// never zero, and seeds the frame counter at `start_secs` (the resume point after a seek) on the
+    /// primed rate. Returns None when the stream yields no first packet - an empty or unreadable file.
+    pub(super) fn new(
+        mut decoder: decode::Decoder,
+        start_secs: f64,
+        stage: DspStage,
+    ) -> Option<Self> {
         let first = decoder.next_packet()?;
         let duration = decoder
             .duration_secs()
             .filter(|d| d.is_finite() && *d >= 0.0)
             .map(Duration::from_secs_f64);
+        let rate = first.spec.sample_rate;
+        let start_frame = if rate > 0 {
+            (start_secs.max(0.0) * rate as f64).floor() as u64
+        } else {
+            0
+        };
         Some(Self {
             spec: first.spec,
             buffer: first.samples,
             pos: 0,
+            stage,
             decoder,
             frames: Arc::new(AtomicU64::new(start_frame)),
             spectrum: Arc::new(SpectrumTap::new()),
             frame_sum: 0.0,
             chan_cursor: 0,
             duration,
-            done: false,
+            ended: Arc::new(AtomicBool::new(false)),
         })
     }
+}
+
+/// Opens `path` as a playable source, seeking to `start_secs` when one is given, with a DSP stage
+/// on `dsp` carrying the track's levelling gain. None when the file does not open, the seek fails,
+/// or the stream yields no first packet. A start of None reads from the top without seeking, which
+/// keeps the decoder's own priming intact.
+pub(super) fn open_source(
+    path: &Path,
+    start_secs: Option<f64>,
+    gain_db: f32,
+    dsp: &Arc<DspShared>,
+) -> Option<DecoderSource> {
+    let mut decoder = decode::Decoder::open(path).ok()?;
+    if let Some(secs) = start_secs {
+        decoder.seek(secs).ok()?;
+    }
+    let stage = DspStage::new(Arc::clone(dsp), gain_db);
+    DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage)
 }
 
 impl Iterator for DecoderSource {
@@ -96,9 +130,10 @@ impl Iterator for DecoderSource {
                     self.buffer = chunk.samples;
                     self.pos = 0;
                     self.spec = chunk.spec;
+                    self.stage.refresh();
                 }
                 None => {
-                    self.done = true;
+                    self.ended.store(true, Ordering::Relaxed);
                     return None;
                 }
             }
@@ -106,10 +141,11 @@ impl Iterator for DecoderSource {
         // A refilled packet is never empty in practice, but guard the index so a degenerate empty
         // packet ends the stream cleanly instead of panicking on the audio thread.
         if self.pos >= self.buffer.len() {
-            self.done = true;
+            self.ended.store(true, Ordering::Relaxed);
             return None;
         }
-        let s = self.buffer[self.pos];
+        // The tap and rodio both take the processed sample, so the visuals follow the DSP.
+        let s = self.stage.process(self.buffer[self.pos], self.chan_cursor);
         self.pos += 1;
         self.chan_cursor += 1;
         self.frame_sum += s;
@@ -224,6 +260,26 @@ mod tests {
         fs::write(path, v).unwrap();
     }
 
+    // The source over `path` with an identity stage, built the way the engine builds one.
+    fn identity_source(path: &Path, start_secs: Option<f64>) -> Option<DecoderSource> {
+        open_source(path, start_secs, 0.0, &Arc::new(DspShared::default()))
+    }
+
+    // Every sample the decoder yields for `path`, with no source or stage in between.
+    fn raw_samples(path: &Path) -> Vec<f32> {
+        let mut dec = decode::Decoder::open(path).expect("opens the WAV");
+        let mut out = Vec::new();
+        while let Some(chunk) = dec.next_packet() {
+            out.extend_from_slice(&chunk.samples);
+        }
+        out
+    }
+
+    // The tap ring in slot order, as bits so a comparison is exact.
+    fn ring_bits(tap: &SpectrumTap) -> Vec<u32> {
+        tap.ring.iter().map(|a| a.load(Ordering::Relaxed)).collect()
+    }
+
     #[test]
     fn decoder_source_counts_one_frame_per_channel_group() {
         let dir = TempDir::new("count");
@@ -231,31 +287,80 @@ mod tests {
         let (rate, channels, frames) = (44_100u32, 2u16, 2_000usize);
         write_wav(&path, rate, channels, frames);
 
-        let dec = decode::Decoder::open(&path).expect("opens the WAV");
-        let src = DecoderSource::new(dec, 0).expect("primes the first packet");
+        let src = identity_source(&path, None).expect("primes the first packet");
         assert_eq!(src.channels(), channels);
         assert_eq!(src.sample_rate(), rate);
 
         let counter = Arc::clone(&src.frames);
+        let ended = Arc::clone(&src.ended);
+        assert!(!ended.load(Ordering::Relaxed));
         let samples: Vec<f32> = src.collect();
         assert_eq!(samples.len(), frames * channels as usize);
         assert_eq!(counter.load(Ordering::Relaxed), frames as u64);
+        assert!(
+            ended.load(Ordering::Relaxed),
+            "a drained source reports it ended"
+        );
     }
 
     #[test]
     fn decoder_source_seeds_the_start_frame() {
         let dir = TempDir::new("seed");
         let path = dir.path.join("tone.wav");
-        let (rate, channels, frames) = (44_100u32, 2u16, 1_000usize);
+        // 0.0625 s at 8 kHz is exactly frame 500, so the seed has no rounding to argue about.
+        let (rate, channels, frames) = (8_000u32, 2u16, 1_000usize);
         write_wav(&path, rate, channels, frames);
 
-        let dec = decode::Decoder::open(&path).expect("opens the WAV");
-        let src = DecoderSource::new(dec, 500).expect("primes the first packet");
+        let src = identity_source(&path, Some(0.0625)).expect("seeks and primes");
         assert_eq!(src.frames.load(Ordering::Relaxed), 500);
 
         let counter = Arc::clone(&src.frames);
-        let _: Vec<f32> = src.collect();
-        // Draining from the seed advances the counter by the file's frame count.
-        assert_eq!(counter.load(Ordering::Relaxed), 500 + frames as u64);
+        let samples: Vec<f32> = src.collect();
+        // Draining from the seed advances the counter by the frames left after the seek point.
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            500 + (samples.len() / channels as usize) as u64
+        );
+    }
+
+    #[test]
+    fn identity_output_is_the_raw_decoder_output_bit_for_bit() {
+        let dir = TempDir::new("identity");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 3_000);
+
+        let raw = raw_samples(&path);
+        let played: Vec<f32> = identity_source(&path, None)
+            .expect("primes the first packet")
+            .collect();
+        let bits = |v: &[f32]| v.iter().map(|s| s.to_bits()).collect::<Vec<u32>>();
+        assert_eq!(bits(&played), bits(&raw));
+    }
+
+    #[test]
+    fn the_tap_reads_the_processed_sample() {
+        let dir = TempDir::new("tap");
+        let path = dir.path.join("tone.wav");
+        // More frames than the ring holds, so every slot is written.
+        write_wav(&path, 44_100, 2, 3_000);
+
+        let plain = identity_source(&path, None).expect("primes the first packet");
+        let plain_tap = Arc::clone(&plain.spectrum);
+        let plain_out: Vec<f32> = plain.collect();
+
+        let dec = decode::Decoder::open(&path).expect("opens the WAV");
+        let halved = DecoderSource::new(dec, 0.0, DspStage::with_gain(0.5)).expect("primes");
+        let halved_tap = Arc::clone(&halved.spectrum);
+        let halved_out: Vec<f32> = halved.collect();
+
+        // Halving is exact in f32, so the comparison can be bit for bit.
+        let expect_ring: Vec<u32> = ring_bits(&plain_tap)
+            .into_iter()
+            .map(|b| (f32::from_bits(b) * 0.5).to_bits())
+            .collect();
+        assert!(expect_ring.iter().any(|&b| f32::from_bits(b) != 0.0));
+        assert_eq!(ring_bits(&halved_tap), expect_ring);
+        let expect_out: Vec<f32> = plain_out.iter().map(|s| s * 0.5).collect();
+        assert_eq!(halved_out, expect_out);
     }
 }

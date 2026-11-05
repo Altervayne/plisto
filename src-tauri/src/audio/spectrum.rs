@@ -1,6 +1,6 @@
 /*
  * Spectrum analysis: one window of mono PCM down to log-spaced band levels for the player's
- * visualizer. Pure and framework-free - no symphonia, no clock, no state - so it tests on synthetic
+ * visualizer, plus the window's level and the band-to-band flux. Pure and framework-free - no symphonia, no clock, no state - so it tests on synthetic
  * buffers. The FFT is an in-house radix-2 Cooley-Tukey, so the crate needs no DSP dependency. The
  * output is already normalized to 0..1, so the frontend never guesses a scale.
  */
@@ -68,11 +68,55 @@ pub fn spectrum(samples: &[f32], sample_rate: u32, bands: usize) -> Vec<f32> {
         bin_hi = bin_hi.clamp(bin_lo + 1, half);
         // The loudest bin in the range drives the band, so a narrow tone still lights its band fully.
         let peak = mag[bin_lo..bin_hi].iter().copied().fold(0.0f32, f32::max);
-        let db = 20.0 * (peak + EPS).log10();
-        let level = ((db - DB_FLOOR) / (DB_CEIL - DB_FLOOR)).clamp(0.0, 1.0);
-        out.push(level);
+        out.push(to_unit(peak));
     }
     out
+}
+
+/// The RMS and peak of one mono window, each in 0..1 through the same dB window as the bands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Level {
+    pub rms: f32,
+    pub peak: f32,
+}
+
+/// The level of one mono window. An empty window reads as silence.
+pub fn level(samples: &[f32]) -> Level {
+    if samples.is_empty() {
+        return Level {
+            rms: 0.0,
+            peak: 0.0,
+        };
+    }
+    let mut sum_sq = 0.0f32;
+    let mut peak = 0.0f32;
+    for &s in samples {
+        sum_sq += s * s;
+        peak = peak.max(s.abs());
+    }
+    let rms = (sum_sq / samples.len() as f32).sqrt();
+    Level {
+        rms: to_unit(rms),
+        peak: to_unit(peak),
+    }
+}
+
+/// Positive spectral flux between two band frames: the mean rise per band, in 0..1. Falling bands
+/// count nothing, so a steady or decaying spectrum reads 0 and an onset reads high. Frames of
+/// different lengths compare over the shorter one; an empty frame reads 0.
+pub fn flux(prev: &[f32], cur: &[f32]) -> f32 {
+    let n = prev.len().min(cur.len());
+    if n == 0 {
+        return 0.0;
+    }
+    let rise: f32 = prev.iter().zip(cur).map(|(p, c)| (c - p).max(0.0)).sum();
+    (rise / n as f32).clamp(0.0, 1.0)
+}
+
+/// Maps a linear amplitude onto 0..1 through the DB_FLOOR..DB_CEIL window.
+fn to_unit(amplitude: f32) -> f32 {
+    let db = 20.0 * (amplitude + EPS).log10();
+    ((db - DB_FLOOR) / (DB_CEIL - DB_FLOOR)).clamp(0.0, 1.0)
 }
 
 /// The lower frequency edge of band `k` of `bands`, log-spaced between F_LO and F_HI.
@@ -210,5 +254,69 @@ mod tests {
     #[test]
     fn zero_bands_is_empty() {
         assert!(spectrum(&sine(N, 440.0, RATE), RATE, 0).is_empty());
+    }
+
+    // ---- Level and flux ----
+
+    // A sine at a quarter of the rate samples 0, a, 0, -a: its peak is exactly `amp` and its RMS
+    // exactly amp / sqrt(2), so the expected levels follow from the dB window alone.
+    fn quarter_rate_sine(n: usize, amp: f32) -> Vec<f32> {
+        sine(n, RATE as f32 / 4.0, RATE)
+            .into_iter()
+            .map(|s| s * amp)
+            .collect()
+    }
+
+    fn unit_of_db(db: f32) -> f32 {
+        ((db - DB_FLOOR) / (DB_CEIL - DB_FLOOR)).clamp(0.0, 1.0)
+    }
+
+    #[test]
+    fn silence_has_zero_level() {
+        assert_eq!(
+            level(&[0.0; N]),
+            Level {
+                rms: 0.0,
+                peak: 0.0
+            }
+        );
+        assert_eq!(level(&[]).rms, 0.0);
+    }
+
+    #[test]
+    fn a_full_scale_sine_fills_the_window() {
+        // 0 dBFS peak and -3 dBFS RMS both sit above the -10 dB ceiling.
+        let l = level(&quarter_rate_sine(N, 1.0));
+        assert!((l.peak - 1.0).abs() < 1e-6, "peak {}", l.peak);
+        assert!((l.rms - 1.0).abs() < 1e-6, "rms {}", l.rms);
+    }
+
+    #[test]
+    fn a_minus_30_dbfs_sine_reads_its_place_in_the_window() {
+        let amp = 10f32.powf(-30.0 / 20.0);
+        let l = level(&quarter_rate_sine(N, amp));
+        let rms_db = -30.0 - 20.0 * 2f32.sqrt().log10();
+        assert!((l.peak - unit_of_db(-30.0)).abs() < 1e-3, "peak {}", l.peak);
+        assert!((l.rms - unit_of_db(rms_db)).abs() < 1e-3, "rms {}", l.rms);
+    }
+
+    #[test]
+    fn a_steady_frame_pair_has_no_flux() {
+        let frame = spectrum(&sine(N, 440.0, RATE), RATE, BANDS);
+        assert_eq!(flux(&frame, &frame), 0.0);
+    }
+
+    #[test]
+    fn a_step_up_has_positive_flux_and_a_step_down_none() {
+        let quiet = [0.0f32; BANDS];
+        let loud = spectrum(&sine(N, 440.0, RATE), RATE, BANDS);
+        assert!(flux(&quiet, &loud) > 0.0);
+        assert_eq!(flux(&loud, &quiet), 0.0);
+        assert_eq!(flux(&quiet, &[1.0; BANDS]), 1.0);
+    }
+
+    #[test]
+    fn an_empty_frame_has_no_flux() {
+        assert_eq!(flux(&[], &[0.5; BANDS]), 0.0);
     }
 }

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 // -- Module Declarations --
 pub mod decode;
+mod dsp;
 pub mod engine;
 pub mod flac_frames;
 pub mod peaks;
@@ -164,6 +165,16 @@ impl Default for PlayerStatus {
 pub struct PlayReport {
     pub track_id: i64,
     pub completed: bool,
+}
+
+/// The loudness of the playing audio, the payload on `player:level`, read from the same window as the
+/// spectrum. `rms` and `peak` are in 0..1 through the spectrum's dB window. `flux` is the positive
+/// change across the spectrum bands since the previous frame, in 0..1: an onset signal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct LevelFrame {
+    pub rms: f32,
+    pub peak: f32,
+    pub flux: f32,
 }
 
 /// The sample format of a decoded stream: the rate in Hz and the interleaved channel count.
