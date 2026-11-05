@@ -7,6 +7,7 @@ import { WorkspaceGate } from "./components/WorkspaceGate";
 import { AppShell } from "./components/shell/AppShell";
 import { ConfirmQuitDialog } from "./components/shell/ConfirmQuitDialog";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { UpdatePrompt } from "./components/updater/UpdatePrompt";
 
 // -- State Imports --
 import { useLoadPreferences } from "./state/preferences/store";
@@ -14,6 +15,7 @@ import { useLoadPreferences } from "./state/preferences/store";
 // -- Hook Imports --
 import { useExportNotifications } from "./hooks/useExportNotifications";
 import { useStartupBoot } from "./hooks/useStartupBoot";
+import { useStartupUpdateCheck } from "./hooks/useStartupUpdateCheck";
 
 // -- Theme Imports --
 import { useApplyTheme } from "./theme";
@@ -49,6 +51,9 @@ function App() {
   const openLibrary = () => setExpanded(true);
   const playerOnly = boot.phase === "standalone" && !expanded;
 
+  // The quiet update check runs for the full library launch only, never the open-file player.
+  useStartupUpdateCheck(boot.phase === "library");
+
   return (
     <div className={styles.frame}>
       <TitleBar playerOnly={playerOnly} onOpenLibrary={openLibrary} />
@@ -69,6 +74,7 @@ function App() {
         </ErrorBoundary>
       </div>
       <ConfirmQuitDialog />
+      <UpdatePrompt />
     </div>
   );
 }

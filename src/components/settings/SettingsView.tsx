@@ -11,6 +11,7 @@ import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 import { SoundSection } from "./SoundSection";
+import { UpdatesSection } from "./UpdatesSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { ProgressLine } from "../scan/ProgressLine";
 
@@ -299,6 +300,8 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
             </div>
           </div>
         </section>
+
+        <UpdatesSection />
       </ScrollArea>
     </div>
   );

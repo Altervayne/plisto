@@ -1,0 +1,24 @@
+/* The inline Show link back to the update prompt, in the helper's own type so it reads as one sentence. */
+.show {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.show:hover {
+  color: var(--ink);
+}
+
+/* A failed check or install, in the warn tone where the result line sits. */
+.failed {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}

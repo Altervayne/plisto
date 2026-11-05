@@ -1100,6 +1100,25 @@ export const en = {
       down: "Down",
     },
   },
+
+  updater: {
+    available: "Plisto {version} is available",
+    updateNow: "Update now",
+    later: "Later",
+    downloading: "Updating to Plisto {version}",
+    restartNote: "Plisto restarts once the update is installed.",
+    failedTitle: "Couldn't update to Plisto {version}",
+    retry: "Try again",
+    section: "Updates",
+    currentVersion: "Plisto {version}",
+    check: "Check for updates",
+    checking: "Checking for updates...",
+    upToDate: "Plisto is up to date.",
+    availableLine: "Plisto {version} is available.",
+    show: "Show",
+    checkFailed: "Couldn't check for updates: {reason}",
+    installFailed: "The update didn't install: {reason}",
+  },
 };
 
 /** The full dictionary shape, derived from the English source. The French scaffold is typed to it. */

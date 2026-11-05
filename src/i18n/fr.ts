@@ -1112,4 +1112,23 @@ export const fr: Dict = {
       down: "Bas",
     },
   },
+
+  updater: {
+    available: "Plisto {version} est disponible",
+    updateNow: "Mettre à jour",
+    later: "Plus tard",
+    downloading: "Mise à jour vers Plisto {version}",
+    restartNote: "Plisto redémarre une fois la mise à jour installée.",
+    failedTitle: "Impossible de passer à Plisto {version}",
+    retry: "Réessayer",
+    section: "Mises à jour",
+    currentVersion: "Plisto {version}",
+    check: "Rechercher des mises à jour",
+    checking: "Recherche de mises à jour...",
+    upToDate: "Plisto est à jour.",
+    availableLine: "Plisto {version} est disponible.",
+    show: "Afficher",
+    checkFailed: "Impossible de rechercher des mises à jour : {reason}",
+    installFailed: "La mise à jour ne s'est pas installée : {reason}",
+  },
 };

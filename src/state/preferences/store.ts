@@ -46,6 +46,8 @@ export const PREF_KEYS = {
   playerVisualizer: "player_visualizer",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
   playerResume: "player_resume",
+  // The update version the user put off with Later; that version no longer prompts on its own.
+  updaterDismissed: "updater_dismissed",
 } as const;
 
 interface PreferencesStore {

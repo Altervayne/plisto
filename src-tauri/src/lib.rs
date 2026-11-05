@@ -81,6 +81,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| match event {
             // The main window's close (the X, native or the custom titlebar's JS close()) follows the
             // close-behavior pref: hide to tray and keep running behind the icon, or quit. Minimize is

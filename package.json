@@ -9,7 +9,10 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
-    "prune:target": "node scripts/prune-target.mjs"
+    "prune:target": "node scripts/prune-target.mjs",
+    "release:manifest": "node scripts/make-latest-json.mjs",
+    "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-build.ps1",
+    "release:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-build.ps1 -Setup"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -21,13 +24,15 @@
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-notification": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "lucide-react": "^1.31.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
