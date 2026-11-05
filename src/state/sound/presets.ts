@@ -54,6 +54,10 @@ export function setEqOn(s: SoundSettings, on: boolean): SoundSettings {
   return { ...s, eq: { ...s.eq, on } };
 }
 
+export function setLevelling(s: SoundSettings, on: boolean): SoundSettings {
+  return { ...s, levelling: on ? "track" : "off" };
+}
+
 export function applyPreset(s: SoundSettings, key: PresetKey): SoundSettings {
   return { ...s, eq: { ...s.eq, preset: key, gains: PRESET_GAINS[key].slice() } };
 }

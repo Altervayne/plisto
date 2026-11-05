@@ -1020,6 +1020,25 @@ export const en = {
     bubbleHz: "{freq} Hz",
     bandGain: "{freq} Hz gain",
     headroomNone: "Raises or lowers everything after the curve.",
+    levelLoudness: "Level loudness between tracks",
+    levellingHelper:
+      "Plays quiet and loud tracks at a similar volume. Uses ReplayGain tags when a file has them and measures the rest in the background.",
+    levellingPending: {
+      one: "{{n}} track has no gain data yet.",
+      other: "{{n}} tracks have no gain data yet.",
+    },
+    levellingMeasuring: "Measuring loudness: {{done}} of {{of}}",
+    levellingPaused:
+      "Measuring loudness: {{done}} of {{of}}. Paused while Plisto scans your folders; it resumes by itself.",
+    levellingAll: { one: "{{n}} track has gain data.", other: "All {{n}} tracks have gain data." },
+    levellingSome: { one: "{{n}} track has gain data.", other: "{{n}} tracks have gain data." },
+    levellingUnreadable: {
+      one: "{{n}} track is silent or unreadable and plays at its own volume.",
+      other: "{{n}} tracks are silent or unreadable and play at their own volume.",
+    },
+    levellingAllTagged: "Every file already carries ReplayGain tags, so there is nothing to measure.",
+    levellingEmpty: "No tracks yet.",
+    levellingEmptyNote: "Levelling starts once you add a music folder.",
     headroomTaken:
       "Applied output change: {change} (the curve's largest boost, {boost}, is taken off automatically so the sound does not clip).",
   },

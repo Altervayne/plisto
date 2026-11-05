@@ -4,6 +4,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 // -- Component Imports --
 import { IconButton } from "../common/IconButton";
 import { QuietButton } from "../common/QuietButton";
+import { LevellingBlock } from "./LevellingBlock";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { EqCurve } from "../sound/EqCurve";
 import { PresetRow } from "../sound/PresetRow";
@@ -115,7 +116,7 @@ export function SoundSection() {
         </p>
       </div>
 
-      {/* Loudness levelling joins this section below the preamp. */}
+      <LevellingBlock />
     </section>
   );
 }

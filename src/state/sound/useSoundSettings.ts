@@ -12,7 +12,14 @@ import { PREF_KEYS, usePreference, usePreferencesStore } from "../preferences/st
 
 // -- Utils Imports --
 import { defaultSoundSettings, parseSoundSettings, serializeSoundSettings } from "./settings";
-import { applyPreset, resetSound, setBandGain, setEqOn, setPreampDb } from "./presets";
+import {
+  applyPreset,
+  resetSound,
+  setBandGain,
+  setEqOn,
+  setLevelling,
+  setPreampDb,
+} from "./presets";
 
 // -- Type Imports --
 import type { SoundSettings } from "./settings";
@@ -20,6 +27,7 @@ import type { PresetKey } from "./presets";
 
 export interface SoundActions {
   setOn: (on: boolean) => void;
+  setLevelling: (on: boolean) => void;
   applyPreset: (key: PresetKey) => void;
   setGain: (band: number, gainDb: number) => void;
   setPreamp: (preampDb: number) => void;
@@ -48,6 +56,7 @@ export function useSoundActions(): SoundActions {
     };
     return {
       setOn: (on) => edit((s) => setEqOn(s, on)),
+      setLevelling: (on) => edit((s) => setLevelling(s, on)),
       applyPreset: (key) => edit((s) => applyPreset(s, key)),
       setGain: (band, gainDb) => edit((s) => setBandGain(s, band, gainDb)),
       setPreamp: (preampDb) => edit((s) => setPreampDb(s, preampDb)),

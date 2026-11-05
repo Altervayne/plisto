@@ -11,6 +11,33 @@
   gap: 2px;
 }
 
+/* The measuring progress: a thin bar under its count, grey while a scan holds the worker back. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 360px;
+}
+
+.track {
+  height: 4px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  overflow: hidden;
+}
+
+.track i {
+  display: block;
+  height: 100%;
+  border-radius: var(--pill);
+  background: var(--accent);
+  transition: width var(--dur-soft) ease;
+}
+
+.progress[data-paused] .track i {
+  background: var(--ink-3);
+}
+
 .value {
   min-width: 76px;
   text-align: center;

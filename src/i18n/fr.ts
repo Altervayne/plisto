@@ -1025,6 +1025,32 @@ export const fr: Dict = {
     bubbleHz: "{freq} Hz",
     bandGain: "Gain à {freq} Hz",
     headroomNone: "Monte ou baisse tout ce qui suit la courbe.",
+    levelLoudness: "Égaliser le volume entre les pistes",
+    levellingHelper:
+      "Lit les pistes faibles et fortes à un volume proche. Utilise les balises ReplayGain quand un fichier en a et mesure le reste en arrière-plan.",
+    levellingPending: {
+      one: "{{n}} piste n'a pas encore de données de gain.",
+      other: "{{n}} pistes n'ont pas encore de données de gain.",
+    },
+    levellingMeasuring: "Mesure du volume : {{done}} sur {{of}}",
+    levellingPaused:
+      "Mesure du volume : {{done}} sur {{of}}. En pause pendant que Plisto analyse vos dossiers ; elle reprend toute seule.",
+    levellingAll: {
+      one: "{{n}} piste a des données de gain.",
+      other: "Les {{n}} pistes ont des données de gain.",
+    },
+    levellingSome: {
+      one: "{{n}} piste a des données de gain.",
+      other: "{{n}} pistes ont des données de gain.",
+    },
+    levellingUnreadable: {
+      one: "{{n}} piste est silencieuse ou illisible et est lue à son propre volume.",
+      other: "{{n}} pistes sont silencieuses ou illisibles et sont lues à leur propre volume.",
+    },
+    levellingAllTagged:
+      "Chaque fichier porte déjà des balises ReplayGain, il n'y a donc rien à mesurer.",
+    levellingEmpty: "Aucune piste pour l'instant.",
+    levellingEmptyNote: "L'égalisation démarre dès que vous ajoutez un dossier de musique.",
     headroomTaken:
       "Changement de sortie appliqué : {change} (la plus forte hausse de la courbe, {boost}, est retirée automatiquement pour que le son ne sature pas).",
   },
