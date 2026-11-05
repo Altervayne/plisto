@@ -8,7 +8,7 @@ import { Cover } from "../common/Cover/Cover";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 
 // -- Icon Imports --
-import { ListEnd, ListMusic, Maximize2, Pencil, Play, Trash2 } from "lucide-react";
+import { ListEnd, ListMusic, ListStart, Maximize2, Pencil, Play, Trash2 } from "lucide-react";
 
 // -- Hook Imports --
 import { usePlaylistCover } from "./usePlaylistCover";
@@ -74,6 +74,12 @@ export function PlaylistRow({
           icon: <Play size={16} strokeWidth={1.8} />,
           label: t((d) => d.player.play),
           onSelect: playback.play,
+          disabled: !playback.playable,
+        },
+        {
+          icon: <ListStart size={16} strokeWidth={1.8} />,
+          label: t((d) => d.player.playNext),
+          onSelect: playback.playNext,
           disabled: !playback.playable,
         },
         {

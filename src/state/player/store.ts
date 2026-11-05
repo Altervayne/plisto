@@ -26,6 +26,7 @@ import {
   playerMoveQueueItem,
   playerNext,
   playerPause,
+  playerPlayNext,
   playerPlayTracks,
   playerPrev,
   playerRemoveQueueItem,
@@ -76,6 +77,8 @@ interface PlayerActions {
   jump: (index: number) => void;
   // Appends tracks to the queue, or starts a fresh play from `source` when nothing is loaded.
   addToQueue: (trackIds: number[], source: PlaybackSource) => void;
+  // Inserts tracks right after the playing one, or starts a fresh play from `source` when nothing is loaded.
+  playNext: (trackIds: number[], source: PlaybackSource) => void;
   // Moves an up-next row, optimistically reordering the local queue ahead of the engine echo.
   reorderQueue: (from: number, to: number) => void;
   // Drops an up-next row, optimistically shrinking the local queue ahead of the engine echo.
@@ -195,6 +198,16 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       } else {
         void playerEnqueue(trackIds).catch(() => {});
         // The append is silent otherwise; a cold start shows the mini-player instead, its own feedback.
+        added(trackIds.length);
+      }
+    },
+    playNext: (trackIds, source) => {
+      const meta = snapshotQueueMeta(trackIds, useAppStore.getState().tracks);
+      set((s) => ({ queueMeta: { ...s.queueMeta, ...meta } }));
+      if (get().status.track_id == null) {
+        get().actions.play(trackIds, 0, source);
+      } else {
+        void playerPlayNext(trackIds).catch(() => {});
         added(trackIds.length);
       }
     },

@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Icon Imports --
-import { FolderOpen, Image as ImageIcon, Info, ListEnd, ListPlus, Play, X } from "lucide-react";
+import { FolderOpen, Image as ImageIcon, Info, ListEnd, ListPlus, ListStart, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
@@ -99,7 +99,7 @@ export function AlbumTrackList({
   const playlists = usePlaylists();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
-  const { play, addToQueue } = usePlayerActions();
+  const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const album = useAlbum(albumId);
   const t = useT();
@@ -219,6 +219,11 @@ export function AlbumTrackList({
     addToQueue(ids.filter((id) => selected.has(id)), source);
   };
 
+  // Same selection and order, inserted after the playing track.
+  const playSelectedNext = () => {
+    playNext(ids.filter((id) => selected.has(id)), source);
+  };
+
   // The undoable remove-from-album, then clears.
   const removeSelected = () => {
     unassignTracks(albumId, [...selected]);
@@ -274,6 +279,13 @@ export function AlbumTrackList({
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
               onSelect: () => play(ids, ids.indexOf(row.track_id), source),
+              disabled: unplayable,
+              tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
+            } satisfies MenuEntry,
+            {
+              icon: <ListStart size={16} strokeWidth={1.8} />,
+              label: t((d) => d.player.playNext),
+              onSelect: () => playNext([row.track_id], source),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -375,6 +387,7 @@ export function AlbumTrackList({
           newDisc={nextDisc}
           state={selectionBar.state}
           onSelectAll={selectAll}
+          onPlayNext={playerEnabled ? playSelectedNext : undefined}
           onAddToQueue={playerEnabled ? addSelectedToQueue : undefined}
           onMoveToDisc={moveSelectedToDisc}
           onExtract={openExtract}

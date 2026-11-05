@@ -33,6 +33,7 @@ export interface FinderNav {
 export interface FinderActions {
   open: (entry: FinderEntry) => void;
   play: (entry: FinderEntry) => void;
+  playNext: (entry: FinderEntry) => void;
   enqueue: (entry: FinderEntry) => void;
   showAllTracks: (query: string) => void;
 }
@@ -57,7 +58,7 @@ export function useFinderActions(nav: FinderNav): FinderActions {
   const setMissing = useSetLibraryMissingMetadata();
   const setGone = useSetLibraryGone();
   const reveal = useRevealLibraryTrack();
-  const { play, addToQueue } = usePlayerActions();
+  const { play, addToQueue, playNext } = usePlayerActions();
   const openDuplicates = useOpenDuplicates();
   const t = useT();
 
@@ -128,6 +129,10 @@ export function useFinderActions(nav: FinderNav): FinderActions {
     play: (entry) => {
       const source = sourceOf(entry);
       if (source && entry.trackIds.length > 0) play(entry.trackIds, 0, source);
+    },
+    playNext: (entry) => {
+      const source = sourceOf(entry);
+      if (source && entry.trackIds.length > 0) playNext(entry.trackIds, source);
     },
     enqueue: (entry) => {
       const source = sourceOf(entry);

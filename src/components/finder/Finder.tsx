@@ -33,8 +33,8 @@ const EXIT_MS = 200;
 /**
  * The quick finder: a palette over the whole app that searches the library and jumps to what it finds.
  * Focus stays in the search input throughout; the arrow keys move a cursor over the rows, Enter goes
- * there, and with the player on, Ctrl+Enter plays and Shift+Enter queues. Any action closes it. The
- * search runs on every keystroke over a prebuilt index. Portals to the body.
+ * there, and with the player on, Ctrl+Enter plays, Alt+Enter plays next and Shift+Enter queues. Any
+ * action closes it. The search runs on every keystroke over a prebuilt index. Portals to the body.
  */
 export function Finder({ nav, onClose }: { nav: FinderNav; onClose: () => void }) {
   const t = useT();
@@ -92,10 +92,11 @@ export function Finder({ nav, onClose }: { nav: FinderNav; onClose: () => void }
     requestClose();
   };
 
-  const playAt = (index: number, mode: "play" | "enqueue") => {
+  const playAt = (index: number, mode: "play" | "next" | "enqueue") => {
     const item = model.items[index];
     if (!open || !playerEnabled || item?.type !== "entry" || !isPlayable(item.entry)) return;
     if (mode === "play") actions.play(item.entry);
+    else if (mode === "next") actions.playNext(item.entry);
     else actions.enqueue(item.entry);
     requestClose();
   };
@@ -121,6 +122,7 @@ export function Finder({ nav, onClose }: { nav: FinderNav; onClose: () => void }
       case "Enter":
         event.preventDefault();
         if (event.ctrlKey || event.metaKey) playAt(active, "play");
+        else if (event.altKey) playAt(active, "next");
         else if (event.shiftKey) playAt(active, "enqueue");
         else activate(active);
         break;
@@ -137,7 +139,7 @@ export function Finder({ nav, onClose }: { nav: FinderNav; onClose: () => void }
 
   const legend = [
     t((d) => d.finder.keyOpen),
-    ...(playerEnabled ? [t((d) => d.finder.keyPlay), t((d) => d.finder.keyQueue)] : []),
+    ...(playerEnabled ? [t((d) => d.finder.keyPlay), t((d) => d.finder.keyNext), t((d) => d.finder.keyQueue)] : []),
     t((d) => d.finder.keyClose),
   ];
 

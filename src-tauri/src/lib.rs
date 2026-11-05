@@ -420,6 +420,7 @@ pub fn run() {
             commands::player::player_prev,
             commands::player::player_jump,
             commands::player::player_enqueue,
+            commands::player::player_play_next,
             commands::player::player_move_queue_item,
             commands::player::player_remove_queue_item,
             commands::player::player_seek,

@@ -291,6 +291,18 @@ pub fn player_enqueue(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result
     Ok(())
 }
 
+/// Resolves the given track ids and inserts them right after the playing track. An empty
+/// resolution is a no-op. Fire-and-forget like the other transport commands.
+#[tauri::command]
+pub fn player_play_next(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
+    let queue = resolve_queue(&track_ids, &state);
+    if queue.is_empty() {
+        return Ok(());
+    }
+    let _ = state.player.send(PlayerCmd::InsertNext(queue));
+    Ok(())
+}
+
 /// Moves the queue item at `from` to `to`, like a drag in the up-next list. Out-of-range indices are
 /// ignored on the engine. Fire-and-forget like the other transport commands.
 #[tauri::command]

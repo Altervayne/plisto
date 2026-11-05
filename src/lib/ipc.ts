@@ -888,6 +888,11 @@ export function playerEnqueue(trackIds: number[]): Promise<void> {
   return invoke("player_enqueue", { trackIds });
 }
 
+/** Inserts `trackIds` right after the playing track, resolved to files on the backend. */
+export function playerPlayNext(trackIds: number[]): Promise<void> {
+  return invoke("player_play_next", { trackIds });
+}
+
 /** Moves the queue item at `from` to `to`, like a drag in the up-next list. */
 export function playerMoveQueueItem(from: number, to: number): Promise<void> {
   return invoke("player_move_queue_item", { from, to });

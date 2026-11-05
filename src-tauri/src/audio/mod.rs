@@ -75,6 +75,10 @@ pub enum PlayerCmd {
     // Appends tracks to the end of the queue. New tracks land last in up-next whether shuffled or
     // not; the live source plays on across the append.
     Enqueue(Vec<QueueTrack>),
+    // Inserts tracks right after the playing track, in order; shuffled, they also follow it in the
+    // pristine order. Cancels a stale preload so the inserted track plays next. Starts playing when
+    // nothing is.
+    InsertNext(Vec<QueueTrack>),
     // Moves the queue item at `from` to `to`, reindexing the rest. Never touches the sink; the
     // current track keeps playing under a new cursor.
     MoveQueueItem { from: usize, to: usize },

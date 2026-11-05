@@ -15,6 +15,7 @@ import { useT } from "../../i18n";
 export interface PlaylistPlayback {
   playable: boolean;
   play: () => void;
+  playNext: () => void;
   addToQueue: () => void;
 }
 
@@ -37,6 +38,7 @@ export function usePlayPlaylist(playlistId: number): PlaylistPlayback {
   return {
     playable: hasPlayableSlot(slots),
     play: () => actions.play(playlistQueue(slots), 0, source),
+    playNext: () => actions.playNext(playlistQueue(slots), source),
     addToQueue: () => actions.addToQueue(playlistQueue(slots), source),
   };
 }

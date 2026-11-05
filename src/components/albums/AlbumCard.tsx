@@ -3,7 +3,7 @@ import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
-import { Check, Download, Info, ListEnd, ListPlus, Maximize2, Play, Trash2 } from "lucide-react";
+import { Check, Download, Info, ListEnd, ListPlus, ListStart, Maximize2, Play, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
@@ -74,7 +74,7 @@ export const AlbumCard = memo(function AlbumCard({
   onAddToPlaylist?: (trackIds: number[]) => void;
 }) {
   const deleteAlbum = useDeleteAlbum();
-  const { play, addToQueue } = usePlayerActions();
+  const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
@@ -132,6 +132,11 @@ export const AlbumCard = memo(function AlbumCard({
           icon: <Play size={16} strokeWidth={1.8} />,
           label: t((d) => d.player.play),
           onSelect: playAlbum,
+        },
+        {
+          icon: <ListStart size={16} strokeWidth={1.8} />,
+          label: t((d) => d.player.playNext),
+          onSelect: () => playNext(tracks.map((track) => track.track_id), source),
         },
         {
           icon: <ListEnd size={16} strokeWidth={1.8} />,

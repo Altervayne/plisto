@@ -54,6 +54,35 @@ pub(crate) fn enqueue_tracks(
     first_new
 }
 
+/// Inserts `tracks` right after the playing track, in the caller's order. Unshuffled, the pristine
+/// order is rebaselined to the new queue. Shuffled, the tracks also go right after the playing
+/// track's pristine slot (or last when it has none), so turning shuffle off keeps them next. With
+/// no playing track (`cur_track_id` None) they append like a cold-start enqueue. Returns the queue
+/// index of the first inserted track.
+pub(crate) fn insert_after_current(
+    queue: &mut Vec<QueueTrack>,
+    original_order: &mut Vec<QueueTrack>,
+    shuffle: bool,
+    index: usize,
+    cur_track_id: Option<i64>,
+    tracks: Vec<QueueTrack>,
+) -> usize {
+    let at = match cur_track_id {
+        Some(_) if !queue.is_empty() => (index + 1).min(queue.len()),
+        _ => queue.len(),
+    };
+    queue.splice(at..at, tracks.iter().cloned());
+    if !shuffle {
+        *original_order = queue.clone();
+    } else {
+        let pristine_at = cur_track_id
+            .and_then(|id| original_order.iter().position(|t| t.id == id))
+            .map_or(original_order.len(), |pos| pos + 1);
+        original_order.splice(pristine_at..pristine_at, tracks);
+    }
+    at
+}
+
 /// Moves the queue item at `from` to `to`, keeping the pristine order in step: an unshuffled reorder
 /// rebaselines the pristine order to the new order, a shuffled reorder leaves it pristine. Returns
 /// false without changing anything when the queue is empty, `from` is out of range, or `from == to`.
@@ -393,6 +422,81 @@ mod tests {
         assert_eq!(first_new, 2);
         assert_eq!(ids(&queue), vec![10, 20, 30, 40]);
         assert_eq!(ids(&original), vec![10, 20, 30, 40]);
+    }
+
+    #[test]
+    fn insert_unshuffled_lands_after_current_and_rebaselines() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        let at = insert_after_current(
+            &mut queue,
+            &mut original,
+            false,
+            0,
+            Some(10),
+            vec![qtrack(91), qtrack(92)],
+        );
+        assert_eq!(at, 1);
+        assert_eq!(ids(&queue), vec![10, 91, 92, 20, 30]);
+        assert_eq!(ids(&original), vec![10, 91, 92, 20, 30]);
+    }
+
+    #[test]
+    fn insert_shuffled_lands_after_current_in_both_orders() {
+        // Play order 30, 10, 20 over pristine 10, 20, 30; id 30 plays.
+        let mut queue = vec![qtrack(30), qtrack(10), qtrack(20)];
+        let mut original = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let at = insert_after_current(
+            &mut queue,
+            &mut original,
+            true,
+            0,
+            Some(30),
+            vec![qtrack(91), qtrack(92)],
+        );
+        assert_eq!(at, 1);
+        assert_eq!(ids(&queue), vec![30, 91, 92, 10, 20]);
+        assert_eq!(ids(&original), vec![10, 20, 30, 91, 92]);
+        // Shuffle off restores the pristine order and the cursor finds id 30: the inserts stay next.
+        let index = reseat_index(&original, Some(30), 0);
+        assert_eq!(ids(&original)[index + 1..index + 3], [91, 92]);
+    }
+
+    #[test]
+    fn insert_shuffled_mid_pristine_keeps_inserts_next_after_shuffle_off() {
+        let mut queue = vec![qtrack(20), qtrack(30), qtrack(10)];
+        let mut original = vec![qtrack(10), qtrack(20), qtrack(30)];
+        insert_after_current(&mut queue, &mut original, true, 0, Some(20), vec![qtrack(91)]);
+        assert_eq!(ids(&original), vec![10, 20, 91, 30]);
+    }
+
+    #[test]
+    fn insert_into_empty_queue_is_a_cold_start() {
+        let mut queue = Vec::new();
+        let mut original = Vec::new();
+        let at = insert_after_current(
+            &mut queue,
+            &mut original,
+            false,
+            0,
+            None,
+            vec![qtrack(91), qtrack(92)],
+        );
+        assert_eq!(at, 0);
+        assert_eq!(ids(&queue), vec![91, 92]);
+        assert_eq!(ids(&original), vec![91, 92]);
+    }
+
+    #[test]
+    fn insert_on_the_last_track_appends_after_it() {
+        let mut queue = vec![qtrack(10), qtrack(20)];
+        let mut original = queue.clone();
+        let at = insert_after_current(&mut queue, &mut original, false, 1, Some(20), vec![qtrack(91)]);
+        assert_eq!(at, 2);
+        assert_eq!(ids(&queue), vec![10, 20, 91]);
+        // The insert becomes the next track, so a preloaded wrap target is stale.
+        assert_eq!(pending_slot(&queue, 1, RepeatMode::All, 10), None);
+        assert_eq!(pending_slot(&queue, 1, RepeatMode::Off, 91), Some(2));
     }
 
     #[test]

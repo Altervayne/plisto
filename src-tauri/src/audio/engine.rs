@@ -20,7 +20,7 @@ use tauri::Emitter;
 // -- Local Imports --
 use super::dsp::{DspParams, DspShared};
 use super::queue::{
-    advance_index, clamp_index, enqueue_tracks, move_queue_item, on_track_end, pending_slot,
+    advance_index, clamp_index, enqueue_tracks, insert_after_current, move_queue_item, on_track_end, pending_slot,
     preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
     Xorshift,
 };
@@ -767,6 +767,28 @@ impl Engine {
                     self.play_at(first_new);
                 } else {
                     // The sink is untouched: a playing track plays on, a paused track stays paused.
+                    self.revalidate_pending();
+                    self.emit(true);
+                }
+            }
+            PlayerCmd::InsertNext(tracks) => {
+                if tracks.is_empty() {
+                    return;
+                }
+                let first_new = insert_after_current(
+                    &mut self.queue,
+                    &mut self.original_order,
+                    self.shuffle,
+                    self.index,
+                    self.cur_track_id,
+                    tracks,
+                );
+                self.emit_queue();
+                if self.cur_track_id.is_none() {
+                    self.play_at(first_new);
+                } else {
+                    // The sink is untouched; a preload armed for the old next track is dropped so
+                    // the inserted one plays.
                     self.revalidate_pending();
                     self.emit(true);
                 }

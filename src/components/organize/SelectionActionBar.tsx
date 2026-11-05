@@ -74,7 +74,7 @@ export function SelectionActionBar({
   const playlists = usePlaylists();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
-  const { addToQueue } = usePlayerActions();
+  const { addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const t = useT();
 
@@ -167,6 +167,14 @@ export function SelectionActionBar({
     );
   };
 
+  // The same selection and order, inserted after the playing track.
+  const onPlayNext = () => {
+    playNext(
+      tracks.filter((track) => selection.has(track.id)).map((track) => track.id),
+      { kind: "files" },
+    );
+  };
+
   // Snapshots the selection into the extractor: each track keyed by id, its display path preferred over
   // the source path for the hover.
   const openExtract = () => {
@@ -240,6 +248,9 @@ export function SelectionActionBar({
               <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
                 {t((d) => d.selection.createAlbum)}
               </PrimaryButton>
+              {playerEnabled ? (
+                <QuietButton onClick={onPlayNext}>{t((d) => d.player.playNext)}</QuietButton>
+              ) : null}
               {playerEnabled ? (
                 <QuietButton onClick={onAddToQueue}>{t((d) => d.player.addToQueue)}</QuietButton>
               ) : null}
