@@ -5,7 +5,7 @@
  */
 
 // -- Library Imports --
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// The blob version this build reads and writes. Any other value reads as defaults.
 pub const VERSION: i64 = 1;
@@ -76,6 +76,7 @@ pub enum Levelling {
 }
 
 impl Levelling {
+    #[cfg(test)]
     fn as_str(self) -> &'static str {
         match self {
             Levelling::Off => "off",
@@ -119,9 +120,10 @@ impl Default for SoundSettings {
 }
 
 impl SoundSettings {
-    /// The wire form `parse` reads back.
+    /// The wire form `parse` reads back. The webview writes the blob, so only the round-trip test does.
+    #[cfg(test)]
     pub fn to_json(&self) -> String {
-        json!({
+        serde_json::json!({
             "v": VERSION,
             "eq": { "on": self.eq.on, "preset": self.eq.preset, "gains": self.eq.gains },
             "preamp_db": self.preamp_db,

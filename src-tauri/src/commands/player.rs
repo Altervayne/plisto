@@ -402,6 +402,14 @@ pub fn player_set_shuffle(on: bool, state: State<'_, AppState>) -> Result<(), St
     Ok(())
 }
 
+/// Turns the 128-band `player:spectrum_fine` emit on or off. A visualizer that draws it turns it on
+/// while mounted and off when it goes, so the extra analysis runs only while something reads it.
+#[tauri::command]
+pub fn player_set_fine_spectrum(on: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::SetFineSpectrum(on));
+    Ok(())
+}
+
 /// Enumerates the available output devices for the settings picker, flagging the current OS default.
 /// Runs on the command worker thread - only names cross back, never a `!Send` device handle. The
 /// engine builds its own device on its own thread when a pick arrives.

@@ -1,8 +1,9 @@
 /*
  * Spectrum analysis: one window of mono PCM down to log-spaced band levels for the player's
- * visualizer, plus the window's level and the band-to-band flux. Pure and framework-free - no symphonia, no clock, no state - so it tests on synthetic
- * buffers. The FFT is an in-house radix-2 Cooley-Tukey, so the crate needs no DSP dependency. The
- * output is already normalized to 0..1, so the frontend never guesses a scale.
+ * visualizer, plus the window's level and the band-to-band flux. Pure and framework-free - no
+ * symphonia, no clock, no state - so it tests on synthetic buffers. The FFT is an in-house radix-2
+ * Cooley-Tukey, so the crate needs no DSP dependency. The output is already normalized to 0..1, so
+ * the frontend never guesses a scale.
  */
 
 // -- Library Imports --
@@ -26,51 +27,81 @@ const EPS: f32 = 1e-9;
 /// under two samples, a zero sample rate, or a zero band count yields flat zeros. Uses the largest
 /// power-of-two prefix of `samples`, which in practice is the whole window.
 pub fn spectrum(samples: &[f32], sample_rate: u32, bands: usize) -> Vec<f32> {
-    if bands == 0 {
-        return Vec::new();
-    }
-    if samples.len() < 2 || sample_rate == 0 {
-        return vec![0.0; bands];
-    }
-    let n = largest_pow2(samples.len());
-    if n < 2 {
-        return vec![0.0; bands];
+    Bins::of(samples, sample_rate).bands(bands)
+}
+
+/// The bin magnitudes of one analyzed window, so several band resolutions read one FFT.
+pub struct Bins {
+    // Magnitudes of the lower half of the transform; empty for a degenerate window.
+    mag: Vec<f32>,
+    n: usize,
+    sample_rate: u32,
+}
+
+impl Bins {
+    /// Transforms one mono window. A window under two samples or a zero sample rate gives no bins,
+    /// which read as flat zeros.
+    pub fn of(samples: &[f32], sample_rate: u32) -> Bins {
+        let n = largest_pow2(samples.len());
+        if n < 2 || sample_rate == 0 {
+            return Bins {
+                mag: Vec::new(),
+                n,
+                sample_rate,
+            };
+        }
+
+        // Hann-window the input so a tone that does not land on a bin center does not smear across
+        // the whole spectrum. Real signal into the real lane, the imaginary lane zeroed.
+        let mut re = vec![0.0f32; n];
+        let mut im = vec![0.0f32; n];
+        for (i, slot) in re.iter_mut().enumerate() {
+            let w = 0.5 * (1.0 - (2.0 * PI * i as f32 / (n - 1) as f32).cos());
+            *slot = samples[i] * w;
+        }
+
+        fft(&mut re, &mut im);
+
+        // Bin magnitudes of the lower half; the upper half mirrors these for a real signal.
+        // Normalized by the window length so the dB window above measures against roughly full-scale.
+        let half = n / 2;
+        let mut mag = vec![0.0f32; half];
+        for (k, slot) in mag.iter_mut().enumerate() {
+            *slot = (re[k] * re[k] + im[k] * im[k]).sqrt() / n as f32;
+        }
+        Bins {
+            mag,
+            n,
+            sample_rate,
+        }
     }
 
-    // Hann-window the input so a tone that does not land on a bin center does not smear across the
-    // whole spectrum. Real signal into the real lane, the imaginary lane zeroed.
-    let mut re = vec![0.0f32; n];
-    let mut im = vec![0.0f32; n];
-    for (i, slot) in re.iter_mut().enumerate() {
-        let w = 0.5 * (1.0 - (2.0 * PI * i as f32 / (n - 1) as f32).cos());
-        *slot = samples[i] * w;
+    /// The window as `bands` log-spaced levels in 0..1 over F_LO..F_HI.
+    pub fn bands(&self, bands: usize) -> Vec<f32> {
+        if self.mag.is_empty() {
+            return vec![0.0; bands];
+        }
+        let (n, rate, half) = (self.n as f32, self.sample_rate as f32, self.mag.len());
+        let mut out = Vec::with_capacity(bands);
+        for b in 0..bands {
+            let f_lo = band_edge(b, bands);
+            let f_hi = band_edge(b + 1, bands);
+            // Map the band's frequency edges onto bin indices, clamped into the half spectrum with a
+            // non-empty range even when both edges land on the same bin.
+            let mut bin_lo = (f_lo * n / rate).floor() as usize;
+            let mut bin_hi = (f_hi * n / rate).ceil() as usize;
+            bin_lo = bin_lo.min(half - 1);
+            bin_hi = bin_hi.clamp(bin_lo + 1, half);
+            // The loudest bin in the range drives the band, so a narrow tone still lights its band
+            // fully.
+            let peak = self.mag[bin_lo..bin_hi]
+                .iter()
+                .copied()
+                .fold(0.0f32, f32::max);
+            out.push(to_unit(peak));
+        }
+        out
     }
-
-    fft(&mut re, &mut im);
-
-    // Bin magnitudes of the lower half; the upper half mirrors these for a real signal. Normalized by
-    // the window length so the dB window above measures against roughly full-scale.
-    let half = n / 2;
-    let mut mag = vec![0.0f32; half];
-    for (k, slot) in mag.iter_mut().enumerate() {
-        *slot = (re[k] * re[k] + im[k] * im[k]).sqrt() / n as f32;
-    }
-
-    let mut out = Vec::with_capacity(bands);
-    for b in 0..bands {
-        let f_lo = band_edge(b, bands);
-        let f_hi = band_edge(b + 1, bands);
-        // Map the band's frequency edges onto bin indices, clamped into the half spectrum with a
-        // non-empty range even when both edges land on the same bin.
-        let mut bin_lo = (f_lo * n as f32 / sample_rate as f32).floor() as usize;
-        let mut bin_hi = (f_hi * n as f32 / sample_rate as f32).ceil() as usize;
-        bin_lo = bin_lo.min(half - 1);
-        bin_hi = bin_hi.clamp(bin_lo + 1, half);
-        // The loudest bin in the range drives the band, so a narrow tone still lights its band fully.
-        let peak = mag[bin_lo..bin_hi].iter().copied().fold(0.0f32, f32::max);
-        out.push(to_unit(peak));
-    }
-    out
 }
 
 /// The RMS and peak of one mono window, each in 0..1 through the same dB window as the bands.
@@ -187,6 +218,7 @@ mod tests {
     const RATE: u32 = 44_100;
     const N: usize = 1024;
     const BANDS: usize = 24;
+    const FINE: usize = 128;
 
     // A mono sine of `n` samples at `freq` Hz and `rate`.
     fn sine(n: usize, freq: f32, rate: u32) -> Vec<f32> {
@@ -249,6 +281,41 @@ mod tests {
     #[test]
     fn a_short_window_is_flat_zero() {
         assert_eq!(spectrum(&[0.5], RATE, BANDS), vec![0.0; BANDS]);
+    }
+
+    #[test]
+    fn fine_bands_come_from_the_same_window() {
+        let bins = Bins::of(&sine(N, 440.0, RATE), RATE);
+        assert_eq!(
+            bins.bands(BANDS),
+            spectrum(&sine(N, 440.0, RATE), RATE, BANDS)
+        );
+        assert_eq!(bins.bands(FINE).len(), FINE);
+    }
+
+    #[test]
+    fn fine_bands_are_zero_for_silence() {
+        assert_eq!(Bins::of(&[0.0; N], RATE).bands(FINE), vec![0.0; FINE]);
+    }
+
+    #[test]
+    fn a_tone_peaks_in_its_own_fine_band() {
+        for freq in [440.0, 1000.0, 5000.0] {
+            let levels = Bins::of(&sine(N, freq, RATE), RATE).bands(FINE);
+            let target = band_of(freq, FINE);
+            // Fine bands are narrower than a bin low down, so a neighbor may tie the tone's band.
+            let loudest = levels.iter().copied().fold(0.0f32, f32::max);
+            assert_eq!(
+                levels[target], loudest,
+                "{freq} Hz lights its own band loudest"
+            );
+            assert!(argmax(&levels).abs_diff(target) <= 2, "{freq} Hz");
+            let far = band_of(if freq < 2000.0 { 9000.0 } else { 100.0 }, FINE);
+            assert!(
+                levels[target] > levels[far] + 0.3,
+                "{freq} Hz towers over a distant band"
+            );
+        }
     }
 
     #[test]

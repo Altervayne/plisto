@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use tauri::State;
 
 // -- Local Imports --
+use crate::audio::PlayerCmd;
 use crate::db;
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
@@ -56,8 +57,10 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
         let _ = state.library_sync.send(SyncCmd::SetEnabled(on));
     }
     if key == "sound" {
-        let on = sound_settings::parse(&value).levelling != Levelling::Off;
+        let sound = sound_settings::parse(&value);
+        let on = sound.levelling != Levelling::Off;
         let _ = state.loudness.send(LoudnessCmd::SetEnabled(on));
+        let _ = state.player.send(PlayerCmd::SetSound(sound));
     }
     Ok(())
 }

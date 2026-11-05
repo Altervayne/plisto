@@ -18,13 +18,15 @@ use rodio::{cpal, OutputStream, Sink, Source};
 use tauri::Emitter;
 
 // -- Local Imports --
-use super::dsp::DspShared;
+use super::dsp::{DspParams, DspShared};
 use super::queue::{
     advance_index, clamp_index, enqueue_tracks, move_queue_item, on_track_end, pending_slot,
     preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
     Xorshift,
 };
-use super::source::{self, DecoderSource, SpectrumTap, BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW};
+use super::source::{
+    self, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW,
+};
 use super::{
     spectrum, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
 };
@@ -93,6 +95,8 @@ struct Engine {
     // The last emitted band frame, the baseline the next frame's flux is measured against. Zeroed on
     // every rest edge, matching what the visualizers last drew.
     prev_bands: [f32; BAND_COUNT],
+    // Whether a visualizer asked for the fine spectrum frame alongside the regular bands.
+    fine_spectrum: bool,
     // The live DSP parameters every source's stage reads.
     dsp: Arc<DspShared>,
     cur_rate: u32,
@@ -194,7 +198,8 @@ impl Engine {
     }
 
     /// Analyzes the trailing window of played audio and emits it as `player:spectrum`, with its level
-    /// and flux as `player:level`. Gated on active output, so both are silent while paused or stopped.
+    /// and flux as `player:level`, plus `player:spectrum_fine` from the same transform while it is
+    /// asked for. Gated on active output, so all are silent while paused or stopped.
     /// Snapshots the tap ring without locking: the audio thread may write mid-copy, but a torn window
     /// is immaterial to a visualizer.
     fn emit_spectrum(&mut self) {
@@ -211,7 +216,8 @@ impl Engine {
             let slot = ((w - SPECTRUM_WINDOW as u64 + i as u64) as usize) & (SPECTRUM_RING - 1);
             *out = f32::from_bits(tap.ring[slot].load(Ordering::Relaxed));
         }
-        let bands = spectrum::spectrum(&window, self.cur_rate, BAND_COUNT);
+        let bins = spectrum::Bins::of(&window, self.cur_rate);
+        let bands = bins.bands(BAND_COUNT);
         let level = spectrum::level(&window);
         let frame = LevelFrame {
             rms: level.rms,
@@ -223,6 +229,11 @@ impl Engine {
         }
         let _ = self.app.emit("player:spectrum", &bands);
         let _ = self.app.emit("player:level", frame);
+        if self.fine_spectrum {
+            let _ = self
+                .app
+                .emit("player:spectrum_fine", &bins.bands(FINE_BAND_COUNT));
+        }
     }
 
     /// Emits one zeroed spectrum frame and one zeroed level frame so a visualizer settles to rest.
@@ -231,6 +242,11 @@ impl Engine {
         self.prev_bands = [0.0; BAND_COUNT];
         let _ = self.app.emit("player:spectrum", &vec![0.0f32; BAND_COUNT]);
         let _ = self.app.emit("player:level", LevelFrame::default());
+        if self.fine_spectrum {
+            let _ = self
+                .app
+                .emit("player:spectrum_fine", &vec![0.0f32; FINE_BAND_COUNT]);
+        }
     }
 
     /// Builds a source over `path` on the engine's DSP parameters. See `source::open_source`.
@@ -835,6 +851,8 @@ impl Engine {
                 end_secs,
             } => self.preview(path, start_secs, end_secs),
             PlayerCmd::RestoreLibrary { secs, playing } => self.restore_library(secs, playing),
+            PlayerCmd::SetSound(settings) => self.dsp.store(&DspParams::from(&settings)),
+            PlayerCmd::SetFineSpectrum(on) => self.fine_spectrum = on,
         }
     }
 
@@ -959,6 +977,7 @@ fn run(
         cur_frames: None,
         cur_spectrum: None,
         prev_bands: [0.0; BAND_COUNT],
+        fine_spectrum: false,
         dsp: Arc::new(DspShared::default()),
         cur_rate: 0,
         cur_channels: 0,

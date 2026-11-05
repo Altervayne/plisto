@@ -19,7 +19,6 @@ mod resolve;
 mod scan;
 mod scan_lock;
 mod smtc;
-#[allow(dead_code)] // The band table and the wire form have no consumer until the EQ engine lands.
 mod sound_settings;
 mod splice;
 mod startup;
@@ -190,6 +189,18 @@ pub fn run() {
                 }
             }
 
+            // Seed the EQ, preamp and levelling from the stored `sound` blob, so the first track after
+            // launch plays through them without waiting for the webview. Absent or unreadable parses to
+            // the bypassed default.
+            let sound = sound_settings::parse(
+                &db::get_setting(&conn, "sound")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+            );
+            let levelling_on = sound.levelling != Levelling::Off;
+            let _ = player_tx.send(audio::PlayerCmd::SetSound(sound));
+
             // Seed the close-behavior mirror from the kv before state is managed, like the device
             // read above. Absent means quit on close, the shipped default.
             let close_to_tray =
@@ -202,12 +213,8 @@ pub fn run() {
                 != Some("0");
             let (sync_tx, sync_rx) = crossbeam_channel::unbounded::<SyncCmd>();
 
-            // The loudness worker measures only while levelling is on, so its start state comes from
-            // the stored `sound` blob through the same parser the settings hook uses. Absent reads off.
-            let levelling_on = db::get_setting(&conn, "sound")
-                .ok()
-                .flatten()
-                .is_some_and(|raw| sound_settings::parse(&raw).levelling != Levelling::Off);
+            // The loudness worker measures only while levelling is on, so it starts from the `sound`
+            // blob seeded into the player above.
             let (loudness_tx, loudness_rx) = crossbeam_channel::unbounded::<LoudnessCmd>();
 
             // Stash the file the OS cold-launched Plisto with, if any, for the frontend to pull on
@@ -423,6 +430,7 @@ pub fn run() {
             commands::player::get_player_queue,
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
+            commands::player::player_set_fine_spectrum,
             commands::plays::reset_play_history,
             commands::plays::get_recently_played,
             commands::plays::get_most_played,

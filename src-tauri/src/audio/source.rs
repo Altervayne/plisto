@@ -23,6 +23,8 @@ pub(super) const SPECTRUM_RING: usize = 2048;
 pub(super) const SPECTRUM_WINDOW: usize = 1024;
 /// Spectrum bands emitted per frame. The mini three-bar EQ folds its bars out of these.
 pub const BAND_COUNT: usize = 24;
+/// Bands in the fine spectrum frame, over the same range and window as the regular bands.
+pub const FINE_BAND_COUNT: usize = 128;
 
 /// A lock-free tap of the playing audio for the spectrum reader. One writer on rodio's mixer thread,
 /// read for display only on the engine thread, so Relaxed is the right ordering, not a sync gate.
@@ -76,9 +78,11 @@ impl DecoderSource {
     pub(super) fn new(
         mut decoder: decode::Decoder,
         start_secs: f64,
-        stage: DspStage,
+        mut stage: DspStage,
     ) -> Option<Self> {
         let first = decoder.next_packet()?;
+        // Tuned to the primed layout, the stage lands on its target before the first sample.
+        stage.refresh(first.spec);
         let duration = decoder
             .duration_secs()
             .filter(|d| d.is_finite() && *d >= 0.0)
@@ -137,7 +141,7 @@ impl Iterator for DecoderSource {
                     self.buffer = chunk.samples;
                     self.pos = 0;
                     self.spec = chunk.spec;
-                    self.stage.refresh();
+                    self.stage.refresh(self.spec);
                 }
                 None => {
                     self.ended.store(true, Ordering::Relaxed);
@@ -201,6 +205,7 @@ impl Source for DecoderSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::dsp::db_to_gain;
     use rodio::source::UniformSourceIterator;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -358,19 +363,21 @@ mod tests {
         let plain_out: Vec<f32> = plain.collect();
 
         let dec = decode::Decoder::open(&path).expect("opens the WAV");
-        let halved = DecoderSource::new(dec, 0.0, DspStage::with_gain(0.5)).expect("primes");
+        let halved = DecoderSource::new(dec, 0.0, DspStage::with_preamp(-6.0)).expect("primes");
         let halved_tap = Arc::clone(&halved.spectrum);
         let halved_out: Vec<f32> = halved.collect();
 
-        // Halving is exact in f32, so the comparison can be bit for bit.
+        // The WAV stays under the limiter's knee, so the stage is the plain gain, and both channels
+        // carry the same sample, so the mono downmix commutes with it: the comparison is bit for bit.
+        let gain = db_to_gain(-6.0);
+        let expect_out: Vec<f32> = plain_out.iter().map(|s| s * gain).collect();
+        assert_eq!(bits(&halved_out), bits(&expect_out));
         let expect_ring: Vec<u32> = ring_bits(&plain_tap)
             .into_iter()
-            .map(|b| (f32::from_bits(b) * 0.5).to_bits())
+            .map(|b| (f32::from_bits(b) * gain).to_bits())
             .collect();
         assert!(expect_ring.iter().any(|&b| f32::from_bits(b) != 0.0));
         assert_eq!(ring_bits(&halved_tap), expect_ring);
-        let expect_out: Vec<f32> = plain_out.iter().map(|s| s * 0.5).collect();
-        assert_eq!(halved_out, expect_out);
     }
 
     // ---- The rodio queue boundary ----

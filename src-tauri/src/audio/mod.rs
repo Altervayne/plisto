@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::sound_settings::SoundSettings;
+
 // -- Module Declarations --
 pub mod decode;
 mod dsp;
@@ -98,6 +100,12 @@ pub enum PlayerCmd {
         secs: f64,
         playing: bool,
     },
+    // Publishes new EQ, preamp and levelling settings. Every source picks them up at its next packet
+    // and glides to them.
+    SetSound(SoundSettings),
+    // Turns the 128-band `player:spectrum_fine` emit on or off. Off by default, so nothing beyond the
+    // regular bands is analyzed unless a visualizer asks for it.
+    SetFineSpectrum(bool),
 }
 
 /// One selectable output device, for the settings picker. `is_default` marks the current OS default
