@@ -54,6 +54,7 @@ export interface Candidate {
   draw: (frame: Frame) => void;
   trailCenter?: () => [number, number];
   trailZoom?: (frame: Frame) => number;
+  trailDecay?: (frame: Frame) => number;
   dispose: () => void;
 }
 

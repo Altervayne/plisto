@@ -6,11 +6,20 @@ import { Check, Waves } from "lucide-react";
 
 // -- Component Imports --
 import { IconToggle } from "../../common/IconToggle";
+import { SegmentedControl } from "../../common/SegmentedControl";
 import { VisualizerGlyph } from "./VisualizerGlyph";
 
 // -- State Imports --
-import { usePlayerVisualizer, useSetPlayerVisualizer } from "../../../state/preferences/store";
-import { VISUALIZER_KINDS } from "../../../state/player/visualizerKind";
+import {
+  usePlayerVisualizer,
+  usePlayerVisualizerReactivity,
+  useSetPlayerVisualizer,
+  useSetPlayerVisualizerReactivity,
+} from "../../../state/preferences/store";
+import { REACTIVITY_LEVELS, VISUALIZER_KINDS, type Reactivity } from "../../../state/player/visualizerKind";
+
+// -- Type Imports --
+import type { Segment } from "../../common/SegmentedControl";
 
 // -- Local Imports --
 import { visualizerLabel } from "./visualizerLabel";
@@ -19,18 +28,32 @@ import { visualizerLabel } from "./visualizerLabel";
 import { useT } from "../../../i18n";
 
 // -- Style Imports --
-// The picker is the sequence menu's sibling in the queue header and wears its exact popover.
+// The picker is the sequence menu's sibling in the queue header and wears its exact popover; the
+// reactivity row wears the EQ preset row's compact stretch.
 import styles from "../SequenceMenu.module.css";
+import rowStyles from "../../sound/PresetRow.module.css";
 
 /**
  * The visualizer pick: a quiet button in the queue header opening a small popover with one radio row per
- * visualizer. The pick persists as a pref and reaches the Player and ambient mode alike. The chosen row
- * reads by a check and its ink, never the accent; the button lifts into a chip only while open.
+ * visualizer, then a segmented reactivity row. Both persist as prefs and reach the Player and ambient
+ * mode alike. The chosen row reads by a check and its ink, never the accent; the button lifts into a chip
+ * only while open.
  */
 export function VisualizerPicker() {
   const picked = usePlayerVisualizer();
   const setPicked = useSetPlayerVisualizer();
+  const reactivity = usePlayerVisualizerReactivity();
+  const setReactivity = useSetPlayerVisualizerReactivity();
   const t = useT();
+  const reactivityLabels: Record<Reactivity, string> = {
+    calm: t((d) => d.player.reactivityCalm),
+    balanced: t((d) => d.player.reactivityBalanced),
+    lively: t((d) => d.player.reactivityLively),
+  };
+  const reactivitySegments: Segment<Reactivity>[] = REACTIVITY_LEVELS.map((value) => ({
+    value,
+    label: reactivityLabels[value],
+  }));
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const checkedRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -99,6 +122,18 @@ export function VisualizerPicker() {
                 </button>
               );
             })}
+          </div>
+          <div className={styles.sep} />
+          <div className={styles.group}>
+            <span className={styles.groupLabel}>{t((d) => d.player.visualizerReactivity)}</span>
+            <div className={rowStyles.compact}>
+              <SegmentedControl
+                segments={reactivitySegments}
+                value={reactivity}
+                onChange={setReactivity}
+                label={t((d) => d.player.visualizerReactivity)}
+              />
+            </div>
           </div>
         </div>
       ) : null}

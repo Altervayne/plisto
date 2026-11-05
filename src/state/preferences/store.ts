@@ -12,7 +12,12 @@ import { create } from "zustand";
 import { getSetting, setSetting } from "../../lib/ipc";
 
 // -- State Imports --
-import { normalizeVisualizerKind, type VisualizerKind } from "../player/visualizerKind";
+import {
+  normalizeReactivity,
+  normalizeVisualizerKind,
+  type Reactivity,
+  type VisualizerKind,
+} from "../player/visualizerKind";
 
 /** The persisted preference keys, mapped to their kv-table column names. */
 export const PREF_KEYS = {
@@ -44,6 +49,7 @@ export const PREF_KEYS = {
   // The EQ, preamp and levelling blob. The backend parses and applies this same key by name.
   sound: "sound",
   playerVisualizer: "player_visualizer",
+  playerVisualizerReactivity: "player_visualizer_reactivity",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
   playerResume: "player_resume",
   // The update version the user put off with Later; that version no longer prompts on its own.
@@ -132,4 +138,14 @@ export const usePlayerVisualizer = (): VisualizerKind =>
 export const useSetPlayerVisualizer = (): ((kind: VisualizerKind) => void) => {
   const setPreference = useSetPreference();
   return (kind) => setPreference(PREF_KEYS.playerVisualizer, kind);
+};
+
+/** How hard the visualizers move with the music. An absent or unknown pref reads Balanced. */
+export const usePlayerVisualizerReactivity = (): Reactivity =>
+  normalizeReactivity(usePreference(PREF_KEYS.playerVisualizerReactivity));
+
+/** Persists the reactivity level. Best-effort like every other pref. */
+export const useSetPlayerVisualizerReactivity = (): ((level: Reactivity) => void) => {
+  const setPreference = useSetPreference();
+  return (level) => setPreference(PREF_KEYS.playerVisualizerReactivity, level);
 };

@@ -1,8 +1,11 @@
 /*
- * Liquid: the cover as a slow liquid surface. A gentle noise flow whose depth swells with the eased bass,
- * and a soft lens that draws the art inward as the swell rises, so the cover breathes with the music.
- * Behind it a blurred liquid copy of the cover drifts across the whole stage, in ambient and the Player
- * alike. Calm by design: no per-beat ripple, no channel split, every motion term well under 3 Hz.
+ * Liquid: the cover as a liquid surface. A noise flow whose depth swells with the eased bass, and a soft
+ * lens that draws the art inward as the swell rises, so the cover breathes with the music. Behind it a
+ * blurred liquid copy of the cover drifts across the whole stage, in ambient and the Player alike.
+ *
+ * The motion channel rides on top: the bass envelope punches the depth and the lens, each beat drops one
+ * smooth ring from the centre, the mids speed the flow and the highs add a fine shimmer to the refraction
+ * only, never the lighting. No channel split. Under Calm every one of these terms is zero.
  */
 
 // -- Local Imports --
@@ -11,15 +14,44 @@ import { FS_VS, PRELUDE } from "./shaders";
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
 
+// -- Tunables: how the surface moves with the music --
+// Surface depth and lens pull added per unit of bass envelope.
+const PUNCH_DEPTH = 1.3;
+const PUNCH_LENS = 0.07;
+// Flow speed added per unit of mid envelope, on top of the level-driven base.
+const FLOW_MID = 0.35;
+// The high shimmer: its scale across the cover and its refraction per unit of high envelope.
+const SHIMMER_SCALE = 34;
+const SHIMMER_AMP = 0.004;
+// The beat ripple: rings alive at once, their life in seconds, outward speed and width in cover widths,
+// fade-in in seconds, and height per unit of beat strength.
+const RIPPLE_MAX = 3;
+const RIPPLE_LIFE = 1.2;
+const RIPPLE_SPEED = 0.6;
+const RIPPLE_WIDTH = 0.06;
+const RIPPLE_RISE = 0.08;
+const RIPPLE_HEIGHT = 0.2;
+
 const FS = `${PRELUDE}
 uniform sampler2D uCoverTex;
 uniform float uLight;
 uniform float uFlow;
 uniform float uSwell;
+uniform float uPunchDepth;
+uniform float uPunchLens;
+uniform float uShimmer;
+// Per ring: its radius and its height.
+uniform vec2 uRipple[${RIPPLE_MAX}];
 float heightAt(vec2 q) {
   float h = (vnoise(q * 2.6 + vec2(uFlow * 0.5, -uFlow * 0.35)) - 0.5);
   h += (vnoise(q * 5.0 + vec2(-uFlow * 0.3, uFlow * 0.45) + 7.3) - 0.5) * 0.4;
-  return h * (0.35 + uSwell * 1.2);
+  h *= 0.35 + uSwell * 1.2 + uPunchDepth;
+  float d = length(q);
+  for (int i = 0; i < ${RIPPLE_MAX}; i++) {
+    float x = (d - uRipple[i].x) / ${RIPPLE_WIDTH.toFixed(4)};
+    h += uRipple[i].y * exp(-x * x);
+  }
+  return h;
 }
 float sdRound(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
 void main() {
@@ -30,8 +62,10 @@ void main() {
   float h0 = heightAt(q);
   vec2 grad = vec2(heightAt(q + vec2(e, 0.0)) - h0, heightAt(q + vec2(0.0, e)) - h0) / e;
   // The lens draws the art slightly inward toward the centre as the swell rises, so the cover breathes.
-  vec2 lens = -q * (0.012 + uSwell * 0.05) * (1.0 - smoothstep(0.0, 0.75, length(q)));
-  vec2 uv = clamp(lp + grad * 0.0035 + lens, 0.001, 0.999);
+  vec2 lens = -q * (0.012 + uSwell * 0.05 + uPunchLens) * (1.0 - smoothstep(0.0, 0.75, length(q)));
+  vec2 sq = q * ${SHIMMER_SCALE.toFixed(1)} + uFlow * 2.0;
+  vec2 shimmer = (vec2(vnoise(sq), vnoise(sq + 17.1)) - 0.5) * uShimmer;
+  vec2 uv = clamp(lp + grad * 0.0035 + lens + shimmer, 0.001, 0.999);
   vec3 col = texture(uCoverTex, uv).rgb;
   vec3 n = normalize(vec3(-grad * 0.35, 1.0));
   vec3 l = normalize(vec3(-0.45, 0.6, 0.66));
@@ -57,6 +91,9 @@ export function createLiquid(kit: Kit): Candidate {
   if (!tex) throw new Error("texture allocation failed");
   let uploaded: ImageBitmap | null = null;
   let flow = 0;
+  // Live rings, oldest first: age in seconds and beat strength.
+  const rings: { age: number; strength: number }[] = [];
+  const ripple = new Float32Array(RIPPLE_MAX * 2);
 
   // The bitmap arrives flipped for GL, so it uploads as is; a new cover re-uploads once.
   const upload = (bitmap: ImageBitmap) => {
@@ -71,6 +108,24 @@ export function createLiquid(kit: Kit): Candidate {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
   };
 
+  // Ages the rings, drops a new one on a beat, and packs radius and height for the shader. A ring fades
+  // in, then falls to nothing at the end of its life, so neither end pops.
+  const stepRings = (dt: number, beat: number) => {
+    for (const ring of rings) ring.age += dt;
+    while (rings.length > 0 && rings[0].age >= RIPPLE_LIFE) rings.shift();
+    if (beat > 0) {
+      if (rings.length === RIPPLE_MAX) rings.shift();
+      rings.push({ age: 0, strength: Math.min(1.5, beat) });
+    }
+    ripple.fill(0);
+    rings.forEach((ring, i) => {
+      const fadeIn = Math.min(1, ring.age / RIPPLE_RISE);
+      const fadeOut = (1 - ring.age / RIPPLE_LIFE) ** 2;
+      ripple[i * 2] = ring.age * RIPPLE_SPEED;
+      ripple[i * 2 + 1] = ring.strength * RIPPLE_HEIGHT * fadeIn * fadeIn * (3 - 2 * fadeIn) * fadeOut;
+    });
+  };
+
   return {
     mode: "image",
     bloom: 0.12,
@@ -80,14 +135,20 @@ export function createLiquid(kit: Kit): Candidate {
     draw(f: Frame) {
       if (!f.cover) return;
       if (f.cover !== uploaded) upload(f.cover);
+      const s = f.sig;
       // Flow speed rides the eased level, so the surface drifts a little faster in loud passages.
-      flow += f.dt * (0.1 + f.sig.level * 0.14);
+      flow += f.dt * (0.1 + s.level * 0.14 + s.midMotion * FLOW_MID);
+      stepRings(f.dt, s.beat);
       const p = kit.program("liquid", FS_VS, FS);
       kit.setCommon(p, f);
       kit.bindTex(p, "uCoverTex", 0, tex);
       kit.set1(p, "uLight", f.light ? 1 : 0);
       kit.set1(p, "uFlow", flow);
-      kit.set1(p, "uSwell", Math.min(1, f.sig.swell * 1.6));
+      kit.set1(p, "uSwell", Math.min(1, s.swell * 1.6));
+      kit.set1(p, "uPunchDepth", s.bassMotion * PUNCH_DEPTH);
+      kit.set1(p, "uPunchLens", s.bassMotion * PUNCH_LENS);
+      kit.set1(p, "uShimmer", s.highMotion * SHIMMER_AMP);
+      gl.uniform2fv(kit.uniform(p, "uRipple"), ripple);
       kit.drawQuad();
     },
     dispose() {

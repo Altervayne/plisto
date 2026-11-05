@@ -16,7 +16,7 @@ import {
   smoothBands,
 } from "../../../state/player/spectrum";
 import { createSignalFollower, restSignal } from "../../../state/player/visualSignal";
-import type { GlKind } from "../../../state/player/visualizerKind";
+import type { GlKind, Reactivity } from "../../../state/player/visualizerKind";
 
 // -- Utils Imports --
 import { isDarkTheme } from "../../../theme";
@@ -44,6 +44,7 @@ export function GlVisualizer({
   maskRef,
   floorRef,
   palette,
+  reactivity,
   pixels,
   onFail,
 }: {
@@ -55,12 +56,13 @@ export function GlVisualizer({
   // The element whose top edge the layer rests on, such as the seek bar.
   floorRef?: RefObject<HTMLElement | null>;
   palette: Float32Array;
+  reactivity: Reactivity;
   pixels: ImageBitmap | null;
   onFail: () => void;
 }) {
   const slotRef = useRef<HTMLDivElement>(null);
-  const live = useRef({ kind, palette, pixels, onFail });
-  live.current = { kind, palette, pixels, onFail };
+  const live = useRef({ kind, palette, reactivity, pixels, onFail });
+  live.current = { kind, palette, reactivity, pixels, onFail };
   // Reduced motion has no loop; this holds its repaint so a prop change can trigger one.
   const repaintRef = useRef<(() => void) | null>(null);
 
@@ -198,7 +200,12 @@ export function GlVisualizer({
         measure();
       }
       const playing = usePlayerStore.getState().status.playing;
-      const sig = follower.step(dt, { bands: getLatestSpectrum(), level: getLatestLevel(), playing });
+      const sig = follower.step(dt, {
+        bands: getLatestSpectrum(),
+        level: getLatestLevel(),
+        playing,
+        reactivity: live.current.reactivity,
+      });
       const rawFine = live.current.kind === "terrain" ? getLatestFineSpectrum() : null;
       fine = rawFine ? smoothBands(fine ?? [], rawFine, FINE_ATTACK, FINE_DECAY) : null;
       applyBlend();

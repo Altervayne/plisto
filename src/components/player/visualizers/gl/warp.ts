@@ -1,7 +1,8 @@
 /*
  * Warp: flying through rings that open from behind the cover. Speed follows the level, the spectrum
  * pushes each ring outward around its circumference, and streaks stretch with speed. A beat is a surge
- * of speed with a soft attack; ring brightness follows only the eased level.
+ * of speed with a soft attack, and the bass envelope adds its own surge under any reactivity but Calm;
+ * ring brightness follows only the eased level.
  */
 
 // -- Local Imports --
@@ -9,6 +10,10 @@ import { FS_VS, PRELUDE } from "./shaders";
 
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
+
+// -- Tunables: how the flight moves with the music --
+// Speed added per unit of bass envelope, before the surge's soft attack.
+const SURGE_BASS = 0.9;
 
 const FS = `${PRELUDE}
 uniform float uTravel;
@@ -63,7 +68,7 @@ export function createWarp(kit: Kit): Candidate {
     trail: null,
     draw(f: Frame) {
       // A beat is a surge of speed with a soft attack, felt as motion; brightness never follows it.
-      const target = 0.25 + f.sig.level * 1.1 + f.sig.kick * 1.4;
+      const target = 0.25 + f.sig.level * 1.1 + f.sig.kick * 1.4 + f.sig.bassMotion * SURGE_BASS;
       speed += (target - speed) * (target > speed ? 0.1 : 0.03);
       travel += f.dt * speed;
       const p = kit.program("warp", FS_VS, FS);

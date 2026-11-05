@@ -47,6 +47,7 @@ export function Visualizer({
       maskRef={maskRef}
       floorRef={floorRef}
       palette={colors}
+      reactivity={choice.reactivity}
       pixels={choice.pixels}
       onFail={choice.onGlFail}
     />

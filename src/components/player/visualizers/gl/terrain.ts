@@ -1,7 +1,8 @@
 /*
  * Terrain: the spectrum history as ridgelines receding in perspective, new lines arriving at the front.
- * Every line hides the ones behind it. Bass lifts the near lines (motion, the beat accent) and the far
- * lines cool into the palette's second color; brightness follows only the eased level.
+ * Every line hides the ones behind it. Bass lifts the near lines (motion, the beat accent), the bass
+ * envelope punches them higher still under any reactivity but Calm, and the far lines cool into the
+ * palette's second color; brightness follows only the eased level.
  *
  * Each line is mirrored about its centre, low frequencies in the middle. The 128-band spectrum draws it
  * when the engine sends one; otherwise the 24 bands are interpolated and given a noise detail so the
@@ -13,6 +14,10 @@ import { restSignal, type VisualSignal } from "../../../../state/player/visualSi
 
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
+
+// -- Tunables: how the ridgelines move with the music --
+// Near-line lift added per unit of bass envelope.
+const LIFT_BASS = 1.2;
 
 const ROWS = 64;
 const COLS = 160;
@@ -218,7 +223,7 @@ export function createTerrain(kit: Kit): Candidate {
         const near = (1 - k) ** 2;
         const fade = Math.min(1, (r + frac) * 1.2) * (1 - Math.max(0, (k - 0.82) / 0.18));
         // Bass lifts the near lines; the far lines keep their recorded height.
-        kit.set1(p, "uAmp", 0.42 * (1 + s.bass * 1.4 * near));
+        kit.set1(p, "uAmp", 0.42 * (1 + s.bass * 1.4 * near + s.bassMotion * LIFT_BASS * near));
         kit.set1(p, "uDepth", depth);
         kit.seti(p, "uRowTex", (head - r + ROWS) % ROWS);
         const col = k < 0.35 ? lerp3(warm, coral, k / 0.35) : lerp3(coral, teal, Math.min(1, (k - 0.35) / 0.5));

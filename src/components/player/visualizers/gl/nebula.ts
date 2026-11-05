@@ -3,15 +3,45 @@
  * drift in 3D; they overlap into one continuous density, and the feedback trail turns their paths into
  * silk ribbons. Each attractor pulls with its band group and eases into a push on a beat, so the smoke
  * billows out and gathers again. The physics runs on the CPU and streams one buffer per frame.
+ *
+ * The motion channel rides on top: each beat breathes the cloud outward and lets it drift back, the bass
+ * envelope adds pull, the mids speed the swirl and the orbits, and the highs stir the edges. The trail
+ * shortens as the motion rises so it reads, and stretches in quiet passages; the emission scales against
+ * the trail so its length never changes the brightness. Under Calm every one of these terms is zero.
  */
 
 // -- Local Imports --
-import { restSignal, type VisualSignal } from "../../../../state/player/visualSignal";
+import { easeEnvelope, restSignal, type VisualSignal } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
 
 const COUNT = 3000;
+
+// -- Tunables: how the smoke moves with the music --
+// The beat breath: how far the cloud swells per unit of beat strength, its rise in seconds and its fall
+// time constant (the whole breath lasts about the rise plus three falls), and the outward push it puts on
+// the particles.
+const BREATH_SCALE = 0.18;
+const BREATH_RISE = 0.1;
+const BREATH_FALL = 0.2;
+const BREATH_PUSH = 6;
+// Attractor pull added per unit of bass envelope.
+const PULL_BASS = 0.9;
+// Swirl and orbit speed added per unit of mid envelope, as a fraction of their base speed.
+const SWIRL_MID = 1.2;
+const ORBIT_MID = 1.5;
+// Edge turbulence per unit of high envelope, and the spatial frequency of its field.
+const TURB_HIGH = 5;
+const TURB_SCALE = 5;
+// The trail's per-frame decay: its base, how much longer it runs in quiet passages, how much shorter per
+// unit of motion, its bounds, and the time constant of the motion that sets it.
+const TRAIL_DECAY = 0.93;
+const TRAIL_QUIET = 0.025;
+const TRAIL_LOUD = 0.09;
+const TRAIL_MIN = 0.8;
+const TRAIL_MAX = 0.96;
+const TRAIL_TAU = 0.25;
 
 interface Attractor {
   orbit: number;
@@ -78,6 +108,15 @@ export function createNebula(kit: Kit): Candidate {
   const A = new Float32Array(COUNT);
   const L = new Float32Array(COUNT);
   const data = new Float32Array(COUNT * 5);
+  // The motion channel's state: the breath, its start and peak and age, the extra orbit phase the mids
+  // have added, and the eased motion that sets the trail.
+  let breath = 0;
+  let breathFrom = 0;
+  let breathPeak = 0;
+  let breathAge = Infinity;
+  let orbitShift = 0;
+  let trailMotion = 0;
+  let decay = TRAIL_DECAY;
 
   const attractorPos = (t: number) =>
     ATTRACTORS.map((a) => {
@@ -113,14 +152,17 @@ export function createNebula(kit: Kit): Candidate {
   };
 
   const simulate = (dt: number, t: number, s: VisualSignal) => {
-    const pos = attractorPos(t);
+    const pos = attractorPos(t + orbitShift);
     const g = ATTRACTORS.map((a) => {
       let e = 0;
       for (let i = a.lo; i < a.hi; i++) e += s.bands[i];
       e /= a.hi - a.lo;
       // Each attractor pulls with its band group and eases into a push on a beat: a motion accent.
-      return 0.55 + 1.3 * e - 1.0 * s.kick * s.kick * (a.lo === 0 ? 1.2 : 0.8);
+      return 0.55 + 1.3 * e - 1.0 * s.kick * s.kick * (a.lo === 0 ? 1.2 : 0.8) + PULL_BASS * s.bassMotion;
     });
+    const swirl = 1 + SWIRL_MID * s.midMotion;
+    const push = BREATH_PUSH * breath;
+    const turb = TURB_HIGH * s.highMotion;
     const damp = Math.exp(-dt * 2.5);
     for (let i = 0; i < COUNT; i++) {
       const j = i * 3;
@@ -146,10 +188,22 @@ export function createNebula(kit: Kit): Candidate {
           best = k;
         }
         const pull = g[k] * inv * inv * 2.0;
-        const spin = (sw * inv * 1.5) / (r2 + 0.1);
+        const spin = ((sw * inv * 1.5) / (r2 + 0.1)) * swirl;
         fx += dx * pull + (ax[1] * dz - ax[2] * dy) * spin;
         fy += dy * pull + (ax[2] * dx - ax[0] * dz) * spin;
         fz += dz * pull + (ax[0] * dy - ax[1] * dx) * spin;
+      }
+      if (push > 0) {
+        fx += px * push;
+        fy += py * push;
+        fz += pz * push;
+      }
+      // The highs stir a smooth field, weighted toward the particles far from their attractor.
+      if (turb > 0) {
+        const edge = Math.min(1, bestD * 4) * turb;
+        fx += Math.sin(py * TURB_SCALE + t * 1.7) * edge;
+        fy += Math.sin(pz * TURB_SCALE + t * 1.3) * edge;
+        fz += Math.sin(px * TURB_SCALE + t * 2.1) * edge;
       }
       const fm = Math.hypot(fx, fy, fz);
       if (fm > 30) {
@@ -204,14 +258,36 @@ export function createNebula(kit: Kit): Candidate {
   const rest = restSignal();
   for (let k = 0; k < 120; k++) simulate(1 / 60, k / 60, rest);
 
+  // Starts a breath on a beat, from wherever the last one is, so a quick second beat never snaps back.
+  const stepMotion = (dt: number, s: VisualSignal) => {
+    if (s.beat > 0) {
+      breathFrom = breath;
+      breathPeak = Math.max(breath, Math.min(1.5, s.beat));
+      breathAge = 0;
+    } else {
+      breathAge += dt;
+    }
+    if (breathAge < BREATH_RISE) {
+      const k = breathAge / BREATH_RISE;
+      breath = breathFrom + (breathPeak - breathFrom) * k * k * (3 - 2 * k);
+    } else {
+      breath = breathPeak * Math.exp(-(breathAge - BREATH_RISE) / BREATH_FALL);
+    }
+    orbitShift += dt * ORBIT_MID * s.midMotion;
+    const motion = (s.bassMotion + s.midMotion + s.highMotion) / 3;
+    trailMotion = easeEnvelope(trailMotion, motion, dt, TRAIL_TAU);
+  };
+
   return {
     mode: "glow",
     bloom: 0.45,
     exposure: 1.3,
     inkGain: 2.4,
-    trail: { decay: 0.93, zoom: 1.0, rot: 0 },
+    trail: { decay: TRAIL_DECAY, zoom: 1.0, rot: 0 },
     draw(f: Frame) {
-      simulate(Math.min(f.dt, 1 / 30), f.t, f.sig);
+      const dt = Math.min(f.dt, 1 / 30);
+      stepMotion(dt, f.sig);
+      simulate(dt, f.t, f.sig);
       const p = kit.program("nebula", VS, FS);
       gl.useProgram(p.handle);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -232,12 +308,14 @@ export function createNebula(kit: Kit): Candidate {
         unit = c[2] * 1.2;
       }
       kit.set2(p, "uCenter", (cx / W) * 2 - 1, (cy / H) * 2 - 1);
-      kit.set2(p, "uScale", (unit * 2) / W, (unit * 2) / H);
+      const swell = 1 + BREATH_SCALE * breath;
+      kit.set2(p, "uScale", ((unit * 2) / W) * swell, ((unit * 2) / H) * swell);
       kit.set1(p, "uYaw", f.t * 0.06);
       kit.set1(p, "uPitch", 0.35 + Math.sin(f.t * 0.05) * 0.15);
       kit.set1(p, "uPoint", unit * 0.16);
       kit.set1(p, "uLevel", f.sig.level);
-      kit.set1(p, "uGain", f.light ? 0.022 : 0.007);
+      // The trail integrates the emission, so the gain follows the decay to hold the same brightness.
+      kit.set1(p, "uGain", (f.light ? 0.022 : 0.007) * ((1 - decay) / (1 - TRAIL_DECAY)));
       gl.uniform3fv(kit.uniform(p, "uPal"), f.palette);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
@@ -247,6 +325,11 @@ export function createNebula(kit: Kit): Candidate {
       gl.disable(gl.BLEND);
     },
     trailCenter: () => [kit.size.w / 2, kit.size.h / 2],
+    trailDecay: (f: Frame) => {
+      const d = TRAIL_DECAY + TRAIL_QUIET * Math.min(1, f.sig.drive) - TRAIL_LOUD * trailMotion;
+      decay = Math.min(TRAIL_MAX, Math.max(TRAIL_MIN, d));
+      return decay;
+    },
     dispose() {
       gl.deleteVertexArray(vao);
       gl.deleteBuffer(vbo);

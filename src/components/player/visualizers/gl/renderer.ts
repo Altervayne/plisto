@@ -198,7 +198,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       kit.set2(p, "uRes", kit.size.w, kit.size.h);
       kit.bindTex(p, "uPrev", 0, src.tex);
       const step = Math.min(3, f.dt * 60);
-      kit.set1(p, "uDecay", Math.pow(c.trail.decay, step));
+      kit.set1(p, "uDecay", Math.pow(c.trailDecay ? c.trailDecay(f) : c.trail.decay, step));
       const center = c.trailCenter ? c.trailCenter() : [kit.size.w / 2, kit.size.h / 2];
       kit.set2(p, "uCenter", center[0], center[1]);
       kit.set1(p, "uZoom", Math.pow(c.trailZoom ? c.trailZoom(f) : c.trail.zoom, step));

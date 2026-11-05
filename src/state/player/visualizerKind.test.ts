@@ -6,7 +6,9 @@ import {
   VISUALIZER_KINDS,
   effectiveVisualizerKind,
   nextVisualizerKind,
+  normalizeReactivity,
   normalizeVisualizerKind,
+  REACTIVITY_LEVELS,
   type VisualizerKind,
 } from "./visualizerKind";
 
@@ -66,5 +68,18 @@ describe("effectiveVisualizerKind", () => {
     const broken = { glFailed: true, coverPixels: false };
     expect(effectiveVisualizerKind("ridge", broken)).toBe("ridge");
     expect(effectiveVisualizerKind("off", broken)).toBe("off");
+  });
+});
+
+describe("normalizeReactivity", () => {
+  it("keeps every known level", () => {
+    for (const level of REACTIVITY_LEVELS) expect(normalizeReactivity(level)).toBe(level);
+  });
+
+  it("reads an absent or unknown value as Balanced", () => {
+    expect(normalizeReactivity(undefined)).toBe("balanced");
+    expect(normalizeReactivity(null)).toBe("balanced");
+    expect(normalizeReactivity("wild")).toBe("balanced");
+    expect(normalizeReactivity("Calm")).toBe("balanced");
   });
 });

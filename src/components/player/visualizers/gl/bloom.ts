@@ -2,7 +2,7 @@
  * Bloom: a polar spectrum around the cover. A mirrored full-spectrum outline, six counter-rotating
  * petals and a fine twelve-point crown, drawn as glowing lines. Each frame feeds back slightly zoomed and
  * turned, so the petals leave blooming trails; a beat kicks the zoom and the petal reach, never the
- * brightness.
+ * brightness. Under any reactivity but Calm the bass envelope adds to that kick and the mids to the spin.
  */
 
 // -- Local Imports --
@@ -11,8 +11,16 @@ import { FS_VS, PRELUDE } from "./shaders";
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
 
+// -- Tunables: how the petals move with the music --
+// Outline reach and trail zoom added per unit of bass envelope.
+const REACH_BASS = 0.45;
+const ZOOM_BASS = 0.012;
+// Spin speed added per unit of mid envelope.
+const SPIN_MID = 0.25;
+
 const FS = `${PRELUDE}
 uniform float uSpin;
+uniform float uReach;
 void main() {
   vec2 c = coverCenter();
   float unit = uCover.z * 0.5;
@@ -20,7 +28,7 @@ void main() {
   float r = length(p);
   float th = atan(p.y, p.x);
   float m1 = abs(mod(th - uSpin + PI, TAU) - PI) / PI;
-  float r1 = 1.28 + band(m1) * 1.55 * (1.0 + uKick * 0.4);
+  float r1 = 1.28 + band(m1) * 1.55 * (1.0 + uKick * 0.4 + uReach);
   float l1 = exp(-pow((r - r1) * 10.0, 2.0)) * 1.3;
   vec3 col = mix(uPal[0], uPal[2], m1) * l1;
   float a2 = (th + uSpin * 1.7) * 6.0 / TAU;
@@ -49,10 +57,11 @@ export function createBloom(kit: Kit): Candidate {
     inkGain: 0.8,
     trail: { decay: 0.82, zoom: 1.006, rot: 0.0025 },
     draw(f: Frame) {
-      spin += f.dt * (0.05 + f.sig.rms * 0.12);
+      spin += f.dt * (0.05 + f.sig.rms * 0.12 + f.sig.midMotion * SPIN_MID);
       const p = kit.program("bloom", FS_VS, FS);
       kit.setCommon(p, f);
       kit.set1(p, "uSpin", spin);
+      kit.set1(p, "uReach", f.sig.bassMotion * REACH_BASS);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       kit.drawQuad();
@@ -62,7 +71,7 @@ export function createBloom(kit: Kit): Candidate {
       const c = kit.geo.cover;
       return [c[0] + c[2] / 2, c[1] + c[3] / 2];
     },
-    trailZoom: (f: Frame) => 1.004 + f.sig.rms * 0.005 + f.sig.kick * 0.022,
+    trailZoom: (f: Frame) => 1.004 + f.sig.rms * 0.005 + f.sig.kick * 0.022 + f.sig.bassMotion * ZOOM_BASS,
     dispose() {},
   };
 }

@@ -8,10 +8,15 @@
  * brightness, and `swell` (the bass eased the same way) drives slow motion. The beat pulse `kick` may
  * move or scale things but never changes brightness. Both time constants keep their response far below
  * the 3 Hz flash limit.
+ *
+ * Motion has its own faster channel, which never touches brightness: a fast-attack, medium-release
+ * envelope per band group and a rate-capped beat event, both scaled by the reactivity level. Calm zeroes
+ * the whole channel, so every visualizer falls back to its slow eased motion alone.
  */
 
 // -- Type Imports --
 import { BAND_COUNT, type LevelFrame } from "../../types";
+import type { Reactivity } from "./visualizerKind";
 
 /** One display frame of the derived signal. */
 export interface VisualSignal {
@@ -29,6 +34,15 @@ export interface VisualSignal {
   level: number;
   // The bass eased over SWELL_TAU: slow motion.
   swell: number;
+  // The motion channel: never brightness, all zero under Calm. Per band group, an envelope of the
+  // group's rise over its recent mean, scaled by the reactivity gain.
+  bassMotion: number;
+  midMotion: number;
+  highMotion: number;
+  // A beat's strength on the frame it fires, else 0: rate-capped, scaled by the reactivity gain.
+  beat: number;
+  // The reactivity gain itself, for motion terms that are not an envelope: 0 under Calm.
+  drive: number;
 }
 
 /** What the follower reads from the feed on one display frame. */
@@ -37,6 +51,8 @@ export interface SignalInput {
   bands: number[];
   level: LevelFrame;
   playing: boolean;
+  // Absent reads Balanced, the pref's default.
+  reactivity?: Reactivity;
 }
 
 const ATTACK = 0.5;
@@ -61,6 +77,31 @@ const ONSET_GAP_SECS = 0.18;
 const BASS_END = 5;
 const MID_END = 15;
 
+// The motion channel. Each group's envelope chases its rise over a slow mean of itself, so a steady
+// passage sits low and every hit stands out; the attack is fast, the release set per reactivity level.
+export const MOTION_ATTACK_SECS = 0.05;
+const MOTION_MEAN_TAU = 1.5;
+// The share of the mean a group must clear before it moves anything, and the gain on what clears it.
+const MOTION_GATE = 0.75;
+const MOTION_CONTRAST = 2.5;
+
+// Beat events: at least this far apart, and never more than this many in any one second, so a busy
+// passage still reads as a pulse rather than a flutter.
+export const BEAT_MIN_GAP_SECS = 0.3;
+export const BEAT_MAX_PER_SEC = 3;
+
+/** What a reactivity level does to the motion channel: its gain, and the envelopes' release in seconds. */
+export interface ReactivityProfile {
+  gain: number;
+  release: number;
+}
+
+export const REACTIVITY_PROFILES: Record<Reactivity, ReactivityProfile> = {
+  calm: { gain: 0, release: 0.4 },
+  balanced: { gain: 1, release: 0.4 },
+  lively: { gain: 1.6, release: 0.3 },
+};
+
 // Paused, the bands settle onto the resting arch at this fraction, so the visualizers keep their idle
 // motion instead of freezing.
 const PAUSED_REST = 0.6;
@@ -83,12 +124,33 @@ export function restSignal(): VisualSignal {
     high: 0.1,
     level: 0.3,
     swell: 0.1,
+    bassMotion: 0,
+    midMotion: 0,
+    highMotion: 0,
+    beat: 0,
+    drive: 0,
   };
 }
 
 /** One step of a first-order ease toward `target` over `dt` seconds, with time constant `tau`. */
 export function easeEnvelope(prev: number, target: number, dt: number, tau: number): number {
   return prev + (target - prev) * (1 - Math.exp(-dt / tau));
+}
+
+/** One step of a motion envelope: the fast attack toward a rise, `release` seconds back down. */
+export function motionEnvelope(prev: number, target: number, dt: number, release: number): number {
+  return easeEnvelope(prev, target, dt, target > prev ? MOTION_ATTACK_SECS : release);
+}
+
+/**
+ * Whether an onset at `now` may fire a beat event, given the times of the events already fired: the
+ * last must be at least the minimum gap ago, and the past second must hold fewer than the cap.
+ */
+export function admitBeat(fired: readonly number[], now: number): boolean {
+  if (fired.length > 0 && now - fired[fired.length - 1] < BEAT_MIN_GAP_SECS) return false;
+  let inWindow = 0;
+  for (const t of fired) if (now - t < 1) inWindow++;
+  return inWindow < BEAT_MAX_PER_SEC;
 }
 
 /**
@@ -127,6 +189,12 @@ function bandLevel(bands: ArrayLike<number>): { rms: number; peak: number } {
   return { rms: Math.min(1, Math.sqrt(sq / bands.length) * 1.35), peak: Math.min(1, max * 0.92) };
 }
 
+function groupLevel(bands: ArrayLike<number>, lo: number, hi: number): number {
+  let sum = 0;
+  for (let i = lo; i < hi; i++) sum += bands[i];
+  return sum / (hi - lo);
+}
+
 /** A per-surface follower: feed it the latest input each display frame, read the signal back. */
 export interface SignalFollower {
   signal: VisualSignal;
@@ -146,6 +214,11 @@ export function createSignalFollower(): SignalFollower {
     high: 0,
     level: 0.2,
     swell: 0.1,
+    bassMotion: 0,
+    midMotion: 0,
+    highMotion: 0,
+    beat: 0,
+    drive: 0,
   };
   const raw = new Float32Array(BAND_COUNT);
   const prevRaw = new Float32Array(BAND_COUNT);
@@ -159,6 +232,13 @@ export function createSignalFollower(): SignalFollower {
   let rmsRaw = 0;
   let peakRaw = 0;
   let fluxRaw = 0;
+  // Per band group: the raw level, its slow mean, and the motion envelope.
+  const groupRaw = [0, 0, 0];
+  const groupMean = [0, 0, 0];
+  const groupEnv = [0, 0, 0];
+  const fired: number[] = [];
+  let beatRaw = 0;
+  let gain = REACTIVITY_PROFILES.balanced.gain;
 
   // Takes one engine frame (or the paused arch) as the new raw target, and runs the onset check on it.
   const feed = (bands: ArrayLike<number>, playing: boolean, level: LevelFrame) => {
@@ -174,10 +254,20 @@ export function createSignalFollower(): SignalFollower {
     if (strength > 0) {
       lastOnset = clock;
       signal.kick = Math.max(signal.kick, strength);
+      if (gain > 0 && admitBeat(fired, clock)) {
+        fired.push(clock);
+        if (fired.length > BEAT_MAX_PER_SEC) fired.shift();
+        beatRaw = strength;
+      }
     }
+    groupRaw[0] = groupLevel(raw, 0, BASS_END);
+    groupRaw[1] = groupLevel(raw, BASS_END, MID_END);
+    groupRaw[2] = groupLevel(raw, MID_END, BAND_COUNT);
   };
 
   const step = (dt: number, input: SignalInput): VisualSignal => {
+    const profile = REACTIVITY_PROFILES[input.reactivity ?? "balanced"];
+    gain = profile.gain;
     if (input.playing) {
       clock += dt;
       if (input.bands !== lastFrame) {
@@ -210,6 +300,18 @@ export function createSignalFollower(): SignalFollower {
     signal.kick *= Math.exp(-dt * KICK_DECAY);
     signal.level = easeEnvelope(signal.level, signal.rms, dt, LEVEL_TAU);
     signal.swell = easeEnvelope(signal.swell, signal.bass, dt, SWELL_TAU);
+
+    for (let g = 0; g < 3; g++) {
+      groupMean[g] = easeEnvelope(groupMean[g], groupRaw[g], dt, MOTION_MEAN_TAU);
+      const rise = resting ? 0 : Math.min(1, Math.max(0, (groupRaw[g] - groupMean[g] * MOTION_GATE) * MOTION_CONTRAST));
+      groupEnv[g] = motionEnvelope(groupEnv[g], rise, dt, profile.release);
+    }
+    signal.bassMotion = groupEnv[0] * gain;
+    signal.midMotion = groupEnv[1] * gain;
+    signal.highMotion = groupEnv[2] * gain;
+    signal.beat = beatRaw * gain;
+    signal.drive = gain;
+    beatRaw = 0;
     return signal;
   };
 

@@ -1,7 +1,7 @@
 /*
- * The visualizer choice: the persisted kinds, the order the ambient V key cycles them, and the kind a
- * surface actually draws once its fallbacks apply. Pure, so the pref read, the cycle and the fallback
- * are tested apart from the renderer.
+ * The visualizer choice: the persisted kinds, the order the ambient V key cycles them, the kind a
+ * surface actually draws once its fallbacks apply, and the reactivity level. Pure, so the pref reads,
+ * the cycle and the fallback are tested apart from the renderer.
  */
 
 /** Every visualizer, in picker and cycle order. Ridge is the default; Off draws nothing. */
@@ -51,4 +51,16 @@ export function effectiveVisualizerKind(
   if (support.glFailed) return "ridge";
   if (picked === "liquid" && !support.coverPixels) return "ridge";
   return picked;
+}
+
+/** How hard the visualizers move with the music. Calm keeps only the slow eased motion. */
+export const REACTIVITY_LEVELS = ["calm", "balanced", "lively"] as const;
+
+export type Reactivity = (typeof REACTIVITY_LEVELS)[number];
+
+export const DEFAULT_REACTIVITY: Reactivity = "balanced";
+
+/** Reads a stored pref value as a reactivity level. Anything absent or unknown reads Balanced. */
+export function normalizeReactivity(raw: string | null | undefined): Reactivity {
+  return (REACTIVITY_LEVELS as readonly string[]).includes(raw ?? "") ? (raw as Reactivity) : DEFAULT_REACTIVITY;
 }
