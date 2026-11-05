@@ -29,6 +29,7 @@ pub mod spectrum;
 
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};
+pub use dsp::gain::{track_gain_db, GainInputs};
 pub use peaks::{compute_peaks, Peak, PeakAccumulator};
 pub use silence::{find_silence, SilenceDetector, SilenceSpan};
 
@@ -47,13 +48,15 @@ pub enum RepeatMode {
     One,
 }
 
-/// One entry in the play queue: the track id the frontend keys on, plus its resolved file path. The
-/// command layer resolves ids to paths so the engine stays DB-free and never touches a connection.
+/// One entry in the play queue: the track id the frontend keys on, its resolved file path and its
+/// levelling gain in dB (applied only while levelling is on). The command layer resolves these so the
+/// engine stays DB-free and never touches a connection.
 /// Cloned only when the queue is (re)built - on a Play or a shuffle toggle - never per tick.
 #[derive(Clone)]
 pub struct QueueTrack {
     pub id: i64,
     pub path: PathBuf,
+    pub gain_db: f32,
 }
 
 /// A transport instruction sent to the resident engine thread over the command channel. The engine

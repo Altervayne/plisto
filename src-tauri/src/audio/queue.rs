@@ -377,6 +377,7 @@ mod tests {
         QueueTrack {
             id,
             path: PathBuf::new(),
+            gain_db: 0.0,
         }
     }
 

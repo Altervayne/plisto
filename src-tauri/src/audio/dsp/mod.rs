@@ -8,6 +8,7 @@
 
 // -- Module Declarations --
 mod biquad;
+pub mod gain;
 mod limiter;
 
 // -- Library Imports --

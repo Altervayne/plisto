@@ -282,7 +282,7 @@ impl Engine {
                 return;
             }
             let opened_file = is_ad_hoc(self.queue[i].id);
-            match self.open_source(&self.queue[i].path, None, 0.0) {
+            match self.open_source(&self.queue[i].path, None, self.queue[i].gain_db) {
                 Some(src) => {
                     self.start_source(i, src);
                     self.emit(true);
@@ -395,7 +395,7 @@ impl Engine {
             return;
         }
         self.preload_tried = Some((slot, id));
-        let src = match self.open_source(&self.queue[slot].path, None, 0.0) {
+        let src = match self.open_source(&self.queue[slot].path, None, self.queue[slot].gain_db) {
             Some(s) => s,
             None => return,
         };
@@ -492,7 +492,8 @@ impl Engine {
     /// Auditions `path` between `start_secs` and `end_secs` on the resident sink: opens the file,
     /// seeks to the in-point, and plays until `tick` catches the out-point frame. Leaves `queue` and
     /// `index` untouched, and holds `cur_track_id` at None since a preview is not a library track, so
-    /// library playback restores after. A missing file or a seek failure leaves playback untouched.
+    /// library playback restores after. Plays at unity gain, since the audition is of the file itself.
+    /// A missing file or a seek failure leaves playback untouched.
     fn preview(&mut self, path: PathBuf, start_secs: f64, end_secs: f64) {
         // The factory seeds the counter at the in-point on the primed rate, the same rate the
         // out-point below uses, so the play head and the boundary agree.
@@ -525,11 +526,11 @@ impl Engine {
     /// paused state from `playing`. A no-op with an empty queue; a missing file or a seek failure
     /// leaves playback untouched.
     fn restore_library(&mut self, secs: f64, playing: bool) {
-        let path = match self.queue.get(self.index) {
-            Some(t) => t.path.clone(),
+        let (path, gain_db) = match self.queue.get(self.index) {
+            Some(t) => (t.path.clone(), t.gain_db),
             None => return,
         };
-        let src = match self.open_source(&path, Some(secs.max(0.0)), 0.0) {
+        let src = match self.open_source(&path, Some(secs.max(0.0)), gain_db) {
             Some(s) => s,
             None => return,
         };
@@ -549,11 +550,11 @@ impl Engine {
     /// Reopens the current file, seeks to `secs`, and restarts the source there while preserving the
     /// paused state. A missing file or a seek failure leaves playback untouched.
     fn seek(&mut self, secs: f64) {
-        let path = match self.queue.get(self.index) {
-            Some(t) if self.cur_track_id.is_some() => t.path.clone(),
+        let (path, gain_db) = match self.queue.get(self.index) {
+            Some(t) if self.cur_track_id.is_some() => (t.path.clone(), t.gain_db),
             _ => return,
         };
-        let src = match self.open_source(&path, Some(secs), 0.0) {
+        let src = match self.open_source(&path, Some(secs), gain_db) {
             Some(s) => s,
             None => return,
         };

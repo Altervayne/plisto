@@ -16,28 +16,34 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
-use crate::audio::{OutputDeviceInfo, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode};
+use crate::audio::{
+    track_gain_db, GainInputs, OutputDeviceInfo, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack,
+    RepeatMode,
+};
 use crate::covers::InFlightGuard;
 use crate::db;
 use crate::model::RawTags;
 use crate::state::AppState;
 
-/// Resolves track ids to a DB-free queue, keeping the caller's order and dropping ids that no longer
-/// resolve (a deleted row). `load_track_export_paths` returns only present ids in an arbitrary order,
-/// so index them by id and rebuild along the requested sequence. The only DB work the player does;
-/// the engine never sees a connection. Returns an empty queue when the lock is poisoned.
+/// Resolves track ids to a DB-free queue with each track's levelling gain, keeping the caller's order
+/// and dropping ids that no longer resolve (a deleted row). `load_queue_tracks` returns only present
+/// ids in an arbitrary order, so index them by id and rebuild along the requested sequence. The only
+/// DB work the player does; the engine never sees a connection. Returns an empty queue when the lock
+/// is poisoned.
 fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
-    let resolved: Vec<(i64, String)> = match state.db.lock() {
-        Ok(conn) => db::load_track_export_paths(&conn, track_ids).unwrap_or_default(),
+    let resolved: Vec<(i64, String, f32)> = match state.db.lock() {
+        Ok(conn) => db::load_queue_tracks(&conn, track_ids).unwrap_or_default(),
         Err(_) => return Vec::new(),
     };
-    let by_id: HashMap<i64, String> = resolved.into_iter().collect();
+    let by_id: HashMap<i64, (String, f32)> =
+        resolved.into_iter().map(|(id, p, g)| (id, (p, g))).collect();
     track_ids
         .iter()
         .filter_map(|id| {
-            by_id.get(id).map(|p| QueueTrack {
+            by_id.get(id).map(|(p, gain_db)| QueueTrack {
                 id: *id,
                 path: PathBuf::from(p),
+                gain_db: *gain_db,
             })
         })
         .collect()
@@ -132,18 +138,18 @@ async fn stage_ad_hoc(
 }
 
 /// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio, and
-/// keeping the caller's order among the survivors.
+/// keeping the caller's order among the survivors. Each survivor carries its tagged levelling gain.
 fn read_ad_hoc_tracks(
     covers_dir: &Path,
     guard: &InFlightGuard,
     paths: Vec<String>,
-) -> Vec<(String, AdHocTrack)> {
+) -> Vec<(String, AdHocTrack, f32)> {
     paths
         .into_iter()
         .filter_map(|path| {
             read_ad_hoc_track(covers_dir, guard, &path)
                 .ok()
-                .map(|track| (path, track))
+                .map(|(track, gain_db)| (path, track, gain_db))
         })
         .collect()
 }
@@ -152,16 +158,17 @@ fn read_ad_hoc_tracks(
 /// tracks, both keyed by the same ids so every queue entry resolves through the sentinel fan-out to
 /// its own stash entry.
 fn build_ad_hoc_queue(
-    readable: Vec<(String, AdHocTrack)>,
+    readable: Vec<(String, AdHocTrack, f32)>,
 ) -> (HashMap<i64, AdHocTrack>, Vec<QueueTrack>) {
     let mut entries = HashMap::with_capacity(readable.len());
     let mut queue = Vec::with_capacity(readable.len());
-    for (path, track) in readable {
+    for (path, track, gain_db) in readable {
         let id = next_ad_hoc_id();
         entries.insert(id, track);
         queue.push(QueueTrack {
             id,
             path: path.into(),
+            gain_db,
         });
     }
     (entries, queue)
@@ -225,17 +232,30 @@ fn read_ad_hoc_track(
     covers_dir: &Path,
     guard: &InFlightGuard,
     source_path: &str,
-) -> Result<AdHocTrack, String> {
+) -> Result<(AdHocTrack, f32), String> {
     let (raw, unreadable) = crate::scan::read_tags(Path::new(source_path));
     if unreadable {
         return Err("couldn't read this file".to_string());
     }
     let (title, artist) = ad_hoc_display(source_path, &raw);
     let cover = crate::commands::covers::cache_ad_hoc_cover(covers_dir, guard, source_path);
-    Ok(AdHocTrack {
+    let track = AdHocTrack {
         title,
         artist,
         cover,
+    };
+    Ok((track, ad_hoc_gain(source_path, &raw)))
+}
+
+/// The levelling gain a file's own ReplayGain tags give, 0 dB when untagged. There is no stored
+/// measurement for a file outside the library.
+fn ad_hoc_gain(source_path: &str, raw: &RawTags) -> f32 {
+    let record = crate::normalize::normalize_track(source_path, 0, 0, 0, raw);
+    track_gain_db(&GainInputs {
+        tag_gain_db: record.rg_track_gain,
+        tag_peak: record.rg_track_peak,
+        opus: record.ext.eq_ignore_ascii_case("opus"),
+        ..GainInputs::default()
     })
 }
 
@@ -510,9 +530,9 @@ mod tests {
     #[test]
     fn build_ad_hoc_queue_gives_each_file_its_own_id() {
         let readable = vec![
-            ("/music/a.mp3".to_string(), track("A")),
-            ("/music/b.flac".to_string(), track("B")),
-            ("/music/c.wav".to_string(), track("C")),
+            ("/music/a.mp3".to_string(), track("A"), -3.0),
+            ("/music/b.flac".to_string(), track("B"), 0.0),
+            ("/music/c.wav".to_string(), track("C"), 0.0),
         ];
         let (entries, queue) = build_ad_hoc_queue(readable);
 
@@ -524,6 +544,7 @@ mod tests {
             assert!(id < 0, "an ad-hoc id is always negative");
             assert_eq!(entries[&id].title, *name, "the stash entry matches its queue slot");
         }
+        assert_eq!(queue[0].gain_db, -3.0, "the tagged gain rides the queue entry");
         // The paths keep the caller's order.
         let paths: Vec<_> = queue.iter().map(|q| q.path.to_string_lossy().into_owned()).collect();
         assert_eq!(paths, vec!["/music/a.mp3", "/music/b.flac", "/music/c.wav"]);

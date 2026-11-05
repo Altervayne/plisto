@@ -36,6 +36,7 @@ use rusqlite::{params, Connection};
 use album_numbering::{disc_highest, next_on_disc, number_per_disc, read_incoming};
 
 // -- Type Imports --
+use crate::audio::{track_gain_db, GainInputs};
 use crate::dto::{
     AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistRow, PlaylistSnapshot,
     PlaylistTrackRow, PurgeSummary, Root, RootRemovalImpact, TrackDisplay, TrackEdit,
@@ -1228,6 +1229,42 @@ pub fn load_track_export_paths(
     let rows = stmt
         .query_map(rusqlite::params_from_iter(track_ids.iter()), |r| {
             Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Resolves track ids to `(id, path, levelling gain in dB)` for the player queue. A measured loudness
+/// counts only when its stamp equals the row's current size and mtime; the SQL nulls a stale one, so
+/// the gain rule never sees it. Only present ids come back, in no fixed order.
+pub fn load_queue_tracks(
+    conn: &Connection,
+    track_ids: &[i64],
+) -> rusqlite::Result<Vec<(i64, String, f32)>> {
+    if track_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = vec!["?"; track_ids.len()].join(", ");
+    let sql = format!(
+        "SELECT id, COALESCE(display_path, source_path), lower(ext), rg_track_gain, rg_track_peak,
+                CASE WHEN loudness_size IS size_bytes AND loudness_mtime IS mtime
+                     THEN loudness_lufs END,
+                CASE WHEN loudness_size IS size_bytes AND loudness_mtime IS mtime
+                     THEN loudness_peak END
+         FROM tracks WHERE id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(track_ids.iter()), |r| {
+            let ext: String = r.get(2)?;
+            let inputs = GainInputs {
+                tag_gain_db: r.get(3)?,
+                tag_peak: r.get(4)?,
+                measured_lufs: r.get(5)?,
+                measured_peak: r.get(6)?,
+                opus: ext == "opus",
+            };
+            Ok((r.get(0)?, r.get(1)?, track_gain_db(&inputs)))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
@@ -2430,6 +2467,55 @@ mod tests {
             byte_len: 12_345,
             created_at: 100,
         }
+    }
+
+    fn seed_gain_row(conn: &Connection, path: &str, ext: &str) -> i64 {
+        let mut rec = sample(1);
+        rec.source_path = path.to_string();
+        rec.display_path = path.to_string();
+        rec.ext = ext.to_string();
+        upsert_track(conn, &rec, None).unwrap();
+        conn.query_row("SELECT id FROM tracks WHERE source_path = ?1", [path], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn queue_tracks_resolve_a_levelling_gain() {
+        let conn = open_in_memory().unwrap();
+        // sample() stamps size 1000, mtime 2000.
+        let none = seed_gain_row(&conn, "/m/none.mp3", "mp3");
+        let tagged = seed_gain_row(&conn, "/m/tagged.mp3", "mp3");
+        let opus = seed_gain_row(&conn, "/m/opus.opus", "opus");
+        let fresh = seed_gain_row(&conn, "/m/fresh.mp3", "mp3");
+        let stale = seed_gain_row(&conn, "/m/stale.mp3", "mp3");
+        conn.execute("UPDATE tracks SET rg_track_gain = -4.0 WHERE id = ?1", [tagged]).unwrap();
+        conn.execute("UPDATE tracks SET rg_track_gain = -3.0 WHERE id = ?1", [opus]).unwrap();
+        conn.execute(
+            "UPDATE tracks SET loudness_lufs = -24.0, loudness_peak = 0.9, loudness_size = 1000,
+                 loudness_mtime = 2000 WHERE id = ?1",
+            [fresh],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE tracks SET loudness_lufs = -24.0, loudness_peak = 0.1, loudness_size = 999,
+                 loudness_mtime = 2000 WHERE id = ?1",
+            [stale],
+        )
+        .unwrap();
+
+        let ids = [none, tagged, opus, fresh, stale, 9999];
+        let rows: HashMap<i64, f32> = load_queue_tracks(&conn, &ids)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _, g)| (id, g))
+            .collect();
+        assert_eq!(rows.len(), 5, "an absent id does not come back");
+        assert_eq!(rows[&none], 0.0);
+        assert_eq!(rows[&tagged], -4.0);
+        assert_eq!(rows[&opus], 2.0, "Opus R128 gain gets the +5 dB offset");
+        // -18 - (-24) = 6 dB, capped by peak 0.9 to about 0.915 dB.
+        assert!((rows[&fresh] - 0.9151).abs() < 1e-3, "{}", rows[&fresh]);
+        assert_eq!(rows[&stale], 0.0, "a stale stamp is ignored");
     }
 
     fn count_rows(conn: &Connection) -> i64 {
