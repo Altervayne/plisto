@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // -- Library Imports --
 import {
@@ -31,6 +31,9 @@ import {
   usePlayerQueueMeta,
 } from "../../state/player/store";
 
+import { useAddTracksToPlaylist, useCreatePlaylist } from "../../state/playlists/store";
+import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/queuePlaylist";
+
 // -- Format Imports --
 import { formatCount } from "../../lib/format";
 
@@ -43,18 +46,32 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./QueueList.module.css";
 
+/** How long the header action reads as saved before it returns to its label. */
+const SAVED_MS = 2000;
+
 /**
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
- * The header counts the tracks still ahead and holds the sequencing control; the footer clears the queue
- * by stopping the engine.
+ * The header counts the tracks still ahead and holds the save-as-playlist action and the sequencing
+ * control; the footer clears the queue by stopping the engine.
  */
 export function QueueList() {
   const queue = usePlayerQueue();
   const meta = usePlayerQueueMeta();
   const queueIndex = usePlayerQueueIndex();
   const actions = usePlayerActions();
+  const createPlaylist = useCreatePlaylist();
+  const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    if (!saved) return;
+    const timer = window.setTimeout(() => setSaved(false), SAVED_MS);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
 
   const ahead = upNextCount(queue.length, queueIndex);
 
@@ -68,6 +85,25 @@ export function QueueList() {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  const libraryIds = useMemo(() => queuePlaylistTrackIds(queue), [queue]);
+
+  // The whole queue in play order, played tracks included. The ref blocks a second click before the
+  // disabled state renders, so a double click cannot create two playlists.
+  const onSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const name = queuePlaylistName(t((d) => d.player.queuePlaylistName), new Date());
+      const playlistId = await createPlaylist(name);
+      await addTracksToPlaylist(playlistId, libraryIds);
+      setSaved(true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || over.id === active.id) return;
@@ -86,7 +122,12 @@ export function QueueList() {
           <span className={styles.label}>{t((d) => d.player.upNext)}</span>
           <span className={styles.count}>{formatCount(ahead)}</span>
         </div>
-        <SequenceMenu />
+        <div className={styles.actions}>
+          <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
+            {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
+          </QuietButton>
+          <SequenceMenu />
+        </div>
       </div>
 
       <ScrollArea className={styles.scroll}>
