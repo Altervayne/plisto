@@ -433,6 +433,41 @@ mod tests {
     }
 
     #[test]
+    fn loudness_columns_never_move_a_track_fingerprint() {
+        use crate::db;
+        use crate::export::plan::build_plan;
+
+        let mut conn = db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO tracks (source_path, display_path, filename, ext, size_bytes, mtime,
+                                 raw_title, raw_artist, has_embedded_cover, scanned_at)
+             VALUES ('/m/1.mp3', '/m/1.mp3', '1.mp3', 'mp3', 10, 20, 'One', 'Artist', 1, 30)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        db::create_album(&mut conn, None, None, None, None, None, &[id], "album", 1).unwrap();
+
+        let print_of = |conn: &rusqlite::Connection| {
+            let plan = build_plan(conn).unwrap();
+            let c = &plan.containers[0];
+            track_fingerprint("Albums/A/B/01 - One.mp3", c, &c.tracks[0])
+        };
+        let before = print_of(&conn);
+
+        conn.execute(
+            "UPDATE tracks SET rg_track_gain = -6.5, rg_track_peak = 0.9, rg_album_gain = -7.0,
+                               rg_album_peak = 0.95, gain_tags_read = 1, loudness_lufs = -14.0,
+                               loudness_peak = 0.8, loudness_size = 10, loudness_mtime = 20
+             WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+
+        assert_eq!(print_of(&conn), before);
+    }
+
+    #[test]
     fn a_fingerprint_is_deterministic_hex() {
         let c = container(vec![track()]);
         let a = print(&c);

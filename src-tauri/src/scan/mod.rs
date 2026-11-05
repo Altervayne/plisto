@@ -880,6 +880,34 @@ mod tests {
         assert_eq!(third.updated, 0);
     }
 
+    #[test]
+    fn a_loudness_write_does_not_make_a_rescan_re_read() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        scan(&music.path, &db_path);
+
+        // Stand in for the measurement writer: it fills the loudness group and nothing else.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET loudness_lufs = -14.2, loudness_peak = 0.8,
+                                   loudness_size = size_bytes, loudness_mtime = mtime",
+                [],
+            )
+            .unwrap();
+        }
+
+        let again = scan(&music.path, &db_path);
+        assert_eq!(again.total, 2);
+        assert_eq!(again.skipped, again.total, "no row reads as changed");
+        assert_eq!(again.updated, 0);
+        assert_eq!(again.inserted, 0);
+    }
+
     // The display_path stored for one filename, read straight from the db.
     fn display_path_of(db_path: &Path, filename: &str) -> Option<String> {
         let conn = Connection::open(db_path).unwrap();

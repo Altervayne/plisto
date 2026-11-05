@@ -23,6 +23,12 @@ pub struct RawTags {
     pub genre: Option<String>,
     pub duration_secs: Option<f64>,
     pub has_embedded_cover: Option<bool>,
+    // ReplayGain strings as tagged ("-6.52 dB", "0.98"); parsed in normalize.rs. An Opus
+    // `R128_*_GAIN` is converted to dB relative to its -23 LUFS reference, unshifted.
+    pub rg_track_gain: Option<String>,
+    pub rg_track_peak: Option<String>,
+    pub rg_album_gain: Option<String>,
+    pub rg_album_peak: Option<String>,
 }
 
 /// A normalized, persistable row matching the `tracks` schema one-to-one. Absent tags are
@@ -30,7 +36,8 @@ pub struct RawTags {
 /// dedup key and `ext` is lowercased. `display_path` is the same path with its real case kept,
 /// for display. The DB assigns `id`, so it is not carried here. `has_embedded_cover` is
 /// tri-state: None means the file was never examined for art (the drain sentinel), Some(false)
-/// examined with none, Some(true) examined with art.
+/// examined with none, Some(true) examined with art. The `rg_*` fields are tag ReplayGain: gains in
+/// dB within [-30, 30], peaks as linear amplitude in (0, 10], None when untagged or unparsable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackRecord {
     pub source_path: String,
@@ -49,6 +56,10 @@ pub struct TrackRecord {
     pub raw_year: Option<i64>,
     pub raw_genre: Option<String>,
     pub has_embedded_cover: Option<bool>,
+    pub rg_track_gain: Option<f64>,
+    pub rg_track_peak: Option<f64>,
+    pub rg_album_gain: Option<f64>,
+    pub rg_album_peak: Option<f64>,
     pub scanned_at: i64,
 }
 

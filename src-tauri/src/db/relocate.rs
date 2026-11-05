@@ -53,6 +53,19 @@ const SCAN_COLUMNS: &[&str] = &[
     "has_embedded_cover",
     "scanned_at",
     "missing_at",
+    "rg_track_gain",
+    "rg_track_peak",
+    "rg_album_gain",
+    "rg_album_peak",
+    "gain_tags_read",
+];
+
+// The measured loudness columns. They move as one group, since the stamp is what makes the value valid.
+const LOUDNESS_COLUMNS: &[&str] = &[
+    "loudness_lufs",
+    "loudness_peak",
+    "loudness_size",
+    "loudness_mtime",
 ];
 
 const EDIT_COLUMNS: &[&str] = &[
@@ -222,6 +235,7 @@ pub fn merge_root(
     let mut scans = Vec::with_capacity(plan.pairs.len());
     for &(o, n) in &plan.pairs {
         carry_track(&tx, o, n, now)?;
+        carry_loudness(&tx, o, n)?;
         scans.push((o, scan_values(&tx, n)?));
         tx.execute("DELETE FROM tracks WHERE id = ?1", params![n])?;
     }
@@ -497,6 +511,24 @@ fn carry_track(conn: &Connection, o: i64, n: i64, now: i64) -> rusqlite::Result<
         }
         set_updated_at(conn, m.album_id, now)?;
     }
+    Ok(())
+}
+
+/// Gives o the measured loudness group of n when n has been measured or tried (its stamp is non-NULL).
+/// o keeps its own group otherwise.
+fn carry_loudness(conn: &Connection, o: i64, n: i64) -> rusqlite::Result<()> {
+    let sets = LOUDNESS_COLUMNS
+        .iter()
+        .map(|c| format!("{c} = (SELECT {c} FROM tracks WHERE id = ?2)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    conn.execute(
+        &format!(
+            "UPDATE tracks SET {sets} WHERE id = ?1
+               AND (SELECT loudness_size FROM tracks WHERE id = ?2) IS NOT NULL"
+        ),
+        params![o, n],
+    )?;
     Ok(())
 }
 
@@ -1223,6 +1255,90 @@ mod tests {
             ),
             1,
             "the fresh read is present, so the kept track no longer reads as gone"
+        );
+    }
+
+    // A track's measured loudness group and tag ReplayGain, in column order.
+    #[allow(clippy::type_complexity)]
+    fn gain_dump(
+        conn: &Connection,
+        id: i64,
+    ) -> (
+        Option<f64>,
+        Option<f64>,
+        Option<i64>,
+        Option<i64>,
+        Option<f64>,
+        Option<i64>,
+    ) {
+        conn.query_row(
+            "SELECT loudness_lufs, loudness_peak, loudness_size, loudness_mtime, rg_track_gain,
+                    gain_tags_read
+             FROM tracks WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn merge_carries_the_loudness_group_only_from_a_stamped_absorbed_track() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        let set = "UPDATE tracks SET loudness_lufs = ?2, loudness_peak = ?3, loudness_size = ?4,
+                                      loudness_mtime = ?5, rg_track_gain = ?6, gain_tags_read = 1
+                   WHERE id = ?1";
+        let none = None::<f64>;
+        // o[0] and n[0]: both measured, n's wins. o[1] measured, n[1] never stamped: o keeps its own.
+        // o[2] measured, n[2] tried with no value (stamp, NULL lufs): the stamp is a result too.
+        conn.execute(set, params![fx.o[0], -20.0, 0.5, 11, 20, -1.0])
+            .unwrap();
+        conn.execute(set, params![fx.n[0], -9.0, 0.9, 21, 20, -2.5])
+            .unwrap();
+        conn.execute(set, params![fx.o[1], -15.0, 0.4, 12, 20, -3.0])
+            .unwrap();
+        conn.execute(set, params![fx.o[2], -14.0, 0.3, 13, 20, -4.0])
+            .unwrap();
+        conn.execute(set, params![fx.n[2], none, none, 23, 20, -5.0])
+            .unwrap();
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        assert_eq!(
+            gain_dump(&conn, fx.o[0]),
+            (
+                Some(-9.0),
+                Some(0.9),
+                Some(21),
+                Some(20),
+                Some(-2.5),
+                Some(1)
+            ),
+            "the absorbed group and tag gain land on the kept track"
+        );
+        let kept = gain_dump(&conn, fx.o[1]);
+        assert_eq!(
+            (kept.0, kept.1, kept.2, kept.3),
+            (Some(-15.0), Some(0.4), Some(12), Some(20)),
+            "an unstamped absorbed track leaves the kept group alone"
+        );
+        assert_eq!(
+            kept.4, None,
+            "the absorbed scan columns still carry, here a NULL"
+        );
+        assert_eq!(
+            gain_dump(&conn, fx.o[2]),
+            (None, None, Some(23), Some(20), Some(-5.0), Some(1)),
+            "a stamp with no value replaces the kept measurement"
         );
     }
 

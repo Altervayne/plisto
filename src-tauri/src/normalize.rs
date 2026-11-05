@@ -57,6 +57,10 @@ pub fn normalize_track(
         raw_year: parse_leading_int(&raw.year),
         raw_genre: clean_text(&raw.genre),
         has_embedded_cover: raw.has_embedded_cover,
+        rg_track_gain: parse_gain_db(&raw.rg_track_gain),
+        rg_track_peak: parse_peak(&raw.rg_track_peak),
+        rg_album_gain: parse_gain_db(&raw.rg_album_gain),
+        rg_album_peak: parse_peak(&raw.rg_album_peak),
         scanned_at,
     }
 }
@@ -126,6 +130,32 @@ pub(crate) fn clean_text(opt: &Option<String>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Parses a ReplayGain gain tag ("-6.52 dB", "+3.1", "-6.52dB") to dB, clamped to [-30, 30].
+/// Anything that is not a finite number maps to None.
+fn parse_gain_db(opt: &Option<String>) -> Option<f64> {
+    let raw = opt.as_deref()?.trim();
+    let number = match raw.len().checked_sub(2) {
+        Some(at) if raw.is_char_boundary(at) && raw[at..].eq_ignore_ascii_case("db") => {
+            raw[..at].trim_end()
+        }
+        _ => raw,
+    };
+    let value = number.parse::<f64>().ok().filter(|v| v.is_finite())?;
+    Some(value.clamp(-30.0, 30.0))
+}
+
+/// Parses a ReplayGain peak tag (linear amplitude) to a value in (0, 10]. Zero, negative and
+/// non-finite values map to None; a larger value clamps to 10.
+fn parse_peak(opt: &Option<String>) -> Option<f64> {
+    let value = opt
+        .as_deref()?
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)?;
+    Some(value.min(10.0))
+}
+
 /// Parses the leading integer out of a messy numeric tag: "3/12" -> 3, "1997-01-01" -> 1997,
 /// "" or a non-numeric value -> None. Only leading ASCII digits are read.
 fn parse_leading_int(opt: &Option<String>) -> Option<i64> {
@@ -188,6 +218,58 @@ mod tests {
         };
         let rec = normalize_track("/music/song.mp3", 10, 20, 99, &raw);
         assert_eq!(rec.raw_year, Some(1997));
+    }
+
+    fn gain(s: &str) -> Option<f64> {
+        parse_gain_db(&Some(s.to_string()))
+    }
+
+    fn peak(s: &str) -> Option<f64> {
+        parse_peak(&Some(s.to_string()))
+    }
+
+    #[test]
+    fn gain_parses_db_strings() {
+        assert_eq!(gain("-6.52 dB"), Some(-6.52));
+        assert_eq!(gain("-6.52dB"), Some(-6.52));
+        assert_eq!(gain("+3.10 DB"), Some(3.1));
+        assert_eq!(gain("  0 "), Some(0.0));
+        assert_eq!(gain("-6.52"), Some(-6.52));
+    }
+
+    #[test]
+    fn gain_clamps_and_rejects_garbage() {
+        assert_eq!(gain("-45 dB"), Some(-30.0));
+        assert_eq!(gain("99.9"), Some(30.0));
+        for junk in ["", "dB", "loud", "nan", "inf dB", "-inf", "1.2.3 dB", "d"] {
+            assert_eq!(gain(junk), None, "{junk:?}");
+        }
+        assert_eq!(parse_gain_db(&None), None);
+    }
+
+    #[test]
+    fn peak_is_positive_and_capped() {
+        assert_eq!(peak("0.988553"), Some(0.988553));
+        assert_eq!(peak("25"), Some(10.0));
+        for junk in ["0", "-0.5", "", "nan", "inf", "peak"] {
+            assert_eq!(peak(junk), None, "{junk:?}");
+        }
+    }
+
+    #[test]
+    fn replaygain_fields_land_on_the_record() {
+        let raw = RawTags {
+            rg_track_gain: Some("-6.52 dB".into()),
+            rg_track_peak: Some("0.9".into()),
+            rg_album_gain: Some("junk".into()),
+            rg_album_peak: None,
+            ..tags()
+        };
+        let rec = normalize_track("/m/a.mp3", 1, 2, 3, &raw);
+        assert_eq!(rec.rg_track_gain, Some(-6.52));
+        assert_eq!(rec.rg_track_peak, Some(0.9));
+        assert_eq!(rec.rg_album_gain, None);
+        assert_eq!(rec.rg_album_peak, None);
     }
 
     #[test]

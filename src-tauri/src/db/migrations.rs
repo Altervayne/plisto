@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 17;
+const LATEST_VERSION: i64 = 18;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -363,6 +363,23 @@ const MIGRATION_V17: &str = "
 UPDATE tracks SET has_embedded_cover = NULL WHERE lower(ext) IN ('m4a', 'm4b', 'mp4');
 ";
 
+// Version 18: loudness data. `rg_*` hold the ReplayGain values a scan reads from a file's tags (gains in
+// dB, peaks as linear amplitude); `gain_tags_read` is NULL until a file's tags were examined for them.
+// `loudness_*` hold a measured integrated loudness and sample peak, valid only for the file stamp in
+// `loudness_size`/`loudness_mtime`; a stamp with a NULL `loudness_lufs` marks a file tried with no
+// result. Every column is nullable with no default, so existing rows are untouched and read as unknown.
+const MIGRATION_V18: &str = "
+ALTER TABLE tracks ADD COLUMN rg_track_gain REAL;
+ALTER TABLE tracks ADD COLUMN rg_track_peak REAL;
+ALTER TABLE tracks ADD COLUMN rg_album_gain REAL;
+ALTER TABLE tracks ADD COLUMN rg_album_peak REAL;
+ALTER TABLE tracks ADD COLUMN gain_tags_read INTEGER;
+ALTER TABLE tracks ADD COLUMN loudness_lufs REAL;
+ALTER TABLE tracks ADD COLUMN loudness_peak REAL;
+ALTER TABLE tracks ADD COLUMN loudness_size INTEGER;
+ALTER TABLE tracks ADD COLUMN loudness_mtime INTEGER;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -387,6 +404,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             14 => conn.execute_batch(MIGRATION_V15)?,
             15 => conn.execute_batch(MIGRATION_V16)?,
             16 => conn.execute_batch(MIGRATION_V17)?,
+            17 => conn.execute_batch(MIGRATION_V18)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1224,6 +1242,43 @@ mod tests {
         assert!(reversed.is_err(), "a reversed pair is rejected");
     }
 
+    /// A v17 DB with rows upgrades to v18 additively: every row survives and the nine loudness
+    /// columns read NULL.
+    #[test]
+    fn v17_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        for step in [MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 17).unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "every existing row survives the upgrade");
+
+        let unknown: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tracks
+                 WHERE rg_track_gain IS NULL AND rg_track_peak IS NULL AND rg_album_gain IS NULL
+                   AND rg_album_peak IS NULL AND gain_tags_read IS NULL AND loudness_lufs IS NULL
+                   AND loudness_peak IS NULL AND loudness_size IS NULL AND loudness_mtime IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unknown, 2, "every new column starts NULL");
+    }
+
     /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row
     /// survives, other formats keep their flag, and no other column of an MP4 row changes.
     #[test]
@@ -1255,7 +1310,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, LATEST_VERSION);
 
         let rows: Vec<(i64, Option<i64>, String, i64, i64)> = conn
             .prepare("SELECT id, has_embedded_cover, raw_title, size_bytes, mtime FROM tracks ORDER BY id")

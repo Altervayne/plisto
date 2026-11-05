@@ -77,7 +77,8 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// the UNIQUE path means a re-scan updates in place under the same `id` rather than
 /// duplicating; every column but the key and `id` is refreshed from the incoming record.
 /// `root_id` stamps the track's origin root and is re-stamped on every pass, so a re-scan keeps
-/// the association current. Returns the row's id, inserted or updated.
+/// the association current. The tag ReplayGain columns refresh with the scan columns; the measured
+/// `loudness_*` columns are never written here. Returns the row's id, inserted or updated.
 pub fn upsert_track(
     conn: &Connection,
     rec: &TrackRecord,
@@ -87,9 +88,11 @@ pub fn upsert_track(
         "INSERT INTO tracks (
             source_path, display_path, filename, ext, size_bytes, mtime, duration_secs,
             raw_title, raw_artist, raw_album, raw_album_artist,
-            raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at, root_id
+            raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at, root_id,
+            rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, gain_tags_read
          ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+            ?19, ?20, ?21, ?22, 1
          )
          ON CONFLICT(source_path) DO UPDATE SET
             display_path = excluded.display_path,
@@ -108,7 +111,12 @@ pub fn upsert_track(
             raw_genre = excluded.raw_genre,
             has_embedded_cover = excluded.has_embedded_cover,
             scanned_at = excluded.scanned_at,
-            root_id = excluded.root_id
+            root_id = excluded.root_id,
+            rg_track_gain = excluded.rg_track_gain,
+            rg_track_peak = excluded.rg_track_peak,
+            rg_album_gain = excluded.rg_album_gain,
+            rg_album_peak = excluded.rg_album_peak,
+            gain_tags_read = 1
          RETURNING id",
         params![
             rec.source_path,
@@ -129,6 +137,10 @@ pub fn upsert_track(
             rec.has_embedded_cover,
             rec.scanned_at,
             root_id,
+            rec.rg_track_gain,
+            rec.rg_track_peak,
+            rec.rg_album_gain,
+            rec.rg_album_peak,
         ],
         |r| r.get(0),
     )
@@ -2400,6 +2412,10 @@ mod tests {
             raw_year: Some(1997),
             raw_genre: None,
             has_embedded_cover: Some(true),
+            rg_track_gain: None,
+            rg_track_peak: None,
+            rg_album_gain: None,
+            rg_album_peak: None,
             scanned_at,
         }
     }
@@ -2428,7 +2444,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
 
         for table in [
             "tracks",
@@ -2506,7 +2522,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 17);
+        assert_eq!(version, 18);
     }
 
     #[test]
