@@ -17,8 +17,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 // -- Local Imports --
 use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
 use crate::audio::{
-    track_gain_db, GainInputs, OutputDeviceInfo, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack,
-    RepeatMode,
+    index_of_id, track_gain_db, GainInputs, OutputDeviceInfo, PlayerCmd, PlayerNotice,
+    PlayerStatus, QueueTrack, RepeatMode,
 };
 use crate::covers::InFlightGuard;
 use crate::db;
@@ -66,6 +66,25 @@ pub fn player_play_tracks(
     let index = index.min(queue.len() - 1);
     let _ = state.player.send(PlayerCmd::Play { queue, index });
     Ok(())
+}
+
+/// Seats the saved queue paused on `current_id` at `secs`, never playing. The cursor is found by id
+/// after resolution, since a deleted row drops out of the queue and shifts every slot behind it.
+/// Returns false, loading nothing, when the current track no longer resolves.
+#[tauri::command]
+pub fn player_load(
+    track_ids: Vec<i64>,
+    current_id: i64,
+    secs: f64,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let queue = resolve_queue(&track_ids, &state);
+    let index = match index_of_id(&queue, current_id) {
+        Some(i) => i,
+        None => return Ok(false),
+    };
+    let _ = state.player.send(PlayerCmd::Load { queue, index, secs });
+    Ok(true)
 }
 
 /// Plays one or more files straight off disk, with no library rows behind them. Reads each file's tags

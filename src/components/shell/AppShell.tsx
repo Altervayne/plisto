@@ -65,6 +65,8 @@ import {
   usePlayerSync,
 } from "../../state/player/store";
 import { useSpectrumSync } from "../../state/player/spectrum";
+import { restoreResume } from "../../state/player/restoreResume";
+import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
 import {
   useHistoryLens,
@@ -148,6 +150,8 @@ export function AppShell({
   const t = useT();
   // One listener for the app's life, following the engine's status and error events into the store.
   usePlayerSync();
+  // Saves the library session for the next launch. This shell only mounts in the main window.
+  useResumeWriter();
   // The live spectrum feed into its own off-render singleton, running the app's life alongside the status.
   useSpectrumSync();
   // The background library sync feeds its progress, row changes and root states in for the shell's life.
@@ -264,6 +268,12 @@ export function AppShell({
         break;
     }
   }, []);
+
+  // Seat the saved session paused. Only a launch with no file to open reaches the non-standalone shell,
+  // so an open-with launch never restores and leaves the blob intact.
+  useEffect(() => {
+    if (!standalone) void restoreResume();
+  }, [standalone]);
 
   // The organize and playlist projections hydrate once the library is up. On the normal path the gate has
   // booted before this shell mounts, so they load on bare mount. Standalone owns its own boot here, so

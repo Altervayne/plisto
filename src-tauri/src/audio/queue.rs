@@ -31,6 +31,11 @@ pub(crate) fn clamp_index(index: usize, len: usize) -> usize {
     index.min(len.saturating_sub(1))
 }
 
+/// The slot holding track `id`, or None when it is absent. The first match wins for a repeated id.
+pub(crate) fn index_of_id(queue: &[QueueTrack], id: i64) -> Option<usize> {
+    queue.iter().position(|t| t.id == id)
+}
+
 /// The previous index, saturating at the first track. None only when the queue is empty.
 pub(crate) fn prev_index(index: usize, len: usize) -> Option<usize> {
     if len == 0 {
@@ -327,6 +332,25 @@ mod tests {
     #[test]
     fn clamp_index_on_an_empty_queue_is_zero() {
         assert_eq!(clamp_index(4, 0), 0);
+    }
+
+    // ---- Id lookup ----
+
+    #[test]
+    fn index_of_id_finds_the_slot() {
+        let q = vec![qtrack(4), qtrack(9), qtrack(2)];
+        assert_eq!(index_of_id(&q, 9), Some(1));
+    }
+
+    #[test]
+    fn index_of_id_is_none_when_absent() {
+        assert_eq!(index_of_id(&[qtrack(4)], 7), None);
+    }
+
+    #[test]
+    fn index_of_id_takes_the_first_of_a_repeat() {
+        let q = vec![qtrack(4), qtrack(9), qtrack(9)];
+        assert_eq!(index_of_id(&q, 9), Some(1));
     }
 
     // ---- Shuffle ----

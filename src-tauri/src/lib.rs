@@ -405,6 +405,7 @@ pub fn run() {
             commands::window::hide_now_playing_widget,
             commands::window::settle_now_playing_widget,
             commands::player::player_play_tracks,
+            commands::player::player_load,
             commands::player::player_play_file,
             commands::player::player_play_files,
             commands::player::player_enqueue_files,

@@ -547,6 +547,42 @@ impl Engine {
         self.emit(true);
     }
 
+    /// Seats `queue` at `index` on a paused source positioned at `secs`. Records no play and leaves the
+    /// half latch clear, so playing on from the restored position counts as usual. The file opens before
+    /// any state moves, so a dead file leaves the engine untouched beyond its notice.
+    fn load(&mut self, queue: Vec<QueueTrack>, index: usize, secs: f64) {
+        if queue.is_empty() {
+            return;
+        }
+        let i = clamp_index(index, queue.len());
+        let start = if secs > 0.0 { Some(secs) } else { None };
+        let src = match self.open_source(&queue[i].path, start, queue[i].gain_db) {
+            Some(s) => s,
+            None => {
+                let _ = self.app.emit("player:error", PlayerNotice::File);
+                return;
+            }
+        };
+        self.record_manual_end();
+        self.queue = queue;
+        self.original_order = self.queue.clone();
+        self.shuffle = false;
+        self.emit_queue();
+        self.clear_pending();
+        self.begin_listen(i, self.queue[i].id);
+        self.seat(SourceHandles::of(&src));
+        if let Some(sink) = &self.sink {
+            sink.clear();
+            sink.pause();
+            sink.append(src);
+            sink.set_volume(self.volume);
+        }
+        self.paused = true;
+        self.playing = true;
+        self.emit_spectrum_rest();
+        self.emit(true);
+    }
+
     /// Reopens the current file, seeks to `secs`, and restarts the source there while preserving the
     /// paused state. A missing file or a seek failure leaves playback untouched.
     fn seek(&mut self, secs: f64) {
@@ -693,6 +729,7 @@ impl Engine {
                 // play_at emits its own forced status on success or exhaustion.
                 self.play_at(start);
             }
+            PlayerCmd::Load { queue, index, secs } => self.load(queue, index, secs),
             PlayerCmd::TogglePlay => {
                 if let Some(sink) = &self.sink {
                     if self.paused {

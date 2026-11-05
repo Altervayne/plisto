@@ -44,6 +44,8 @@ export const PREF_KEYS = {
   // The EQ, preamp and levelling blob. The backend parses and applies this same key by name.
   sound: "sound",
   playerVisualizer: "player_visualizer",
+  // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
+  playerResume: "player_resume",
 } as const;
 
 interface PreferencesStore {

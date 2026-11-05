@@ -818,6 +818,12 @@ export function playerPlayTracks(trackIds: number[], index = 0): Promise<void> {
   return invoke("player_play_tracks", { trackIds, index });
 }
 
+/** Seats the saved queue paused on `currentId` at `secs`, never playing. Resolves false when the
+ * current track no longer exists, in which case nothing is loaded. */
+export function playerLoad(trackIds: number[], currentId: number, secs: number): Promise<boolean> {
+  return invoke<boolean>("player_load", { trackIds, currentId, secs });
+}
+
 /** Plays a file straight off disk, with no library row, naming it from its own tags. Rejects when the
  * file cannot be read as audio. */
 export function playerPlayFile(path: string): Promise<void> {

@@ -31,6 +31,7 @@ pub mod spectrum;
 pub use decode::{DecodeError, Decoder};
 pub use dsp::gain::{track_gain_db, GainInputs};
 pub use peaks::{compute_peaks, Peak, PeakAccumulator};
+pub(crate) use queue::index_of_id;
 pub use silence::{find_silence, SilenceDetector, SilenceSpan};
 
 // The player's shared vocabulary: the command layer speaks these, the engine thread consumes them,
@@ -63,6 +64,13 @@ pub struct QueueTrack {
 /// owns all playback state; these are the only way to move it.
 pub enum PlayerCmd {
     Play { queue: Vec<QueueTrack>, index: usize },
+    // Seats the queue and cursor on a track at `secs`, paused, without playing or counting a listen.
+    // Volume rides its own command. A dead file reports a notice and leaves the engine as it was.
+    Load {
+        queue: Vec<QueueTrack>,
+        index: usize,
+        secs: f64,
+    },
     TogglePlay,
     Pause,
     Resume,
