@@ -1,0 +1,457 @@
+/*
+ * The pure queue motion and shuffle helpers behind the engine: cursor moves, queue edits that keep the
+ * pristine order in step, and a seeded shuffle. No sink, no device, no clock, so every rule tests on
+ * plain values.
+ */
+
+// -- Local Imports --
+use super::{QueueTrack, RepeatMode};
+
+// ---- Pure queue motion ----
+
+/// The next index after `index`, or None when the queue ends and repeat does not loop it. Every
+/// cursor move in the engine goes through this - the engine never hand-rolls an index.
+pub(crate) fn advance_index(index: usize, len: usize, repeat: RepeatMode) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    if index >= len - 1 {
+        match repeat {
+            RepeatMode::All => Some(0),
+            _ => None,
+        }
+    } else {
+        Some(index + 1)
+    }
+}
+
+/// Clamps a target index into the queue, so an over-range jump lands on the last track. An empty
+/// queue clamps to 0, which play_at reads as a stop.
+pub(crate) fn clamp_index(index: usize, len: usize) -> usize {
+    index.min(len.saturating_sub(1))
+}
+
+/// The previous index, saturating at the first track. None only when the queue is empty.
+pub(crate) fn prev_index(index: usize, len: usize) -> Option<usize> {
+    if len == 0 {
+        None
+    } else {
+        Some(index.saturating_sub(1))
+    }
+}
+
+/// Appends `tracks` to the play queue and the pristine order in lockstep, so a later shuffle-off
+/// restore keeps them and they stay last in up-next either way. Returns the index of the first
+/// appended track, the slot a cold-start engine begins playing from.
+pub(crate) fn enqueue_tracks(
+    queue: &mut Vec<QueueTrack>,
+    original_order: &mut Vec<QueueTrack>,
+    tracks: Vec<QueueTrack>,
+) -> usize {
+    let first_new = queue.len();
+    queue.extend(tracks.iter().cloned());
+    original_order.extend(tracks);
+    first_new
+}
+
+/// Moves the queue item at `from` to `to`, keeping the pristine order in step: an unshuffled reorder
+/// rebaselines the pristine order to the new order, a shuffled reorder leaves it pristine. Returns
+/// false without changing anything when the queue is empty, `from` is out of range, or `from == to`.
+/// Never clamps `from`: a stale over-range index would move the wrong track.
+pub(crate) fn move_queue_item(
+    queue: &mut Vec<QueueTrack>,
+    original_order: &mut Vec<QueueTrack>,
+    shuffle: bool,
+    from: usize,
+    to: usize,
+) -> bool {
+    let len = queue.len();
+    if len == 0 || from >= len || from == to {
+        return false;
+    }
+    let item = queue.remove(from);
+    let dest = to.min(queue.len());
+    queue.insert(dest, item);
+    if !shuffle {
+        *original_order = queue.clone();
+    }
+    true
+}
+
+/// Removes the queue item at `index` and keeps the pristine order in step: an unshuffled remove
+/// rebaselines the pristine order to the shortened queue, a shuffled remove drops the first pristine
+/// entry with the removed id. Returns the removed track's id, or None when `index` is out of range.
+pub(crate) fn remove_queue_item(
+    queue: &mut Vec<QueueTrack>,
+    original_order: &mut Vec<QueueTrack>,
+    shuffle: bool,
+    index: usize,
+) -> Option<i64> {
+    if index >= queue.len() {
+        return None;
+    }
+    let removed_id = queue[index].id;
+    queue.remove(index);
+    if !shuffle {
+        *original_order = queue.clone();
+    } else if let Some(pos) = original_order.iter().position(|t| t.id == removed_id) {
+        original_order.remove(pos);
+    }
+    Some(removed_id)
+}
+
+/// The play-cursor position after a queue mutation: the slot of the currently playing track by id,
+/// or a clamped fallback from `current` when nothing plays or the id is gone. Keeps advance/prev/
+/// on_track_end stepping from the right slot without touching the sink.
+pub(crate) fn reseat_index(
+    queue: &[QueueTrack],
+    cur_track_id: Option<i64>,
+    current: usize,
+) -> usize {
+    let fallback = current.min(queue.len().saturating_sub(1));
+    cur_track_id
+        .and_then(|id| queue.iter().position(|t| t.id == id))
+        .unwrap_or(fallback)
+}
+
+/// What to do when a track finishes on its own.
+pub(crate) enum EndAction {
+    Replay,
+    Advance(usize),
+    Stop,
+}
+
+/// Resolves a natural track-end into an action: repeat-one replays in place, otherwise it advances
+/// (looping the queue under repeat-all) or stops at the end.
+pub(crate) fn on_track_end(index: usize, len: usize, repeat: RepeatMode) -> EndAction {
+    if let RepeatMode::One = repeat {
+        return EndAction::Replay;
+    }
+    match advance_index(index, len, repeat) {
+        Some(i) => EndAction::Advance(i),
+        None => EndAction::Stop,
+    }
+}
+
+// ---- Shuffle ----
+
+/// A tiny seeded xorshift64 PRNG, so shuffle needs no crate. Deterministic from its seed: the same
+/// seed and call sequence yield the same numbers. The engine owns one instance seeded at spawn.
+pub(crate) struct Xorshift {
+    state: u64,
+}
+
+impl Xorshift {
+    /// Seeds the generator. Zero would lock xorshift at zero forever, so it maps to a fixed non-zero
+    /// constant instead.
+    pub(super) fn new(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed },
+        }
+    }
+
+    /// The next 64-bit value, advancing the state.
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    /// A value in [0, bound), for a bound of at least one. The modulo's bias is immaterial at queue
+    /// lengths.
+    fn below(&mut self, bound: usize) -> usize {
+        (self.next_u64() % bound as u64) as usize
+    }
+}
+
+/// A permutation of `0..len` with `pin` fixed at position 0 and the rest Fisher-Yates shuffled by
+/// `rng`. Pure: the same len, pin and rng state always yield the same order. `pin` is clamped into
+/// range; len 0 yields an empty order and len 1 the single index. Pinning the current track to the
+/// front is what lets a live shuffle keep it playing without touching the sink.
+pub(crate) fn shuffle_order(len: usize, pin: usize, rng: &mut Xorshift) -> Vec<usize> {
+    if len == 0 {
+        return Vec::new();
+    }
+    let pin = pin.min(len - 1);
+    let mut rest: Vec<usize> = (0..len).filter(|&i| i != pin).collect();
+    for i in (1..rest.len()).rev() {
+        let j = rng.below(i + 1);
+        rest.swap(i, j);
+    }
+    let mut order = Vec::with_capacity(len);
+    order.push(pin);
+    order.extend(rest);
+    order
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ---- Pure queue motion ----
+
+    #[test]
+    fn advance_stops_at_end_when_off() {
+        assert_eq!(advance_index(2, 3, RepeatMode::Off), None);
+    }
+
+    #[test]
+    fn advance_loops_at_end_when_all() {
+        assert_eq!(advance_index(2, 3, RepeatMode::All), Some(0));
+    }
+
+    #[test]
+    fn advance_stops_at_end_when_one() {
+        // Repeat-one never advances the queue; on_track_end handles the replay instead.
+        assert_eq!(advance_index(2, 3, RepeatMode::One), None);
+    }
+
+    #[test]
+    fn advance_steps_forward_in_the_middle() {
+        assert_eq!(advance_index(0, 3, RepeatMode::Off), Some(1));
+    }
+
+    #[test]
+    fn advance_on_empty_queue_is_none() {
+        assert_eq!(advance_index(0, 0, RepeatMode::All), None);
+    }
+
+    #[test]
+    fn prev_saturates_at_the_first_track() {
+        assert_eq!(prev_index(0, 3), Some(0));
+    }
+
+    #[test]
+    fn prev_steps_back() {
+        assert_eq!(prev_index(2, 3), Some(1));
+    }
+
+    #[test]
+    fn prev_on_empty_queue_is_none() {
+        assert_eq!(prev_index(0, 0), None);
+    }
+
+    #[test]
+    fn track_end_replays_under_repeat_one() {
+        assert!(matches!(on_track_end(1, 3, RepeatMode::One), EndAction::Replay));
+    }
+
+    #[test]
+    fn track_end_loops_under_repeat_all() {
+        assert!(matches!(
+            on_track_end(2, 3, RepeatMode::All),
+            EndAction::Advance(0)
+        ));
+    }
+
+    #[test]
+    fn track_end_stops_at_the_end_when_off() {
+        assert!(matches!(on_track_end(2, 3, RepeatMode::Off), EndAction::Stop));
+    }
+
+    #[test]
+    fn track_end_advances_in_the_middle() {
+        assert!(matches!(
+            on_track_end(0, 3, RepeatMode::Off),
+            EndAction::Advance(1)
+        ));
+    }
+
+    // ---- Index clamp ----
+
+    #[test]
+    fn clamp_index_caps_at_the_last_track() {
+        assert_eq!(clamp_index(9, 3), 2);
+    }
+
+    #[test]
+    fn clamp_index_leaves_an_in_range_index() {
+        assert_eq!(clamp_index(1, 3), 1);
+    }
+
+    #[test]
+    fn clamp_index_on_an_empty_queue_is_zero() {
+        assert_eq!(clamp_index(4, 0), 0);
+    }
+
+    // ---- Shuffle ----
+
+    #[test]
+    fn shuffle_order_is_deterministic_for_a_seed() {
+        let mut a = Xorshift::new(42);
+        let mut b = Xorshift::new(42);
+        assert_eq!(shuffle_order(8, 3, &mut a), shuffle_order(8, 3, &mut b));
+    }
+
+    #[test]
+    fn shuffle_order_pins_the_chosen_index_at_the_front() {
+        let mut rng = Xorshift::new(7);
+        let order = shuffle_order(10, 4, &mut rng);
+        assert_eq!(order[0], 4);
+    }
+
+    #[test]
+    fn shuffle_order_is_a_valid_permutation() {
+        let mut rng = Xorshift::new(123);
+        let mut order = shuffle_order(12, 5, &mut rng);
+        order.sort_unstable();
+        assert_eq!(order, (0..12).collect::<Vec<usize>>());
+    }
+
+    #[test]
+    fn shuffle_order_empty_is_empty() {
+        let mut rng = Xorshift::new(1);
+        assert!(shuffle_order(0, 0, &mut rng).is_empty());
+    }
+
+    #[test]
+    fn shuffle_order_single_is_the_index() {
+        let mut rng = Xorshift::new(1);
+        assert_eq!(shuffle_order(1, 0, &mut rng), vec![0]);
+    }
+
+    #[test]
+    fn shuffle_order_clamps_an_over_range_pin() {
+        let mut rng = Xorshift::new(1);
+        let mut order = shuffle_order(4, 9, &mut rng);
+        assert_eq!(order[0], 3);
+        order.sort_unstable();
+        assert_eq!(order, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn shuffle_then_restore_round_trips_the_order() {
+        // The ordering half of a shuffle toggle, sink aside: materialize a shuffled order pinning the
+        // current track to the front, then restore the captured original and re-locate by id.
+        let original: Vec<i64> = vec![10, 20, 30, 40, 50];
+        let current = 2usize; // playing id 30
+        let mut rng = Xorshift::new(99);
+
+        let order = shuffle_order(original.len(), current, &mut rng);
+        let shuffled: Vec<i64> = order.iter().map(|&i| original[i]).collect();
+        assert_eq!(shuffled[0], 30);
+
+        let mut got = shuffled.clone();
+        let mut want = original.clone();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(got, want);
+
+        let restored = original.clone();
+        let idx = restored.iter().position(|&id| id == 30).unwrap();
+        assert_eq!(restored, vec![10, 20, 30, 40, 50]);
+        assert_eq!(idx, 2);
+    }
+
+    // ---- Queue mutation ----
+
+    // A queue track with a given id and an empty path: the mutation helpers key on id and never touch
+    // the path.
+    fn qtrack(id: i64) -> QueueTrack {
+        QueueTrack {
+            id,
+            path: PathBuf::new(),
+        }
+    }
+
+    fn ids(queue: &[QueueTrack]) -> Vec<i64> {
+        queue.iter().map(|t| t.id).collect()
+    }
+
+    #[test]
+    fn enqueue_grows_queue_and_original_order() {
+        let mut queue = vec![qtrack(10), qtrack(20)];
+        let mut original = vec![qtrack(10), qtrack(20)];
+        let first_new = enqueue_tracks(&mut queue, &mut original, vec![qtrack(30), qtrack(40)]);
+        assert_eq!(first_new, 2);
+        assert_eq!(ids(&queue), vec![10, 20, 30, 40]);
+        assert_eq!(ids(&original), vec![10, 20, 30, 40]);
+    }
+
+    #[test]
+    fn move_out_of_range_from_is_a_no_op() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        assert!(!move_queue_item(&mut queue, &mut original, false, 3, 0));
+        assert_eq!(ids(&queue), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn move_same_slot_is_a_no_op() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        assert!(!move_queue_item(&mut queue, &mut original, false, 1, 1));
+        assert_eq!(ids(&queue), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn move_unshuffled_rebaselines_original_order() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        assert!(move_queue_item(&mut queue, &mut original, false, 0, 2));
+        assert_eq!(ids(&queue), vec![20, 30, 10]);
+        // Unshuffled, the pristine order follows the user's new order.
+        assert_eq!(ids(&original), vec![20, 30, 10]);
+    }
+
+    #[test]
+    fn move_shuffled_leaves_original_order_pristine() {
+        let mut queue = vec![qtrack(30), qtrack(10), qtrack(20)];
+        let mut original = vec![qtrack(10), qtrack(20), qtrack(30)];
+        assert!(move_queue_item(&mut queue, &mut original, true, 0, 2));
+        assert_eq!(ids(&queue), vec![10, 20, 30]);
+        // Shuffled, a reorder is ephemeral: the pristine order is untouched.
+        assert_eq!(ids(&original), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn reseat_tracks_the_playing_id_across_a_move() {
+        // Playing id 10, moved from the front to the back: the cursor follows it to its new slot.
+        let queue = vec![qtrack(20), qtrack(30), qtrack(10)];
+        assert_eq!(reseat_index(&queue, Some(10), 0), 2);
+    }
+
+    #[test]
+    fn reseat_falls_back_to_a_clamped_index_when_id_is_gone() {
+        let queue = vec![qtrack(20), qtrack(30)];
+        // Nothing playing: clamp the old cursor into the shortened queue.
+        assert_eq!(reseat_index(&queue, None, 5), 1);
+    }
+
+    #[test]
+    fn remove_non_current_shrinks_and_reseats() {
+        let mut queue = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let mut original = queue.clone();
+        // Playing id 30 (cursor 2); remove up-next id 10.
+        let removed = remove_queue_item(&mut queue, &mut original, false, 0);
+        assert_eq!(removed, Some(10));
+        assert_eq!(ids(&queue), vec![20, 30]);
+        assert_eq!(ids(&original), vec![20, 30]);
+        // The cursor re-seats onto id 30's new slot.
+        assert_eq!(reseat_index(&queue, Some(30), 2), 1);
+    }
+
+    #[test]
+    fn remove_out_of_range_index_is_a_no_op() {
+        let mut queue = vec![qtrack(10), qtrack(20)];
+        let mut original = queue.clone();
+        assert_eq!(remove_queue_item(&mut queue, &mut original, false, 2), None);
+        assert_eq!(ids(&queue), vec![10, 20]);
+        assert_eq!(ids(&original), vec![10, 20]);
+    }
+
+    #[test]
+    fn remove_shuffled_drops_one_pristine_entry_by_id() {
+        let mut queue = vec![qtrack(30), qtrack(10), qtrack(20)];
+        let mut original = vec![qtrack(10), qtrack(20), qtrack(30)];
+        let removed = remove_queue_item(&mut queue, &mut original, true, 0);
+        assert_eq!(removed, Some(30));
+        assert_eq!(ids(&queue), vec![10, 20]);
+        // Shuffled: the pristine order drops the removed id in place, staying pristine otherwise.
+        assert_eq!(ids(&original), vec![10, 20]);
+    }
+}

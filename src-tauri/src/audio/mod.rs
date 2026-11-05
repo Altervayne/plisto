@@ -19,7 +19,9 @@ pub mod decode;
 pub mod engine;
 pub mod flac_frames;
 pub mod peaks;
+mod queue;
 pub mod silence;
+mod source;
 pub mod spectrum;
 
 // -- Re-exports --
