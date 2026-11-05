@@ -17,3 +17,8 @@
   pointer-events: none;
   mix-blend-mode: soft-light;
 }
+
+/* The ambient stage gives the ridge a taller rise over its larger floor. */
+.ridge.tall {
+  height: 40%;
+}

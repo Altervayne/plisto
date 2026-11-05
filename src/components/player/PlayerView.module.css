@@ -119,3 +119,10 @@
   left: 54px;
   bottom: 24px;
 }
+
+/* The empty stage keeps the ambient entry, disabled, at the panel's top corner. */
+.emptyAmbient {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}

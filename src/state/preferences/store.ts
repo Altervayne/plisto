@@ -11,6 +11,9 @@ import { create } from "zustand";
 // -- IPC Imports --
 import { getSetting, setSetting } from "../../lib/ipc";
 
+// -- State Imports --
+import { normalizeVisualizerKind, type VisualizerKind } from "../player/visualizerKind";
+
 /** The persisted preference keys, mapped to their kv-table column names. */
 export const PREF_KEYS = {
   drawerWidth: "drawer_width",
@@ -40,6 +43,7 @@ export const PREF_KEYS = {
   finderRecent: "finder_recent",
   // The EQ, preamp and levelling blob. The backend parses and applies this same key by name.
   sound: "sound",
+  playerVisualizer: "player_visualizer",
 } as const;
 
 interface PreferencesStore {
@@ -114,4 +118,14 @@ export const useKeepLibraryUpToDate = (): boolean =>
 export const useSetKeepLibraryUpToDate = (): ((on: boolean) => void) => {
   const setPreference = useSetPreference();
   return (on) => setPreference(PREF_KEYS.keepLibraryUpToDate, on ? "1" : "0");
+};
+
+/** The picked visualizer for the Player and ambient mode. An absent or unknown pref reads Ridge. */
+export const usePlayerVisualizer = (): VisualizerKind =>
+  normalizeVisualizerKind(usePreference(PREF_KEYS.playerVisualizer));
+
+/** Persists the visualizer pick. Best-effort like every other pref. */
+export const useSetPlayerVisualizer = (): ((kind: VisualizerKind) => void) => {
+  const setPreference = useSetPreference();
+  return (kind) => setPreference(PREF_KEYS.playerVisualizer, kind);
 };

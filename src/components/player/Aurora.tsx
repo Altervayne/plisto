@@ -3,7 +3,11 @@ import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 // -- State Imports --
-import { getLatestSpectrum, smoothBands, foldToThirds } from "../../state/player/spectrum";
+import { getLatestLevel, getLatestSpectrum, smoothBands, foldToThirds } from "../../state/player/spectrum";
+import { LEVEL_TAU, easeEnvelope } from "../../state/player/visualSignal";
+
+// -- Utils Imports --
+import { isDarkTheme } from "../../theme";
 
 // -- Hook Imports --
 import { useCoverPalette, type Palette } from "../covers/useCoverPalette";
@@ -225,23 +229,21 @@ function derive(palette: Palette | null, isDark: boolean): Derived {
   return { colors, opacityFactor: 1 };
 }
 
-/** The effective theme: an explicit stamp wins, else the system scheme. */
-function isDarkTheme(): boolean {
-  const stamp = document.documentElement.dataset.theme;
-  if (stamp === "dark") return true;
-  if (stamp === "light") return false;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
 export function Aurora({
   trackId,
   coverRef,
+  eased = false,
 }: {
   trackId: number;
   // The now-playing cover, so the mask centers the field on the art. Absent, the mask stays centered
   // on the whole panel (the CSS default).
   coverRef?: RefObject<HTMLElement | null>;
+  // Breathe on the level eased over about a second instead of the punchy band attack. The full-screen
+  // ambient stage needs it: a stage-filling pulse on every beat is a flash.
+  eased?: boolean;
 }) {
+  const easedRef = useRef(eased);
+  easedRef.current = eased;
   const palette = useCoverPalette(trackId);
   const paletteRef = useRef<Palette | null>(palette);
   paletteRef.current = palette;
@@ -360,6 +362,7 @@ export function Aurora({
     }
 
     let smoothed: number[] = new Array(BAND_COUNT).fill(0);
+    let easedLevel = 0;
     let driftTime = Math.PI; // a small offset so the blooms do not all start on a shared phase
     let from = derive(paletteRef.current, isDark);
     let to = from;
@@ -400,7 +403,8 @@ export function Aurora({
       // beat snaps up and settles. One stage - a second ease would flatten the pulse into a swell.
       smoothed = smoothBands(smoothed, getLatestSpectrum(), BREATH_ATTACK, BREATH_DECAY);
       const [low, mid, high] = foldToThirds(smoothed);
-      const breath = 0.6 * low + 0.3 * mid + 0.1 * high;
+      easedLevel = easeEnvelope(easedLevel, getLatestLevel().rms, dt, LEVEL_TAU);
+      const breath = easedRef.current ? easedLevel : 0.6 * low + 0.3 * mid + 0.1 * high;
 
       driftTime += dt * AURORA_DRIFT_SCALE * (1 + AURORA_BREATH_DRIFT * breath);
       if (crossfade < 1) crossfade = Math.min(1, crossfade + (dt * 1000) / AURORA_CROSSFADE_MS);

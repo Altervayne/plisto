@@ -935,6 +935,14 @@ export function playerSetShuffle(on: boolean): Promise<void> {
   return invoke("player_set_shuffle", { on });
 }
 
+/**
+ * Turns the 128-band `player:spectrum_fine` emit on or off. It rides the same audible gate as the
+ * 24-band spectrum and costs a second analysis per frame, so it is on only while a visualizer reads it.
+ */
+export function playerSetFineSpectrum(on: boolean): Promise<void> {
+  return invoke("player_set_fine_spectrum", { on });
+}
+
 /** Every available output device, each flagged when it is the current OS default. */
 export function listOutputDevices(): Promise<OutputDeviceInfo[]> {
   return invoke<OutputDeviceInfo[]>("list_output_devices");

@@ -1,8 +1,10 @@
 /*
- * The player's spectrum feed, kept off the React render path. The engine emits `player:spectrum` about
- * thirty times a second while audible; a render on every frame would thrash the tree, so the raw bands
- * land in a module-level singleton the visualizer polls from its own animation frame instead of through
- * state. `smoothBands` is the pure easing the visualizer runs per frame, tested apart from the DOM.
+ * The player's spectrum feed, kept off the React render path. The engine emits `player:spectrum` and
+ * `player:level` about thirty times a second while audible; a render on every frame would thrash the
+ * tree, so each payload lands in a module-level singleton the visualizers poll from their own animation
+ * frame instead of through state. The 128-band `player:spectrum_fine` emit is opt-in: it runs only while
+ * a holder has acquired it. `smoothBands` is the pure easing the visualizers run per frame, tested apart
+ * from the DOM.
  */
 
 // -- Framework Imports --
@@ -11,8 +13,11 @@ import { useEffect } from "react";
 // -- Library Imports --
 import { listen } from "@tauri-apps/api/event";
 
+// -- IPC Imports --
+import { playerSetFineSpectrum } from "../../lib/ipc";
+
 // -- Type Imports --
-import { BAND_COUNT, type SpectrumBands } from "../../types";
+import { BAND_COUNT, type LevelFrame, type SpectrumBands } from "../../types";
 
 /** A fresh rest frame: every band at zero. New each call so no caller shares a mutable buffer. */
 function restBands(): number[] {
@@ -31,6 +36,41 @@ export function getLatestSpectrum(): number[] {
 /** Stores one raw spectrum frame. Internal to the sync hook; consumers only read. */
 function setLatestSpectrum(bands: number[]): void {
   latest = bands;
+}
+
+// The latest level frame, at rest until the first emit.
+let latestLevel: LevelFrame = { rms: 0, peak: 0, flux: 0 };
+
+/** The latest level frame the engine emitted, or a zero frame before the first one arrives. */
+export function getLatestLevel(): LevelFrame {
+  return latestLevel;
+}
+
+// The latest fine frame, or null while no fine emit has landed since the feed was last switched on.
+let latestFine: number[] | null = null;
+let fineHolders = 0;
+
+/** The latest 128-band frame, or null when the engine has sent none, so a reader falls back to 24 bands. */
+export function getLatestFineSpectrum(): number[] | null {
+  return latestFine;
+}
+
+/**
+ * Asks the engine for the fine spectrum while at least one holder is mounted, and returns the release.
+ * Best-effort: an engine without the command never emits, and the reader keeps its 24-band fallback.
+ */
+export function acquireFineSpectrum(): () => void {
+  fineHolders += 1;
+  if (fineHolders === 1) void playerSetFineSpectrum(true).catch(() => {});
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    fineHolders -= 1;
+    if (fineHolders > 0) return;
+    latestFine = null;
+    void playerSetFineSpectrum(false).catch(() => {});
+  };
 }
 
 /**
@@ -75,31 +115,41 @@ export function foldToThirds(bands: number[]): [number, number, number] {
   return out;
 }
 
+/** Follows one engine event into a handler; the returned stop tears the listener down, even mid-subscribe. */
+function follow<T>(event: string, handler: (payload: T) => void): () => void {
+  let alive = true;
+  let unlisten: (() => void) | null = null;
+  void listen<T>(event, (e) => handler(e.payload))
+    .then((fn) => {
+      if (alive) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    })
+    .catch(() => {});
+  return () => {
+    alive = false;
+    if (unlisten) unlisten();
+  };
+}
+
 /**
- * Follows the engine's `player:spectrum` event into the singleton for the app's life. Mount once beside
- * usePlayerSync; the listener tears down on unmount. No mount seed - the spectrum is live-only and
- * starts at rest.
+ * Follows the engine's spectrum, level and fine spectrum events into their singletons for the app's
+ * life. Mount once beside usePlayerSync; the listeners tear down on unmount. No mount seed - the feed is
+ * live-only and starts at rest. A fine frame landing after the last release is dropped.
  */
 export function useSpectrumSync(): void {
   useEffect(() => {
-    let alive = true;
-    let unlisten: (() => void) | null = null;
-
-    void listen<SpectrumBands>("player:spectrum", (e) => {
-      setLatestSpectrum(e.payload);
-    })
-      .then((fn) => {
-        if (alive) {
-          unlisten = fn;
-        } else {
-          fn();
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      alive = false;
-      if (unlisten) unlisten();
-    };
+    const stops = [
+      follow<SpectrumBands>("player:spectrum", setLatestSpectrum),
+      follow<LevelFrame>("player:level", (frame) => {
+        latestLevel = frame;
+      }),
+      follow<SpectrumBands>("player:spectrum_fine", (bands) => {
+        if (fineHolders > 0) latestFine = bands;
+      }),
+    ];
+    return () => stops.forEach((stop) => stop());
   }, []);
 }

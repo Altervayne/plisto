@@ -22,6 +22,7 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { QueueRow } from "./QueueRow";
 import { SequenceMenu } from "./SequenceMenu";
+import { VisualizerPicker } from "./visualizers/VisualizerPicker";
 
 // -- State Imports --
 import {
@@ -52,8 +53,8 @@ const SAVED_MS = 2000;
 /**
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
- * The header counts the tracks still ahead and holds the save-as-playlist action and the sequencing
- * control; the footer clears the queue by stopping the engine.
+ * The header counts the tracks still ahead and holds the save-as-playlist action, the visualizer pick
+ * and the sequencing control; the footer clears the queue by stopping the engine.
  */
 export function QueueList() {
   const queue = usePlayerQueue();
@@ -126,6 +127,7 @@ export function QueueList() {
           <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
             {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
           </QuietButton>
+          <VisualizerPicker />
           <SequenceMenu />
         </div>
       </div>

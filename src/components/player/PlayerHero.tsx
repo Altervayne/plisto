@@ -1,4 +1,5 @@
 // -- Component Imports --
+import { AmbientButton } from "./ambient/AmbientButton";
 import { Cover } from "../common/Cover/Cover";
 import { SoundMenu } from "../sound/SoundMenu";
 import { SeekBar } from "./SeekBar";
@@ -13,7 +14,7 @@ import { useTrackDisplay } from "./useTrackDisplay";
 import { usePlayerActions, usePlayerStatus, usePlayingFrom } from "../../state/player/store";
 
 // -- Type Imports --
-import type { RefObject } from "react";
+import type { Ref, RefObject } from "react";
 import type { PlaybackSource } from "../../types";
 
 // -- i18n Imports --
@@ -24,19 +25,29 @@ import styles from "./PlayerHero.module.css";
 
 /**
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
- * transport with the Sound button leading it and the volume rail trailing it. Mounts only with a real track id, so its id-typed hooks
- * never run empty. The seek fill is the one lit accent of the view; every other control reads by weight
- * and material.
+ * transport with the Sound button leading it and the ambient entry and volume rail trailing it. Mounts
+ * only with a real track id, so its id-typed hooks never run empty. The seek fill is the one lit accent
+ * of the view; every other control reads by weight and material. Under the Liquid visualizer the art is
+ * drawn by the visualizer beneath a clear tile that keeps the cover's shadow.
  */
 export function PlayerHero({
   trackId,
   onNavigate,
   coverRef,
+  heroRef,
+  liquid = false,
+  onEnterAmbient,
+  ambientRef,
 }: {
   trackId: number;
   onNavigate: (source: PlaybackSource) => void;
-  // Handed up to the aurora so its mask centers on the art.
+  // Handed up to the aurora and the visualizer so they center on the art.
   coverRef?: RefObject<HTMLSpanElement | null>;
+  // The column's box, which the visualizer feathers off outside so the queue stays clear.
+  heroRef?: RefObject<HTMLDivElement | null>;
+  liquid?: boolean;
+  onEnterAmbient?: () => void;
+  ambientRef?: Ref<HTMLButtonElement>;
 }) {
   const { cover } = useTrackCover(trackId);
   const { title, artist } = useTrackDisplay(trackId);
@@ -46,14 +57,14 @@ export function PlayerHero({
   const coverSrc = cover?.src ?? null;
 
   return (
-    <div className={styles.hero}>
+    <div ref={heroRef} className={styles.hero}>
       <div className={styles.column}>
         {/* The identity - source, cover, title - centers in the flexible upper space. */}
         <div className={styles.identity}>
           <SourceLine onNavigate={onNavigate} />
 
           <span ref={coverRef} className={styles.cover}>
-            <Cover src={coverSrc} alt="" />
+            {liquid ? <span className={styles.liquidTile} aria-hidden="true" /> : <Cover src={coverSrc} alt="" />}
           </span>
 
           <div className={styles.text}>
@@ -80,6 +91,7 @@ export function PlayerHero({
               <Transport size="lg" shortcutHints />
             </div>
             <div className={styles.volumeSlot}>
+              {onEnterAmbient ? <AmbientButton ref={ambientRef} onEnter={onEnterAmbient} /> : null}
               <Volume volume={status.volume} shortcutHints />
             </div>
           </div>

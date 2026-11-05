@@ -30,6 +30,15 @@ export function toggleMaximizeWindow(): void {
   void appWindow()?.toggleMaximize();
 }
 
+/** Enters or leaves OS full-screen. A no-op without a window; a refused call resolves quietly. */
+export async function setWindowFullscreen(on: boolean): Promise<void> {
+  try {
+    await appWindow()?.setFullscreen(on);
+  } catch {
+    // Outside the shell or without the permission, the stage still covers the webview.
+  }
+}
+
 /** Closes the window, ending the app. */
 export function closeWindow(): void {
   void appWindow()?.close();

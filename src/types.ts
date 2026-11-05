@@ -697,6 +697,20 @@ export const BAND_COUNT = 24;
 /** One spectrum frame: per-band levels in 0..1, already normalized by the engine. The `player:spectrum` payload. */
 export type SpectrumBands = number[];
 
+/** The number of bands in the fine spectrum frame, the `player:spectrum_fine` payload. Mirrors FINE_BAND_COUNT in audio/source.rs. */
+export const FINE_BAND_COUNT = 128;
+
+/**
+ * The loudness of the playing audio, the `player:level` payload: `rms` and `peak` in 0..1 through the
+ * spectrum's dB window, and `flux`, the positive band change since the previous frame, in 0..1.
+ * Mirrors LevelFrame in audio/mod.rs.
+ */
+export interface LevelFrame {
+  rms: number;
+  peak: number;
+  flux: number;
+}
+
 /**
  * A user-facing player notice, the `player:error` payload: a file that would not play, a lost audio
  * output, or a pinned device gone so playback fell back to the system default. Mirrors PlayerNotice

@@ -1,0 +1,5 @@
+/* The disabled entry's tooltip trigger: a plain inline box around the button, which takes no pointer
+ * events while disabled. */
+.disabledWrap {
+  display: inline-flex;
+}

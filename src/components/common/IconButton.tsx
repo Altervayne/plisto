@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 
 // -- Style Imports --
 import styles from "./IconButton.module.css";
@@ -12,7 +12,7 @@ import styles from "./IconButton.module.css";
 export function IconButton({
   children,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { "aria-label": string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { "aria-label": string; ref?: Ref<HTMLButtonElement> }) {
   return (
     <button type="button" className={styles.icon} {...rest}>
       {children}

@@ -47,9 +47,10 @@ function restingBands(): number[] {
  * The audio-reactive horizon behind the player: a filled, continuous silhouette that rises from the view
  * floor with the music. It polls the spectrum singleton on its own animation frame and keeps its own
  * smoothing, so the ~30fps feed never touches React. Purely ambient - aria-hidden, no accent, low contrast.
- * Under a reduced-motion preference it draws one still resting curve and runs no loop.
+ * Under a reduced-motion preference it draws one still resting curve and runs no loop. `tall` lifts it
+ * for the full-screen ambient stage.
  */
-export function SpectrumRidge() {
+export function SpectrumRidge({ tall = false }: { tall?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -138,5 +139,7 @@ export function SpectrumRidge() {
     };
   }, []);
 
-  return <canvas ref={canvasRef} className={styles.ridge} aria-hidden="true" />;
+  return (
+    <canvas ref={canvasRef} className={tall ? `${styles.ridge} ${styles.tall}` : styles.ridge} aria-hidden="true" />
+  );
 }

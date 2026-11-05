@@ -97,11 +97,33 @@
   text-overflow: ellipsis;
 }
 
-/* The cover, the one object of the column: a generous square carrying the pop shadow. */
+/* The cover, the one object of the column: a generous square carrying the pop shadow. The radius
+ * matches the tile inside, so the visualizers read the art's shape off this box. */
 .cover {
   display: block;
   width: min(72%, 320px);
+  border-radius: var(--r-md);
   --cover-shadow: var(--shadow-pop);
+}
+
+/* Under Liquid the visualizer draws the art below this clear tile, which keeps the cover's shadow and
+ * edge ring. */
+.liquidTile {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  box-shadow: var(--cover-shadow);
+}
+
+.liquidTile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
 }
 
 .text {
@@ -190,6 +212,7 @@
   display: flex;
   align-items: center;
   justify-self: end;
+  gap: 2px;
 }
 
 /* The transport and speaker glyphs carry the same surface halo as the text. The volume chip holds no svg,

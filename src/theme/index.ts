@@ -41,3 +41,11 @@ export function useApplyTheme(): void {
     }
   }, [theme]);
 }
+
+/** The effective theme on screen: an explicit stamp wins, else the system scheme. */
+export function isDarkTheme(): boolean {
+  const stamp = document.documentElement.dataset.theme;
+  if (stamp === "dark") return true;
+  if (stamp === "light") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}

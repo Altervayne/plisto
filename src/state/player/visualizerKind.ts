@@ -1,0 +1,54 @@
+/*
+ * The visualizer choice: the persisted kinds, the order the ambient V key cycles them, and the kind a
+ * surface actually draws once its fallbacks apply. Pure, so the pref read, the cycle and the fallback
+ * are tested apart from the renderer.
+ */
+
+/** Every visualizer, in picker and cycle order. Ridge is the default; Off draws nothing. */
+export const VISUALIZER_KINDS = ["ridge", "terrain", "liquid", "warp", "nebula", "bloom", "off"] as const;
+
+export type VisualizerKind = (typeof VISUALIZER_KINDS)[number];
+
+/** The kinds drawn by the WebGL2 renderer; Ridge stays on Canvas 2D and Off draws nothing. */
+export type GlKind = Exclude<VisualizerKind, "ridge" | "off">;
+
+export const DEFAULT_VISUALIZER: VisualizerKind = "ridge";
+
+/** Reads a stored pref value as a kind. Anything absent or unknown reads Ridge. */
+export function normalizeVisualizerKind(raw: string | null | undefined): VisualizerKind {
+  return (VISUALIZER_KINDS as readonly string[]).includes(raw ?? "")
+    ? (raw as VisualizerKind)
+    : DEFAULT_VISUALIZER;
+}
+
+/** The kind after `kind` in cycle order, wrapping from Off back to Ridge. */
+export function nextVisualizerKind(kind: VisualizerKind): VisualizerKind {
+  const i = VISUALIZER_KINDS.indexOf(kind);
+  return VISUALIZER_KINDS[(Math.max(0, i) + 1) % VISUALIZER_KINDS.length];
+}
+
+export function isGlKind(kind: VisualizerKind): kind is GlKind {
+  return kind !== "ridge" && kind !== "off";
+}
+
+/** What a surface can draw right now. */
+export interface VisualizerSupport {
+  // The WebGL2 renderer failed for the picked kind: no context, a lost context, or a shader error.
+  glFailed: boolean;
+  // The cover's pixels are on hand as a texture source.
+  coverPixels: boolean;
+}
+
+/**
+ * The kind a surface draws for a pick: a WebGL kind falls back to Ridge when the renderer failed, and
+ * Liquid falls back to Ridge without cover pixels, as it has no art to warp.
+ */
+export function effectiveVisualizerKind(
+  picked: VisualizerKind,
+  support: VisualizerSupport,
+): VisualizerKind {
+  if (!isGlKind(picked)) return picked;
+  if (support.glFailed) return "ridge";
+  if (picked === "liquid" && !support.coverPixels) return "ridge";
+  return picked;
+}

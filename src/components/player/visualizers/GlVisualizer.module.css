@@ -1,0 +1,15 @@
+/* The WebGL visualizer layer: a slot filling the stage between the ambient ground and the content, with
+ * the canvas the component makes filling it. The blend mode is set on the slot from the component, so it
+ * follows the kind and the theme in one place. */
+.slot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

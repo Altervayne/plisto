@@ -1,0 +1,317 @@
+/* Ambient mode: a fixed layer over the whole window, above the app and below tooltips and menus, on
+ * the app's own ambient ground. Cover left, words right, chrome along the foot. Sizes scale with the
+ * screen height, so a large full-screen display keeps the composition rather than shrinking it to a
+ * corner. Everything that fades rides one data-faded flag and one transition. */
+.stage {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  overflow: hidden;
+  background: var(--ambient);
+  color: var(--ink);
+  outline: none;
+}
+
+.stage[data-faded] {
+  cursor: none;
+}
+
+/* The cover and the words, centred in the space above the chrome. */
+.body {
+  position: absolute;
+  inset: 0 0 150px 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(48px, 10vh, 120px);
+  padding-right: 20px;
+}
+
+/* The cover, the one object of the stage. Its radius is read by the visualizers so their cover-shaped
+ * work lines up, and it reaches the tile inside through --r-md. */
+.cover {
+  --r-md: 20px;
+  display: block;
+  flex: none;
+  width: clamp(240px, 50vh, 560px);
+  border-radius: var(--r-md);
+  --cover-shadow: var(--shadow-pop);
+}
+
+/* Liquid draws the art itself under this clear tile, which keeps the cover's shadow and edge. */
+.liquidTile {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  box-shadow: var(--shadow-pop);
+}
+
+.liquidTile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
+}
+
+/* No art: the quiet recess the empty Player uses, with a music glyph. */
+.noCover {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  background: var(--sunken);
+  color: var(--ink-3);
+  box-shadow: var(--shadow-pop);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: clamp(320px, 55vh, 620px);
+  min-width: 0;
+  text-align: left;
+  filter: var(--text-halo-filter);
+}
+
+.sourceLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(32px, 5.75vh, 64px);
+  font-weight: 680;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.artist {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ink-2);
+}
+
+.albumLine {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* Dark gives the secondary lines a step more ink so they read over a bright bloom. */
+:root[data-theme="dark"] .artist {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .albumLine {
+  color: var(--ink-2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .artist {
+    color: var(--ink);
+  }
+
+  :root:not([data-theme="light"]) .albumLine {
+    color: var(--ink-2);
+  }
+}
+
+/* The chrome along the foot: the seek bar over the glance, transport and volume row. */
+.chrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 0 96px 38px;
+  text-shadow: var(--text-halo);
+}
+
+.seek {
+  width: min(100%, 620px);
+}
+
+/* Three columns so the transport stays centred whatever the glance and the volume measure. */
+.row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cluster svg,
+.right svg {
+  filter: var(--glyph-halo);
+}
+
+/* The play affordance: the stage's one solid accent. */
+.play {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  color: var(--on-solid);
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.play svg {
+  filter: none;
+}
+
+.play:active {
+  transform: scale(0.96);
+}
+
+.right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.glance {
+  justify-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 260px;
+}
+
+.glanceLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.glanceTitle,
+.glanceDetail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.glanceTitle {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.glanceDetail {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* The exit control, top right, with its key beside it. */
+.exit {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--veil-2);
+  color: var(--ink-2);
+  font: 600 10.5px var(--font-ui);
+}
+
+/* The fading layer: the chrome, the exit control and the source and album lines. Keyboard focus inside
+ * the exit control keeps it visible. */
+.chrome,
+.exit,
+.sourceLabel,
+.albumLine {
+  transition: opacity 0.8s var(--ease-standard);
+}
+
+.chrome[data-faded],
+.exit[data-faded],
+.sourceLabel[data-faded],
+.albumLine[data-faded] {
+  opacity: 0;
+}
+
+.exit[data-faded]:focus-within {
+  opacity: 1;
+}
+
+/* The transient pills: the exit hint centred at the top on entry, the visualizer name top left. */
+.pill {
+  position: absolute;
+  top: 24px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  pointer-events: none;
+  transition: opacity 0.5s var(--ease-standard);
+}
+
+.pill[data-place="hint"] {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pill[data-place="toast"] {
+  left: 28px;
+}
+
+.pill[data-gone] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chrome,
+  .exit,
+  .sourceLabel,
+  .albumLine,
+  .pill,
+  .play {
+    transition: none;
+  }
+}
