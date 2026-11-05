@@ -13,14 +13,18 @@ import { BLUR_FS, COMPOSITE_FS, DOWN_FS, FS_VS, TRAIL_FS } from "./shaders";
 import { createBloom } from "./bloom";
 import { createDotCover } from "./dotCover";
 import { createDotSpectrum } from "./dotSpectrum";
+import { createGlass } from "./glass";
 import { createHalftone } from "./halftone";
+import { createInk } from "./ink";
 import { createLiquid } from "./liquid";
+import { createMercury } from "./mercury";
 import { createNebula } from "./nebula";
+import { createSilk } from "./silk";
 import { createTerrain } from "./terrain";
 import { createWarp } from "./warp";
 
-// -- Type Imports --
-import type { GlKind } from "../../../../state/player/visualizerKind";
+// -- State Imports --
+import { fillsStage, type GlKind } from "../../../../state/player/visualizerKind";
 
 /** The CSS blend the canvas takes over the stage for a kind and theme. */
 export type BlendMode = "screen" | "multiply" | "normal";
@@ -55,6 +59,10 @@ const FACTORIES: Record<GlKind, (kit: Kit) => Candidate> = {
   halftone: createHalftone,
   "dot-spectrum": createDotSpectrum,
   "dot-cover": createDotCover,
+  ink: createInk,
+  mercury: createMercury,
+  glass: createGlass,
+  silk: createSilk,
 };
 
 const MODE_INDEX: Record<BlendMode, number> = { screen: 0, multiply: 1, normal: 2 };
@@ -75,11 +83,11 @@ const MAX_DPR = 2;
 const AMBIENT_VIGNETTE = 0.35;
 
 /**
- * The blend a kind needs: Liquid and Dot cover paint real color; the other dot kinds screen on dark and
- * paint their own ink on light; every other glow screens on dark and multiplies on light.
+ * The blend a kind needs: the stage-filling kinds and Dot cover paint real color; the other dot kinds
+ * screen on dark and paint their own ink on light; every other glow screens on dark and multiplies on light.
  */
 export function blendModeFor(kind: GlKind, light: boolean): BlendMode {
-  if (kind === "liquid" || kind === "dot-cover") return "normal";
+  if (fillsStage(kind) || kind === "dot-cover") return "normal";
   if (kind === "halftone" || kind === "dot-spectrum") return light ? "normal" : "screen";
   return light ? "multiply" : "screen";
 }

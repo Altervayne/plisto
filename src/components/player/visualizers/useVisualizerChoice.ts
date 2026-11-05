@@ -20,7 +20,7 @@ import {
 
 /**
  * What one surface draws: the kind after its fallbacks, how hard it moves, the dot spectrum's layout, the
- * cover pixels Liquid and Dot cover draw from, and the failure hook.
+ * cover pixels the art-drawing kinds read, and the failure hook.
  */
 export interface VisualizerChoice {
   kind: VisualizerKind;

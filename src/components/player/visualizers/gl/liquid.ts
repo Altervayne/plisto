@@ -10,6 +10,7 @@
  */
 
 // -- Local Imports --
+import { createCoverTexture } from "./coverTexture";
 import { FS_VS, PRELUDE } from "./shaders";
 
 // -- Type Imports --
@@ -89,26 +90,11 @@ void main() {
 
 export function createLiquid(kit: Kit): Candidate {
   const { gl } = kit;
-  const tex = gl.createTexture();
-  if (!tex) throw new Error("texture allocation failed");
-  let uploaded: ImageBitmap | null = null;
+  const cover = createCoverTexture(gl);
   let flow = 0;
   // Live rings, oldest first: age in seconds and beat strength.
   const rings: { age: number; strength: number }[] = [];
   const ripple = new Float32Array(RIPPLE_MAX * 2);
-
-  // The bitmap arrives flipped for GL, so it uploads as is; a new cover re-uploads once.
-  const upload = (bitmap: ImageBitmap) => {
-    uploaded = bitmap;
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
-  };
 
   // Ages the rings, drops a new one on a beat, and packs radius and height for the shader. A ring fades
   // in, then falls to nothing at the end of its life, so neither end pops.
@@ -137,14 +123,14 @@ export function createLiquid(kit: Kit): Candidate {
     fullBleed: true,
     draw(f: Frame) {
       if (!f.cover) return;
-      if (f.cover !== uploaded) upload(f.cover);
+      cover.sync(f.cover);
       const s = f.sig;
       // Flow speed rides the eased level, so the surface drifts a little faster in loud passages.
       flow += f.dt * (0.1 + s.level * 0.14 + s.midMotion * FLOW_MID);
       stepRings(f.dt, s.beat);
       const p = kit.program("liquid", FS_VS, FS);
       kit.setCommon(p, f);
-      kit.bindTex(p, "uCoverTex", 0, tex);
+      kit.bindTex(p, "uCoverTex", 0, cover.tex);
       kit.set1(p, "uLight", f.light ? 1 : 0);
       kit.set1(p, "uEdge", f.ambient ? 1 : 0);
       kit.set1(p, "uFlow", flow);
@@ -156,7 +142,7 @@ export function createLiquid(kit: Kit): Candidate {
       kit.drawQuad();
     },
     dispose() {
-      gl.deleteTexture(tex);
+      cover.dispose();
     },
   };
 }

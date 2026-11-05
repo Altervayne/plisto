@@ -148,10 +148,12 @@ export function GlVisualizer({
       };
       r.fit(layout);
       backing = tokenRgb(slot, light ? "--surface-2" : "--sunken");
+      ground = tokenRgb(slot, ambient ? "--bg" : "--surface");
     };
 
     let light = !isDarkTheme();
     let backing: [number, number, number] = [0, 0, 0];
+    let ground: [number, number, number] = [0, 0, 0];
     // The blend sits on the slot, not the canvas: the slot's z-index makes it an isolated group, so a
     // blend inside it would only see the empty slot instead of the aurora and ground beneath.
     const applyBlend = () => {
@@ -176,6 +178,7 @@ export function GlVisualizer({
       cover: live.current.pixels,
       mirrored: live.current.mirrored,
       backing,
+      ground,
     });
 
     const teardown = () => {

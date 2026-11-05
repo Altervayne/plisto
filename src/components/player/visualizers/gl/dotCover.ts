@@ -9,6 +9,7 @@
  */
 
 // -- Local Imports --
+import { createCoverTexture } from "./coverTexture";
 import { createDots, DOT_FS, DOT_PRELUDE } from "./dots";
 import { FS_VS } from "./shaders";
 
@@ -92,22 +93,7 @@ void main() {
 export function createDotCover(kit: Kit): Candidate {
   const { gl } = kit;
   const dots = createDots(kit);
-  const tex = gl.createTexture();
-  if (!tex) throw new Error("texture allocation failed");
-  let uploaded: ImageBitmap | null = null;
-
-  // The bitmap arrives flipped for GL, so it uploads as is; mipmaps carry the matrix and echo blurs.
-  const upload = (bitmap: ImageBitmap) => {
-    uploaded = bitmap;
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
-  };
+  const art = createCoverTexture(gl);
 
   return {
     mode: "image",
@@ -118,7 +104,7 @@ export function createDotCover(kit: Kit): Candidate {
     vignette: 0,
     draw(f: Frame) {
       if (!f.cover) return;
-      if (f.cover !== uploaded) upload(f.cover);
+      art.sync(f.cover);
       const { w: W, h: H, dpr } = kit.size;
       const { mask, cover } = kit.geo;
       // The echo first, then the backing over it, then the cover's own dots.
@@ -133,7 +119,7 @@ export function createDotCover(kit: Kit): Candidate {
       const rows = Math.max(0, Math.ceil((H - y0) / rowH) + 1);
       const p = kit.program("dotCover", VS, DOT_FS);
       dots.begin(p, f);
-      kit.bindTex(p, "uCoverTex", 0, tex);
+      kit.bindTex(p, "uCoverTex", 0, art.tex);
       kit.seti(p, "uMode", 1);
       kit.set2(p, "uOrigin", ox, y0 + pitch * 0.5);
       kit.set1(p, "uPitch", pitch);
@@ -158,7 +144,7 @@ export function createDotCover(kit: Kit): Candidate {
       dots.draw(n * n, false);
     },
     dispose() {
-      gl.deleteTexture(tex);
+      art.dispose();
       dots.dispose();
     },
   };

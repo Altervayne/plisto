@@ -78,6 +78,36 @@ const PATHS: Record<VisualizerKind, ReactNode> = {
       </g>
     </>
   ),
+  ink: (
+    <>
+      <path d="M12 3c-1.2 2.2-3 3.4-3 5.5a3 3 0 0 0 6 0c0-2.1-1.8-3.3-3-5.5z" />
+      <path d="M10 14.5c-2 1-4 2.5-4 5.5M14 14.5c2 1 4 2.5 4 5.5M12 15v6" opacity={0.6} />
+    </>
+  ),
+  mercury: (
+    <>
+      <ellipse cx="12" cy="15" rx="9" ry="5" />
+      <path d="M7 14.5c1.5-1.3 3.5-2 6-2" opacity={0.6} />
+      <circle cx="17" cy="5.5" r="2" />
+    </>
+  ),
+  glass: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M15 6.5v4" opacity={0.6} />
+      <path d="M15 12c-1.2 1.7-2 2.8-2 3.8a2 2 0 0 0 4 0c0-1-.8-2.1-2-3.8z" fill="currentColor" />
+      <g fill="currentColor" stroke="none">
+        <circle cx="8" cy="9" r="0.8" />
+        <circle cx="9" cy="15" r="0.8" />
+      </g>
+    </>
+  ),
+  silk: (
+    <>
+      <path d="M3 6c3-2 6-2 9 0s6 2 9 0v12c-3 2-6 2-9 0s-6-2-9 0z" />
+      <path d="M9 5.2c1 4.3 1 9.3 0 13.6" opacity={0.6} />
+    </>
+  ),
   off: (
     <>
       <circle cx="12" cy="12" r="9" />

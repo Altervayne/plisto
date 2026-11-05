@@ -15,6 +15,10 @@
   right: 0;
   z-index: 20;
   min-width: 208px;
+  /* The visualizer picker is the tall user: it scrolls rather than run off a short window. */
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
   border-radius: var(--r-md);
   border: 1px solid var(--hairline);

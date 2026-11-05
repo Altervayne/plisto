@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   VISUALIZER_KINDS,
   effectiveVisualizerKind,
+  fillsStage,
   nextVisualizerKind,
   needsCoverPixels,
   needsFineSpectrum,
@@ -36,10 +37,10 @@ describe("normalizeVisualizerKind", () => {
 });
 
 describe("nextVisualizerKind", () => {
-  it("cycles Ridge, the WebGL kinds with the dot kinds after Bloom, then Off", () => {
+  it("cycles Ridge, the WebGL kinds with the dot kinds after Bloom and the fluid kinds after them, then Off", () => {
     const seen: VisualizerKind[] = [];
     let kind: VisualizerKind = "ridge";
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 14; i++) {
       seen.push(kind);
       kind = nextVisualizerKind(kind);
     }
@@ -53,6 +54,10 @@ describe("nextVisualizerKind", () => {
       "halftone",
       "dot-spectrum",
       "dot-cover",
+      "ink",
+      "mercury",
+      "glass",
+      "silk",
       "off",
     ]);
   });
@@ -74,13 +79,21 @@ describe("effectiveVisualizerKind", () => {
     expect(effectiveVisualizerKind("liquid", { ...ok, glFailed: true })).toBe("ridge");
   });
 
-  it("falls back to Ridge for Liquid and Dot cover without cover pixels only", () => {
+  it("falls back to Ridge without cover pixels only for the kinds that draw the art", () => {
     const noPixels = { ...ok, coverPixels: false };
-    expect(effectiveVisualizerKind("liquid", noPixels)).toBe("ridge");
-    expect(effectiveVisualizerKind("dot-cover", noPixels)).toBe("ridge");
+    for (const kind of ["liquid", "dot-cover", "ink", "mercury", "glass"] as const) {
+      expect(effectiveVisualizerKind(kind, noPixels)).toBe("ridge");
+    }
     expect(effectiveVisualizerKind("terrain", noPixels)).toBe("terrain");
     expect(effectiveVisualizerKind("halftone", noPixels)).toBe("halftone");
     expect(effectiveVisualizerKind("dot-spectrum", noPixels)).toBe("dot-spectrum");
+    expect(effectiveVisualizerKind("silk", noPixels)).toBe("silk");
+  });
+
+  it("falls back to Ridge for every fluid kind when the WebGL renderer failed", () => {
+    for (const kind of ["ink", "mercury", "glass", "silk"] as const) {
+      expect(effectiveVisualizerKind(kind, { ...ok, glFailed: true })).toBe("ridge");
+    }
   });
 
   it("falls back to Ridge for every dot kind when the WebGL renderer failed", () => {
@@ -111,7 +124,13 @@ describe("normalizeReactivity", () => {
 
 describe("needsCoverPixels", () => {
   it("holds for the kinds that draw the art itself", () => {
-    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual(["liquid", "dot-cover"]);
+    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual(["liquid", "dot-cover", "ink", "mercury", "glass"]);
+  });
+});
+
+describe("fillsStage", () => {
+  it("holds for Liquid and the fluid kinds, which paint the whole stage", () => {
+    expect(VISUALIZER_KINDS.filter(fillsStage)).toEqual(["liquid", "ink", "mercury", "glass", "silk"]);
   });
 });
 

@@ -12,6 +12,10 @@ const LABELS: Record<VisualizerKind, (d: Dict) => string> = {
   halftone: (d) => d.player.visualizerHalftone,
   "dot-spectrum": (d) => d.player.visualizerDotSpectrum,
   "dot-cover": (d) => d.player.visualizerDotCover,
+  ink: (d) => d.player.visualizerInk,
+  mercury: (d) => d.player.visualizerMercury,
+  glass: (d) => d.player.visualizerGlass,
+  silk: (d) => d.player.visualizerSilk,
   off: (d) => d.player.visualizerOff,
 };
 

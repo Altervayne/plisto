@@ -15,6 +15,10 @@ export const VISUALIZER_KINDS = [
   "halftone",
   "dot-spectrum",
   "dot-cover",
+  "ink",
+  "mercury",
+  "glass",
+  "silk",
   "off",
 ] as const;
 
@@ -49,7 +53,12 @@ export function needsFineSpectrum(kind: VisualizerKind): boolean {
 
 /** Whether a kind draws the cover's own pixels, so it needs them on hand as a texture. */
 export function needsCoverPixels(kind: VisualizerKind): boolean {
-  return kind === "liquid" || kind === "dot-cover";
+  return kind === "liquid" || kind === "dot-cover" || kind === "ink" || kind === "mercury" || kind === "glass";
+}
+
+/** Whether a kind paints an opaque image across the whole stage, so the Player's queue needs a backing. */
+export function fillsStage(kind: VisualizerKind): boolean {
+  return kind === "liquid" || kind === "ink" || kind === "mercury" || kind === "glass" || kind === "silk";
 }
 
 /** What a surface can draw right now. */
@@ -61,8 +70,8 @@ export interface VisualizerSupport {
 }
 
 /**
- * The kind a surface draws for a pick: a WebGL kind falls back to Ridge when the renderer failed, and
- * Liquid and Dot cover fall back to Ridge without cover pixels, as they have no art to draw.
+ * The kind a surface draws for a pick: a WebGL kind falls back to Ridge when the renderer failed, and a
+ * kind that draws the cover's pixels falls back to Ridge without them, as it has no art to draw.
  */
 export function effectiveVisualizerKind(
   picked: VisualizerKind,

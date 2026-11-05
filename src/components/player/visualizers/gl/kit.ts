@@ -42,6 +42,8 @@ export interface Frame {
   mirrored: boolean;
   // The ground under a cover-sized dot matrix, as sRGB in 0..1: paper on light, near-black on dark.
   backing: [number, number, number];
+  // The stage's own ground as sRGB in 0..1: the panel's surface in the Player, the base ground in ambient.
+  ground: [number, number, number];
 }
 
 /** The feedback a trail candidate applies to the previous frame. */
@@ -100,6 +102,8 @@ export interface Kit {
   makeTarget: (w: number, h: number) => Target;
   freeTarget: (t: Target) => void;
   bindTarget: (t: Target | null) => void;
+  // The target last bound, so a candidate that draws into its own buffers can return to the scene.
+  boundTarget: () => Target | null;
   dispose: () => void;
 }
 
@@ -238,7 +242,9 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
     gl.deleteFramebuffer(t.fbo);
   };
 
+  let bound: Target | null = null;
   const bindTarget = (t: Target | null) => {
+    bound = t;
     gl.bindFramebuffer(gl.FRAMEBUFFER, t ? t.fbo : null);
     gl.viewport(0, 0, t ? t.w : size.w, t ? t.h : size.h);
   };
@@ -266,6 +272,7 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
     makeTarget,
     freeTarget,
     bindTarget,
+    boundTarget: () => bound,
     dispose,
   };
 }
