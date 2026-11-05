@@ -28,6 +28,8 @@ export interface Layout {
   cover: Rect;
   radius: number;
   mask: Rect | null;
+  // The top edge of the element the layer rests on, or null for none.
+  floor: number | null;
 }
 
 export interface Renderer {
@@ -116,6 +118,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     kit.geo.cover = toGl(layout.cover);
     kit.geo.radius = layout.radius * dpr;
     kit.geo.mask = layout.mask ? toGl(layout.mask) : null;
+    kit.geo.floor = layout.floor != null ? h - layout.floor * dpr : null;
   };
 
   const bloomChain = (T: Targets, src: Target, threshold: number) => {

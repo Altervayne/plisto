@@ -1,8 +1,8 @@
 /*
  * Liquid: the cover as a slow liquid surface. A gentle noise flow whose depth swells with the eased bass,
- * and a soft lens that draws the art inward as the swell rises, so the cover breathes with the music. In
- * ambient a blurred liquid copy of the cover drifts across the stage behind it. Calm by design: no
- * per-beat ripple, no channel split, every motion term well under 3 Hz.
+ * and a soft lens that draws the art inward as the swell rises, so the cover breathes with the music.
+ * Behind it a blurred liquid copy of the cover drifts across the whole stage, in ambient and the Player
+ * alike. Calm by design: no per-beat ripple, no channel split, every motion term well under 3 Hz.
  */
 
 // -- Local Imports --
@@ -14,7 +14,6 @@ import type { Candidate, Frame, Kit } from "./kit";
 const FS = `${PRELUDE}
 uniform sampler2D uCoverTex;
 uniform float uLight;
-uniform float uBackdrop;
 uniform float uFlow;
 uniform float uSwell;
 float heightAt(vec2 q) {
@@ -40,22 +39,16 @@ void main() {
   col += spec * 0.12;
   float sd = sdRound(fc - coverCenter(), uCover.zw * 0.5, uRadius);
   float a = clamp(0.5 - sd, 0.0, 1.0);
-  vec3 outc = col * a;
-  float outa = a;
-  if (uBackdrop > 0.5) {
-    vec2 su = fc / uRes;
-    vec2 aspect = vec2(uRes.x / uRes.y, 1.0);
-    vec2 bq = (su - 0.5) * aspect / 1.35 + 0.5;
-    vec2 w = vec2(vnoise(bq * 2.0 + uFlow * 0.08), vnoise(bq * 2.0 + 5.2 - uFlow * 0.07)) - 0.5;
-    w += (vec2(vnoise(bq * 4.0 - uFlow * 0.12), vnoise(bq * 4.0 + 9.1 + uFlow * 0.1)) - 0.5) * 0.4;
-    bq += w * (0.38 + uSwell * 0.25);
-    vec3 bd = textureLod(uCoverTex, fract(bq), 4.6).rgb;
-    float v = smoothstep(1.15, 0.2, length((su - 0.5) * vec2(1.1, 1.0)));
-    bd = uLight > 0.5 ? mix(vec3(1.0), bd, 0.46 * v + 0.1) : bd * (0.2 + 0.42 * v) * (0.92 + uRms * 0.2);
-    outc = mix(bd, col, a);
-    outa = 1.0;
-  }
-  outColor = vec4(outc, outa);
+  vec2 su = fc / uRes;
+  vec2 aspect = vec2(uRes.x / uRes.y, 1.0);
+  vec2 bq = (su - 0.5) * aspect / 1.35 + 0.5;
+  vec2 w = vec2(vnoise(bq * 2.0 + uFlow * 0.08), vnoise(bq * 2.0 + 5.2 - uFlow * 0.07)) - 0.5;
+  w += (vec2(vnoise(bq * 4.0 - uFlow * 0.12), vnoise(bq * 4.0 + 9.1 + uFlow * 0.1)) - 0.5) * 0.4;
+  bq += w * (0.38 + uSwell * 0.25);
+  vec3 bd = textureLod(uCoverTex, fract(bq), 4.6).rgb;
+  float v = smoothstep(1.15, 0.2, length((su - 0.5) * vec2(1.1, 1.0)));
+  bd = uLight > 0.5 ? mix(vec3(1.0), bd, 0.46 * v + 0.1) : bd * (0.2 + 0.42 * v) * (0.92 + uRms * 0.2);
+  outColor = vec4(mix(bd, col, a), 1.0);
 }`;
 
 export function createLiquid(kit: Kit): Candidate {
@@ -93,7 +86,6 @@ export function createLiquid(kit: Kit): Candidate {
       kit.setCommon(p, f);
       kit.bindTex(p, "uCoverTex", 0, tex);
       kit.set1(p, "uLight", f.light ? 1 : 0);
-      kit.set1(p, "uBackdrop", f.ambient ? 1 : 0);
       kit.set1(p, "uFlow", flow);
       kit.set1(p, "uSwell", Math.min(1, f.sig.swell * 1.6));
       kit.drawQuad();

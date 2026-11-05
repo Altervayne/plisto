@@ -35,6 +35,7 @@ export function PlayerHero({
   onNavigate,
   coverRef,
   heroRef,
+  seekRef,
   liquid = false,
   onEnterAmbient,
   ambientRef,
@@ -45,6 +46,8 @@ export function PlayerHero({
   coverRef?: RefObject<HTMLSpanElement | null>;
   // The column's box, which the visualizer feathers off outside so the queue stays clear.
   heroRef?: RefObject<HTMLDivElement | null>;
+  // The seek bar's wrapper, which the visualizer rests on.
+  seekRef?: RefObject<HTMLDivElement | null>;
   liquid?: boolean;
   onEnterAmbient?: () => void;
   ambientRef?: Ref<HTMLButtonElement>;
@@ -75,7 +78,7 @@ export function PlayerHero({
 
         {/* The seek bar and transport sit at the foot of the column. */}
         <div className={styles.controls}>
-          <div className={styles.seekWrap}>
+          <div ref={seekRef} className={styles.seekWrap}>
             <SeekBar
               position={status.position_secs}
               duration={status.duration_secs}

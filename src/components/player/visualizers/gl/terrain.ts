@@ -20,6 +20,21 @@ const COLS = 160;
 const PUSH_HZ = 22;
 // The interpolated path's mean gain with its noise detail, so a fine line stands at the same height.
 const FINE_GAIN = 0.975;
+// The ambient framing: the camera centre and the projection unit as fractions of the stage height.
+const AMBIENT_CENTER = 0.62;
+const AMBIENT_UNIT = 0.5;
+// A row's floor sits this far below the camera centre at depth 1, in projection units.
+const FLOOR_DROP = 0.96;
+// Where ambient's near line rests, as a fraction of the stage height.
+const AMBIENT_FLOOR = AMBIENT_CENTER - FLOOR_DROP * AMBIENT_UNIT;
+// Half a line's width at depth 1, in projection units.
+const HALF_SPAN = 1.3 * 1.6;
+// The screen shape ambient is framed for. Its near line overhangs the stage by this ratio, which the
+// Player keeps against the hero column's width.
+const AMBIENT_ASPECT = 16 / 9;
+const AMBIENT_OVERHANG = (HALF_SPAN * AMBIENT_UNIT) / (AMBIENT_ASPECT / 2);
+// The Player's near line clears the seek bar by this many CSS pixels.
+const PLAYER_FLOOR_GAP = 14;
 
 const VS = `#version 300 es
 precision highp float;
@@ -31,12 +46,13 @@ uniform float uAmp;
 uniform vec2 uCenter;
 uniform vec2 uScale;
 uniform float uLineW;
+uniform float uSpread;
 uniform int uIsLine;
 out float vU;
 void main() {
   int col = int(aV.x * ${COLS - 1}.0 + 0.5);
   float h = texelFetch(uHist, ivec2(col, uRowTex), 0).r;
-  float x = (aV.x - 0.5) * 2.6;
+  float x = (aV.x - 0.5) * 2.6 * uSpread;
   float y = h * uAmp;
   if (uIsLine == 0 && aV.y < 0.5) y = -0.8;
   float z = uDepth;
@@ -169,17 +185,25 @@ export function createTerrain(kit: Kit): Candidate {
       let cx: number;
       let cy: number;
       let unit: number;
+      let spread = 1;
       if (f.ambient) {
         cx = W * 0.5;
-        cy = H * 0.62;
-        unit = H * 0.5;
+        cy = H * AMBIENT_CENTER;
+        unit = H * AMBIENT_UNIT;
       } else {
+        // Ambient's framing scaled onto the stage above the seek bar: the near line rests just over the
+        // bar, the unit keeps ambient's ratio to the height above that floor so the horizon and depth read
+        // the same, and the lines narrow to span the hero column as ambient's span the screen.
+        const floor = kit.geo.floor != null ? kit.geo.floor + PLAYER_FLOOR_GAP * dpr : H * AMBIENT_FLOOR;
+        const halfWidth = (kit.geo.mask ? kit.geo.mask[2] : W) / 2;
+        unit = ((H - floor) * AMBIENT_UNIT) / (1 - AMBIENT_FLOOR);
         cx = c[0] + c[2] / 2;
-        cy = c[1] + c[3] * 0.45;
-        unit = c[2] * 0.62;
+        cy = floor + FLOOR_DROP * unit;
+        spread = (halfWidth * AMBIENT_OVERHANG) / (HALF_SPAN * unit);
       }
       kit.set2(p, "uCenter", (cx / W) * 2 - 1, (cy / H) * 2 - 1);
       kit.set2(p, "uScale", (unit * 2) / W, (unit * 2) / H);
+      kit.set1(p, "uSpread", spread);
       const pal = f.palette;
       const warm: Rgb = [pal[6], pal[7], pal[8]];
       const coral: Rgb = [pal[0], pal[1], pal[2]];

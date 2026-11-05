@@ -119,19 +119,30 @@ function PlayerStage({
   const coverRef = useRef<HTMLSpanElement | null>(null);
   // The hero column, which the visualizer feathers off outside so the queue rows stay clear.
   const heroRef = useRef<HTMLDivElement | null>(null);
+  // The seek bar, which the visualizer can rest on.
+  const seekRef = useRef<HTMLDivElement | null>(null);
   const choice = useVisualizerChoice(coverSrc);
 
   return (
     <div className={`${styles.panel} ${styles.view}`}>
       <CoverBackdrop src={coverSrc} className={styles.glow} />
       {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} />}
-      {ambient ? null : <Visualizer choice={choice} trackId={trackId} coverRef={coverRef} maskRef={heroRef} />}
+      {ambient ? null : (
+        <Visualizer
+          choice={choice}
+          trackId={trackId}
+          coverRef={coverRef}
+          maskRef={heroRef}
+          floorRef={seekRef}
+        />
+      )}
       <div className={styles.content}>
         <PlayerHero
           trackId={trackId}
           onNavigate={onNavigate}
           coverRef={coverRef}
           heroRef={heroRef}
+          seekRef={seekRef}
           liquid={!ambient && choice.kind === "liquid"}
           onEnterAmbient={onEnterAmbient}
           ambientRef={entryRef}

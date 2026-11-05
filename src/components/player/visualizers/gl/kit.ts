@@ -15,6 +15,8 @@ export interface Geometry {
   radius: number;
   // The rect the layer feathers off outside; null draws the whole stage.
   mask: Rect | null;
+  // The height of the element the layer rests on, such as the seek bar's top edge; null for none.
+  floor: number | null;
 }
 
 /** One frame's inputs. */
@@ -92,7 +94,7 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
   const floatOk = gl.getExtension("EXT_color_buffer_float") != null;
   const programs = new Map<string, Program>();
   const size = { w: 1, h: 1, dpr: 1 };
-  const geo: Geometry = { cover: [0, 0, 1, 1], radius: 16, mask: null };
+  const geo: Geometry = { cover: [0, 0, 1, 1], radius: 16, mask: null, floor: null };
 
   const quad = gl.createVertexArray();
   const quadVbo = gl.createBuffer();

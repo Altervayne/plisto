@@ -42,6 +42,7 @@ export function GlVisualizer({
   ambient,
   coverRef,
   maskRef,
+  floorRef,
   palette,
   pixels,
   onFail,
@@ -51,6 +52,8 @@ export function GlVisualizer({
   coverRef: RefObject<HTMLElement | null>;
   // The element the layer feathers off outside; absent, the whole stage draws.
   maskRef?: RefObject<HTMLElement | null>;
+  // The element whose top edge the layer rests on, such as the seek bar.
+  floorRef?: RefObject<HTMLElement | null>;
   palette: Float32Array;
   pixels: ImageBitmap | null;
   onFail: () => void;
@@ -107,12 +110,14 @@ export function GlVisualizer({
       };
       const cover = coverRef.current;
       const mask = maskRef?.current ?? null;
+      const floor = floorRef?.current ?? null;
       const layout: Layout = {
         width: stage.width,
         height: stage.height,
         cover: cover ? rel(cover) : [stage.width / 2, stage.height / 2, 1, 1],
         radius: cover ? parseFloat(getComputedStyle(cover).borderTopLeftRadius) || 0 : 0,
         mask: mask ? rel(mask) : null,
+        floor: floor ? rel(floor)[1] : null,
       };
       r.fit(layout);
     };
@@ -207,7 +212,7 @@ export function GlVisualizer({
       ro.disconnect();
       teardown();
     };
-  }, [ambient, coverRef, maskRef]);
+  }, [ambient, coverRef, maskRef, floorRef]);
 
   // Reduced motion repaints its still frame when the kind, palette or cover changes; a no-op while animating.
   useEffect(() => {

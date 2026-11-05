@@ -24,12 +24,14 @@ export function Visualizer({
   ambient = false,
   coverRef,
   maskRef,
+  floorRef,
 }: {
   choice: VisualizerChoice;
   trackId: number;
   ambient?: boolean;
   coverRef: RefObject<HTMLElement | null>;
   maskRef?: RefObject<HTMLElement | null>;
+  floorRef?: RefObject<HTMLElement | null>;
 }) {
   const palette = useCoverPalette(trackId);
   const colors = useMemo(() => paletteFloats(palette), [palette]);
@@ -43,6 +45,7 @@ export function Visualizer({
       ambient={ambient}
       coverRef={coverRef}
       maskRef={maskRef}
+      floorRef={floorRef}
       palette={colors}
       pixels={choice.pixels}
       onFail={choice.onGlFail}
