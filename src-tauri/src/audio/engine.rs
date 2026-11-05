@@ -25,7 +25,8 @@ use super::queue::{
     Xorshift,
 };
 use super::source::{
-    self, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW,
+    self, Cut, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
+    SPECTRUM_WINDOW,
 };
 use super::{
     spectrum, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
@@ -43,6 +44,7 @@ struct SourceHandles {
     frames: Arc<AtomicU64>,
     spectrum: Arc<SpectrumTap>,
     ended: Arc<AtomicBool>,
+    cut: Cut,
     rate: u32,
     channels: u16,
     duration: f64,
@@ -54,6 +56,7 @@ impl SourceHandles {
             frames: Arc::clone(&src.frames),
             spectrum: Arc::clone(&src.spectrum),
             ended: Arc::clone(&src.ended),
+            cut: Cut::of(src),
             rate: src.spec.sample_rate,
             channels: src.spec.channels,
             duration: src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0),
@@ -106,6 +109,9 @@ struct Engine {
     // The current source's drained flag. Once set with a preload queued, the sink is already playing
     // the preload and the engine promotes it.
     cur_ended: Option<Arc<AtomicBool>>,
+    // The source the sink last played, kept past a stop: a clear leaves the output converter
+    // finishing its block, which the next cold start's primer has to cover.
+    cut: Option<Cut>,
     pending: Option<Pending>,
     // The (slot, id) of the last preload attempt, so a dead or mismatched next file is opened once per
     // window rather than on every tick. Cleared with `pending`.
@@ -305,12 +311,13 @@ impl Engine {
     /// is moved into the sink; with no device the state still updates so the snapshot is coherent,
     /// only the append is skipped.
     fn start_source(&mut self, i: usize, src: DecoderSource) {
+        let cut = self.outgoing();
         self.clear_pending();
         self.begin_listen(i, self.queue[i].id);
         self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();
-            sink.append(src);
+            source::append_cold(sink, src, cut.as_ref());
             sink.set_volume(self.volume);
             sink.play();
         }
@@ -333,9 +340,23 @@ impl Engine {
         self.cur_frames = Some(h.frames);
         self.cur_spectrum = Some(h.spectrum);
         self.cur_ended = Some(h.ended);
+        self.cut = Some(h.cut);
         self.cur_rate = h.rate;
         self.cur_channels = h.channels;
         self.cur_duration = h.duration;
+    }
+
+    /// The source a clear now would cut: the preload once the sink has crossed into it ahead of the
+    /// tick that promotes it, else the last source seated.
+    fn outgoing(&self) -> Option<Cut> {
+        let drained = self
+            .cur_ended
+            .as_ref()
+            .is_some_and(|e| e.load(Ordering::Relaxed));
+        match &self.pending {
+            Some(p) if drained => Some(p.handles.cut.clone()),
+            _ => self.cut.clone(),
+        }
     }
 
     /// Cancels the queued preload, if any, and forgets the last attempt so the window can re-arm.
@@ -404,6 +425,7 @@ impl Engine {
         }
         let handles = SourceHandles::of(&src);
         let cancel = Arc::clone(&src.cancel);
+        // Appended bare: the queue is busy with the current source, so no primer is needed.
         if let Some(sink) = &self.sink {
             sink.append(src);
         }
@@ -502,6 +524,7 @@ impl Engine {
             None => return,
         };
         let rate = src.spec.sample_rate;
+        let cut = self.outgoing();
         self.clear_pending();
         self.seat(SourceHandles::of(&src));
         self.cur_track_id = None;
@@ -512,7 +535,7 @@ impl Engine {
         };
         if let Some(sink) = &self.sink {
             sink.clear();
-            sink.append(src);
+            source::append_cold(sink, src, cut.as_ref());
             sink.set_volume(self.volume);
             sink.play();
         }
@@ -568,13 +591,14 @@ impl Engine {
         self.original_order = self.queue.clone();
         self.shuffle = false;
         self.emit_queue();
+        let cut = self.outgoing();
         self.clear_pending();
         self.begin_listen(i, self.queue[i].id);
         self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();
             sink.pause();
-            sink.append(src);
+            source::append_cold(sink, src, cut.as_ref());
             sink.set_volume(self.volume);
         }
         self.paused = true;
@@ -594,12 +618,13 @@ impl Engine {
             Some(s) => s,
             None => return,
         };
+        let cut = self.outgoing();
         // Inside the window the next tick re-arms the preload this drops.
         self.clear_pending();
         self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();
-            sink.append(src);
+            source::append_cold(sink, src, cut.as_ref());
             sink.set_volume(self.volume);
             if self.paused {
                 sink.pause();
@@ -668,6 +693,8 @@ impl Engine {
         // Overwrite drops the old sink then the old stream on this thread, silencing the old endpoint.
         self._stream = Some(stream);
         self.sink = Some(sink);
+        // The new sink has no block in flight to cover.
+        self.cut = None;
         self.bound_device = bound_name;
         self.last_default_name = default_output_name();
         self.device_pref = pref;
@@ -1044,6 +1071,7 @@ fn run(
         cur_duration: 0.0,
         cur_track_id: None,
         cur_ended: None,
+        cut: None,
         pending: None,
         preload_tried: None,
         played_half: false,

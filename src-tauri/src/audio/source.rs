@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rodio::Source;
+use rodio::source::Zero;
+use rodio::{Sink, Source};
 
 // -- Local Imports --
 use super::dsp::{DspShared, DspStage};
@@ -69,6 +70,9 @@ pub(super) struct DecoderSource {
     // Set by the engine to drop a queued source: it then yields None at once, so rodio moves past it
     // without playing a sample. `ended` stays unset, since the stream did not drain.
     pub(super) cancel: Arc<AtomicBool>,
+    // Where the block the output converter is reading from this source ends, in samples on the
+    // `frames` scale (frames x channels). Written when the converter starts a block, read by `Cut`.
+    block_end: Arc<AtomicU64>,
 }
 
 impl DecoderSource {
@@ -106,6 +110,10 @@ impl DecoderSource {
             duration,
             ended: Arc::new(AtomicBool::new(false)),
             cancel: Arc::new(AtomicBool::new(false)),
+            // The first block starts before this source does, at the queue's fallback length.
+            block_end: Arc::new(AtomicU64::new(
+                start_frame * first.spec.channels as u64 + PRIMER_SAMPLES as u64,
+            )),
         })
     }
 }
@@ -126,6 +134,64 @@ pub(super) fn open_source(
     }
     let stage = DspStage::new(Arc::clone(dsp), gain_db);
     DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage)
+}
+
+// rodio's queue reports the layout of the source it just finished until it pulls the next one, so
+// a source started on an idle or cleared sink has its first block read in that stale layout. The
+// block is the queue's fallback frame length (THRESHOLD in rodio 0.20's queue).
+const PRIMER_SAMPLES: usize = 512;
+
+/// Where the output converter is in a source, read after a clear cuts it. The clear skips the source
+/// mid-block, and the converter reads the rest of that block, in the source's layout, from whatever
+/// the queue holds next.
+#[derive(Clone)]
+pub(super) struct Cut {
+    spec: AudioSpec,
+    seed: u64,
+    frames: Arc<AtomicU64>,
+    block_end: Arc<AtomicU64>,
+}
+
+impl Cut {
+    pub(super) fn of(src: &DecoderSource) -> Self {
+        Self {
+            spec: src.spec,
+            seed: src.frames.load(Ordering::Relaxed),
+            frames: Arc::clone(&src.frames),
+            block_end: Arc::clone(&src.block_end),
+        }
+    }
+
+    /// The samples left in the cut block, or 0 once the source has played a frame in `next`'s
+    /// layout. Read after the clear returns, when the source is out of the queue and its counters are
+    /// final. A cut mid-frame or while paused reads over, never under.
+    fn stale_samples(&self, next: AudioSpec) -> usize {
+        let frames = self.frames.load(Ordering::Relaxed);
+        if frames > self.seed && self.spec == next {
+            return 0;
+        }
+        let pulled = frames * self.spec.channels as u64;
+        self.block_end
+            .load(Ordering::Relaxed)
+            .saturating_sub(pulled) as usize
+    }
+}
+
+/// Starts `src` on a sink that is idle or was just cleared by cutting `cut`, behind a silent primer
+/// in its own layout. The primer covers both the rest of a cut block in another layout and the
+/// queue's stale first block, so `src` starts on a same-layout boundary, which joins sample-exact.
+/// A preload queued behind a playing source is appended bare: the queue is not idle there.
+pub(super) fn append_cold(sink: &Sink, src: DecoderSource, cut: Option<&Cut>) {
+    let channels = src.spec.channels.max(1) as usize;
+    let stale = cut.map_or(0, |c| c.stale_samples(src.spec));
+    let lead = stale.max(PRIMER_SAMPLES).div_ceil(channels) * channels;
+    // Until `src` plays, a clear cuts the primer's block, which is at most the whole primer.
+    let seed = src.frames.load(Ordering::Relaxed);
+    src.block_end
+        .store(seed * channels as u64 + lead as u64, Ordering::Relaxed);
+    let primer = Zero::<f32>::new_samples(src.spec.channels, src.spec.sample_rate, lead);
+    sink.append(primer);
+    sink.append(src);
 }
 
 impl Iterator for DecoderSource {
@@ -182,6 +248,13 @@ impl Source for DecoderSource {
         // one before it has its first block misread, which is why spec-changing boundaries stay
         // cold (see the boundary tests below).
         let rem = self.buffer.len().saturating_sub(self.pos);
+        // Only the converter asks, once per block, and on None the queue falls back to its own
+        // block length, so this records the block it is about to read.
+        let block = if rem == 0 { PRIMER_SAMPLES } else { rem };
+        let pulled = self.frames.load(Ordering::Relaxed) * self.spec.channels as u64
+            + self.chan_cursor as u64;
+        self.block_end
+            .store(pulled + block as u64, Ordering::Relaxed);
         if rem == 0 {
             None
         } else {
@@ -207,8 +280,10 @@ mod tests {
     use super::*;
     use crate::audio::dsp::db_to_gain;
     use rodio::source::UniformSourceIterator;
+    use std::cell::Cell;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
 
     // ---- DecoderSource frame counting ----
 
@@ -532,5 +607,423 @@ mod tests {
         assert_eq!(bits(&got), bits(&lead));
         assert_eq!(out.next(), Some(0.0));
         assert!(sink.empty());
+    }
+
+    // ---- Cold starts on an idle sink ----
+
+    // One sample as the output converter read it: its value and the channel count and rate it was
+    // read in.
+    type Read = (f32, u16, u32);
+
+    // Wraps the sink's queue and logs the layout the converter reads each sample in. The converter
+    // asks for the block length, then the channels and rate, at the start of every block, so each
+    // sample is read in the layout the queue reported at the last block start.
+    struct LayoutSpy {
+        inner: rodio::queue::SourcesQueueOutput<f32>,
+        layout: Cell<(u16, u32)>,
+        log: Arc<Mutex<Vec<Read>>>,
+    }
+
+    impl Iterator for LayoutSpy {
+        type Item = f32;
+
+        fn next(&mut self) -> Option<f32> {
+            let s = self.inner.next()?;
+            let (channels, rate) = self.layout.get();
+            self.log.lock().unwrap().push((s, channels, rate));
+            Some(s)
+        }
+    }
+
+    impl Source for LayoutSpy {
+        fn current_frame_len(&self) -> Option<usize> {
+            self.layout
+                .set((self.inner.channels(), self.inner.sample_rate()));
+            self.inner.current_frame_len()
+        }
+
+        fn channels(&self) -> u16 {
+            self.inner.channels()
+        }
+
+        fn sample_rate(&self) -> u32 {
+            self.inner.sample_rate()
+        }
+
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+    }
+
+    // An idle sink as the mixer drives it: converted to `channels` at `rate`, the converter's reads
+    // logged.
+    fn spied_sink(
+        channels: u16,
+        rate: u32,
+    ) -> (
+        rodio::Sink,
+        UniformSourceIterator<LayoutSpy, f32>,
+        Arc<Mutex<Vec<Read>>>,
+    ) {
+        let (sink, output) = rodio::Sink::new_idle();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let spy = LayoutSpy {
+            inner: output,
+            layout: Cell::new((0, 0)),
+            log: Arc::clone(&log),
+        };
+        (sink, UniformSourceIterator::new(spy, channels, rate), log)
+    }
+
+    // How many of `path`'s samples the converter read in a layout other than the file's own, once
+    // the source has drained. The samples themselves must arrive intact and in order.
+    fn misread_samples(path: &Path, log: &[Read]) -> usize {
+        let raw = raw_samples(path);
+        let spec = src(path).spec;
+        let first = log
+            .iter()
+            .position(|r| r.0 != 0.0)
+            .expect("the source is audible");
+        let run = &log[first..first + raw.len()];
+        let values: Vec<f32> = run.iter().map(|r| r.0).collect();
+        assert_eq!(bits(&values), bits(&raw));
+        run.iter()
+            .filter(|r| (r.1, r.2) != (spec.channels, spec.sample_rate))
+            .count()
+    }
+
+    // Starts `path` on a sink that has idled for `idle` output samples and plays it out. Returns how
+    // many of its samples were misread.
+    fn cold_start_misreads(
+        path: &Path,
+        channels: u16,
+        rate: u32,
+        idle: usize,
+        primed: bool,
+    ) -> usize {
+        let (sink, mut out, log) = spied_sink(channels, rate);
+        for _ in 0..idle {
+            assert_eq!(out.next(), Some(0.0), "an idle sink plays silence");
+        }
+        let source = src(path);
+        let ended = Arc::clone(&source.ended);
+        if primed {
+            append_cold(&sink, source, None);
+        } else {
+            sink.append(source);
+        }
+        while !ended.load(Ordering::Relaxed) {
+            out.next();
+        }
+        let log = log.lock().unwrap();
+        misread_samples(path, &log)
+    }
+
+    // Pulls `out` until `ended` is set, then drops the keep-alive sample the ending pull returns and
+    // the silence before the first audible sample.
+    fn audible_until(out: &mut impl Iterator<Item = f32>, ended: &AtomicBool) -> Vec<f32> {
+        let mut got = Vec::new();
+        while !ended.load(Ordering::Relaxed) {
+            got.push(out.next().expect("the keep-alive queue never ends"));
+        }
+        assert_eq!(got.pop(), Some(0.0));
+        let first = got
+            .iter()
+            .position(|s| *s != 0.0)
+            .expect("the source is audible");
+        got.split_off(first)
+    }
+
+    #[test]
+    fn a_bare_start_on_an_idle_sink_misreads_the_first_block() {
+        let dir = TempDir::new("cold_bare");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 7_077);
+
+        // The idle filler is mono 44.1 kHz, so at the track's own spec the misread is the channel
+        // count alone: its first 512 samples play as mono frames, each doubled across both channels.
+        let (sink, output) = rodio::Sink::new_idle();
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+        for _ in 0..300 {
+            assert_eq!(out.next(), Some(0.0));
+        }
+        let source = src(&path);
+        let ended = Arc::clone(&source.ended);
+        sink.append(source);
+        let got = audible_until(&mut out, &ended);
+        let raw = raw_samples(&path);
+        assert_eq!(got.len(), raw.len() + 512);
+        for i in 0..512 {
+            assert_eq!(got[2 * i].to_bits(), raw[i].to_bits());
+            assert_eq!(got[2 * i + 1].to_bits(), raw[i].to_bits());
+        }
+        assert_eq!(bits(&got[1024..]), bits(&raw[512..]));
+
+        // The same block is misread whatever the track and the device. A fresh sink idles on rodio's
+        // Empty source, mono 48 kHz, rather than the filler.
+        for (rate, channels) in [(44_100u32, 2u16), (48_000, 2)] {
+            let path = dir.path.join(format!("t{rate}_{channels}.wav"));
+            write_wav(&path, rate, channels, 7_077);
+            for idle in [0usize, 300] {
+                assert_eq!(cold_start_misreads(&path, 2, 48_000, idle, false), 512);
+            }
+        }
+    }
+
+    #[test]
+    fn a_primed_start_reads_every_sample_in_its_own_layout() {
+        let dir = TempDir::new("cold_primed");
+        for (rate, channels) in [(44_100u32, 2u16), (48_000, 2), (48_000, 1)] {
+            let path = dir.path.join(format!("t{rate}_{channels}.wav"));
+            write_wav(&path, rate, channels, 7_077);
+            for (out_channels, out_rate) in [(2u16, 48_000u32), (2, 44_100)] {
+                for idle in [0usize, 300] {
+                    let case = format!("{rate} {channels}ch to {out_rate}, idle {idle}");
+                    let misread = cold_start_misreads(&path, out_channels, out_rate, idle, true);
+                    assert_eq!(misread, 0, "{case}");
+                }
+            }
+        }
+    }
+
+    // Without resampling the converter keeps no state across blocks, so a primed start renders the
+    // track exactly as it converts on its own.
+    #[test]
+    fn a_primed_start_renders_the_track_bit_for_bit() {
+        let dir = TempDir::new("cold_render");
+        for (rate, channels) in [(44_100u32, 2u16), (48_000, 2), (48_000, 1)] {
+            let path = dir.path.join(format!("t{rate}_{channels}.wav"));
+            write_wav(&path, rate, channels, 7_077);
+            let (sink, output) = rodio::Sink::new_idle();
+            let mut out = UniformSourceIterator::<_, f32>::new(output, 2, rate);
+            let source = src(&path);
+            let ended = Arc::clone(&source.ended);
+            append_cold(&sink, source, None);
+            let got = audible_until(&mut out, &ended);
+            assert_eq!(bits(&got), bits(&converted_alone(&path, 2, rate)));
+        }
+    }
+
+    #[test]
+    fn the_primer_never_moves_the_frame_counter() {
+        let dir = TempDir::new("cold_counter");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 7_077);
+
+        let (sink, output) = rodio::Sink::new_idle();
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 48_000);
+        let source = src(&path);
+        let (frames, ended) = (Arc::clone(&source.frames), Arc::clone(&source.ended));
+        append_cold(&sink, source, None);
+
+        let mut silent = 0;
+        while out.next() == Some(0.0) {
+            silent += 1;
+        }
+        assert!(silent >= PRIMER_SAMPLES, "the primer plays first: {silent}");
+        // The converter reads two frames ahead to interpolate the first audible sample.
+        assert!(frames.load(Ordering::Relaxed) <= 2);
+        while !ended.load(Ordering::Relaxed) {
+            out.next();
+        }
+        assert_eq!(frames.load(Ordering::Relaxed), 7_077);
+    }
+
+    #[test]
+    fn a_preload_behind_a_primed_start_joins_sample_exact() {
+        let dir = TempDir::new("cold_gapless");
+        let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
+        write_wav(&a, 44_100, 2, 5_123);
+        write_wav(&b, 44_100, 2, 7_077);
+
+        let (sink, output) = rodio::Sink::new_idle();
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+        let next = src(&b);
+        let ended = Arc::clone(&next.ended);
+        append_cold(&sink, src(&a), None);
+        sink.append(next);
+
+        let mut expect = raw_samples(&a);
+        expect.extend(raw_samples(&b));
+        assert_eq!(bits(&audible_until(&mut out, &ended)), bits(&expect));
+    }
+
+    #[test]
+    fn a_primed_start_on_a_paused_sink_reads_cleanly_on_resume() {
+        let dir = TempDir::new("cold_paused");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 7_077);
+
+        for rate in [44_100u32, 48_000] {
+            let (sink, mut out, log) = spied_sink(2, rate);
+            let source = src(&path);
+            let (frames, ended) = (Arc::clone(&source.frames), Arc::clone(&source.ended));
+            sink.pause();
+            append_cold(&sink, source, None);
+            for _ in 0..3_000 {
+                assert_eq!(out.next(), Some(0.0), "a paused start stays silent");
+            }
+            assert_eq!(frames.load(Ordering::Relaxed), 0);
+
+            sink.play();
+            while !ended.load(Ordering::Relaxed) {
+                out.next();
+            }
+            let log = log.lock().unwrap();
+            assert_eq!(misread_samples(&path, &log), 0, "to {rate}");
+        }
+    }
+
+    // A seek clears the sink mid-block: rodio skips the playing source, and the converter finishes the
+    // block it was promised on the keep-alive silence and whatever is queued next, still in the old
+    // layout. A restart in the same layout reads right wherever the skip lands.
+    #[test]
+    fn a_primed_restart_after_a_skip_mid_block_is_clean() {
+        let dir = TempDir::new("cold_skip");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 20_000);
+        let raw = raw_samples(&path);
+
+        for played in [100usize, 700, 1_500, 2_200, 4_000] {
+            let (sink, output) = rodio::Sink::new_idle();
+            let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+            let playing = src(&path);
+            let cut = Cut::of(&playing);
+            sink.append(playing);
+            for _ in 0..played {
+                out.next();
+            }
+            sink.skip_one();
+            while !sink.empty() {
+                out.next();
+            }
+            let restart = src(&path);
+            let ended = Arc::clone(&restart.ended);
+            append_cold(&sink, restart, Some(&cut));
+            let got = audible_until(&mut out, &ended);
+            assert_eq!(bits(&got), bits(&raw), "skipped after {played}");
+        }
+    }
+
+    // ---- Cuts mid-block in another layout ----
+
+    // Plays `a` from a primed start, cuts it as a clear does once the converter has read `cut_at` of
+    // its samples, then starts `b` cold. `b` is queued after the keep-alive silence took over, or with
+    // `early` before, so the rest of the block lands on the primer alone. Returns how many of `b`'s
+    // samples were misread. The sink runs at `a`'s rate so the converter reads `a` one sample per
+    // pull, with no read-ahead blurring the cut point.
+    fn misreads_after_cut(a: &Path, b: &Path, cut_at: usize, pass_cut: bool, early: bool) -> usize {
+        let first = src(a);
+        let (sink, mut out, log) = spied_sink(2, first.spec.sample_rate);
+        let cut = Cut::of(&first);
+        let cancel = Arc::clone(&first.cancel);
+        append_cold(&sink, first, None);
+        loop {
+            out.next();
+            let log = log.lock().unwrap();
+            if let Some(start) = log.iter().position(|r| r.0 != 0.0) {
+                if log.len() - start >= cut_at {
+                    break;
+                }
+            }
+        }
+        // Like rodio's skip, the source yields None mid-block while the converter holds the block.
+        cancel.store(true, Ordering::Relaxed);
+        while !early && !sink.empty() {
+            out.next();
+        }
+        let mark = log.lock().unwrap().len();
+        let next = src(b);
+        let ended = Arc::clone(&next.ended);
+        append_cold(&sink, next, if pass_cut { Some(&cut) } else { None });
+        while !ended.load(Ordering::Relaxed) {
+            out.next();
+        }
+        let log = log.lock().unwrap();
+        misread_samples(b, &log[mark..])
+    }
+
+    #[test]
+    fn a_cut_in_another_layout_is_covered_by_the_primer() {
+        let dir = TempDir::new("cut_layout");
+        let (dat, mono, cd) = (
+            dir.path.join("dat.wav"),
+            dir.path.join("mono.wav"),
+            dir.path.join("cd.wav"),
+        );
+        write_wav(&dat, 48_000, 2, 20_000);
+        write_wav(&mono, 48_000, 1, 20_000);
+        write_wav(&cd, 44_100, 2, 7_077);
+
+        // Without the cut, the rest of a 48 kHz stereo block past one keep-alive silence and a
+        // minimal primer lands on the next track: 1344 samples left leave 320 misread.
+        assert_eq!(misreads_after_cut(&dat, &cd, 960, false, false), 320);
+        assert_eq!(misreads_after_cut(&dat, &cd, 512, false, false), 768);
+
+        // A primed start reads in blocks of 512, then the rest of each packet (2304 samples stereo,
+        // 1152 mono), then 512 again: cuts at, inside and one sample before each block boundary.
+        for early in [false, true] {
+            for cut_at in [960usize, 1_440, 511, 512, 2_303, 2_304, 4_000] {
+                let misread = misreads_after_cut(&dat, &cd, cut_at, true, early);
+                assert_eq!(misread, 0, "stereo cut at {cut_at}, early {early}");
+            }
+            for cut_at in [300usize, 511, 512, 1_151, 1_152, 2_000] {
+                let misread = misreads_after_cut(&mono, &cd, cut_at, true, early);
+                assert_eq!(misread, 0, "mono cut at {cut_at}, early {early}");
+            }
+        }
+    }
+
+    // A second cold start before the first source plays a sample cuts that source's primer, which may
+    // itself still carry an earlier source's block.
+    #[test]
+    fn a_cut_before_the_source_plays_is_covered_by_the_primer() {
+        let dir = TempDir::new("cut_unplayed");
+        let (dat, mono, cd) = (
+            dir.path.join("dat.wav"),
+            dir.path.join("mono.wav"),
+            dir.path.join("cd.wav"),
+        );
+        write_wav(&dat, 48_000, 2, 20_000);
+        write_wav(&mono, 44_100, 1, 7_077);
+        write_wav(&cd, 44_100, 2, 7_077);
+
+        for pulled in [0usize, 10, 400, 1_000] {
+            let first = src(&dat);
+            let (sink, mut out, log) = spied_sink(2, 48_000);
+            let first_cut = Cut::of(&first);
+            let first_cancel = Arc::clone(&first.cancel);
+            append_cold(&sink, first, None);
+            for _ in 0..1_500 {
+                out.next();
+            }
+            first_cancel.store(true, Ordering::Relaxed);
+            while !sink.empty() {
+                out.next();
+            }
+
+            let second = src(&mono);
+            let second_cut = Cut::of(&second);
+            append_cold(&sink, second, Some(&first_cut));
+            for _ in 0..pulled {
+                out.next();
+            }
+            // Both the primer and the source it leads are cleared.
+            sink.skip_one();
+            sink.skip_one();
+            while !sink.empty() {
+                out.next();
+            }
+
+            let mark = log.lock().unwrap().len();
+            let third = src(&cd);
+            let ended = Arc::clone(&third.ended);
+            append_cold(&sink, third, Some(&second_cut));
+            while !ended.load(Ordering::Relaxed) {
+                out.next();
+            }
+            let log = log.lock().unwrap();
+            assert_eq!(misread_samples(&cd, &log[mark..]), 0, "after {pulled}");
+        }
     }
 }
