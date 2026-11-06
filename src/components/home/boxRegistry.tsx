@@ -32,7 +32,7 @@ import { useSetLibraryFacets, useSetLibraryMissingMetadata, useTracks } from "..
 
 // -- Type Imports --
 import type { BoxType } from "./boxCatalog";
-import type { Mode } from "../shell/navVisibility";
+import type { NavTarget } from "../shell/navVisibility";
 import type { TrackRow } from "../../types";
 import type { ReactNode } from "react";
 
@@ -48,7 +48,7 @@ const RECENT_ARTIST_WINDOW = 24;
 
 /** The props every box takes: the one nav path the whole landing shares. */
 export interface HomeBoxProps {
-  onNavigate: (mode: Mode) => void;
+  onNavigate: (target: NavTarget) => void;
 }
 
 /**
@@ -164,7 +164,7 @@ function MissingMetadataBox({ onNavigate }: HomeBoxProps) {
       // Land on All Tracks already narrowed to these tracks, the chip naming why.
       onClick={() => {
         setMissingMetadata(true);
-        onNavigate("tracks");
+        onNavigate({ segment: "tracks" });
       }}
     />
   );
@@ -239,7 +239,7 @@ function MoreFromArtistBox({ onNavigate }: HomeBoxProps) {
         artist
           ? () => {
               setFacets([{ facet: "artist", value: artist }]);
-              onNavigate("tracks");
+              onNavigate({ segment: "tracks" });
             }
           : undefined
       }

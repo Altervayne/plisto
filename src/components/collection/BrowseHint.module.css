@@ -1,0 +1,62 @@
+/* A raised pill under the switch, centred on it and floating over the content below. */
+.hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px 0 0;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+:root[data-theme="dark"] .hint {
+  background: var(--surface-2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hint {
+    background: var(--surface-2);
+  }
+}
+
+.open {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px 5px 11px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.open:hover {
+  color: var(--ink);
+}
+
+.dismiss {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: var(--veil);
+  color: var(--ink);
+}

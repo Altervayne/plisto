@@ -14,6 +14,7 @@ export const fr: Dict = {
     library: "Audiothèque",
     utilities: "Utilitaires",
     files: "Tous les fichiers",
+    collection: "Collection",
     tracks: "Toutes les Pistes",
     unsorted: "Non Triées",
     albums: "Albums",
@@ -220,6 +221,18 @@ export const fr: Dict = {
       one: "Retirer ce single ? Sa piste retourne dans les non triées.",
       other: "Retirer ces {{n}} singles ? Leurs pistes retournent dans les non triées.",
     },
+  },
+
+  collection: {
+    switchLabel: "Vue de la collection",
+    browse: "Parcourir",
+    albums: "Albums",
+    singles: "Singles",
+    tracks: "Toutes les pistes",
+    browseHint: "Nouveau : feuilletez vos disques dans Parcourir",
+    browseHintDismiss: "Fermer",
+    browsePendingTitle: "Parcourir arrive bientôt",
+    browsePendingLine: "Vos disques s'aligneront ici, à feuilleter un par un.",
   },
 
   unsorted: {

@@ -4,7 +4,7 @@ import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
 
 // -- Icon Imports --
-import { Home, LayoutGrid, Inbox, Library, Disc, Disc3, ListMusic, Radio, History, Images, AudioLines, Download, Settings } from "lucide-react";
+import { Home, LayoutGrid, Inbox, Library, ListMusic, Radio, History, Images, AudioLines, Download, Settings } from "lucide-react";
 
 // -- State Imports --
 import { useAppMode } from "../../state/player/store";
@@ -26,17 +26,15 @@ import styles from "./Sidebar.module.css";
  *
  * `collapsed` clips and fades the whole rail as the shell closes its column. `bare` drops the nav
  * sections when the revealed sidebar has no library to list, leaving only the foot. The app mode shapes
- * what remains: Player drops the file and utility sections, Organizer drops the all-tracks and player
- * rows, and a section whose rows all go takes its label with it. The foot always shows.
+ * what remains: Player drops the file and utility sections, Organizer drops the Player and History rows,
+ * and a section whose rows all go takes its label with it. The foot always shows. The Collection row
+ * carries no count: its segment switch carries them.
  */
 export function Sidebar({
   mode,
   onModeChange,
   filesCount,
-  tracksCount,
   unsortedCount,
-  albumsCount,
-  singlesCount,
   playlistsCount,
   coversCount,
   collapsed = false,
@@ -45,10 +43,7 @@ export function Sidebar({
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   filesCount: number;
-  tracksCount: number;
   unsortedCount: number;
-  albumsCount: number;
-  singlesCount: number;
   playlistsCount: number;
   coversCount: number;
   collapsed?: boolean;
@@ -109,31 +104,12 @@ export function Sidebar({
           {isSectionVisible(appMode, NAV_SECTIONS.library) ? (
             <div className={styles.navgroup}>
               <div className={styles.navlabel}>{t((d) => d.nav.library)}</div>
-              {isDestinationVisible(appMode, "tracks") ? (
+              {isDestinationVisible(appMode, "collection") ? (
                 <NavItem
                   icon={<Library size={17} strokeWidth={1.8} />}
-                  label={t((d) => d.nav.tracks)}
-                  count={tracksCount}
-                  active={mode === "tracks"}
-                  onClick={() => onModeChange("tracks")}
-                />
-              ) : null}
-              {isDestinationVisible(appMode, "albums") ? (
-                <NavItem
-                  icon={<Disc size={17} strokeWidth={1.8} />}
-                  label={t((d) => d.nav.albums)}
-                  count={albumsCount}
-                  active={mode === "albums"}
-                  onClick={() => onModeChange("albums")}
-                />
-              ) : null}
-              {isDestinationVisible(appMode, "singles") ? (
-                <NavItem
-                  icon={<Disc3 size={17} strokeWidth={1.8} />}
-                  label={t((d) => d.nav.singles)}
-                  count={singlesCount}
-                  active={mode === "singles"}
-                  onClick={() => onModeChange("singles")}
+                  label={t((d) => d.nav.collection)}
+                  active={mode === "collection"}
+                  onClick={() => onModeChange("collection")}
                 />
               ) : null}
               {isDestinationVisible(appMode, "playlists") ? (

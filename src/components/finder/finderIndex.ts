@@ -11,10 +11,11 @@ import { compareMemberOrder } from "../albums/albumLayout";
 import { playlistQueue } from "../playlists/playlistPlayback";
 import { buildAlbumIndex, resolveTrackAlbum } from "../tracks/trackAlbum";
 import { NAV_ORDER, isDestinationVisible } from "../shell/navVisibility";
+import { visibleSegments } from "../collection/collectionSegments";
 
 // -- Type Imports --
 import type { Mode } from "../shell/navVisibility";
-import type { FinderDestination } from "./finderDestinations";
+import type { FinderDestination, SegmentDestination } from "./finderDestinations";
 import type { AppMode } from "../../state/player/store";
 import type {
   AlbumRow,
@@ -297,14 +298,23 @@ export function buildFinderIndex(src: FinderSource): FinderIndex {
 }
 
 /**
- * The destinations a jump can reach under the mode: Home, every visible nav row in order, the
- * possible-duplicates sheet, Settings.
+ * The destinations a jump can reach under the mode: Home, every visible nav row in order with the
+ * Collection's shown segment rows right after it, the possible-duplicates sheet, Settings.
  */
 export function finderDestinations(appMode: AppMode): FinderDestination[] {
   const shown = (["home", ...NAV_ORDER] as Mode[]).filter((mode) =>
     isDestinationVisible(appMode, mode),
   );
-  return [...shown, "duplicates", "settings"];
+  const segments = visibleSegments(appMode).filter(
+    (segment): segment is SegmentDestination => segment !== "browse",
+  );
+  return [
+    ...shown.flatMap((mode): FinderDestination[] =>
+      mode === "collection" ? [mode, ...segments] : [mode],
+    ),
+    "duplicates",
+    "settings",
+  ];
 }
 
 /** The "Go to" entries for the given destinations and their display labels. */

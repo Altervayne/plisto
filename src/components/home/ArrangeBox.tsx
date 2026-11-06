@@ -18,7 +18,7 @@ import { nearestAllowedSize } from "./homeLayout";
 
 // -- Type Imports --
 import type { BoxSeed, BoxSize, BoxType } from "./boxCatalog";
-import type { Mode } from "../shell/navVisibility";
+import type { NavTarget } from "../shell/navVisibility";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -38,7 +38,7 @@ interface ArrangeBoxProps {
   seed: BoxSeed;
   layout: BoxSeed[];
   metrics: GridMetrics;
-  onNavigate: (mode: Mode) => void;
+  onNavigate: (target: NavTarget) => void;
   reorder: (fromType: BoxType, toType: BoxType) => void;
   resize: (type: BoxType, size: BoxSize) => void;
   cycle: (type: BoxType) => void;

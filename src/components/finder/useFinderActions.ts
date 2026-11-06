@@ -11,10 +11,11 @@ import { useOpenDuplicates } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { sourceForContainer } from "../albums/playbackSource";
+import { destinationTarget } from "./finderDestinations";
 
 // -- Type Imports --
 import type { FinderEntry } from "./finderIndex";
-import type { Mode } from "../shell/navVisibility";
+import type { NavTarget } from "../shell/navVisibility";
 import type { GridFacet } from "../tracks/trackFacets";
 import type { PlaybackSource } from "../../types";
 
@@ -23,7 +24,7 @@ import { useT } from "../../i18n";
 
 /** The shell's navigation, handed in because the open panes live in the shell's own state. */
 export interface FinderNav {
-  go: (mode: Mode) => void;
+  go: (target: NavTarget) => void;
   openAlbum: (albumId: number) => void;
   openSingle: (albumId: number) => void;
   openPlaylist: (playlistId: number) => void;
@@ -67,7 +68,7 @@ export function useFinderActions(nav: FinderNav): FinderActions {
     setSearch(search);
     setMissing(false);
     setGone(false);
-    nav.go("tracks");
+    nav.go({ segment: "tracks" });
   };
 
   // The same tags a play carries from the entry's own surface: an album or playlist names itself, a
@@ -119,7 +120,7 @@ export function useFinderActions(nav: FinderNav): FinderActions {
       case "destination":
         // The duplicates sheet opens over wherever the finder was summoned.
         if (entry.id === "duplicates") openDuplicates();
-        else nav.go(entry.id);
+        else nav.go(destinationTarget(entry.id));
         break;
     }
   };

@@ -1,19 +1,25 @@
 // -- Framework Imports --
 import type { ReactNode } from "react";
 
+// -- Utils Imports --
+import { formatCount } from "../../lib/format";
+
 // -- Style Imports --
 import styles from "./SegmentedControl.module.css";
 
 /**
  * One choice in the control: a stable value and its already-localized label. With an `icon`, the chip
  * shows the icon and the label becomes its accessible name, so an icon-only toggle stays labelled. A
- * `disabled` chip stays in the row, dimmed, and ignores clicks.
+ * `disabled` chip stays in the row, dimmed, and ignores clicks. A `count` trails the label as plain
+ * tabular text; a `dimmed` chip reads faded for an empty set but stays clickable.
  */
 export interface Segment<T extends string> {
   value: T;
   label: string;
   icon?: ReactNode;
   disabled?: boolean;
+  count?: number;
+  dimmed?: boolean;
 }
 
 /**
@@ -52,7 +58,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             className={`${styles.segment} ${segment.icon ? styles.iconChip : ""} ${
               isActive ? styles.active : ""
-            } ${withLabel ? styles.labelled : ""}`}
+            } ${withLabel ? styles.labelled : ""} ${segment.dimmed ? styles.dimmed : ""}`}
             aria-pressed={isActive}
             aria-disabled={segment.disabled ? true : undefined}
             aria-label={segment.icon && !withLabel ? segment.label : undefined}
@@ -62,6 +68,9 @@ export function SegmentedControl<T extends string>({
           >
             {segment.icon ?? segment.label}
             {withLabel ? <span className={styles.segmentLabel}>{segment.label}</span> : null}
+            {segment.count != null ? (
+              <span className={styles.count}>{formatCount(segment.count)}</span>
+            ) : null}
           </button>
         );
       })}

@@ -64,6 +64,19 @@
   color: var(--ink);
 }
 
+/* A count trails its label as quiet tabular text, never a badge and never the accent. */
+.count {
+  margin-left: 7px;
+  color: var(--ink-3);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An empty set keeps its place, faded but live: a click still opens its empty state. */
+.dimmed:not(.active) {
+  opacity: 0.55;
+}
+
 /* A disabled chip keeps its place in the row so the choice it stands for stays visible, just inert. */
 .segment[aria-disabled="true"] {
   opacity: 0.45;

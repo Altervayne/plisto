@@ -210,6 +210,18 @@ describe("finderDestinations", () => {
     expect(finderDestinations("player")).not.toContain("export");
   });
 
+  it("follows the Collection with its segment rows, Browse left out", () => {
+    const both = finderDestinations("both");
+    const at = both.indexOf("collection");
+    expect(both.slice(at, at + 5)).toEqual(["collection", "albums", "singles", "tracks", "playlists"]);
+    expect(both).not.toContain("browse");
+    for (const mode of ["player", "organizer"] as const) {
+      expect(finderDestinations(mode)).toEqual(
+        expect.arrayContaining(["collection", "albums", "singles", "tracks"]),
+      );
+    }
+  });
+
   it("folds the label as the only field", () => {
     expect(destinationEntries([{ mode: "settings", label: "R\u00e9glages" }])[0].fields).toEqual([
       "reglages",

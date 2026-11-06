@@ -1,0 +1,9 @@
+/* Centred in the controls strip whatever sits at its edges, so the segments hold still as Undo, Redo
+ * and the error line come and go. */
+.switch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}

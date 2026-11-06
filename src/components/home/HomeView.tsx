@@ -15,7 +15,7 @@ import { useHomeLayout } from "./useHomeLayout";
 import { useAppMode } from "../../state/player/store";
 
 // -- Type Imports --
-import type { Mode } from "../shell/navVisibility";
+import type { NavTarget } from "../shell/navVisibility";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -29,7 +29,7 @@ import styles from "./HomeView.module.css";
  * covers play, stats route. An explicit arrange mode is the only time the boxes become movable objects;
  * every edit persists to that mode's layout, so each mode keeps its own arrangement.
  */
-export function HomeView({ onNavigate }: { onNavigate: (mode: Mode) => void }) {
+export function HomeView({ onNavigate }: { onNavigate: (target: NavTarget) => void }) {
   const t = useT();
   const appMode = useAppMode();
   const { layout, reorder, resize, cycle, remove, add, reset } = useHomeLayout(appMode);

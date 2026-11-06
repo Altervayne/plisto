@@ -59,6 +59,10 @@ export const PREF_KEYS = {
   updaterAutoCheck: "updater_auto_check",
   // The update version the user skipped; that version no longer prompts on its own.
   updaterSkipped: "updater_skipped",
+  // The Collection's last segment; absent or unknown lands on Albums.
+  collectionSegment: "collection_segment",
+  // "1" once the one-time Browse hint is retired.
+  collectionBrowseHint: "collection_browse_hint",
 } as const;
 
 interface PreferencesStore {

@@ -13,6 +13,7 @@ export const en = {
     library: "Library",
     utilities: "Utilities",
     files: "All Files",
+    collection: "Collection",
     tracks: "All Tracks",
     unsorted: "Unsorted",
     albums: "Albums",
@@ -219,6 +220,18 @@ export const en = {
       one: "Remove this single? Its track returns to unsorted.",
       other: "Remove these {{n}} singles? Their tracks return to unsorted.",
     },
+  },
+
+  collection: {
+    switchLabel: "Collection view",
+    browse: "Browse",
+    albums: "Albums",
+    singles: "Singles",
+    tracks: "All tracks",
+    browseHint: "New: flip through your records in Browse",
+    browseHintDismiss: "Dismiss",
+    browsePendingTitle: "Browse is on its way",
+    browsePendingLine: "Your records will line up here to flip through.",
   },
 
   unsorted: {

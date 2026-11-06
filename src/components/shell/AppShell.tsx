@@ -8,11 +8,9 @@ import { ListPlus } from "lucide-react";
 // -- Component Imports --
 import { Sidebar } from "./Sidebar";
 import { HomeView } from "../home/HomeView";
-import { AlbumGrid } from "../albums/AlbumGrid";
-import { AlbumDrawer } from "../albums/AlbumDrawer";
-import { AlbumFolderView } from "../albums/AlbumFolderView";
+import { CollectionView } from "../collection/CollectionView";
+import { CollectionSwitch } from "../collection/CollectionSwitch";
 import { FilesView } from "../files/FilesView";
-import { AllTracksView } from "../tracks/AllTracksView";
 import { HistoryView } from "../tracks/HistoryView";
 import { UnsortedView } from "../files/UnsortedView";
 import { PlaylistsView } from "../playlists/PlaylistsView";
@@ -28,7 +26,6 @@ import { SpliceWorkbench } from "../splice/SpliceWorkbench";
 import { StaffSpinner } from "../scan/StaffSpinner";
 import { EmptyState } from "../common/EmptyState";
 import { QuietButton } from "../common/QuietButton";
-import { Resizer } from "../common/Resizer/Resizer";
 import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
@@ -36,9 +33,9 @@ import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
-import { useMountTransition } from "../../hooks/useMountTransition";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { useShellShortcuts } from "./useShellShortcuts";
+import { useCollectionSegment } from "../collection/useCollectionSegment";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -57,6 +54,11 @@ import {
 import { useLoadPlaylists, usePlaylists } from "../../state/playlists/store";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useLoadPreferences } from "../../state/preferences/store";
+import {
+  useCloseCollectionFull,
+  useCollectionFullAlbumId,
+  useRouteCollection,
+} from "../../state/collection/store";
 import {
   useAppMode,
   useCurrentTrackId,
@@ -82,10 +84,11 @@ import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/
 
 // -- Unit Imports --
 import { firstVisibleDestination, isDestinationVisible } from "./navVisibility";
-import type { Mode } from "./navVisibility";
+import { visibleSegments } from "../collection/collectionSegments";
+import type { Mode, NavTarget } from "./navVisibility";
 
 // -- Type Imports --
-import type { AlbumRow, PlaybackSource } from "../../types";
+import type { PlaybackSource } from "../../types";
 import type { FinderNav } from "../finder/useFinderActions";
 
 // -- i18n Imports --
@@ -93,12 +96,6 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./AppShell.module.css";
-
-/** The drawer content's exit before the panel unmounts, matching --dur-soft on the exit keyframe. */
-const DRAWER_EXIT_MS = 200;
-
-/** The full pane's fade-out before it unmounts, matching --dur-fast on the exit keyframe. */
-const VIEW_EXIT_MS = 120;
 
 /** The trailing name of a path with its extension dropped, so a refused file reads by its own name. */
 function fileStem(path: string): string {
@@ -109,8 +106,9 @@ function fileStem(path: string): string {
 
 /**
  * The layout root over an indexed workspace: the sidebar and the main region share one continuous
- * ground. The sidebar owns the mode switch; a library mode shows that wall plus the undo/redo controls
- * and the action bar, while Export and Settings own the whole region. A scan that found no audio is its
+ * ground. The sidebar owns the mode switch; a library mode shows its view plus the undo/redo controls
+ * and the action bar, while Export and Settings own the whole region. Every route goes through
+ * `navigate`, so a jump into the Collection always names its segment. A scan that found no audio is its
  * own terminal state. The organize projection and preferences hydrate on mount.
  *
  * Standalone mode is the same shell opened on a file the OS handed Plisto: it opens on the Player, owns
@@ -161,8 +159,10 @@ export function AppShell({
   const appMode = useAppMode();
   // Standalone opens on the Player over the handed file; the full app opens on the Home landing.
   const [mode, setMode] = useState<Mode>(standalone ? "player" : "home");
-  const [selectedAlbumId, setSelectedAlbumId] = useState<number | null>(null);
-  const [openAlbumId, setOpenAlbumId] = useState<number | null>(null);
+  const segment = useCollectionSegment();
+  const routeCollection = useRouteCollection();
+  const fullAlbumId = useCollectionFullAlbumId();
+  const closeFull = useCloseCollectionFull();
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
   const [finderOpen, setFinderOpen] = useState(false);
   const { width, containerRef, resizer } = useDrawerResize();
@@ -186,38 +186,18 @@ export function AppShell({
   // The revealed sidebar has no library to list: strip the empty nav groups and keep only the foot, so
   // the opened file plays on through the mini while onboarding shows in the main region.
   const noLibrary = standalone && booted && roots.length === 0;
-  // One selection id serves both walls; each mode resolves it against its own bucket, so a stale id from
-  // the other wall never opens a drawer here.
-  const selectedAlbum = albums.find((a) => a.id === selectedAlbumId) ?? null;
-  const selectedSingle = singles.find((a) => a.id === selectedAlbumId) ?? null;
-  // The full-pane album, scoped to albums alone. A deleted id no longer resolves, so the pane falls
-  // back to the grid rather than stranding on it.
-  const openAlbum = albums.find((a) => a.id === openAlbumId) ?? null;
-  if (openAlbumId != null && openAlbum == null) {
-    setOpenAlbumId(null);
-  }
+  // The album full pane covers the wall only on the Albums segment; a deleted id never counts as open.
+  const fullPaneShowing =
+    mode === "collection" &&
+    segment === "albums" &&
+    fullAlbumId != null &&
+    albums.some((a) => a.id === fullAlbumId);
   // The full-pane playlist, scoped like the album pane: a deleted id no longer resolves, so the pane
   // falls back to the list rather than stranding on it.
   const openPlaylist = playlists.find((p) => p.id === openPlaylistId) ?? null;
   if (openPlaylistId != null && openPlaylist == null) {
     setOpenPlaylistId(null);
   }
-
-  // Hold each drawer through its exit after the selection clears. The panel width snaps; only the
-  // drawer content transform-fades. The selection is already null by then, so a ref keeps the last
-  // album to render during the fade rather than showing an empty panel.
-  const albumDrawer = useMountTransition(selectedAlbum != null, DRAWER_EXIT_MS);
-  const lastAlbum = useRef<AlbumRow | null>(null);
-  if (selectedAlbum) lastAlbum.current = selectedAlbum;
-  const singleDrawer = useMountTransition(selectedSingle != null, DRAWER_EXIT_MS);
-  const lastSingle = useRef<AlbumRow | null>(null);
-  if (selectedSingle) lastSingle.current = selectedSingle;
-
-  // Hold the full pane through its fade-out, retaining the last album so it renders during the exit
-  // once its id has cleared.
-  const fullPane = useMountTransition(openAlbum != null, VIEW_EXIT_MS);
-  const lastOpenAlbum = useRef<AlbumRow | null>(null);
-  if (openAlbum) lastOpenAlbum.current = openAlbum;
 
   // The Track Editor destination's session. Opening a tool lands on that destination and the session
   // persists across nav: the workbench stays mounted while a session holds, hidden off the destination.
@@ -230,44 +210,54 @@ export function AppShell({
   // seeds its own local lens from it on mount.
   const historyLens = useHistoryLens();
 
-  // Entering the full pane closes the drawer: the two album surfaces never show at once. Stable across
-  // renders so the memoized cards never re-render on its account.
-  const openFull = useCallback((albumId: number) => {
-    setOpenAlbumId(albumId);
-    setSelectedAlbumId(null);
-  }, []);
+  // The one way into any destination. A Collection target sets its segment (and any pane) in the store,
+  // which remembers it, then lands on the destination.
+  const navigate = useCallback(
+    (target: NavTarget) => {
+      if (typeof target === "string") {
+        setMode(target);
+        return;
+      }
+      routeCollection(target);
+      setMode("collection");
+    },
+    [routeCollection],
+  );
 
   // Routes the Player's "playing from" link back into the library: a container opens its full pane, a flat
   // view just switches mode. A lone single carries a track id, not a container, so it has no destination.
-  const onNavigate = useCallback((source: PlaybackSource) => {
-    switch (source.kind) {
-      case "album":
-        setOpenAlbumId(source.id);
-        setMode("albums");
-        break;
-      case "playlist":
-        setOpenPlaylistId(source.id);
-        setMode("playlists");
-        break;
-      case "files":
-        setMode("files");
-        break;
-      case "tracks":
-        setMode("tracks");
-        break;
-      case "singles":
-        setMode("singles");
-        break;
-      case "unsorted":
-        setMode("unsorted");
-        break;
-      case "history":
-        setMode("history");
-        break;
-      case "single":
-        break;
-    }
-  }, []);
+  // The source kinds keep their own names, since the resume blob persists them.
+  const onNavigate = useCallback(
+    (source: PlaybackSource) => {
+      switch (source.kind) {
+        case "album":
+          navigate({ segment: "albums", full: source.id });
+          break;
+        case "playlist":
+          setOpenPlaylistId(source.id);
+          setMode("playlists");
+          break;
+        case "files":
+          setMode("files");
+          break;
+        case "tracks":
+          navigate({ segment: "tracks" });
+          break;
+        case "singles":
+          navigate({ segment: "singles" });
+          break;
+        case "unsorted":
+          setMode("unsorted");
+          break;
+        case "history":
+          setMode("history");
+          break;
+        case "single":
+          break;
+      }
+    },
+    [navigate],
+  );
 
   // Seat the saved session paused. Only a launch with no file to open reaches the non-standalone shell,
   // so an open-with launch never restores and leaves the blob intact.
@@ -333,8 +323,8 @@ export function AppShell({
   // add-a-folder onboarding, while a stocked one stays on the player for the user to navigate from the
   // now-visible sidebar. Waits for boot so a stocked library is never misread as empty mid-hydration.
   useEffect(() => {
-    if (noLibrary && sidebarExpanded) setMode("albums");
-  }, [noLibrary, sidebarExpanded]);
+    if (noLibrary && sidebarExpanded) navigate({ segment: "albums" });
+  }, [noLibrary, sidebarExpanded, navigate]);
 
   // Opening a tool from a track's menu lands on the Editor destination. Clearing the session does not
   // navigate: closing a file leaves you on the destination, showing its empty state.
@@ -373,12 +363,11 @@ export function AppShell({
   // stays mounted under its pane, so its select-all is off while the pane covers it.
   const shortcutsOpen = useShortcutsOpen();
   const setShortcutsOpen = useSetShortcutsOpen();
-  const paneBack =
-    mode === "albums" && openAlbum != null
-      ? () => setOpenAlbumId(null)
-      : mode === "playlists" && openPlaylist != null
-        ? () => setOpenPlaylistId(null)
-        : null;
+  const paneBack = fullPaneShowing
+    ? closeFull
+    : mode === "playlists" && openPlaylist != null
+      ? () => setOpenPlaylistId(null)
+      : null;
   useShellShortcuts({
     finderEnabled,
     openFinder: () => setFinderOpen(true),
@@ -386,7 +375,7 @@ export function AppShell({
     redo,
     onBack: paneBack,
     editorSession: mode === "editor" && openTool != null,
-    viewKeysLive: !(mode === "albums" && openAlbum != null),
+    viewKeysLive: !fullPaneShowing,
     playerEnabled: appMode !== "organizer",
     openShortcuts: () => setShortcutsOpen(true),
   });
@@ -394,15 +383,9 @@ export function AppShell({
 
   // The finder's jumps, mirroring the routes the walls and the Player's "playing from" link take.
   const finderNav: FinderNav = {
-    go: setMode,
-    openAlbum: (albumId) => {
-      openFull(albumId);
-      setMode("albums");
-    },
-    openSingle: (albumId) => {
-      setSelectedAlbumId(albumId);
-      setMode("singles");
-    },
+    go: navigate,
+    openAlbum: (albumId) => navigate({ segment: "albums", full: albumId }),
+    openSingle: (albumId) => navigate({ segment: "singles", drawer: albumId }),
     openPlaylist: (playlistId) => {
       setOpenPlaylistId(playlistId);
       setMode("playlists");
@@ -434,10 +417,7 @@ export function AppShell({
         mode={mode}
         onModeChange={setMode}
         filesCount={count}
-        tracksCount={count}
         unsortedCount={unsorted.length}
-        albumsCount={albums.length}
-        singlesCount={singles.length}
         playlistsCount={playlists.length}
         coversCount={coversNeeded}
         collapsed={collapsed}
@@ -446,7 +426,7 @@ export function AppShell({
       <main className={styles.main}>
         {mode === "home" ? (
           // Home needs a library; an empty one keeps the add-a-folder onboarding, as the walls do.
-          count === 0 ? emptyLibrary : <HomeView onNavigate={setMode} />
+          count === 0 ? emptyLibrary : <HomeView onNavigate={navigate} />
         ) : mode === "export" ? (
           <ExportView />
         ) : mode === "player" ? (
@@ -467,7 +447,7 @@ export function AppShell({
             <PlayerView onNavigate={onNavigate} />
           )
         ) : mode === "settings" ? (
-          <SettingsView onReviewGone={() => setMode("tracks")} />
+          <SettingsView onReviewGone={() => navigate({ segment: "tracks" })} />
         ) : mode === "editor" ? (
           // The workbench layer covers this while a session holds; the prompt shows only when idle.
           openTool ? null : (
@@ -521,92 +501,38 @@ export function AppShell({
                   </QuietButton>
                 </div>
               ) : null}
+              {mode === "collection" ? (
+                <CollectionSwitch
+                  visible={visibleSegments(appMode)}
+                  segment={segment}
+                  counts={{ albums: albums.length, singles: singles.length, tracks: count }}
+                  onChange={(next) => navigate({ segment: next })}
+                />
+              ) : null}
             </div>
             <div
               className={styles.content}
               ref={containerRef}
               style={{ "--drawer-width": `${width}px` } as CSSProperties}
             >
-              {mode === "albums" ? (
-                <>
-                  {/* The grid holds the flow and fades under the full pane; the pane overlays it and
-                      crossfades in. `inert` while it is under keeps keyboard focus out of the hidden
-                      cards, which opacity + pointer-events alone would leave in the tab order. */}
-                  <div
-                    className={styles.gridLayer}
-                    data-under={openAlbum != null ? "" : undefined}
-                    inert={openAlbum != null || undefined}
-                  >
-                    <AlbumGrid
-                      albums={albums}
-                      selectedAlbumId={selectedAlbumId}
-                      onOpen={setSelectedAlbumId}
-                      onOpenFull={openFull}
-                    />
-                    {albumDrawer.mounted && lastAlbum.current ? (
-                      <div className={styles.panel}>
-                        <Resizer resizer={resizer} />
-                        <AlbumDrawer
-                          album={lastAlbum.current}
-                          state={albumDrawer.state}
-                          onClose={() => setSelectedAlbumId(null)}
-                          onOpenFull={openFull}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                  {/* Mount the pane the same render the grid starts dimming, not a frame later: keying
-                      render on the live id (plus the exit hold) closes the gap where the grid showed
-                      undimmed with no overlay. data-state rides the live id too, so enter plays at once. */}
-                  {(openAlbum != null || fullPane.mounted) && lastOpenAlbum.current ? (
-                    <div
-                      className={styles.fullLayer}
-                      data-state={openAlbum != null ? "enter" : "exit"}
-                    >
-                      <AlbumFolderView
-                        album={openAlbum ?? lastOpenAlbum.current}
-                        onBack={() => setOpenAlbumId(null)}
-                      />
-                    </div>
-                  ) : null}
-                </>
-              ) : mode === "singles" ? (
-                <>
-                  <AlbumGrid
-                    albums={singles}
-                    selectedAlbumId={selectedAlbumId}
-                    onOpen={setSelectedAlbumId}
-                    emptyTitle={t((d) => d.singles.emptyTitle)}
-                    emptyLine={t((d) => d.singles.emptyLine)}
-                  />
-                  {singleDrawer.mounted && lastSingle.current ? (
-                    <div className={styles.panel}>
-                      <Resizer resizer={resizer} />
-                      <AlbumDrawer
-                        album={lastSingle.current}
-                        state={singleDrawer.state}
-                        onClose={() => setSelectedAlbumId(null)}
-                      />
-                    </div>
-                  ) : null}
-                </>
+              {mode === "collection" ? (
+                <CollectionView
+                  segment={segment}
+                  albums={albums}
+                  singles={singles}
+                  resizer={resizer}
+                />
               ) : mode === "unsorted" ? (
-                <UnsortedView onShowAlbums={() => setMode("albums")} />
-              ) : mode === "tracks" ? (
-                <AllTracksView />
+                <UnsortedView onShowAlbums={() => navigate({ segment: "albums" })} />
               ) : (
                 <FilesView />
               )}
               <SelectionActionBar
-                onCreated={(albumId) => {
-                  setMode("albums");
-                  setSelectedAlbumId(albumId);
-                }}
-                onMadeSingles={(ids) => {
-                  setMode("singles");
-                  // One promoted track lands with its editor open; a batch just lands on the wall.
-                  setSelectedAlbumId(ids.length === 1 ? ids[0] : null);
-                }}
+                onCreated={(albumId) => navigate({ segment: "albums", drawer: albumId })}
+                // One promoted track lands with its editor open; a batch just lands on the wall.
+                onMadeSingles={(ids) =>
+                  navigate({ segment: "singles", drawer: ids.length === 1 ? ids[0] : null })
+                }
               />
             </div>
           </>

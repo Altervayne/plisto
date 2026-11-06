@@ -2,7 +2,7 @@
  * The nav visibility rules for the app mode. The mode is the app's working identity - Player, Organizer,
  * or Both - and it shapes which sidebar destinations and section labels show. Both shows everything;
  * Player drops the file and utility surfaces; Organizer drops the player and its listening history.
- * All Tracks stays in both working modes - it is a library view for browsing and for organizing alike.
+ * The Collection stays in every mode - it is the library view for browsing and for organizing alike.
  *
  * The Mode type lives here rather than in the Sidebar so the sidebar and the shell can both read the
  * rules without importing each other. Settings sits in the foot, outside the sections, so no mode ever
@@ -11,15 +11,14 @@
 
 // -- Type Imports --
 import type { AppMode } from "../../state/player/store";
+import type { CollectionTarget } from "../../state/collection/store";
 
-/** The region showing in the main pane: the landing, a library wall, the export screen, or settings. */
+/** The region showing in the main pane: the landing, a library view, the export screen, or settings. */
 export type Mode =
   | "home"
   | "files"
-  | "tracks"
   | "unsorted"
-  | "albums"
-  | "singles"
+  | "collection"
   | "playlists"
   | "covers"
   | "editor"
@@ -28,10 +27,16 @@ export type Mode =
   | "export"
   | "settings";
 
+/**
+ * Where a navigation lands: a destination as it stands, or a Collection segment named explicitly. A bare
+ * "collection" opens the remembered segment; a target overrides it and becomes the remembered one.
+ */
+export type NavTarget = Mode | CollectionTarget;
+
 /** The three labeled sidebar sections, each holding its destinations in nav order. */
 export const NAV_SECTIONS = {
   files: ["files", "unsorted", "covers"],
-  library: ["tracks", "albums", "singles", "playlists", "player", "history"],
+  library: ["collection", "playlists", "player", "history"],
   utilities: ["editor", "export"],
 } as const satisfies Record<string, readonly Mode[]>;
 

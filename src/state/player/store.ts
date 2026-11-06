@@ -292,6 +292,12 @@ export const useSetAppMode = (): ((mode: AppMode) => void) => {
 export const usePlayerEnabled = (): boolean => useAppMode() !== "organizer";
 
 /**
+ * Whether the organize controls show on the album wall - the pick ring, Select all, the selection bar.
+ * Only `player` hides them.
+ */
+export const useOrganizeEnabled = (): boolean => useAppMode() !== "player";
+
+/**
  * Wires the store to the engine for the app's life: seeds the snapshot once, then follows the
  * `player:status`, `player:queue`, and `player:error` events. Mount once high in the tree.
  */

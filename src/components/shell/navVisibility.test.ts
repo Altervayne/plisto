@@ -30,12 +30,12 @@ describe("isDestinationVisible", () => {
     for (const dest of ["files", "unsorted", "covers", "editor", "export"] as Mode[]) {
       expect(isDestinationVisible("player", dest)).toBe(false);
     }
-    for (const dest of ["tracks", "albums", "singles", "playlists", "player"] as Mode[]) {
+    for (const dest of ["collection", "playlists", "player"] as Mode[]) {
       expect(isDestinationVisible("player", dest)).toBe(true);
     }
   });
 
-  it("hides the player and its history in organizer mode, keeping all-tracks", () => {
+  it("hides the player and its history in organizer mode, keeping the collection", () => {
     for (const dest of ["player", "history"] as Mode[]) {
       expect(isDestinationVisible("organizer", dest)).toBe(false);
     }
@@ -43,9 +43,7 @@ describe("isDestinationVisible", () => {
       "files",
       "unsorted",
       "covers",
-      "tracks",
-      "albums",
-      "singles",
+      "collection",
       "playlists",
       "editor",
       "export",
@@ -86,8 +84,8 @@ describe("firstVisibleDestination", () => {
     expect(firstVisibleDestination("both")).toBe("files");
   });
 
-  it("lands on tracks in player mode", () => {
-    expect(firstVisibleDestination("player")).toBe("tracks");
+  it("lands on the collection in player mode", () => {
+    expect(firstVisibleDestination("player")).toBe("collection");
   });
 
   it("lands on files in organizer mode", () => {
