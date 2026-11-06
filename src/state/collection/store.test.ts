@@ -1,8 +1,16 @@
 // -- Test Imports --
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { routePanes, useCollectionStore } from "./store";
+import {
+  ALL_KINDS,
+  FOCUS_PERSIST_MS,
+  normalizeBrowseBy,
+  parseAlbumId,
+  routePanes,
+  toggleKind,
+  useCollectionStore,
+} from "./store";
 import { PREF_KEYS, usePreferencesStore } from "../preferences/store";
 import type { CollectionPanes } from "./store";
 
@@ -14,7 +22,7 @@ vi.mock("../../lib/ipc", () => ({
 const CLOSED: CollectionPanes = { drawerAlbumId: null, fullAlbumId: null, handoff: null };
 
 beforeEach(() => {
-  useCollectionStore.setState(CLOSED);
+  useCollectionStore.setState({ ...CLOSED, browseKinds: ALL_KINDS, browseFocusId: null });
   usePreferencesStore.setState({ values: {} });
 });
 
@@ -66,5 +74,60 @@ describe("route", () => {
     useCollectionStore.getState().route({ segment: "albums", full: 2 });
     expect(usePreferencesStore.getState().values[PREF_KEYS.collectionSegment]).toBe("albums");
     expect(useCollectionStore.getState().fullAlbumId).toBe(2);
+  });
+});
+
+describe("toggleKind", () => {
+  it("turns a chip off while the other stays on", () => {
+    expect(toggleKind(ALL_KINDS, "singles")).toEqual({ albums: true, singles: false });
+  });
+
+  it("keeps the last chip on", () => {
+    const albumsOnly = { albums: true, singles: false };
+    expect(toggleKind(albumsOnly, "albums")).toBe(albumsOnly);
+  });
+
+  it("turns a chip back on", () => {
+    expect(toggleKind({ albums: true, singles: false }, "singles")).toEqual(ALL_KINDS);
+  });
+});
+
+describe("normalizeBrowseBy", () => {
+  it("reads a known grouping", () => {
+    expect(normalizeBrowseBy("genre")).toBe("genre");
+  });
+
+  it("reads absent or unknown as None", () => {
+    expect(normalizeBrowseBy(undefined)).toBe("none");
+    expect(normalizeBrowseBy("label")).toBe("none");
+  });
+});
+
+describe("parseAlbumId", () => {
+  it("reads a positive integer", () => {
+    expect(parseAlbumId("42")).toBe(42);
+  });
+
+  it("rejects anything else", () => {
+    expect(parseAlbumId(undefined)).toBeNull();
+    expect(parseAlbumId("0")).toBeNull();
+    expect(parseAlbumId("-3")).toBeNull();
+    expect(parseAlbumId("4.5")).toBeNull();
+    expect(parseAlbumId("x")).toBeNull();
+  });
+});
+
+describe("focusBrowse", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("holds the focus at once and writes the pref only once it rests", () => {
+    const { focusBrowse } = useCollectionStore.getState();
+    focusBrowse(3);
+    focusBrowse(4);
+    expect(useCollectionStore.getState().browseFocusId).toBe(4);
+    expect(usePreferencesStore.getState().values[PREF_KEYS.collectionBrowseFocus]).toBeUndefined();
+    vi.advanceTimersByTime(FOCUS_PERSIST_MS);
+    expect(usePreferencesStore.getState().values[PREF_KEYS.collectionBrowseFocus]).toBe("4");
   });
 });

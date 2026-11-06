@@ -63,6 +63,10 @@ export const PREF_KEYS = {
   collectionSegment: "collection_segment",
   // "1" once the one-time Browse hint is retired.
   collectionBrowseHint: "collection_browse_hint",
+  // Browse's grouping; absent or unknown reads None.
+  collectionBrowseGroup: "collection_browse_group",
+  // The album id Browse last rested on.
+  collectionBrowseFocus: "collection_browse_focus",
 } as const;
 
 interface PreferencesStore {

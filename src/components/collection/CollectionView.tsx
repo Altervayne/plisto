@@ -6,7 +6,7 @@ import { AlbumGrid } from "../albums/AlbumGrid";
 import { AlbumDrawer } from "../albums/AlbumDrawer";
 import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { AllTracksView } from "../tracks/AllTracksView";
-import { EmptyState } from "../common/EmptyState";
+import { BrowseView } from "./browse/BrowseView";
 import { Resizer } from "../common/Resizer/Resizer";
 
 // -- Hook Imports --
@@ -87,15 +87,7 @@ export function CollectionView({
 
   const closeDrawer = () => setDrawer(null);
 
-  if (segment === "browse") {
-    return (
-      <EmptyState
-        tone="idle"
-        title={t((d) => d.collection.browsePendingTitle)}
-        line={t((d) => d.collection.browsePendingLine)}
-      />
-    );
-  }
+  if (segment === "browse") return <BrowseView albums={albums} singles={singles} />;
 
   if (segment === "tracks") return <AllTracksView />;
 

@@ -1,0 +1,87 @@
+/*
+ * One record on the shelf, centred on the plane's origin and placed by its transform. The depth fade is
+ * a ground-colored veil over the cover that deepens with distance from the focus: no reflection, no
+ * floor. The focused record rises on the pop shadow.
+ */
+.record {
+  position: absolute;
+  width: var(--cs);
+  height: var(--cs);
+  left: calc(var(--cs) / -2);
+  top: calc(var(--cs) / -2);
+  cursor: pointer;
+  transition:
+    transform 0.34s var(--ease-cover),
+    opacity 0.34s ease;
+}
+
+.record::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  opacity: var(--veil, 0);
+  pointer-events: none;
+  transition: opacity 0.34s ease;
+}
+
+/* Reduced motion lays a still strip; a regroup or a filter re-places every record at once. */
+[data-reduced] .record,
+[data-reduced] .record::after,
+[data-instant] .record,
+[data-instant] .record::after {
+  transition: none;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+}
+
+.focused {
+  --cover-shadow: var(--shadow-pop);
+}
+
+/* The focus ring: ink rather than the accent, which stays on the play affordance and can lose its
+ * contrast over a cover-palette glow. It shows on any focus of the listbox, a click included, so the
+ * ring says the keys are live. */
+[role="listbox"]:focus .focused .face {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+/* The placeholder recess over a cover-less record. It fades in after a beat, so a cover that resolves
+ * quickly never flashes the placeholder first. */
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  color: var(--ink-3);
+  background: linear-gradient(160deg, var(--surface-2), var(--sunken));
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  animation: placeholder-in var(--dur-soft) ease 120ms both;
+}
+
+.placeholderTitle {
+  position: absolute;
+  left: 9%;
+  right: 9%;
+  bottom: 8%;
+  font-size: calc(var(--cs) * 0.05);
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+@keyframes placeholder-in {
+  from {
+    opacity: 0;
+  }
+}

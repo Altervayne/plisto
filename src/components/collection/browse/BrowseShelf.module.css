@@ -1,0 +1,76 @@
+/*
+ * The shelf stage: a fixed band with room above the covers for the group labels. The listbox takes no
+ * outline of its own; its focus shows as the ink ring on the focused record.
+ */
+.stage {
+  position: relative;
+  width: 100%;
+  flex: none;
+  height: calc(var(--cs) + 84px);
+  outline: none;
+  user-select: none;
+}
+
+/* The 3D scene, faded out at both ends so the shelf dissolves into the ground. It clips, since the far
+ * records of a grouped shelf reach well past the stage. */
+.scene {
+  position: absolute;
+  inset: -30px 0;
+  z-index: 1;
+  overflow: hidden;
+  perspective: 900px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+}
+
+.fade {
+  animation: jump-fade 0.24s ease-out;
+}
+
+@keyframes jump-fade {
+  from {
+    opacity: 0.2;
+  }
+}
+
+/* A zero-size origin at the stage centre, nudged down to leave the labels their room. */
+.plane {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 16px);
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+/* A group label: the shelf's micro-label type, anchored at its record's near edge and cut short with an
+ * ellipsis before the next one. The focused record's group reads in full ink. */
+.label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 100%;
+  padding-bottom: 2px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: var(--text-halo);
+  pointer-events: none;
+  transition:
+    transform 0.34s var(--ease-cover),
+    opacity 0.34s ease;
+}
+
+.labelCurrent {
+  color: var(--ink);
+}
+
+.stage[data-reduced] .label,
+[data-instant] .label {
+  transition: none;
+}
