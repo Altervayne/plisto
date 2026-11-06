@@ -21,9 +21,11 @@ import {
 import {
   REACTIVITY_LEVELS,
   SPECTRUM_LAYOUTS,
-  VISUALIZER_KINDS,
+  VISUALIZER_GROUPS,
   type Reactivity,
   type SpectrumLayout,
+  type VisualizerGroupId,
+  type VisualizerKind,
 } from "../../../state/player/visualizerKind";
 
 // -- Type Imports --
@@ -43,7 +45,7 @@ import rowStyles from "../../sound/PresetRow.module.css";
 
 /**
  * The visualizer pick: a quiet button in the queue header opening a small popover with one radio row per
- * visualizer, then a segmented reactivity row, and a layout row while the dot spectrum is picked. All
+ * visualizer under labelled sections with Off last, then a segmented reactivity row, and a layout row while the dot spectrum is picked. All
  * persist as prefs and reach the Player and ambient mode alike. The chosen row reads by a check and its
  * ink, never the accent; the button lifts into a chip only while open.
  */
@@ -72,6 +74,33 @@ export function VisualizerPicker() {
     value,
     label: layoutLabels[value],
   }));
+  const groupLabels: Record<VisualizerGroupId, string> = {
+    classic: t((d) => d.player.visualizerGroupClassic),
+    dots: t((d) => d.player.visualizerGroupDots),
+    fluid: t((d) => d.player.visualizerGroupFluid),
+  };
+  const renderRow = (kind: VisualizerKind) => {
+    const selected = kind === picked;
+    return (
+      <button
+        key={kind}
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        ref={selected ? checkedRef : undefined}
+        className={styles.item}
+        onClick={() => setPicked(kind)}
+      >
+        <span className={styles.icon} aria-hidden="true">
+          <VisualizerGlyph kind={kind} />
+        </span>
+        <span className={styles.label}>{t(visualizerLabel(kind))}</span>
+        <span className={styles.check} aria-hidden="true">
+          {selected ? <Check size={15} strokeWidth={2} /> : null}
+        </span>
+      </button>
+    );
+  };
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const checkedRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -116,30 +145,17 @@ export function VisualizerPicker() {
 
       {open ? (
         <div className={styles.pop} role="menu" aria-label={t((d) => d.player.visualizer)}>
-          <div className={styles.group} role="radiogroup" aria-label={t((d) => d.player.visualizer)}>
-            <span className={styles.groupLabel}>{t((d) => d.player.visualizer)}</span>
-            {VISUALIZER_KINDS.map((kind) => {
-              const selected = kind === picked;
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  ref={selected ? checkedRef : undefined}
-                  className={styles.item}
-                  onClick={() => setPicked(kind)}
-                >
-                  <span className={styles.icon} aria-hidden="true">
-                    <VisualizerGlyph kind={kind} />
-                  </span>
-                  <span className={styles.label}>{t(visualizerLabel(kind))}</span>
-                  <span className={styles.check} aria-hidden="true">
-                    {selected ? <Check size={15} strokeWidth={2} /> : null}
-                  </span>
-                </button>
-              );
-            })}
+          <div role="radiogroup" aria-label={t((d) => d.player.visualizer)}>
+            {VISUALIZER_GROUPS.map((group) => (
+              <div key={group.id} className={styles.group} role="group" aria-label={groupLabels[group.id]}>
+                <span className={styles.groupLabel} aria-hidden="true">
+                  {groupLabels[group.id]}
+                </span>
+                {group.kinds.map(renderRow)}
+              </div>
+            ))}
+            <div className={styles.sep} />
+            <div className={styles.group}>{renderRow("off")}</div>
           </div>
           <div className={styles.sep} />
           <div className={styles.group}>

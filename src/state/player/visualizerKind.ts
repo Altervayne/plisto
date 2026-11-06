@@ -4,25 +4,26 @@
  * Pure, so the pref reads, the cycle and the fallback are tested apart from the renderer.
  */
 
-/** Every visualizer, in picker and cycle order. Ridge is the default; Off draws nothing. */
-export const VISUALIZER_KINDS = [
-  "ridge",
-  "terrain",
-  "liquid",
-  "warp",
-  "nebula",
-  "bloom",
-  "halftone",
-  "dot-spectrum",
-  "dot-cover",
-  "ink",
-  "mercury",
-  "glass",
-  "silk",
-  "off",
+/**
+ * The picker's labelled sections, in order. This is the one source of the visualizer order: the picker
+ * renders it and the V cycle walks it, so they cannot drift. Ridge is the default.
+ */
+export const VISUALIZER_GROUPS = [
+  { id: "classic", kinds: ["ridge", "terrain", "warp", "nebula", "bloom"] },
+  { id: "dots", kinds: ["halftone", "dot-spectrum", "dot-cover"] },
+  { id: "fluid", kinds: ["liquid", "ink", "mercury", "glass", "silk"] },
 ] as const;
 
-export type VisualizerKind = (typeof VISUALIZER_KINDS)[number];
+export type VisualizerGroupId = (typeof VISUALIZER_GROUPS)[number]["id"];
+
+/** Off draws nothing; it closes the order after the sections and carries no label. */
+export type VisualizerKind = (typeof VISUALIZER_GROUPS)[number]["kinds"][number] | "off";
+
+/** Every visualizer, in picker and cycle order. */
+export const VISUALIZER_KINDS: readonly VisualizerKind[] = [
+  ...VISUALIZER_GROUPS.flatMap((group): VisualizerKind[] => [...group.kinds]),
+  "off",
+];
 
 /** The kinds drawn by the WebGL2 renderer; Ridge stays on Canvas 2D and Off draws nothing. */
 export type GlKind = Exclude<VisualizerKind, "ridge" | "off">;

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
 import {
+  VISUALIZER_GROUPS,
   VISUALIZER_KINDS,
   effectiveVisualizerKind,
   fillsStage,
@@ -37,7 +38,7 @@ describe("normalizeVisualizerKind", () => {
 });
 
 describe("nextVisualizerKind", () => {
-  it("cycles Ridge, the WebGL kinds with the dot kinds after Bloom and the fluid kinds after them, then Off", () => {
+  it("cycles the classic, dot and fluid sections in picker order, then Off", () => {
     const seen: VisualizerKind[] = [];
     let kind: VisualizerKind = "ridge";
     for (let i = 0; i < 14; i++) {
@@ -47,19 +48,24 @@ describe("nextVisualizerKind", () => {
     expect(seen).toEqual([
       "ridge",
       "terrain",
-      "liquid",
       "warp",
       "nebula",
       "bloom",
       "halftone",
       "dot-spectrum",
       "dot-cover",
+      "liquid",
       "ink",
       "mercury",
       "glass",
       "silk",
       "off",
     ]);
+  });
+
+  it("walks the same order the picker renders from its sections", () => {
+    const pickerOrder = [...VISUALIZER_GROUPS.flatMap((group) => group.kinds), "off"];
+    expect([...VISUALIZER_KINDS]).toEqual(pickerOrder);
   });
 
   it("wraps from Off back to Ridge", () => {
@@ -124,7 +130,7 @@ describe("normalizeReactivity", () => {
 
 describe("needsCoverPixels", () => {
   it("holds for the kinds that draw the art itself", () => {
-    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual(["liquid", "dot-cover", "ink", "mercury", "glass"]);
+    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual(["dot-cover", "liquid", "ink", "mercury", "glass"]);
   });
 });
 
