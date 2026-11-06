@@ -16,14 +16,14 @@ use tauri::State;
 // -- Local Imports --
 use crate::adhoc::{is_ad_hoc, AdHocCover};
 use crate::covers::{
-    discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path, normalize_cover,
-    read_embedded_cover_bytes, read_full_res_blob, read_image_dimensions, resolve_track_cover,
-    thumb_cache_path, CoverSourceKind, InFlightGuard, ResolvedCover,
+    art_key, discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path,
+    normalize_cover, read_embedded_cover_bytes, read_full_res_blob, read_image_dimensions,
+    resolve_track_cover, thumb_cache_path, CoverSourceKind, InFlightGuard, ResolvedCover,
 };
 use crate::db;
 use crate::discovery::is_library_image;
 use crate::dto::{CoverCandidate, CoverRef, CoverSize, CoverSource};
-use crate::model::CoverRecord;
+use crate::model::{ArtKey, CoverRecord};
 use crate::normalize::{folder_of, normalize_path_key};
 use crate::state::AppState;
 
@@ -90,7 +90,7 @@ pub async fn list_cover_candidates(
             .map_err(|_| "index is unavailable".to_string())?;
         db::get_track_cover_inputs(&conn, track_id)
             .map_err(|e| e.to_string())?
-            .map(|(source_path, art)| (source_path, art == Some(true)))
+            .map(|inputs| (inputs.source_path, inputs.has_embedded_cover == Some(true)))
     };
     let Some((source_path, has_embedded)) = prepared else {
         return Ok(Vec::new());
@@ -145,12 +145,12 @@ pub async fn import_folder_cover(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        let Some((source_path, _)) =
+        let Some(inputs) =
             db::get_track_cover_inputs(&conn, track_id).map_err(|e| e.to_string())?
         else {
             return Err("track not found".to_string());
         };
-        folder_of(&source_path)
+        folder_of(&inputs.source_path)
     };
 
     let created_at = super::now_unix();
@@ -257,12 +257,12 @@ pub async fn remove_folder_cover(
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
-        let Some((source_path, _)) =
+        let Some(inputs) =
             db::get_track_cover_inputs(&conn, track_id).map_err(|e| e.to_string())?
         else {
             return Ok(None);
         };
-        let folder = folder_of(&source_path);
+        let folder = folder_of(&inputs.source_path);
         db::remove_folder_cover(&conn, &folder).map_err(|e| e.to_string())?;
     }
 
@@ -421,10 +421,12 @@ pub async fn playlist_cover(
 // ---- Resolution ----
 
 /// The outcome of reading the DB for a track's cover: nothing, a folder cover served straight
-/// from its cached thumbnail, or a source that still needs a decode off the runtime thread.
+/// from its cached thumbnail, the track's embedded art served the same way under its stored key, or
+/// a source that still needs a decode off the runtime thread.
 enum Resolution {
     None,
     Folder(CoverRef),
+    Embedded(CoverRef),
     Dynamic {
         source_path: String,
         has_embedded: bool,
@@ -432,12 +434,16 @@ enum Resolution {
         // path, where own art wins but the folder cover still stands in for a track that has none;
         // None on the normal path, where a present folder cover already resolved to `Folder`.
         fallback: Option<CoverRef>,
+        // The row's file stamp, set when the track has embedded art whose key is not stored yet, so
+        // the key read here can be written back against it.
+        backfill: Option<(i64, i64)>,
     },
 }
 
 /// Reads the DB to decide a track's cover at `max_edge`. A folder cover resolves fully here (its
-/// thumbnail already exists by hash, no decode); otherwise the embedded/adjacent decode is left
-/// to the caller's blocking stage. Sync: touches only the connection and a cache path.
+/// thumbnail already exists by hash, no decode), and so does embedded art whose key is stored and
+/// whose thumbnail is on disk; otherwise the embedded/adjacent decode is left to the caller's
+/// blocking stage. Sync: touches only the connection and cache paths.
 fn prepare_resolution(
     conn: &Connection,
     covers_dir: &Path,
@@ -445,7 +451,7 @@ fn prepare_resolution(
     max_edge: u32,
     keep_own: bool,
 ) -> rusqlite::Result<Resolution> {
-    let Some((source_path, art)) = db::get_track_cover_inputs(conn, track_id)? else {
+    let Some(inputs) = db::get_track_cover_inputs(conn, track_id)? else {
         return Ok(Resolution::None);
     };
 
@@ -463,7 +469,7 @@ fn prepare_resolution(
         }
     }
 
-    let folder = folder_of(&source_path);
+    let folder = folder_of(&inputs.source_path);
     // The folder cover, resolved to a ref if one is bound. It wins for a normal member; a
     // keep-own-cover member steps past it to its own art, keeping it only as the fallback for a
     // track with none - the same precedence export applies.
@@ -485,9 +491,26 @@ fn prepare_resolution(
         }
     }
 
+    // Embedded art wins over adjacent art, so a cached thumbnail under its key settles the track
+    // without opening the audio file.
+    let has_embedded = inputs.has_embedded_cover == Some(true);
+    if let Some(art) = inputs.embedded_art.as_ref().filter(|_| has_embedded) {
+        let path = thumb_cache_path(covers_dir, &art.hash, max_edge);
+        if path.exists() {
+            return Ok(Resolution::Embedded(CoverRef {
+                path: path_to_string(&path),
+                width: art.width,
+                height: art.height,
+                source: CoverSource::Embedded,
+            }));
+        }
+    }
+
     Ok(Resolution::Dynamic {
-        source_path,
-        has_embedded: art == Some(true),
+        backfill: (has_embedded && inputs.embedded_art.is_none())
+            .then_some((inputs.size_bytes, inputs.mtime)),
+        source_path: inputs.source_path,
+        has_embedded,
         fallback: if keep_own { folder_cover } else { None },
     })
 }
@@ -551,7 +574,8 @@ fn prepare_playlist_cover(
 }
 
 /// Resolves a track's cover, running any decode on a blocking thread. Shared by read_cover and
-/// the fallback path of remove_folder_cover.
+/// the fallback path of remove_folder_cover. A track whose embedded art key is not stored yet gets it
+/// written back from this read, so its next cold read skips the file.
 async fn resolve_at(
     state: &AppState,
     track_id: i64,
@@ -569,21 +593,29 @@ async fn resolve_at(
 
     match resolution {
         Resolution::None => Ok(None),
-        Resolution::Folder(cover) => Ok(Some(cover)),
+        Resolution::Folder(cover) | Resolution::Embedded(cover) => Ok(Some(cover)),
         Resolution::Dynamic {
             source_path,
             has_embedded,
             fallback,
+            backfill,
         } => {
             let covers_dir = state.covers_dir.clone();
             let guard = Arc::clone(&state.covers_in_flight);
-            tauri::async_runtime::spawn_blocking(move || {
-                generate_dynamic_ref(&covers_dir, &guard, &source_path, has_embedded, max_edge)
+            let generated = tauri::async_runtime::spawn_blocking(move || {
+                generate_dynamic(&covers_dir, &guard, &source_path, has_embedded, max_edge)
             })
             .await
+            .map_err(|_| "cover task failed to run".to_string())?;
+
+            if let (Some((size_bytes, mtime)), Some((_, Some(key)))) = (backfill, &generated) {
+                // Best-effort: a failed write leaves the key unknown and the next read tries again.
+                if let Ok(conn) = state.db.lock() {
+                    let _ = db::write_embedded_art_key(&conn, track_id, size_bytes, mtime, key);
+                }
+            }
             // Own art wins; the folder cover stands in only when the keep-own track has none.
-            .map(|own| own.or(fallback))
-            .map_err(|_| "cover task failed to run".to_string())
+            Ok(generated.map(|(own, _)| own).or(fallback))
         }
     }
 }
@@ -598,6 +630,17 @@ fn generate_dynamic_ref(
     has_embedded: bool,
     max_edge: u32,
 ) -> Option<CoverRef> {
+    generate_dynamic(covers_dir, guard, source_path, has_embedded, max_edge).map(|(cover, _)| cover)
+}
+
+/// generate_dynamic_ref, plus the key of the embedded art when that art is the cover it returns.
+fn generate_dynamic(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    source_path: &str,
+    has_embedded: bool,
+    max_edge: u32,
+) -> Option<(CoverRef, Option<ArtKey>)> {
     let path = Path::new(source_path);
     let adjacents = discover_adjacent_images(path);
 
@@ -605,11 +648,22 @@ fn generate_dynamic_ref(
     match resolve_track_cover(false, has_embedded, !adjacents.is_empty()) {
         ResolvedCover::Embedded => {
             let bytes = read_embedded_cover_bytes(path)?;
-            cover_ref_from_bytes(covers_dir, guard, &bytes, max_edge, CoverSource::Embedded)
+            let key = art_key(&bytes)?;
+            let cover = keyed_cover_ref(
+                covers_dir,
+                guard,
+                &bytes,
+                &key,
+                max_edge,
+                CoverSource::Embedded,
+            )?;
+            Some((cover, Some(key)))
         }
         ResolvedCover::Adjacent => {
             let bytes = std::fs::read(adjacents.first()?).ok()?;
-            cover_ref_from_bytes(covers_dir, guard, &bytes, max_edge, CoverSource::Adjacent)
+            let cover =
+                cover_ref_from_bytes(covers_dir, guard, &bytes, max_edge, CoverSource::Adjacent)?;
+            Some((cover, None))
         }
         ResolvedCover::Folder | ResolvedCover::None => None,
     }
@@ -628,7 +682,7 @@ pub(crate) fn resolve_cover_file(state: &AppState, track_id: i64) -> Option<Stri
     };
     match resolution {
         Resolution::None => None,
-        Resolution::Folder(cover) => Some(cover.path),
+        Resolution::Folder(cover) | Resolution::Embedded(cover) => Some(cover.path),
         Resolution::Dynamic {
             source_path,
             has_embedded,
@@ -709,13 +763,24 @@ fn cover_ref_from_bytes(
     max_edge: u32,
     source: CoverSource,
 ) -> Option<CoverRef> {
-    let (width, height) = read_image_dimensions(bytes).ok()?;
-    let hash = blake3::hash(bytes).to_hex().to_string();
-    let path = ensure_thumb(covers_dir, &hash, bytes, max_edge, guard).ok()?;
+    keyed_cover_ref(covers_dir, guard, bytes, &art_key(bytes)?, max_edge, source)
+}
+
+/// Builds a CoverRef for already-keyed `bytes` by caching their thumbnail under the key's hash. None
+/// when the bytes do not decode or the cache cannot be written.
+fn keyed_cover_ref(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    bytes: &[u8],
+    key: &ArtKey,
+    max_edge: u32,
+    source: CoverSource,
+) -> Option<CoverRef> {
+    let path = ensure_thumb(covers_dir, &key.hash, bytes, max_edge, guard).ok()?;
     Some(CoverRef {
         path: path_to_string(&path),
-        width: width as i64,
-        height: height as i64,
+        width: key.width,
+        height: key.height,
         source,
     })
 }
@@ -844,13 +909,12 @@ enum SavePlan {
 /// its integrity-checked store blob; otherwise the track's own embedded or adjacent art is left to
 /// the blocking stage. Errors only when the track row is absent. Sync: touches only the connection.
 fn prepare_save(conn: &Connection, track_id: i64) -> Result<SavePlan, String> {
-    let Some((source_path, art)) =
-        db::get_track_cover_inputs(conn, track_id).map_err(|e| e.to_string())?
+    let Some(inputs) = db::get_track_cover_inputs(conn, track_id).map_err(|e| e.to_string())?
     else {
         return Err("track not found".to_string());
     };
 
-    let folder = folder_of(&source_path);
+    let folder = folder_of(&inputs.source_path);
     if let Some(cover_id) = db::get_folder_cover(conn, &folder).map_err(|e| e.to_string())? {
         if let Some((content_hash, byte_len)) =
             db::get_cover_blob_key(conn, cover_id).map_err(|e| e.to_string())?
@@ -863,8 +927,8 @@ fn prepare_save(conn: &Connection, track_id: i64) -> Result<SavePlan, String> {
     }
 
     Ok(SavePlan::Derive {
-        source_path,
-        has_embedded: art == Some(true),
+        has_embedded: inputs.has_embedded_cover == Some(true),
+        source_path: inputs.source_path,
     })
 }
 
@@ -1159,6 +1223,91 @@ mod tests {
         conn.last_insert_rowid()
     }
 
+    // Writes an MP4 carrying `art` as its cover at music/song.m4a and indexes it with embedded art and
+    // no stored key, as a row read before keys existed. Returns its path and id.
+    fn embedded_art_track(conn: &Connection, music: &Path, art: Vec<u8>) -> (PathBuf, i64) {
+        let file = music.join("song.m4a");
+        crate::covers::test_support::write_mp4_with_pictures(
+            &file,
+            vec![crate::covers::test_support::png_picture(art)],
+        );
+        let id = insert_track(conn, &file.to_string_lossy());
+        conn.execute(
+            "UPDATE tracks SET has_embedded_cover = 1 WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+        (file, id)
+    }
+
+    #[test]
+    fn a_stored_key_with_a_cached_thumb_skips_the_file_read() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let guard = InFlightGuard::default();
+        let art = png_bytes(30, 20, [200, 40, 40]);
+        let (file, id) = embedded_art_track(&conn, &music.path, art.clone());
+        let key = art_key(&art).unwrap();
+        assert!(db::write_embedded_art_key(&conn, id, 10, 20, &key).unwrap());
+
+        // The key is known but no thumb is cached yet: the file is still read, with nothing to store.
+        let Resolution::Dynamic {
+            source_path,
+            backfill,
+            ..
+        } = prepare_resolution(&conn, &covers.path, id, DETAIL_EDGE, false).unwrap()
+        else {
+            panic!("expected a dynamic resolution before the thumb exists");
+        };
+        assert_eq!(backfill, None, "a stored key is not written again");
+        generate_dynamic_ref(&covers.path, &guard, &source_path, true, DETAIL_EDGE).unwrap();
+
+        // With the audio file gone, only the stored key and the cached thumb can resolve it.
+        std::fs::remove_file(&file).unwrap();
+        match prepare_resolution(&conn, &covers.path, id, DETAIL_EDGE, false).unwrap() {
+            Resolution::Embedded(cover) => {
+                let thumb = thumb_cache_path(&covers.path, &key.hash, DETAIL_EDGE);
+                assert_eq!(cover.path, thumb.to_string_lossy());
+                assert_eq!((cover.width, cover.height), (30, 20));
+                assert_eq!(cover.source, CoverSource::Embedded);
+            }
+            _ => panic!("expected the cached embedded thumb to resolve"),
+        }
+    }
+
+    #[test]
+    fn a_cover_read_backfills_an_unknown_key_once() {
+        let conn = db::open_in_memory().unwrap();
+        let covers = TempDir::new("covers");
+        let music = TempDir::new("music");
+        let art = png_bytes(24, 16, [20, 160, 90]);
+        let (file, id) = embedded_art_track(&conn, &music.path, art.clone());
+        let state = AppState::for_test(conn, covers.path.clone());
+        let stored = || {
+            let conn = state.db.lock().unwrap();
+            db::get_track_cover_inputs(&conn, id)
+                .unwrap()
+                .unwrap()
+                .embedded_art
+        };
+        assert_eq!(stored(), None);
+
+        let first = tauri::async_runtime::block_on(resolve_at(&state, id, THUMB_EDGE, false))
+            .unwrap()
+            .expect("the embedded art resolves");
+        assert_eq!(first.source, CoverSource::Embedded);
+        assert_eq!(stored(), art_key(&art), "the read wrote the key back");
+
+        // The next read resolves from the key alone, so it no longer needs the file.
+        std::fs::remove_file(&file).unwrap();
+        let again = tauri::async_runtime::block_on(resolve_at(&state, id, THUMB_EDGE, false))
+            .unwrap()
+            .expect("the cached thumb resolves");
+        assert_eq!(again.path, first.path);
+        assert_eq!((again.width, again.height), (24, 16));
+    }
+
     #[test]
     fn import_then_read_resolves_to_the_imported_cover() {
         let conn = db::open_in_memory().unwrap();
@@ -1257,6 +1406,7 @@ mod tests {
             source_path: sp,
             has_embedded,
             fallback,
+            ..
         } = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, true).unwrap()
         else {
             panic!("expected keep-own to resolve dynamically");
@@ -1292,6 +1442,7 @@ mod tests {
             source_path: sp,
             has_embedded,
             fallback,
+            ..
         } = prepare_resolution(&conn, &covers.path, track_id, DETAIL_EDGE, true).unwrap()
         else {
             panic!("expected a dynamic resolution");

@@ -61,6 +61,7 @@ pub fn normalize_track(
         rg_track_peak: parse_peak(&raw.rg_track_peak),
         rg_album_gain: parse_gain_db(&raw.rg_album_gain),
         rg_album_peak: parse_peak(&raw.rg_album_peak),
+        cover_art: raw.cover_art.clone(),
         scanned_at,
     }
 }

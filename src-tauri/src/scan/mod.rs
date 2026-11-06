@@ -943,6 +943,91 @@ mod tests {
         assert_eq!(again.inserted, 0);
     }
 
+    // The art key stored for one filename, read straight from the db.
+    fn art_key_of(db_path: &Path, filename: &str) -> (Option<String>, Option<i64>, Option<i64>) {
+        let conn = Connection::open(db_path).unwrap();
+        conn.query_row(
+            "SELECT art_hash, art_width, art_height FROM tracks WHERE filename = ?1",
+            params![filename],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    // Writes an MP4 carrying a `width` x `height` PNG cover and returns the PNG's bytes.
+    fn mp4_with_cover(path: &Path, width: u32, height: u32) -> Vec<u8> {
+        use crate::covers::test_support::{png_bytes, png_picture, write_mp4_with_pictures};
+        let png = png_bytes(width, height);
+        write_mp4_with_pictures(path, vec![png_picture(png.clone())]);
+        png
+    }
+
+    #[test]
+    fn scan_writes_the_art_key_of_new_and_changed_files() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let file = music.path.join("a.m4a");
+        fs::write(music.path.join("b.mp3"), b"").unwrap();
+
+        let png = mp4_with_cover(&file, 12, 6);
+        scan(&music.path, &db_path);
+        let hash = blake3::hash(&png).to_hex().to_string();
+        assert_eq!(
+            art_key_of(&db_path, "a.m4a"),
+            (Some(hash), Some(12), Some(6))
+        );
+        assert_eq!(art_key_of(&db_path, "b.mp3"), (None, None, None));
+
+        // A changed file is re-read and its key follows the new picture.
+        let png = mp4_with_cover(&file, 20, 10);
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET mtime = mtime - 1 WHERE filename = 'a.m4a'",
+                [],
+            )
+            .unwrap();
+        }
+        let again = scan(&music.path, &db_path);
+        assert_eq!(again.updated, 1);
+        let hash = blake3::hash(&png).to_hex().to_string();
+        assert_eq!(
+            art_key_of(&db_path, "a.m4a"),
+            (Some(hash), Some(20), Some(10))
+        );
+    }
+
+    #[test]
+    fn an_unknown_art_key_does_not_make_a_rescan_re_read() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        mp4_with_cover(&music.path.join("a.m4a"), 8, 8);
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+        scan(&music.path, &db_path);
+
+        // Rows indexed before the art key existed read it as unknown.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET art_hash = NULL, art_width = NULL, art_height = NULL",
+                [],
+            )
+            .unwrap();
+        }
+
+        let again = scan(&music.path, &db_path);
+        assert_eq!(again.total, 2);
+        assert_eq!(again.skipped, again.total, "no row reads as changed");
+        assert_eq!(again.updated, 0);
+        assert_eq!(
+            art_key_of(&db_path, "a.m4a"),
+            (None, None, None),
+            "the key is left to the first cover read"
+        );
+    }
+
     // The display_path stored for one filename, read straight from the db.
     fn display_path_of(db_path: &Path, filename: &str) -> Option<String> {
         let conn = Connection::open(db_path).unwrap();

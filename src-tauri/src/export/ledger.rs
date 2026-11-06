@@ -512,6 +512,39 @@ mod tests {
     }
 
     #[test]
+    fn the_art_key_never_moves_a_track_fingerprint() {
+        use crate::db;
+        use crate::export::plan::build_plan;
+        use crate::model::ArtKey;
+
+        let mut conn = db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO tracks (source_path, display_path, filename, ext, size_bytes, mtime,
+                                 raw_title, raw_artist, has_embedded_cover, scanned_at)
+             VALUES ('/m/1.mp3', '/m/1.mp3', '1.mp3', 'mp3', 10, 20, 'One', 'Artist', 1, 30)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        db::create_album(&mut conn, None, None, None, None, None, &[id], "album", 1).unwrap();
+
+        let print_of = |conn: &rusqlite::Connection| {
+            let plan = build_plan(conn).unwrap();
+            let c = &plan.containers[0];
+            track_fingerprint("Albums/A/B/01 - One.mp3", c, &c.tracks[0])
+        };
+        let before = print_of(&conn);
+
+        let key = ArtKey {
+            hash: "ab".repeat(32),
+            width: 600,
+            height: 600,
+        };
+        assert!(db::write_embedded_art_key(&conn, id, 10, 20, &key).unwrap());
+        assert_eq!(print_of(&conn), before);
+    }
+
+    #[test]
     fn a_fingerprint_is_deterministic_hex() {
         let c = container(vec![track()]);
         let a = print(&c);

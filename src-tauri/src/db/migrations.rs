@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 18;
+const LATEST_VERSION: i64 = 19;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -380,6 +380,17 @@ ALTER TABLE tracks ADD COLUMN loudness_size INTEGER;
 ALTER TABLE tracks ADD COLUMN loudness_mtime INTEGER;
 ";
 
+// Version 19: the embedded art key. `art_hash` is the blake3 hex of the file's cover picture, the key its
+// cached thumbnails sit under, and `art_width`/`art_height` its pixel size, so a warm cover read needs
+// no file read. A scan writes them on every read; a row read before this version fills them on its
+// first cover read instead, never through a forced rescan. Every column is nullable with no default, so
+// existing rows are untouched and read as unknown.
+const MIGRATION_V19: &str = "
+ALTER TABLE tracks ADD COLUMN art_hash TEXT;
+ALTER TABLE tracks ADD COLUMN art_width INTEGER;
+ALTER TABLE tracks ADD COLUMN art_height INTEGER;
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -405,6 +416,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             15 => conn.execute_batch(MIGRATION_V16)?,
             16 => conn.execute_batch(MIGRATION_V17)?,
             17 => conn.execute_batch(MIGRATION_V18)?,
+            18 => conn.execute_batch(MIGRATION_V19)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1277,6 +1289,62 @@ mod tests {
             )
             .unwrap();
         assert_eq!(unknown, 2, "every new column starts NULL");
+    }
+
+    /// A v18 DB with rows upgrades to v19 additively: every row survives with its other columns intact
+    /// and the three art-key columns read NULL, unknown.
+    #[test]
+    fn v18_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        for step in [
+            MIGRATION_V14,
+            MIGRATION_V15,
+            MIGRATION_V16,
+            MIGRATION_V17,
+            MIGRATION_V18,
+        ] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 18).unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+        conn.execute(
+            "UPDATE tracks SET has_embedded_cover = 1, gain_tags_read = 1 WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let kept: (i64, Option<i64>, Option<i64>, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), MAX(has_embedded_cover), MAX(gain_tags_read), MAX(size_bytes),
+                        MAX(mtime)
+                 FROM tracks",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            kept,
+            (2, Some(1), Some(1), 10, 20),
+            "every row survives with its other columns intact"
+        );
+
+        let unknown: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tracks
+                 WHERE art_hash IS NULL AND art_width IS NULL AND art_height IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unknown, 2, "every art-key column starts NULL");
     }
 
     /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row

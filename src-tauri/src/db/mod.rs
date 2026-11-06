@@ -42,7 +42,7 @@ use crate::dto::{
     PlaylistTrackRow, PurgeSummary, Root, RootRemovalImpact, TrackDisplay, TrackEdit,
     TrackPlacement,
 };
-use crate::model::{CoverRecord, TrackRecord};
+use crate::model::{ArtKey, CoverRecord, TrackRecord};
 use crate::normalize::{clean_text, normalize_genre_key, normalize_path_key};
 
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
@@ -78,22 +78,24 @@ fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
 /// the UNIQUE path means a re-scan updates in place under the same `id` rather than
 /// duplicating; every column but the key and `id` is refreshed from the incoming record.
 /// `root_id` stamps the track's origin root and is re-stamped on every pass, so a re-scan keeps
-/// the association current. The tag ReplayGain columns refresh with the scan columns; the measured
-/// `loudness_*` columns are never written here. Returns the row's id, inserted or updated.
+/// the association current. The tag ReplayGain and art-key columns refresh with the scan columns; the
+/// measured `loudness_*` columns are never written here. Returns the row's id, inserted or updated.
 pub fn upsert_track(
     conn: &Connection,
     rec: &TrackRecord,
     root_id: Option<i64>,
 ) -> rusqlite::Result<i64> {
+    let art = rec.cover_art.as_ref();
     conn.query_row(
         "INSERT INTO tracks (
             source_path, display_path, filename, ext, size_bytes, mtime, duration_secs,
             raw_title, raw_artist, raw_album, raw_album_artist,
             raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at, root_id,
-            rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, gain_tags_read
+            rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, gain_tags_read,
+            art_hash, art_width, art_height
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22, 1
+            ?19, ?20, ?21, ?22, 1, ?23, ?24, ?25
          )
          ON CONFLICT(source_path) DO UPDATE SET
             display_path = excluded.display_path,
@@ -117,7 +119,10 @@ pub fn upsert_track(
             rg_track_peak = excluded.rg_track_peak,
             rg_album_gain = excluded.rg_album_gain,
             rg_album_peak = excluded.rg_album_peak,
-            gain_tags_read = 1
+            gain_tags_read = 1,
+            art_hash = excluded.art_hash,
+            art_width = excluded.art_width,
+            art_height = excluded.art_height
          RETURNING id",
         params![
             rec.source_path,
@@ -142,6 +147,9 @@ pub fn upsert_track(
             rec.rg_track_peak,
             rec.rg_album_gain,
             rec.rg_album_peak,
+            art.map(|a| &a.hash),
+            art.map(|a| a.width),
+            art.map(|a| a.height),
         ],
         |r| r.get(0),
     )
@@ -270,23 +278,69 @@ pub fn remove_track_cover(conn: &mut Connection, track_ids: &[i64]) -> rusqlite:
     tx.commit()
 }
 
-/// The source path and tri-state embedded-art flag for one track, or None when no row has that
-/// id. The cover commands start from a track id and need its file path to find its folder and
-/// its own art.
+/// What the cover commands read for one track: its stored source path (for its folder and its own
+/// art), the tri-state embedded-art flag, the file stamp the row was read at, and the stored key of
+/// its embedded art, None while unknown.
+pub struct TrackCoverInputs {
+    pub source_path: String,
+    pub has_embedded_cover: Option<bool>,
+    pub size_bytes: i64,
+    pub mtime: i64,
+    pub embedded_art: Option<ArtKey>,
+}
+
+/// The cover inputs of one track, or None when no row has that id.
 pub fn get_track_cover_inputs(
     conn: &Connection,
     track_id: i64,
-) -> rusqlite::Result<Option<(String, Option<bool>)>> {
+) -> rusqlite::Result<Option<TrackCoverInputs>> {
     conn.query_row(
-        "SELECT source_path, has_embedded_cover FROM tracks WHERE id = ?1",
+        "SELECT source_path, has_embedded_cover, size_bytes, mtime, art_hash, art_width, art_height
+         FROM tracks WHERE id = ?1",
         params![track_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| {
+            let key: (Option<String>, Option<i64>, Option<i64>) = (r.get(4)?, r.get(5)?, r.get(6)?);
+            Ok(TrackCoverInputs {
+                source_path: r.get(0)?,
+                has_embedded_cover: r.get(1)?,
+                size_bytes: r.get(2)?,
+                mtime: r.get(3)?,
+                embedded_art: match key {
+                    (Some(hash), Some(width), Some(height)) => Some(ArtKey {
+                        hash,
+                        width,
+                        height,
+                    }),
+                    _ => None,
+                },
+            })
+        },
     )
     .map(Some)
     .or_else(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => Ok(None),
         other => Err(other),
     })
+}
+
+/// Stores the embedded art key of a row whose key is unknown, read from the file at the row's
+/// `size_bytes` and `mtime`. Writes the three art columns and nothing else, so neither the scan's
+/// change detection nor the export fingerprint moves. False when the row moved past that stamp, lost
+/// its embedded art, or already carries a key, in which case nothing is written.
+pub fn write_embedded_art_key(
+    conn: &Connection,
+    track_id: i64,
+    size_bytes: i64,
+    mtime: i64,
+    key: &ArtKey,
+) -> rusqlite::Result<bool> {
+    let changed = conn.execute(
+        "UPDATE tracks SET art_hash = ?4, art_width = ?5, art_height = ?6
+         WHERE id = ?1 AND size_bytes = ?2 AND mtime = ?3 AND has_embedded_cover = 1
+           AND art_hash IS NULL",
+        params![track_id, size_bytes, mtime, key.hash, key.width, key.height],
+    )?;
+    Ok(changed == 1)
 }
 
 /// The full-res store key for a cover: its content hash (the on-disk blob name) and the original
@@ -2453,6 +2507,7 @@ mod tests {
             rg_track_peak: None,
             rg_album_gain: None,
             rg_album_peak: None,
+            cover_art: None,
             scanned_at,
         }
     }
@@ -2530,7 +2585,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
 
         for table in [
             "tracks",
@@ -2608,7 +2663,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 18);
+        assert_eq!(version, 19);
     }
 
     #[test]
@@ -2685,6 +2740,113 @@ mod tests {
             .query_row("SELECT display_path FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored.as_deref(), Some("/music/song.mp3"));
+    }
+
+    fn key(hash: &str) -> ArtKey {
+        ArtKey {
+            hash: hash.to_string(),
+            width: 600,
+            height: 500,
+        }
+    }
+
+    #[test]
+    fn upsert_track_writes_and_refreshes_the_art_key() {
+        let conn = open_in_memory().unwrap();
+        let mut rec = sample(100);
+        rec.cover_art = Some(key("aa"));
+        let id = upsert_track(&conn, &rec, None).unwrap();
+        let read = || get_track_cover_inputs(&conn, id).unwrap().unwrap();
+        assert_eq!(read().embedded_art, Some(key("aa")));
+        assert_eq!((read().size_bytes, read().mtime), (1000, 2000));
+
+        // A re-read of a file that lost its art clears all three columns.
+        rec.cover_art = None;
+        upsert_track(&conn, &rec, None).unwrap();
+        let cleared: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tracks
+                 WHERE art_hash IS NULL AND art_width IS NULL AND art_height IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cleared, 1);
+    }
+
+    // Every column of the row outside the three art-key columns, as text.
+    fn non_art_columns(conn: &Connection, id: i64) -> Vec<String> {
+        let mut stmt = conn.prepare("SELECT * FROM tracks WHERE id = ?1").unwrap();
+        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        stmt.query_row([id], |r| {
+            let mut out = Vec::new();
+            for (i, name) in names.iter().enumerate() {
+                if !name.starts_with("art_") {
+                    let v: rusqlite::types::Value = r.get(i)?;
+                    out.push(format!("{name}={v:?}"));
+                }
+            }
+            Ok(out)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn the_art_key_backfill_writes_only_the_art_columns_once() {
+        let conn = open_in_memory().unwrap();
+        let id = upsert_track(&conn, &sample(100), None).unwrap();
+        let before = non_art_columns(&conn, id);
+
+        assert!(write_embedded_art_key(&conn, id, 1000, 2000, &key("aa")).unwrap());
+        assert_eq!(non_art_columns(&conn, id), before);
+        assert_eq!(
+            get_track_cover_inputs(&conn, id)
+                .unwrap()
+                .unwrap()
+                .embedded_art,
+            Some(key("aa"))
+        );
+
+        // A stored key is never overwritten by a later backfill.
+        assert!(!write_embedded_art_key(&conn, id, 1000, 2000, &key("bb")).unwrap());
+        assert_eq!(
+            get_track_cover_inputs(&conn, id)
+                .unwrap()
+                .unwrap()
+                .embedded_art,
+            Some(key("aa"))
+        );
+    }
+
+    #[test]
+    fn the_art_key_backfill_is_a_no_op_once_the_row_moved_or_lost_its_art() {
+        let conn = open_in_memory().unwrap();
+        let mut rec = sample(100);
+        let resized = upsert_track(&conn, &rec, None).unwrap();
+        rec.source_path = "/music/touched.mp3".to_string();
+        let touched = upsert_track(&conn, &rec, None).unwrap();
+        rec.source_path = "/music/bare.mp3".to_string();
+        rec.has_embedded_cover = Some(false);
+        let bare = upsert_track(&conn, &rec, None).unwrap();
+        // A rescan landing mid-read moves the row's stats.
+        conn.execute(
+            "UPDATE tracks SET size_bytes = 1001 WHERE id = ?1",
+            [resized],
+        )
+        .unwrap();
+        conn.execute("UPDATE tracks SET mtime = 2001 WHERE id = ?1", [touched])
+            .unwrap();
+
+        for id in [resized, touched, bare] {
+            assert!(!write_embedded_art_key(&conn, id, 1000, 2000, &key("aa")).unwrap());
+            assert_eq!(
+                get_track_cover_inputs(&conn, id)
+                    .unwrap()
+                    .unwrap()
+                    .embedded_art,
+                None
+            );
+        }
     }
 
     #[test]

@@ -13,7 +13,7 @@ mod embedded;
 mod thumbnail;
 
 // -- Type Imports --
-use crate::model::CoverRecord;
+use crate::model::{ArtKey, CoverRecord};
 
 pub use adjacent::{discover_adjacent_images, is_adjacent_image};
 pub use cache::{
@@ -80,6 +80,19 @@ pub fn normalize_cover(
     }
 }
 
+/// Keys one piece of art the way the thumbnail cache names it: the blake3 hex of the raw bytes, plus
+/// the size from the header alone. The scan and the cover resolver both key embedded art here, so a
+/// stored key always finds the thumbnails the resolver wrote. None when the header does not read as
+/// an image, which no thumbnail can be made from either.
+pub fn art_key(raw_bytes: &[u8]) -> Option<ArtKey> {
+    let (width, height) = read_image_dimensions(raw_bytes).ok()?;
+    Some(ArtKey {
+        hash: blake3::hash(raw_bytes).to_hex().to_string(),
+        width: width as i64,
+        height: height as i64,
+    })
+}
+
 /// Picks the single cover source for a track. A folder cover the user set wins; otherwise the
 /// track's own embedded art; otherwise an adjacent image on disk; otherwise nothing. The peek
 /// still shows every available source - this only chooses the one resolved thumbnail.
@@ -136,6 +149,16 @@ mod tests {
         assert_eq!(rec.source_kind, "imported");
         assert_eq!(rec.origin_path.as_deref(), Some("/pics/art.png"));
         assert_eq!(rec.created_at, 77);
+    }
+
+    #[test]
+    fn art_key_matches_the_manifest_hash_and_reads_the_header_size() {
+        let bytes = test_support::png_bytes(40, 20);
+        let key = art_key(&bytes).expect("a PNG keys");
+        let rec = normalize_cover(&bytes, 40, 20, CoverSourceKind::Embedded, None, 1);
+        assert_eq!(key.hash, rec.content_hash);
+        assert_eq!((key.width, key.height), (40, 20));
+        assert_eq!(art_key(b"not an image"), None);
     }
 
     #[test]

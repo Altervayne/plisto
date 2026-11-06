@@ -13,7 +13,7 @@ use lofty::prelude::{Accessor, AudioFile, ItemKey, TaggedFileExt};
 use lofty::tag::Tag;
 
 // -- Cover Imports --
-use crate::covers::read_with_art;
+use crate::covers::{art_key, read_with_art};
 
 // -- Type Imports --
 use crate::model::RawTags;
@@ -58,8 +58,11 @@ pub fn read_tags(path: &Path) -> (RawTags, bool) {
         read_replaygain(tag, tagged.file_type() == FileType::Opus, &mut raw);
     }
 
-    // Rides the file already read, so it costs no extra read.
-    raw.has_embedded_cover = Some(art.cover().is_some());
+    // Rides the file already read, so it costs no extra read: one hash pass over the picture bytes
+    // and a header parse, no decode.
+    let cover = art.cover();
+    raw.has_embedded_cover = Some(cover.is_some());
+    raw.cover_art = cover.and_then(|picture| art_key(picture.data()));
 
     (raw, false)
 }
@@ -307,5 +310,30 @@ mod tests {
 
         assert!(!errored);
         assert_eq!(raw.has_embedded_cover, Some(true));
+    }
+
+    #[test]
+    fn the_cover_key_is_the_picture_the_resolver_reads() {
+        let path = std::env::temp_dir().join(format!("plisto_scan_key_{}.m4a", std::process::id()));
+        write_mp4_with_pictures(&path, vec![png_picture(png_bytes(12, 6))]);
+
+        let (raw, _) = read_tags(&path);
+        let resolved = crate::covers::read_embedded_cover_bytes(&path);
+        let _ = std::fs::remove_file(&path);
+
+        let key = raw.cover_art.expect("the cover is keyed");
+        assert_eq!(Some(key.clone()), resolved.as_deref().and_then(art_key));
+        assert_eq!((key.width, key.height), (12, 6));
+    }
+
+    #[test]
+    fn a_file_without_a_cover_has_no_key() {
+        let file = TempFile::new("nokey.flac");
+        std::fs::write(&file.0, minimal_flac()).unwrap();
+
+        let (raw, _) = read_tags(&file.0);
+
+        assert_eq!(raw.has_embedded_cover, Some(false));
+        assert_eq!(raw.cover_art, None);
     }
 }

@@ -29,6 +29,17 @@ pub struct RawTags {
     pub rg_track_peak: Option<String>,
     pub rg_album_gain: Option<String>,
     pub rg_album_peak: Option<String>,
+    // The key of the cover picture, None when the file has none or its header does not read.
+    pub cover_art: Option<ArtKey>,
+}
+
+/// The key of one piece of art: the blake3 hex of its raw bytes, which its cached thumbnails are
+/// named by, and its pixel size read from the image header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtKey {
+    pub hash: String,
+    pub width: i64,
+    pub height: i64,
 }
 
 /// A normalized, persistable row matching the `tracks` schema one-to-one. Absent tags are
@@ -38,6 +49,7 @@ pub struct RawTags {
 /// tri-state: None means the file was never examined for art (the drain sentinel), Some(false)
 /// examined with none, Some(true) examined with art. The `rg_*` fields are tag ReplayGain: gains in
 /// dB within [-30, 30], peaks as linear amplitude in (0, 10], None when untagged or unparsable.
+/// `cover_art` fills the three `art_*` columns together, or leaves all three NULL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackRecord {
     pub source_path: String,
@@ -60,6 +72,7 @@ pub struct TrackRecord {
     pub rg_track_peak: Option<f64>,
     pub rg_album_gain: Option<f64>,
     pub rg_album_peak: Option<f64>,
+    pub cover_art: Option<ArtKey>,
     pub scanned_at: i64,
 }
 

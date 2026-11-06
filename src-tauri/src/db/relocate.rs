@@ -58,6 +58,9 @@ const SCAN_COLUMNS: &[&str] = &[
     "rg_album_gain",
     "rg_album_peak",
     "gain_tags_read",
+    "art_hash",
+    "art_width",
+    "art_height",
 ];
 
 // The measured loudness columns. They move as one group, since the stamp is what makes the value valid.
@@ -1256,6 +1259,66 @@ mod tests {
             1,
             "the fresh read is present, so the kept track no longer reads as gone"
         );
+    }
+
+    // A track's three art-key columns.
+    fn art_of(conn: &Connection, id: i64) -> (Option<String>, Option<i64>, Option<i64>) {
+        conn.query_row(
+            "SELECT art_hash, art_width, art_height FROM tracks WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn merge_carries_the_absorbed_art_key_with_its_scan_columns() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        let set = "UPDATE tracks SET art_hash = ?2, art_width = ?3, art_height = ?4 WHERE id = ?1";
+        // o[0] and n[0] both keyed: n's fresh read wins. o[1] keyed, n[1] read before the key existed:
+        // the kept key belongs to stats that no longer stand, so it goes with them.
+        conn.execute(set, params![fx.o[0], "old", 100, 100])
+            .unwrap();
+        conn.execute(set, params![fx.n[0], "new", 300, 200])
+            .unwrap();
+        conn.execute(set, params![fx.o[1], "kept", 50, 50]).unwrap();
+        conn.execute(set, params![fx.absorb_only, "only", 70, 80])
+            .unwrap();
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        assert_eq!(
+            art_of(&conn, fx.o[0]),
+            (Some("new".into()), Some(300), Some(200)),
+            "the absorbed key lands on the kept track"
+        );
+        assert_eq!(
+            art_of(&conn, fx.o[1]),
+            (None, None, None),
+            "an unknown absorbed key reads unknown on the kept track"
+        );
+        assert_eq!(
+            art_of(&conn, fx.absorb_only),
+            (Some("only".into()), Some(70), Some(80)),
+            "an absorbed-only track keeps its key"
+        );
+    }
+
+    #[test]
+    fn move_keeps_the_art_key() {
+        let mut conn = db::open_in_memory().unwrap();
+        let root = add_root(&conn, OLD);
+        let id = add_track(&conn, root, OLD, &["A", "1.mp3"], 11);
+        conn.execute(
+            "UPDATE tracks SET art_hash = 'h', art_width = 9, art_height = 8 WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+
+        move_root(&mut conn, root, NEW).unwrap();
+
+        assert_eq!(art_of(&conn, id), (Some("h".into()), Some(9), Some(8)));
     }
 
     // A track's measured loudness group and tag ReplayGain, in column order.
