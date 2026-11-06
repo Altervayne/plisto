@@ -106,9 +106,8 @@ export const AlbumCard = memo(function AlbumCard({
     onOpen(album.id);
   };
 
-  // Detail res, not thumb: the tile is 168px (more on hi-DPI) and the source cover is often larger, so a
-  // 128px thumb reads crunchy against the sharp drawer and folder-view covers, which already use detail.
-  const { src } = useAlbumCover(album.id, "detail");
+  // The 256px grid tier is sharp for a 168px tile up to 1.5x; above that the 512 detail tier keeps it crisp.
+  const { src } = useAlbumCover(album.id, window.devicePixelRatio <= 1.5 ? "grid" : "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();

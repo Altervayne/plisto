@@ -215,7 +215,7 @@ export interface ListTracksResponse {
 }
 
 /** The thumbnail size a cover command is asked for. Mirrors CoverSize in dto.rs. */
-export type CoverSize = 'thumb' | 'detail';
+export type CoverSize = 'thumb' | 'grid' | 'detail';
 
 /** Where a cover's art came from, for the provenance line. Mirrors CoverSource in dto.rs. */
 export type CoverSource = 'embedded' | 'adjacent' | 'imported';
@@ -226,6 +226,12 @@ export interface CoverRef {
   width: number;
   height: number;
   source: CoverSource;
+}
+
+/** One album's entry in a batched cover read. Mirrors AlbumCoverEntry in album_covers.rs. */
+export interface AlbumCoverEntry {
+  album_id: number;
+  cover: CoverRef | null;
 }
 
 /** One selectable art source for the cover picker. Mirrors CoverCandidate in dto.rs. */

@@ -28,9 +28,11 @@ use crate::normalize::{folder_of, normalize_path_key};
 use crate::state::AppState;
 
 // The bounded longest edge for each requested size. The small size feeds the candidate list; the
-// large one is the peek cover, big enough to scale cleanly on a HiDPI display.
+// grid size is the album wall card on a standard display; the large one is the peek cover, big
+// enough to scale cleanly on a HiDPI display. Imports write only the small and large sizes.
 const THUMB_EDGE: u32 = 128;
-const DETAIL_EDGE: u32 = 512;
+pub(super) const GRID_EDGE: u32 = 256;
+pub(super) const DETAIL_EDGE: u32 = 512;
 
 /// Resolves a track's single cover at the requested size, generating the thumbnail on a miss.
 /// Returns None when the track has no art from any source. `keep_own` mirrors the membership's
@@ -375,34 +377,31 @@ pub async fn track_cover_ext(
     .map_err(|_| "cover task failed to run".to_string())
 }
 
-/// Resolves an album's cover at the requested size: its bound cover when set, else the art of its
-/// lowest-numbered member track, else None. A bound cover resolves straight from its cached
-/// thumbnail by hash; the member fallback runs the same resolution read_cover does, decoding off
-/// the runtime thread on a miss.
+/// Resolves an album's dominant cover colours from its 128px cover, for Browse's ambient glow. Reads
+/// the same cover the wall shows (the bound cover, else the first member's art), so a bound album
+/// never glows with its first track's art. The verdict is cached beside the thumb like the track
+/// palette. None when the album has no cover or the cover is near-gray.
 #[tauri::command]
-pub async fn album_cover(
+pub async fn album_cover_palette(
     album_id: i64,
-    size: CoverSize,
     state: State<'_, AppState>,
-) -> Result<Option<CoverRef>, String> {
-    let edge = max_edge(size);
-    let decision = {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|_| "index is unavailable".to_string())?;
-        prepare_album_cover(&conn, &state.covers_dir, album_id, edge).map_err(|e| e.to_string())?
+) -> Result<Option<Vec<[u8; 3]>>, String> {
+    let thumb = super::album_covers::resolve_albums(state.inner(), &[album_id], THUMB_EDGE)
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|entry| entry.cover);
+    let Some(thumb) = thumb else {
+        return Ok(None);
     };
 
-    match decision {
-        AlbumCover::None => Ok(None),
-        AlbumCover::Bound(cover) => Ok(Some(cover)),
-        AlbumCover::FromTrack(track_id) => resolve_at(state.inner(), track_id, edge, false).await,
-    }
+    tauri::async_runtime::spawn_blocking(move || palette_for_thumb(&thumb.path))
+        .await
+        .map_err(|_| "cover task failed to run".to_string())
 }
 
 /// Resolves a playlist's cover at the requested size: the cover the user bound to it, served
-/// straight from its cached thumbnail by hash, or None when it has none set. Mirrors album_cover
+/// straight from its cached thumbnail by hash, or None when it has none set. Mirrors the album batch
 /// minus the member fallback - a playlist cover is only ever the one the user set.
 #[tauri::command]
 pub async fn playlist_cover(
@@ -423,7 +422,7 @@ pub async fn playlist_cover(
 /// The outcome of reading the DB for a track's cover: nothing, a folder cover served straight
 /// from its cached thumbnail, the track's embedded art served the same way under its stored key, or
 /// a source that still needs a decode off the runtime thread.
-enum Resolution {
+pub(super) enum Resolution {
     None,
     Folder(CoverRef),
     Embedded(CoverRef),
@@ -444,7 +443,7 @@ enum Resolution {
 /// thumbnail already exists by hash, no decode), and so does embedded art whose key is stored and
 /// whose thumbnail is on disk; otherwise the embedded/adjacent decode is left to the caller's
 /// blocking stage. Sync: touches only the connection and cache paths.
-fn prepare_resolution(
+pub(super) fn prepare_resolution(
     conn: &Connection,
     covers_dir: &Path,
     track_id: i64,
@@ -517,7 +516,7 @@ fn prepare_resolution(
 
 /// The outcome of reading the DB for an album's cover: nothing, the album's own bound cover served
 /// from its cached thumbnail, or a member track whose own art the caller still resolves.
-enum AlbumCover {
+pub(super) enum AlbumCover {
     None,
     Bound(CoverRef),
     FromTrack(i64),
@@ -526,7 +525,7 @@ enum AlbumCover {
 /// Reads the DB to decide an album's cover at `max_edge`. A bound cover resolves fully here (its
 /// thumbnail already exists by hash, no decode); otherwise the lowest-numbered member track is
 /// handed back for the caller's track resolution. Sync: touches only the connection and a path.
-fn prepare_album_cover(
+pub(super) fn prepare_album_cover(
     conn: &Connection,
     covers_dir: &Path,
     album_id: i64,
@@ -634,7 +633,7 @@ fn generate_dynamic_ref(
 }
 
 /// generate_dynamic_ref, plus the key of the embedded art when that art is the cover it returns.
-fn generate_dynamic(
+pub(super) fn generate_dynamic(
     covers_dir: &Path,
     guard: &InFlightGuard,
     source_path: &str,
@@ -1016,9 +1015,10 @@ pub fn backfill_full_res(covers_dir: &Path, guard: &InFlightGuard, entries: &[(S
 // ---- Shared helpers ----
 
 /// The requested size mapped to its bounded longest edge in pixels.
-fn max_edge(size: CoverSize) -> u32 {
+pub(super) fn max_edge(size: CoverSize) -> u32 {
     match size {
         CoverSize::Thumb => THUMB_EDGE,
+        CoverSize::Grid => GRID_EDGE,
         CoverSize::Detail => DETAIL_EDGE,
     }
 }
@@ -1061,7 +1061,7 @@ fn folder_images(track_path: &str) -> Vec<String> {
 }
 
 /// A cache path as the plain filesystem string the frontend wraps with convertFileSrc.
-fn path_to_string(path: &Path) -> String {
+pub(super) fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 

@@ -305,11 +305,12 @@ pub struct ListTracksResponse {
 }
 
 /// The thumbnail size a cover command is asked for. `thumb` is the small candidate-list size,
-/// `detail` the larger peek size. Each maps to a bounded longest edge in the cover pipeline.
+/// `grid` the album wall card size, `detail` the larger peek size. Each maps to a bounded longest edge in the cover pipeline.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CoverSize {
     Thumb,
+    Grid,
     Detail,
 }
 

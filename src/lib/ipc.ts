@@ -9,6 +9,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 
 // -- Type Imports --
 import type {
+  AlbumCoverEntry,
   AlbumFields,
   AlbumRow,
   AnalyzeProgress,
@@ -339,9 +340,20 @@ export function getCoverPalette(trackId: number): Promise<[number, number, numbe
   return invoke<[number, number, number][] | null>("read_cover_palette", { trackId });
 }
 
-/** Resolves an album's cover at `size`: its bound cover, else a member track's art, else null. */
-export function albumCover(albumId: number, size: CoverSize): Promise<CoverRef | null> {
-  return invoke<CoverRef | null>("album_cover", { albumId, size });
+/**
+ * Resolves many albums' covers at `size` in one call: each bound cover, else a member track's art,
+ * else null. One entry per id, in the order asked; an unknown id comes back with a null cover.
+ */
+export function albumCovers(albumIds: number[], size: CoverSize): Promise<AlbumCoverEntry[]> {
+  return invoke<AlbumCoverEntry[]>("album_covers", { albumIds, size });
+}
+
+/**
+ * An album's 2-3 dominant cover colours as sRGB triples, read from the cover the wall shows (the
+ * bound one first). Null when the album has no cover or the cover is near-gray.
+ */
+export function albumCoverPalette(albumId: number): Promise<[number, number, number][] | null> {
+  return invoke<[number, number, number][] | null>("album_cover_palette", { albumId });
 }
 
 /** Lists every selectable art source for a track: its embedded picture, then adjacent images. */

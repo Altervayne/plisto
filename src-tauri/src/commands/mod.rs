@@ -7,6 +7,7 @@
  */
 
 // -- Module Declarations --
+pub mod album_covers;
 pub mod bulk_edit;
 pub mod covers;
 pub mod discovery;
