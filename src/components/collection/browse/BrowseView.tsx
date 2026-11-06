@@ -29,6 +29,7 @@ import { useOrganizeEnabled, usePlayerEnabled } from "../../../state/player/stor
 // -- Utils Imports --
 import { browseOrder } from "./browseOrder";
 import { isFarJump } from "./shelfLayout";
+import { resolveFocus } from "./browseFocus";
 import { groupLabelText } from "./groupLabelText";
 import { recordLabel } from "./browseRecord";
 
@@ -57,8 +58,8 @@ const readReducedMotion = (): boolean => window.matchMedia(REDUCED_MOTION).match
 /**
  * The Browse segment: the toolbar, the shelf and its rail over every album and single, ordered by the
  * chips and the grouping. The focus is an album id in the collection store and resolves to an index in
- * the current order on every render, so a regroup or a chip keeps the same record when it is still
- * shown. Under the shelf sit the focused record's text, actions and track list; its menu hands it to
+ * the current order on every render, so a regroup or a rename keeps the same record; when it leaves the
+ * order the record now at its old index takes the focus. Under the shelf sit the focused record's text, actions and track list; its menu hands it to
  * a wall or the queue. Reduced motion swaps the tilted shelf for a flat strip.
  */
 export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: AlbumRow[] }) {
@@ -92,8 +93,17 @@ export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: A
   }, [records, membership, genres, groupBy, kinds]);
 
   const count = order.items.length;
-  const focus = count === 0 ? 0 : Math.min(count - 1, order.offsetOf(focusId ?? -1) ?? 0);
+  // The index the shelf last rested on: where a removed focus lands instead of snapping to the start.
+  const restedAt = useRef<number | null>(null);
+  const focus = resolveFocus(order.offsetOf, count, focusId, restedAt.current);
   const focused = count === 0 ? null : order.items[focus];
+  useEffect(() => {
+    if (count > 0) restedAt.current = focus;
+  }, [count, focus]);
+  // A focus that fell back to a neighbour becomes the stored one, so later changes follow it.
+  useEffect(() => {
+    if (focused && focused.id !== focusId) focusBrowse(focused.id);
+  }, [focused, focusId, focusBrowse]);
   const actions = useRecordActions(focused);
 
   // The menu belongs to the focused record alone: a move closes it.

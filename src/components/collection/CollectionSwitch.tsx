@@ -1,8 +1,10 @@
 // -- Framework Imports --
-import type { ReactNode } from "react";
-
 // -- Component Imports --
 import { SegmentedControl } from "../common/SegmentedControl";
+import { BrowseHint } from "./BrowseHint";
+
+// -- Hook Imports --
+import { useBrowseHint } from "./useBrowseHint";
 
 // -- Unit Imports --
 import { segmentViews, switchShows } from "./collectionSegments";
@@ -28,22 +30,21 @@ const LABEL: Record<CollectionSegment, (d: Dict) => string> = {
 /**
  * The Collection's segment switch, centred in the controls strip. Counts trail as plain tabular text
  * and an empty Singles dims in place. With one segment left there is nothing to switch, so it renders
- * nothing. `hint` hangs under the switch, centred on it.
+ * nothing. The one-time Browse hint hangs under the switch, centred on it.
  */
 export function CollectionSwitch({
   visible,
   segment,
   counts,
   onChange,
-  hint,
 }: {
   visible: CollectionSegment[];
   segment: CollectionSegment;
   counts: SegmentCounts;
   onChange: (segment: CollectionSegment) => void;
-  hint?: ReactNode;
 }) {
   const t = useT();
+  const hint = useBrowseHint(segment);
   if (!switchShows(visible)) return null;
   return (
     <div className={styles.switch}>
@@ -58,7 +59,9 @@ export function CollectionSwitch({
           dimmed: view.dimmed,
         }))}
       />
-      {hint}
+      {hint.show ? (
+        <BrowseHint onOpen={() => onChange("browse")} onDismiss={hint.retire} />
+      ) : null}
     </div>
   );
 }
