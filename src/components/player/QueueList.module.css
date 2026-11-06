@@ -11,12 +11,13 @@
 }
 
 /* The glass backing for a visualizer running under the column: a surface tint over a blur of what moves
- * beneath, reaching a little past the column so the rows sit inside it. It fades in and out with the
- * pick; at rest it holds no blur, so the column costs nothing while unused. */
+ * beneath, reaching a little past the column so the rows sit inside it. The top, right and bottom reach
+ * leave an even 10px to the panel edge against the stage's 18/30/24 padding. It fades in and out with
+ * the pick; at rest it holds no blur, so the column costs nothing while unused. */
 .queue::before {
   content: "";
   position: absolute;
-  inset: -10px -14px -8px -8px;
+  inset: -8px -20px -14px -8px;
   z-index: -1;
   border-radius: var(--r-md);
   background: color-mix(in srgb, var(--surface) 62%, transparent);
