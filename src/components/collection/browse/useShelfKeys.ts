@@ -64,11 +64,14 @@ export function shelfIntent(e: ShelfKey): ShelfIntent | null {
   }
 }
 
-/** Pixels of scroll per record. */
+/** Pixels of precision scroll per record. */
 export const WHEEL_STEP = 60;
 
-/** A line-mode delta (a mouse wheel on some systems) in pixels. */
-export const WHEEL_LINE = 33;
+/** A pixel delta this large in one event is a mouse-wheel notch, not a trackpad's fine stream. */
+export const WHEEL_NOTCH_PX = 50;
+
+// WheelEvent.DOM_DELTA_PIXEL, spelled out so the math runs without a DOM.
+const DOM_DELTA_PIXEL = 0;
 
 /** Idle time after which a partial scroll is forgotten. */
 export const WHEEL_IDLE_MS = 220;
@@ -82,12 +85,19 @@ export interface WheelDelta {
 
 /**
  * Adds one wheel event to the running total and returns the whole records it makes, plus what is
- * left over. The dominant axis wins, so a sideways trackpad swipe scrubs too.
+ * left over. A notch (a line- or page-mode event, or one large pixel delta) is exactly one record and
+ * drops any partial total; a precision trackpad's small deltas add up, a record per WHEEL_STEP. The
+ * dominant axis wins, so a sideways trackpad swipe scrubs too.
  */
 export function accumulateWheel(acc: number, e: WheelDelta): { steps: number; acc: number } {
   const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-  const total = acc + raw * (e.deltaMode === 1 ? WHEEL_LINE : 1);
-  const steps = Math.trunc(total / WHEEL_STEP);
+  if (raw === 0) return { steps: 0, acc };
+  if (e.deltaMode !== DOM_DELTA_PIXEL || Math.abs(raw) >= WHEEL_NOTCH_PX) {
+    return { steps: Math.sign(raw), acc: 0 };
+  }
+  const total = acc + raw;
+  // "|| 0" folds the -0 a small negative total truncates to.
+  const steps = Math.trunc(total / WHEEL_STEP) || 0;
   return { steps, acc: total - steps * WHEEL_STEP };
 }
 

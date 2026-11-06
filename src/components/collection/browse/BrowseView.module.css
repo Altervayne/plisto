@@ -1,6 +1,8 @@
-/* The Browse segment: the toolbar over a centred column holding the shelf, with the rail at its foot. */
+/* The Browse segment: the toolbar over a centred column holding the shelf, with the rail at its foot.
+ * It clips, since the focus glow is wider than a narrow pane. */
 .browse {
   position: relative;
+  overflow: clip;
   flex: 1;
   min-width: 0;
   min-height: 0;

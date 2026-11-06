@@ -8,6 +8,8 @@ import { LEVEL_TAU, easeEnvelope } from "../../state/player/visualSignal";
 
 // -- Utils Imports --
 import { isDarkTheme } from "../../theme";
+import { derivePaletteTone, mix } from "../covers/paletteTone";
+import type { PaletteTone } from "../covers/paletteTone";
 
 // -- Hook Imports --
 import { useCoverPalette, type Palette } from "../covers/useCoverPalette";
@@ -36,15 +38,8 @@ const AURORA_BREATH_LIFT = 0.35;
 // rather than a slow swell. One smoothing stage (this), not two, or the beat washes out.
 const BREATH_ATTACK = 0.45;
 const BREATH_DECAY = 0.12;
-const AURORA_SAT_CEILING = 0.58;
-const AURORA_SAT_FLOOR = 0.2;
-const AURORA_L_TARGET_LIGHT = 0.5;
-const AURORA_L_TARGET_DARK = 0.55;
 const AURORA_OPACITY_LIGHT = 0.22;
 const AURORA_OPACITY_DARK = 0.5;
-// A barely-there warm tint standing in for a missing or near-gray cover, never pure gray.
-const AURORA_NEUTRAL_TINT: Hsl = { h: 35, s: 0.1, l: 0.58 };
-const AURORA_NOCOVER_OPACITY_FACTOR = 0.6;
 const AURORA_BLUR_PX = 48;
 const AURORA_CROSSFADE_MS = 1400;
 const AURORA_FPS = 30;
@@ -61,18 +56,6 @@ const BLOOM_CORE_ALPHA = 0.7;
 // would only cost fill for no visible gain.
 const BACK_W = 480;
 const BACK_H = 270;
-
-interface Rgb {
-  r: number;
-  g: number;
-  b: number;
-}
-
-interface Hsl {
-  h: number;
-  s: number;
-  l: number;
-}
 
 /*
  * The three blooms. Centres and radii are fractions of the backing width, large so they overlap into
@@ -140,95 +123,6 @@ const BLOOMS: Bloom[] = [
   },
 ];
 
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
-function mix(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-/** sRGB (0..255) to HSL with h in degrees, s and l in 0..1. */
-function rgbToHsl({ r, g, b }: Rgb): Hsl {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const l = (max + min) / 2;
-  const d = max - min;
-  if (d === 0) return { h: 0, s: 0, l };
-  const s = d / (1 - Math.abs(2 * l - 1));
-  let h: number;
-  if (max === rn) h = ((gn - bn) / d) % 6;
-  else if (max === gn) h = (bn - rn) / d + 2;
-  else h = (rn - gn) / d + 4;
-  h *= 60;
-  if (h < 0) h += 360;
-  return { h, s, l };
-}
-
-/** HSL back to sRGB (0..255). */
-function hslToRgb({ h, s, l }: Hsl): Rgb {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = h / 60;
-  const x = c * (1 - Math.abs((hp % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hp < 1) [r, g] = [c, x];
-  else if (hp < 2) [r, g] = [x, c];
-  else if (hp < 3) [g, b] = [c, x];
-  else if (hp < 4) [g, b] = [x, c];
-  else if (hp < 5) [r, b] = [x, c];
-  else [r, b] = [c, x];
-  const m = l - c / 2;
-  return {
-    r: Math.round((r + m) * 255),
-    g: Math.round((g + m) * 255),
-    b: Math.round((b + m) * 255),
-  };
-}
-
-/**
- * Tempers a raw palette colour into the aurora's calm register: the hue stands, saturation is pulled
- * into a soft band, and lightness is drawn toward the theme's target so the field reads the same on
- * either ground. Hue and saturation are theme-independent; only lightness moves with the theme.
- */
-function temper(rgb: Rgb, isDark: boolean): Rgb {
-  const { h, s, l } = rgbToHsl(rgb);
-  const sat = clamp(s, AURORA_SAT_FLOOR, AURORA_SAT_CEILING);
-  const target = isDark ? AURORA_L_TARGET_DARK : AURORA_L_TARGET_LIGHT;
-  const light = clamp(mix(l, target, 0.6), 0.46, 0.66);
-  return hslToRgb({ h, s: sat, l: light });
-}
-
-/** The tempered colour per bloom plus the layer-opacity factor for a given palette and theme. */
-interface Derived {
-  colors: Rgb[];
-  opacityFactor: number;
-}
-
-/**
- * Derives the three bloom colours for a palette: a null or near-gray palette paints the neutral tint
- * on all three and dims the layer; a palette with fewer colours than blooms reuses its dominant for
- * the rest.
- */
-function derive(palette: Palette | null, isDark: boolean): Derived {
-  if (!palette || palette.length === 0) {
-    const tint = hslToRgb(AURORA_NEUTRAL_TINT);
-    return {
-      colors: BLOOMS.map(() => tint),
-      opacityFactor: AURORA_NOCOVER_OPACITY_FACTOR,
-    };
-  }
-  const colors = BLOOMS.map((_, i) => {
-    const [r, g, b] = palette[Math.min(i, palette.length - 1)];
-    return temper({ r, g, b }, isDark);
-  });
-  return { colors, opacityFactor: 1 };
-}
-
 export function Aurora({
   trackId,
   coverRef,
@@ -292,8 +186,8 @@ export function Aurora({
     const paint = (
       driftTime: number,
       energy: number,
-      from: Derived,
-      to: Derived,
+      from: PaletteTone,
+      to: PaletteTone,
       crossfade: number,
     ) => {
       ctx.globalCompositeOperation = "source-over";
@@ -339,7 +233,7 @@ export function Aurora({
       // One still frame: base composition, base radii, no breath. Repaint only on the seams.
       const still = () => {
         isDark = isDarkTheme();
-        const d = derive(paletteRef.current, isDark);
+        const d = derivePaletteTone(paletteRef.current, isDark, BLOOMS.length);
         paint(0, 0, d, d, 1);
       };
       repaintRef.current = still;
@@ -364,7 +258,7 @@ export function Aurora({
     let smoothed: number[] = new Array(BAND_COUNT).fill(0);
     let easedLevel = 0;
     let driftTime = Math.PI; // a small offset so the blooms do not all start on a shared phase
-    let from = derive(paletteRef.current, isDark);
+    let from = derivePaletteTone(paletteRef.current, isDark, BLOOMS.length);
     let to = from;
     let crossfade = 1;
     let consumed = paletteRef.current;
@@ -385,7 +279,7 @@ export function Aurora({
         const nextDark = isDarkTheme();
         if (nextDark !== isDark) {
           isDark = nextDark;
-          to = derive(consumed, isDark);
+          to = derivePaletteTone(consumed, isDark, BLOOMS.length);
           if (crossfade >= 1) from = to;
         }
       }
@@ -395,7 +289,7 @@ export function Aurora({
       if (paletteRef.current !== consumed) {
         consumed = paletteRef.current;
         from = to;
-        to = derive(consumed, isDark);
+        to = derivePaletteTone(consumed, isDark, BLOOMS.length);
         crossfade = 0;
       }
 

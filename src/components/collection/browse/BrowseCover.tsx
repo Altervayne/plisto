@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { memo } from "react";
+import { memo, useCallback, useState } from "react";
 import type { CSSProperties } from "react";
 
 // -- Icon Imports --
@@ -21,9 +21,37 @@ import type { AlbumRow } from "../../../types";
 import styles from "./BrowseCover.module.css";
 
 /**
- * One record on the shelf: a listbox option holding the album's cover at the grid tier. A record with
- * no cover shows a placeholder recess with a hairline edge and the title on it, so a tilted run of
- * placeholders still reads as separate records. Placement comes from the shelf as a ready transform.
+ * The focused record's cover at the detail tier, cross-faded in over the grid tier once it loads.
+ * Nothing shows until then, so the grid art holds; an image already cached shows at once.
+ */
+function DetailArt({ albumId }: { albumId: number }) {
+  const { src } = useAlbumCover(albumId, "detail");
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const armLoaded = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (node?.complete && node.naturalWidth > 0) setLoadedSrc(node.getAttribute("src"));
+    },
+    [],
+  );
+  if (src == null) return null;
+  return (
+    <span className={styles.detail} data-loaded={loadedSrc === src ? "" : undefined} aria-hidden="true">
+      <img
+        ref={armLoaded}
+        src={src}
+        alt=""
+        decoding="async"
+        onLoad={() => setLoadedSrc(src)}
+      />
+    </span>
+  );
+}
+
+/**
+ * One record on the shelf: a listbox option holding the album's cover at the grid tier, the focused
+ * one also loading the detail tier over it. A record with no cover shows a placeholder recess with a
+ * hairline edge and the title on it, so a tilted run of placeholders still reads as separate records.
+ * Placement comes from the shelf as a ready transform.
  */
 export const BrowseCover = memo(function BrowseCover({
   album,
@@ -78,6 +106,7 @@ export const BrowseCover = memo(function BrowseCover({
             <span className={styles.placeholderTitle}>{title}</span>
           </div>
         ) : null}
+        {focused ? <DetailArt albumId={album.id} /> : null}
       </div>
     </div>
   );

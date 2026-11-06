@@ -250,6 +250,17 @@ export const fr: Dict = {
     browseLastMonth: "30 derniers jours",
     browseEarlierThisYear: "Plus tôt en {year}",
     browseBefore: "Avant {year}",
+    browsePlay: "Lire {title}",
+    browseOpenAlbums: "Ouvrir dans Albums",
+    browseOpenSingles: "Ouvrir dans Singles",
+    browseDiscs: { one: "{{n}} disque", other: "{{n}} disques" },
+    browseMinutes: "{{n}} min",
+    browseFiled: {
+      one: "Classé sous {genre} : {count} sur {{n}} piste",
+      other: "Classé sous {genre} : {count} sur {{n}} pistes",
+    },
+    browseFiledTie: ", à égalité avec {names}, donc le premier dans l'ordre alphabétique",
+    browseFiledAlso: "Aussi {list}.",
   },
 
   unsorted: {

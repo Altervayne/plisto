@@ -4,6 +4,7 @@ import type { CSSProperties, MouseEvent, RefObject } from "react";
 
 // -- Component Imports --
 import { BrowseCover } from "./BrowseCover";
+import { BrowseGlow } from "./BrowseGlow";
 
 // -- Hook Imports --
 import { useShelfKeys } from "./useShelfKeys";
@@ -32,8 +33,9 @@ const NEAR = 2;
 /**
  * The shelf: a listbox over a window of records around the focus, each placed in CSS 3D by its
  * distance from the focus plus a gap per group boundary, with a floating label over each group's first
- * record. Only the window is mounted, so the DOM holds the same few records whatever the library size.
- * The focus itself lives above, as an album id; this reports moves and activations.
+ * record, and the focused record's cover-palette glow behind them. Only the window is mounted, so the
+ * DOM holds the same few records whatever the library size. The focus itself lives above, as an album
+ * id; this reports moves, activations and menu requests.
  */
 export function BrowseShelf({
   order,
@@ -136,6 +138,7 @@ export function BrowseShelf({
       style={{ "--cs": `${COVER_SIZE}px` } as CSSProperties}
       onKeyDown={onKeyDown}
     >
+      <BrowseGlow albumId={items[focus].id} reduced={reduced} />
       <div ref={sceneRef} className={styles.scene}>
         <div
           ref={planeRef}

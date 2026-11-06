@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BrowseToolbar } from "./BrowseToolbar";
 import { BrowseShelf } from "./BrowseShelf";
 import { BrowseRail } from "./BrowseRail";
+import { BrowseInfo } from "./BrowseInfo";
+import { BrowseTrackList } from "./BrowseTrackList";
+import { BrowseRecordMenu } from "./BrowseRecordMenu";
 import { EmptyState } from "../../common/EmptyState";
 
 // -- Hook Imports --
@@ -21,6 +24,7 @@ import {
   useToggleBrowseKind,
 } from "../../../state/collection/store";
 import { useGenres, useMembership } from "../../../state/organize/store";
+import { useOrganizeEnabled, usePlayerEnabled } from "../../../state/player/store";
 
 // -- Utils Imports --
 import { browseOrder } from "./browseOrder";
@@ -54,7 +58,8 @@ const readReducedMotion = (): boolean => window.matchMedia(REDUCED_MOTION).match
  * The Browse segment: the toolbar, the shelf and its rail over every album and single, ordered by the
  * chips and the grouping. The focus is an album id in the collection store and resolves to an index in
  * the current order on every render, so a regroup or a chip keeps the same record when it is still
- * shown. Reduced motion swaps the tilted shelf for a flat strip.
+ * shown. Under the shelf sit the focused record's text, actions and track list; its menu hands it to
+ * a wall or the queue. Reduced motion swaps the tilted shelf for a flat strip.
  */
 export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: AlbumRow[] }) {
   const t = useT();
@@ -70,6 +75,9 @@ export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: A
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [fadeSeq, setFadeSeq] = useState(0);
   const [announcement, setAnnouncement] = useState("");
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const player = usePlayerEnabled();
+  const organize = useOrganizeEnabled();
 
   // The chips filter only while both kinds exist; with one kind there is nothing to filter.
   const both = albums.length > 0 && singles.length > 0;
@@ -86,7 +94,17 @@ export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: A
   const count = order.items.length;
   const focus = count === 0 ? 0 : Math.min(count - 1, order.offsetOf(focusId ?? -1) ?? 0);
   const focused = count === 0 ? null : order.items[focus];
-  const { activate } = useRecordActions(focused);
+  const actions = useRecordActions(focused);
+
+  // The menu belongs to the focused record alone: a move closes it.
+  const focusedId = focused?.id ?? null;
+  useEffect(() => setMenuAt(null), [focusedId]);
+
+  const onMenu = useCallback((x: number, y: number) => setMenuAt({ x, y }), []);
+  const closeMenu = useCallback(() => {
+    setMenuAt(null);
+    stageRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const moveTo = useCallback(
     (index: number, jump: boolean) => {
@@ -150,8 +168,37 @@ export function BrowseView({ albums, singles }: { albums: AlbumRow[]; singles: A
             nowYear={nowYear}
             stageRef={stageRef}
             onFocus={moveTo}
-            onActivate={activate}
+            onActivate={actions.activate}
+            onMenu={onMenu}
           />
+          {focused ? (
+            <>
+              <BrowseInfo
+                album={focused}
+                tracks={actions.tracks}
+                filed={groupBy === "genre"}
+                player={player}
+                organize={organize}
+                onPlay={actions.play}
+                onOpen={actions.open}
+                onSelect={actions.select}
+              />
+              <BrowseTrackList
+                key={focused.id}
+                tracks={actions.tracks}
+                reduced={reduced}
+                onPlayFrom={player ? actions.playFrom : undefined}
+              />
+              <BrowseRecordMenu
+                album={focused}
+                at={menuAt}
+                actions={actions}
+                player={player}
+                organize={organize}
+                onClose={closeMenu}
+              />
+            </>
+          ) : null}
           <BrowseRail order={order} focus={focus} nowYear={nowYear} onJump={onJump} />
         </div>
       )}

@@ -1,0 +1,123 @@
+/*
+ * The focused record's track list: a fixed-height box under its text that scrolls within itself, so the
+ * shelf never moves. It fades at whichever edge has more. Rows rise in on a short stagger once the box
+ * opens; reduced motion shows them at once.
+ */
+.tracks {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  width: min(660px, 100%);
+  height: 196px;
+  margin-top: 14px;
+}
+
+.tracks[data-below] {
+  -webkit-mask-image: linear-gradient(180deg, #000 82%, transparent);
+  mask-image: linear-gradient(180deg, #000 82%, transparent);
+}
+
+.tracks[data-above][data-below] {
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 82%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 14%, #000 82%, transparent);
+}
+
+.tracks[data-above]:not([data-below]) {
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%);
+  mask-image: linear-gradient(180deg, transparent, #000 14%);
+}
+
+.scroll {
+  height: 100%;
+}
+
+.disc + .disc {
+  margin-top: 10px;
+}
+
+.discLabel {
+  padding: 0 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  transition-delay: calc(var(--k) * 24ms);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.two {
+  columns: 2;
+  column-gap: 40px;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  break-inside: avoid;
+  opacity: 0;
+  transform: translateY(5px);
+  transition:
+    opacity 0.22s ease,
+    transform 0.26s var(--ease-cover),
+    background var(--dur-fast) ease;
+  transition-delay: calc(var(--k) * 24ms), calc(var(--k) * 24ms), 0s;
+}
+
+.tracks[data-open] .row {
+  opacity: 1;
+  transform: none;
+}
+
+.tracks[data-open] .discLabel {
+  opacity: 1;
+}
+
+.playable {
+  cursor: pointer;
+}
+
+.playable:hover {
+  background: var(--veil);
+}
+
+.tracks[data-reduced] .row,
+.tracks[data-reduced] .discLabel {
+  transition: none;
+}
+
+.no {
+  flex: none;
+  width: 18px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.duration {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

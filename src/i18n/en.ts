@@ -249,6 +249,17 @@ export const en = {
     browseLastMonth: "Last 30 days",
     browseEarlierThisYear: "Earlier in {year}",
     browseBefore: "Before {year}",
+    browsePlay: "Play {title}",
+    browseOpenAlbums: "Open in Albums",
+    browseOpenSingles: "Open in Singles",
+    browseDiscs: { one: "{{n}} disc", other: "{{n}} discs" },
+    browseMinutes: "{{n}} min",
+    browseFiled: {
+      one: "Filed under {genre}: {count} of {{n}} track",
+      other: "Filed under {genre}: {count} of {{n}} tracks",
+    },
+    browseFiledTie: ", tied with {names}, so the first alphabetically",
+    browseFiledAlso: "Also {list}.",
   },
 
   unsorted: {
