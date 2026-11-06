@@ -140,6 +140,36 @@ export function descendantTracks(tracks: TrackRow[], scopeId: string): TrackRow[
   return tracks.filter((t) => foldId(t.source_path).startsWith(prefix));
 }
 
+/** The track ids a folder row can gather: every one beneath it, and only those sitting directly in it. */
+export interface FolderContents {
+  all: number[];
+  own: number[];
+}
+
+/**
+ * The gatherable track ids of each folder in `folders`, keyed by folder id. One fold per track, so the
+ * map is cheap to rebuild whenever the tracks change; a folder with no tracks maps to empty lists.
+ */
+export function folderContents(
+  tracks: TrackRow[],
+  folders: FolderNode[],
+): Map<string, FolderContents> {
+  const contents = new Map<string, FolderContents>();
+  for (const folder of folders) contents.set(folder.id, { all: [], own: [] });
+  for (const t of tracks) {
+    const folded = foldId(t.source_path);
+    const dir = parentId(folded);
+    for (const folder of folders) {
+      if (!folded.startsWith(folder.id + "/")) continue;
+      const entry = contents.get(folder.id);
+      if (!entry) continue;
+      entry.all.push(t.id);
+      if (dir === folder.id) entry.own.push(t.id);
+    }
+  }
+  return contents;
+}
+
 /**
  * The breadcrumb from `rootId` down to `scopeId`, inclusive. Walks up by parent from the scope until
  * it reaches the root, then reverses. Each crumb takes its real-case name; the root crumb's name is

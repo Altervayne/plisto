@@ -7,6 +7,7 @@ import {
   childFolders,
   descendantTracks,
   foldId,
+  folderContents,
   immediateTracks,
   isLibraryScope,
   LIBRARY_SCOPE,
@@ -241,5 +242,35 @@ describe("isLibraryScope", () => {
   it("holds for the sentinel and never for a real folded path", () => {
     expect(isLibraryScope(LIBRARY_SCOPE)).toBe(true);
     expect(isLibraryScope("f:/mobile music")).toBe(false);
+  });
+});
+
+describe("folderContents", () => {
+  const tracks = [
+    track(1, "f:\\music\\lib\\a\\01.mp3", null),
+    track(2, "f:\\music\\lib\\a\\sub\\02.mp3", null),
+    track(3, "f:\\music\\lib\\a\\sub\\deep\\03.mp3", null),
+    track(4, "f:\\music\\lib\\ab\\04.mp3", null),
+  ];
+
+  it("gathers every descendant recursively and only direct files as own", () => {
+    const folders = childFolders(tracks, "f:/music/lib");
+    const map = folderContents(tracks, folders);
+    expect(map.get("f:/music/lib/a")).toEqual({ all: [1, 2, 3], own: [1] });
+    expect(map.get("f:/music/lib/ab")).toEqual({ all: [4], own: [4] });
+  });
+
+  it("gives a folder with only subfolders an empty own list", () => {
+    const map = folderContents(tracks, childFolders(tracks, "f:/music/lib/a"));
+    expect(map.get("f:/music/lib/a/sub")).toEqual({ all: [2, 3], own: [2] });
+    const nested = folderContents(tracks, childFolders(tracks, "f:/music/lib/a/sub"));
+    expect(nested.get("f:/music/lib/a/sub/deep")).toEqual({ all: [3], own: [3] });
+  });
+
+  it("maps a folder with no tracks to empty lists", () => {
+    const map = folderContents([], [
+      { id: "f:/x", name: "x", trackCount: 0, subfolderCount: 0 },
+    ]);
+    expect(map.get("f:/x")).toEqual({ all: [], own: [] });
   });
 });

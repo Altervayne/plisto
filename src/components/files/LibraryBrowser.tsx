@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 // -- Component Imports --
@@ -9,12 +9,18 @@ import { LensToggle } from "./LensToggle";
 import { TrackGrid } from "../tracks/TrackGrid";
 import { TrackDetail } from "../tracks/TrackDetail";
 import { Resizer } from "../common/Resizer/Resizer";
+import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip/Tooltip";
+
+// -- Icon Imports --
+import { CheckCheck } from "lucide-react";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useBandResize } from "../common/Resizer/useBandResize";
 
 // -- State Imports --
+import { useAddSelection, useSelectRange } from "../../state/organize/store";
 import {
   useFilesSearch,
   useFilesSort,
@@ -26,6 +32,7 @@ import {
   childFolders,
   descendantTracks,
   foldId,
+  folderContents,
   immediateTracks,
   isLibraryScope,
   LIBRARY_SCOPE,
@@ -33,6 +40,10 @@ import {
   parentId,
   rootFolders,
 } from "../../state/files/folderTree";
+
+// -- Utils Imports --
+import { gatherMode } from "./selectContents";
+import type { GatherMode } from "./selectContents";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -137,6 +148,18 @@ export function LibraryBrowser({
   const onUp = () =>
     navigate(roots.length > 1 && scopeIsRoot ? LIBRARY_SCOPE : parentId(scope));
 
+  // Every row's gatherable ids, rebuilt only when the tracks or the visible folders change.
+  const contents = useMemo(() => folderContents(tracks, folders), [tracks, folders]);
+
+  // Plain gathers replace the shared selection; Ctrl/Cmd unions into it. Never removes.
+  const selectRange = useSelectRange();
+  const addSelection = useAddSelection();
+  const gather = useCallback(
+    (ids: number[], mode: GatherMode) => (mode === "add" ? addSelection(ids) : selectRange(ids)),
+    [addSelection, selectRange],
+  );
+  const scopeName = crumbs[crumbs.length - 1]?.name ?? libraryName;
+
   const scoped = lens === "folders" ? immediate : descendant;
 
   // Nothing to browse: an empty set stands in for the whole browser when a terminal state is given.
@@ -161,6 +184,22 @@ export function LibraryBrowser({
             tracks: descendant,
             name: scope === initialScope ? null : (crumbs[crumbs.length - 1]?.name ?? null),
           })}
+          <Tooltip label={t((d) => d.files.selectAllTitle, { name: scopeName })}>
+            <QuietButton
+              aria-disabled={descendant.length === 0 || undefined}
+              onClick={(event) => {
+                if (descendant.length > 0) {
+                  gather(
+                    descendant.map((track) => track.id),
+                    gatherMode(event),
+                  );
+                }
+              }}
+            >
+              <CheckCheck size={15} strokeWidth={1.8} />
+              {t((d) => d.files.selectAll)}
+            </QuietButton>
+          </Tooltip>
           <LensToggle value={lens} onChange={setLens} />
         </div>
       </div>
@@ -176,7 +215,13 @@ export function LibraryBrowser({
           style={{ "--band-height": `${band.height}px` } as CSSProperties}
         >
           {lens === "folders" && folders.length > 0 ? (
-            <FolderBand folders={folders} onOpen={navigate} resizer={band.resizer} />
+            <FolderBand
+              folders={folders}
+              contents={contents}
+              onOpen={navigate}
+              onGather={gather}
+              resizer={band.resizer}
+            />
           ) : null}
           <TrackGrid
             tracks={scoped}
