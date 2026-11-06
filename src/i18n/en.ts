@@ -86,6 +86,7 @@ export const en = {
     changeFolder: "Change folder",
     edited: "edited",
     revert: "revert",
+    more: "More...",
   },
 
   errorBoundary: {
@@ -557,6 +558,13 @@ export const en = {
     upOneLevel: "Up one level",
     folderTracks: { one: "{{n}} track", other: "{{n}} tracks" },
     folderSubfolders: { one: "{{n}} folder", other: "{{n}} folders" },
+    open: "Open",
+    selectContents: "Select contents",
+    selectFolderOnly: "Select this folder only",
+    selectAll: "Select all",
+    selectAllTitle: "Every track in {name}, subfolders included",
+    inSelection: "In selection",
+    emptyFolderTip: "No tracks in this folder yet.",
   },
 
   settings: {
@@ -1135,6 +1143,11 @@ export const en = {
     show: "Show",
     checkFailed: "Couldn't check for updates: {reason}",
     installFailed: "The update didn't install: {reason}",
+    skip: "Skip this version",
+    autoCheck: "Check for updates automatically",
+    autoCheckHint: "When off, Plisto checks only when you ask.",
+    skippedNote: "You skipped this version.",
+    skippedLine: "Plisto {version} is available. You skipped this version.",
   },
 };
 

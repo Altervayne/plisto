@@ -87,6 +87,7 @@ export const fr: Dict = {
     changeFolder: "Changer de répertoire",
     edited: "édité",
     revert: "rétablir",
+    more: "Plus...",
   },
 
   errorBoundary: {
@@ -559,6 +560,13 @@ export const fr: Dict = {
     upOneLevel: "Remonter d'un niveau",
     folderTracks: { one: "{{n}} piste", other: "{{n}} pistes" },
     folderSubfolders: { one: "{{n}} répertoire", other: "{{n}} répertoires" },
+    open: "Ouvrir",
+    selectContents: "Sélectionner le contenu",
+    selectFolderOnly: "Sélectionner ce répertoire seul",
+    selectAll: "Tout sélectionner",
+    selectAllTitle: "Toutes les pistes de {name}, sous-répertoires compris",
+    inSelection: "Dans la sélection",
+    emptyFolderTip: "Aucune piste dans ce répertoire pour l'instant.",
   },
 
   settings: {
@@ -1147,5 +1155,10 @@ export const fr: Dict = {
     show: "Afficher",
     checkFailed: "Impossible de rechercher des mises à jour : {reason}",
     installFailed: "La mise à jour ne s'est pas installée : {reason}",
+    skip: "Ignorer cette version",
+    autoCheck: "Rechercher les mises à jour automatiquement",
+    autoCheckHint: "Désactivé, Plisto ne recherche que sur demande.",
+    skippedNote: "Vous avez ignoré cette version.",
+    skippedLine: "Plisto {version} est disponible. Vous avez ignoré cette version.",
   },
 };
