@@ -140,6 +140,21 @@
   pointer-events: auto;
 }
 
+/* A hand-off landing: two short lifts on the cover, then still. */
+@keyframes land {
+  0%,
+  100% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-6px) scale(1.035);
+  }
+}
+
+.card.landed .frame {
+  animation: land 0.7s var(--ease-cover) 2;
+}
+
 .card:focus-visible {
   outline: none;
 }
@@ -161,5 +176,9 @@
 
   .play {
     transition: none;
+  }
+
+  .card.landed .frame {
+    animation: none;
   }
 }

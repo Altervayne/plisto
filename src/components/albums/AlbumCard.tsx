@@ -17,7 +17,7 @@ import { useAlbumCover } from "./useAlbumCover";
 
 // -- State Imports --
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
-import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { useOrganizeEnabled, usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Utils Imports --
 import { sourceForContainer } from "./playbackSource";
@@ -54,6 +54,7 @@ export const AlbumCard = memo(function AlbumCard({
   album,
   selected,
   checked,
+  landed,
   selecting,
   onOpen,
   onOpenFull,
@@ -64,6 +65,8 @@ export const AlbumCard = memo(function AlbumCard({
   album: AlbumRow;
   selected: boolean;
   checked: boolean;
+  // A hand-off just landed here: the cover plays its short lift so the eye finds it.
+  landed: boolean;
   // A selection is live somewhere on the wall: every tile shows its ring, so picking more is a plain
   // click rather than a hover hunt - the discoverable multi-pick mode once the first card is in.
   selecting: boolean;
@@ -76,6 +79,7 @@ export const AlbumCard = memo(function AlbumCard({
   const deleteAlbum = useDeleteAlbum();
   const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
+  const organize = useOrganizeEnabled();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -83,7 +87,7 @@ export const AlbumCard = memo(function AlbumCard({
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A modified click drives multi-select rather than opening: ctrl/cmd toggles this card, shift
     // extends the range from the anchor. It never opens the drawer nor joins a double-click.
-    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    if (organize && (event.ctrlKey || event.metaKey || event.shiftKey)) {
       onToggleSelect(album.id, { meta: event.ctrlKey || event.metaKey, shift: event.shiftKey });
       return;
     }
@@ -156,11 +160,13 @@ export const AlbumCard = memo(function AlbumCard({
       label: single ? t((d) => d.singles.details) : t((d) => d.albums.details),
       onSelect: () => onOpen(album.id),
     });
-    items.push({
-      icon: <Check size={16} strokeWidth={1.8} />,
-      label: checked ? t((d) => d.common.deselect) : t((d) => d.common.select),
-      onSelect: () => onToggleSelect(album.id, { meta: false, shift: false }),
-    });
+    if (organize) {
+      items.push({
+        icon: <Check size={16} strokeWidth={1.8} />,
+        label: checked ? t((d) => d.common.deselect) : t((d) => d.common.select),
+        onSelect: () => onToggleSelect(album.id, { meta: false, shift: false }),
+      });
+    }
     items.push({
       icon: <Download size={16} strokeWidth={1.8} />,
       label: single ? t((d) => d.singles.exportItem) : t((d) => d.albums.exportItem),
@@ -191,7 +197,8 @@ export const AlbumCard = memo(function AlbumCard({
   return (
     <button
       type="button"
-      className={`${styles.card} ${selected ? styles.selected : ""} ${checked ? styles.checked : ""} ${selecting ? styles.picking : ""}`}
+      className={`${styles.card} ${selected ? styles.selected : ""} ${checked ? styles.checked : ""} ${selecting ? styles.picking : ""} ${landed ? styles.landed : ""}`}
+      data-album-id={album.id}
       aria-pressed={checked || selected}
       onClick={handleClick}
       onContextMenu={menu.onContextMenu}
@@ -218,16 +225,18 @@ export const AlbumCard = memo(function AlbumCard({
         ) : null}
         {/* The select affordance: an empty ring that fades in on hover, filling to the accent check once
          * picked. Its own click target - a plain click toggles this tile, stopping the card's open. */}
-        <span
-          className={styles.pick}
-          aria-hidden="true"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleSelect(album.id, { meta: false, shift: false });
-          }}
-        >
-          {checked ? <Check size={14} strokeWidth={3} /> : null}
-        </span>
+        {organize ? (
+          <span
+            className={styles.pick}
+            aria-hidden="true"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSelect(album.id, { meta: false, shift: false });
+            }}
+          >
+            {checked ? <Check size={14} strokeWidth={3} /> : null}
+          </span>
+        ) : null}
       </div>
       <CardMeta
         title={album.title ?? t((d) => d.albums.untitled)}

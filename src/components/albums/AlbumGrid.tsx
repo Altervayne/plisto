@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 // -- Icon Imports --
@@ -28,6 +28,11 @@ import {
 } from "../../state/playlists/store";
 import { useDeleteAlbums, useOrganizeStore } from "../../state/organize/store";
 import { useViewKeys } from "../../state/shell/viewKeys";
+import { useClearCollectionHandoff, useCollectionHandoff } from "../../state/collection/store";
+import { useOrganizeEnabled } from "../../state/player/store";
+
+// -- Utils Imports --
+import { planLanding } from "./handoffLanding";
 
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
@@ -39,6 +44,9 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./AlbumGrid.module.css";
 
+/** How long a landed card keeps its lift marker: two beats of the land keyframe plus a margin. */
+const LAND_MS = 1600;
+
 /** The selection bar's exit before it unmounts, matching --dur-fast on the exit keyframe. */
 const EXIT_MS = 120;
 
@@ -49,7 +57,9 @@ const EXIT_MS = 120;
  * holds. Covers load lazily and each card is memoized, so an unrelated re-render never touches the whole
  * wall. With no cards it shows the quiet on-ramp pointing at Files; the singles wall reuses this layout.
  * The multi-select and its floating export bar live here - a modified click (ctrl/cmd toggle, shift
- * range) picks cards, and the bar hands the picked ids to the selection export modal.
+ * range) picks cards, and the bar hands the picked ids to the selection export modal. Player mode drops
+ * all of it. A hand-off from the Collection lands here by album id: scrolled to the middle, then opened
+ * or pre-ticked.
  */
 export function AlbumGrid({
   albums,
@@ -67,6 +77,7 @@ export function AlbumGrid({
   emptyLine?: string;
 }) {
   const t = useT();
+  const organize = useOrganizeEnabled();
 
   // The view filter: which stamp to test and the range to keep. Both live here, so the two walls reset
   // them on their own remount, the same way the multi-selection resets. An empty range shows everything.
@@ -99,6 +110,11 @@ export function AlbumGrid({
   // resets on its own when the wall changes - no cross-wall bleed to guard.
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const anchorRef = useRef<number | null>(null);
+
+  // Player mode has no pick: a set built before the switch goes with it.
+  useEffect(() => {
+    if (!organize) setSelected((prev) => (prev.size > 0 ? new Set<number>() : prev));
+  }, [organize]);
 
   // A plain open drops the multi-selection: the drawer and the pick are separate gestures. The functional
   // update keeps the same set when it is already empty, so an ordinary open never re-renders the wall.
@@ -155,9 +171,11 @@ export function AlbumGrid({
 
   // The shell's Ctrl+A only ever adds, so a second press never clears the pick.
   useViewKeys({
-    selectAll: () => {
-      if (visible.length > 0) selectVisible();
-    },
+    selectAll: organize
+      ? () => {
+          if (visible.length > 0) selectVisible();
+        }
+      : undefined,
   });
 
   // Escape drops the selection. Bound to the wall, so it only fires while the focus sits on a card or a
@@ -196,6 +214,54 @@ export function AlbumGrid({
   const lastCount = useRef(0);
   if (selected.size > 0) lastCount.current = selected.size;
 
+  // A pending hand-off lands once, by album id. It waits when the target is on the other wall, and a date
+  // filter hiding the target clears first; the effect then runs again on the widened list.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [landedId, setLandedId] = useState<number | null>(null);
+  const handoff = useCollectionHandoff();
+  const clearHandoff = useClearCollectionHandoff();
+  useEffect(() => {
+    if (!handoff) return;
+    const plan = planLanding(
+      handoff,
+      new Set(albums.map((a) => a.id)),
+      new Set(visible.map((a) => a.id)),
+      organize,
+    );
+    if (plan.kind === "ignore") return;
+    if (plan.kind === "clear-filter") {
+      setRange({ from: null, to: null });
+      return;
+    }
+    clearHandoff();
+    if (plan.how === "select") {
+      setSelected(new Set([plan.albumId]));
+      anchorRef.current = visible.findIndex((a) => a.id === plan.albumId);
+    } else {
+      handleOpen(plan.albumId);
+    }
+    setLandedId(plan.albumId);
+  }, [handoff, albums, visible, organize, clearHandoff, handleOpen]);
+
+  // Centers the landed card, and again whenever the cards reflow while it is marked: the drawer mounts a
+  // beat after the open and narrows the wall, which changes the grid's height under the first scroll.
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (landedId == null || !grid) return;
+    const center = () =>
+      grid.querySelector(`[data-album-id="${landedId}"]`)?.scrollIntoView({ block: "center" });
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [landedId]);
+
+  useEffect(() => {
+    if (landedId == null) return;
+    const timer = window.setTimeout(() => setLandedId(null), LAND_MS);
+    return () => window.clearTimeout(timer);
+  }, [landedId]);
+
   if (albums.length === 0) {
     return (
       <div className={styles.empty}>
@@ -222,11 +288,13 @@ export function AlbumGrid({
             label={t((d) => d.albums.dateField)}
           />
           <DateRangePicker value={range} onChange={setRange} />
-          <div className={styles.toolbarEnd}>
-            <QuietButton onClick={handleSelectAll} disabled={visible.length === 0}>
-              {allVisibleSelected ? t((d) => d.albums.deselectAll) : t((d) => d.albums.selectAll)}
-            </QuietButton>
-          </div>
+          {organize ? (
+            <div className={styles.toolbarEnd}>
+              <QuietButton onClick={handleSelectAll} disabled={visible.length === 0}>
+                {allVisibleSelected ? t((d) => d.albums.deselectAll) : t((d) => d.albums.selectAll)}
+              </QuietButton>
+            </div>
+          ) : null}
         </div>
 
         {visible.length === 0 ? (
@@ -235,13 +303,14 @@ export function AlbumGrid({
           </div>
         ) : (
           <ScrollArea className={styles.scroll} contentClassName={styles.canvas}>
-            <div className={styles.grid}>
+            <div className={styles.grid} ref={gridRef}>
               {visible.map((album) => (
                 <AlbumCard
                   key={album.id}
                   album={album}
                   selected={album.id === selectedAlbumId}
                   checked={selected.has(album.id)}
+                  landed={album.id === landedId}
                   selecting={selected.size > 0}
                   onOpen={handleOpen}
                   onOpenFull={onOpenFull}
@@ -255,7 +324,7 @@ export function AlbumGrid({
         )}
       </div>
 
-      {bar.mounted ? (
+      {organize && bar.mounted ? (
         <div
           className={styles.bar}
           data-state={bar.state}
