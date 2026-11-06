@@ -1,12 +1,16 @@
 /*
  * The selection action bar: floats centered near the bottom of the content region, lifted on a soft
  * shadow with no border so it reads as an object on the continuous ground rather than a docked panel.
+ * Content-sized up to the region's width less a 24px margin each side; labels stay on one line and the
+ * action row folds into More instead of wrapping.
  */
 .bar {
   position: absolute;
-  left: 50%;
+  inset-inline: 24px;
   bottom: 20px;
-  transform: translateX(-50%);
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 48px);
   display: flex;
   align-items: center;
   gap: 18px;
@@ -14,11 +18,12 @@
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
+  white-space: nowrap;
   z-index: 5;
 }
 
-/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. The centering
-   translateX rides along every frame so the bar never drifts off center. */
+/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. Vertical only: the bar
+   is centred by its margins, so a horizontal translate would park it off centre. */
 .bar[data-state="enter"] {
   animation: bar-in var(--dur-soft) var(--ease-cover) both;
 }
@@ -30,27 +35,28 @@
 @keyframes bar-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
 }
 
 @keyframes bar-out {
   from {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translateY(8px);
   }
 }
 
 .summary {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 9px;
 }
@@ -78,12 +84,7 @@
 }
 
 .error {
+  flex: none;
   color: var(--warn);
   font-size: 12px;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }

@@ -51,3 +51,18 @@ describe("placeMenu", () => {
     expect(placed.top).toBe(6);
   });
 });
+
+describe("placeMenu forceFlip", () => {
+  it("grows upward and leftward from the point when both axes are forced", () => {
+    const placed = placeMenu({ x: 500, y: 400 }, menu, viewport, 6, { x: true, y: true });
+    expect(placed.left).toBe(500 - 200);
+    expect(placed.top).toBe(400 - 300);
+    expect(placed.origin).toBe("right bottom");
+  });
+
+  it("leaves an axis alone when only the other is forced", () => {
+    const placed = placeMenu({ x: 300, y: 400 }, menu, viewport, 6, { y: true });
+    expect(placed.left).toBe(300);
+    expect(placed.top).toBe(100);
+  });
+});

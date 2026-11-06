@@ -7,6 +7,7 @@
  * scrolled - no scrolling back up to reach an action. Docked, it must occlude the rows sliding beneath:
  * a frosted blur over a ground-toned backing carries that, with the same veil tint layered on top for
  * its at-rest identity. z-index lifts it over the rows (and its own disc menu still floats clear above).
+ * Labels stay on one line; the action row folds into More when the pane narrows.
  */
 .bar {
   position: sticky;
@@ -18,6 +19,7 @@
   margin-bottom: 8px;
   padding: 6px 6px 6px 10px;
   border-radius: var(--r-sm);
+  white-space: nowrap;
   background:
     linear-gradient(var(--veil), var(--veil)),
     color-mix(in srgb, var(--bg) 88%, transparent);
@@ -68,15 +70,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Takes the space the count leaves and wraps within it, still trailing to the right edge. When the
-   buttons outgrow one line they flow onto the next rather than overflowing or shoving the count. */
+/* The action row trails to the right edge. It folds rather than wraps, so it never outgrows the bar. */
 .actions {
-  flex: 1 1 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
+  margin-left: auto;
 }
 
 /* The move-to-disc anchor: the menu floats from here, so it sits relative to the button. */

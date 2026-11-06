@@ -53,6 +53,7 @@ export function ContextMenu({
   onClose,
   ariaLabel,
   topActionsLabel,
+  forceFlip,
 }: {
   topActions?: TopEntry[];
   items?: MenuEntry[];
@@ -62,6 +63,8 @@ export function ContextMenu({
   onClose: () => void;
   ariaLabel?: string;
   topActionsLabel?: string;
+  /** Grows an axis back from (x, y) even when there is room: a menu hung from a trigger's edge. */
+  forceFlip?: { x?: boolean; y?: boolean };
 }) {
   const top = topActions ?? [];
   const list = items ?? [];
@@ -97,17 +100,20 @@ export function ContextMenu({
       { width: r.width, height: r.height },
       { width: window.innerWidth, height: window.innerHeight },
       MARGIN,
+      { x: forceFlip?.x, y: forceFlip?.y },
     );
     setCoords(placed);
-  }, [open, x, y, menu.mounted]);
+  }, [open, x, y, menu.mounted, forceFlip?.x, forceFlip?.y]);
 
-  // On open, start focus at the first enabled entry, once the menu has been placed and painted.
+  // On open, start focus at the first enabled entry, once the menu has been placed and painted. Waits on
+  // `mounted` too: the mount transition lands a render after `open`, and a frame that fires before it
+  // would find no entry to focus.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !menu.mounted) return;
     setActive(0);
     const frame = requestAnimationFrame(() => itemRefs.current[0]?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menu.mounted]);
 
   // While open, an outside press, a scroll, or losing the window all dismiss it.
   useEffect(() => {

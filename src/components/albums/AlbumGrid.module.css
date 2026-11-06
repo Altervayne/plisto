@@ -60,9 +60,12 @@
  * with no border so it reads as an object on the continuous ground, matching the organize action bar. */
 .bar {
   position: absolute;
-  left: 50%;
+  inset-inline: 24px;
   bottom: 20px;
-  transform: translateX(-50%);
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 48px);
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -73,8 +76,8 @@
   z-index: 5;
 }
 
-/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. The centering
-   translateX rides along every frame so the bar never drifts off center. */
+/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. Vertical only: the bar
+   is centred by its margins, so a horizontal translate would park it off centre. */
 .bar[data-state="enter"] {
   animation: bar-in var(--dur-soft) var(--ease-cover) both;
 }
@@ -86,22 +89,22 @@
 @keyframes bar-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
 }
 
 @keyframes bar-out {
   from {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translateY(8px);
   }
 }
 

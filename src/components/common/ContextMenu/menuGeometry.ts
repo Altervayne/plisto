@@ -35,17 +35,24 @@ function clamp(value: number, min: number, max: number): number {
 /**
  * The menu's top-left for a right-click at `point`. Each axis grows away from the pointer toward the
  * far edge; when that would overflow, the axis flips to grow back toward the near edge instead. The
- * result is clamped so a menu larger than the space still stays inside the margin. `origin` reports the
+ * result is clamped so a menu larger than the space still stays inside the margin. `forceFlip` grows an
+ * axis back toward the near edge even when there is room, for a menu anchored to a trigger. `origin` reports the
  * pointer-side corner the menu grew from, so the enter animation can scale out of the click point.
  */
-export function placeMenu(point: Point, menu: Size, viewport: Viewport, margin: number): MenuPlacement {
+export function placeMenu(
+  point: Point,
+  menu: Size,
+  viewport: Viewport,
+  margin: number,
+  forceFlip: { x?: boolean; y?: boolean } = {},
+): MenuPlacement {
   let left = point.x;
-  const flipX = left + menu.width > viewport.width - margin;
+  const flipX = forceFlip.x === true || left + menu.width > viewport.width - margin;
   if (flipX) left = point.x - menu.width;
   left = clamp(left, margin, viewport.width - margin - menu.width);
 
   let top = point.y;
-  const flipY = top + menu.height > viewport.height - margin;
+  const flipY = forceFlip.y === true || top + menu.height > viewport.height - margin;
   if (flipY) top = point.y - menu.height;
   top = clamp(top, margin, viewport.height - margin - menu.height);
 

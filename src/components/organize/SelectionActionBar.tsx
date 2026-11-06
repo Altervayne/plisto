@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- Component Imports --
+import { FoldedActions } from "../common/ActionFold/FoldedActions";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { AlbumPicker } from "./AlbumPicker";
@@ -33,6 +34,7 @@ import {
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
+import type { FoldAction } from "../common/ActionFold/FoldedActions";
 import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- Utils Imports --
@@ -47,10 +49,13 @@ import styles from "./SelectionActionBar.module.css";
 /** The bar's exit before it unmounts, matching --dur-fast on the exit keyframe. */
 const EXIT_MS = 120;
 
+/** The margin the bar keeps from the content edge, both sides together. */
+const BAR_INSET = 48;
+
 /**
  * The floating action bar over a track selection, shown only while tracks are selected: a quiet count at
- * the left, and at the right the solid-accent Create album beside the quiet Make-single, Add-to-album and
- * Clear. Create seeds the album from the selection's shared raw tags, then clears the selection and hands
+ * the left, then the actions in hairline-parted groups on one line, the lowest-priority ones folding into a
+ * trailing More menu on a narrow window, and Clear always visible. Create seeds the album from the selection's shared raw tags, then clears the selection and hands
  * the new album id up; on failure it keeps the selection and says so. Make single fans the selection out
  * one-to-one - N tracks become N singles - then hands the new ids up. Add-to-album opens a picker. All
  * three reach the backend through the store.
@@ -214,6 +219,116 @@ export function SelectionActionBar({
     clearSelection();
   };
 
+  const createLabel = t((d) => d.selection.createAlbum);
+  const playNextLabel = t((d) => d.player.playNext);
+  const queueLabel = t((d) => d.player.addToQueue);
+  const makeLabel = t((d) => d.singles.make, { n: lastCount.current });
+  const addToAlbumLabel = t((d) => d.selection.addToAlbum);
+  const addToPlaylistLabel = t((d) => d.playlists.addTo);
+  const extractLabel = t((d) => d.extract.action);
+  const editTagsLabel = t((d) => d.selection.editTags);
+  const cleanLabel = t((d) => d.selection.cleanTitles);
+
+  const openAlbumPicker = () => {
+    setPlaylistPickerOpen(false);
+    setPickerOpen((open) => !open);
+  };
+  const openPlaylistPicker = () => {
+    setPickerOpen(false);
+    setPlaylistPickerOpen((open) => !open);
+  };
+
+  // The bar's actions in display order, grouped for the hairlines; the keep rank says what folds into
+  // More last. The player actions drop out while the player is off.
+  const actions: FoldAction[] = [
+    ...(playerEnabled
+      ? [
+          {
+            id: "next",
+            keep: 2,
+            group: 1,
+            label: playNextLabel,
+            onSelect: onPlayNext,
+            node: <QuietButton onClick={onPlayNext}>{playNextLabel}</QuietButton>,
+          },
+          {
+            id: "queue",
+            keep: 3,
+            group: 1,
+            label: queueLabel,
+            onSelect: onAddToQueue,
+            node: <QuietButton onClick={onAddToQueue}>{queueLabel}</QuietButton>,
+          },
+        ]
+      : []),
+    {
+      id: "create",
+      keep: 1,
+      group: 2,
+      label: createLabel,
+      onSelect: () => void onCreate(),
+      disabled: busy,
+      node: (
+        <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
+          {createLabel}
+        </PrimaryButton>
+      ),
+    },
+    {
+      id: "single",
+      keep: 6,
+      group: 2,
+      label: makeLabel,
+      onSelect: () => void onMakeSingles(),
+      disabled: busy,
+      node: (
+        <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
+          {makeLabel}
+        </QuietButton>
+      ),
+    },
+    {
+      id: "album",
+      keep: 5,
+      group: 2,
+      label: addToAlbumLabel,
+      onSelect: openAlbumPicker,
+      node: <QuietButton onClick={openAlbumPicker}>{addToAlbumLabel}</QuietButton>,
+    },
+    {
+      id: "playlist",
+      keep: 7,
+      group: 3,
+      label: addToPlaylistLabel,
+      onSelect: openPlaylistPicker,
+      node: <QuietButton onClick={openPlaylistPicker}>{addToPlaylistLabel}</QuietButton>,
+    },
+    {
+      id: "extract",
+      keep: 8,
+      group: 4,
+      label: extractLabel,
+      onSelect: openExtract,
+      node: <QuietButton onClick={openExtract}>{extractLabel}</QuietButton>,
+    },
+    {
+      id: "tags",
+      keep: 4,
+      group: 4,
+      label: editTagsLabel,
+      onSelect: openBulkEdit,
+      node: <QuietButton onClick={openBulkEdit}>{editTagsLabel}</QuietButton>,
+    },
+    {
+      id: "clean",
+      keep: 9,
+      group: 4,
+      label: cleanLabel,
+      onSelect: openCleanTitles,
+      node: <QuietButton onClick={openCleanTitles}>{cleanLabel}</QuietButton>,
+    },
+  ];
+
   return (
     <>
       {bar.mounted ? (
@@ -244,40 +359,13 @@ export function SelectionActionBar({
 
             {error ? <span className={styles.error}>{error}</span> : null}
 
-            <div className={styles.actions}>
-              <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
-                {t((d) => d.selection.createAlbum)}
-              </PrimaryButton>
-              {playerEnabled ? (
-                <QuietButton onClick={onPlayNext}>{t((d) => d.player.playNext)}</QuietButton>
-              ) : null}
-              {playerEnabled ? (
-                <QuietButton onClick={onAddToQueue}>{t((d) => d.player.addToQueue)}</QuietButton>
-              ) : null}
-              <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
-                {t((d) => d.singles.make, { n: lastCount.current })}
-              </QuietButton>
-              <QuietButton
-                onClick={() => {
-                  setPlaylistPickerOpen(false);
-                  setPickerOpen((open) => !open);
-                }}
-              >
-                {t((d) => d.selection.addToAlbum)}
-              </QuietButton>
-              <QuietButton
-                onClick={() => {
-                  setPickerOpen(false);
-                  setPlaylistPickerOpen((open) => !open);
-                }}
-              >
-                {t((d) => d.playlists.addTo)}
-              </QuietButton>
-              <QuietButton onClick={openExtract}>{t((d) => d.extract.action)}</QuietButton>
-              <QuietButton onClick={openBulkEdit}>{t((d) => d.selection.editTags)}</QuietButton>
-              <QuietButton onClick={openCleanTitles}>{t((d) => d.selection.cleanTitles)}</QuietButton>
-              <QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>
-            </div>
+            <FoldedActions
+              actions={actions}
+              trailing={<QuietButton onClick={() => clearSelection()}>{t((d) => d.common.clear)}</QuietButton>}
+              separators
+              up
+              inset={BAR_INSET}
+            />
           </div>
         </>
       ) : null}

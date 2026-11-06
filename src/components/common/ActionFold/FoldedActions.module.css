@@ -1,0 +1,50 @@
+/*
+ * The folded action row: one nowrap line whose buttons never shrink, so the fold decides what leaves
+ * rather than the browser squeezing labels. The ghost copy that carries the measurements lives in a
+ * zero-size clip, so its full natural width can never add scroll to an ancestor.
+ */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.row > * {
+  flex: none;
+}
+
+/* The group hairline, following the context menu's vertical separator. */
+.sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--hairline);
+}
+
+.clip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ghost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  white-space: nowrap;
+  visibility: hidden;
+}
+
+.cell {
+  display: inline-flex;
+  flex: none;
+}
