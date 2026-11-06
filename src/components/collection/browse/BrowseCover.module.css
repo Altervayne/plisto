@@ -52,8 +52,24 @@
   outline-offset: 4px;
 }
 
-/* The placeholder recess over a cover-less record. It fades in after a beat, so a cover that resolves
- * quickly never flashes the placeholder first. */
+/* The recess a record sits on while its cover loads: the staff spinner, quiet, no glyph. */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: linear-gradient(160deg, var(--surface-2), var(--sunken));
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.loading svg {
+  width: 56%;
+  height: auto;
+  opacity: 0.75;
+}
+
+/* The placeholder recess over a record whose lookup found no cover. */
 .placeholder {
   position: absolute;
   inset: 0;
@@ -63,7 +79,7 @@
   color: var(--ink-3);
   background: linear-gradient(160deg, var(--surface-2), var(--sunken));
   box-shadow: inset 0 0 0 1px var(--hairline);
-  animation: placeholder-in var(--dur-soft) ease 120ms both;
+  animation: placeholder-in var(--dur-soft) ease both;
 }
 
 .placeholderTitle {

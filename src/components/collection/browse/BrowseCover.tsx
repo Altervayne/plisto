@@ -7,6 +7,7 @@ import { Image as ImageIcon } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../../common/Cover/Cover";
+import { StaffSpinner } from "../../scan/StaffSpinner";
 
 // -- Hook Imports --
 import { useAlbumCover } from "../../albums/useAlbumCover";
@@ -49,9 +50,9 @@ function DetailArt({ albumId }: { albumId: number }) {
 
 /**
  * One record on the shelf: a listbox option holding the album's cover at the grid tier, the focused
- * one also loading the detail tier over it. A record with no cover shows a placeholder recess with a
- * hairline edge and the title on it, so a tilted run of placeholders still reads as separate records.
- * Placement comes from the shelf as a ready transform.
+ * one also loading the detail tier over it. A record still loading shows the staff spinner on the recess;
+ * one confirmed cover-less shows a placeholder recess with a hairline edge and the title on it, so a
+ * tilted run of placeholders still reads as separate records. Placement comes from the shelf as a ready transform.
  */
 export const BrowseCover = memo(function BrowseCover({
   album,
@@ -100,6 +101,11 @@ export const BrowseCover = memo(function BrowseCover({
     >
       <div className={styles.face}>
         <Cover src={src} interactive />
+        {src == null && loading ? (
+          <div className={styles.loading} aria-hidden="true">
+            <StaffSpinner />
+          </div>
+        ) : null}
         {src == null && !loading ? (
           <div className={styles.placeholder} aria-hidden="true">
             <ImageIcon size={30} strokeWidth={1.6} />

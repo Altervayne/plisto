@@ -3271,7 +3271,7 @@ dependencies = [
 
 [[package]]
 name = "plisto"
-version = "2.5.1"
+version = "2.6.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",

@@ -22,18 +22,24 @@ export interface AlbumCoverView {
   reload: () => void;
 }
 
+/** The first-render state: a cached cover paints at once, a miss starts loading so no frame claims "no cover". */
+export function initialAlbumCover(albumId: number, size: CoverSize): Pick<AlbumCoverView, "src" | "loading"> {
+  const cached = peekAlbumCover(albumId, size);
+  return { src: cached ?? null, loading: cached === undefined };
+}
+
 /**
  * Loads an album's cover at `size` on albumId change. All IPC lives in the batch loader, which folds
  * every card's request in a frame into one call, so the caller stays presentational; a failed or empty
- * load leaves src null and the Cover atom shows its placeholder. A shared cache hydrates a known cover
+ * load leaves src null and loading false. `loading` is true from the first render until the batch answers. A shared cache hydrates a known cover
  * synchronously on mount, so a re-navigation renders it on the first paint with no fetch and no fade.
  * An invalidation of this album, from `reload` or any other surface, refetches in place. A stale load
  * from a fast change is discarded.
  */
 export function useAlbumCover(albumId: number, size: CoverSize = "thumb"): AlbumCoverView {
   const version = useSyncExternalStore(subscribeAlbumCover, () => albumCoverVersion(albumId));
-  const [src, setSrc] = useState<string | null>(() => peekAlbumCover(albumId, size) ?? null);
-  const [loading, setLoading] = useState(false);
+  const [src, setSrc] = useState<string | null>(() => initialAlbumCover(albumId, size).src);
+  const [loading, setLoading] = useState(() => initialAlbumCover(albumId, size).loading);
 
   // A cache hit paints from memory - synchronously on mount via the initial state, or here when the key
   // changes on a kept hook (the drawer swapping albums) - and skips the fetch. A miss joins the batch.

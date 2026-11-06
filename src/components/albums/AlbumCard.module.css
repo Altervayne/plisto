@@ -22,6 +22,22 @@
   transition: transform var(--dur-soft) var(--ease-cover);
 }
 
+/* Holds the tile's recess while the cover loads, so the no-cover glyph never shows before the answer. */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+}
+
+.loading svg {
+  width: 56%;
+  height: auto;
+  opacity: 0.75;
+}
+
 .card:hover .frame {
   transform: translateY(-4px);
   --cover-shadow: var(--shadow-pop);

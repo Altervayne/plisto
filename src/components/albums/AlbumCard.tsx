@@ -8,6 +8,7 @@ import { Check, Download, Info, ListEnd, ListPlus, ListStart, Maximize2, Play, T
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
 import { CoverBadge } from "../common/CoverBadge/CoverBadge";
+import { StaffSpinner } from "../scan/StaffSpinner";
 import { CardMeta } from "./CardMeta";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
 import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
@@ -111,7 +112,7 @@ export const AlbumCard = memo(function AlbumCard({
   };
 
   // The 256px grid tier is sharp for a 168px tile up to 1.5x; above that the 512 detail tier keeps it crisp.
-  const { src } = useAlbumCover(album.id, window.devicePixelRatio <= 1.5 ? "grid" : "detail");
+  const { src, loading } = useAlbumCover(album.id, window.devicePixelRatio <= 1.5 ? "grid" : "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
   const t = useT();
@@ -205,6 +206,11 @@ export const AlbumCard = memo(function AlbumCard({
     >
       <div className={styles.frame}>
         <Cover src={src} interactive alt="" />
+        {src == null && loading ? (
+          <span className={styles.loading} aria-hidden="true">
+            <StaffSpinner />
+          </span>
+        ) : null}
         {missing > 0 ? (
           <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
         ) : null}
