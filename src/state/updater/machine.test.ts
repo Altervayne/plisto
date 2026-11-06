@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { IDLE, errorMessage, reduceUpdater, runCheck, shouldPrompt } from "./machine";
+import { IDLE, errorMessage, reduceUpdater, runCheck, shouldPrompt, startupCheckArmed } from "./machine";
 
 // -- Type Imports --
 import type { UpdaterEvent, UpdaterState } from "./machine";
@@ -78,16 +78,36 @@ describe("reduceUpdater", () => {
 });
 
 describe("shouldPrompt", () => {
-  it("stays quiet for the dismissed version", () => {
+  it("stays quiet for the skipped version", () => {
     expect(shouldPrompt("2.5.0", "2.5.0")).toBe(false);
   });
 
-  it("prompts for a newer version than the dismissed one", () => {
+  it("prompts for a newer version than the skipped one", () => {
     expect(shouldPrompt("2.6.0", "2.5.0")).toBe(true);
   });
 
-  it("prompts when nothing was dismissed", () => {
+  it("prompts when nothing was skipped", () => {
     expect(shouldPrompt("2.5.0", undefined)).toBe(true);
+  });
+});
+
+describe("startupCheckArmed", () => {
+  const on = { ready: true, prefsLoaded: true, autoCheck: true };
+
+  it("arms only when ready, loaded and auto-check is on", () => {
+    expect(startupCheckArmed(on)).toBe(true);
+  });
+
+  it("waits for the preferences to load", () => {
+    expect(startupCheckArmed({ ...on, prefsLoaded: false })).toBe(false);
+  });
+
+  it("schedules nothing with auto-check off", () => {
+    expect(startupCheckArmed({ ...on, autoCheck: false })).toBe(false);
+  });
+
+  it("waits for the full app", () => {
+    expect(startupCheckArmed({ ...on, ready: false })).toBe(false);
   });
 });
 

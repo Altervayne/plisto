@@ -1,6 +1,6 @@
 /*
  * The updater's state machine, kept pure so the rules that matter are testable without the plugin: a
- * failed check is an error and never "up to date", only a null answer is; a dismissed version stays quiet
+ * failed check is an error and never "up to date", only a null answer is; a skipped version stays quiet
  * while a newer one prompts again.
  */
 
@@ -96,7 +96,15 @@ export function errorMessage(error: unknown): string {
   return "Unknown error";
 }
 
-/** Whether `version` should open the prompt on its own, given the version the user last put off. */
-export function shouldPrompt(version: string, dismissed: string | undefined): boolean {
-  return version !== dismissed;
+/**
+ * Whether the startup check may be scheduled: the full app is up, the stored preferences have arrived (an
+ * absent switch reads on only once they have), and auto-check is on. A manual check never asks this.
+ */
+export function startupCheckArmed(gate: { ready: boolean; prefsLoaded: boolean; autoCheck: boolean }): boolean {
+  return gate.ready && gate.prefsLoaded && gate.autoCheck;
+}
+
+/** Whether `version` should open the prompt on its own, given the version the user skipped. */
+export function shouldPrompt(version: string, skipped: string | undefined): boolean {
+  return version !== skipped;
 }

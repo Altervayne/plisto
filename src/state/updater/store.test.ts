@@ -34,8 +34,8 @@ describe("updater store", () => {
     expect(useUpdaterStore.getState().promptOpen).toBe(true);
   });
 
-  it("keeps a dismissed version quiet at startup, but not a newer one", async () => {
-    usePreferencesStore.setState({ values: { [PREF_KEYS.updaterDismissed]: "2.5.0" } });
+  it("keeps a skipped version quiet at startup, but not a newer one", async () => {
+    usePreferencesStore.setState({ values: { [PREF_KEYS.updaterSkipped]: "2.5.0" } });
     checkForUpdate.mockResolvedValue(found("2.5.0"));
     await useUpdaterStore.getState().check("startup");
     expect(useUpdaterStore.getState().state.kind).toBe("available");
@@ -47,19 +47,45 @@ describe("updater store", () => {
     expect(useUpdaterStore.getState().promptOpen).toBe(true);
   });
 
-  it("opens a dismissed version on a manual check", async () => {
-    usePreferencesStore.setState({ values: { [PREF_KEYS.updaterDismissed]: "2.5.0" } });
+  it("opens a skipped version on a manual check", async () => {
+    usePreferencesStore.setState({ values: { [PREF_KEYS.updaterSkipped]: "2.5.0" } });
     checkForUpdate.mockResolvedValue(found("2.5.0"));
     await useUpdaterStore.getState().check("manual");
     expect(useUpdaterStore.getState().promptOpen).toBe(true);
   });
 
-  it("records the version on Later", async () => {
+  it("runs a manual check with auto-check off", async () => {
+    usePreferencesStore.setState({ values: { [PREF_KEYS.updaterAutoCheck]: "0" } });
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("manual");
+    expect(checkForUpdate).toHaveBeenCalledTimes(1);
+    expect(useUpdaterStore.getState().promptOpen).toBe(true);
+  });
+
+  it("closes on Later and writes nothing", async () => {
     checkForUpdate.mockResolvedValue(found("2.5.0"));
     await useUpdaterStore.getState().check("startup");
     useUpdaterStore.getState().later();
     expect(useUpdaterStore.getState().promptOpen).toBe(false);
-    expect(usePreferencesStore.getState().values[PREF_KEYS.updaterDismissed]).toBe("2.5.0");
+    expect(usePreferencesStore.getState().values).toEqual({});
+  });
+
+  it("persists the version on Skip and closes", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().skip();
+    expect(useUpdaterStore.getState().promptOpen).toBe(false);
+    expect(usePreferencesStore.getState().values[PREF_KEYS.updaterSkipped]).toBe("2.5.0");
+  });
+
+  it("prompts again for a version newer than the one skipped", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().skip();
+    useUpdaterStore.setState({ state: IDLE });
+    checkForUpdate.mockResolvedValue(found("2.5.1"));
+    await useUpdaterStore.getState().check("startup");
+    expect(useUpdaterStore.getState().promptOpen).toBe(true);
   });
 
   it("reports a failed manual check as an error, never up to date", async () => {

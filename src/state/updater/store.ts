@@ -28,6 +28,7 @@ interface UpdaterStore {
   check: (source: CheckSource) => Promise<void>;
   install: () => Promise<void>;
   later: () => void;
+  skip: () => void;
   openPrompt: () => void;
 }
 
@@ -62,8 +63,8 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => {
       }
       dispatch(outcome);
       if (outcome.type !== "checked" || !outcome.update) return;
-      const dismissed = usePreferencesStore.getState().getPreference(PREF_KEYS.updaterDismissed);
-      if (source === "manual" || shouldPrompt(outcome.update.version, dismissed)) {
+      const skipped = usePreferencesStore.getState().getPreference(PREF_KEYS.updaterSkipped);
+      if (source === "manual" || shouldPrompt(outcome.update.version, skipped)) {
         set({ promptOpen: true });
       }
     },
@@ -81,14 +82,19 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => {
       }
     },
 
-    // Puts the announced version off: the prompt closes and that version no longer opens it on its own.
+    // Closes the prompt for this session only; nothing is stored, so the next launch asks again.
     later: () => {
       const { state } = get();
       if (state.kind === "downloading" || state.kind === "ready") return;
+      set({ promptOpen: false });
+    },
+
+    // Closes the prompt and stores the version, so it stays quiet until a newer one ships.
+    skip: () => {
+      const { state } = get();
+      if (state.kind === "downloading" || state.kind === "ready") return;
       const update = updateOf(state);
-      if (update) {
-        usePreferencesStore.getState().setPreference(PREF_KEYS.updaterDismissed, update.version);
-      }
+      if (update) usePreferencesStore.getState().setPreference(PREF_KEYS.updaterSkipped, update.version);
       set({ promptOpen: false });
     },
 
@@ -105,4 +111,8 @@ export const useUpdatePromptOpen = (): boolean => useUpdaterStore((s) => s.promp
 export const useCheckForUpdate = () => useUpdaterStore((s) => s.check);
 export const useInstallUpdate = () => useUpdaterStore((s) => s.install);
 export const useLaterUpdate = () => useUpdaterStore((s) => s.later);
+export const useSkipUpdate = () => useUpdaterStore((s) => s.skip);
+/** Whether the user skipped exactly this version. */
+export const useIsSkippedUpdate = (version: string): boolean =>
+  usePreferencesStore((s) => s.values[PREF_KEYS.updaterSkipped] === version);
 export const useOpenUpdatePrompt = () => useUpdaterStore((s) => s.openPrompt);

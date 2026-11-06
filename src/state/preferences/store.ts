@@ -55,8 +55,10 @@ export const PREF_KEYS = {
   playerSpectrumLayout: "player_spectrum_layout",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
   playerResume: "player_resume",
-  // The update version the user put off with Later; that version no longer prompts on its own.
-  updaterDismissed: "updater_dismissed",
+  // Whether the startup update check runs; only an explicit "0" turns it off.
+  updaterAutoCheck: "updater_auto_check",
+  // The update version the user skipped; that version no longer prompts on its own.
+  updaterSkipped: "updater_skipped",
 } as const;
 
 interface PreferencesStore {
@@ -131,6 +133,15 @@ export const useKeepLibraryUpToDate = (): boolean =>
 export const useSetKeepLibraryUpToDate = (): ((on: boolean) => void) => {
   const setPreference = useSetPreference();
   return (on) => setPreference(PREF_KEYS.keepLibraryUpToDate, on ? "1" : "0");
+};
+
+/** Whether Plisto checks for updates after launch. Persisted, default on: only an explicit "0" turns it off. */
+export const useUpdaterAutoCheck = (): boolean => usePreference(PREF_KEYS.updaterAutoCheck) !== "0";
+
+/** Flips the startup update check. Best-effort persist like every other pref. */
+export const useSetUpdaterAutoCheck = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.updaterAutoCheck, on ? "1" : "0");
 };
 
 /** The picked visualizer for the Player and ambient mode. An absent or unknown pref reads Ridge. */

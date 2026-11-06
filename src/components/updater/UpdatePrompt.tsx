@@ -12,7 +12,9 @@ import { useMountTransition } from "../../hooks/useMountTransition";
 // -- State Imports --
 import {
   useInstallUpdate,
+  useIsSkippedUpdate,
   useLaterUpdate,
+  useSkipUpdate,
   useUpdatePromptOpen,
   useUpdaterState,
 } from "../../state/updater/store";
@@ -35,7 +37,8 @@ const EXIT_MS = 120;
 
 /**
  * The update prompt: a card in the window's lower corner, on the toast material, that never blocks the
- * app. It names the new version over a short excerpt of its notes, with Later and Update now. Update now
+ * app. It names the new version over a short excerpt of its notes, with Later (this session), Skip this
+ * version (stored) and Update now. A skipped version opened by hand notes it and drops Skip. Update now
  * turns the card into a progress bar until the installer takes over and Plisto restarts. A failed install
  * shows its reason in the card with a retry. Mount once in the main window.
  */
@@ -44,6 +47,7 @@ export function UpdatePrompt() {
   const open = useUpdatePromptOpen();
   const install = useInstallUpdate();
   const later = useLaterUpdate();
+  const skip = useSkipUpdate();
   const t = useT();
   const shown = open && updateOf(state) != null;
   const card = useMountTransition(shown, EXIT_MS);
@@ -51,9 +55,10 @@ export function UpdatePrompt() {
   // The last state that carried an update, so the card keeps its text through the exit fade.
   const lastState = useRef<UpdaterState>(state);
   if (updateOf(state)) lastState.current = state;
+  const view = lastState.current;
+  const skipped = useIsSkippedUpdate(updateOf(view)?.version ?? "");
 
   if (!card.mounted) return null;
-  const view = lastState.current;
   const update = updateOf(view);
   if (!update) return null;
 
@@ -80,8 +85,12 @@ export function UpdatePrompt() {
         <>
           <p className={styles.title}>{t((d) => d.updater.available, { version: update.version })}</p>
           {update.notes ? <p className={styles.notes}>{notesExcerpt(update.notes)}</p> : null}
+          {skipped ? <p className={styles.note}>{t((d) => d.updater.skippedNote)}</p> : null}
           <div className={styles.actions}>
             <QuietButton onClick={later}>{t((d) => d.updater.later)}</QuietButton>
+            {skipped ? null : (
+              <QuietButton onClick={skip}>{t((d) => d.updater.skip)}</QuietButton>
+            )}
             <PrimaryButton onClick={() => void install()}>{t((d) => d.updater.updateNow)}</PrimaryButton>
           </div>
         </>
