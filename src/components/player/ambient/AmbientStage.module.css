@@ -275,10 +275,28 @@
 /* The fading layer: the chrome, the exit control and the source and album lines. Keyboard focus inside
  * the exit control keeps it visible. */
 .chrome,
-.exit,
+.exit {
+  transition: opacity 0.8s var(--ease-standard);
+}
+
 .sourceLabel,
 .albumLine {
-  transition: opacity 0.8s var(--ease-standard);
+  transition:
+    opacity 0.8s var(--ease-standard),
+    color 0.4s var(--ease-standard);
+}
+
+.artist,
+.glanceLabel,
+.glanceTitle,
+.glanceDetail {
+  transition: color 0.4s var(--ease-standard);
+}
+
+.text,
+.cluster svg,
+.right svg {
+  transition: filter 0.4s var(--ease-standard);
 }
 
 .chrome[data-faded],
@@ -290,6 +308,22 @@
 
 .exit[data-faded]:focus-within {
   opacity: 1;
+}
+
+/* A visualizer runs behind the stage: the halos densify (they ride the inherited tokens), and the grey
+ * secondary lines take full ink, the hierarchy holding by size and weight. */
+.stage[data-legible] {
+  --text-halo: var(--legible-halo);
+  --text-halo-filter: var(--legible-halo-filter);
+  --glyph-halo: var(--legible-glyph);
+}
+
+.stage[data-legible] .sourceLabel,
+.stage[data-legible] .artist,
+.stage[data-legible] .albumLine,
+.stage[data-legible] .glanceLabel,
+.stage[data-legible] .glanceDetail {
+  color: var(--ink);
 }
 
 /* The transient pills: the exit hint centred at the top on entry, the visualizer name top left. */
@@ -328,6 +362,13 @@
   .exit,
   .sourceLabel,
   .albumLine,
+  .artist,
+  .glanceLabel,
+  .glanceTitle,
+  .glanceDetail,
+  .text,
+  .cluster svg,
+  .right svg,
   .pill,
   .play {
     transition: none;

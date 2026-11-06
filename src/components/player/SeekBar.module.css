@@ -83,12 +83,25 @@
 .time {
   font-size: 11px;
   color: var(--ink-3);
+  transition: color 0.4s var(--ease-standard);
+}
+
+/* Over a visualizer (the Player and ambient mark their stage): full ink, a touch heavier, and a rail that
+ * holds against the moving ground. */
+:global([data-legible]) .time {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+:global([data-legible]) .track {
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
 /* Without motion the fill and handle jump straight to their marks. */
 @media (prefers-reduced-motion: reduce) {
   .fill,
-  .handle {
+  .handle,
+  .time {
     transition: none;
   }
 }

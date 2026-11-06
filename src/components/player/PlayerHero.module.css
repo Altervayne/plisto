@@ -240,3 +240,47 @@
 .volumeSlot svg {
   filter: var(--glyph-halo);
 }
+
+/* A visualizer runs behind the column: the halos densify (they ride the inherited tokens), and the grey
+ * secondary lines take full ink, the hierarchy holding by size and weight. */
+.column[data-legible] {
+  --text-halo: var(--legible-halo);
+  --text-halo-filter: var(--legible-halo-filter);
+  --glyph-halo: var(--legible-glyph);
+}
+
+.sourceLabel,
+.sourceName,
+.sourceNamePlain,
+.artist {
+  transition: color 0.4s var(--ease-standard);
+}
+
+.source,
+.text,
+.cluster svg,
+.soundSlot svg,
+.volumeSlot svg {
+  transition: filter 0.4s var(--ease-standard);
+}
+
+.column[data-legible] .sourceLabel,
+.column[data-legible] .sourceName,
+.column[data-legible] .sourceNamePlain,
+.column[data-legible] .artist {
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sourceLabel,
+  .sourceName,
+  .sourceNamePlain,
+  .artist,
+  .source,
+  .text,
+  .cluster svg,
+  .soundSlot svg,
+  .volumeSlot svg {
+    transition: none;
+  }
+}

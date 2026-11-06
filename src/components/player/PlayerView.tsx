@@ -7,6 +7,7 @@ import { AmbientStage } from "./ambient/AmbientStage";
 import { Aurora } from "./Aurora";
 import { CenteredStage } from "../common/CenteredStage";
 import { CoverBackdrop } from "./CoverBackdrop";
+import { LegibilityScrim } from "./LegibilityScrim";
 import { PlayerHero } from "./PlayerHero";
 import { QueueList } from "./QueueList";
 import { SoundMenu } from "../sound/SoundMenu";
@@ -132,6 +133,8 @@ function PlayerStage({
   let drawnArt: "liquid" | "dots" | null = null;
   if (!ambient && choice.kind === "liquid") drawnArt = "liquid";
   else if (!ambient && choice.kind === "dot-cover") drawnArt = "dots";
+  // Any drawn visualizer sits behind the labels, so they take the legible treatment while one runs.
+  const legible = !ambient && choice.kind !== "off";
 
   return (
     <div className={`${styles.panel} ${styles.view}`}>
@@ -147,6 +150,7 @@ function PlayerStage({
           hushRefs={hushRefs}
         />
       )}
+      <LegibilityScrim active={legible} floorRef={seekRef} />
       <div className={styles.content}>
         <PlayerHero
           trackId={trackId}
@@ -157,6 +161,7 @@ function PlayerStage({
           sourceRef={sourceRef}
           textRef={textRef}
           drawnArt={drawnArt}
+          legible={legible}
           onEnterAmbient={onEnterAmbient}
           ambientRef={entryRef}
         />

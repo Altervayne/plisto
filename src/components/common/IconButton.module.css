@@ -35,3 +35,8 @@
   background: transparent;
   color: var(--ink-2);
 }
+
+/* Over a visualizer (a stage marks itself data-legible): the glyph takes full ink instead of grey. */
+:global([data-legible]) .icon {
+  color: var(--ink);
+}

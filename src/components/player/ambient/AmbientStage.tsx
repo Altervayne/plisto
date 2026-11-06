@@ -11,6 +11,7 @@ import { AmbientText } from "./AmbientText";
 import { AmbientTransport } from "./AmbientTransport";
 import { Cover } from "../../common/Cover/Cover";
 import { IconButton } from "../../common/IconButton";
+import { LegibilityScrim } from "../LegibilityScrim";
 import { SeekBar } from "../SeekBar";
 import { UpNextGlance } from "./UpNextGlance";
 import { Visualizer } from "../visualizers/Visualizer";
@@ -112,6 +113,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       role="region"
       aria-label={t((d) => d.player.ambientMode)}
       data-faded={fade}
+      data-legible={choice.kind !== "off" ? "" : undefined}
       onPointerMove={wake}
       onPointerDown={wake}
     >
@@ -124,6 +126,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
         floorRef={seekRef}
         hushRefs={hushRefs}
       />
+      <LegibilityScrim active={choice.kind !== "off"} floorRef={seekRef} ambient faded={faded} />
 
       <div className={styles.body}>
         <span ref={coverRef} className={styles.cover}>

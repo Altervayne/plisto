@@ -56,6 +56,24 @@
     drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 70%, transparent))
     drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 55%, transparent));
 
+  /* While a visualizer runs behind the Player's labels: the scrim's wash is the theme's own ground, and the
+   * halos are the theme's ground at four layers, denser than the calm-ground halos above. */
+  --scrim-ink: var(--surface);
+  --legible-halo:
+    0 0 1px color-mix(in srgb, var(--surface) 92%, transparent),
+    0 0 4px color-mix(in srgb, var(--surface) 82%, transparent),
+    0 0 10px color-mix(in srgb, var(--surface) 66%, transparent),
+    0 0 20px color-mix(in srgb, var(--surface) 44%, transparent);
+  --legible-halo-filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 92%, transparent))
+    drop-shadow(0 0 4px color-mix(in srgb, var(--surface) 82%, transparent))
+    drop-shadow(0 0 10px color-mix(in srgb, var(--surface) 66%, transparent))
+    drop-shadow(0 0 20px color-mix(in srgb, var(--surface) 44%, transparent));
+  --legible-glyph:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 92%, transparent))
+    drop-shadow(0 0 4px color-mix(in srgb, var(--surface) 78%, transparent))
+    drop-shadow(0 0 10px color-mix(in srgb, var(--surface) 55%, transparent));
+
   /* A pearl sheen over --surface for the Home cards: faint corner light-catches, the hue drifting
    * across a narrow band so none reads as accent, fading before the centre so card text stays clean. */
   --surface-pearl:
@@ -140,6 +158,24 @@
       drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
       drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 70%, transparent));
 
+    /* While a visualizer runs behind the Player's labels: the scrim's wash is the theme's own ground, and the
+     * halos are the theme's ground at four layers, denser than the calm-ground halos above. */
+    --scrim-ink: var(--bg);
+    --legible-halo:
+      0 0 1px color-mix(in srgb, var(--bg) 94%, transparent),
+      0 0 4px color-mix(in srgb, var(--bg) 86%, transparent),
+      0 0 10px color-mix(in srgb, var(--bg) 72%, transparent),
+      0 0 20px color-mix(in srgb, var(--bg) 50%, transparent);
+    --legible-halo-filter:
+      drop-shadow(0 0 1px color-mix(in srgb, var(--bg) 94%, transparent))
+      drop-shadow(0 0 4px color-mix(in srgb, var(--bg) 86%, transparent))
+      drop-shadow(0 0 10px color-mix(in srgb, var(--bg) 72%, transparent))
+      drop-shadow(0 0 20px color-mix(in srgb, var(--bg) 50%, transparent));
+    --legible-glyph:
+      drop-shadow(0 0 1px color-mix(in srgb, var(--bg) 94%, transparent))
+      drop-shadow(0 0 4px color-mix(in srgb, var(--bg) 82%, transparent))
+      drop-shadow(0 0 10px color-mix(in srgb, var(--bg) 60%, transparent));
+
     /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
      * same narrow hue drift, so a dark card looks like it catches a little light. */
     --surface-pearl:
@@ -204,6 +240,24 @@
   --glyph-halo:
     drop-shadow(0 0 1px color-mix(in srgb, var(--surface) 85%, transparent))
     drop-shadow(0 0 5px color-mix(in srgb, var(--surface) 70%, transparent));
+
+  /* While a visualizer runs behind the Player's labels: the scrim's wash is the theme's own ground, and the
+   * halos are the theme's ground at four layers, denser than the calm-ground halos above. */
+  --scrim-ink: var(--bg);
+  --legible-halo:
+    0 0 1px color-mix(in srgb, var(--bg) 94%, transparent),
+    0 0 4px color-mix(in srgb, var(--bg) 86%, transparent),
+    0 0 10px color-mix(in srgb, var(--bg) 72%, transparent),
+    0 0 20px color-mix(in srgb, var(--bg) 50%, transparent);
+  --legible-halo-filter:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--bg) 94%, transparent))
+    drop-shadow(0 0 4px color-mix(in srgb, var(--bg) 86%, transparent))
+    drop-shadow(0 0 10px color-mix(in srgb, var(--bg) 72%, transparent))
+    drop-shadow(0 0 20px color-mix(in srgb, var(--bg) 50%, transparent));
+  --legible-glyph:
+    drop-shadow(0 0 1px color-mix(in srgb, var(--bg) 94%, transparent))
+    drop-shadow(0 0 4px color-mix(in srgb, var(--bg) 82%, transparent))
+    drop-shadow(0 0 10px color-mix(in srgb, var(--bg) 60%, transparent));
 
   /* The pearl catches read literally on the dark surface: faint cool-white corner lifts plus the
    * same narrow hue drift, so a dark card looks like it catches a little light. */

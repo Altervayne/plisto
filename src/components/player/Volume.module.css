@@ -140,3 +140,8 @@
     transition: none;
   }
 }
+
+/* Over a visualizer (a stage marks itself data-legible): the speaker takes full ink instead of grey. */
+:global([data-legible]) .volume .glyph {
+  color: var(--ink);
+}

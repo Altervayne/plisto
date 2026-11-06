@@ -62,3 +62,8 @@
   background: var(--veil-2);
   box-shadow: none;
 }
+
+/* Over a visualizer (a stage marks itself data-legible): the glyph takes full ink instead of grey. */
+:global([data-legible]) .toggle {
+  color: var(--ink);
+}

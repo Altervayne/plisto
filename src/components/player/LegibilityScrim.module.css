@@ -1,0 +1,49 @@
+/* The foot wash over a visualizer. The solid height comes from the component, measured to the seek bar;
+ * the fade above it is fixed. The stops are the smoothstep ease from the solid wash down to nothing, in
+ * eighths of the fade. */
+.scrim {
+  --fade: 90px;
+  --wash: 40%;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: calc(var(--scrim-solid, 0px) + var(--fade));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease-standard);
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--scrim-ink) var(--wash), transparent) 0,
+    color-mix(in srgb, var(--scrim-ink) var(--wash), transparent) var(--scrim-solid, 0px),
+    color-mix(in srgb, var(--scrim-ink) 38.3%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.125),
+    color-mix(in srgb, var(--scrim-ink) 33.8%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.25),
+    color-mix(in srgb, var(--scrim-ink) 27.3%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.375),
+    color-mix(in srgb, var(--scrim-ink) 20%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.5),
+    color-mix(in srgb, var(--scrim-ink) 12.7%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.625),
+    color-mix(in srgb, var(--scrim-ink) 6.3%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.75),
+    color-mix(in srgb, var(--scrim-ink) 1.7%, transparent) calc(var(--scrim-solid, 0px) + var(--fade) * 0.875),
+    transparent calc(var(--scrim-solid, 0px) + var(--fade))
+  );
+}
+
+.scrim[data-active] {
+  opacity: 1;
+}
+
+/* Ambient mode: a taller fade, and the wash leaves with the chrome on the same timing. */
+.scrim[data-ambient] {
+  --fade: 120px;
+  transition-duration: 0.8s;
+}
+
+.scrim[data-ambient][data-faded] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim {
+    transition: none;
+  }
+}

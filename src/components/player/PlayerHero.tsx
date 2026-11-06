@@ -39,6 +39,7 @@ export function PlayerHero({
   sourceRef,
   textRef,
   drawnArt = null,
+  legible = false,
   onEnterAmbient,
   ambientRef,
 }: {
@@ -55,6 +56,8 @@ export function PlayerHero({
   textRef?: RefObject<HTMLDivElement | null>;
   // Which visualizer draws the art itself, if any.
   drawnArt?: "liquid" | "dots" | null;
+  // A visualizer runs behind the column: the secondary lines and glyphs take full ink and a denser halo.
+  legible?: boolean;
   onEnterAmbient?: () => void;
   ambientRef?: Ref<HTMLButtonElement>;
 }) {
@@ -67,7 +70,7 @@ export function PlayerHero({
 
   return (
     <div ref={heroRef} className={styles.hero}>
-      <div className={styles.column}>
+      <div className={styles.column} data-legible={legible ? "" : undefined}>
         {/* The identity - source, cover, title - centers in the flexible upper space. */}
         <div className={styles.identity}>
           <SourceLine onNavigate={onNavigate} sourceRef={sourceRef} />
