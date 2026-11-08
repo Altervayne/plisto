@@ -41,7 +41,7 @@ export function useVisualizerChoice(coverSrc: string | null): VisualizerChoice {
   const reactivity = usePlayerVisualizerReactivity();
   const spectrumLayout = usePlayerSpectrumLayout();
   const [failed, setFailed] = useState<VisualizerKind | null>(null);
-  const pixels = useCoverPixels(needsCoverPixels(picked) ? coverSrc : null);
+  const { pixels } = useCoverPixels(needsCoverPixels(picked) ? coverSrc : null);
   const onGlFail = useCallback(() => setFailed(picked), [picked]);
   const kind = effectiveVisualizerKind(picked, {
     glFailed: failed === picked,
