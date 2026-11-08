@@ -25,6 +25,18 @@ export interface MenuItem {
   tooltip?: string;
   disabled?: boolean;
   style?: MenuActionStyle;
+  /**
+   * Turns the row into the opener of a side panel beside the menu, whose content this returns; the row
+   * then opens the panel instead of calling `onSelect`. `close` dismisses the panel and the menu; `back`
+   * dismisses the panel only and refocuses the row.
+   */
+  panel?: (api: MenuPanelApi) => ReactNode;
+}
+
+/** What a side panel's content can do to the menu that opened it. */
+export interface MenuPanelApi {
+  close: () => void;
+  back: () => void;
 }
 
 /** A divider between entries in either list; modelled as a sentinel so it rides in the same array. */

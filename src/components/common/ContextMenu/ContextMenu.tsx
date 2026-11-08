@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 // -- Component Imports --
 import { Tooltip } from "../Tooltip/Tooltip";
+import { MenuSidePanel } from "./MenuSidePanel";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../../hooks/useMountTransition";
@@ -35,7 +36,8 @@ interface Focus {
  * placement math (flipping near an edge so it always opens back into the screen), and dismisses on an
  * outside press, Escape, scroll, or blur. Focus rocks along the enabled entries with the arrows, Home
  * and End, Enter selects, and disabled entries are skipped but still announced. Neutral entries read
- * quiet; destructive ones carry the warn tint. Pair it with `useContextMenu`:
+ * quiet; destructive ones carry the warn tint. A list row with a `panel` opens a side panel beside the
+ * menu on click, Enter or Right; Escape in the panel steps back to the row. Pair it with `useContextMenu`:
  *
  *   const menu = useContextMenu();
  *   <div onContextMenu={menu.onContextMenu} />
@@ -73,6 +75,9 @@ export function ContextMenu({
   const [coords, setCoords] = useState<{ left: number; top: number; origin: string } | null>(null);
   const [active, setActive] = useState(0);
   const menu = useMountTransition(open, EXIT_MS);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  // The row whose side panel is showing. It stays set after `open` drops so the panel exits with content.
+  const [panel, setPanel] = useState<{ index: number; row: HTMLElement; open: boolean } | null>(null);
 
   // The enabled entries, top bar first, in the order the arrows walk them.
   const order: Focus[] = [];
@@ -111,17 +116,24 @@ export function ContextMenu({
   useEffect(() => {
     if (!open || !menu.mounted) return;
     setActive(0);
+    setPanel(null);
     const frame = requestAnimationFrame(() => itemRefs.current[0]?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(frame);
   }, [open, menu.mounted]);
 
-  // While open, an outside press, a scroll, or losing the window all dismiss it.
+  // While open, a press or a scroll outside the menu and its panel, or losing the window, dismisses it.
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
+    const outside = (event: Event) => {
+      const target = event.target as Node;
+      return !menuRef.current?.contains(target) && !panelRef.current?.contains(target);
     };
-    const onScroll = () => onClose();
+    const onPointerDown = (event: PointerEvent) => {
+      if (outside(event)) onClose();
+    };
+    const onScroll = (event: Event) => {
+      if (outside(event)) onClose();
+    };
     const onBlur = () => onClose();
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("scroll", onScroll, true);
@@ -143,7 +155,41 @@ export function ContextMenu({
     itemRefs.current[wrapped]?.focus({ preventScroll: true });
   };
 
+  // The list index of the panel row at a focus position, or null for any other entry.
+  const panelRowAt = (position: number) => {
+    const slot = order[position];
+    if (slot?.group !== "list") return null;
+    const entry = list[slot.index];
+    return !isSeparator(entry) && entry.panel ? slot.index : null;
+  };
+
+  const openPanel = (index: number) => {
+    const at = focusIndexOf("list", index);
+    const row = itemRefs.current[at];
+    if (!row) return;
+    setActive(at);
+    setPanel({ index, row, open: true });
+  };
+
+  const back = () => {
+    if (!panel) return;
+    setPanel({ ...panel, open: false });
+    const at = focusIndexOf("list", panel.index);
+    setActive(at);
+    itemRefs.current[at]?.focus({ preventScroll: true });
+  };
+
+  const togglePanel = (index: number) => {
+    if (panel?.open && panel.index === index) back();
+    else openPanel(index);
+  };
+
   const selectAt = (position: number) => {
+    const panelRow = panelRowAt(position);
+    if (panelRow !== null) {
+      togglePanel(panelRow);
+      return;
+    }
     const slot = order[position];
     if (!slot) return;
     const entry = slot.group === "top" ? top[slot.index] : list[slot.index];
@@ -153,9 +199,19 @@ export function ContextMenu({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Keys stop here so the host never acts on them too (a row's own Enter). Chords pass on to the
+    // shell, which swallows the webview's accelerators under a menu and keeps undo and redo.
+    if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
     switch (event.key) {
+      case "ArrowRight": {
+        event.preventDefault();
+        const panelRow = panelRowAt(active);
+        if (panelRow === null) focusAt(active + 1);
+        else if (panel?.open && panel.index === panelRow) panelRef.current?.focus({ preventScroll: true });
+        else openPanel(panelRow);
+        break;
+      }
       case "ArrowDown":
-      case "ArrowRight":
         event.preventDefault();
         focusAt(active + 1);
         break;
@@ -238,12 +294,18 @@ export function ContextMenu({
         role="menuitem"
         className={cls}
         aria-disabled={entry.disabled || undefined}
+        aria-haspopup={entry.panel ? "dialog" : undefined}
+        aria-expanded={entry.panel ? panel?.open === true && panel.index === index : undefined}
         tabIndex={focusIndex >= 0 && focusIndex === active ? 0 : -1}
         ref={(el) => {
           if (focusIndex >= 0) itemRefs.current[focusIndex] = el;
         }}
         onClick={() => {
           if (entry.disabled) return;
+          if (entry.panel) {
+            togglePanel(index);
+            return;
+          }
           entry.onSelect();
           onClose();
         }}
@@ -263,7 +325,22 @@ export function ContextMenu({
     );
   };
 
-  return createPortal(
+  const panelEntry = panel ? list[panel.index] : undefined;
+  const panelContent =
+    panel && panelEntry && !isSeparator(panelEntry) && panelEntry.panel ? (
+      <MenuSidePanel
+        open={open && panel.open}
+        label={panelEntry.label}
+        menuRef={menuRef}
+        panelRef={panelRef}
+        row={panel.row}
+        onBack={back}
+      >
+        {panelEntry.panel({ close: onClose, back })}
+      </MenuSidePanel>
+    ) : null;
+
+  const menuLayer = createPortal(
     <div
       ref={menuRef}
       role="menu"
@@ -286,5 +363,12 @@ export function ContextMenu({
       {list.length > 0 && <div className={styles.body}>{list.map((entry, index) => renderItem(entry, index))}</div>}
     </div>,
     document.body,
+  );
+
+  return (
+    <>
+      {menuLayer}
+      {panelContent}
+    </>
   );
 }

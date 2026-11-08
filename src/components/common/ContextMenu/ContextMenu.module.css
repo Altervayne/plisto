@@ -125,7 +125,8 @@
   transition: background var(--dur-fast) ease;
 }
 
-.item:not([aria-disabled]):hover {
+.item:not([aria-disabled]):hover,
+.item[aria-expanded="true"] {
   background: var(--veil);
 }
 
@@ -174,9 +175,54 @@
   outline-offset: -2px;
 }
 
+/*
+ * The side panel a row opens: the menu's surface one z step above it. It hides by opacity until placed;
+ * the container only takes focus when its content claims none, so it draws no ring of its own.
+ */
+.panel {
+  position: fixed;
+  z-index: 1001;
+  box-sizing: border-box;
+  padding: 5px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  opacity: 0;
+  outline: none;
+}
+
+.panel[data-ready] {
+  opacity: 1;
+}
+
+.panel[data-ready][data-state="enter"] {
+  animation: panel-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.panel[data-ready][data-state="exit"] {
+  animation: menu-out var(--dur-fast) var(--ease-exit) both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .menu[data-ready][data-state="enter"],
-  .menu[data-ready][data-state="exit"] {
+  .menu[data-ready][data-state="exit"],
+  .panel[data-ready][data-state="enter"],
+  .panel[data-ready][data-state="exit"] {
     animation: none;
   }
 }

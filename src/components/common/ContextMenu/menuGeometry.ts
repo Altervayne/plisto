@@ -1,8 +1,9 @@
 /*
  * Placement math for the context menu: pure geometry that opens the menu from the pointer, rightward
  * and downward by default, and reverses each axis when the menu would spill past the viewport so a
- * corner press opens back into the screen. It then clamps both axes into the edge margin. No DOM and
- * no framework, so it stays deterministic and testable on its own.
+ * corner press opens back into the screen. It then clamps both axes into the edge margin. It also
+ * places a side panel beside the menu. No DOM and no framework, so it stays deterministic and testable
+ * on its own.
  */
 
 export interface Point {
@@ -61,4 +62,29 @@ export function placeMenu(
   const origin = `${flipX ? "right" : "left"} ${flipY ? "bottom" : "top"}`;
 
   return { left, top, origin };
+}
+
+/** The edges of an on-screen box, as `getBoundingClientRect` reports them. */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+// Space between the menu and a side panel, and how far the panel's top rises above its row.
+const BESIDE_GAP = 6;
+const BESIDE_LIFT = 8;
+
+/**
+ * The top-left of a side panel opened from a menu row: right of the menu with its top just above the
+ * row, so the panel's first line sits level with the row. It flips to the menu's left when the right side
+ * is short, then clamps both axes into the margin, overlapping the menu in a window too narrow for both.
+ */
+export function placeBeside(menu: Box, row: Box, panel: Size, viewport: Viewport, margin: number): Point {
+  let x = menu.right + BESIDE_GAP;
+  if (x + panel.width > viewport.width - margin) x = menu.left - BESIDE_GAP - panel.width;
+  x = clamp(x, margin, viewport.width - margin - panel.width);
+  const y = clamp(row.top - BESIDE_LIFT, margin, viewport.height - margin - panel.height);
+  return { x, y };
 }

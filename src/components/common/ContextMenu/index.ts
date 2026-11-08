@@ -6,6 +6,7 @@ export type {
   MenuActionStyle,
   MenuEntry,
   MenuItem,
+  MenuPanelApi,
   MenuSeparator,
   TopAction,
   TopEntry,
