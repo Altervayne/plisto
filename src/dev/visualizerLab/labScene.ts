@@ -96,6 +96,26 @@ const AMBIENT: LabLayout = {
   ],
 };
 
+// The thumbnail stage: the ambient stage scaled to 680 x 424 (twice the 340 x 212 still), with the cover
+// shrunk to 30% of the height around the ambient cover's centre, so the visualizer carries the picture.
+const THUMB_SCALE = 680 / 1280;
+const THUMB_COVER = 128;
+export const THUMB_LAYOUT: LabLayout = {
+  id: "ambient",
+  width: 680,
+  height: 424,
+  cover: [
+    Math.round((AMBIENT.cover[0] + AMBIENT.cover[2] / 2) * THUMB_SCALE - THUMB_COVER / 2),
+    Math.round((AMBIENT.cover[1] + AMBIENT.cover[3] / 2) * THUMB_SCALE - THUMB_COVER / 2),
+    THUMB_COVER,
+    THUMB_COVER,
+  ],
+  radius: 10,
+  mask: null,
+  floor: AMBIENT.floor === null ? null : Math.round(AMBIENT.floor * THUMB_SCALE),
+  hush: AMBIENT.hush.map(([x, y, w, h]): LabLayout["cover"] => [x * THUMB_SCALE, y * THUMB_SCALE, w * THUMB_SCALE, h * THUMB_SCALE]),
+};
+
 export const LAB_LAYOUTS: Record<LabLayoutId, LabLayout> = { player: PLAYER, ambient: AMBIENT };
 
 /** Paints the reference cover, a sunset gradient with a sun disc, onto a square canvas. */

@@ -3,7 +3,18 @@
  * fixed scene. Query params: mode=view|hash|thumb|bench|flash, kind (one GL kind; absent means all of them,
  * except view, which takes glass), theme=light|dark and layout=player|ambient (absent means both for
  * hash). Every non-view mode writes its result as JSON into <pre id="out"> and sets body[data-done].
+ * Thumb mode also takes kind=ridge: the Canvas 2D ridge, drawn by its real component.
  */
+
+// -- Framework Imports --
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+
+// -- Component Imports --
+import { SpectrumRidge } from "../../components/player/SpectrumRidge";
+
+// -- Hook Imports --
+import { useSpectrumSync } from "../../state/player/spectrum";
 
 // -- Local Imports --
 import { fireflyProbe } from "../../components/player/visualizers/gl/fireflies";
@@ -13,17 +24,20 @@ import {
   LAB_T,
   applyTheme,
   coverPixels,
+  groundOf,
   labFrame,
   paintCover,
   reseed,
   setDpr,
+  THUMB_LAYOUT,
   withSeededRandom,
   type LabLayoutId,
   type LabTheme,
 } from "./labScene";
+import { createLabMusic } from "./labMusic";
 
 // -- State Imports --
-import { VISUALIZER_KINDS, isGlKind, type GlKind } from "../../state/player/visualizerKind";
+import { VISUALIZER_KINDS, isGlKind, needsFineSpectrum, type GlKind } from "../../state/player/visualizerKind";
 
 // -- Style Imports --
 import "../../styles/tokens.css";
@@ -37,6 +51,9 @@ const GL_KINDS = VISUALIZER_KINDS.filter(isGlKind);
 const THUMB_W = 340;
 const THUMB_H = 212;
 const THUMB_QUALITY = 0.85;
+// The groove starts in its intro and runs this many 60 fps frames before the grab.
+const THUMB_START = 7;
+const THUMB_FRAMES = 360;
 
 // Bench: warm-up renders absorb the shader compiles, then the timed run is amortized over one sync.
 const BENCH_WARM = 10;
@@ -56,6 +73,10 @@ function pickKinds(fallback: readonly GlKind[]): GlKind[] {
   if (!raw) return [...fallback];
   if (!(GL_KINDS as readonly string[]).includes(raw)) throw new Error(`unknown GL kind: ${raw}`);
   return [raw as GlKind];
+}
+
+function pickThumbKinds(): (GlKind | "ridge")[] {
+  return params.get("kind") === "ridge" ? ["ridge"] : [...(params.get("kind") ? pickKinds(GL_KINDS) : ["ridge" as const, ...GL_KINDS])];
 }
 
 function pickThemes(): LabTheme[] {
@@ -109,24 +130,18 @@ async function runHash() {
   return rows;
 }
 
-/** One kind's ambient still composited onto the theme ground, with the cover tile on top. */
-function composeThumb(kind: GlKind, theme: LabTheme, cover: ImageBitmap): string {
-  const layout = LAB_LAYOUTS.ambient;
-  const { canvas, renderer } = open("ambient");
-  reseed();
-  const frame = labFrame(theme, "ambient", cover);
-  renderer.still(kind, frame);
-
+/** The thumbnail frame: the ground, the kind's layer drawn by `paint`, the cover tile on top, scaled down. */
+function composeThumb(ground: [number, number, number], paint: (x: CanvasRenderingContext2D) => void): string {
+  const layout = THUMB_LAYOUT;
   const full = document.createElement("canvas");
-  full.width = canvas.width;
-  full.height = canvas.height;
+  full.width = layout.width;
+  full.height = layout.height;
   const x = full.getContext("2d");
   if (!x) throw new Error("2d context unavailable");
-  const [r, g, b] = frame.ground;
+  const [r, g, b] = ground;
   x.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
   x.fillRect(0, 0, full.width, full.height);
-  x.globalCompositeOperation = COMPOSITE_OP[blendModeFor(kind, frame.light)];
-  x.drawImage(canvas, 0, 0);
+  paint(x);
   x.globalCompositeOperation = "source-over";
   const [cx, cy, cw, ch] = layout.cover;
   x.save();
@@ -135,7 +150,6 @@ function composeThumb(kind: GlKind, theme: LabTheme, cover: ImageBitmap): string
   x.clip();
   x.drawImage(paintCover(512), cx, cy, cw, ch);
   x.restore();
-  renderer.dispose();
 
   const thumb = document.createElement("canvas");
   thumb.width = THUMB_W;
@@ -147,14 +161,151 @@ function composeThumb(kind: GlKind, theme: LabTheme, cover: ImageBitmap): string
   return thumb.toDataURL("image/webp", THUMB_QUALITY);
 }
 
+/** One GL kind drawn in full flow: the groove runs for a few seconds so trails, rings and spectra develop. */
+function glThumb(kind: GlKind, theme: LabTheme, cover: ImageBitmap): string {
+  const canvas = document.createElement("canvas");
+  const renderer = createRenderer(canvas);
+  if (!renderer) throw new Error("WebGL2 unavailable");
+  renderer.fit(THUMB_LAYOUT);
+  reseed();
+  const base = labFrame(theme, "ambient", cover);
+  const music = createLabMusic(THUMB_START);
+  for (let i = 0; i < THUMB_FRAMES; i++) {
+    const m = music.step(1 / 60);
+    const fine = needsFineSpectrum(kind) ? m.fine : null;
+    renderer.render(kind, { ...base, sig: m.sig, fine, t: THUMB_START + i / 60, dt: 1 / 60, still: false });
+  }
+  const url = composeThumb(base.ground, (x) => {
+    x.globalCompositeOperation = COMPOSITE_OP[blendModeFor(kind, base.light)];
+    x.drawImage(canvas, 0, 0);
+  });
+  renderer.dispose();
+  return url;
+}
+
+/** Stands in for the Tauri bridge so the app's own spectrum listeners can be fed from the lab. */
+function installBridge(): (event: string, payload: unknown) => void {
+  const handlers = new Map<string, number[]>();
+  let next = 1;
+  const w = window as unknown as Record<string, unknown>;
+  w.__TAURI_INTERNALS__ = {
+    transformCallback: (cb: (e: unknown) => void) => {
+      const id = next++;
+      w[`_${id}`] = cb;
+      return id;
+    },
+    invoke: async (cmd: string, args: { event?: string; handler?: number }) => {
+      if (cmd === "plugin:event|listen" && args.event && args.handler) {
+        handlers.set(args.event, [...(handlers.get(args.event) ?? []), args.handler]);
+      }
+      return next++;
+    },
+  };
+  w.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+  return (event, payload) => {
+    for (const id of handlers.get(event) ?? []) (w[`_${id}`] as (e: unknown) => void)({ event, id, payload });
+  };
+}
+
+function SpectrumFeed() {
+  useSpectrumSync();
+  return null;
+}
+
+/** Swaps requestAnimationFrame for a queue the lab pumps by hand, so frames run at a fixed 60 fps. */
+function manualFrames(): { pump: (frame: number) => void; restore: () => void } {
+  const raf = window.requestAnimationFrame;
+  const caf = window.cancelAnimationFrame;
+  let queue = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  window.requestAnimationFrame = (cb) => {
+    queue.set(++id, cb);
+    return id;
+  };
+  window.cancelAnimationFrame = (handle) => {
+    queue.delete(handle);
+  };
+  return {
+    pump(frame) {
+      const due = queue;
+      queue = new Map();
+      for (const cb of due.values()) cb((frame * 1000) / 60);
+    },
+    restore() {
+      window.requestAnimationFrame = raf;
+      window.cancelAnimationFrame = caf;
+    },
+  };
+}
+
+/** The cover glow the app lays under the ridge: the cover palette as soft radial washes around the tile. */
+function paintGlow(x: CanvasRenderingContext2D, theme: LabTheme): void {
+  const { width, height } = THUMB_LAYOUT;
+  const washes: [string, number, number][] = [
+    ["224,100,79", 0.7, 0.78],
+    ["42,138,160", 0.3, 0.7],
+    ["246,201,138", 0.5, 0.95],
+  ];
+  const alpha = theme === "light" ? 0.7 : 0.55;
+  for (const [rgb, fx, fy] of washes) {
+    const g = x.createRadialGradient(width * fx, height * fy, 0, width * fx, height * fy, height * 0.75);
+    g.addColorStop(0, `rgba(${rgb},${alpha})`);
+    g.addColorStop(1, `rgba(${rgb},0)`);
+    x.fillStyle = g;
+    x.fillRect(0, 0, width, height);
+  }
+}
+
+/**
+ * The real SpectrumRidge on the stage, composited soft-light, fed the simulated groove through the app's
+ * own spectrum listeners and its own animation loop.
+ */
+async function ridgeThumb(theme: LabTheme): Promise<string> {
+  const layout = THUMB_LAYOUT;
+  const emit = installBridge();
+  const stage = document.createElement("div");
+  stage.style.cssText = `position:relative;width:${layout.width}px;height:${layout.height}px`;
+  document.body.appendChild(stage);
+  const frames = manualFrames();
+  const root = createRoot(stage);
+  try {
+    flushSync(() =>
+      root.render(
+        <>
+          <SpectrumFeed />
+          <SpectrumRidge tall />
+        </>,
+      ),
+    );
+    const music = createLabMusic(THUMB_START);
+    for (let i = 0; i < THUMB_FRAMES; i++) {
+      const m = music.step(1 / 60);
+      if (i % 2 === 0) emit("player:spectrum", m.bands);
+      frames.pump(i);
+    }
+    const canvas = stage.querySelector("canvas") as HTMLCanvasElement;
+    const box = canvas.getBoundingClientRect();
+    const origin = stage.getBoundingClientRect();
+    return composeThumb(groundOf("ambient"), (x) => {
+      paintGlow(x, theme);
+      x.globalCompositeOperation = "soft-light";
+      x.drawImage(canvas, box.left - origin.left, box.top - origin.top, box.width, box.height);
+    });
+  } finally {
+    root.unmount();
+    stage.remove();
+    frames.restore();
+  }
+}
+
 async function runThumb() {
   const cover = await coverPixels();
   const rows: { kind: string; theme: string; dataUrl: string }[] = [];
   setDpr(1);
-  for (const kind of pickKinds(GL_KINDS)) {
+  for (const kind of pickThumbKinds()) {
     for (const theme of pickThemes()) {
       applyTheme(theme);
-      rows.push({ kind, theme, dataUrl: composeThumb(kind, theme, cover) });
+      rows.push({ kind, theme, dataUrl: kind === "ridge" ? await ridgeThumb(theme) : glThumb(kind, theme, cover) });
     }
   }
   return rows;

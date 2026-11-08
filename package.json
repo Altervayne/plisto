@@ -9,6 +9,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
+    "thumbs": "node tools/visualizer-thumbs.mjs capture",
+    "thumbs:check": "node tools/visualizer-thumbs.mjs check",
     "prune:target": "node scripts/prune-target.mjs",
     "release:manifest": "node scripts/make-latest-json.mjs",
     "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-build.ps1",
