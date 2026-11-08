@@ -44,6 +44,8 @@ export interface Frame {
   backing: [number, number, number];
   // The stage's own ground as sRGB in 0..1: the panel's surface in the Player, the base ground in ambient.
   ground: [number, number, number];
+  // The track position over its duration in 0..1, or null when unknown.
+  progress?: number | null;
 }
 
 /** The feedback a trail candidate applies to the previous frame. */

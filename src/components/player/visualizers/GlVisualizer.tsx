@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 
 // -- Local Imports --
 import { blendModeFor, createRenderer, type Layout, type Renderer } from "./gl/renderer";
+import { clamp01 } from "./gl/cozy";
 import type { Frame, Rect } from "./gl/kit";
 
 // -- State Imports --
@@ -167,6 +168,10 @@ export function GlVisualizer({
         fail();
       }
     };
+    const progressOf = (): number | null => {
+      const { position_secs, duration_secs } = usePlayerStore.getState().status;
+      return duration_secs > 0 ? clamp01(position_secs / duration_secs) : null;
+    };
     const frameOf = (t: number, dt: number, still: boolean, fine: number[] | null): Omit<Frame, "sig"> => ({
       t,
       dt,
@@ -179,6 +184,7 @@ export function GlVisualizer({
       mirrored: live.current.mirrored,
       backing,
       ground,
+      progress: progressOf(),
     });
 
     const teardown = () => {
