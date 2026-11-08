@@ -78,6 +78,7 @@ export function VisualizerPicker() {
     classic: t((d) => d.player.visualizerGroupClassic),
     dots: t((d) => d.player.visualizerGroupDots),
     fluid: t((d) => d.player.visualizerGroupFluid),
+    cozy: t((d) => d.player.visualizerGroupCozy),
   };
   const renderRow = (kind: VisualizerKind) => {
     const selected = kind === picked;

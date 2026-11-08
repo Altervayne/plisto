@@ -26,6 +26,14 @@ describe("blendFor", () => {
     mercury: ["normal", "normal"],
     glass: ["normal", "normal"],
     silk: ["normal", "normal"],
+    pond: ["normal", "normal"],
+    train: ["normal", "normal"],
+    record: ["normal", "normal"],
+    snowfall: ["normal", "normal"],
+    latte: ["normal", "normal"],
+    fireflies: ["normal", "normal"],
+    window: ["normal", "normal"],
+    lake: ["normal", "normal"],
   };
 
   it("gives every GL kind the blend the renderer composites in each theme", () => {
@@ -49,7 +57,21 @@ describe("blendFor", () => {
 describe("fillsStage", () => {
   it("holds for the kinds that draw across the whole stage, ignoring the mask", () => {
     const fills = VISUALIZER_DESCRIPTORS.filter((d) => d.fillsStage).map((d) => d.id);
-    expect(fills).toEqual(["liquid", "ink", "mercury", "glass", "silk"]);
+    expect(fills).toEqual([
+      "liquid",
+      "ink",
+      "mercury",
+      "silk",
+      "pond",
+      "glass",
+      "train",
+      "record",
+      "snowfall",
+      "latte",
+      "fireflies",
+      "window",
+      "lake",
+    ]);
   });
 });
 

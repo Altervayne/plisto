@@ -5,7 +5,7 @@
  */
 
 /** The picker's labelled sections, in order. */
-export const GROUP_ORDER = ["classic", "dots", "fluid"] as const;
+export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy"] as const;
 
 export type VisualizerGroupId = (typeof GROUP_ORDER)[number];
 
@@ -130,18 +130,83 @@ export const VISUALIZER_DESCRIPTORS = [
     blend: { light: "normal", dark: "normal" },
   },
   {
-    id: "glass",
+    id: "silk",
+    group: "fluid",
+    engine: "gl",
+    needs: { fine: false, cover: false },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "pond",
     group: "fluid",
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
     blend: { light: "normal", dark: "normal" },
   },
+  // The cozy kinds are whole-stage scenes built around the cover's pixels.
   {
-    id: "silk",
-    group: "fluid",
+    id: "glass",
+    group: "cozy",
     engine: "gl",
-    needs: { fine: false, cover: false },
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "train",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "record",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "snowfall",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "latte",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "fireflies",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "window",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "lake",
+    group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
     fillsStage: true,
     blend: { light: "normal", dark: "normal" },
   },

@@ -33,8 +33,16 @@ describe("visualizer descriptors", () => {
     ["liquid", "fluid", "gl", false, true, true, "normal", "normal"],
     ["ink", "fluid", "gl", false, true, true, "normal", "normal"],
     ["mercury", "fluid", "gl", false, true, true, "normal", "normal"],
-    ["glass", "fluid", "gl", false, true, true, "normal", "normal"],
     ["silk", "fluid", "gl", false, false, true, "normal", "normal"],
+    ["pond", "fluid", "gl", false, true, true, "normal", "normal"],
+    ["glass", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["train", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["record", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["snowfall", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["latte", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["fireflies", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["window", "cozy", "gl", false, true, true, "normal", "normal"],
+    ["lake", "cozy", "gl", false, true, true, "normal", "normal"],
   ];
 
   it("holds every kind's traits, in picker order", () => {
@@ -90,10 +98,10 @@ describe("normalizeVisualizerKind", () => {
 });
 
 describe("nextVisualizerKind", () => {
-  it("cycles the classic, dot and fluid sections in picker order, then Off", () => {
+  it("cycles the classic, dot, fluid and cozy sections in picker order, then Off", () => {
     const seen: VisualizerKind[] = [];
     let kind: VisualizerKind = "ridge";
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 22; i++) {
       seen.push(kind);
       kind = nextVisualizerKind(kind);
     }
@@ -109,8 +117,16 @@ describe("nextVisualizerKind", () => {
       "liquid",
       "ink",
       "mercury",
-      "glass",
       "silk",
+      "pond",
+      "glass",
+      "train",
+      "record",
+      "snowfall",
+      "latte",
+      "fireflies",
+      "window",
+      "lake",
       "off",
     ]);
   });
@@ -148,6 +164,14 @@ describe("effectiveVisualizerKind", () => {
     expect(effectiveVisualizerKind("silk", noPixels)).toBe("silk");
   });
 
+  it("falls back to Ridge without cover pixels for Pond and every cozy kind", () => {
+    const noPixels = { ...ok, coverPixels: false };
+    const kinds = ["pond", "glass", "train", "record", "snowfall", "latte", "fireflies", "window", "lake"] as const;
+    for (const kind of kinds) {
+      expect(effectiveVisualizerKind(kind, noPixels)).toBe("ridge");
+    }
+  });
+
   it("falls back to Ridge for every fluid kind when the WebGL renderer failed", () => {
     for (const kind of ["ink", "mercury", "glass", "silk"] as const) {
       expect(effectiveVisualizerKind(kind, { ...ok, glFailed: true })).toBe("ridge");
@@ -182,13 +206,41 @@ describe("normalizeReactivity", () => {
 
 describe("needsCoverPixels", () => {
   it("holds for the kinds that draw the art itself", () => {
-    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual(["dot-cover", "liquid", "ink", "mercury", "glass"]);
+    expect(VISUALIZER_KINDS.filter(needsCoverPixels)).toEqual([
+      "dot-cover",
+      "liquid",
+      "ink",
+      "mercury",
+      "pond",
+      "glass",
+      "train",
+      "record",
+      "snowfall",
+      "latte",
+      "fireflies",
+      "window",
+      "lake",
+    ]);
   });
 });
 
 describe("fillsStage", () => {
-  it("holds for Liquid and the fluid kinds, which paint the whole stage", () => {
-    expect(VISUALIZER_KINDS.filter(fillsStage)).toEqual(["liquid", "ink", "mercury", "glass", "silk"]);
+  it("holds for the fluid and cozy kinds, which paint the whole stage", () => {
+    expect(VISUALIZER_KINDS.filter(fillsStage)).toEqual([
+      "liquid",
+      "ink",
+      "mercury",
+      "silk",
+      "pond",
+      "glass",
+      "train",
+      "record",
+      "snowfall",
+      "latte",
+      "fireflies",
+      "window",
+      "lake",
+    ]);
   });
 });
 

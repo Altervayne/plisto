@@ -1,6 +1,7 @@
 /*
  * The UI half of the visualizer registry: each kind's label, glyph and, for a GL kind, the factory the
- * renderer builds it with. Keyed by kind, so a kind missing here fails the typecheck.
+ * renderer builds it with, plus the pre-rendered thumbnails. Keyed by kind, so a kind missing here fails
+ * the typecheck.
  */
 
 // -- Framework Imports --
@@ -10,15 +11,23 @@ import type { ReactNode } from "react";
 import { createBloom } from "./gl/bloom";
 import { createDotCover } from "./gl/dotCover";
 import { createDotSpectrum } from "./gl/dotSpectrum";
+import { createFireflies } from "./gl/fireflies";
 import { createGlass } from "./gl/glass";
 import { createHalftone } from "./gl/halftone";
 import { createInk } from "./gl/ink";
+import { createLake } from "./gl/lake";
+import { createLatte } from "./gl/latte";
 import { createLiquid } from "./gl/liquid";
 import { createMercury } from "./gl/mercury";
 import { createNebula } from "./gl/nebula";
+import { createPond } from "./gl/pond";
+import { createRecord } from "./gl/record";
 import { createSilk } from "./gl/silk";
+import { createSnowfall } from "./gl/snowfall";
 import { createTerrain } from "./gl/terrain";
+import { createTrain } from "./gl/train";
 import { createWarp } from "./gl/warp";
+import { createWindow } from "./gl/window";
 
 // -- Type Imports --
 import type { Candidate, Kit } from "./gl/kit";
@@ -189,6 +198,110 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
     factory: createSilk,
   },
+  pond: {
+    label: (d) => d.player.visualizerPond,
+    glyph: (
+      <>
+        <ellipse cx="12" cy="16.5" rx="10" ry="5" opacity={0.6} />
+        <ellipse cx="12" cy="16.5" rx="4.5" ry="2" />
+        <path d="M12 2.5c-1 1.7-2 2.8-2 4a2 2 0 0 0 4 0c0-1.2-1-2.3-2-4z" fill="currentColor" />
+      </>
+    ),
+    factory: createPond,
+  },
+  train: {
+    label: (d) => d.player.visualizerTrain,
+    glyph: (
+      <>
+        <rect x="2" y="5" width="20" height="14" rx="4" />
+        <path d="M2 15.5c3 0 4.5-2.5 7.5-2.5s4.5 2.5 12.5 2.5" opacity={0.6} />
+        <path d="M9.5 8 6.5 10.5M15.5 8l-3 2.5" />
+      </>
+    ),
+    factory: createTrain,
+  },
+  record: {
+    label: (d) => d.player.visualizerRecord,
+    glyph: (
+      <>
+        <circle cx="9.5" cy="13" r="8" />
+        <circle cx="9.5" cy="13" r="2.4" />
+        <path d="M20.5 3.5V12l-4.5 4" />
+      </>
+    ),
+    factory: createRecord,
+  },
+  snowfall: {
+    label: (d) => d.player.visualizerSnowfall,
+    glyph: (
+      <>
+        <path d="M9 4v12M3.8 7l10.4 6M3.8 13l10.4-6" />
+        <g fill="currentColor" stroke="none">
+          <circle cx="18.5" cy="5.5" r="1.3" />
+          <circle cx="19.5" cy="13.5" r="1.3" />
+          <circle cx="6" cy="20.5" r="1.3" />
+          <circle cx="14.5" cy="20" r="1.3" />
+        </g>
+      </>
+    ),
+    factory: createSnowfall,
+  },
+  latte: {
+    label: (d) => d.player.visualizerLatte,
+    glyph: (
+      <>
+        <circle cx="10.5" cy="12" r="8" />
+        <path d="M18.5 9.5h1.5a2.5 2.5 0 0 1 0 5h-1.5" />
+        <path
+          d="M10.5 15.5c-2.5-1.5-3.9-2.9-3.9-4.5a1.95 1.95 0 0 1 3.9-.4 1.95 1.95 0 0 1 3.9.4c0 1.6-1.4 3-3.9 4.5z"
+          fill="currentColor"
+        />
+      </>
+    ),
+    factory: createLatte,
+  },
+  fireflies: {
+    label: (d) => d.player.visualizerFireflies,
+    glyph: (
+      <>
+        <path d="M2 21h20" />
+        <g opacity={0.6}>
+          <path d="M6 21c-.3-2.4-1-3.9-2.2-5M6 21c.3-2.8 1-4.3 2.4-5.6" />
+          <path d="M17 21c-.3-2.4-1-3.9-2.2-5M17 21c.3-2.8 1-4.3 2.4-5.6" />
+        </g>
+        <g fill="currentColor" stroke="none">
+          <circle cx="7.5" cy="8" r="3.4" fillOpacity={0.25} />
+          <circle cx="7.5" cy="8" r="1.5" />
+          <circle cx="14" cy="4.5" r="1.2" />
+          <circle cx="18.5" cy="9.5" r="1.4" />
+          <circle cx="12.5" cy="12.5" r="1" />
+        </g>
+      </>
+    ),
+    factory: createFireflies,
+  },
+  window: {
+    label: (d) => d.player.visualizerWindow,
+    glyph: (
+      <>
+        <rect x="4" y="3" width="16" height="15.5" rx="1.5" />
+        <path d="M12 3v15.5M4 10.75h16" />
+        <path d="M2 21.5h20" />
+      </>
+    ),
+    factory: createWindow,
+  },
+  lake: {
+    label: (d) => d.player.visualizerLake,
+    glyph: (
+      <>
+        <path d="M17 3.5a4 4 0 1 0 0 7 4.5 4.5 0 0 1 0-7z" fill="currentColor" />
+        <path d="M2 13.5h20" />
+        <path d="M12 17h5.5M13 20.5h3.5M4 17h3.5" opacity={0.6} />
+      </>
+    ),
+    factory: createLake,
+  },
   off: {
     label: (d) => d.player.visualizerOff,
     glyph: (
@@ -199,3 +312,15 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
   },
 };
+
+// The stills ship as files and resolve to URLs, so none of them lands in a JS chunk.
+const THUMBS = import.meta.glob<string>("../../../assets/visualizer-thumbs/*.webp", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+
+/** The URL of a kind's pre-rendered still in a theme, or null when none was captured. */
+export function thumbFor(kind: VisualizerKind, theme: "light" | "dark"): string | null {
+  return THUMBS[`../../../assets/visualizer-thumbs/${kind}-${theme}.webp`] ?? null;
+}
