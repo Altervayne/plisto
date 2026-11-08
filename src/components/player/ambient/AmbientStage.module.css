@@ -32,6 +32,7 @@
  * work lines up, and it reaches the tile inside through --r-md. */
 .cover {
   --r-md: 20px;
+  position: relative;
   display: block;
   flex: none;
   width: clamp(240px, 50vh, 560px);
@@ -39,11 +40,23 @@
   --cover-shadow: var(--shadow-pop);
 }
 
-/* Liquid draws the art itself under this clear tile, which keeps the cover's shadow and edge. */
-.liquidTile {
-  position: relative;
+.coverArt {
   display: block;
-  aspect-ratio: 1;
+  border-radius: inherit;
+}
+
+/* Under a drawn-art tile the real cover stays beneath at the inverse of the dip, so the art never blinks
+ * out while the visualizer drawing it fades. The tile carries the shadow meanwhile. */
+.coverArt[data-drawn] {
+  opacity: calc(1 - var(--viz-dip, 1));
+  --cover-shadow: none;
+}
+
+/* Liquid draws the art itself under this clear tile, which keeps the cover's shadow and edge. The edge
+ * fades with the dip, handing over to the cover's own. */
+.liquidTile {
+  position: absolute;
+  inset: 0;
   border-radius: inherit;
   box-shadow: var(--shadow-pop);
 }
@@ -56,14 +69,14 @@
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.05),
     inset 0 -46px 60px -34px rgba(0, 0, 0, 0.34);
+  opacity: var(--viz-dip, 1);
 }
 
 /* Dot cover draws the matrix on its own backing under this clear tile, which keeps the shadow and a faint
  * edge. */
 .dotTile {
-  position: relative;
-  display: block;
-  aspect-ratio: 1;
+  position: absolute;
+  inset: 0;
   border-radius: inherit;
   box-shadow: var(--shadow-pop);
 }
@@ -74,6 +87,7 @@
   inset: 0;
   border-radius: inherit;
   box-shadow: inset 0 0 0 1px var(--veil);
+  opacity: var(--viz-dip, 1);
 }
 
 /* No art: the quiet recess the empty Player uses, with a music glyph. */

@@ -28,7 +28,8 @@ import styles from "./PlayerHero.module.css";
  * transport with the Sound button leading it and the ambient entry and volume rail trailing it. Mounts
  * only with a real track id, so its id-typed hooks never run empty. The seek fill is the one lit accent
  * of the view; every other control reads by weight and material. Under the Liquid and Dot cover
- * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow.
+ * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow, and
+ * the real cover crossfades with it through the stage's dip.
  */
 export function PlayerHero({
   trackId,
@@ -76,11 +77,12 @@ export function PlayerHero({
           <SourceLine onNavigate={onNavigate} sourceRef={sourceRef} />
 
           <span ref={coverRef} className={styles.cover}>
+            <span className={styles.coverArt} data-drawn={drawnArt ? "" : undefined}>
+              <Cover src={coverSrc} alt="" />
+            </span>
             {drawnArt ? (
               <span className={drawnArt === "dots" ? styles.dotTile : styles.liquidTile} aria-hidden="true" />
-            ) : (
-              <Cover src={coverSrc} alt="" />
-            )}
+            ) : null}
           </span>
 
           <div ref={textRef} className={styles.text}>

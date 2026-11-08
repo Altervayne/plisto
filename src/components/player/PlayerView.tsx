@@ -100,8 +100,9 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
  * an aurora of drifting colour blooms above it, and the picked visualizer rising around the cover. Mounts
  * only with a real track id, so its id-typed cover hook never runs empty. The ambient layers sit under the
  * content, which carries the only lit mark. Liquid and the fluid kinds fill the whole panel, so under
- * them the queue takes a frosted backing. While ambient mode is up, the aurora and visualizer stand down here, so only
- * the full-screen stage draws.
+ * them the queue takes a frosted backing. A change of visualizer dips the panel through its ground, and
+ * everything keyed to the visualizer follows the shown kind rather than the pick. While ambient mode is
+ * up, the aurora and visualizer stand down here, so only the full-screen stage draws.
  */
 function PlayerStage({
   trackId,
@@ -128,16 +129,19 @@ function PlayerStage({
   const sourceRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const hushRefs = useMemo(() => [sourceRef, textRef], []);
-  const choice = useVisualizerChoice(coverSrc);
-  // Liquid and Dot cover draw the art themselves, under a clear tile in place of the cover.
+  // The panel carries the dip's opacity for the visualizer and the queue plate beneath it.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const choice = useVisualizerChoice(coverSrc, trackId, panelRef);
+  const { shown } = choice;
+  // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.
   let drawnArt: "liquid" | "dots" | null = null;
-  if (!ambient && choice.kind === "liquid") drawnArt = "liquid";
-  else if (!ambient && choice.kind === "dot-cover") drawnArt = "dots";
+  if (!ambient && shown === "liquid") drawnArt = "liquid";
+  else if (!ambient && shown === "dot-cover") drawnArt = "dots";
   // Any drawn visualizer sits behind the labels, so they take the legible treatment while one runs.
-  const legible = !ambient && choice.kind !== "off";
+  const legible = !ambient && shown !== "off";
 
   return (
-    <div className={`${styles.panel} ${styles.view}`}>
+    <div ref={panelRef} className={`${styles.panel} ${styles.view}`}>
       <CoverBackdrop src={coverSrc} className={styles.glow} />
       {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} />}
       {ambient ? null : (
@@ -165,7 +169,7 @@ function PlayerStage({
           onEnterAmbient={onEnterAmbient}
           ambientRef={entryRef}
         />
-        <QueueList frosted={!ambient && fillsStage(choice.kind)} />
+        <QueueList frosted={!ambient && fillsStage(shown)} />
       </div>
     </div>
   );

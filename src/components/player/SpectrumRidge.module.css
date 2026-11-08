@@ -16,6 +16,8 @@
   color: var(--ink);
   pointer-events: none;
   mix-blend-mode: soft-light;
+  /* The dip fades the blended element itself, so the soft-light keeps reaching the glow. */
+  opacity: var(--viz-dip, 1);
 }
 
 /* The ambient stage gives the ridge a taller rise over its larger floor. */

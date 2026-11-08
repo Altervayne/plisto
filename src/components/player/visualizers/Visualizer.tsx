@@ -14,9 +14,9 @@ import { paletteFloats } from "./visualizerPalette";
 import type { VisualizerChoice } from "./useVisualizerChoice";
 
 /**
- * The visualizer layer of a stage, by resolved kind: today's Canvas 2D ridge, the WebGL surface for
- * every other kind, or nothing for Off. Every WebGL kind renders the same surface at the same spot, so a
- * switch between them keeps its context. Purely ambient and aria-hidden.
+ * The visualizer layer of a stage, by shown kind: today's Canvas 2D ridge, the WebGL surface for every
+ * other kind, or nothing for Off. Every WebGL kind renders the same surface at the same spot, so a switch
+ * between them keeps its context. Purely ambient and aria-hidden.
  */
 export function Visualizer({
   choice,
@@ -37,13 +37,13 @@ export function Visualizer({
 }) {
   const palette = useCoverPalette(trackId);
   const colors = useMemo(() => paletteFloats(palette), [palette]);
-  const { kind } = choice;
+  const { shown } = choice;
 
-  if (kind === "off") return null;
-  if (kind === "ridge") return <SpectrumRidge tall={ambient} />;
+  if (shown === "off") return null;
+  if (shown === "ridge") return <SpectrumRidge tall={ambient} />;
   return (
     <GlVisualizer
-      kind={kind}
+      kind={shown}
       ambient={ambient}
       coverRef={coverRef}
       maskRef={maskRef}

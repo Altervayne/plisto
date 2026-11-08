@@ -1,11 +1,13 @@
 /* The WebGL visualizer layer: a slot filling the stage between the ambient ground and the content, with
  * the canvas the component makes filling it. The blend mode is set on the slot from the component, so it
- * follows the kind and the theme in one place. */
+ * follows the kind and the theme in one place. The dip's opacity sits on the same element as the blend:
+ * on a wrapper it would isolate the slot, and screen and multiply would stop reaching the aurora. */
 .slot {
   position: absolute;
   inset: 0;
   z-index: 1;
   pointer-events: none;
+  opacity: var(--viz-dip, 1);
 }
 
 .canvas {

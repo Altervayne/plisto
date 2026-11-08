@@ -54,14 +54,16 @@ const TOAST_MS = 1500;
 export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () => void }) {
   const { cover } = useTrackCover(trackId);
   const coverSrc = cover?.src ?? null;
-  const choice = useVisualizerChoice(coverSrc);
+  // The stage carries the dip's opacity for the visualizer and the cover crossfade.
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const choice = useVisualizerChoice(coverSrc, trackId, stageRef);
+  const { shown } = choice;
   const picked = usePlayerVisualizer();
   const setPicked = useSetPlayerVisualizer();
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const { faded, wake } = useAmbientIdle();
   const t = useT();
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const coverRef = useRef<HTMLSpanElement | null>(null);
   // The seek bar the visualizer rests on, and the words it quiets itself behind.
   const seekRef = useRef<HTMLDivElement | null>(null);
@@ -104,6 +106,10 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   useAmbientKeys({ stage: stageRef, onExit, onCycle: cycle, onTogglePlay: actions.toggle, onWake: wake });
 
   const fade = faded ? "" : undefined;
+  // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.
+  let drawnTile: string | null = null;
+  if (shown === "liquid") drawnTile = styles.liquidTile;
+  else if (shown === "dot-cover") drawnTile = styles.dotTile;
 
   return createPortal(
     <div
@@ -113,7 +119,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       role="region"
       aria-label={t((d) => d.player.ambientMode)}
       data-faded={fade}
-      data-legible={choice.kind !== "off" ? "" : undefined}
+      data-legible={shown !== "off" ? "" : undefined}
       onPointerMove={wake}
       onPointerDown={wake}
     >
@@ -126,21 +132,20 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
         floorRef={seekRef}
         hushRefs={hushRefs}
       />
-      <LegibilityScrim active={choice.kind !== "off"} floorRef={seekRef} ambient faded={faded} />
+      <LegibilityScrim active={shown !== "off"} floorRef={seekRef} ambient faded={faded} />
 
       <div className={styles.body}>
         <span ref={coverRef} className={styles.cover}>
-          {choice.kind === "liquid" ? (
-            <span className={styles.liquidTile} aria-hidden="true" />
-          ) : choice.kind === "dot-cover" ? (
-            <span className={styles.dotTile} aria-hidden="true" />
-          ) : coverSrc ? (
-            <Cover src={coverSrc} alt="" />
-          ) : (
-            <span className={styles.noCover} aria-hidden="true">
-              <Music size={72} strokeWidth={1.2} />
-            </span>
-          )}
+          <span className={styles.coverArt} data-drawn={drawnTile ? "" : undefined}>
+            {coverSrc ? (
+              <Cover src={coverSrc} alt="" />
+            ) : (
+              <span className={styles.noCover} aria-hidden="true">
+                <Music size={72} strokeWidth={1.2} />
+              </span>
+            )}
+          </span>
+          {drawnTile ? <span className={drawnTile} aria-hidden="true" /> : null}
         </span>
         <AmbientText trackId={trackId} faded={faded} textRef={textRef} />
       </div>

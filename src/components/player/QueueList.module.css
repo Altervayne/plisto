@@ -12,8 +12,9 @@
 
 /* The glass backing for a visualizer running under the column: a surface tint over a blur of what moves
  * beneath, reaching a little past the column so the rows sit inside it. The top, right and bottom reach
- * leave an even 10px to the panel edge against the stage's 18/30/24 padding. It fades in and out with
- * the pick; at rest it holds no blur, so the column costs nothing while unused. */
+ * leave an even 10px to the panel edge against the stage's 18/30/24 padding. It rides the stage's dip,
+ * so it never fades ahead of the picture, and it switches on and off at the dip's zero point; at rest it
+ * holds no blur, so the column costs nothing while unused. */
 .queue::before {
   content: "";
   position: absolute;
@@ -24,21 +25,12 @@
   box-shadow: var(--shadow-soft);
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity var(--dur-slow) var(--ease-standard),
-    backdrop-filter var(--dur-slow) var(--ease-standard);
 }
 
 .queue[data-frosted]::before {
-  opacity: 1;
+  opacity: var(--viz-dip, 1);
   backdrop-filter: blur(14px) saturate(1.3);
   -webkit-backdrop-filter: blur(14px) saturate(1.3);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .queue::before {
-    transition: none;
-  }
 }
 
 /* The header: the "up next" heading and its count on the left, the sequencing control pushed to the

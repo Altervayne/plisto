@@ -55,7 +55,8 @@ const SAVED_MS = 2000;
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
  * The header counts the tracks still ahead and holds the save-as-playlist action, the visualizer pick
  * and the sequencing control; the footer clears the queue by stopping the engine. `frosted` lays a glass
- * backing under the column, for a visualizer that runs beneath it.
+ * backing under the column while the shown visualizer runs beneath it; the backing fades with the stage's
+ * dip.
  */
 export function QueueList({ frosted = false }: { frosted?: boolean }) {
   const queue = usePlayerQueue();
