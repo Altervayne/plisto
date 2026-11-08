@@ -137,6 +137,10 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* The tight line height leaves descenders below the last line box, where the clamp's clip would cut
+   * them; the padding gives them room and the negative margin keeps the spacing below unchanged. */
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
 }
 
 .artist {
