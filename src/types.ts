@@ -789,6 +789,24 @@ export interface PlayEvent {
   completed: boolean;
 }
 
+/** One album's stored visualizer default. Mirrors AlbumVisualizer in dto.rs. */
+export interface AlbumVisualizer {
+  album_id: number;
+  kind: string;
+}
+
+/** One track's stored visualizer default. Mirrors TrackVisualizer in dto.rs. */
+export interface TrackVisualizer {
+  track_id: number;
+  kind: string;
+}
+
+/** Every stored visualizer default. Mirrors VisualizerDefaults in dto.rs. */
+export interface VisualizerDefaults {
+  albums: AlbumVisualizer[];
+  tracks: TrackVisualizer[];
+}
+
 /**
  * One selectable output device: its name and whether it is the current OS default. The settings
  * picker's "System default" entry is synthetic and carries no name. Mirrors OutputDeviceInfo in

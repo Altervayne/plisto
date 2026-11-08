@@ -27,6 +27,7 @@ pub mod relocate;
 pub mod roots;
 pub mod settings;
 pub mod splice;
+pub mod visualizer;
 pub mod window;
 
 // -- Library Imports --

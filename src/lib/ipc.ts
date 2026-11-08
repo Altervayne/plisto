@@ -69,6 +69,7 @@ import type {
   TrackOverride,
   TrackPlacement,
   TrackRow,
+  VisualizerDefaults,
   WaveformAnalysis,
 } from "../types";
 
@@ -1021,6 +1022,21 @@ export function getMostPlayedRows(limit?: number, since?: number): Promise<Histo
  */
 export function getPlayTimeline(limit?: number): Promise<PlayEvent[]> {
   return invoke<PlayEvent[]>("get_play_timeline", { limit });
+}
+
+/** Reads every stored visualizer default, albums and tracks. */
+export function getVisualizerDefaults(): Promise<VisualizerDefaults> {
+  return invoke<VisualizerDefaults>("get_visualizer_defaults");
+}
+
+/** Sets one album's default visualizer kind, or clears it with null. */
+export function setAlbumVisualizer(albumId: number, kind: string | null): Promise<void> {
+  return invoke<void>("set_album_visualizer", { albumId, kind });
+}
+
+/** Sets one track's default visualizer kind, or clears it with null. */
+export function setTrackVisualizer(trackId: number, kind: string | null): Promise<void> {
+  return invoke<void>("set_track_visualizer", { trackId, kind });
 }
 
 /** Reads a window of indexed tracks plus the full filtered count. Omitted args load every row. */

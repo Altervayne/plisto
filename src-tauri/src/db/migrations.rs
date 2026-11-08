@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 19;
+const LATEST_VERSION: i64 = 20;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -391,6 +391,21 @@ ALTER TABLE tracks ADD COLUMN art_width INTEGER;
 ALTER TABLE tracks ADD COLUMN art_height INTEGER;
 ";
 
+// Version 20: per-album and per-track visualizer defaults. `albums.visualizer` is a nullable column, so
+// existing albums read as having no default. `track_visualizers` holds a per-track default keyed on
+// the track alone, one row per track, mirroring `track_covers`. The kind is stored as the string the
+// frontend sends and is not checked here, so a kind retired later leaves a harmless row. The track FK
+// CASCADEs so dropping a track (or its root) clears its default. A new column and table only, so every
+// existing row is untouched.
+const MIGRATION_V20: &str = "
+ALTER TABLE albums ADD COLUMN visualizer TEXT;
+CREATE TABLE track_visualizers (
+    track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -417,6 +432,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             16 => conn.execute_batch(MIGRATION_V17)?,
             17 => conn.execute_batch(MIGRATION_V18)?,
             18 => conn.execute_batch(MIGRATION_V19)?,
+            19 => conn.execute_batch(MIGRATION_V20)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1345,6 +1361,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(unknown, 2, "every art-key column starts NULL");
+    }
+
+    /// A v19 DB with rows upgrades to v20 additively: every row survives, `albums.visualizer` reads
+    /// NULL, and `track_visualizers` exists empty.
+    #[test]
+    fn v19_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        for step in [
+            MIGRATION_V14,
+            MIGRATION_V15,
+            MIGRATION_V16,
+            MIGRATION_V17,
+            MIGRATION_V18,
+            MIGRATION_V19,
+        ] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 19).unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+        conn.execute(
+            "INSERT INTO albums (title, created_at, updated_at) VALUES ('Keep', 1, 2)",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let tracks: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tracks, 2, "every track survives");
+
+        let album: (String, Option<String>) = conn
+            .query_row("SELECT title, visualizer FROM albums", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(
+            album,
+            ("Keep".to_string(), None),
+            "the album survives with no default"
+        );
+
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'track_visualizers'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "the track_visualizers table exists after v20");
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM track_visualizers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "no track carries a default until one is set");
     }
 
     /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row

@@ -653,6 +653,28 @@ pub struct PlayEvent {
     pub completed: bool,
 }
 
+/// One album's stored visualizer default. Mirrors AlbumVisualizer in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct AlbumVisualizer {
+    pub album_id: i64,
+    pub kind: String,
+}
+
+/// One track's stored visualizer default. Mirrors TrackVisualizer in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackVisualizer {
+    pub track_id: i64,
+    pub kind: String,
+}
+
+/// Every stored visualizer default, the one boot read the frontend resolves a playing track against.
+/// Mirrors VisualizerDefaults in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct VisualizerDefaults {
+    pub albums: Vec<AlbumVisualizer>,
+    pub tracks: Vec<TrackVisualizer>,
+}
+
 /// The load-all organize payload: every album (each with its track count) and every membership
 /// row. The frontend hydrates its organize state from this in one call.
 #[derive(Debug, Clone, Serialize)]

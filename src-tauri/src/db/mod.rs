@@ -12,6 +12,7 @@ mod export_ledger;
 mod migrations;
 mod relocate;
 mod tag_albums;
+mod visualizer_defaults;
 
 pub use duplicates::{
     dismiss_duplicates, list_duplicate_dismissals, merge_duplicates, undismiss_duplicates,
@@ -25,6 +26,9 @@ pub use relocate::{
     RootMove, RootTrackPath,
 };
 pub use tag_albums::{create_albums_from_tags, reapply_albums_from_tags, revert_albums_from_tags};
+pub use visualizer_defaults::{
+    list_visualizer_defaults, set_album_visualizer, set_track_visualizer,
+};
 
 // -- Library Imports --
 use std::collections::HashMap;
@@ -2585,7 +2589,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
 
         for table in [
             "tracks",
@@ -2605,6 +2609,7 @@ mod tests {
             "plays",
             "export_ledger",
             "duplicate_dismissals",
+            "track_visualizers",
         ] {
             let found: i64 = conn
                 .query_row(
@@ -2663,7 +2668,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
     }
 
     #[test]
