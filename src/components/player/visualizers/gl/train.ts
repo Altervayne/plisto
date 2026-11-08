@@ -3,18 +3,19 @@
  * small lens onto the view; the outside slides past at its own depths. Dark is a city across a river at
  * night, light an overcast countryside. Telegraph poles pass close to the glass in both.
  *
- * The eased level and the bass envelope, smoothed over seconds, set the speed the train wants inside a range
- * the reactivity opens (Calm a steady cruise); the train follows with inertia, and a beat nudges it, eased.
- * The poles, the street lamps (dark) and the fence posts (light) pass in time with the beat through the beat
- * clock, their spacing stretched within TRAIN_LOCK's bounds so nothing jumps. Without beats, or under Calm,
- * they keep their resting spacing.
+ * The world is rigid: object spacing is fixed and every layer slides from one integrated travel, scaled by
+ * its parallax. The train speeds up when the music rises above its own recent average and coasts when it
+ * falls below, inside a range the reactivity opens (Calm a steady cruise); the spring is quick to speed up
+ * and slower to coast, and a beat nudges it, eased. The rain leans and lengthens with the speed. Under
+ * Balanced and Lively one layer (the lamps at night, the fence posts by day) is kept on the beat by nudging
+ * the speed a few percent through the beat clock; Calm, a stretch without beats, or a rhythm the nudge cannot reach leaves it free.
  *
  * Photosensitivity: brightness follows only the eased level (uRms). Speed, rain, spacing and the beat nudge
  * move and thicken things; none of them adds light.
  */
 
 // -- Local Imports --
-import { createBeatClock, stepBeatClock, type BeatClock } from "./beatClock";
+import { createBeatClock, stepBeatClock } from "./beatClock";
 import { COZY_PRELUDE, clamp01 } from "./cozy";
 import { createCoverTexture } from "./coverTexture";
 import { setFluid } from "./fluid";
@@ -25,35 +26,38 @@ import type { Candidate, Frame, Kit } from "./kit";
 
 // Scenery travel per unit of speed, in CSS pixels per second.
 const TRAVEL_PX = 150;
-// The speed range by reactivity gain: Calm cruises, Balanced swings moderately, Lively widely.
+// The speed range by reactivity gain: Calm cruises, Balanced swings moderately, Lively widely. Neutral is 1.
 const CRUISE: [number, number] = [1, 1];
-const BALANCED: [number, number] = [0.75, 1.3];
-const LIVELY: [number, number] = [0.55, 1.7];
+const BALANCED: [number, number] = [0.7, 1.5];
+const LIVELY: [number, number] = [0.45, 2.2];
 // A gain above this reads as Lively.
 const LIVELY_DRIVE = 1.3;
-// The slow measure of intensity the speed target follows, and its bounds.
-const ENERGY_TAU = 4;
-const ENERGY_FLOOR = 0.18;
-const ENERGY_SPAN = 0.4;
-// The speed spring: pull toward the target and damping on the velocity.
-const SPEED_PULL = 0.5;
-const SPEED_DAMP = 1.3;
+// The intensity the speed follows: a quick measure against a slow running mean of the same signal, in seconds.
+const FAST_TAU = 1;
+const SLOW_TAU = 17;
+// The gap between the two that reaches the end of the range.
+const REL_SPAN = 0.15;
+// The speed spring: pull toward the target and damping on the velocity, quick to speed up and slower to coast.
+const PULL_UP = 1.5;
+const DAMP_UP = 2.45;
+const PULL_DOWN = 0.5;
+const DAMP_DOWN = 1.4;
 const MIN_SPEED = 0.2;
 // The beat nudge on the speed: its gain per unit of beat, its decay and the ease into the speed, in seconds.
 const SURGE_KICK = 0.07;
 const SURGE_DECAY = 1;
 const SURGE_TAU = 0.5;
-// The rain follows the same energy and the swell, eased.
+// The rain thickens with the relative intensity and the swell, eased.
 const RAIN_TAU = 2.5;
-// Spacing easing toward its locked target, in seconds.
-const SPACING_TAU = 1.2;
-// How hard the phase is pulled toward the beat clock while locked.
-const PHASE_PULL = 0.6;
-// A layer's spacing stays within this factor of its resting spacing, either way.
-const MAX_STRETCH = 1.6;
-const MAX_N = 32;
+// The most the beat lock may move the speed, as a share of it.
+const MAX_NUDGE = 0.08;
+// How hard the nudge pulls the passing phase onto the beat, per beat of phase error.
+const PHASE_GAIN = 0.12;
+// The ease of the nudge and of its reach gate, in seconds.
+const NUDGE_TAU = 0.7;
+const REACH_TAU = 1;
 
-/** The beat lock for the passing scenery. Rates mirror the shader's parallax for each layer. */
+/** The fixed object spacing of each passing layer in CSS pixels, and each one's slide rate as a share of the travel. */
 export const TRAIN_LOCK = {
   POLE_SPACING: 880,
   LAMP_SPACING: 132,
@@ -63,20 +67,50 @@ export const TRAIN_LOCK = {
   FENCE_RATE: 0.3 + 0.55 * (1 - 0.62),
 };
 
-/** One passing layer: its resting spacing, its eased spacing, its phase in objects passed and its beat divisor. */
-export interface LockLayer {
-  rest: number;
-  spacing: number;
-  phase: number;
-  n: number;
+/** The passing phase of a layer, in objects passed, from the one travel. */
+export function layerPhase(travel: number, rate: number, spacing: number): number {
+  return (travel * rate / spacing) % 4096;
 }
 
-/** The clock fields the lock reads. */
-export type LockClock = Pick<BeatClock, "period" | "beatPos" | "lock">;
+/** The running state of the speed: the quick and slow intensity measures and the spring. */
+export interface SpeedState {
+  fast: number;
+  slow: number;
+  primed: boolean;
+  speed: number;
+  vel: number;
+}
 
-/** A layer resting at `rest` CSS pixels between objects. */
-export function createLockLayer(rest: number): LockLayer {
-  return { rest, spacing: rest, phase: 0, n: 0 };
+export function createSpeedState(): SpeedState {
+  return { fast: 0, slow: 0, primed: false, speed: 1, vel: 0 };
+}
+
+/** The speed the range maps a relative intensity to: 1 at the mean, the ends at +-REL_SPAN. */
+export function speedTarget(rel: number, [lo, hi]: [number, number]): number {
+  const x = Math.min(1, Math.max(-1, rel / REL_SPAN));
+  return x < 0 ? 1 + (1 - lo) * x : 1 + (hi - 1) * x;
+}
+
+/**
+ * Advances the speed by `dt` seconds given the music's `intensity` (the eased level plus bass motion) and the
+ * reactivity gain. The target follows how far the quick measure sits above or below its own slow mean, so a
+ * drop surges and a breakdown coasts even in a loud song. The spring eases the speed, so it never steps.
+ * Returns the relative position in -1..1 for the cues that follow it.
+ */
+export function stepTrainSpeed(st: SpeedState, dt: number, intensity: number, drive: number): number {
+  if (!st.primed) {
+    st.fast = intensity;
+    st.slow = intensity;
+    st.primed = true;
+  }
+  st.fast += (intensity - st.fast) * (1 - Math.exp(-dt / FAST_TAU));
+  st.slow += (intensity - st.slow) * (1 - Math.exp(-dt / SLOW_TAU));
+  const rel = st.fast - st.slow;
+  const target = speedTarget(rel, speedRange(drive));
+  const up = target > st.speed;
+  st.vel += ((target - st.speed) * (up ? PULL_UP : PULL_DOWN) - st.vel * (up ? DAMP_UP : DAMP_DOWN)) * dt;
+  st.speed = Math.max(MIN_SPEED, st.speed + st.vel * dt);
+  return Math.min(1, Math.max(-1, rel / REL_SPAN));
 }
 
 /** The speed range the reactivity gain opens: a fixed cruise at Calm, wider the livelier. */
@@ -86,26 +120,32 @@ export function speedRange(drive: number): [number, number] {
 }
 
 /**
- * Advances one layer by `dt` seconds at `speedPx` CSS pixels per second and returns its phase and spacing.
- * The layer passes one object every N beats, N a power of two near its resting rhythm. Its spacing eases
- * toward the distance the scenery slides in N beats, scaled by the clock's lock, so it returns to the
- * resting spacing when the lock lets go and never leaves MAX_STRETCH of it.
+ * The beat lock for one layer: a speed nudge, as a share of `speed`, that brings the layer's objects past
+ * on every Nth beat, and whether the nudge can reach that rhythm at all. It picks the N whose passing period
+ * is nearest the layer's natural one at `speed`, aims at the speed that makes it exact, and adds a pull on the
+ * phase error. The nudge never exceeds MAX_NUDGE; when even the exact speed is further off than that, `reach`
+ * is 0 and the layer runs free.
  */
-export function stepLockLayer(L: LockLayer, dt: number, speedPx: number, clock: LockClock): [number, number] {
-  const beatPx = Math.max(1, speedPx * clock.period);
-  if (L.n === 0) L.n = Math.max(1, 2 ** Math.round(Math.log2(Math.max(1, L.rest / beatPx))));
-  const ratio = L.rest / (beatPx * L.n);
-  if (ratio > MAX_STRETCH && L.n < MAX_N) L.n *= 2;
-  else if (ratio < 1 / MAX_STRETCH && L.n > 1) L.n /= 2;
-  const target = L.rest + (beatPx * L.n - L.rest) * clock.lock;
-  L.spacing += (target - L.spacing) * (1 - Math.exp(-dt / SPACING_TAU));
-  let err = L.phase - clock.beatPos / L.n;
+export function beatNudge(
+  speed: number,
+  travel: number,
+  spacing: number,
+  rate: number,
+  period: number,
+  beatPos: number,
+): { nudge: number; reach: number } {
+  const natural = spacing / (speed * TRAVEL_PX * rate);
+  const n = Math.max(1, Math.round(natural / period));
+  const exact = spacing / (n * period * TRAVEL_PX * rate) / speed - 1;
+  if (Math.abs(exact) > MAX_NUDGE) return { nudge: 0, reach: 0 };
+  let err = layerPhase(travel, rate, spacing) - beatPos / n;
   err -= Math.round(err);
-  L.phase += dt * (speedPx / L.spacing - clock.lock * err * PHASE_PULL);
-  return [L.phase % 4096, L.spacing];
+  const nudge = Math.min(MAX_NUDGE, Math.max(-MAX_NUDGE, exact - PHASE_GAIN * err));
+  return { nudge, reach: 1 };
 }
 
 const FS = `${COZY_PRELUDE}
+uniform float uSpeed;     // the train speed, 1 at cruise; leans and lengthens the rain streaks
 uniform float uTravel;
 uniform float uRain;
 uniform vec2 uPoles;      // telegraph poles: phase (poles passed) and spacing, css px; beat-locked at Balanced and Lively
@@ -426,8 +466,16 @@ vec3 backdrop(vec2 p, vec2 sz) { return frame(scene(p, sz), p, sz); }
 // ===== EFFECTS: rain on the glass, layered over the backdrop. =====
 // Running drops on the diagonal rows: x,y lens offset, z drop mask, w clear trail.
 vec4 runners(vec2 p, float rowH, float seed, float sz) {
-  vec2 nrm = vec2(-RUN_DIR.y, RUN_DIR.x);
-  float u = dot(p, RUN_DIR), v = dot(p, nrm);
+  // The streak leans toward the travel and lengthens with the speed.
+  float sp = clamp(uSpeed, 0.4, 2.2);
+  vec2 dir = normalize(vec2(RUN_DIR.x * sp, RUN_DIR.y));
+  float trailLen = 380.0 * sp;
+  vec2 nrm = vec2(-dir.y, dir.x);
+  // The stage's extent along the streak. Coordinates turn about the stage centre and shift by half of it, so
+  // u runs from -reach to 0 across the stage at any lean and every drop crosses the whole window.
+  float reach = uRes.x / uDpr * abs(dir.x) + uRes.y / uDpr * abs(dir.y);
+  vec2 q = p - uRes / uDpr * 0.5;
+  float u = dot(q, dir) - 0.5 * reach, v = dot(q, nrm);
   float row = floor(v / rowH);
   float r1 = hash21(vec2(row, seed)), r2 = hash21(vec2(row, seed + 5.3)), r3 = hash21(vec2(row, seed + 2.1));
   float period = 7.0 + 8.0 * r1;
@@ -436,8 +484,9 @@ vec4 runners(vec2 p, float rowH, float seed, float sz) {
   float present = step(rc, 0.34 + 0.5 * uRain);
   float k = 6.0 + floor(r3 * 5.0);
   float prog = ph - sin(ph * 6.2831 * k) / (6.2831 * k) * 0.9;
-  float span = uRes.x / uDpr * abs(RUN_DIR.x) + uRes.y / uDpr * abs(RUN_DIR.y) + 320.0;
-  float uh = prog * span - span + 160.0;
+  // The path runs from off the stage to past it by a whole longest trail, so a trail never pops at the wrap.
+  float span = reach + 320.0 + 380.0 * 2.2;
+  float uh = prog * span - reach - 160.0;
   float wob = sin(u * 0.016 + r1 * 6.0) * 2.5;
   float vc = (row + 0.2 + 0.6 * hash21(vec2(row + cyc * 3.0, seed + 8.0))) * rowH + wob;
   float rad = (6.0 + 6.0 * r2) * sz;
@@ -445,12 +494,12 @@ vec4 runners(vec2 p, float rowH, float seed, float sz) {
   float m = smoothstep(1.0, 0.8, length(d)) * present;
   vec4 res = vec4(d * m, m, 0.0);
   float behind = uh - u;
-  if (behind > 0.0 && behind < 380.0 && present > 0.5) {
-    res.w = smoothstep(rad * 0.95, rad * 0.25, abs(v - vc)) * smoothstep(380.0, 70.0, behind);
+  if (behind > 0.0 && behind < trailLen && present > 0.5) {
+    res.w = smoothstep(rad * 0.95, rad * 0.25, abs(v - vc)) * smoothstep(trailLen, 70.0 * uSpeed, behind);
     res.xy = vec2(0.0, clamp((v - vc) / rad, -1.0, 1.0)) * 0.9;
     float cell = 22.0;
     float cu = (floor(behind / cell) + 0.5) * cell;
-    float br = rad * 0.34 * smoothstep(380.0, 0.0, cu) * step(0.4, hash21(vec2(row + cyc * 5.0, floor(behind / cell) + seed)));
+    float br = rad * 0.34 * smoothstep(trailLen, 0.0, cu) * step(0.4, hash21(vec2(row + cyc * 5.0, floor(behind / cell) + seed)));
     vec2 bd = vec2((behind - cu) / max(br * 1.4, 0.01), (v - vc) / max(br, 0.01));
     float bm = smoothstep(1.0, 0.7, length(bd)) * step(0.5, br);
     if (bm > res.z) res = vec4(bd * bm, bm, res.w);
@@ -502,17 +551,14 @@ void main() {
 export function createTrain(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const clock = createBeatClock();
-  const poles = createLockLayer(TRAIN_LOCK.POLE_SPACING);
-  const lamps = createLockLayer(TRAIN_LOCK.LAMP_SPACING);
-  const fence = createLockLayer(TRAIN_LOCK.FENCE_SPACING);
   let flow = 0;
   let travel = 0;
-  let speed = 1;
-  let vel = 0;
-  let energy = 0.3;
+  const spring = createSpeedState();
   let rain = 0.4;
   let surgeTarget = 0;
   let surge = 0;
+  let reach = 0;
+  let nudge = 0;
 
   return {
     mode: "image",
@@ -526,29 +572,29 @@ export function createTrain(kit: Kit): Candidate {
       art.sync(f.cover);
       const s = f.sig;
       const ease = (tau: number) => 1 - Math.exp(-f.dt / tau);
-      energy += (s.level + 0.35 * s.bassMotion - energy) * ease(ENERGY_TAU);
-      const norm = clamp01((energy - ENERGY_FLOOR) / ENERGY_SPAN);
-      const [lo, hi] = speedRange(s.drive);
+      const x = stepTrainSpeed(spring, f.dt, s.level + 0.35 * s.bassMotion, s.drive);
       surgeTarget = (surgeTarget + s.beat * SURGE_KICK) * Math.exp(-f.dt / SURGE_DECAY);
       surge += (surgeTarget - surge) * ease(SURGE_TAU);
-      vel += ((lo + (hi - lo) * norm - speed) * SPEED_PULL - vel * SPEED_DAMP) * f.dt;
-      speed = Math.max(MIN_SPEED, speed + vel * f.dt);
-      const v = speed + surge;
-      rain += (clamp01(0.18 + 0.8 * norm + 0.2 * Math.min(1, s.swell * 1.6)) - rain) * ease(RAIN_TAU);
+      stepBeatClock(clock, f.dt, s.beat, s.drive);
+      // The lamps by night and the fence posts by day carry the beat.
+      const rate = f.light ? TRAIN_LOCK.FENCE_RATE : TRAIN_LOCK.LAMP_RATE;
+      const gap = f.light ? TRAIN_LOCK.FENCE_SPACING : TRAIN_LOCK.LAMP_SPACING;
+      const base = spring.speed + surge;
+      const aim = beatNudge(base, travel, gap, rate, clock.period, clock.beatPos);
+      reach += (aim.reach - reach) * ease(REACH_TAU);
+      nudge += (aim.nudge * clock.lock * reach - nudge) * ease(NUDGE_TAU);
+      const v = base * (1 + nudge);
+      rain += (clamp01(0.18 + 0.4 * (1 + x) + 0.2 * Math.min(1, s.swell * 1.6)) - rain) * ease(RAIN_TAU);
       flow += f.dt * v;
       travel += f.dt * v * TRAVEL_PX;
-      stepBeatClock(clock, f.dt, s.beat, s.drive);
-      const px = v * TRAVEL_PX;
-      const [polePhase, poleGap] = stepLockLayer(poles, f.dt, px * TRAIN_LOCK.POLE_RATE, clock);
-      const [lampPhase, lampGap] = stepLockLayer(lamps, f.dt, px * TRAIN_LOCK.LAMP_RATE, clock);
-      const [fencePhase, fenceGap] = stepLockLayer(fence, f.dt, px * TRAIN_LOCK.FENCE_RATE, clock);
       const p = kit.program("train", FS_VS, FS);
       setFluid(kit, p, f, flow, null, art.tex);
+      kit.set1(p, "uSpeed", v);
       kit.set1(p, "uTravel", travel);
       kit.set1(p, "uRain", rain);
-      kit.set2(p, "uPoles", polePhase, poleGap);
-      kit.set2(p, "uLamps", lampPhase, lampGap);
-      kit.set2(p, "uFence", fencePhase, fenceGap);
+      kit.set2(p, "uPoles", layerPhase(travel, TRAIN_LOCK.POLE_RATE, TRAIN_LOCK.POLE_SPACING), TRAIN_LOCK.POLE_SPACING);
+      kit.set2(p, "uLamps", layerPhase(travel, TRAIN_LOCK.LAMP_RATE, TRAIN_LOCK.LAMP_SPACING), TRAIN_LOCK.LAMP_SPACING);
+      kit.set2(p, "uFence", layerPhase(travel, TRAIN_LOCK.FENCE_RATE, TRAIN_LOCK.FENCE_SPACING), TRAIN_LOCK.FENCE_SPACING);
       kit.drawQuad();
     },
     dispose() {

@@ -22,6 +22,7 @@ import { easeEnvelope } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
 import type { Candidate, Frame, Kit } from "./kit";
+import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 // Strong-beat rings: life and fade-in in seconds, and height per unit of beat.
 const RING_LIFE = 4.5;
@@ -33,6 +34,9 @@ const RING_MIN_BEAT = 0.7;
 const HIGH_UP_TAU = 0.25;
 const HIGH_DOWN_TAU = 0.8;
 const MOON_TAU = 2.2;
+// Time constants of the mid speed easing and of the cloud nudge gliding to its target, in seconds.
+const MID_TAU = 0.5;
+const NUDGE_TAU = 0.12;
 
 const FS = `${COZY_PRELUDE}
 uniform float uMoon;
@@ -58,6 +62,17 @@ const vec2 LAKE_RING_AT = vec2(0.45, 0.20); // where beat rings start on the wat
 const float LAKE_RING = 0.40;      // how strongly a ring (a crest and a trough) bends the reflections
 const vec3 MOON_TINT = vec3(0.78, 0.90, 1.12);
 // One mountain: a slightly rounded summit over concave flanks.
+// A smooth blur of the cover: nine taps one texel apart at the given mip, so the bilinear steps of a small
+// bitmap never show as blocks.
+vec3 coverBlur(vec2 uv, float lod) {
+  vec2 o = exp2(lod) / vec2(textureSize(uCoverTex, 0));
+  vec3 c = textureLod(uCoverTex, uv, lod).rgb * 4.0;
+  c += (textureLod(uCoverTex, uv + vec2(o.x, 0.0), lod).rgb + textureLod(uCoverTex, uv - vec2(o.x, 0.0), lod).rgb
+      + textureLod(uCoverTex, uv + vec2(0.0, o.y), lod).rgb + textureLod(uCoverTex, uv - vec2(0.0, o.y), lod).rgb) * 2.0;
+  c += textureLod(uCoverTex, uv + o, lod).rgb + textureLod(uCoverTex, uv - o, lod).rgb
+     + textureLod(uCoverTex, uv + vec2(o.x, -o.y), lod).rgb + textureLod(uCoverTex, uv + vec2(-o.x, o.y), lod).rgb;
+  return c / 16.0;
+}
 float peak(float x, float c, float w, float h) {
   float e = sqrt((x - c) * (x - c) + 0.0004);
   return h * exp(-pow(e / w, 1.5) + pow(0.02 / w, 1.5));
@@ -171,7 +186,7 @@ vec3 backdrop(vec2 fc, vec2 p, vec2 sz, vec2 su, float hu, out float solid) {
   float disc = (1.0 - smoothstep(MOON_PX - 1.5, MOON_PX + 1.0, dm)) * (1.0 - 0.85 * hu);
   float halo = exp(-pow(dm / HALO_PX, 2.0)) * (1.0 - 0.6 * hu);
   float ring = exp(-pow((dm - RING_PX) / 16.0, 2.0)) * (1.0 - 0.7 * hu);
-  vec3 view = textureLod(uCoverTex, stageUv(fc), 1.8).rgb;
+  vec3 view = coverBlur(stageUv(fc), 4.0);
   float above = step(HORIZON, su.y);
   float r1 = farRange(su.x), r2 = nearRange(su.x);
   float hill1 = smoothstep(r1 + 0.0025, r1 - 0.0025, su.y) * above;
@@ -183,7 +198,7 @@ vec3 backdrop(vec2 fc, vec2 p, vec2 sz, vec2 su, float hu, out float solid) {
   float depth = clamp((HORIZON - su.y) / HORIZON, 0.0, 1.0);
   float wv = waterWave(p);
   vec2 fcm = vec2(fc.x + wv * 0.05 * uRes.x * (0.3 + depth), uRes.y * 2.0 * HORIZON - fc.y);
-  vec3 mirror = textureLod(uCoverTex, stageUv(fcm), 2.4).rgb;
+  vec3 mirror = coverBlur(stageUv(fcm), 4.5);
   // The ranges mirrored upside down in the lake, broken a little by the ripple.
   float sy = 2.0 * HORIZON - su.y + wv * 0.008 * (0.3 + depth);
   float ref1 = smoothstep(r1 + 0.006, r1 - 0.006, sy) * (1.0 - above);
@@ -330,15 +345,42 @@ export function easeHigh(prev: number, target: number, dt: number): number {
   return easeEnvelope(prev, clamp01(target), dt, target > prev ? HIGH_UP_TAU : HIGH_DOWN_TAU);
 }
 
+/** The scene's moving state: everything the shader reads that changes over time. */
+export interface LakeState {
+  moon: number;
+  cloud: number;
+  nudge: number;
+  nudgeTarget: number;
+  mid: number;
+  wave: number;
+  high: number;
+  glit: number;
+}
+
+export function createLakeState(): LakeState {
+  return { moon: 0.3, cloud: 0, nudge: 0, nudgeTarget: 0, mid: 0, wave: 0, high: 0, glit: 0 };
+}
+
+/**
+ * Advances the state by dt. Fast envelopes never drive a position directly: the mids ease into a speed and
+ * a beat raises a target the cloud nudge glides toward, so the clouds move quickly but never step.
+ */
+export function stepLake(st: LakeState, s: VisualSignal, dt: number): void {
+  st.high = easeHigh(st.high, s.highMotion, dt);
+  st.glit += dt * (1 + 1.5 * st.high);
+  st.moon = easeEnvelope(st.moon, clamp01(s.level * 1.7), dt, MOON_TAU);
+  st.mid = easeEnvelope(st.mid, s.midMotion, dt, MID_TAU);
+  st.cloud += dt * (0.3 + 1.5 * st.mid);
+  st.wave += dt * (0.25 + 0.6 * st.mid);
+  st.nudgeTarget = Math.min(0.06, st.nudgeTarget + s.beat * 0.02);
+  st.nudgeTarget *= Math.exp(-dt / 1.2);
+  st.nudge = easeEnvelope(st.nudge, st.nudgeTarget, dt, NUDGE_TAU);
+}
+
 export function createLake(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const rings = createRings(RING_LIFE, RING_RISE, RING_HEIGHT);
-  let moon = 0.3;
-  let cloud = 0;
-  let nudge = 0;
-  let wave = 0;
-  let high = 0;
-  let glit = 0;
+  const st = createLakeState();
 
   return {
     mode: "image",
@@ -351,22 +393,16 @@ export function createLake(kit: Kit): Candidate {
       if (!f.cover) return;
       art.sync(f.cover);
       const s = f.sig;
-      high = easeHigh(high, s.highMotion, f.dt);
-      glit += f.dt * (1 + 1.5 * high);
+      stepLake(st, s, f.dt);
       rings.step(f.dt, s.beat >= RING_MIN_BEAT ? s.beat : 0);
-      moon = easeEnvelope(moon, clamp01(s.level * 1.7), f.dt, MOON_TAU);
-      cloud += f.dt * (0.3 + 1.5 * s.midMotion);
-      wave += f.dt * (0.25 + 0.6 * s.midMotion);
-      nudge = Math.min(0.06, nudge + s.beat * 0.02);
-      nudge *= Math.exp(-f.dt / 1.2);
       const p = kit.program("lake", FS_VS, FS);
       setFluid(kit, p, f, 0, rings.packed, art.tex);
-      kit.set1(p, "uMoon", moon);
-      kit.set1(p, "uCloudT", cloud);
-      kit.set1(p, "uNudge", nudge);
-      kit.set1(p, "uWave", wave);
-      kit.set1(p, "uSparkle", high);
-      kit.set1(p, "uGlitT", glit);
+      kit.set1(p, "uMoon", st.moon);
+      kit.set1(p, "uCloudT", st.cloud);
+      kit.set1(p, "uNudge", st.nudge);
+      kit.set1(p, "uWave", st.wave);
+      kit.set1(p, "uSparkle", st.high);
+      kit.set1(p, "uGlitT", st.glit);
       kit.drawQuad();
     },
     dispose() {

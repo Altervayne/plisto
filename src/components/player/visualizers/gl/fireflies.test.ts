@@ -2,7 +2,10 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { createSwellState, stepSwell, swellLevel } from "./fireflies";
+import { createFlyState, createSwellState, stepFlies, stepSwell, swellLevel } from "./fireflies";
+
+// -- Type Imports --
+import { restSignal } from "../../../../state/player/visualSignal";
 
 const DT = 1 / 60;
 // The rate cap on beats, in seconds.
@@ -60,5 +63,31 @@ describe("fireflies swell", () => {
     const st = createSwellState();
     for (let i = 0; i < 600; i++) stepSwell(st, 0, 1.5, DT);
     expect(swellLevel(st)).toBe(0);
+  });
+});
+
+describe("fireflies continuity", () => {
+  it("moves every position and brightness input by small steps under beats at Lively gain", () => {
+    const st = createFlyState();
+    let prev = { lift: 0, wander: 0, seed: 0, swell: 0 };
+    let gap = 0.3;
+    const worst = { lift: 0, wander: 0, seed: 0, swell: 0 };
+    for (let i = 0; i < 60 * 60; i++) {
+      gap += DT;
+      const beat = gap >= 0.3 ? 1.5 : 0;
+      if (beat) gap = 0;
+      const mid = i % 120 < 60 ? 1 : 0;
+      stepFlies(st, { ...restSignal(), beat, drive: 1.6, midMotion: mid, level: mid }, DT);
+      const now = { lift: st.lift, wander: st.wander, seed: st.seed, swell: swellLevel(st.swell) };
+      for (const key of Object.keys(now) as (keyof typeof now)[]) {
+        worst[key] = Math.max(worst[key], Math.abs(now[key] - prev[key]));
+      }
+      prev = now;
+    }
+    // A 0.35 s eased rise of the full range moves at most 1.5 / 0.35 per second.
+    expect(worst.lift).toBeLessThan(0.075);
+    expect(worst.wander).toBeLessThan(2.25 * DT + 1e-9);
+    expect(worst.seed).toBeLessThan(0.002 + 1e-9);
+    expect(worst.swell).toBeLessThan(0.06);
   });
 });

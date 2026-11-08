@@ -32,17 +32,24 @@ const SWELL_RISE = 0.5;
 const SWELL_TAU = 1.5;
 // A new swell starts only once the last has decayed below this.
 const SWELL_REARM = 0.3;
+// How fast the swell's peak glides between beats, in seconds.
+const AMP_TAU = 0.2;
+// The lift follows its target through two lags of this time constant (about a 0.35 s eased rise), and the
+// wander rate follows the mids with its own.
+const LIFT_TAU = 0.1;
+const RATE_TAU = 0.4;
 
 /** The state of the group swell. */
 export interface SwellState {
   sync: number;
   rising: boolean;
   amp: number;
+  ampTarget: number;
 }
 
 /** A group swell at rest. */
 export function createSwellState(): SwellState {
-  return { sync: 0, rising: false, amp: 0 };
+  return { sync: 0, rising: false, amp: 0, ampTarget: 0 };
 }
 
 /**
@@ -53,9 +60,12 @@ export function stepSwell(st: SwellState, beat: number, drive: number, dt: numbe
   let started = false;
   if (beat > 0 && !st.rising && st.sync < SWELL_REARM) {
     st.rising = true;
-    st.amp = Math.min(1, 0.55 + 0.3 * drive);
+    st.ampTarget = Math.min(1, 0.55 + 0.3 * drive);
     started = true;
   }
+  // The peak glides to its new value unless the group is dark, so the output never steps.
+  if (st.sync === 0) st.amp = st.ampTarget;
+  else st.amp += (st.ampTarget - st.amp) * (1 - Math.exp(-dt / AMP_TAU));
   if (st.rising) {
     st.sync = Math.min(1, st.sync + dt / SWELL_RISE);
     if (st.sync >= 1) st.rising = false;
@@ -74,20 +84,28 @@ export function swellLevel(st: SwellState): number {
 export interface FlyState {
   wander: number;
   lift: number;
+  liftTarget: number;
+  liftMid: number;
+  rate: number;
   seed: number;
   swell: SwellState;
 }
 
 /** Lights at rest. */
 export function createFlyState(): FlyState {
-  return { wander: 0, lift: 0, seed: 0, swell: createSwellState() };
+  return { wander: 0, lift: 0, liftTarget: 0, liftMid: 0, rate: 0.45, seed: 0, swell: createSwellState() };
 }
 
 /** Advances the lights by `dt` seconds. */
 export function stepFlies(st: FlyState, s: VisualSignal, dt: number): void {
-  st.wander += dt * (0.45 + 1.5 * s.midMotion + 0.3 * s.level);
-  st.lift = Math.min(1, st.lift + s.beat * 0.5);
-  st.lift *= Math.exp(-dt / 0.9);
+  const k = (tau: number) => 1 - Math.exp(-dt / tau);
+  st.rate += (0.45 + 1.5 * s.midMotion + 0.3 * s.level - st.rate) * k(RATE_TAU);
+  st.wander += dt * st.rate;
+  // A beat raises a target and the lift glides to it through two lags, so no light ever jumps.
+  st.liftTarget = Math.min(1, st.liftTarget + s.beat * 0.5);
+  st.liftTarget *= Math.exp(-dt / 0.9);
+  st.liftMid += (st.liftTarget - st.liftMid) * k(LIFT_TAU);
+  st.lift += (st.liftMid - st.lift) * k(LIFT_TAU);
   stepSwell(st.swell, s.beat, s.drive, dt);
   st.seed += dt * 0.12;
 }

@@ -65,6 +65,8 @@ const float FAR_W = 34.0;             // skyline column widths, CSS px
 const float MID_W = 58.0;
 const float NEAR_W = 96.0;
 const float WIN_LIT = 0.55;           // share of windows lit at night
+const float VIEW_LOD = 4.2;           // mip level of the cover view
+const float VIEW_TAP = 0.035;         // blur tap offset, in cover uv
 const float PARALLAX = 0.12;          // how far the outside answers the sway
 const vec3 LAMP_COL = vec3(1.0, 0.72, 0.40);
 const float NEON_CAP = 0.85;          // brightest a neon slit gets, per channel
@@ -237,7 +239,11 @@ vec3 backdrop(vec2 fc, vec2 p, vec2 sz, vec2 su, float hu, vec2 sway, out float 
   float night = 1.0 - uLight;
   vec2 po = p - sway * PARALLAX;
   vec2 rip = vec2(vnoise(p * 0.004 + 1.7), vnoise(p * 0.004 + 6.1)) - 0.5;
-  vec3 view = textureLod(uCoverTex, stageUv(fc - sway * PARALLAX * 0.5 * uDpr) + rip * 0.006, 1.6).rgb;
+  // The cover is a defocused view: a high mip with a small ring of taps hides the mip steps.
+  vec2 vuv = stageUv(fc - sway * PARALLAX * 0.5 * uDpr) + rip * 0.006;
+  vec3 view = textureLod(uCoverTex, vuv, VIEW_LOD).rgb * 0.4;
+  view += (textureLod(uCoverTex, vuv + vec2(VIEW_TAP, VIEW_TAP), VIEW_LOD).rgb + textureLod(uCoverTex, vuv + vec2(-VIEW_TAP, VIEW_TAP), VIEW_LOD).rgb
+    + textureLod(uCoverTex, vuv + vec2(VIEW_TAP, -VIEW_TAP), VIEW_LOD).rgb + textureLod(uCoverTex, vuv + vec2(-VIEW_TAP, -VIEW_TAP), VIEW_LOD).rgb) * 0.15;
   float smudge = smoothstep(0.55, 0.85, fbm(p * 0.012 + 3.0));
   float sheen = exp(-pow(dot(su - vec2(0.15, 0.40), normalize(vec2(1.0, -0.6))) / 0.05, 2.0));
   float roadTop = yBase + 56.0;
