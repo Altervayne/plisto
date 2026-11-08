@@ -64,6 +64,7 @@ import { EMPTY_HISTORY, EMPTY_INDEX, filterByFacets, isMissingMetadata } from ".
 import { UNTAGGED_KEY, flattenGroups, groupRows } from "./trackGrouping";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
+import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { SelectModifiers } from "./TrackRow";
@@ -361,6 +362,11 @@ export function TrackGrid({
     // with the reason.
     const spliceable = canSplice(track.ext);
     const spliceTip = spliceable ? undefined : t((d) => d.splice.unsupported);
+    // Its own group after the play rows; both ride only while the player is on.
+    const visualizerItem = playerEnabled ? visualizerMenuItem({ track: track.id }, t) : null;
+    const visualizerGroup: MenuEntry[] = visualizerItem
+      ? [{ separator: true as const }, visualizerItem, { separator: true }]
+      : [];
     return [
       // Play leads the menu only while the player is on; off, the whole scattered play surface goes quiet.
       ...(playerEnabled
@@ -388,6 +394,7 @@ export function TrackGrid({
             } satisfies MenuEntry,
           ]
         : []),
+      ...visualizerGroup,
       {
         icon: <FolderOpen size={16} strokeWidth={1.8} />,
         label: t((d) => d.tracks.goToFile),

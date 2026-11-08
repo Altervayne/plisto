@@ -18,6 +18,7 @@ import {
 
 // -- Utils Imports --
 import { browseMenuSlots } from "./browseMenu";
+import { visualizerMenuItem } from "../../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../../common/ContextMenu";
@@ -57,7 +58,7 @@ export function BrowseRecordMenu({
   const createPlaylist = useCreatePlaylist();
   const [picking, setPicking] = useState<number[] | null>(null);
 
-  const entry = (id: BrowseMenuId): MenuEntry => {
+  const entry = (id: BrowseMenuId): MenuEntry | null => {
     switch (id) {
       case "play":
         return { icon: icon(Play), label: t((d) => d.player.play), onSelect: actions.play };
@@ -71,6 +72,8 @@ export function BrowseRecordMenu({
           label: t((d) => d.playlists.addTo),
           onSelect: () => setPicking(actions.tracks.map((track) => track.track_id)),
         };
+      case "visualizer":
+        return visualizerMenuItem({ album: album.id }, t);
       case "open":
         return {
           icon: icon(ArrowRight),
@@ -85,9 +88,10 @@ export function BrowseRecordMenu({
     }
   };
 
-  const items = browseMenuSlots({ player, organize }).map((slot) =>
-    slot === null ? { separator: true as const } : entry(slot),
-  );
+  const items = browseMenuSlots({ player, organize }).flatMap((slot) => {
+    const built = slot === null ? { separator: true as const } : entry(slot);
+    return built ? [built] : [];
+  });
 
   return (
     <>

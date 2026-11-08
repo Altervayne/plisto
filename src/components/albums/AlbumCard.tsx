@@ -22,6 +22,7 @@ import { useOrganizeEnabled, usePlayerActions, usePlayerEnabled } from "../../st
 
 // -- Utils Imports --
 import { sourceForContainer } from "./playbackSource";
+import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -183,6 +184,8 @@ export const AlbumCard = memo(function AlbumCard({
         },
       );
     }
+    const visualizer = playerEnabled ? visualizerMenuItem({ album: album.id }, t) : null;
+    if (visualizer) items.push({ separator: true }, visualizer);
     items.push(
       { separator: true },
       {

@@ -4,7 +4,7 @@
  * icon and action.
  */
 
-export type BrowseMenuId = "play" | "next" | "queue" | "playlist" | "open" | "select";
+export type BrowseMenuId = "play" | "next" | "queue" | "playlist" | "visualizer" | "open" | "select";
 
 /** A menu row, or null for a separator. */
 export type BrowseMenuSlot = BrowseMenuId | null;
@@ -14,11 +14,13 @@ export interface BrowseMenuGates {
   organize: boolean;
 }
 
-/** The menu in order: Play, Play next, Add to queue | Add to playlist | Open in its wall, Select. */
+/** The menu in order: Play, Play next, Add to queue | Add to playlist | Visualizer (player only) | Open in its wall, Select. */
 export function browseMenuSlots({ player, organize }: BrowseMenuGates): BrowseMenuSlot[] {
   const slots: BrowseMenuSlot[] = [];
   if (player) slots.push("play", "next", "queue", null);
-  slots.push("playlist", null, "open");
+  slots.push("playlist", null);
+  if (player) slots.push("visualizer", null);
+  slots.push("open");
   if (organize) slots.push("select");
   return slots;
 }

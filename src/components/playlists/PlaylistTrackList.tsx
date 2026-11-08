@@ -34,6 +34,7 @@ import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 
 // -- Utils Imports --
 import { reorderSlots } from "./playlistOrder";
+import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -97,6 +98,11 @@ export function PlaylistTrackList({
   // not a play affordance, so it stays either way and the menu never empties.
   const buildMenu = (slot: (typeof tracks)[number], index: number): MenuEntry[] => {
     const unplayable = slot.missing_at != null;
+    // Its own group after the play rows; both ride only while the player is on.
+    const visualizerItem = playerEnabled ? visualizerMenuItem({ track: slot.track_id }, t) : null;
+    const visualizerGroup: MenuEntry[] = visualizerItem
+      ? [{ separator: true as const }, visualizerItem, { separator: true }]
+      : [];
     return [
       ...(playerEnabled
         ? [
@@ -123,6 +129,7 @@ export function PlaylistTrackList({
             } satisfies MenuEntry,
           ]
         : []),
+      ...visualizerGroup,
       {
         icon: <X size={16} strokeWidth={1.8} />,
         label: t((d) => d.playlists.removeTrack),

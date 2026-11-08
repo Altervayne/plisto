@@ -54,6 +54,7 @@ import { revealFile } from "../../lib/opener";
 import { importTrackCover } from "../../lib/ipc";
 import { pickImageFile } from "../../lib/dialog";
 import { sourceForContainer } from "./playbackSource";
+import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
@@ -271,6 +272,11 @@ export function AlbumTrackList({
   // falling back to the album cover. Remove-from-album is the sole destructive entry.
   const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
     const unplayable = row.missing_at != null;
+    // Its own group after the play rows; both ride only while the player is on.
+    const visualizerItem = playerEnabled ? visualizerMenuItem({ track: row.track_id }, t) : null;
+    const visualizerGroup: MenuEntry[] = visualizerItem
+      ? [{ separator: true as const }, visualizerItem, { separator: true }]
+      : [];
     const items: MenuEntry[] = [
       // Play leads only while the player is on; off, the whole scattered play surface goes quiet.
       ...(playerEnabled
@@ -298,6 +304,7 @@ export function AlbumTrackList({
             } satisfies MenuEntry,
           ]
         : []),
+      ...visualizerGroup,
       {
         icon: <FolderOpen size={16} strokeWidth={1.8} />,
         label: t((d) => d.tracks.goToFile),

@@ -13,12 +13,14 @@ describe("browseMenuSlots", () => {
       null,
       "playlist",
       null,
+      "visualizer",
+      null,
       "open",
       "select",
     ]);
   });
 
-  it("drops the play group and its separator in Organizer mode", () => {
+  it("drops the play group, Visualizer and their separators in Organizer mode", () => {
     expect(browseMenuSlots({ player: false, organize: true })).toEqual([
       "playlist",
       null,
@@ -34,6 +36,8 @@ describe("browseMenuSlots", () => {
       "queue",
       null,
       "playlist",
+      null,
+      "visualizer",
       null,
       "open",
     ]);
