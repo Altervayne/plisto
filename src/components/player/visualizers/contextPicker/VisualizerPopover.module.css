@@ -1,0 +1,67 @@
+/* The side panel's padding and border bring the popover to 440px. */
+.root {
+  width: 428px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px 4px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* The segmented control stretched across the popover, its chips sharing the width. */
+.root .tabs {
+  display: flex;
+  margin: 2px 2px 0;
+}
+
+.root .tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.root .tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Held at the tallest tab's height so the Off row does not jump as the tabs change. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px 6px;
+  align-content: start;
+  min-height: 178px;
+  padding: 6px 2px 2px;
+}
+
+.quiet {
+  padding: 4px 9px 3px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* Until the stored defaults are read, a pick has nowhere to land. */
+.root [aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
