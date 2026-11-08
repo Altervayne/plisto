@@ -14,6 +14,7 @@ import { IconButton } from "../../common/IconButton";
 import { LegibilityScrim } from "../LegibilityScrim";
 import { SeekBar } from "../SeekBar";
 import { UpNextGlance } from "./UpNextGlance";
+import { VisualizerSheet } from "../visualizers/sheet/VisualizerSheet";
 import { Visualizer } from "../visualizers/Visualizer";
 import { Volume } from "../Volume";
 
@@ -28,6 +29,7 @@ import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 // -- State Imports --
 import { usePlayerActions, usePlayerStatus } from "../../../state/player/store";
 import { nextVisualizerKind } from "../../../state/player/visualizerKind";
+import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
 
 // -- Local Imports --
 import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
@@ -46,7 +48,8 @@ const TOAST_MS = 1500;
  * Ambient mode: the now-playing track over the whole screen in OS full-screen, cover left and title
  * right, with the aurora and the picked visualizer filling the stage. The chrome (seek, transport,
  * volume, up next) and the exit control fade after a few idle seconds; the title and artist stay. Escape
- * or the exit control leaves, restoring the window; V cycles the visualizer.
+ * or the exit control leaves, restoring the window; V cycles the visualizer and the waves button opens the
+ * picker sheet, which floats above the chrome, lifts the cover and words, and keeps the chrome awake.
  *
  * `trackId` is the track on show, which outlives the queue: when the last track ends the stage stays on
  * it in its paused look. The app beneath goes inert while the stage is up, so focus never wanders under it.
@@ -61,7 +64,8 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const pick = useVisualizerPick(trackId);
   const status = usePlayerStatus();
   const actions = usePlayerActions();
-  const { faded, wake } = useAmbientIdle();
+  const sheetOpen = useVisualizerSheetOpen();
+  const { faded, wake } = useAmbientIdle(sheetOpen);
   const t = useT();
   const coverRef = useRef<HTMLSpanElement | null>(null);
   // The seek bar the visualizer rests on, and the words it quiets itself behind.
@@ -135,7 +139,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       />
       <LegibilityScrim active={shown !== "off"} floorRef={seekRef} ambient faded={faded} />
 
-      <div className={styles.body}>
+      <div className={styles.body} data-lifted={sheetOpen ? "" : undefined}>
         <span ref={coverRef} className={styles.cover}>
           <span className={styles.coverArt} data-drawn={drawnTile ? "" : undefined}>
             {coverSrc ? (
@@ -175,6 +179,8 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
         </IconButton>
       </div>
 
+      <VisualizerSheet place="ambient" trackId={trackId} fallback={choice.fallback} />
+
       <div className={styles.chrome} data-faded={fade}>
         <div ref={seekRef} className={styles.seek}>
           <SeekBar position={status.position_secs} duration={status.duration_secs} onSeek={actions.seek} />
@@ -183,7 +189,12 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
           <UpNextGlance active={status.track_id != null} />
           <AmbientTransport />
           <div className={styles.right}>
-            <IconButton aria-label={t((d) => d.player.visualizer)} onClick={cycle}>
+            <IconButton
+              aria-label={t((d) => d.player.visualizer)}
+              onClick={(e) => useVisualizerSheet.getState().toggle(e.currentTarget)}
+              aria-haspopup="menu"
+              aria-expanded={sheetOpen}
+            >
               <Waves size={20} strokeWidth={1.8} />
             </IconButton>
             <Volume volume={status.volume} />

@@ -9,10 +9,11 @@ export const AMBIENT_IDLE_MS = 5000;
 
 /**
  * Ambient mode's idle state: `faded` turns on after AMBIENT_IDLE_MS with no `wake`, and any wake brings
- * the chrome straight back. The caller wires pointer and key activity to `wake`.
+ * the chrome straight back. The caller wires pointer and key activity to `wake`. While `hold` is set the
+ * chrome stays up, and releasing it restarts the countdown.
  */
-export function useAmbientIdle(): { faded: boolean; wake: () => void } {
-  const [faded, setFaded] = useState(false);
+export function useAmbientIdle(hold = false): { faded: boolean; wake: () => void } {
+  const [idle, setFaded] = useState(false);
   const timerRef = useRef<IdleTimer | null>(null);
 
   useEffect(() => {
@@ -25,5 +26,8 @@ export function useAmbientIdle(): { faded: boolean; wake: () => void } {
   }, []);
 
   const wake = useCallback(() => timerRef.current?.wake(), []);
-  return { faded, wake };
+  useEffect(() => {
+    if (!hold) wake();
+  }, [hold, wake]);
+  return { faded: idle && !hold, wake };
 }

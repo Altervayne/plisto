@@ -5,6 +5,12 @@ import type { RefObject } from "react";
 // -- Utils Imports --
 import { inTextEntry, menuOpen, modalOpen } from "../../../lib/keyScope";
 
+// -- State Imports --
+import { useVisualizerSheet } from "../../../state/player/visualizerSheet";
+
+// -- Local Imports --
+import { ambientEscape } from "./ambientEscape";
+
 /** What ambient mode does with its keys. */
 export interface AmbientKeys {
   // The stage itself, which holds focus while no control does.
@@ -17,7 +23,9 @@ export interface AmbientKeys {
 
 /**
  * Binds ambient mode's keys while it is up: Escape exits and V cycles the visualizer, both caught ahead
- * of the app-wide shortcuts so Escape never also closes a pane underneath. Space on the stage itself
+ * of the app-wide shortcuts so Escape never also closes a pane underneath. An open visualizer sheet takes
+ * the first Escape, which closes it and returns focus to its control; the sheet is a menu, so it is read
+ * before the menu guard. Space on the stage itself
  * toggles playback even when the stage took focus from a keyboard entry, where the app-wide Space would
  * yield to it. Every other key wakes the chrome and passes on, so the playback shortcuts keep working. A
  * key a menu, a dialog or a field owns is left alone.
@@ -30,6 +38,14 @@ export function useAmbientKeys(keys: AmbientKeys): void {
     const onKey = (e: KeyboardEvent) => {
       const k = ref.current;
       k.onWake();
+      if (e.key === "Escape" && !modalOpen() && ambientEscape(useVisualizerSheet.getState().isOpen) === "sheet") {
+        e.preventDefault();
+        e.stopPropagation();
+        const { anchor, close } = useVisualizerSheet.getState();
+        close();
+        anchor?.focus({ preventScroll: true });
+        return;
+      }
       if (inTextEntry(document.activeElement) || modalOpen() || menuOpen()) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "Escape") {

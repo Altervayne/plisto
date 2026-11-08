@@ -26,6 +26,12 @@
   justify-content: center;
   gap: clamp(48px, 10vh, 120px);
   padding-right: 20px;
+  transition: bottom 0.28s var(--ease-cover);
+}
+
+/* The open sheet takes the space above the chrome, so the cover and words rise clear of it. */
+.body[data-lifted] {
+  bottom: 372px;
 }
 
 /* The cover, the one object of the stage. Its radius is read by the visualizers so their cover-shaped
@@ -384,7 +390,8 @@
   .cluster svg,
   .right svg,
   .pill,
-  .play {
+  .play,
+  .body {
     transition: none;
   }
 }
