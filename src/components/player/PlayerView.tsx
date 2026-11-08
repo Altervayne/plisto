@@ -12,6 +12,7 @@ import { PlayerHero } from "./PlayerHero";
 import { QueueList } from "./QueueList";
 import { SoundMenu } from "../sound/SoundMenu";
 import { Visualizer } from "./visualizers/Visualizer";
+import { VisualizerSheet } from "./visualizers/sheet/VisualizerSheet";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
@@ -101,8 +102,9 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
  * only with a real track id, so its id-typed cover hook never runs empty. The ambient layers sit under the
  * content, which carries the only lit mark. Liquid and the fluid kinds fill the whole panel, so under
  * them the queue takes a frosted backing. A change of visualizer dips the panel through its ground, and
- * everything keyed to the visualizer follows the shown kind rather than the pick. While ambient mode is
- * up, the aurora and visualizer stand down here, so only the full-screen stage draws.
+ * everything keyed to the visualizer follows the shown kind rather than the pick. The visualizer sheet
+ * rises from the panel's bottom edge. While ambient mode is up, the aurora, the visualizer and the sheet
+ * stand down here, so only the full-screen stage draws.
  */
 function PlayerStage({
   trackId,
@@ -171,6 +173,7 @@ function PlayerStage({
         />
         <QueueList frosted={!ambient && fillsStage(shown)} />
       </div>
+      {ambient ? null : <VisualizerSheet place="player" trackId={trackId} />}
     </div>
   );
 }

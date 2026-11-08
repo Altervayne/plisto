@@ -10,6 +10,7 @@ import { useVisualizerResolution } from "./useVisualizerResolution";
 // -- State Imports --
 import { usePlayerSpectrumLayout, usePlayerVisualizerReactivity } from "../../../state/preferences/store";
 import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../state/player/visualizerDefaults";
+import { useVisualizerPreview } from "../../../state/player/visualizerSheet";
 import type { DipReason } from "../../../state/player/visualizerDip";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
 import {
@@ -53,9 +54,10 @@ export interface VisualizerChoice {
 
 /**
  * Resolves the picked visualizer for the stage at `stageRef`, showing track `trackId` with the cover at
- * `coverSrc`, and dips the stage from the shown kind to it. Cover pixels load while either end of the dip
- * draws them, so the outgoing kind keeps its art on the way down. A WebGL failure drops that pick to Ridge
- * until the pick changes, so choosing it again retries.
+ * `coverSrc`, and dips the stage from the shown kind to it. A kind previewed from the picker takes the
+ * pick's place as the dip target until the preview ends; the pick and its fallback line stay as they are.
+ * Cover pixels load while either end of the dip draws them, so the outgoing kind keeps its art on the way
+ * down. A WebGL failure drops that kind to Ridge until the target changes, so aiming at it again retries.
  */
 export function useVisualizerChoice(
   coverSrc: string | null,
@@ -76,15 +78,18 @@ export function useVisualizerChoice(
   }, [trackId]);
   const reactivity = usePlayerVisualizerReactivity();
   const spectrumLayout = usePlayerSpectrumLayout();
+  const preview = useVisualizerPreview();
+  const aimed = preview ?? picked;
   const [failed, setFailed] = useState<VisualizerKind | null>(null);
   const [shown, setShown] = useState(() => mountedKind(picked, coverSrc));
-  const wantsCover = needsCoverPixels(picked) || needsCoverPixels(shown);
+  const wantsCover = needsCoverPixels(aimed) || needsCoverPixels(picked) || needsCoverPixels(shown);
   const { pixels, state } = useCoverPixels(wantsCover ? coverSrc : null);
-  const onGlFail = useCallback(() => setFailed(picked), [picked]);
-  const { target, ready } = dipTarget(picked, failed === picked, state);
+  const onGlFail = useCallback(() => setFailed(aimed), [aimed]);
+  const { target, ready } = dipTarget(aimed, failed === aimed, state);
   const reason = useDipReason(boundaryKey(trackId, defaultsReady), target);
   useVisualizerDip(stageRef, target, ready, reason, shown, setShown);
-  const fallback = fallbackOf(picked, target, failed === picked);
+  const pickedTarget = preview == null ? target : dipTarget(picked, failed === picked, state).target;
+  const fallback = fallbackOf(picked, pickedTarget, failed === picked);
   return { picked, source, defaultKind, defaultTier, fallback, shown, reactivity, spectrumLayout, pixels, onGlFail };
 }
 

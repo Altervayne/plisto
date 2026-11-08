@@ -1,0 +1,101 @@
+/* The strip sits between two chevron gutters, so the round buttons never cover a tile. */
+.wrap {
+  position: relative;
+  padding: 0 34px;
+}
+
+/* The edge fade widths are registered so they ease in and out as the scroll reaches or leaves an end. */
+@property --fl {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fr {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.strip {
+  position: relative;
+  display: flex;
+  gap: 30px;
+  padding: 2px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  transition:
+    --fl 0.2s ease,
+    --fr 0.2s ease;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--fl),
+    #000 calc(100% - var(--fr)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+}
+
+.strip::-webkit-scrollbar {
+  display: none;
+}
+
+.group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+/* The group heading: the uppercase micro-label the Player titles its sections with. */
+.heading {
+  padding: 5px 9px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.chevron {
+  position: absolute;
+  top: 40%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-2);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.left {
+  left: 0;
+}
+
+.right {
+  right: 0;
+}
+
+.chevron[data-gone] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip,
+  .chevron {
+    transition: none;
+  }
+}

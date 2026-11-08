@@ -1,0 +1,10 @@
+/* The segmented chips at the sheet's compact size, with room for the group markers beside each label. */
+.chips > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}

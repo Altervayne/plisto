@@ -1,0 +1,52 @@
+/* The sheet docks to the Player panel's bottom edge, over the transport and the lower queue, on a frosted
+ * surface so the stage still reads through it while a hovered kind previews there. */
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 18px 14px;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  animation: sheet-in var(--dur-slow) var(--ease-cover) both;
+}
+
+/* In ambient it floats clear of the chrome, so the seek bar, the transport and its button stay in reach. */
+.sheet[data-place="ambient"] {
+  left: 24px;
+  right: 24px;
+  bottom: 124px;
+  border-radius: var(--r-lg);
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

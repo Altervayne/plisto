@@ -1,0 +1,39 @@
+.footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  padding-top: 4px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 250px;
+  padding: 2px 4px;
+}
+
+.layout {
+  width: 220px;
+}
+
+/* The row's micro-label, inset to line up with the segmented track below it. */
+.label {
+  padding: 5px 9px 3px 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.grow {
+  flex: 1;
+}
+
+.aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}

@@ -17,12 +17,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
+// -- Icon Imports --
+import { Waves } from "lucide-react";
+
 // -- Component Imports --
+import { IconToggle } from "../common/IconToggle";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { QueueRow } from "./QueueRow";
 import { SequenceMenu } from "./SequenceMenu";
-import { VisualizerPicker } from "./visualizers/VisualizerPicker";
 
 // -- State Imports --
 import {
@@ -34,6 +37,7 @@ import {
 
 import { useAddTracksToPlaylist, useCreatePlaylist } from "../../state/playlists/store";
 import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/queuePlaylist";
+import { useVisualizerSheet, useVisualizerSheetOpen } from "../../state/player/visualizerSheet";
 
 // -- Format Imports --
 import { formatCount } from "../../lib/format";
@@ -53,10 +57,10 @@ const SAVED_MS = 2000;
 /**
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
- * The header counts the tracks still ahead and holds the save-as-playlist action, the visualizer pick
- * and the sequencing control; the footer clears the queue by stopping the engine. `frosted` lays a glass
- * backing under the column while the shown visualizer runs beneath it; the backing fades with the stage's
- * dip.
+ * The header counts the tracks still ahead and holds the save-as-playlist action, the button that opens
+ * the visualizer sheet, and the sequencing control; the footer clears the queue by stopping the engine.
+ * `frosted` lays a glass backing under the column while the shown visualizer runs beneath it; the backing
+ * fades with the stage's dip.
  */
 export function QueueList({ frosted = false }: { frosted?: boolean }) {
   const queue = usePlayerQueue();
@@ -66,6 +70,7 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
+  const sheetOpen = useVisualizerSheetOpen();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const savingRef = useRef(false);
@@ -129,7 +134,15 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
           <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
             {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
           </QuietButton>
-          <VisualizerPicker />
+          <IconToggle
+            pressed={sheetOpen}
+            aria-label={t((d) => d.player.visualizer)}
+            aria-haspopup="menu"
+            aria-expanded={sheetOpen}
+            onClick={(event) => useVisualizerSheet.getState().toggle(event.currentTarget)}
+          >
+            <Waves size={18} strokeWidth={1.8} />
+          </IconToggle>
           <SequenceMenu />
         </div>
       </div>

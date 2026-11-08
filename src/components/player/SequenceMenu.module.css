@@ -15,7 +15,7 @@
   right: 0;
   z-index: 20;
   min-width: 208px;
-  /* The visualizer picker is the tall user: it scrolls rather than run off a short window. */
+  /* A short window scrolls the popover rather than let it run off the bottom. */
   max-height: calc(100vh - 140px);
   overflow-y: auto;
   overscroll-behavior: contain;
