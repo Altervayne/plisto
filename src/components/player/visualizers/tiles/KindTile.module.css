@@ -1,0 +1,88 @@
+.tile {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.tile:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.tile[aria-checked="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tile:focus-visible {
+  outline: none;
+}
+
+.tile:focus-visible .thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 8 / 5;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--veil-2);
+}
+
+.tile[aria-checked="true"] .thumb {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--ink-3);
+}
+
+.tick {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.name {
+  display: block;
+  padding: 0 2px 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

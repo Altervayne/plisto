@@ -1,11 +1,12 @@
 /*
  * The visualizer render lab. A dev-only page that draws the GL kinds through the real renderer from a
- * fixed scene. Query params: mode=view|hash|thumb|bench, kind (one GL kind; absent means all of them,
+ * fixed scene. Query params: mode=view|hash|thumb|bench|flash, kind (one GL kind; absent means all of them,
  * except view, which takes glass), theme=light|dark and layout=player|ambient (absent means both for
  * hash). Every non-view mode writes its result as JSON into <pre id="out"> and sets body[data-done].
  */
 
 // -- Local Imports --
+import { fireflyProbe } from "../../components/player/visualizers/gl/fireflies";
 import { blendModeFor, createRenderer, type Renderer } from "../../components/player/visualizers/gl/renderer";
 import {
   LAB_LAYOUTS,
@@ -233,6 +234,84 @@ async function runView() {
   return { kind, theme, layout: layoutId };
 }
 
+// Flash check: the WCAG 2.3.1 general-flash window, 341 x 256 px, and the relative-luminance step that counts.
+const FLASH_WINDOW_W = 341;
+const FLASH_WINDOW_H = 256;
+const FLASH_STEP = 0.1;
+const FLASH_FRAMES = 31;
+
+function linearLuma(bytes: Uint8Array, i: number): number {
+  const lin = (v: number) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(bytes[i]) + 0.7152 * lin(bytes[i + 1]) + 0.0722 * lin(bytes[i + 2]);
+}
+
+/**
+ * Fireflies' worst case through the real renderer: every light at its blink floor, the level at maximum, once
+ * with no swell and once with the group at full swell. Reports the share of the stage that changes by 0.1
+ * relative luminance or more, and the most inside any 341 x 256 window.
+ */
+async function runFlash() {
+  const cover = await coverPixels();
+  const theme: LabTheme = params.get("theme") === "light" ? "light" : "dark";
+  applyTheme(theme);
+  setDpr(1);
+  const rows: { layout: string; theme: string; stagePct: number; windowPct: number }[] = [];
+  fireflyProbe.floor = true;
+  try {
+    for (const layout of pickLayouts()) {
+      const base = labFrame(theme, layout, cover);
+      const shot = (swell: boolean): Uint8Array => {
+        const { canvas, renderer } = open(layout);
+        reseed();
+        for (let i = 0; i < FLASH_FRAMES; i++) {
+          const sig = { ...base.sig, level: 1, drive: 1.5, beat: swell && i === 0 ? 1 : 0 };
+          renderer.render("fireflies", { ...base, sig, t: 14 + i / 60, still: false });
+        }
+        const bytes = readPixels(canvas);
+        renderer.dispose();
+        return bytes;
+      };
+      const rest = shot(false);
+      const full = shot(true);
+      const w = LAB_LAYOUTS[layout].width;
+      const h = LAB_LAYOUTS[layout].height;
+      // Summed-area table over the changed pixels.
+      const sat = new Int32Array((w + 1) * (h + 1));
+      let changed = 0;
+      for (let y = 0; y < h; y++) {
+        let row = 0;
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const hit = Math.abs(linearLuma(full, i) - linearLuma(rest, i)) >= FLASH_STEP ? 1 : 0;
+          row += hit;
+          changed += hit;
+          sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row;
+        }
+      }
+      let worst = 0;
+      for (let y = 0; y + FLASH_WINDOW_H <= h; y += 4) {
+        for (let x = 0; x + FLASH_WINDOW_W <= w; x += 4) {
+          const a = sat[(y + FLASH_WINDOW_H) * (w + 1) + x + FLASH_WINDOW_W] - sat[y * (w + 1) + x + FLASH_WINDOW_W];
+          const n = a - sat[(y + FLASH_WINDOW_H) * (w + 1) + x] + sat[y * (w + 1) + x];
+          if (n > worst) worst = n;
+        }
+      }
+      rows.push({
+        layout,
+        theme,
+        stagePct: round((100 * changed) / (w * h)),
+        windowPct: round((100 * worst) / (FLASH_WINDOW_W * FLASH_WINDOW_H)),
+      });
+    }
+  } finally {
+    fireflyProbe.floor = false;
+  }
+  return rows;
+}
+
 async function main() {
   const mode = params.get("mode") ?? "view";
   document.body.style.margin = "0";
@@ -244,6 +323,8 @@ async function main() {
         return runThumb();
       case "bench":
         return runBench();
+      case "flash":
+        return runFlash();
       case "view":
         return runView();
       default:

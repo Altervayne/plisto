@@ -3,6 +3,7 @@
 //   node tools/visualizer-lab.mjs hash [OUT.json] [--kind K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs thumb [OUT_DIR] [--kind K]
 //   node tools/visualizer-lab.mjs bench [--kind K] [--theme T] [--layout L]
+//   node tools/visualizer-lab.mjs flash [--theme T] [--layout L]    Fireflies' WCAG flash percentages.
 //   node tools/visualizer-lab.mjs view [--kind K] [--theme T] [--layout L]    Prints the URL to open.
 // Shared flags: --url BASE (default http://localhost:1420), --edge PATH, --budget MS (virtual time, default
 // 60000), --gpu or --soft to force the real GPU or software GL. Bench defaults to the GPU and every other
@@ -85,9 +86,14 @@ if (mode === "hash") {
   for (const r of rows) {
     console.log(r.kind.padEnd(14) + String(r.dpr).padEnd(5) + r.ms.toFixed(3).padEnd(10) + r.glassMs.toFixed(3).padEnd(10) + r.ratio.toFixed(2));
   }
+} else if (mode === "flash") {
+  const rows = runLab(labUrl());
+  console.log("flash: Fireflies at its blink floor vs the full swell, level at maximum (limit 25%)");
+  console.log("layout".padEnd(10) + "theme".padEnd(8) + "stage %".padEnd(10) + "worst 341x256 window %");
+  for (const r of rows) console.log(r.layout.padEnd(10) + r.theme.padEnd(8) + String(r.stagePct).padEnd(10) + r.windowPct);
 } else if (mode === "view") {
   console.log(labUrl());
 } else {
-  console.error("usage: visualizer-lab.mjs hash|thumb|bench|view [options]");
+  console.error("usage: visualizer-lab.mjs hash|thumb|bench|flash|view [options]");
   process.exit(1);
 }
