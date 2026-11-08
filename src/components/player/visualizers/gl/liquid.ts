@@ -120,7 +120,6 @@ export function createLiquid(kit: Kit): Candidate {
     exposure: 1,
     inkGain: 1,
     trail: null,
-    fullBleed: true,
     draw(f: Frame) {
       if (!f.cover) return;
       cover.sync(f.cover);

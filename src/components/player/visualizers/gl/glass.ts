@@ -112,7 +112,6 @@ export function createGlass(kit: Kit): Candidate {
     inkGain: 1,
     trail: null,
     vignette: 0,
-    fullBleed: true,
     draw(f: Frame) {
       if (!f.cover) return;
       art.sync(f.cover);

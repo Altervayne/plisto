@@ -4,20 +4,30 @@
  * Pure, so the pref reads, the cycle and the fallback are tested apart from the renderer.
  */
 
+// -- State Imports --
+import {
+  GROUP_ORDER,
+  VISUALIZER_DESCRIPTORS,
+  descriptorOf,
+  type GlVisualizerId,
+  type VisualizerGroupId,
+  type VisualizerId,
+} from "./visualizerRegistry";
+
+export type { VisualizerGroupId };
+
 /**
  * The picker's labelled sections, in order. This is the one source of the visualizer order: the picker
  * renders it and the V cycle walks it, so they cannot drift. Ridge is the default.
  */
-export const VISUALIZER_GROUPS = [
-  { id: "classic", kinds: ["ridge", "terrain", "warp", "nebula", "bloom"] },
-  { id: "dots", kinds: ["halftone", "dot-spectrum", "dot-cover"] },
-  { id: "fluid", kinds: ["liquid", "ink", "mercury", "glass", "silk"] },
-] as const;
-
-export type VisualizerGroupId = (typeof VISUALIZER_GROUPS)[number]["id"];
+export const VISUALIZER_GROUPS: readonly { id: VisualizerGroupId; kinds: readonly VisualizerId[] }[] =
+  GROUP_ORDER.map((id) => ({
+    id,
+    kinds: VISUALIZER_DESCRIPTORS.filter((d) => d.group === id).map((d) => d.id),
+  }));
 
 /** Off draws nothing; it closes the order after the sections and carries no label. */
-export type VisualizerKind = (typeof VISUALIZER_GROUPS)[number]["kinds"][number] | "off";
+export type VisualizerKind = VisualizerId | "off";
 
 /** Every visualizer, in picker and cycle order. */
 export const VISUALIZER_KINDS: readonly VisualizerKind[] = [
@@ -26,7 +36,7 @@ export const VISUALIZER_KINDS: readonly VisualizerKind[] = [
 ];
 
 /** The kinds drawn by the WebGL2 renderer; Ridge stays on Canvas 2D and Off draws nothing. */
-export type GlKind = Exclude<VisualizerKind, "ridge" | "off">;
+export type GlKind = GlVisualizerId;
 
 export const DEFAULT_VISUALIZER: VisualizerKind = "ridge";
 
@@ -44,22 +54,22 @@ export function nextVisualizerKind(kind: VisualizerKind): VisualizerKind {
 }
 
 export function isGlKind(kind: VisualizerKind): kind is GlKind {
-  return kind !== "ridge" && kind !== "off";
+  return kind !== "off" && descriptorOf(kind).engine === "gl";
 }
 
 /** Whether a kind draws from the 128-band spectrum, which costs the engine a second analysis. */
 export function needsFineSpectrum(kind: VisualizerKind): boolean {
-  return kind === "terrain" || kind === "dot-spectrum";
+  return kind !== "off" && descriptorOf(kind).needs.fine;
 }
 
 /** Whether a kind draws the cover's own pixels, so it needs them on hand as a texture. */
 export function needsCoverPixels(kind: VisualizerKind): boolean {
-  return kind === "liquid" || kind === "dot-cover" || kind === "ink" || kind === "mercury" || kind === "glass";
+  return kind !== "off" && descriptorOf(kind).needs.cover;
 }
 
 /** Whether a kind paints an opaque image across the whole stage, so the Player's queue needs a backing. */
 export function fillsStage(kind: VisualizerKind): boolean {
-  return kind === "liquid" || kind === "ink" || kind === "mercury" || kind === "glass" || kind === "silk";
+  return kind !== "off" && descriptorOf(kind).fillsStage;
 }
 
 /** What a surface can draw right now. */

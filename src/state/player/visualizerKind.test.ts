@@ -17,6 +17,58 @@ import {
   SPECTRUM_LAYOUTS,
   type VisualizerKind,
 } from "./visualizerKind";
+import { VISUALIZER_DESCRIPTORS, type BlendMode, type VisualizerDescriptor } from "./visualizerRegistry";
+
+describe("visualizer descriptors", () => {
+  // kind, group, engine, needs.fine, needs.cover, fillsStage, blend light, blend dark
+  const rows: [string, string, string, boolean, boolean, boolean, BlendMode, BlendMode][] = [
+    ["ridge", "classic", "canvas2d", false, false, false, "soft-light", "soft-light"],
+    ["terrain", "classic", "gl", true, false, false, "multiply", "screen"],
+    ["warp", "classic", "gl", false, false, false, "multiply", "screen"],
+    ["nebula", "classic", "gl", false, false, false, "multiply", "screen"],
+    ["bloom", "classic", "gl", false, false, false, "multiply", "screen"],
+    ["halftone", "dots", "gl", false, false, false, "normal", "screen"],
+    ["dot-spectrum", "dots", "gl", true, false, false, "normal", "screen"],
+    ["dot-cover", "dots", "gl", false, true, false, "normal", "normal"],
+    ["liquid", "fluid", "gl", false, true, true, "normal", "normal"],
+    ["ink", "fluid", "gl", false, true, true, "normal", "normal"],
+    ["mercury", "fluid", "gl", false, true, true, "normal", "normal"],
+    ["glass", "fluid", "gl", false, true, true, "normal", "normal"],
+    ["silk", "fluid", "gl", false, false, true, "normal", "normal"],
+  ];
+
+  it("holds every kind's traits, in picker order", () => {
+    expect(
+      VISUALIZER_DESCRIPTORS.map((d) => [
+        d.id,
+        d.group,
+        d.engine,
+        d.needs.fine,
+        d.needs.cover,
+        d.fillsStage,
+        d.blend.light,
+        d.blend.dark,
+      ]),
+    ).toEqual(rows);
+  });
+
+  it("drives the predicates from the same rows", () => {
+    for (const [kind, , , fine, cover, fills] of rows) {
+      const k = kind as VisualizerKind;
+      expect(needsFineSpectrum(k)).toBe(fine);
+      expect(needsCoverPixels(k)).toBe(cover);
+      expect(fillsStage(k)).toBe(fills);
+    }
+    expect(needsFineSpectrum("off")).toBe(false);
+    expect(needsCoverPixels("off")).toBe(false);
+    expect(fillsStage("off")).toBe(false);
+  });
+
+  it("gives only Dot spectrum a pref of its own", () => {
+    const withPrefs = VISUALIZER_DESCRIPTORS.flatMap((d: VisualizerDescriptor) => (d.prefs ? [[d.id, d.prefs]] : []));
+    expect(withPrefs).toEqual([["dot-spectrum", ["spectrumLayout"]]]);
+  });
+});
 
 describe("normalizeVisualizerKind", () => {
   it("keeps every known kind", () => {

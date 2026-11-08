@@ -75,7 +75,6 @@ export function createSilk(kit: Kit): Candidate {
     inkGain: 1,
     trail: null,
     vignette: 0,
-    fullBleed: true,
     draw(f: Frame) {
       const s = f.sig;
       flow += f.dt * (0.55 + s.level * 0.3 + s.midMotion * 1.1);

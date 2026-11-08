@@ -32,7 +32,7 @@ import {
 import type { Segment } from "../../common/SegmentedControl";
 
 // -- Local Imports --
-import { visualizerLabel } from "./visualizerLabel";
+import { VISUALIZER_VIEWS } from "./visualizerViews";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -94,7 +94,7 @@ export function VisualizerPicker() {
         <span className={styles.icon} aria-hidden="true">
           <VisualizerGlyph kind={kind} />
         </span>
-        <span className={styles.label}>{t(visualizerLabel(kind))}</span>
+        <span className={styles.label}>{t(VISUALIZER_VIEWS[kind].label)}</span>
         <span className={styles.check} aria-hidden="true">
           {selected ? <Check size={15} strokeWidth={2} /> : null}
         </span>

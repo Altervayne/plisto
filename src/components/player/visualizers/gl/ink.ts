@@ -149,7 +149,6 @@ export function createInk(kit: Kit): Candidate {
     inkGain: 1,
     trail: null,
     vignette: 0,
-    fullBleed: true,
     draw(f: Frame) {
       if (!f.cover) return;
       const scene = kit.boundTarget();

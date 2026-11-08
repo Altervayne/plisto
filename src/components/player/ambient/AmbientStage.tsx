@@ -30,7 +30,7 @@ import { usePlayerVisualizer, useSetPlayerVisualizer } from "../../../state/pref
 import { nextVisualizerKind } from "../../../state/player/visualizerKind";
 
 // -- Local Imports --
-import { visualizerLabel } from "../visualizers/visualizerLabel";
+import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -97,7 +97,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const cycle = () => {
     const next = nextVisualizerKind(picked);
     setPicked(next);
-    setToast((was) => ({ label: t(visualizerLabel(next)), id: (was?.id ?? 0) + 1, gone: false }));
+    setToast((was) => ({ label: t(VISUALIZER_VIEWS[next].label), id: (was?.id ?? 0) + 1, gone: false }));
     wake();
   };
 

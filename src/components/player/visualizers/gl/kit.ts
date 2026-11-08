@@ -68,8 +68,6 @@ export interface Candidate {
   trailDecay?: (frame: Frame) => number;
   // The corner darkening ambient applies, 0..1; absent, the stage default.
   vignette?: number;
-  // Draws across the whole stage, ignoring the mask.
-  fullBleed?: boolean;
   dispose: () => void;
 }
 

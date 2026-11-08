@@ -8,26 +8,16 @@
  */
 
 // -- Local Imports --
-import { createKit, type Candidate, type Frame, type Kit, type Rect, type Target } from "./kit";
+import { createKit, type Candidate, type Frame, type Rect, type Target } from "./kit";
 import { BLUR_FS, COMPOSITE_FS, DOWN_FS, FS_VS, TRAIL_FS } from "./shaders";
-import { createBloom } from "./bloom";
-import { createDotCover } from "./dotCover";
-import { createDotSpectrum } from "./dotSpectrum";
-import { createGlass } from "./glass";
-import { createHalftone } from "./halftone";
-import { createInk } from "./ink";
-import { createLiquid } from "./liquid";
-import { createMercury } from "./mercury";
-import { createNebula } from "./nebula";
-import { createSilk } from "./silk";
-import { createTerrain } from "./terrain";
-import { createWarp } from "./warp";
+import { VISUALIZER_VIEWS } from "../visualizerViews";
 
 // -- State Imports --
-import { fillsStage, type GlKind } from "../../../../state/player/visualizerKind";
+import { blendFor, descriptorOf, type GlBlendMode } from "../../../../state/player/visualizerRegistry";
+import type { GlKind } from "../../../../state/player/visualizerKind";
 
 /** The CSS blend the canvas takes over the stage for a kind and theme. */
-export type BlendMode = "screen" | "multiply" | "normal";
+export { blendFor as blendModeFor };
 
 /** Where the canvas and the cover sit, in CSS pixels with a top-left origin, relative to the canvas. */
 export interface Layout {
@@ -50,22 +40,7 @@ export interface Renderer {
   dispose: () => void;
 }
 
-const FACTORIES: Record<GlKind, (kit: Kit) => Candidate> = {
-  terrain: createTerrain,
-  liquid: createLiquid,
-  warp: createWarp,
-  nebula: createNebula,
-  bloom: createBloom,
-  halftone: createHalftone,
-  "dot-spectrum": createDotSpectrum,
-  "dot-cover": createDotCover,
-  ink: createInk,
-  mercury: createMercury,
-  glass: createGlass,
-  silk: createSilk,
-};
-
-const MODE_INDEX: Record<BlendMode, number> = { screen: 0, multiply: 1, normal: 2 };
+const MODE_INDEX: Record<GlBlendMode, number> = { screen: 0, multiply: 1, normal: 2 };
 
 /** The scene ping-pong pair, then the quarter- and eighth-size bloom pairs. */
 interface Targets {
@@ -81,16 +56,6 @@ interface Targets {
 const MAX_DPR = 2;
 // The corner darkening ambient applies unless a candidate sets its own.
 const AMBIENT_VIGNETTE = 0.35;
-
-/**
- * The blend a kind needs: the stage-filling kinds and Dot cover paint real color; the other dot kinds
- * screen on dark and paint their own ink on light; every other glow screens on dark and multiplies on light.
- */
-export function blendModeFor(kind: GlKind, light: boolean): BlendMode {
-  if (fillsStage(kind) || kind === "dot-cover") return "normal";
-  if (kind === "halftone" || kind === "dot-spectrum") return light ? "normal" : "screen";
-  return light ? "multiply" : "screen";
-}
 
 /** Opens a WebGL2 context on `canvas`, or returns null when WebGL2 is unavailable. */
 export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
@@ -175,7 +140,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     pass(T.e1, T.e0, 0, 2);
   };
 
-  const composite = (T: Targets, src: Target, mode: BlendMode, bloom: number, c: Candidate, f: Frame) => {
+  const composite = (
+    T: Targets,
+    src: Target,
+    kind: GlKind,
+    mode: GlBlendMode,
+    bloom: number,
+    c: Candidate,
+    f: Frame,
+  ) => {
     const { gl: g } = kit;
     const p = kit.program("composite", FS_VS, COMPOSITE_FS);
     kit.bindTarget(null);
@@ -189,7 +162,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     // Ink on a light ground needs more gain than light on a dark one to read at the same weight.
     kit.set1(p, "uExposure", f.light && c.mode === "glow" ? c.exposure * c.inkGain : c.exposure);
     kit.set2(p, "uRes", kit.size.w, kit.size.h);
-    kit.set1(p, "uMaskOn", kit.geo.mask && !c.fullBleed ? 1 : 0);
+    kit.set1(p, "uMaskOn", kit.geo.mask && !descriptorOf(kind).fillsStage ? 1 : 0);
     kit.set4(p, "uMask", kit.geo.mask ?? [0, 0, kit.size.w, kit.size.h]);
     kit.set1(p, "uFeather", 90 * kit.size.dpr);
     kit.set1(p, "uVignette", f.ambient ? (c.vignette ?? AMBIENT_VIGNETTE) : 0);
@@ -199,7 +172,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const candidateFor = (T: Targets, kind: GlKind): Candidate => {
     if (current?.kind === kind) return current.candidate;
     current?.candidate.dispose();
-    current = { kind, candidate: FACTORIES[kind](kit) };
+    const factory = VISUALIZER_VIEWS[kind].factory;
+    if (!factory) throw new Error(`no GL factory for ${kind}`);
+    current = { kind, candidate: factory(kit) };
     for (const target of [T.scene0, T.scene1]) {
       kit.bindTarget(target);
       kit.gl.clearColor(0, 0, 0, 0);
@@ -234,11 +209,11 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
     c.draw(f);
-    const mode = blendModeFor(kind, f.light);
+    const mode = blendFor(kind, f.light);
     // A glow composited straight is ink painted by the candidate itself, which takes no bloom.
     const bloom = mode === "normal" && c.mode === "glow" ? 0 : c.bloom;
     if (bloom > 0) bloomChain(T, dst, c.mode === "image" ? 0.55 : 0.0);
-    composite(T, dst, mode, bloom, c, f);
+    composite(T, dst, kind, mode, bloom, c, f);
   };
 
   const still = (kind: GlKind, f: Frame) => {
