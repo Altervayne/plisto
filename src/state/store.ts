@@ -43,6 +43,8 @@ import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets
 // gone track's cascaded slots leave the playlist view too.
 import { useOrganizeStore } from "./organize/store";
 import { usePlaylistsStore } from "./playlists/store";
+// Reaches back here through the player store; boot is its only use, so the cycle stays runtime-only.
+import { useVisualizerDefaults } from "./player/visualizerDefaults";
 
 // -- Type Imports --
 import type { Channel } from "@tauri-apps/api/core";
@@ -308,6 +310,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     relinkOffer: null,
 
     boot: async () => {
+      // Not awaited: the stage draws the global pick until the defaults land.
+      void useVisualizerDefaults.getState().load();
       await get().loadRoots();
       // Open into the last index when the library has roots; the background sync runs its own startup
       // pass to catch up on what changed while the app was closed.
