@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { dipReason, dipTarget, mountedKind, type DipLatch } from "./visualizerTarget";
+import { boundaryKey, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
 import type { CoverPixelState } from "./useCoverPixels";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
@@ -37,6 +37,40 @@ describe("mountedKind", () => {
     expect(mountedKind("warp", "cover.jpg")).toBe("warp");
     expect(mountedKind("ridge", null)).toBe("ridge");
     expect(mountedKind("off", "cover.jpg")).toBe("off");
+  });
+});
+
+describe("fallbackOf", () => {
+  it("names no fallback while the stage draws the pick", () => {
+    expect(fallbackOf("glass", "glass", false)).toBeNull();
+  });
+
+  it("names the missing cover, or the failed renderer", () => {
+    expect(fallbackOf("glass", "ridge", false)).toBe("cover");
+    expect(fallbackOf("glass", "ridge", true)).toBe("gl");
+  });
+});
+
+describe("shouldRetryDefaults", () => {
+  it("retries only a failed read on a track change", () => {
+    expect(shouldRetryDefaults("failed", 1, 2)).toBe(true);
+    expect(shouldRetryDefaults("failed", 2, 2)).toBe(false);
+    expect(shouldRetryDefaults("ready", 1, 2)).toBe(false);
+    expect(shouldRetryDefaults("loading", 1, 2)).toBe(false);
+  });
+});
+
+describe("boundaryKey", () => {
+  it("differs per track and between loading and ready defaults", () => {
+    const keys = [-3, -1, 0, 1, 2].flatMap((id) => [boundaryKey(id, false), boundaryKey(id, true)]);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("reads the defaults landing as a boundary and an album key flip as manual", () => {
+    const loading: DipLatch = { trackId: boundaryKey(5, false), target: "ridge", reason: "manual" };
+    expect(dipReason(loading, boundaryKey(5, true), "glass")).toBe("boundary");
+    const ready: DipLatch = { trackId: boundaryKey(5, true), target: "ridge", reason: "manual" };
+    expect(dipReason(ready, boundaryKey(5, true), "glass")).toBe("manual");
   });
 });
 

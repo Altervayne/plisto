@@ -27,6 +27,28 @@ export function dipTarget(picked: VisualizerKind, glFailed: boolean, pixels: Cov
   return { target, ready: !(needsCoverPixels(target) && pixels === "pending") };
 }
 
+/** Why a stage draws something other than the pick: no cover art, or WebGL could not draw it. */
+export type VisualizerFallback = "cover" | "gl";
+
+export function fallbackOf(picked: VisualizerKind, target: VisualizerKind, glFailed: boolean): VisualizerFallback | null {
+  if (target === picked) return null;
+  return glFailed ? "gl" : "cover";
+}
+
+/** Whether the stored defaults are read again: they failed to load and the playing track changed. */
+export function shouldRetryDefaults(status: string, prevTrackId: number, trackId: number): boolean {
+  return status === "failed" && prevTrackId !== trackId;
+}
+
+/**
+ * The key a stage's dip reason compares to detect a boundary: the track, split by whether the stored
+ * defaults have landed, so their arrival after mount dips as a boundary. An album key flip keeps the
+ * same key and reads as manual.
+ */
+export function boundaryKey(trackId: number, defaultsReady: boolean): number {
+  return trackId * 2 + (defaultsReady ? 1 : 0);
+}
+
 /**
  * The kind a stage shows when it mounts: the target when it can draw at once, else Off, so a cover kind
  * rises from nothing once its pixels land.

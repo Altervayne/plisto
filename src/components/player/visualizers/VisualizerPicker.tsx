@@ -10,12 +10,11 @@ import { SegmentedControl } from "../../common/SegmentedControl";
 import { VisualizerGlyph } from "./VisualizerGlyph";
 
 // -- State Imports --
+import { usePlayerStatus } from "../../../state/player/store";
 import {
   usePlayerSpectrumLayout,
-  usePlayerVisualizer,
   usePlayerVisualizerReactivity,
   useSetPlayerSpectrumLayout,
-  useSetPlayerVisualizer,
   useSetPlayerVisualizerReactivity,
 } from "../../../state/preferences/store";
 import {
@@ -30,6 +29,10 @@ import {
 
 // -- Type Imports --
 import type { Segment } from "../../common/SegmentedControl";
+
+// -- Hook Imports --
+import { useVisualizerPick } from "./useVisualizerPick";
+import { useVisualizerResolution } from "./useVisualizerResolution";
 
 // -- Local Imports --
 import { VISUALIZER_VIEWS } from "./visualizerViews";
@@ -50,8 +53,10 @@ import rowStyles from "../../sound/PresetRow.module.css";
  * ink, never the accent; the button lifts into a chip only while open.
  */
 export function VisualizerPicker() {
-  const picked = usePlayerVisualizer();
-  const setPicked = useSetPlayerVisualizer();
+  // No track playing resolves like a file from disk: the global pick, no defaults.
+  const trackId = usePlayerStatus().track_id ?? -1;
+  const { picked } = useVisualizerResolution(trackId).resolution;
+  const pick = useVisualizerPick(trackId);
   const reactivity = usePlayerVisualizerReactivity();
   const setReactivity = useSetPlayerVisualizerReactivity();
   const layout = usePlayerSpectrumLayout();
@@ -90,7 +95,7 @@ export function VisualizerPicker() {
         aria-checked={selected}
         ref={selected ? checkedRef : undefined}
         className={styles.item}
-        onClick={() => setPicked(kind)}
+        onClick={() => pick(kind)}
       >
         <span className={styles.icon} aria-hidden="true">
           <VisualizerGlyph kind={kind} />

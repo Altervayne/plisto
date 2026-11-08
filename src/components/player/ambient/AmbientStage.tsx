@@ -23,10 +23,10 @@ import { useAmbientKeys } from "./useAmbientKeys";
 import { useFullscreen } from "./useFullscreen";
 import { useTrackCover } from "../../tracks/useTrackCover";
 import { useVisualizerChoice } from "../visualizers/useVisualizerChoice";
+import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 
 // -- State Imports --
 import { usePlayerActions, usePlayerStatus } from "../../../state/player/store";
-import { usePlayerVisualizer, useSetPlayerVisualizer } from "../../../state/preferences/store";
 import { nextVisualizerKind } from "../../../state/player/visualizerKind";
 
 // -- Local Imports --
@@ -57,9 +57,8 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   // The stage carries the dip's opacity for the visualizer and the cover crossfade.
   const stageRef = useRef<HTMLDivElement | null>(null);
   const choice = useVisualizerChoice(coverSrc, trackId, stageRef);
-  const { shown } = choice;
-  const picked = usePlayerVisualizer();
-  const setPicked = useSetPlayerVisualizer();
+  const { shown, picked } = choice;
+  const pick = useVisualizerPick(trackId);
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const { faded, wake } = useAmbientIdle();
@@ -98,8 +97,10 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
 
   const cycle = () => {
     const next = nextVisualizerKind(picked);
-    setPicked(next);
-    setToast((was) => ({ label: t(VISUALIZER_VIEWS[next].label), id: (was?.id ?? 0) + 1, gone: false }));
+    // The suffix says the pick holds for this album only, which is true when it set a default aside.
+    const setAside = pick(next).override != null;
+    const label = t(VISUALIZER_VIEWS[next].label) + (setAside ? t((d) => d.player.visualizerToastSuffix) : "");
+    setToast((was) => ({ label, id: (was?.id ?? 0) + 1, gone: false }));
     wake();
   };
 
