@@ -14,6 +14,7 @@ import { create } from "zustand";
 import { useAppStore } from "../store";
 import { usePlaylistsStore } from "../playlists/store";
 import { usePlayerStore } from "../player/store";
+import { useVisualizerDefaults } from "../player/visualizerDefaults";
 
 // -- Engine Imports --
 import { findDuplicates } from "./findDuplicates";
@@ -61,12 +62,13 @@ function duplicatesFor(tracks: TrackRow[], dismissals: DismissedPair[]): Duplica
 
 /**
  * Reloads what a merge or its undo moved outside the organize projection: the playlist slots, the play
- * counts and the dismissed pairs.
+ * counts, the dismissed pairs and the visualizer defaults (a merge can inherit a track default).
  */
 export async function refreshAfterMerge(): Promise<void> {
   usePlayerStore.getState().bumpPlaysVersion();
   await Promise.all([
     usePlaylistsStore.getState().load(),
+    useVisualizerDefaults.getState().load(),
     useDuplicatesStore.getState().loadDismissals(),
   ]);
 }

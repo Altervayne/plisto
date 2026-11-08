@@ -492,13 +492,13 @@ fn carry_dismissals(conn: &Connection, pairs: &[(i64, i64)], now: i64) -> rusqli
 }
 
 /// Folds absorbed track `n` onto kept track `o`. Slots and plays union onto o; edits fill o's empty
-/// fields; genres and an assigned cover move only into an o that has none. A filed o keeps its album
-/// and n leaves its own; a loose o takes n's place.
+/// fields; genres, an assigned cover and a visualizer default move only into an o that has none. A
+/// filed o keeps its album and n leaves its own; a loose o takes n's place.
 fn carry_track(conn: &Connection, o: i64, n: i64, now: i64) -> rusqlite::Result<()> {
     repoint(conn, SLOTS, n, o)?;
     repoint(conn, PLAYS, n, o)?;
     carry_edits(conn, o, n)?;
-    for table in ["track_genres", "track_covers"] {
+    for table in ["track_genres", "track_covers", "track_visualizers"] {
         if !has_row(conn, table, o)? {
             conn.execute(
                 &format!("UPDATE {table} SET track_id = ?1 WHERE track_id = ?2"),
@@ -1132,6 +1132,30 @@ mod tests {
             db::get_track_cover_id(&conn, fx.o[2]).unwrap(),
             Some(fx.covers[1])
         );
+    }
+
+    #[test]
+    fn merge_carries_a_visualizer_default_only_into_a_track_without_one() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        db::set_track_visualizer(&conn, fx.n[0], Some("ridge"), 5).unwrap();
+        db::set_track_visualizer(&conn, fx.o[1], Some("glass"), 5).unwrap();
+        db::set_track_visualizer(&conn, fx.n[1], Some("aurora"), 5).unwrap();
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        let kind_of = |id: i64| -> Option<String> {
+            conn.query_row(
+                "SELECT kind FROM track_visualizers WHERE track_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .unwrap()
+        };
+        assert_eq!(kind_of(fx.o[0]).as_deref(), Some("ridge"));
+        assert_eq!(kind_of(fx.o[1]).as_deref(), Some("glass"));
+        assert_eq!(kind_of(fx.o[2]), None);
     }
 
     #[test]

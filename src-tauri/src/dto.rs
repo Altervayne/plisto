@@ -516,7 +516,8 @@ pub struct MergeAlbumStamp {
 
 /// Everything one duplicate merge wrote. It travels to the frontend and back, so the undo replays
 /// exactly these rows. `dismissed` holds only the pairs the merge inserted, not those already there.
-/// Mirrors MergeReceipt in types.ts.
+/// `inherited_visualizer` is the track default the keeper took from a discard, if any; a receipt
+/// without it reads as none. Mirrors MergeReceipt in types.ts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergeReceipt {
     pub keeper_id: i64,
@@ -526,6 +527,8 @@ pub struct MergeReceipt {
     pub added_membership: Option<MergeMembership>,
     pub album_stamps: Vec<MergeAlbumStamp>,
     pub dismissed: Vec<DismissedPair>,
+    #[serde(default)]
+    pub inherited_visualizer: Option<String>,
 }
 
 /// The per-track override patch for one membership row: a full-set replace of its overrides and

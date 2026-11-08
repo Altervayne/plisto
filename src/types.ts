@@ -401,6 +401,7 @@ export interface MergeReceipt {
   added_membership: MergeMembership | null;
   album_stamps: MergeAlbumStamp[];
   dismissed: DismissedPair[];
+  inherited_visualizer: string | null;
 }
 
 /** The per-track override patch: a full-set replace, a null clears a column. Mirrors TrackOverride. */

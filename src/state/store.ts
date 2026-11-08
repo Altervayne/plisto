@@ -250,6 +250,13 @@ export const useAppStore = create<AppStore>((set, get) => {
     return roots && tracks && org;
   };
 
+  // The library reload plus what a relocate merge repoints outside it: playlist slots and the
+  // visualizer defaults keyed on track ids.
+  const refreshAfterRelocate = async (): Promise<void> => {
+    await refreshLibrary();
+    await Promise.all([usePlaylistsStore.getState().load(), useVisualizerDefaults.getState().load()]);
+  };
+
   // Scans `path` in as a new root behind the blocking overlay and reloads the roots and rows on success.
   const ingestRoot = async (path: string): Promise<boolean> => {
     const summary = await runScanJob((channel) => addRootCmd(path, channel), (s) => s);
@@ -377,13 +384,11 @@ export const useAppStore = create<AppStore>((set, get) => {
           set({ scan: before });
           return { kind: "busy" };
         }
-        await refreshLibrary();
-        await usePlaylistsStore.getState().load();
+        await refreshAfterRelocate();
         return { kind: "failed" };
       }
       if (outcome.kind === "done") {
-        await refreshLibrary();
-        await usePlaylistsStore.getState().load();
+        await refreshAfterRelocate();
       }
       return outcome;
     },

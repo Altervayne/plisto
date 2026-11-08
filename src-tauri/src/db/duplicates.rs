@@ -2,7 +2,7 @@
  * The possible-duplicates writer: the dismissed-pair set, and the merge of duplicate tracks into one
  * keeper with its exact undo. A merge moves only what hangs off a track id - playlist slots, plays and
  * album membership - and records the group's dismissals; covers, genres, edits and the track rows
- * themselves stay put. Every check runs before the first write, so a refused merge or undo leaves the
+ * themselves stay put. A keeper with no visualizer default inherits one from the discards. Every check runs before the first write, so a refused merge or undo leaves the
  * database untouched. Albums are never created or deleted here.
  */
 
@@ -210,6 +210,7 @@ pub fn merge_duplicates(
     let mut group = discard_ids.to_vec();
     group.push(keeper_id);
     let dismissed = insert_pairs(&tx, &canonical_pairs(&group), now)?;
+    let inherited_visualizer = inherit_visualizer(&tx, keeper_id, discard_ids, now)?;
 
     tx.commit()?;
     Ok(MergeReceipt {
@@ -220,6 +221,7 @@ pub fn merge_duplicates(
         added_membership: added,
         album_stamps,
         dismissed,
+        inherited_visualizer,
     })
 }
 
@@ -274,9 +276,58 @@ pub fn undo_merge_duplicates(
         set_updated_at(&tx, stamp.album_id, stamp.prev_updated_at)?;
     }
     delete_pairs(&tx, &receipt.dismissed)?;
+    if let Some(kind) = &receipt.inherited_visualizer {
+        // Only the row as inherited goes; a default the user set since stays.
+        tx.execute(
+            "DELETE FROM track_visualizers WHERE track_id = ?1 AND kind = ?2",
+            params![receipt.keeper_id, kind],
+        )?;
+    }
 
     tx.commit()?;
     Ok(())
+}
+
+/// Copies a discard's track visualizer default onto a keeper that has none, stamped `now`. With several
+/// discards carrying one, the latest `updated_at` wins. Returns the kind inherited, if any. The
+/// discards' rows stay.
+fn inherit_visualizer(
+    conn: &Connection,
+    keeper_id: i64,
+    discard_ids: &[i64],
+    now: i64,
+) -> rusqlite::Result<Option<String>> {
+    let keeper_has: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM track_visualizers WHERE track_id = ?1)",
+        params![keeper_id],
+        |r| r.get(0),
+    )?;
+    if keeper_has {
+        return Ok(None);
+    }
+    let mut best: Option<(i64, String)> = None;
+    for &id in discard_ids {
+        let row = conn
+            .query_row(
+                "SELECT updated_at, kind FROM track_visualizers WHERE track_id = ?1",
+                params![id],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((stamp, kind)) = row {
+            if best.as_ref().map_or(true, |(top, _)| stamp > *top) {
+                best = Some((stamp, kind));
+            }
+        }
+    }
+    let Some((_, kind)) = best else {
+        return Ok(None);
+    };
+    conn.execute(
+        "INSERT INTO track_visualizers (track_id, kind, updated_at) VALUES (?1, ?2, ?3)",
+        params![keeper_id, kind, now],
+    )?;
+    Ok(Some(kind))
 }
 
 /// Inserts each pair not already dismissed and returns just those, so an undo never clears a pair
@@ -803,6 +854,110 @@ mod tests {
 
         undo_merge_duplicates(&mut conn, &back).unwrap();
         assert_eq!(index_state(&conn), before);
+    }
+
+    fn kind_of(conn: &Connection, track_id: i64) -> Option<(String, i64)> {
+        conn.query_row(
+            "SELECT kind, updated_at FROM track_visualizers WHERE track_id = ?1",
+            params![track_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    fn set_kind(conn: &Connection, track_id: i64, kind: &str, stamp: i64) {
+        crate::db::set_track_visualizer(conn, track_id, Some(kind), stamp).unwrap();
+    }
+
+    #[test]
+    fn a_keeper_without_a_default_inherits_the_latest_discard_default() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let d1 = insert_track(&conn, "/m/1.mp3", false);
+        let d2 = insert_track(&conn, "/m/2.mp3", false);
+        let d3 = insert_track(&conn, "/m/3.mp3", false);
+        set_kind(&conn, d1, "ridge", 10);
+        set_kind(&conn, d2, "glass", 20);
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[d1, d2, d3], 50).unwrap();
+
+        assert_eq!(receipt.inherited_visualizer.as_deref(), Some("glass"));
+        assert_eq!(kind_of(&conn, keeper), Some(("glass".into(), 50)));
+    }
+
+    #[test]
+    fn a_keeper_with_a_default_keeps_its_own() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        set_kind(&conn, keeper, "ridge", 10);
+        set_kind(&conn, dup, "glass", 20);
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+
+        assert_eq!(receipt.inherited_visualizer, None);
+        assert_eq!(kind_of(&conn, keeper), Some(("ridge".into(), 10)));
+    }
+
+    #[test]
+    fn the_discards_default_rows_are_untouched() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        set_kind(&conn, dup, "glass", 20);
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+        assert_eq!(kind_of(&conn, dup), Some(("glass".into(), 20)));
+
+        undo_merge_duplicates(&mut conn, &receipt).unwrap();
+        assert_eq!(kind_of(&conn, dup), Some(("glass".into(), 20)));
+    }
+
+    #[test]
+    fn undo_removes_the_inherited_default() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        set_kind(&conn, dup, "glass", 20);
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+        undo_merge_duplicates(&mut conn, &receipt).unwrap();
+
+        assert_eq!(kind_of(&conn, keeper), None);
+    }
+
+    #[test]
+    fn undo_leaves_a_default_the_user_changed_since() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        set_kind(&conn, dup, "glass", 20);
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+        set_kind(&conn, keeper, "ridge", 60);
+        undo_merge_duplicates(&mut conn, &receipt).unwrap();
+
+        assert_eq!(kind_of(&conn, keeper), Some(("ridge".into(), 60)));
+    }
+
+    #[test]
+    fn the_receipt_round_trips_json_and_reads_without_the_new_field() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        set_kind(&conn, dup, "glass", 20);
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+
+        let wire = serde_json::to_string(&receipt).unwrap();
+        let back: MergeReceipt = serde_json::from_str(&wire).unwrap();
+        assert_eq!(back, receipt);
+        assert_eq!(back.inherited_visualizer.as_deref(), Some("glass"));
+
+        let mut old: serde_json::Value = serde_json::from_str(&wire).unwrap();
+        old.as_object_mut().unwrap().remove("inherited_visualizer");
+        let legacy: MergeReceipt = serde_json::from_value(old).unwrap();
+        assert_eq!(legacy.inherited_visualizer, None);
     }
 
     #[test]
