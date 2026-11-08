@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 // -- Component Imports --
+import { DefaultsAside } from "./DefaultsAside";
 import { GroupChips } from "./GroupChips";
 import { KindStrip } from "./KindStrip";
 import { SheetFooter } from "./SheetFooter";
@@ -16,9 +17,11 @@ import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../../state/pl
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 
 // -- Local Imports --
+import type { VisualizerFallback } from "../visualizerTarget";
 import { nextFocus, type NavDirection } from "../tiles/focusNav";
 import { SHEET_GROUPS, type SheetGroupId } from "./sheetGroups";
 import { groupScroll } from "./stripMath";
+import { useSheetDefaults } from "./useSheetDefaults";
 
 // -- i18n Imports --
 import { useT } from "../../../../i18n";
@@ -36,22 +39,40 @@ const ARROWS: readonly string[] = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowD
  * group chips above it and the reactivity controls below. `place` sets the geometry: docked to the
  * Player panel's bottom edge, or floating above the ambient chrome. The sheet mounts while the sheet
  * store is open, so it rises on open only; a pick updates it in place. It shows and picks for track
- * `trackId`, and closes when its place goes away.
+ * `trackId`, and closes when its place goes away. `fallback` says why the stage draws something else than
+ * the pick, for the footer's line.
  */
-export function VisualizerSheet({ place, trackId }: { place: "player" | "ambient"; trackId: number }) {
+export function VisualizerSheet({
+  place,
+  trackId,
+  fallback = null,
+}: {
+  place: "player" | "ambient";
+  trackId: number;
+  fallback?: VisualizerFallback | null;
+}) {
   const open = useVisualizerSheetOpen();
   useEffect(() => () => useVisualizerSheet.getState().close(), []);
-  return open ? <SheetBody place={place} trackId={trackId} /> : null;
+  return open ? <SheetBody place={place} trackId={trackId} fallback={fallback} /> : null;
 }
 
-function SheetBody({ place, trackId }: { place: "player" | "ambient"; trackId: number }) {
+function SheetBody({
+  place,
+  trackId,
+  fallback,
+}: {
+  place: "player" | "ambient";
+  trackId: number;
+  fallback: VisualizerFallback | null;
+}) {
   const t = useT();
-  const { picked } = useVisualizerResolution(trackId).resolution;
+  const resolved = useVisualizerResolution(trackId);
+  const { picked } = resolved.resolution;
+  const { tagFor, markers } = useSheetDefaults(resolved.resolution);
   const pick = useVisualizerPick(trackId);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [group, setGroup] = useState<SheetGroupId>(SHEET_GROUPS[0].id);
-  const pickedGroup = SHEET_GROUPS.find((g) => g.kinds.includes(picked))?.id;
 
   // A press outside dismisses the sheet. The control that opened it toggles it instead.
   useEffect(() => {
@@ -126,14 +147,10 @@ function SheetBody({ place, trackId }: { place: "player" | "ambient"; trackId: n
       onKeyDown={onKeyDown}
     >
       <div className={styles.head}>
-        <GroupChips
-          current={group}
-          onJump={onJump}
-          markers={pickedGroup ? { [pickedGroup]: { active: true } } : undefined}
-        />
+        <GroupChips current={group} onJump={onJump} markers={markers} />
       </div>
-      <KindStrip checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} />
-      <SheetFooter picked={picked} />
+      <KindStrip checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
+      <SheetFooter picked={picked} aside={<DefaultsAside resolved={resolved} fallback={fallback} />} />
     </div>
   );
 }

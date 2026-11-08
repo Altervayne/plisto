@@ -173,7 +173,7 @@ function PlayerStage({
         />
         <QueueList frosted={!ambient && fillsStage(shown)} />
       </div>
-      {ambient ? null : <VisualizerSheet place="player" trackId={trackId} />}
+      {ambient ? null : <VisualizerSheet place="player" trackId={trackId} fallback={choice.fallback} />}
     </div>
   );
 }
