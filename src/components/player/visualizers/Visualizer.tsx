@@ -10,6 +10,7 @@ import { SpectrumRidge } from "../SpectrumRidge";
 import { useCoverPalette } from "../../covers/useCoverPalette";
 
 // -- Local Imports --
+import { seedPalette } from "./coverSeed";
 import { paletteFloats } from "./visualizerPalette";
 import type { VisualizerChoice } from "./useVisualizerChoice";
 
@@ -36,7 +37,11 @@ export function Visualizer({
   hushRefs?: readonly RefObject<HTMLElement | null>[];
 }) {
   const palette = useCoverPalette(trackId);
-  const colors = useMemo(() => paletteFloats(palette), [palette]);
+  const { coverless } = choice;
+  const colors = useMemo(
+    () => paletteFloats(coverless ? seedPalette(trackId) : palette),
+    [coverless, trackId, palette],
+  );
   const { shown } = choice;
 
   if (shown === "off") return null;

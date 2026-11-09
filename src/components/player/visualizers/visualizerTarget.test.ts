@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { boundaryKey, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
-import type { CoverPixelState } from "./useCoverPixels";
+import { boundaryKey, composePixels, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
+import type { CoverPixels, CoverPixelState } from "./useCoverPixels";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
 describe("dipTarget", () => {
@@ -26,17 +26,47 @@ describe("dipTarget", () => {
 
 describe("mountedKind", () => {
   it("starts a cover kind from Off while its pixels load", () => {
-    expect(mountedKind("glass", "cover.jpg")).toBe("off");
+    expect(mountedKind("glass")).toBe("off");
   });
 
-  it("starts a cover kind with no cover on Ridge", () => {
-    expect(mountedKind("glass", null)).toBe("ridge");
+  it("starts a cover kind with no cover from Off too, for the seed to land", () => {
+    expect(mountedKind("liquid")).toBe("off");
   });
 
   it("starts any other kind on itself", () => {
-    expect(mountedKind("warp", "cover.jpg")).toBe("warp");
-    expect(mountedKind("ridge", null)).toBe("ridge");
-    expect(mountedKind("off", "cover.jpg")).toBe("off");
+    expect(mountedKind("warp")).toBe("warp");
+    expect(mountedKind("ridge")).toBe("ridge");
+    expect(mountedKind("off")).toBe("off");
+  });
+});
+
+describe("composePixels", () => {
+  const bitmap = (name: string) => name as unknown as ImageBitmap;
+  const cover = (state: CoverPixelState): CoverPixels => ({ pixels: state === "absent" ? null : bitmap("cover"), state });
+  const seed = (state: CoverPixelState): CoverPixels => ({ pixels: state === "absent" ? null : bitmap("seed"), state });
+
+  it("draws the seed for a coverless track, whatever the seed's state", () => {
+    expect(composePixels(cover("absent"), seed("ready"), "coverless")).toEqual(seed("ready"));
+    expect(composePixels(cover("absent"), seed("pending"), "coverless")).toEqual(seed("pending"));
+    expect(composePixels(cover("absent"), seed("absent"), "coverless")).toEqual(seed("absent"));
+  });
+
+  it("keeps the cover while it loads or is ready", () => {
+    expect(composePixels(cover("ready"), seed("ready"), "present")).toEqual(cover("ready"));
+    expect(composePixels(cover("pending"), seed("ready"), "present")).toEqual(cover("pending"));
+  });
+
+  it("falls to the seed when a cover that exists fails to read", () => {
+    expect(composePixels(cover("absent"), seed("ready"), "present")).toEqual(seed("ready"));
+  });
+
+  it("reads as pending, never absent, while the cover is unsettled with no src", () => {
+    expect(composePixels(cover("absent"), seed("ready"), "pending")).toEqual({ pixels: bitmap("seed"), state: "pending" });
+    expect(composePixels(cover("absent"), seed("absent"), "pending")).toEqual({ pixels: null, state: "pending" });
+  });
+
+  it("keeps a stale cover's pixels while the next track settles", () => {
+    expect(composePixels(cover("ready"), seed("absent"), "pending")).toEqual(cover("ready"));
   });
 });
 

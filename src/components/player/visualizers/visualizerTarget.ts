@@ -13,7 +13,8 @@ import {
 } from "../../../state/player/visualizerKind";
 
 // -- Local Imports --
-import { coverPixelState, type CoverPixelState } from "./useCoverPixels";
+import type { CoverPixels, CoverPixelState } from "./useCoverPixels";
+import type { CoverStatus } from "../../tracks/coverStatus";
 
 export interface DipTarget {
   target: VisualizerKind;
@@ -50,13 +51,22 @@ export function boundaryKey(trackId: number, defaultsReady: boolean): number {
 }
 
 /**
- * The kind a stage shows when it mounts: the target when it can draw at once, else Off, so a cover kind
- * rises from nothing once its pixels land.
+ * The kind a stage shows when it mounts: the target when it can draw at once, else Off. A cover kind
+ * always starts from Off, whether its pixels are a cover or a seed, and rises once they land.
  */
-export function mountedKind(picked: VisualizerKind, coverSrc: string | null): VisualizerKind {
-  const pixels = coverPixelState(needsCoverPixels(picked) ? coverSrc : null, null, null);
-  const { target, ready } = dipTarget(picked, false, pixels);
+export function mountedKind(picked: VisualizerKind): VisualizerKind {
+  const { target, ready } = dipTarget(picked, false, "pending");
   return ready ? target : "off";
+}
+
+/**
+ * The pixels a stage draws: the cover's while it is on hand or loading, else the seed's. An unsettled
+ * cover reads as pending, never absent, so the stage never falls to Ridge in between.
+ */
+export function composePixels(cover: CoverPixels, seed: CoverPixels, status: CoverStatus): CoverPixels {
+  if (status === "coverless") return seed;
+  if (cover.state !== "absent") return cover;
+  return status === "present" ? seed : { pixels: seed.pixels, state: "pending" };
 }
 
 /** The reason latched for the stage's current target, with the track it was latched on. */

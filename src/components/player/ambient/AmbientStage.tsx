@@ -22,6 +22,7 @@ import { Volume } from "../Volume";
 import { useAmbientIdle } from "./useAmbientIdle";
 import { useAmbientKeys } from "./useAmbientKeys";
 import { useFullscreen } from "./useFullscreen";
+import { coverStatus } from "../../tracks/coverStatus";
 import { useTrackCover } from "../../tracks/useTrackCover";
 import { useVisualizerChoice } from "../visualizers/useVisualizerChoice";
 import { useVisualizerPick } from "../visualizers/useVisualizerPick";
@@ -55,11 +56,12 @@ const TOAST_MS = 1500;
  * it in its paused look. The app beneath goes inert while the stage is up, so focus never wanders under it.
  */
 export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () => void }) {
-  const { cover } = useTrackCover(trackId);
+  const { cover, coverFor, loading } = useTrackCover(trackId);
+  const artStatus = coverStatus(trackId, coverFor, loading, cover != null);
   const coverSrc = cover?.src ?? null;
   // The stage carries the dip's opacity for the visualizer and the cover crossfade.
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const choice = useVisualizerChoice(coverSrc, trackId, stageRef);
+  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, stageRef);
   const { shown, picked } = choice;
   const pick = useVisualizerPick(trackId);
   const status = usePlayerStatus();

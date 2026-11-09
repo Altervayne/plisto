@@ -15,6 +15,7 @@ import { Visualizer } from "./visualizers/Visualizer";
 import { VisualizerSheet } from "./visualizers/sheet/VisualizerSheet";
 
 // -- Hook Imports --
+import { coverStatus } from "../tracks/coverStatus";
 import { useTrackCover } from "../tracks/useTrackCover";
 import { useVisualizerChoice } from "./visualizers/useVisualizerChoice";
 
@@ -119,7 +120,8 @@ function PlayerStage({
   onEnterAmbient: () => void;
   entryRef: Ref<HTMLButtonElement>;
 }) {
-  const { cover } = useTrackCover(trackId);
+  const { cover, coverFor, loading } = useTrackCover(trackId);
+  const artStatus = coverStatus(trackId, coverFor, loading, cover != null);
   const coverSrc = cover?.src ?? null;
   // Shared with the aurora and the visualizer so they center on the art.
   const coverRef = useRef<HTMLSpanElement | null>(null);
@@ -133,7 +135,7 @@ function PlayerStage({
   const hushRefs = useMemo(() => [sourceRef, textRef], []);
   // The panel carries the dip's opacity for the visualizer and the queue plate beneath it.
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const choice = useVisualizerChoice(coverSrc, trackId, panelRef);
+  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, panelRef);
   const { shown } = choice;
   // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.
   let drawnArt: "liquid" | "dots" | null = null;
