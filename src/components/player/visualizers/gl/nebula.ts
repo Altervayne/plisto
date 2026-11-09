@@ -42,6 +42,11 @@ const TRAIL_LOUD = 0.09;
 const TRAIL_MIN = 0.8;
 const TRAIL_MAX = 0.96;
 const TRAIL_TAU = 0.25;
+// The Player's cloud scale as a share of the cover width, and its cap as a share of the hero column width.
+// The cover stops growing at 320 px while the column keeps narrowing with the window, so the cap holds the
+// cloud inside a narrow column. A column wider than about 850 px never reaches it.
+const COVER_UNIT = 1.2;
+const COLUMN_UNIT = 0.45;
 
 interface Attractor {
   orbit: number;
@@ -305,7 +310,8 @@ export function createNebula(kit: Kit): Candidate {
       } else {
         cx = c[0] + c[2] / 2;
         cy = c[1] + c[3] / 2;
-        unit = c[2] * 1.2;
+        const column = kit.geo.mask ? kit.geo.mask[2] : W;
+        unit = Math.min(c[2] * COVER_UNIT, column * COLUMN_UNIT);
       }
       kit.set2(p, "uCenter", (cx / W) * 2 - 1, (cy / H) * 2 - 1);
       const swell = 1 + BREATH_SCALE * breath;
