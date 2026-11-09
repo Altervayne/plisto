@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 
 // -- State Imports --
@@ -13,6 +13,7 @@ import type { PaletteTone } from "../covers/paletteTone";
 
 // -- Hook Imports --
 import { useCoverPalette, type Palette } from "../covers/useCoverPalette";
+import { seedPalette } from "./visualizers/coverSeed";
 
 // -- Type Imports --
 import { BAND_COUNT } from "../../types";
@@ -127,8 +128,12 @@ export function Aurora({
   trackId,
   coverRef,
   eased = false,
+  coverless = false,
 }: {
   trackId: number;
+  // The track has no cover: the field takes the track's seed palette, matching its visualizer, instead
+  // of the neutral tint.
+  coverless?: boolean;
   // The now-playing cover, so the mask centers the field on the art. Absent, the mask stays centered
   // on the whole panel (the CSS default).
   coverRef?: RefObject<HTMLElement | null>;
@@ -138,7 +143,10 @@ export function Aurora({
 }) {
   const easedRef = useRef(eased);
   easedRef.current = eased;
-  const palette = useCoverPalette(trackId);
+  const coverPalette = useCoverPalette(trackId);
+  // Memoized: the paint loop crossfades on a palette identity change.
+  const seeded = useMemo(() => (coverless ? seedPalette(trackId) : null), [coverless, trackId]);
+  const palette = seeded ?? coverPalette;
   const paletteRef = useRef<Palette | null>(palette);
   paletteRef.current = palette;
   // Reduced motion has no loop; this holds its repaint so a palette change can trigger one.

@@ -147,7 +147,7 @@ function PlayerStage({
   return (
     <div ref={panelRef} className={`${styles.panel} ${styles.view}`}>
       <CoverBackdrop src={coverSrc} className={styles.glow} />
-      {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} />}
+      {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} />}
       {ambient ? null : (
         <Visualizer
           choice={choice}

@@ -40,10 +40,15 @@ export function useAlbumCover(albumId: number, size: CoverSize = "thumb"): Album
   const version = useSyncExternalStore(subscribeAlbumCover, () => albumCoverVersion(albumId));
   const [src, setSrc] = useState<string | null>(() => initialAlbumCover(albumId, size).src);
   const [loading, setLoading] = useState(() => initialAlbumCover(albumId, size).loading);
+  // The album and size the state above belongs to. A kept hook renders once with the old album's state
+  // before its effect runs; that render reads the first-render state instead.
+  const key = `${albumId}:${size}`;
+  const [stateKey, setStateKey] = useState(key);
 
   // A cache hit paints from memory - synchronously on mount via the initial state, or here when the key
   // changes on a kept hook (the drawer swapping albums) - and skips the fetch. A miss joins the batch.
   useEffect(() => {
+    setStateKey(`${albumId}:${size}`);
     const cached = peekAlbumCover(albumId, size);
     if (cached !== undefined) {
       setSrc(cached);
@@ -66,5 +71,6 @@ export function useAlbumCover(albumId: number, size: CoverSize = "thumb"): Album
   // card showing this album.
   const reload = useCallback(() => invalidateAlbumCover(albumId), [albumId]);
 
+  if (stateKey !== key) return { ...initialAlbumCover(albumId, size), reload };
   return { src, loading, reload };
 }

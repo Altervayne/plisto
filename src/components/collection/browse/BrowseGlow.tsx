@@ -1,12 +1,14 @@
 // -- Framework Imports --
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 // -- Hook Imports --
+import { useAlbumCover } from "../../albums/useAlbumCover";
 import { useAlbumPalette } from "../../covers/useAlbumPalette";
 
 // -- Utils Imports --
 import { isDarkTheme, subscribeTheme } from "../../../theme";
 import { derivePaletteTone } from "../../covers/paletteTone";
+import { seedPalette } from "../../player/visualizers/coverSeed";
 
 // -- Type Imports --
 import type { Rgb } from "../../covers/paletteTone";
@@ -44,12 +46,17 @@ interface Layer {
 
 /**
  * The cover-palette glow behind the focused record: blurred blooms in the album's tempered colours,
- * or the warm neutral tint for a cover-less or near-gray one. A new focus or theme lays a fresh layer
- * that cross-fades over the old, which leaves once faded. Reduced motion swaps the layer at once and
- * holds it still.
+ * the album's seed palette for a cover-less one, or the warm neutral tint for a near-gray one. A new focus
+ * or theme lays a fresh layer that cross-fades over the old, which leaves once faded. Reduced motion swaps
+ * the layer at once and holds it still.
  */
 export function BrowseGlow({ albumId, reduced }: { albumId: number; reduced: boolean }) {
-  const palette = useAlbumPalette(albumId);
+  const albumPalette = useAlbumPalette(albumId);
+  // Same size as the shelf records, so this read is a cache hit. The palette alone cannot tell a missing
+  // cover from a near-gray one; a cover still loading must not show the seed.
+  const { src, loading } = useAlbumCover(albumId, "grid");
+  const coverless = src === null && !loading;
+  const palette = useMemo(() => (coverless ? seedPalette(albumId) : albumPalette), [coverless, albumId, albumPalette]);
   const dark = useSyncExternalStore(subscribeTheme, isDarkTheme);
   const [layers, setLayers] = useState<Layer[]>([]);
   const nextId = useRef(0);

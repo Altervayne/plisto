@@ -130,7 +130,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
       onPointerMove={wake}
       onPointerDown={wake}
     >
-      <Aurora trackId={trackId} coverRef={coverRef} eased />
+      <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} eased />
       <Visualizer
         choice={choice}
         trackId={trackId}
