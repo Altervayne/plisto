@@ -38,6 +38,8 @@ export interface CandidateView {
 /** What a track's cover surface reads and can do. Loading and errors are surfaced, not thrown. */
 export interface TrackCover {
   cover: CoverView | null;
+  // The track whose completed load produced `cover`; null before the first load lands.
+  coverFor: number | null;
   candidates: CandidateView[];
   loading: boolean;
   // True only while a cover assign/remove for the shown track is in flight - drives the over-cover spinner.
@@ -68,6 +70,7 @@ function toSrc(path: string): string {
  */
 export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
   const [cover, setCover] = useState<CoverView | null>(null);
+  const [coverFor, setCoverFor] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
   // Start loading: a load always fires on mount, so the surface never flashes "no cover" first.
   const [loading, setLoading] = useState(true);
@@ -98,6 +101,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
           ? { src: toSrc(ref.path), source: ref.source, width: ref.width, height: ref.height }
           : null,
       );
+      setCoverFor(trackId);
       setCandidates(
         cands.map((c) => ({
           src: toSrc(c.path),
@@ -112,6 +116,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
       // import/use/remove actions surface a message.
       if (id !== requestId.current) return;
       setCover(null);
+      setCoverFor(trackId);
       setCandidates([]);
     } finally {
       if (id === requestId.current) setLoading(false);
@@ -133,6 +138,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
   const applyBound = useCallback((id: number, ref: CoverRef): void => {
     if (id !== latestTrackId.current) return;
     setCover({ src: toSrc(ref.path), source: ref.source, width: ref.width, height: ref.height });
+    setCoverFor(id);
   }, []);
 
   const importFromDisk = useCallback(async (): Promise<void> => {
@@ -189,6 +195,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
       setCover(
         ref ? { src: toSrc(ref.path), source: ref.source, width: ref.width, height: ref.height } : null,
       );
+      setCoverFor(trackId);
     } catch (e) {
       if (trackId === latestTrackId.current) setError(String(e));
     } finally {
@@ -220,6 +227,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
 
   return {
     cover,
+    coverFor,
     candidates,
     loading,
     assigning,
