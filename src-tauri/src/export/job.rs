@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 // -- Local Imports --
 use super::derive::{
-    derive_layout, safe_component, AlbumTemplate, ContainerLayout, PLAYLISTS_ROOT,
+    derive_layout, folded_name, safe_component, suffixed, AlbumTemplate, ContainerLayout, PLAYLISTS_ROOT,
 };
 use super::ledger::{ExportFile, FileKind};
 use super::plan::{ExportContainer, ExportPlan};
@@ -135,6 +135,31 @@ fn kept_of<T: Clone>(items: &[T], kept: &[bool]) -> Vec<T> {
         .collect()
 }
 
+/// The sanitized file stem of each playlist, in the given order, made unique on a folded compare.
+/// The first playlist of a name keeps it and later ones take ` (n)`. Every base name is reserved up
+/// front so a suffixed name never lands on another playlist's own name.
+fn dedupe_stems(playlists: &[PlaylistExportPlan]) -> Vec<String> {
+    let bases: Vec<String> = playlists
+        .iter()
+        .map(|pl| safe_component(pl.name.as_deref().unwrap_or("Playlist"), "Playlist"))
+        .collect();
+    let reserved: HashSet<String> = bases.iter().map(|b| folded_name(b)).collect();
+    let mut used: HashSet<String> = HashSet::new();
+    bases
+        .into_iter()
+        .map(|base| {
+            let mut stem = base.clone();
+            let mut n = 1;
+            while used.contains(&folded_name(&stem)) || (n > 1 && reserved.contains(&folded_name(&stem))) {
+                n += 1;
+                stem = suffixed(&base, n);
+            }
+            used.insert(folded_name(&stem));
+            stem
+        })
+        .collect()
+}
+
 /// Renders one portable `.m3u8` per playlist for the general export's `Playlists/` folder, each
 /// pointing at the copies the run lands rather than duplicating them: a member or single at its
 /// `Albums/`/`Singles/` path is reached with a `../` out of `Playlists/`, while a bagged orphan living
@@ -159,9 +184,11 @@ fn render_playlist_files(
     }
     let inside_prefix = format!("{PLAYLISTS_ROOT}/");
 
+    let stems = dedupe_stems(playlists);
     playlists
         .iter()
-        .map(|pl| {
+        .zip(stems)
+        .map(|(pl, stem)| {
             // Each slot's path is relative to `Playlists/`: a bagged orphan already sits under it, so
             // its prefix is stripped; every other copy is one level up, reached with `../`. render_m3u
             // drops a missing-source slot, and a slot with no mapped copy renders no path.
@@ -173,7 +200,6 @@ fn render_playlist_files(
                 None => String::new(),
             });
             let name = pl.name.clone().unwrap_or_else(|| "Playlist".to_string());
-            let stem = safe_component(&name, "Playlist");
             PlaylistFile {
                 name,
                 file_name: format!("{stem}.m3u8"),
@@ -283,5 +309,55 @@ mod tests {
             "the layout narrows in step"
         );
         assert_eq!(rel_dirs(&set), vec!["Albums/Artist/Same (2)"]);
+    }
+
+    fn pl(name: Option<&str>) -> PlaylistExportPlan {
+        PlaylistExportPlan {
+            name: name.map(str::to_string),
+            tracks: Vec::new(),
+        }
+    }
+
+    fn file_names(names: &[Option<&str>]) -> Vec<String> {
+        let playlists: Vec<_> = names.iter().map(|n| pl(*n)).collect();
+        render_playlist_files(&[], &playlists)
+            .into_iter()
+            .map(|f| f.file_name)
+            .collect()
+    }
+
+    #[test]
+    fn same_name_playlists_suffix_in_load_order() {
+        let got = file_names(&[Some("Mix"), Some("Mix"), Some("Mix")]);
+        assert_eq!(got, vec!["Mix.m3u8", "Mix (2).m3u8", "Mix (3).m3u8"]);
+    }
+
+    #[test]
+    fn a_case_only_difference_collides() {
+        let got = file_names(&[Some("Chill"), Some("chill")]);
+        assert_eq!(got, vec!["Chill.m3u8", "chill (2).m3u8"]);
+    }
+
+    #[test]
+    fn names_falling_back_to_playlist_collide() {
+        let got = file_names(&[Some("???"), None]);
+        assert_eq!(got, vec!["Playlist.m3u8", "Playlist (2).m3u8"]);
+    }
+
+    #[test]
+    fn a_suffixed_name_never_lands_on_a_real_name() {
+        let got = file_names(&[Some("Mix"), Some("Mix"), Some("Mix (2)")]);
+        assert_eq!(got, vec!["Mix.m3u8", "Mix (3).m3u8", "Mix (2).m3u8"]);
+    }
+
+    #[test]
+    fn the_preview_tally_counts_each_deduped_file() {
+        use crate::export::ledger::change_set;
+        let plan = ExportPlan { containers: Vec::new() };
+        let playlists = [pl(Some("Mix")), pl(Some("Mix"))];
+        let job = ExportJob::new(plan, None, &playlists, 0, &AlbumTemplate::resolve("", ""));
+        let files = export_files(&job);
+        let set = change_set(&job, &files, &vec![true; files.len()], None);
+        assert_eq!(set.playlists, 2);
     }
 }

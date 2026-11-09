@@ -498,7 +498,7 @@ fn folded_path(components: &[String]) -> String {
 }
 
 /// A component with a ` (n)` collision suffix appended.
-fn suffixed(component: &str, n: usize) -> String {
+pub(crate) fn suffixed(component: &str, n: usize) -> String {
     format!("{component} ({n})")
 }
 
@@ -508,6 +508,11 @@ fn suffix_filename(filename: &str, n: usize) -> String {
         Some((stem, ext)) => format!("{stem} ({n}).{ext}"),
         None => format!("{filename} ({n})"),
     }
+}
+
+/// The folded key two file names collide on: case-insensitive on the filesystems that fold it.
+pub(crate) fn folded_name(name: &str) -> String {
+    normalize_path_key(name)
 }
 
 /// Sanitizes a chosen name into one safe path component, falling back to `label` when it reduces to

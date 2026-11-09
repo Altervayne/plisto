@@ -176,7 +176,8 @@ pub fn changed_with_moves(
 }
 
 /// Tallies a diff for the preview: the changed files, and the albums, singles and playlists holding at
-/// least one. A playlist counts once across its folder and its playlist file, by name.
+/// least one. A playlist counts once across its folder and its playlist file; the file's deduped path
+/// keys it, so same-name playlists count apart. A folder resolves to the first file of its name.
 pub fn change_set(
     job: &ExportJob,
     files: &[ExportFile],
@@ -185,14 +186,21 @@ pub fn change_set(
 ) -> ExportChangeSet {
     let mut albums: HashSet<usize> = HashSet::new();
     let mut singles: HashSet<usize> = HashSet::new();
-    let mut playlists: HashSet<&str> = HashSet::new();
+    let mut playlists: HashSet<String> = HashSet::new();
+    let by_name = |name: &str| -> String {
+        job.playlist_files
+            .iter()
+            .find(|f| f.name == name)
+            .map_or(name, |f| f.file_name.as_str())
+            .to_string()
+    };
     for (file, _) in files.iter().zip(changed).filter(|(_, &c)| c) {
         match file.kind {
             FileKind::Track { container, .. } => {
                 let c = &job.plan.containers[container];
                 match (&c.bucket, c.kind) {
                     (Bucket::Playlist(name), _) => {
-                        playlists.insert(name);
+                        playlists.insert(by_name(name));
                     }
                     (_, ContainerKind::Single) => {
                         singles.insert(container);
@@ -203,7 +211,7 @@ pub fn change_set(
                 }
             }
             FileKind::Playlist { index } => {
-                playlists.insert(&job.playlist_files[index].name);
+                playlists.insert(job.playlist_files[index].file_name.clone());
             }
         }
     }
