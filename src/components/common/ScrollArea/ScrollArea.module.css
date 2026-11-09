@@ -16,6 +16,24 @@
   overflow-x: hidden;
 }
 
+/* Opt-in edge fades: the hook sets the two lengths from the scroll position, zero at an end. */
+.fade {
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    black var(--fade-top, 0px),
+    black calc(100% - var(--fade-bottom, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0,
+    black var(--fade-top, 0px),
+    black calc(100% - var(--fade-bottom, 0px)),
+    transparent 100%
+  );
+}
+
 .content {
   min-width: 0;
 }

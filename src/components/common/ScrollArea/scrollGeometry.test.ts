@@ -2,7 +2,33 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { scrollDeltaForDrag, thumbGeometry } from "./scrollGeometry";
+import { EDGE_FADE, edgeFades, scrollDeltaForDrag, thumbGeometry } from "./scrollGeometry";
+
+describe("edgeFades", () => {
+  it("shows no fade when the content fits", () => {
+    expect(edgeFades({ viewport: 400, content: 400, scroll: 0 })).toEqual({ top: 0, bottom: 0 });
+    expect(edgeFades({ viewport: 400, content: 300, scroll: 0 })).toEqual({ top: 0, bottom: 0 });
+  });
+
+  it("fades only the bottom at the start and only the top at the end", () => {
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 0 })).toEqual({ top: 0, bottom: EDGE_FADE });
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 400 })).toEqual({ top: EDGE_FADE, bottom: 0 });
+  });
+
+  it("fades both ends mid-scroll", () => {
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 200 })).toEqual({ top: EDGE_FADE, bottom: EDGE_FADE });
+  });
+
+  it("eases each fade to zero over the last stretch before an end", () => {
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 5 }).top).toBe(5);
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 395 }).bottom).toBe(5);
+  });
+
+  it("never goes negative on an overscrolled position", () => {
+    expect(edgeFades({ viewport: 400, content: 800, scroll: -10 }).top).toBe(0);
+    expect(edgeFades({ viewport: 400, content: 800, scroll: 410 }).bottom).toBe(0);
+  });
+});
 
 describe("thumbGeometry", () => {
   it("hides the thumb when content fits the viewport", () => {

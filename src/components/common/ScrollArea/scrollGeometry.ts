@@ -61,6 +61,25 @@ export function scrollDeltaForDrag(thumbDelta: number, m: ScrollMetrics): number
   return (thumbDelta / travel) * (m.content - m.viewport);
 }
 
+/** Length of an edge fade at full strength, matching the filmstrip's left fade. */
+export const EDGE_FADE = 22;
+
+/**
+ * The top and bottom fade lengths for a vertical viewport: each is the distance to that end of the
+ * content, capped at EDGE_FADE, so it grows in as the content scrolls away from the end and reaches zero
+ * exactly at the boundary. Both are zero when the content fits.
+ */
+export function edgeFades(m: Pick<ScrollMetrics, "viewport" | "content" | "scroll">): {
+  top: number;
+  bottom: number;
+} {
+  const below = m.content - m.viewport - m.scroll;
+  return {
+    top: clamp(m.scroll, 0, EDGE_FADE),
+    bottom: clamp(below, 0, EDGE_FADE),
+  };
+}
+
 /** Bounds a value to [min, max]. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

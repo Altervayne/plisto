@@ -48,3 +48,18 @@
   flex-direction: column;
   gap: 3px;
 }
+
+/* The sections scroll between the pinned Home and foot. The area spans the sidebar's full width and
+ * pads its content back in, so the active bar at the left edge and hover backgrounds and focus rings
+ * are not clipped by the viewport; the vertical margin cancels the vertical padding. */
+.scroll {
+  flex: 1 1 auto;
+  margin: -4px -14px -4px -20px;
+}
+
+.scrollContent {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 4px 14px 4px 20px;
+}

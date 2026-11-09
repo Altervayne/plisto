@@ -22,17 +22,23 @@ export function ScrollArea({
   className,
   contentClassName,
   viewportRef,
+  edgeFade = false,
 }: {
   children: ReactNode;
   className?: string;
   contentClassName?: string;
   viewportRef?: RefObject<HTMLDivElement | null>;
+  /** Soft fades on the top and bottom edges, shown only while content is clipped there. */
+  edgeFade?: boolean;
 }) {
-  const bar = useScrollbar(viewportRef);
+  const bar = useScrollbar(viewportRef, edgeFade);
 
   return (
     <div className={`${styles.wrapper} ${className ?? ""}`}>
-      <div className={`${styles.viewport} hide-native-scrollbar`} ref={bar.setViewport}>
+      <div
+        className={`${styles.viewport} ${edgeFade ? styles.fade : ""} hide-native-scrollbar`}
+        ref={bar.setViewport}
+      >
         <div className={`${styles.content} ${contentClassName ?? ""}`} ref={bar.contentRef}>
           {children}
         </div>

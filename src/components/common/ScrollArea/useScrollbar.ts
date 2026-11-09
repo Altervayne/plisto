@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 
 // -- Utils Imports --
-import { scrollDeltaForDrag, thumbGeometry } from "./scrollGeometry";
+import { edgeFades, scrollDeltaForDrag, thumbGeometry } from "./scrollGeometry";
 import type { ScrollMetrics, ThumbGeometry } from "./scrollGeometry";
 
 // Smallest thumb the pointer can still grab, in pixels.
@@ -26,9 +26,10 @@ export interface Scrollbar {
  * touch, keyboard, and momentum are the engine's job; this only measures on scroll and on size
  * changes of both the viewport and its content, then reflects and steers scrollTop. The content box
  * is observed too, since virtualized rows grow it after mount. An optional external ref receives the
- * viewport element so a virtualizer can scroll the same surface.
+ * viewport element so a virtualizer can scroll the same surface. With edgeFade, the viewport also
+ * carries --fade-top and --fade-bottom lengths that follow the scroll.
  */
-export function useScrollbar(externalViewportRef?: RefObject<HTMLDivElement | null>): Scrollbar {
+export function useScrollbar(externalViewportRef?: RefObject<HTMLDivElement | null>, edgeFade = false): Scrollbar {
   const [viewport, setViewportEl] = useState<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -61,7 +62,17 @@ export function useScrollbar(externalViewportRef?: RefObject<HTMLDivElement | nu
   const measure = useCallback(() => {
     const metrics = readMetrics();
     setThumb(metrics ? thumbGeometry(metrics) : null);
-  }, [readMetrics]);
+    if (edgeFade && viewport) {
+      // Written straight to the element: a scroll tick should not re-render for a mask length.
+      const fades = edgeFades({
+        viewport: viewport.clientHeight,
+        content: viewport.scrollHeight,
+        scroll: viewport.scrollTop,
+      });
+      viewport.style.setProperty("--fade-top", `${fades.top}px`);
+      viewport.style.setProperty("--fade-bottom", `${fades.bottom}px`);
+    }
+  }, [readMetrics, edgeFade, viewport]);
 
   useEffect(() => {
     if (!viewport) return;
