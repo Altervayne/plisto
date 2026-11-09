@@ -14,13 +14,18 @@ import type { Candidate, Frame, Kit } from "./kit";
 // -- Tunables: how the flight moves with the music --
 // Speed added per unit of bass envelope, before the surge's soft attack.
 const SURGE_BASS = 0.9;
+// The ring scale is half the stage height, capped at this share of the Player's hero column width: the
+// column narrows with the window while the stage height barely does. A column wider than about 1.1x the
+// stage height never reaches the cap.
+const COLUMN_UNIT = 0.45;
 
 const FS = `${PRELUDE}
 uniform float uTravel;
 uniform float uSpeed;
+uniform float uUnit;
 void main() {
   vec2 c = coverCenter();
-  float unit = uRes.y * 0.5;
+  float unit = uUnit;
   vec2 p = (gl_FragCoord.xy - c) / unit;
   float r = length(p);
   float th = atan(p.y, p.x);
@@ -75,6 +80,8 @@ export function createWarp(kit: Kit): Candidate {
       kit.setCommon(p, f);
       kit.set1(p, "uTravel", travel);
       kit.set1(p, "uSpeed", Math.min(1.5, speed));
+      const half = kit.size.h * 0.5;
+      kit.set1(p, "uUnit", kit.geo.mask ? Math.min(half, kit.geo.mask[2] * COLUMN_UNIT) : half);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       kit.drawQuad();
