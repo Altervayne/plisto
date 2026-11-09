@@ -4417,6 +4417,27 @@ mod tests {
     }
 
     #[test]
+    fn reset_plays_clears_one_track_or_the_whole_log() {
+        let conn = open_in_memory().unwrap();
+        add_track(&conn, 1);
+        add_track(&conn, 2);
+        add_play(&conn, 1, 10, true);
+        add_play(&conn, 1, 20, false);
+        add_play(&conn, 2, 30, true);
+        let count = |conn: &Connection| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM plays", [], |r| r.get(0))
+                .unwrap()
+        };
+
+        reset_plays(&conn, Some(1)).unwrap();
+        assert_eq!(count(&conn), 1, "only track 1's plays go");
+        assert_eq!(get_recently_played(&conn, 10).unwrap(), vec![2]);
+
+        reset_plays(&conn, None).unwrap();
+        assert_eq!(count(&conn), 0, "None empties both tiers");
+    }
+
+    #[test]
     fn get_recently_played_orders_by_latest_play_per_track() {
         let conn = open_in_memory().unwrap();
         add_track(&conn, 1);

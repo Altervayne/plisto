@@ -5,7 +5,7 @@
  */
 
 // -- Library Imports --
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 // -- Local Imports --
 use crate::db;
@@ -13,14 +13,21 @@ use crate::dto::{HistoryRow, PlayEvent};
 use crate::state::AppState;
 
 /// Clears play history: a track id wipes just that track's plays, None wipes the whole log. A discrete
-/// user action, so it takes the index lock and reports a plain error string.
+/// user action, so it takes the index lock and reports a plain error string. Emits `plays:changed`
+/// once the delete lands so the play-log surfaces refetch.
 #[tauri::command]
-pub fn reset_play_history(track_id: Option<i64>, state: State<'_, AppState>) -> Result<(), String> {
+pub fn reset_play_history(
+    track_id: Option<i64>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let conn = state
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::reset_plays(&conn, track_id).map_err(|e| e.to_string())
+    db::reset_plays(&conn, track_id).map_err(|e| e.to_string())?;
+    let _ = app.emit("plays:changed", ());
+    Ok(())
 }
 
 /// The most recently played track ids, most recent first, one per track. `limit` caps the list.

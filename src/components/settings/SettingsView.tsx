@@ -10,6 +10,7 @@ import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
+import { PlayHistoryRow } from "./PlayHistoryRow";
 import { SoundSection } from "./SoundSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
@@ -226,6 +227,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               </span>
             </div>
           </div>
+          <PlayHistoryRow />
         </section>
 
         <SoundSection />
