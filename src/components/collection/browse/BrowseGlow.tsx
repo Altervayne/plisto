@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { useAlbumPalette } from "../../covers/useAlbumPalette";
 
 // -- Utils Imports --
-import { isDarkTheme } from "../../../theme";
+import { isDarkTheme, subscribeTheme } from "../../../theme";
 import { derivePaletteTone } from "../../covers/paletteTone";
 
 // -- Type Imports --
@@ -32,17 +32,6 @@ function glowBackground([a, b, c]: Rgb[]): string {
     `radial-gradient(40% 44% at 66% 52%, ${rgb(b)}, transparent 72%)`,
     `radial-gradient(34% 36% at 52% 34%, ${rgb(c)}, transparent 70%)`,
   ].join(", ");
-}
-
-function subscribeTheme(onChange: () => void): () => void {
-  const themeObs = new MutationObserver(onChange);
-  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  const media = window.matchMedia("(prefers-color-scheme: dark)");
-  media.addEventListener("change", onChange);
-  return () => {
-    themeObs.disconnect();
-    media.removeEventListener("change", onChange);
-  };
 }
 
 interface Layer {

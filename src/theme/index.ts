@@ -49,3 +49,15 @@ export function isDarkTheme(): boolean {
   if (stamp === "light") return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
+
+/** Subscribes to changes of the effective theme: the stamp or the system scheme. Returns the unsubscribe. */
+export function subscribeTheme(onChange: () => void): () => void {
+  const themeObs = new MutationObserver(onChange);
+  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  media.addEventListener("change", onChange);
+  return () => {
+    themeObs.disconnect();
+    media.removeEventListener("change", onChange);
+  };
+}
