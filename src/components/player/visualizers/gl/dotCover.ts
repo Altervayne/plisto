@@ -14,7 +14,7 @@ import { createDots, DOT_FS, DOT_PRELUDE } from "./dots";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Matrix size across the cover, in ambient and in the Player.
 const MATRIX_AMBIENT = 46;
@@ -90,6 +90,11 @@ void main() {
   outColor = vec4(uColor * a, a);
 }`;
 
+const DOT_COVER_PROGRAM: ProgramSource = { name: "dotCover", vs: VS, fs: DOT_FS };
+const DOT_COVER_BACKING_PROGRAM: ProgramSource = { name: "dotCoverBacking", vs: FS_VS, fs: BACKING_FS };
+/** The programs dotCover compiles, for warming the shader cache ahead of the stage. */
+export const DOT_COVER_PROGRAMS: readonly ProgramSource[] = [DOT_COVER_PROGRAM, DOT_COVER_BACKING_PROGRAM];
+
 export function createDotCover(kit: Kit): Candidate {
   const { gl } = kit;
   const dots = createDots(kit);
@@ -117,7 +122,7 @@ export function createDotCover(kit: Kit): Candidate {
       const ox = cx - pitch * Math.ceil((cx - x0) / pitch + 1);
       const cols = Math.ceil((x1 - ox) / pitch) + 1;
       const rows = Math.max(0, Math.ceil((H - y0) / rowH) + 1);
-      const p = kit.program("dotCover", VS, DOT_FS);
+      const p = kit.program(DOT_COVER_PROGRAM);
       dots.begin(p, f);
       kit.bindTex(p, "uCoverTex", 0, art.tex);
       kit.seti(p, "uMode", 1);
@@ -127,7 +132,7 @@ export function createDotCover(kit: Kit): Candidate {
       kit.set4(p, "uField", [x0, y0, x1, H]);
       dots.draw(cols * rows, false);
 
-      const b = kit.program("dotCoverBacking", FS_VS, BACKING_FS);
+      const b = kit.program(DOT_COVER_BACKING_PROGRAM);
       gl.useProgram(b.handle);
       kit.set4(b, "uCover", cover);
       kit.set1(b, "uRadius", kit.geo.radius);

@@ -1063,6 +1063,7 @@ export const fr: Dict = {
     visualizerSilk: "Soie",
     visualizerOff: "Désactivé",
     visualizerToast: "Visualiseur : {name}",
+    visualizerToastLoading: "Chargement : {name}...",
     visualizerGroupClassic: "Classiques",
     visualizerGroupDots: "Points",
     visualizerGroupFluid: "Fluides",

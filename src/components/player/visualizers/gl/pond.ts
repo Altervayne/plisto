@@ -15,7 +15,7 @@ import { FLUID_PRELUDE, RING_SLOTS, createRings, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // How long a beat ring lives and how fast it fades in, in seconds, and its height per unit of beat.
 const BEAT_LIFE = 5.2;
@@ -130,6 +130,10 @@ export function beatSpot(n: number): [number, number] {
   return [0.1 + 0.8 * ((n * 0.618034) % 1), 0.12 + 0.76 * ((n * 0.754878) % 1)];
 }
 
+const POND_PROGRAM: ProgramSource = { name: "pond", vs: FS_VS, fs: FS };
+/** The programs pond compiles, for warming the shader cache ahead of the stage. */
+export const POND_PROGRAMS: readonly ProgramSource[] = [POND_PROGRAM];
+
 export function createPond(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const rings = createRings(BEAT_LIFE, BEAT_RISE, BEAT_HEIGHT);
@@ -161,7 +165,7 @@ export function createPond(kit: Kit): Candidate {
       rings.step(f.dt, s.beat);
       spots.fill(0);
       live.forEach((d, i) => spots.set(d.spot, i * 2));
-      const p = kit.program("pond", FS_VS, FS);
+      const p = kit.program(POND_PROGRAM);
       setFluid(kit, p, f, flow, rings.packed, art.tex);
       kit.gl.uniform2fv(kit.uniform(p, "uSpot"), spots);
       kit.set1(p, "uRefr", 0.7 + Math.min(1, s.swell * 1.6) * 0.55 + s.bassMotion * 0.7);

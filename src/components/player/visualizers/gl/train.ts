@@ -22,7 +22,7 @@ import { setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Scenery travel per unit of speed, in CSS pixels per second.
 const TRAVEL_PX = 150;
@@ -548,6 +548,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const TRAIN_PROGRAM: ProgramSource = { name: "train", vs: FS_VS, fs: FS };
+/** The programs train compiles, for warming the shader cache ahead of the stage. */
+export const TRAIN_PROGRAMS: readonly ProgramSource[] = [TRAIN_PROGRAM];
+
 export function createTrain(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const clock = createBeatClock();
@@ -587,7 +591,7 @@ export function createTrain(kit: Kit): Candidate {
       rain += (clamp01(0.18 + 0.4 * (1 + x) + 0.2 * Math.min(1, s.swell * 1.6)) - rain) * ease(RAIN_TAU);
       flow += f.dt * v;
       travel += f.dt * v * TRAVEL_PX;
-      const p = kit.program("train", FS_VS, FS);
+      const p = kit.program(TRAIN_PROGRAM);
       setFluid(kit, p, f, flow, null, art.tex);
       kit.set1(p, "uSpeed", v);
       kit.set1(p, "uTravel", travel);

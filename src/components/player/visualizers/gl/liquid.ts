@@ -14,7 +14,7 @@ import { createCoverTexture } from "./coverTexture";
 import { FS_VS, PRELUDE } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // -- Tunables: how the surface moves with the music --
 // Surface depth and lens pull added per unit of bass envelope.
@@ -88,6 +88,10 @@ void main() {
   outColor = vec4(mix(bd, col, a), 1.0);
 }`;
 
+const LIQUID_PROGRAM: ProgramSource = { name: "liquid", vs: FS_VS, fs: FS };
+/** The programs liquid compiles, for warming the shader cache ahead of the stage. */
+export const LIQUID_PROGRAMS: readonly ProgramSource[] = [LIQUID_PROGRAM];
+
 export function createLiquid(kit: Kit): Candidate {
   const { gl } = kit;
   const cover = createCoverTexture(gl);
@@ -127,7 +131,7 @@ export function createLiquid(kit: Kit): Candidate {
       // Flow speed rides the eased level, so the surface drifts a little faster in loud passages.
       flow += f.dt * (0.1 + s.level * 0.14 + s.midMotion * FLOW_MID);
       stepRings(f.dt, s.beat);
-      const p = kit.program("liquid", FS_VS, FS);
+      const p = kit.program(LIQUID_PROGRAM);
       kit.setCommon(p, f);
       kit.bindTex(p, "uCoverTex", 0, cover.tex);
       kit.set1(p, "uLight", f.light ? 1 : 0);

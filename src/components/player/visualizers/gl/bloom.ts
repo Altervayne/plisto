@@ -9,7 +9,7 @@
 import { FS_VS, PRELUDE } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // -- Tunables: how the petals move with the music --
 // Outline reach and trail zoom added per unit of bass envelope.
@@ -46,6 +46,10 @@ void main() {
   outColor = vec4(col, 1.0);
 }`;
 
+const BLOOM_PROGRAM: ProgramSource = { name: "bloom", vs: FS_VS, fs: FS };
+/** The programs bloom compiles, for warming the shader cache ahead of the stage. */
+export const BLOOM_PROGRAMS: readonly ProgramSource[] = [BLOOM_PROGRAM];
+
 export function createBloom(kit: Kit): Candidate {
   const { gl } = kit;
   let spin = 0;
@@ -58,7 +62,7 @@ export function createBloom(kit: Kit): Candidate {
     trail: { decay: 0.82, zoom: 1.006, rot: 0.0025 },
     draw(f: Frame) {
       spin += f.dt * (0.05 + f.sig.rms * 0.12 + f.sig.midMotion * SPIN_MID);
-      const p = kit.program("bloom", FS_VS, FS);
+      const p = kit.program(BLOOM_PROGRAM);
       kit.setCommon(p, f);
       kit.set1(p, "uSpin", spin);
       kit.set1(p, "uReach", f.sig.bassMotion * REACH_BASS);

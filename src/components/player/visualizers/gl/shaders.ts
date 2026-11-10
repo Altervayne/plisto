@@ -3,6 +3,9 @@
  * its band and palette helpers, the readability hush, and the trail, bloom and composite passes.
  */
 
+// -- Type Imports --
+import type { ProgramSource } from "./kit";
+
 /** How many text blocks the hush can hold at once: the Player's source line and its title block. */
 export const HUSH_SLOTS = 2;
 
@@ -172,3 +175,11 @@ void main() {
     outColor = vec4(min(col, vec3(s.a)) * m, s.a * m);
   }
 }`;
+
+export const TRAIL_PROGRAM: ProgramSource = { name: "trail", vs: FS_VS, fs: TRAIL_FS };
+export const DOWN_PROGRAM: ProgramSource = { name: "down", vs: FS_VS, fs: DOWN_FS };
+export const BLUR_PROGRAM: ProgramSource = { name: "blur", vs: FS_VS, fs: BLUR_FS };
+export const COMPOSITE_PROGRAM: ProgramSource = { name: "composite", vs: FS_VS, fs: COMPOSITE_FS };
+
+/** The passes every kind draws through, for warming the shader cache ahead of the stage. */
+export const SHARED_PROGRAMS: readonly ProgramSource[] = [COMPOSITE_PROGRAM, DOWN_PROGRAM, BLUR_PROGRAM, TRAIL_PROGRAM];

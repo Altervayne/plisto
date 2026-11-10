@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { boundaryKey, composePixels, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
+import { CUE_DELAY_MS, boundaryKey, composePixels, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
 import type { CoverPixels, CoverPixelState } from "./useCoverPixels";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
@@ -21,6 +21,37 @@ describe("dipTarget", () => {
 
   it.each(cases)("%s", (_, picked, glFailed, pixels, target, ready) => {
     expect(dipTarget(picked, glFailed, pixels)).toEqual({ target, ready });
+  });
+});
+
+describe("dipTarget with programs", () => {
+  const cold = () => false;
+  const warm = () => true;
+
+  it("holds a WebGL kind until its programs are cached", () => {
+    expect(dipTarget("warp", false, "absent", cold)).toEqual({ target: "warp", ready: false });
+    expect(dipTarget("warp", false, "absent", warm)).toEqual({ target: "warp", ready: true });
+  });
+
+  it("holds a cover kind for either its pixels or its programs", () => {
+    expect(dipTarget("glass", false, "ready", cold).ready).toBe(false);
+    expect(dipTarget("glass", false, "pending", warm).ready).toBe(false);
+    expect(dipTarget("glass", false, "ready", warm).ready).toBe(true);
+  });
+
+  it("never holds a kind without WebGL, nor a failed one that fell to Ridge", () => {
+    expect(dipTarget("ridge", false, "absent", cold).ready).toBe(true);
+    expect(dipTarget("off", false, "absent", cold).ready).toBe(true);
+    expect(dipTarget("warp", true, "absent", cold)).toEqual({ target: "ridge", ready: true });
+  });
+
+  it("starts a cold WebGL kind from Off on mount", () => {
+    expect(mountedKind("warp", cold)).toBe("off");
+    expect(mountedKind("warp", warm)).toBe("warp");
+  });
+
+  it("shows the loading cue only after 150 ms", () => {
+    expect(CUE_DELAY_MS).toBe(150);
   });
 });
 

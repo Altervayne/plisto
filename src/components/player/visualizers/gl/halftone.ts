@@ -11,7 +11,7 @@
 import { createDots, DOT_FS, DOT_PRELUDE } from "./dots";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Grid pitch in CSS pixels, in ambient and in the Player.
 const PITCH_AMBIENT = 19;
@@ -46,6 +46,10 @@ void main() {
   else emit(c, s * uPitch, col * (0.3 + 0.45 * uRms), 1.0, 0.35);
 }`;
 
+const HALFTONE_PROGRAM: ProgramSource = { name: "halftone", vs: VS, fs: DOT_FS };
+/** The programs halftone compiles, for warming the shader cache ahead of the stage. */
+export const HALFTONE_PROGRAMS: readonly ProgramSource[] = [HALFTONE_PROGRAM];
+
 export function createHalftone(kit: Kit): Candidate {
   const dots = createDots(kit);
 
@@ -69,7 +73,7 @@ export function createHalftone(kit: Kit): Candidate {
       const ox = cx - pitch * Math.ceil((cx - x0) / pitch + 1);
       const cols = Math.ceil((x1 - ox) / pitch) + 1;
       const rows = Math.max(0, Math.ceil((H - y0) / rowH) + 1);
-      const p = kit.program("halftone", VS, DOT_FS);
+      const p = kit.program(HALFTONE_PROGRAM);
       dots.begin(p, f);
       kit.set2(p, "uOrigin", ox, y0 + pitch * 0.5);
       kit.set1(p, "uPitch", pitch);

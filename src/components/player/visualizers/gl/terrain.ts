@@ -13,7 +13,7 @@
 import { restSignal, type VisualSignal } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // -- Tunables: how the ridgelines move with the music --
 // Near-line lift added per unit of bass envelope.
@@ -108,6 +108,10 @@ function lerp3(a: Rgb, b: Rgb, k: number): Rgb {
   return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 }
 
+const TERRAIN_PROGRAM: ProgramSource = { name: "terrain", vs: VS, fs: FS };
+/** The programs terrain compiles, for warming the shader cache ahead of the stage. */
+export const TERRAIN_PROGRAMS: readonly ProgramSource[] = [TERRAIN_PROGRAM];
+
 export function createTerrain(kit: Kit): Candidate {
   const { gl } = kit;
   const hist = new Float32Array(ROWS * COLS);
@@ -182,7 +186,7 @@ export function createTerrain(kit: Kit): Candidate {
       }
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, ROWS, gl.RED, gl.FLOAT, hist);
-      const p = kit.program("terrain", VS, FS);
+      const p = kit.program(TERRAIN_PROGRAM);
       gl.useProgram(p.handle);
       kit.bindTex(p, "uHist", 0, tex);
       const { w: W, h: H, dpr } = kit.size;

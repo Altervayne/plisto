@@ -20,7 +20,7 @@ import { setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 /** The eased motion of the flurry. */
@@ -312,6 +312,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const SNOWFALL_PROGRAM: ProgramSource = { name: "snowfall", vs: FS_VS, fs: FS };
+/** The programs snowfall compiles, for warming the shader cache ahead of the stage. */
+export const SNOWFALL_PROGRAMS: readonly ProgramSource[] = [SNOWFALL_PROGRAM];
+
 export function createSnowfall(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const st = createSnowState();
@@ -327,7 +331,7 @@ export function createSnowfall(kit: Kit): Candidate {
       if (!f.cover) return;
       art.sync(f.cover);
       stepSnow(st, f.sig, f.dt);
-      const p = kit.program("snowfall", FS_VS, FS);
+      const p = kit.program(SNOWFALL_PROGRAM);
       setFluid(kit, p, f, st.fall, null, art.tex);
       kit.set1(p, "uFall", st.fall);
       kit.set1(p, "uGust", st.gust);

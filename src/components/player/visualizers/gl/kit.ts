@@ -73,6 +73,13 @@ export interface Candidate {
   dispose: () => void;
 }
 
+/** One program's name and sources: the single definition the stage compiles and the warm-up submits. */
+export interface ProgramSource {
+  name: string;
+  vs: string;
+  fs: string;
+}
+
 export interface Program {
   handle: WebGLProgram;
   loc: Map<string, WebGLUniformLocation | null>;
@@ -90,7 +97,7 @@ export interface Kit {
   // The backing size in device pixels and the pixel ratio, kept current by the renderer's fit.
   size: { w: number; h: number; dpr: number };
   geo: Geometry;
-  program: (name: string, vs: string, fs: string) => Program;
+  program: (src: ProgramSource) => Program;
   uniform: (p: Program, name: string) => WebGLUniformLocation | null;
   set1: (p: Program, name: string, v: number) => void;
   set2: (p: Program, name: string, a: number, b: number) => void;
@@ -149,7 +156,7 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
     return p;
   };
 
-  const program = (name: string, vs: string, fs: string): Program => {
+  const program = ({ name, vs, fs }: ProgramSource): Program => {
     let p = programs.get(name);
     if (!p) {
       p = { handle: compile(vs, fs), loc: new Map() };

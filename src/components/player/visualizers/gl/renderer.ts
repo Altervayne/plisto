@@ -9,7 +9,7 @@
 
 // -- Local Imports --
 import { createKit, type Candidate, type Frame, type Rect, type Target } from "./kit";
-import { BLUR_FS, COMPOSITE_FS, DOWN_FS, FS_VS, TRAIL_FS } from "./shaders";
+import { BLUR_PROGRAM, COMPOSITE_PROGRAM, DOWN_PROGRAM, TRAIL_PROGRAM } from "./shaders";
 import { VISUALIZER_VIEWS } from "../visualizerViews";
 
 // -- State Imports --
@@ -112,8 +112,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
 
   const bloomChain = (T: Targets, src: Target, threshold: number) => {
     const { gl: g } = kit;
-    const down = kit.program("down", FS_VS, DOWN_FS);
-    const blur = kit.program("blur", FS_VS, BLUR_FS);
+    const down = kit.program(DOWN_PROGRAM);
+    const blur = kit.program(BLUR_PROGRAM);
     g.disable(g.BLEND);
     g.useProgram(down.handle);
     kit.bindTarget(T.q0);
@@ -150,7 +150,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     f: Frame,
   ) => {
     const { gl: g } = kit;
-    const p = kit.program("composite", FS_VS, COMPOSITE_FS);
+    const p = kit.program(COMPOSITE_PROGRAM);
     kit.bindTarget(null);
     g.disable(g.BLEND);
     g.useProgram(p.handle);
@@ -192,7 +192,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     kit.bindTarget(dst);
     gl.disable(gl.BLEND);
     if (c.trail) {
-      const p = kit.program("trail", FS_VS, TRAIL_FS);
+      const p = kit.program(TRAIL_PROGRAM);
       gl.useProgram(p.handle);
       kit.set2(p, "uRes", kit.size.w, kit.size.h);
       kit.bindTex(p, "uPrev", 0, src.tex);

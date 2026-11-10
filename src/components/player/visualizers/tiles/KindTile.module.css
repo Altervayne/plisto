@@ -86,3 +86,40 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.cue {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cue::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.45;
+  animation: cue-sweep 1.8s ease-in-out infinite;
+}
+
+@keyframes cue-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cue::after {
+    width: 100%;
+    opacity: 0.35;
+    animation: none;
+  }
+}

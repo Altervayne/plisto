@@ -24,7 +24,7 @@ import { setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 // The swell rises linearly over this many seconds (eased in the output) and decays with this time constant.
@@ -464,6 +464,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const FIREFLIES_PROGRAM: ProgramSource = { name: "fireflies", vs: FS_VS, fs: FS };
+/** The programs fireflies compiles, for warming the shader cache ahead of the stage. */
+export const FIREFLIES_PROGRAMS: readonly ProgramSource[] = [FIREFLIES_PROGRAM];
+
 export function createFireflies(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const st = createFlyState();
@@ -479,7 +483,7 @@ export function createFireflies(kit: Kit): Candidate {
       if (!f.cover) return;
       art.sync(f.cover);
       stepFlies(st, f.sig, f.dt);
-      const p = kit.program("fireflies", FS_VS, FS);
+      const p = kit.program(FIREFLIES_PROGRAM);
       setFluid(kit, p, f, st.wander, null, art.tex);
       kit.set1(p, "uWander", st.wander);
       kit.set1(p, "uLift", st.lift);

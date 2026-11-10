@@ -15,7 +15,7 @@ import { createRings, FLUID_PRELUDE, RING_SLOTS, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 const FS = `${FLUID_PRELUDE}
 float heightAt(vec2 q) {
@@ -65,6 +65,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const MERCURY_PROGRAM: ProgramSource = { name: "mercury", vs: FS_VS, fs: FS };
+/** The programs mercury compiles, for warming the shader cache ahead of the stage. */
+export const MERCURY_PROGRAMS: readonly ProgramSource[] = [MERCURY_PROGRAM];
+
 export function createMercury(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const rings = createRings(1.6, 0.12, 0.05);
@@ -83,7 +87,7 @@ export function createMercury(kit: Kit): Candidate {
       const s = f.sig;
       flow += f.dt * (0.22 + s.level * 0.16 + s.midMotion * 0.35);
       rings.step(f.dt, s.beat);
-      const p = kit.program("mercury", FS_VS, FS);
+      const p = kit.program(MERCURY_PROGRAM);
       setFluid(kit, p, f, flow, rings.packed, art.tex);
       kit.drawQuad();
     },

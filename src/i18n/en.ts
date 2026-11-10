@@ -1058,6 +1058,7 @@ export const en = {
     visualizerSilk: "Silk",
     visualizerOff: "Off",
     visualizerToast: "Visualizer: {name}",
+    visualizerToastLoading: "Loading {name}...",
     visualizerGroupClassic: "Classic",
     visualizerGroupDots: "Dots",
     visualizerGroupFluid: "Fluid",

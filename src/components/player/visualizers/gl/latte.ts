@@ -20,7 +20,7 @@ import { createRings, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 /** The eased pose of the milk art. */
@@ -236,6 +236,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const LATTE_PROGRAM: ProgramSource = { name: "latte", vs: FS_VS, fs: FS };
+/** The programs latte compiles, for warming the shader cache ahead of the stage. */
+export const LATTE_PROGRAMS: readonly ProgramSource[] = [LATTE_PROGRAM];
+
 export function createLatte(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const st = createLatteState();
@@ -253,7 +257,7 @@ export function createLatte(kit: Kit): Candidate {
       art.sync(f.cover);
       const pose = stepLatte(st, f.sig, f.dt);
       rings.step(f.dt, latteRingBeat(f.sig));
-      const p = kit.program("latte", FS_VS, FS);
+      const p = kit.program(LATTE_PROGRAM);
       setFluid(kit, p, f, 0, rings.packed, art.tex);
       kit.set1(p, "uRot", pose.rot);
       kit.set1(p, "uBreath", pose.breath);

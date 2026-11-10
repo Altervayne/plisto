@@ -14,7 +14,7 @@ import { createRings, FLUID_PRELUDE, RING_SLOTS, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 const FS = `${FLUID_PRELUDE}
 uniform float uLift;
@@ -64,6 +64,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const SILK_PROGRAM: ProgramSource = { name: "silk", vs: FS_VS, fs: FS };
+/** The programs silk compiles, for warming the shader cache ahead of the stage. */
+export const SILK_PROGRAMS: readonly ProgramSource[] = [SILK_PROGRAM];
+
 export function createSilk(kit: Kit): Candidate {
   const rings = createRings(3.2, 0.3, 0.35);
   let flow = 0;
@@ -79,7 +83,7 @@ export function createSilk(kit: Kit): Candidate {
       const s = f.sig;
       flow += f.dt * (0.55 + s.level * 0.3 + s.midMotion * 1.1);
       rings.step(f.dt, s.beat);
-      const p = kit.program("silk", FS_VS, FS);
+      const p = kit.program(SILK_PROGRAM);
       setFluid(kit, p, f, flow, rings.packed, null);
       kit.set1(p, "uLift", 0.6 + Math.min(1, s.swell * 1.6) * 0.3 + s.bassMotion * 0.35);
       kit.drawQuad();

@@ -18,7 +18,7 @@ import { setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Revolutions per second at 33 1/3 rpm.
 const SPIN_RATE = 33.3333 / 60;
@@ -202,6 +202,10 @@ void main() {
 }`;
 
 
+const RECORD_PROGRAM: ProgramSource = { name: "record", vs: FS_VS, fs: FS };
+/** The programs record compiles, for warming the shader cache ahead of the stage. */
+export const RECORD_PROGRAMS: readonly ProgramSource[] = [RECORD_PROGRAM];
+
 export function createRecord(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   let spin = 0;
@@ -228,7 +232,7 @@ export function createRecord(kit: Kit): Candidate {
       const gap = Math.abs(target - arm);
       arm += (target - arm) * (1 - Math.exp(-f.dt / (gap > ARM_FAR ? ARM_TAU_FAR : ARM_TAU_NEAR)));
       lift += ((gap > LIFT_GAP ? 1 : 0) - lift) * (1 - Math.exp(-f.dt / LIFT_TAU));
-      const p = kit.program("record", FS_VS, FS);
+      const p = kit.program(RECORD_PROGRAM);
       setFluid(kit, p, f, 0, null, art.tex);
       kit.set1(p, "uSpin", spin);
       kit.set1(p, "uArmR", arm);

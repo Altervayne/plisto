@@ -23,7 +23,7 @@ import { setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Beat window slots alive at once.
 export const WINDOW_SLOTS = 4;
@@ -391,6 +391,10 @@ export function stepBeatWindows(
   });
 }
 
+const WINDOW_PROGRAM: ProgramSource = { name: "window", vs: FS_VS, fs: FS };
+/** The programs window compiles, for warming the shader cache ahead of the stage. */
+export const WINDOW_PROGRAMS: readonly ProgramSource[] = [WINDOW_PROGRAM];
+
 export function createWindow(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const rng = createRng(RNG_SEED);
@@ -420,7 +424,7 @@ export function createWindow(kit: Kit): Candidate {
       traffic += f.dt * (0.45 + 1.7 * energy);
       twinkle += f.dt;
       stepBeatWindows(wins, f.dt, s.beat, s.drive, rng, packed);
-      const p = kit.program("window", FS_VS, FS);
+      const p = kit.program(WINDOW_PROGRAM);
       setFluid(kit, p, f, 0, null, art.tex);
       kit.set2(p, "uSway", Math.sin(phase) * 10, Math.cos(phase * 0.7) * 5);
       kit.set1(p, "uTraffic", traffic);

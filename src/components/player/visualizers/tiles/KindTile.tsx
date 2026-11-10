@@ -25,13 +25,15 @@ interface KindTileProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "r
   width?: number;
   // A `KindTag` drawn over the thumb.
   tag?: ReactNode;
+  // Shows the quiet sweep along the thumb's bottom edge while the kind's programs build.
+  loading?: boolean;
 }
 
 /**
  * One visualizer kind as a radio: an 8:5 still, the name, and an ink ring with a tick when checked. The
  * accent appears only as the focus-visible outline. The sunken ground and the glyph stand in while no still exists.
  */
-export function KindTile({ kind, checked, width, tag, style, ...rest }: KindTileProps) {
+export function KindTile({ kind, checked, width, tag, loading, style, ...rest }: KindTileProps) {
   const t = useT();
   // Subscribed so the still follows a theme change; isDarkTheme resolves "system".
   useTheme();
@@ -61,6 +63,7 @@ export function KindTile({ kind, checked, width, tag, style, ...rest }: KindTile
           </span>
         ) : null}
         {tag}
+        {loading ? <span className={styles.cue} aria-hidden="true" /> : null}
       </span>
       <span className={styles.name}>{t(VISUALIZER_VIEWS[kind].label)}</span>
     </button>

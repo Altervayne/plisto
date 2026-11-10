@@ -16,11 +16,13 @@ import { createRings, FLUID_PRELUDE, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit, Target } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource, Target } from "./kit";
 
 // The pre-roll a fresh dye buffer runs so the stage opens with plumes already drifting: steps, step
 // length in seconds, and the resting level and swell it runs on.
 const PREROLL_STEPS = 240;
+// How long the stage size must hold before the dye is rebuilt for it.
+const RESIZE_SETTLE_SECS = 0.2;
 const PREROLL_DT = 1 / 20;
 const PREROLL_LEVEL = 0.4;
 const PREROLL_SWELL = 0.2;
@@ -93,6 +95,11 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const INK_ADVECT_PROGRAM: ProgramSource = { name: "inkAdvect", vs: FS_VS, fs: ADVECT_FS };
+const INK_PROGRAM: ProgramSource = { name: "ink", vs: FS_VS, fs: FS };
+/** The programs ink compiles, for warming the shader cache ahead of the stage. */
+export const INK_PROGRAMS: readonly ProgramSource[] = [INK_ADVECT_PROGRAM, INK_PROGRAM];
+
 export function createInk(kit: Kit): Candidate {
   const { gl } = kit;
   const art = createCoverTexture(gl);
@@ -113,7 +120,7 @@ export function createInk(kit: Kit): Candidate {
     const s = f.sig;
     flow += dt * (0.25 + s.level * 0.25 + s.midMotion * 0.5);
     const [src, dst] = dye;
-    const p = kit.program("inkAdvect", FS_VS, ADVECT_FS);
+    const p = kit.program(INK_ADVECT_PROGRAM);
     kit.bindTarget(dst);
     gl.disable(gl.BLEND);
     setFluid(kit, p, f, flow, rings.packed, art.tex);
@@ -127,11 +134,23 @@ export function createInk(kit: Kit): Candidate {
     dye = [dst, src];
   };
 
-  // A new stage size or a new cover starts the dye over and pre-rolls it on a resting signal.
+  // The size a resize is waiting on, and when it first showed.
+  let settling: { w: number; h: number; since: number } | null = null;
+
+  // A new cover or a first draw starts the dye over and pre-rolls it on a resting signal at once. A new
+  // stage size waits until it holds still, and the old dye keeps drawing meanwhile.
   const ensure = (f: Frame, newCover: boolean) => {
     const w = Math.max(1, kit.size.w >> 1);
     const h = Math.max(1, kit.size.h >> 1);
-    if (dye && !newCover && dye[0].w === w && dye[0].h === h) return;
+    if (dye && !newCover) {
+      if (dye[0].w === w && dye[0].h === h) {
+        settling = null;
+        return;
+      }
+      if (!settling || settling.w !== w || settling.h !== h) settling = { w, h, since: f.t };
+      if (f.t - settling.since < RESIZE_SETTLE_SECS) return;
+    }
+    settling = null;
     freeDye();
     rings.clear();
     dye = [kit.makeTarget(w, h), kit.makeTarget(w, h)];
@@ -157,7 +176,7 @@ export function createInk(kit: Kit): Candidate {
       advect(f, Math.min(f.dt, MAX_STEP));
       if (!dye) return;
       kit.bindTarget(scene);
-      const p = kit.program("ink", FS_VS, FS);
+      const p = kit.program(INK_PROGRAM);
       setFluid(kit, p, f, flow, rings.packed, art.tex);
       kit.bindTex(p, "uDye", 1, dye[0].tex);
       kit.drawQuad();

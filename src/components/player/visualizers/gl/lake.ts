@@ -21,7 +21,7 @@ import { FS_VS } from "./shaders";
 import { easeEnvelope } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 // Strong-beat rings: life and fade-in in seconds, and height per unit of beat.
@@ -377,6 +377,10 @@ export function stepLake(st: LakeState, s: VisualSignal, dt: number): void {
   st.nudge = easeEnvelope(st.nudge, st.nudgeTarget, dt, NUDGE_TAU);
 }
 
+const LAKE_PROGRAM: ProgramSource = { name: "lake", vs: FS_VS, fs: FS };
+/** The programs lake compiles, for warming the shader cache ahead of the stage. */
+export const LAKE_PROGRAMS: readonly ProgramSource[] = [LAKE_PROGRAM];
+
 export function createLake(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   const rings = createRings(RING_LIFE, RING_RISE, RING_HEIGHT);
@@ -395,7 +399,7 @@ export function createLake(kit: Kit): Candidate {
       const s = f.sig;
       stepLake(st, s, f.dt);
       rings.step(f.dt, s.beat >= RING_MIN_BEAT ? s.beat : 0);
-      const p = kit.program("lake", FS_VS, FS);
+      const p = kit.program(LAKE_PROGRAM);
       setFluid(kit, p, f, 0, rings.packed, art.tex);
       kit.set1(p, "uMoon", st.moon);
       kit.set1(p, "uCloudT", st.cloud);

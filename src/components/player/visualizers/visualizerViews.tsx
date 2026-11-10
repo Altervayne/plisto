@@ -8,29 +8,29 @@
 import type { ReactNode } from "react";
 
 // -- Local Imports --
-import { createBloom } from "./gl/bloom";
-import { createDotCover } from "./gl/dotCover";
-import { createDotSpectrum } from "./gl/dotSpectrum";
-import { createFireflies } from "./gl/fireflies";
-import { createGlass } from "./gl/glass";
-import { createHalftone } from "./gl/halftone";
-import { createInk } from "./gl/ink";
-import { createLake } from "./gl/lake";
-import { createLatte } from "./gl/latte";
-import { createLiquid } from "./gl/liquid";
-import { createMercury } from "./gl/mercury";
-import { createNebula } from "./gl/nebula";
-import { createPond } from "./gl/pond";
-import { createRecord } from "./gl/record";
-import { createSilk } from "./gl/silk";
-import { createSnowfall } from "./gl/snowfall";
-import { createTerrain } from "./gl/terrain";
-import { createTrain } from "./gl/train";
-import { createWarp } from "./gl/warp";
-import { createWindow } from "./gl/window";
+import { createBloom, BLOOM_PROGRAMS } from "./gl/bloom";
+import { createDotCover, DOT_COVER_PROGRAMS } from "./gl/dotCover";
+import { createDotSpectrum, DOT_SPECTRUM_PROGRAMS } from "./gl/dotSpectrum";
+import { createFireflies, FIREFLIES_PROGRAMS } from "./gl/fireflies";
+import { createGlass, GLASS_PROGRAMS } from "./gl/glass";
+import { createHalftone, HALFTONE_PROGRAMS } from "./gl/halftone";
+import { createInk, INK_PROGRAMS } from "./gl/ink";
+import { createLake, LAKE_PROGRAMS } from "./gl/lake";
+import { createLatte, LATTE_PROGRAMS } from "./gl/latte";
+import { createLiquid, LIQUID_PROGRAMS } from "./gl/liquid";
+import { createMercury, MERCURY_PROGRAMS } from "./gl/mercury";
+import { createNebula, NEBULA_PROGRAMS } from "./gl/nebula";
+import { createPond, POND_PROGRAMS } from "./gl/pond";
+import { createRecord, RECORD_PROGRAMS } from "./gl/record";
+import { createSilk, SILK_PROGRAMS } from "./gl/silk";
+import { createSnowfall, SNOWFALL_PROGRAMS } from "./gl/snowfall";
+import { createTerrain, TERRAIN_PROGRAMS } from "./gl/terrain";
+import { createTrain, TRAIN_PROGRAMS } from "./gl/train";
+import { createWarp, WARP_PROGRAMS } from "./gl/warp";
+import { createWindow, WINDOW_PROGRAMS } from "./gl/window";
 
 // -- Type Imports --
-import type { Candidate, Kit } from "./gl/kit";
+import type { Candidate, Kit, ProgramSource } from "./gl/kit";
 import type { Dict } from "../../../i18n/en";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
@@ -40,6 +40,8 @@ export interface VisualizerView {
   // The mark, drawn on the 24-unit stroke grid the app's icon set uses.
   glyph: ReactNode;
   factory?: (kit: Kit) => Candidate;
+  // Every program the factory's candidate compiles, for warming the shader cache.
+  programs?: readonly ProgramSource[];
 }
 
 export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
@@ -57,6 +59,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createTerrain,
+    programs: TERRAIN_PROGRAMS,
   },
   liquid: {
     label: (d) => d.player.visualizerLiquid,
@@ -67,6 +70,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createLiquid,
+    programs: LIQUID_PROGRAMS,
   },
   warp: {
     label: (d) => d.player.visualizerWarp,
@@ -79,6 +83,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createWarp,
+    programs: WARP_PROGRAMS,
   },
   nebula: {
     label: (d) => d.player.visualizerNebula,
@@ -91,6 +96,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createNebula,
+    programs: NEBULA_PROGRAMS,
   },
   bloom: {
     label: (d) => d.player.visualizerBloom,
@@ -101,6 +107,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createBloom,
+    programs: BLOOM_PROGRAMS,
   },
   halftone: {
     label: (d) => d.player.visualizerHalftone,
@@ -117,6 +124,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </g>
     ),
     factory: createHalftone,
+    programs: HALFTONE_PROGRAMS,
   },
   "dot-spectrum": {
     label: (d) => d.player.visualizerDotSpectrum,
@@ -131,6 +139,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </g>
     ),
     factory: createDotSpectrum,
+    programs: DOT_SPECTRUM_PROGRAMS,
   },
   "dot-cover": {
     label: (d) => d.player.visualizerDotCover,
@@ -151,6 +160,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createDotCover,
+    programs: DOT_COVER_PROGRAMS,
   },
   ink: {
     label: (d) => d.player.visualizerInk,
@@ -161,6 +171,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createInk,
+    programs: INK_PROGRAMS,
   },
   mercury: {
     label: (d) => d.player.visualizerMercury,
@@ -172,6 +183,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createMercury,
+    programs: MERCURY_PROGRAMS,
   },
   glass: {
     label: (d) => d.player.visualizerGlass,
@@ -187,6 +199,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createGlass,
+    programs: GLASS_PROGRAMS,
   },
   silk: {
     label: (d) => d.player.visualizerSilk,
@@ -197,6 +210,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createSilk,
+    programs: SILK_PROGRAMS,
   },
   pond: {
     label: (d) => d.player.visualizerPond,
@@ -208,6 +222,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createPond,
+    programs: POND_PROGRAMS,
   },
   train: {
     label: (d) => d.player.visualizerTrain,
@@ -219,6 +234,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createTrain,
+    programs: TRAIN_PROGRAMS,
   },
   record: {
     label: (d) => d.player.visualizerRecord,
@@ -230,6 +246,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createRecord,
+    programs: RECORD_PROGRAMS,
   },
   snowfall: {
     label: (d) => d.player.visualizerSnowfall,
@@ -245,6 +262,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createSnowfall,
+    programs: SNOWFALL_PROGRAMS,
   },
   latte: {
     label: (d) => d.player.visualizerLatte,
@@ -259,6 +277,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createLatte,
+    programs: LATTE_PROGRAMS,
   },
   fireflies: {
     label: (d) => d.player.visualizerFireflies,
@@ -279,6 +298,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createFireflies,
+    programs: FIREFLIES_PROGRAMS,
   },
   window: {
     label: (d) => d.player.visualizerWindow,
@@ -290,6 +310,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createWindow,
+    programs: WINDOW_PROGRAMS,
   },
   lake: {
     label: (d) => d.player.visualizerLake,
@@ -301,6 +322,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
       </>
     ),
     factory: createLake,
+    programs: LAKE_PROGRAMS,
   },
   off: {
     label: (d) => d.player.visualizerOff,
@@ -312,6 +334,11 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
   },
 };
+
+/** The programs a kind compiles, or an empty list for a kind that draws without WebGL. */
+export function programsOf(kind: VisualizerKind): readonly ProgramSource[] {
+  return VISUALIZER_VIEWS[kind].programs ?? [];
+}
 
 // The stills ship as files and resolve to URLs, so none of them lands in a JS chunk.
 const THUMBS = import.meta.glob<string>("../../../assets/visualizer-thumbs/*.webp", {

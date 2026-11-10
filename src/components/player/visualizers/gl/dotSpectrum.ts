@@ -17,7 +17,7 @@ import { createDots, DOT_FS, DOT_PRELUDE } from "./dots";
 import { easeEnvelope, MOTION_ATTACK_SECS } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // The most columns one draw holds; a wider stage spaces the same count.
 const MAX_COLS = 192;
@@ -85,6 +85,10 @@ function sample(bands: ArrayLike<number>, m: number): number {
   const k = f - i;
   return bands[i] * (1 - k) + bands[i + 1] * k;
 }
+
+const DOT_SPECTRUM_PROGRAM: ProgramSource = { name: "dotSpectrum", vs: VS, fs: DOT_FS };
+/** The programs dotSpectrum compiles, for warming the shader cache ahead of the stage. */
+export const DOT_SPECTRUM_PROGRAMS: readonly ProgramSource[] = [DOT_SPECTRUM_PROGRAM];
 
 export function createDotSpectrum(kit: Kit): Candidate {
   const dots = createDots(kit);
@@ -155,7 +159,7 @@ export function createDotSpectrum(kit: Kit): Candidate {
       const top = f.ambient ? floor + (H - floor) * AMBIENT_REACH : cover[1] + cover[3] * 0.5;
       const reach = Math.min(rows, Math.max(4, Math.floor((top - floor) / base)));
       step(f, cols, f.mirrored);
-      const p = kit.program("dotSpectrum", VS, DOT_FS);
+      const p = kit.program(DOT_SPECTRUM_PROGRAM);
       dots.begin(p, f);
       kit.set2(p, "uOrigin", left + pitch * 0.5, floor + pitch * 0.5);
       kit.set1(p, "uPitch", pitch);

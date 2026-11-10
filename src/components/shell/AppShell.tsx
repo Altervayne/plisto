@@ -36,6 +36,7 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import { useShellShortcuts } from "./useShellShortcuts";
 import { useCollectionSegment } from "../collection/useCollectionSegment";
+import { useWarmCurrentVisualizer } from "../player/visualizers/useWarmVisualizers";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -146,6 +147,7 @@ export function AppShell({
   const error = useOrgError();
   const clearError = useClearError();
   const t = useT();
+  useWarmCurrentVisualizer();
   // One listener for the app's life, following the engine's status and error events into the store.
   usePlayerSync();
   // Saves the library session for the next launch. This shell only mounts in the main window.

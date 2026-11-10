@@ -10,6 +10,7 @@ import { SheetFooter } from "./SheetFooter";
 
 // -- Hook Imports --
 import { useVisualizerPick } from "../useVisualizerPick";
+import { useWarmSheetKinds } from "../useWarmVisualizers";
 import { useVisualizerResolution } from "../useVisualizerResolution";
 
 // -- State Imports --
@@ -68,6 +69,7 @@ function SheetBody({
   const t = useT();
   const resolved = useVisualizerResolution(trackId);
   const { picked } = resolved.resolution;
+  useWarmSheetKinds(resolved);
   const { tagFor, markers } = useSheetDefaults(resolved.resolution);
   const pick = useVisualizerPick(trackId);
   const sheetRef = useRef<HTMLDivElement | null>(null);

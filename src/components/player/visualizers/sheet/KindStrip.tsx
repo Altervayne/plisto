@@ -10,9 +10,11 @@ import { KindTile } from "../tiles/KindTile";
 
 // -- Hook Imports --
 import { useStripWheel } from "./useStripWheel";
+import { useLoadingCue } from "../useLoadingCue";
 
 // -- State Imports --
-import { useVisualizerSheet } from "../../../../state/player/visualizerSheet";
+import { warmKind } from "../gl/warm";
+import { useVisualizerPreview, useVisualizerSheet } from "../../../../state/player/visualizerSheet";
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 
 // -- Local Imports --
@@ -55,6 +57,8 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
   const [fades, setFades] = useState({ left: 0, right: FADE_RIGHT });
   const hovered = useRef<VisualizerKind | null>(null);
   useStripWheel(stripRef);
+  const aimed = useVisualizerPreview() ?? checked;
+  const cueing = useLoadingCue(aimed);
 
   const sync = useCallback(() => {
     const strip = stripRef.current;
@@ -128,6 +132,8 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
         onScroll={sync}
         onPointerOver={(e) => {
           hovered.current = kindOf(e.target);
+          // Warming starts at once, ahead of the preview's dwell.
+          if (hovered.current) warmKind(hovered.current);
           preview(hovered.current ?? focusedKind());
         }}
         onPointerLeave={() => {
@@ -135,7 +141,10 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
           preview(focusedKind());
         }}
         onFocus={(e) => {
-          if (e.target.matches(":focus-visible")) preview(kindOf(e.target));
+          if (!e.target.matches(":focus-visible")) return;
+          const kind = kindOf(e.target);
+          if (kind) warmKind(kind);
+          preview(kind);
         }}
         onBlur={(e) => {
           if (!stripRef.current?.contains(e.relatedTarget as Node | null)) preview(hovered.current);
@@ -155,6 +164,7 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
                   width={TILE_WIDTH}
                   tabIndex={kind === checked ? 0 : -1}
                   tag={tagFor?.(kind)}
+                  loading={cueing && kind === aimed}
                   onClick={() => onPick(kind)}
                 />
               ))}

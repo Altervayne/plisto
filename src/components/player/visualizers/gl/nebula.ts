@@ -14,7 +14,7 @@
 import { easeEnvelope, restSignal, type VisualSignal } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 const COUNT = 3000;
 
@@ -105,6 +105,10 @@ void main() {
   float a = exp(-r2 * 3.0) * (1.0 - r2);
   outColor = vec4(vCol * a * uGain, 1.0);
 }`;
+
+const NEBULA_PROGRAM: ProgramSource = { name: "nebula", vs: VS, fs: FS };
+/** The programs nebula compiles, for warming the shader cache ahead of the stage. */
+export const NEBULA_PROGRAMS: readonly ProgramSource[] = [NEBULA_PROGRAM];
 
 export function createNebula(kit: Kit): Candidate {
   const { gl } = kit;
@@ -293,7 +297,7 @@ export function createNebula(kit: Kit): Candidate {
       const dt = Math.min(f.dt, 1 / 30);
       stepMotion(dt, f.sig);
       simulate(dt, f.t, f.sig);
-      const p = kit.program("nebula", VS, FS);
+      const p = kit.program(NEBULA_PROGRAM);
       gl.useProgram(p.handle);
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);

@@ -1,13 +1,15 @@
 /*
  * Where a stage's dip is heading: the picked kind after its fallbacks, whether it can draw yet, and how
  * long the dip toward it takes. Pending cover pixels never fall back to Ridge: the target holds until
- * they land, so a cover kind never flashes Ridge on its way in. Only absent pixels fall back.
+ * they land, so a cover kind never flashes Ridge on its way in. Only absent pixels fall back. A WebGL
+ * kind also holds until its programs are in the shader cache, so its first frame never stalls the stage.
  */
 
 // -- State Imports --
 import type { DipReason } from "../../../state/player/visualizerDip";
 import {
   effectiveVisualizerKind,
+  isGlKind,
   needsCoverPixels,
   type VisualizerKind,
 } from "../../../state/player/visualizerKind";
@@ -18,14 +20,23 @@ import type { CoverStatus } from "../../tracks/coverStatus";
 
 export interface DipTarget {
   target: VisualizerKind;
-  // False while the target draws the cover and its pixels are still on the way.
+  // False while the target draws the cover and its pixels are still on the way, or its programs are not cached.
   ready: boolean;
 }
 
+/** The loading cue shows only once a hold for programs has lasted this long. */
+export const CUE_DELAY_MS = 150;
+
 /** The kind a stage dips toward for a pick, given whether WebGL failed for it and the cover pixels' state. */
-export function dipTarget(picked: VisualizerKind, glFailed: boolean, pixels: CoverPixelState): DipTarget {
+export function dipTarget(
+  picked: VisualizerKind,
+  glFailed: boolean,
+  pixels: CoverPixelState,
+  warm: (kind: VisualizerKind) => boolean = () => true,
+): DipTarget {
   const target = effectiveVisualizerKind(picked, { glFailed, coverPixels: pixels !== "absent" });
-  return { target, ready: !(needsCoverPixels(target) && pixels === "pending") };
+  const waitingOnPixels = needsCoverPixels(target) && pixels === "pending";
+  return { target, ready: !waitingOnPixels && (!isGlKind(target) || warm(target)) };
 }
 
 /** Why a stage draws something other than the pick: no cover art, or WebGL could not draw it. */
@@ -52,10 +63,14 @@ export function boundaryKey(trackId: number, defaultsReady: boolean): number {
 
 /**
  * The kind a stage shows when it mounts: the target when it can draw at once, else Off. A cover kind
- * always starts from Off, whether its pixels are a cover or a seed, and rises once they land.
+ * always starts from Off, whether its pixels are a cover or a seed, and rises once they land. A kind
+ * whose programs are not cached starts from Off too.
  */
-export function mountedKind(picked: VisualizerKind): VisualizerKind {
-  const { target, ready } = dipTarget(picked, false, "pending");
+export function mountedKind(
+  picked: VisualizerKind,
+  warm: (kind: VisualizerKind) => boolean = () => true,
+): VisualizerKind {
+  const { target, ready } = dipTarget(picked, false, "pending", warm);
   return ready ? target : "off";
 }
 

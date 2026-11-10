@@ -9,7 +9,7 @@
 import { FS_VS, PRELUDE } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // -- Tunables: how the flight moves with the music --
 // Speed added per unit of bass envelope, before the surge's soft attack.
@@ -60,6 +60,10 @@ void main() {
   outColor = vec4(col, 1.0);
 }`;
 
+const WARP_PROGRAM: ProgramSource = { name: "warp", vs: FS_VS, fs: FS };
+/** The programs warp compiles, for warming the shader cache ahead of the stage. */
+export const WARP_PROGRAMS: readonly ProgramSource[] = [WARP_PROGRAM];
+
 export function createWarp(kit: Kit): Candidate {
   const { gl } = kit;
   let travel = 0;
@@ -76,7 +80,7 @@ export function createWarp(kit: Kit): Candidate {
       const target = 0.25 + f.sig.level * 1.1 + f.sig.kick * 1.4 + f.sig.bassMotion * SURGE_BASS;
       speed += (target - speed) * (target > speed ? 0.1 : 0.03);
       travel += f.dt * speed;
-      const p = kit.program("warp", FS_VS, FS);
+      const p = kit.program(WARP_PROGRAM);
       kit.setCommon(p, f);
       kit.set1(p, "uTravel", travel);
       kit.set1(p, "uSpeed", Math.min(1.5, speed));

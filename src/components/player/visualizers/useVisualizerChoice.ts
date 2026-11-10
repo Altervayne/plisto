@@ -5,6 +5,8 @@ import type { RefObject } from "react";
 // -- Hook Imports --
 import { useCoverPixels } from "./useCoverPixels";
 import { useCoverSeed } from "./useCoverSeed";
+import { warmKind } from "./gl/warm";
+import { warmIn, useWarmState } from "./gl/warmState";
 import { useVisualizerDip } from "./useVisualizerDip";
 import { useVisualizerResolution } from "./useVisualizerResolution";
 
@@ -90,7 +92,13 @@ export function useVisualizerChoice(
   const preview = useVisualizerPreview();
   const aimed = preview ?? picked;
   const [failed, setFailed] = useState<VisualizerKind | null>(null);
-  const [shown, setShown] = useState(() => mountedKind(picked));
+  const warmed = useWarmState((s) => s.warmed);
+  const warm = (kind: VisualizerKind) => warmIn(warmed, kind);
+  const [shown, setShown] = useState(() => mountedKind(picked, warm));
+  // The programs reach the shader cache before the dip aims at the kind, so its first frame never stalls.
+  useEffect(() => {
+    warmKind(aimed);
+  }, [aimed]);
   const wantsCover = needsCoverPixels(aimed) || needsCoverPixels(picked) || needsCoverPixels(shown);
   const cover = useCoverPixels(wantsCover ? coverSrc : null);
   const seedWanted = wantsCover && (status === "coverless" || (status === "present" && cover.state === "absent"));
@@ -103,7 +111,7 @@ export function useVisualizerChoice(
   const { state } = composed;
   const pixels = composed.pixels ?? (state === "pending" ? held.current : null);
   const onGlFail = useCallback(() => setFailed(aimed), [aimed]);
-  const { target, ready } = dipTarget(aimed, failed === aimed, state);
+  const { target, ready } = dipTarget(aimed, failed === aimed, state, warm);
   const reason = useDipReason(boundaryKey(trackId, defaultsReady), target);
   useVisualizerDip(stageRef, target, ready, reason, shown, setShown);
   const pickedTarget = preview == null ? target : dipTarget(picked, failed === picked, state).target;

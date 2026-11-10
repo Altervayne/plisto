@@ -15,7 +15,7 @@ import { FLUID_PRELUDE, setFluid } from "./fluid";
 import { FS_VS } from "./shaders";
 
 // -- Type Imports --
-import type { Candidate, Frame, Kit } from "./kit";
+import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 
 // Drop momentum added per unit of beat strength, and how fast it eases out, in seconds.
 const SLIP_KICK = 1.6;
@@ -100,6 +100,10 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
+const GLASS_PROGRAM: ProgramSource = { name: "glass", vs: FS_VS, fs: FS };
+/** The programs glass compiles, for warming the shader cache ahead of the stage. */
+export const GLASS_PROGRAMS: readonly ProgramSource[] = [GLASS_PROGRAM];
+
 export function createGlass(kit: Kit): Candidate {
   const art = createCoverTexture(kit.gl);
   let flow = 0;
@@ -120,7 +124,7 @@ export function createGlass(kit: Kit): Candidate {
       if (s.beat > 0) slip += s.beat * SLIP_KICK;
       slip *= Math.exp(-f.dt / SLIP_TAU);
       flow += f.dt * (1 + s.level * 0.6 + s.midMotion * 1.4 + slip);
-      const p = kit.program("glass", FS_VS, FS);
+      const p = kit.program(GLASS_PROGRAM);
       setFluid(kit, p, f, flow, null, art.tex);
       kit.set1(p, "uRefract", 0.8 + Math.min(1, s.swell * 1.6) * 0.5 + s.bassMotion * 0.7);
       kit.drawQuad();

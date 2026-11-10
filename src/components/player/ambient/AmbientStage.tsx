@@ -25,15 +25,17 @@ import { useFullscreen } from "./useFullscreen";
 import { coverStatus } from "../../tracks/coverStatus";
 import { useTrackCover } from "../../tracks/useTrackCover";
 import { useVisualizerChoice } from "../visualizers/useVisualizerChoice";
+import { useLoadingCue } from "../visualizers/useLoadingCue";
 import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 
 // -- State Imports --
 import { usePlayerActions, usePlayerStatus } from "../../../state/player/store";
-import { nextVisualizerKind } from "../../../state/player/visualizerKind";
+import { nextVisualizerKind, type VisualizerKind } from "../../../state/player/visualizerKind";
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
 
 // -- Local Imports --
 import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
+import { useIsWarm } from "../visualizers/gl/warmState";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -75,7 +77,10 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const textRef = useRef<HTMLDivElement | null>(null);
   const hushRefs = useMemo(() => [textRef], []);
   const [hint, setHint] = useState(true);
-  const [toast, setToast] = useState<{ label: string; id: number; gone: boolean } | null>(null);
+  const [toast, setToast] = useState<{ label: string; name: string; kind: VisualizerKind; id: number; gone: boolean } | null>(null);
+  // The toast holds while its kind builds, then reads normally and fades.
+  const toastWarm = useIsWarm(toast?.kind ?? "off");
+  const toastLoading = useLoadingCue(toast && !toastWarm ? toast.kind : null);
 
   useFullscreen();
 
@@ -96,17 +101,18 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
 
   // The name shows, then fades where it sits; a new cycle remounts it by id.
   useEffect(() => {
-    if (!toast || toast.gone) return;
+    if (!toast || toast.gone || !toastWarm) return;
     const timer = window.setTimeout(() => setToast((was) => was && { ...was, gone: true }), TOAST_MS);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [toast, toastWarm]);
 
   const cycle = () => {
     const next = nextVisualizerKind(picked);
     // The suffix says the pick holds for this album only, which is true when it set a default aside.
     const setAside = pick(next).override != null;
-    const label = t(VISUALIZER_VIEWS[next].label) + (setAside ? t((d) => d.player.visualizerToastSuffix) : "");
-    setToast((was) => ({ label, id: (was?.id ?? 0) + 1, gone: false }));
+    const name = t(VISUALIZER_VIEWS[next].label);
+    const label = name + (setAside ? t((d) => d.player.visualizerToastSuffix) : "");
+    setToast((was) => ({ label, name, kind: next, id: (was?.id ?? 0) + 1, gone: false }));
     wake();
   };
 
@@ -170,7 +176,11 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
           role="status"
         >
           <Waves size={15} strokeWidth={1.8} aria-hidden="true" />
-          <span>{t((d) => d.player.visualizerToast, { name: toast.label })}</span>
+          <span>
+            {toastLoading
+              ? t((d) => d.player.visualizerToastLoading, { name: toast.name })
+              : t((d) => d.player.visualizerToast, { name: toast.label })}
+          </span>
         </div>
       ) : null}
 
