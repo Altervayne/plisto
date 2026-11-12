@@ -14,6 +14,7 @@ mod model;
 mod normalize;
 mod paths;
 mod plays;
+mod plugins;
 mod relocate;
 mod resolve;
 mod scan;
