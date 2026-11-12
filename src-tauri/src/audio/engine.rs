@@ -28,6 +28,7 @@ use super::source::{
     self, Cut, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
     SPECTRUM_WINDOW,
 };
+use super::tap::{HeapRegion, TapSlot, TapWriter};
 use super::{
     spectrum, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
 };
@@ -102,6 +103,8 @@ struct Engine {
     fine_spectrum: bool,
     // The live DSP parameters every source's stage reads.
     dsp: Arc<DspShared>,
+    // The audio tap every library source writes while it is active. Previews never feed it.
+    tap: Arc<TapSlot>,
     cur_rate: u32,
     cur_channels: u16,
     cur_duration: f64,
@@ -255,14 +258,16 @@ impl Engine {
         }
     }
 
-    /// Builds a source over `path` on the engine's DSP parameters. See `source::open_source`.
+    /// Builds a source over `path` on the engine's DSP parameters, writing `tap`. See
+    /// `source::open_source`.
     fn open_source(
         &self,
         path: &Path,
         start_secs: Option<f64>,
         gain_db: f32,
+        tap: Option<TapWriter>,
     ) -> Option<DecoderSource> {
-        source::open_source(path, start_secs, gain_db, &self.dsp)
+        source::open_source(path, start_secs, gain_db, &self.dsp, tap)
     }
 
     /// Loads and starts the track at `start`, skipping forward over any that fail to open until one
@@ -288,7 +293,8 @@ impl Engine {
                 return;
             }
             let opened_file = is_ad_hoc(self.queue[i].id);
-            match self.open_source(&self.queue[i].path, None, self.queue[i].gain_db) {
+            let tap = Some(self.tap.cold());
+            match self.open_source(&self.queue[i].path, None, self.queue[i].gain_db, tap) {
                 Some(src) => {
                     self.start_source(i, src);
                     self.emit(true);
@@ -416,10 +422,12 @@ impl Engine {
             return;
         }
         self.preload_tried = Some((slot, id));
-        let src = match self.open_source(&self.queue[slot].path, None, self.queue[slot].gain_db) {
-            Some(s) => s,
-            None => return,
-        };
+        let tap = Some(self.tap.warm());
+        let src =
+            match self.open_source(&self.queue[slot].path, None, self.queue[slot].gain_db, tap) {
+                Some(s) => s,
+                None => return,
+            };
         if src.spec.sample_rate != self.cur_rate || src.spec.channels != self.cur_channels {
             return;
         }
@@ -519,7 +527,7 @@ impl Engine {
     fn preview(&mut self, path: PathBuf, start_secs: f64, end_secs: f64) {
         // The factory seeds the counter at the in-point on the primed rate, the same rate the
         // out-point below uses, so the play head and the boundary agree.
-        let src = match self.open_source(&path, Some(start_secs.max(0.0)), 0.0) {
+        let src = match self.open_source(&path, Some(start_secs.max(0.0)), 0.0, None) {
             Some(s) => s,
             None => return,
         };
@@ -553,7 +561,8 @@ impl Engine {
             Some(t) => (t.path.clone(), t.gain_db),
             None => return,
         };
-        let src = match self.open_source(&path, Some(secs.max(0.0)), gain_db) {
+        let tap = Some(self.tap.cold());
+        let src = match self.open_source(&path, Some(secs.max(0.0)), gain_db, tap) {
             Some(s) => s,
             None => return,
         };
@@ -579,7 +588,8 @@ impl Engine {
         }
         let i = clamp_index(index, queue.len());
         let start = if secs > 0.0 { Some(secs) } else { None };
-        let src = match self.open_source(&queue[i].path, start, queue[i].gain_db) {
+        let tap = Some(self.tap.cold());
+        let src = match self.open_source(&queue[i].path, start, queue[i].gain_db, tap) {
             Some(s) => s,
             None => {
                 let _ = self.app.emit("player:error", PlayerNotice::File);
@@ -614,7 +624,8 @@ impl Engine {
             Some(t) if self.cur_track_id.is_some() => (t.path.clone(), t.gain_db),
             _ => return,
         };
-        let src = match self.open_source(&path, Some(secs), gain_db) {
+        let tap = Some(self.tap.cold());
+        let src = match self.open_source(&path, Some(secs), gain_db, tap) {
             Some(s) => s,
             None => return,
         };
@@ -1066,6 +1077,7 @@ fn run(
         prev_bands: [0.0; BAND_COUNT],
         fine_spectrum: false,
         dsp: Arc::new(DspShared::default()),
+        tap: Arc::new(TapSlot::new(HeapRegion::new())),
         cur_rate: 0,
         cur_channels: 0,
         cur_duration: 0.0,

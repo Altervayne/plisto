@@ -1,8 +1,9 @@
 /*
  * The decoded-audio source the engine feeds rodio: a pull-based decoder adapted into a `Source`, its
- * DSP stage, and the lock-free spectrum tap it writes while it plays. All run on rodio's mixer thread
- * and are read back on the engine thread through shared atomics. `open_source` is the one way a
- * source is built, so every path gets the same stage and the same start seed.
+ * DSP stage, the lock-free spectrum tap it writes while it plays, and its writer on the audio tap
+ * (`tap.rs`) when it has one. All run on rodio's mixer thread and are read back on the engine thread
+ * through shared atomics. `open_source` is the one way a source is built, so every path gets the
+ * same stage and the same start seed.
  */
 
 // -- Library Imports --
@@ -16,6 +17,7 @@ use rodio::{Sink, Source};
 
 // -- Local Imports --
 use super::dsp::{DspShared, DspStage};
+use super::tap::TapWriter;
 use super::{decode, AudioSpec};
 
 // The ring of recent mono samples the spectrum reader taps. A power of two so the write index masks
@@ -73,6 +75,11 @@ pub(super) struct DecoderSource {
     // Where the block the output converter is reading from this source ends, in samples on the
     // `frames` scale (frames x channels). Written when the converter starts a block, read by `Cut`.
     block_end: Arc<AtomicU64>,
+    // The audio tap's writer, None for a source that never feeds it (a preview).
+    tap: Option<TapWriter>,
+    // Whether the next sample goes to the tap: set until the first sample, then the writer's answer
+    // at each refill. The only tap check on the per-sample path.
+    tap_live: bool,
 }
 
 impl DecoderSource {
@@ -83,6 +90,7 @@ impl DecoderSource {
         mut decoder: decode::Decoder,
         start_secs: f64,
         mut stage: DspStage,
+        tap: Option<TapWriter>,
     ) -> Option<Self> {
         let first = decoder.next_packet()?;
         // Tuned to the primed layout, the stage lands on its target before the first sample.
@@ -114,26 +122,51 @@ impl DecoderSource {
             block_end: Arc::new(AtomicU64::new(
                 start_frame * first.spec.channels as u64 + PRIMER_SAMPLES as u64,
             )),
+            tap_live: tap.is_some(),
+            tap,
         })
+    }
+
+    /// Sets `ended` and publishes the tap, so a gapless successor writes from this source's last
+    /// sample.
+    fn finish(&mut self) {
+        if let Some(tap) = &self.tap {
+            tap.publish();
+        }
+        self.ended.store(true, Ordering::Relaxed);
+    }
+
+    /// Hands one processed sample to the tap. The first call runs the writer's first refill, since
+    /// the primed packet was read on the engine thread, before the source reached the audio thread.
+    fn feed_tap(&mut self, s: f32) {
+        let Some(tap) = &mut self.tap else {
+            return;
+        };
+        if !tap.started() && !tap.refill(self.spec) {
+            self.tap_live = false;
+            return;
+        }
+        tap.push(s);
     }
 }
 
 /// Opens `path` as a playable source, seeking to `start_secs` when one is given, with a DSP stage
-/// on `dsp` carrying the track's levelling gain. None when the file does not open, the seek fails,
-/// or the stream yields no first packet. A start of None reads from the top without seeking, which
-/// keeps the decoder's own priming intact.
+/// on `dsp` carrying the track's levelling gain and `tap` as its audio tap writer. None when the file
+/// does not open, the seek fails, or the stream yields no first packet. A start of None reads from
+/// the top without seeking, which keeps the decoder's own priming intact.
 pub(super) fn open_source(
     path: &Path,
     start_secs: Option<f64>,
     gain_db: f32,
     dsp: &Arc<DspShared>,
+    tap: Option<TapWriter>,
 ) -> Option<DecoderSource> {
     let mut decoder = decode::Decoder::open(path).ok()?;
     if let Some(secs) = start_secs {
         decoder.seek(secs).ok()?;
     }
     let stage = DspStage::new(Arc::clone(dsp), gain_db);
-    DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage)
+    DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage, tap)
 }
 
 // rodio's queue reports the layout of the source it just finished until it pulls the next one, so
@@ -208,9 +241,11 @@ impl Iterator for DecoderSource {
                     self.pos = 0;
                     self.spec = chunk.spec;
                     self.stage.refresh(self.spec);
+                    let spec = self.spec;
+                    self.tap_live = self.tap.as_mut().is_some_and(|t| t.refill(spec));
                 }
                 None => {
-                    self.ended.store(true, Ordering::Relaxed);
+                    self.finish();
                     return None;
                 }
             }
@@ -218,11 +253,15 @@ impl Iterator for DecoderSource {
         // A refilled packet is never empty in practice, but guard the index so a degenerate empty
         // packet ends the stream cleanly instead of panicking on the audio thread.
         if self.pos >= self.buffer.len() {
-            self.ended.store(true, Ordering::Relaxed);
+            self.finish();
             return None;
         }
-        // The tap and rodio both take the processed sample, so the visuals follow the DSP.
+        // The taps and rodio all take the processed sample, so the visuals follow the DSP. The output
+        // volume is applied after this point.
         let s = self.stage.process(self.buffer[self.pos], self.chan_cursor);
+        if self.tap_live {
+            self.feed_tap(s);
+        }
         self.pos += 1;
         self.chan_cursor += 1;
         self.frame_sum += s;
@@ -276,7 +315,7 @@ impl Source for DecoderSource {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::audio::dsp::db_to_gain;
     use rodio::source::UniformSourceIterator;
@@ -288,12 +327,12 @@ mod tests {
     // ---- DecoderSource frame counting ----
 
     // A unique throwaway directory under the system temp dir, removed on drop.
-    struct TempDir {
-        path: PathBuf,
+    pub(in crate::audio) struct TempDir {
+        pub(in crate::audio) path: PathBuf,
     }
 
     impl TempDir {
-        fn new(tag: &str) -> Self {
+        pub(in crate::audio) fn new(tag: &str) -> Self {
             static COUNTER: AtomicU32 = AtomicU32::new(0);
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
             let nanos = std::time::SystemTime::now()
@@ -317,7 +356,7 @@ mod tests {
 
     // A canonical 16-bit PCM WAV: the 44-byte header plus interleaved little-endian i16 frames,
     // ramping so the decoded signal is known and in range. Mirrors the decoder test's helper.
-    fn write_wav(path: &Path, rate: u32, channels: u16, frames: usize) {
+    pub(in crate::audio) fn write_wav(path: &Path, rate: u32, channels: u16, frames: usize) {
         let bits = 16u16;
         let block_align = channels * bits / 8;
         let byte_rate = rate * block_align as u32;
@@ -351,11 +390,11 @@ mod tests {
 
     // The source over `path` with an identity stage, built the way the engine builds one.
     fn identity_source(path: &Path, start_secs: Option<f64>) -> Option<DecoderSource> {
-        open_source(path, start_secs, 0.0, &Arc::new(DspShared::default()))
+        open_source(path, start_secs, 0.0, &Arc::new(DspShared::default()), None)
     }
 
     // Every sample the decoder yields for `path`, with no source or stage in between.
-    fn raw_samples(path: &Path) -> Vec<f32> {
+    pub(in crate::audio) fn raw_samples(path: &Path) -> Vec<f32> {
         let mut dec = decode::Decoder::open(path).expect("opens the WAV");
         let mut out = Vec::new();
         while let Some(chunk) = dec.next_packet() {
@@ -438,7 +477,8 @@ mod tests {
         let plain_out: Vec<f32> = plain.collect();
 
         let dec = decode::Decoder::open(&path).expect("opens the WAV");
-        let halved = DecoderSource::new(dec, 0.0, DspStage::with_preamp(-6.0)).expect("primes");
+        let halved =
+            DecoderSource::new(dec, 0.0, DspStage::with_preamp(-6.0), None).expect("primes");
         let halved_tap = Arc::clone(&halved.spectrum);
         let halved_out: Vec<f32> = halved.collect();
 
@@ -457,7 +497,7 @@ mod tests {
 
     // ---- The rodio queue boundary ----
 
-    fn bits(v: &[f32]) -> Vec<u32> {
+    pub(in crate::audio) fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|s| s.to_bits()).collect()
     }
 

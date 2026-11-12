@@ -26,6 +26,7 @@ mod queue;
 pub mod silence;
 mod source;
 pub mod spectrum;
+mod tap;
 
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};
