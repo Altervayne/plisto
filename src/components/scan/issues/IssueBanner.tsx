@@ -5,7 +5,7 @@ import { Check } from "lucide-react";
 import type { IssueNotice } from "../../../state/scanIssues";
 
 // -- i18n Imports --
-import { useT } from "../../../i18n";
+import { useLocale, useT } from "../../../i18n";
 
 // -- Style Imports --
 import styles from "./IssueBanner.module.css";
@@ -17,14 +17,29 @@ import styles from "./IssueBanner.module.css";
  */
 export function IssueBanner({ notice }: { notice: IssueNotice | null }) {
   const t = useT();
+  const locale = useLocale();
   if (!notice) return null;
 
   let text: string;
   let mark: "check" | "ring" | null = null;
+  // Percent done, set only for the progress form.
+  let percent: number | null = null;
   switch (notice.kind) {
-    case "retrying":
-      text = t((d) => d.scan.issueRetryingLine, { n: notice.n });
+    case "retrying": {
+      const progress = notice.progress;
+      // A single file has nothing to count, so it keeps the plain line.
+      if (progress && progress.total > 1) {
+        percent = Math.min(100, Math.max(0, (progress.done / progress.total) * 100));
+      }
+      text =
+        progress && progress.total > 1
+          ? t((d) => d.scan.issueRetryProgress, {
+              done: progress.done.toLocaleString(locale),
+              total: progress.total.toLocaleString(locale),
+            })
+          : t((d) => d.scan.issueRetryingLine, { n: notice.n });
       break;
+    }
     case "result": {
       const fixed = t((d) => d.scan.issueFixed, { n: notice.cleared });
       const none = notice.stillFailing === 0;
@@ -48,6 +63,11 @@ export function IssueBanner({ notice }: { notice: IssueNotice | null }) {
 
   return (
     <p className={`${styles.note} tabular`} role="status">
+      {percent !== null ? (
+        <span className={styles.bar} aria-hidden="true">
+          <i style={{ width: `${percent}%` }} />
+        </span>
+      ) : null}
       {mark === "check" ? <Check size={15} className={styles.check} aria-hidden="true" /> : null}
       {mark === "ring" ? <span className={styles.ring} aria-hidden="true" /> : null}
       <span>{text}</span>

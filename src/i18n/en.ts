@@ -154,6 +154,7 @@ export const en = {
     issueRetryThese: "Retry these {{n}}",
     issueRetrying: "Retrying...",
     issueRetryingLine: { one: "Retrying {{n}} file...", other: "Retrying {{n}} files..." },
+    issueRetryProgress: "Retrying {{done}} of {{total}}...",
     issueFixed: { one: "{{n}} fixed", other: "{{n}} fixed" },
     issueStillUnreadable: { one: "{{n}} still unreadable", other: "{{n}} still unreadable" },
     issueScanRunning: "A scan is running. Try again when it finishes.",

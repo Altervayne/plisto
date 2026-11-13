@@ -155,6 +155,7 @@ export const fr: Dict = {
     issueRetryThese: "Réessayer ces {{n}}",
     issueRetrying: "Nouvel essai...",
     issueRetryingLine: { one: "Nouvel essai sur {{n}} fichier...", other: "Nouvel essai sur {{n}} fichiers..." },
+    issueRetryProgress: "Nouvel essai : {{done}} sur {{total}}...",
     issueFixed: { one: "{{n}} corrigé", other: "{{n}} corrigés" },
     issueStillUnreadable: { one: "{{n}} toujours illisible", other: "{{n}} toujours illisibles" },
     issueScanRunning: "Une analyse est en cours. Réessayez quand elle sera terminée.",

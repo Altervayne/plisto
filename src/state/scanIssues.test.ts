@@ -261,6 +261,54 @@ describe("retry", () => {
   });
 });
 
+describe("retry progress", () => {
+  const startRetry = () => {
+    useScanIssuesStore.setState({ rows: [issue(1), issue(2)], total: 2 });
+    let finish: (v: { retried: number; cleared: number; remaining: number }) => void = () => {};
+    vi.mocked(scanIssuesRetry).mockReturnValue(new Promise((r) => (finish = r)));
+    vi.mocked(scanIssuesList).mockResolvedValue(page(2, [1, 2], { in_use: 2 }));
+    vi.mocked(scanIssuesCount).mockResolvedValue(2);
+    const run = state().retryShown();
+    return { run, finish };
+  };
+
+  it("folds ticks into the running notice", async () => {
+    const { run, finish } = startRetry();
+    state().applyRetryProgress({ done: 0, total: 2 });
+    expect(state().notice).toEqual({ kind: "retrying", n: 2, progress: { done: 0, total: 2 } });
+    state().applyRetryProgress({ done: 1, total: 2 });
+    expect(state().notice).toMatchObject({ progress: { done: 1, total: 2 } });
+    finish({ retried: 2, cleared: 0, remaining: 2 });
+    await run;
+  });
+
+  it("ignores a tick when no retry runs", () => {
+    state().applyRetryProgress({ done: 1, total: 2 });
+    expect(state().notice).toBeNull();
+    useScanIssuesStore.setState({ notice: { kind: "failed" } });
+    state().applyRetryProgress({ done: 1, total: 2 });
+    expect(state().notice).toEqual({ kind: "failed" });
+  });
+
+  it("ignores a tick that arrives after the reply", async () => {
+    const { run, finish } = startRetry();
+    state().applyRetryProgress({ done: 1, total: 2 });
+    finish({ retried: 2, cleared: 1, remaining: 1 });
+    await run;
+    state().applyRetryProgress({ done: 2, total: 2 });
+    expect(state().notice).toEqual({ kind: "result", cleared: 1, stillFailing: 1 });
+  });
+
+  it("drops a done lower than the current one", async () => {
+    const { run, finish } = startRetry();
+    state().applyRetryProgress({ done: 5, total: 12 });
+    state().applyRetryProgress({ done: 3, total: 12 });
+    expect(state().notice).toMatchObject({ progress: { done: 5, total: 12 } });
+    finish({ retried: 2, cleared: 0, remaining: 2 });
+    await run;
+  });
+});
+
 describe("dismiss", () => {
   it("drops one row at once, then refreshes the list and the count", async () => {
     useScanIssuesStore.setState({ rows: [issue(1), issue(2)], total: 2 });

@@ -21,3 +21,20 @@
   border-radius: 50%;
   border: 1.5px solid var(--ink-3);
 }
+
+/* Determinate progress: fills left to right and stops. No transition, nothing pulses or sweeps. */
+.bar {
+  flex: none;
+  width: 220px;
+  height: 4px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--pill);
+  background: var(--accent);
+}

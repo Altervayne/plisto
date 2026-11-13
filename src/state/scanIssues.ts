@@ -23,7 +23,12 @@ import {
 import { withRetry } from "../lib/withRetry";
 
 // -- Type Imports --
-import type { ScanIssue, ScanIssuePage, ScanIssueReason } from "../types";
+import type {
+  ScanIssue,
+  ScanIssuePage,
+  ScanIssueReason,
+  ScanIssueRetryProgress,
+} from "../types";
 
 /** Rows fetched per page of the list. */
 export const ISSUES_PAGE_SIZE = 200;
@@ -34,9 +39,12 @@ const SCAN_RUNNING = "a scan is already running";
 /** Where a read stands. `error` keeps whatever was loaded before. */
 export type IssuesStatus = "idle" | "loading" | "ready" | "error";
 
-/** The one calm line the sheet shows about the last action. It clears on the next action. */
+/**
+ * The one calm line the sheet shows about the last action. It clears on the next action. A retrying
+ * notice carries `progress` once the first tick has arrived.
+ */
 export type IssueNotice =
-  | { kind: "retrying"; n: number }
+  | { kind: "retrying"; n: number; progress?: ScanIssueRetryProgress }
   | { kind: "result"; cleared: number; stillFailing: number }
   | { kind: "scanRunning" }
   | { kind: "noLog" }
@@ -75,6 +83,8 @@ interface ScanIssuesStore {
   // Retry one row, or everything the filter shows.
   retryOne: (id: number) => Promise<void>;
   retryShown: () => Promise<void>;
+  // Folds a retry tick into the running retry's notice; ignored when no retry runs.
+  applyRetryProgress: (tick: ScanIssueRetryProgress) => void;
   // Dismiss one row, or everything the filter shows.
   dismissOne: (id: number) => Promise<void>;
   dismissShown: () => Promise<void>;
@@ -238,6 +248,13 @@ export const useScanIssuesStore = create<ScanIssuesStore>((set, get) => {
     },
     retryOne: (id) => runRetry([id], 1),
     retryShown: () => runRetry(null, get().total),
+    applyRetryProgress: (tick) => {
+      const { notice } = get();
+      if (notice?.kind !== "retrying") return;
+      // Progress never steps back, so a tick that arrives out of order is dropped.
+      if (notice.progress && tick.done < notice.progress.done) return;
+      set({ notice: { ...notice, progress: tick } });
+    },
     dismissOne: async (id) => {
       // The row leaves at once; the refresh that follows brings the counts into line.
       const depth = get().rows.length;

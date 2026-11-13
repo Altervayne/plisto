@@ -180,6 +180,14 @@ pub struct ScanIssueRetryResult {
     pub remaining: u32,
 }
 
+/// A running retry's progress: issue rows finished out of the rows it selected. Mirrors
+/// ScanIssueRetryProgress in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ScanIssueRetryProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
 /// One vocabulary genre shaped for the frontend: its display name and how many tracks carry it,
 /// from a COUNT join over `track_genres`. Genre is per-track and multi-valued behind this managed
 /// vocabulary, so a row here is a vocabulary entry, not a per-track membership. Mirrors GenreRow.

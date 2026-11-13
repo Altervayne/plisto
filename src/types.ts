@@ -162,6 +162,15 @@ export interface ScanIssuePage {
   by_reason: Partial<Record<ScanIssueReason, number>>;
 }
 
+/**
+ * A tick of a running retry: `total` rows were selected, `done` of them are finished. Mirrors
+ * ScanIssueRetryProgress in dto.rs.
+ */
+export interface ScanIssueRetryProgress {
+  done: number;
+  total: number;
+}
+
 /** The outcome of a retry. Mirrors ScanIssueRetryResult in dto.rs. */
 export interface ScanIssueRetryResult {
   retried: number;

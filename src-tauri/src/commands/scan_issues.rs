@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use crate::db::scan_issues::{self, Selection};
-use crate::dto::{LibraryDelta, ScanIssuePage, ScanIssueRetryResult};
+use crate::dto::{LibraryDelta, ScanIssuePage, ScanIssueRetryProgress, ScanIssueRetryResult};
 use crate::scan::issues::Reason;
 use crate::scan::log::log_path;
 use crate::scan::retry::retry_issues;
@@ -51,7 +51,8 @@ pub fn scan_issues_count(state: State<'_, AppState>) -> Result<u32, String> {
 
 /// Retries the issues named by `ids`, else every issue of `reason`, else all of them: each file is
 /// read again and each failed folder rescanned. Rejects while a user scan runs and preempts a
-/// background pass. Changed tracks are announced on `library:delta` so open lists update.
+/// background pass. Changed tracks are announced on `library:delta` so open lists update, and rows
+/// finished out of rows selected on `scan-issues:retry-progress`.
 #[tauri::command]
 pub async fn scan_issues_retry(
     ids: Option<Vec<i64>>,
@@ -60,7 +61,13 @@ pub async fn scan_issues_retry(
 ) -> Result<ScanIssueRetryResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        run_retry(&state, ids, reason.as_deref(), |e| announce(&app, e))
+        run_retry(
+            &state,
+            ids,
+            reason.as_deref(),
+            |e| announce(&app, e),
+            |p| announce_progress(&app, p),
+        )
     })
     .await
     .map_err(|_| "retry task failed to run".to_string())?
@@ -119,6 +126,11 @@ fn announce(app: &AppHandle, emit: ScanEmit) {
     }
 }
 
+/// Tells the issues sheet how far a retry has got.
+fn announce_progress(app: &AppHandle, progress: ScanIssueRetryProgress) {
+    let _ = app.emit("scan-issues:retry-progress", progress);
+}
+
 /// The reason filter as a code, None for no filter, an error for anything else.
 fn parse_reason(reason: Option<&str>) -> Result<Option<Reason>, String> {
     reason
@@ -164,14 +176,16 @@ fn clear(conn: &Connection, ids: Option<Vec<i64>>, reason: Option<&str>) -> Resu
 
 /// Takes the scan lock, resolves the selection, and retries it. A running user scan fails the lock
 /// with the usual busy error before anything is read or written.
-fn run_retry<E>(
+fn run_retry<E, P>(
     state: &AppState,
     ids: Option<Vec<i64>>,
     reason: Option<&str>,
     emit: E,
+    progress: P,
 ) -> Result<ScanIssueRetryResult, String>
 where
     E: Fn(ScanEmit) + Sync,
+    P: Fn(ScanIssueRetryProgress),
 {
     let selection = selection(ids, reason)?;
     let _lock = acquire_scan_lock(state, Holder::User)?;
@@ -191,6 +205,7 @@ where
         &picked,
         super::now_unix(),
         emit,
+        progress,
     )
 }
 
@@ -387,6 +402,8 @@ mod tests {
 
     fn quiet(_e: ScanEmit) {}
 
+    fn no_progress(_p: ScanIssueRetryProgress) {}
+
     #[test]
     fn retry_by_ids_by_reason_and_all() {
         let setup = Setup::new();
@@ -394,15 +411,16 @@ mod tests {
         assert_eq!(ids.len(), 2);
         setup.fix_all();
 
-        let one = run_retry(&setup.state, Some(vec![ids[0]]), None, quiet).unwrap();
+        let one = run_retry(&setup.state, Some(vec![ids[0]]), None, quiet, no_progress).unwrap();
         assert_eq!((one.retried, one.cleared, one.remaining), (1, 1, 1));
 
         // The reason filter does not match the remaining row, so nothing is retried.
-        let none = run_retry(&setup.state, None, Some("disk_error"), quiet).unwrap();
+        let none = run_retry(&setup.state, None, Some("disk_error"), quiet, no_progress).unwrap();
         assert_eq!((none.retried, none.cleared, none.remaining), (0, 0, 1));
 
         let by_reason =
-            run_retry(&setup.state, None, Some("corrupt_or_unsupported"), quiet).unwrap();
+            run_retry(&setup.state, None, Some("corrupt_or_unsupported"), quiet, no_progress)
+                .unwrap();
         assert_eq!(
             (by_reason.retried, by_reason.cleared, by_reason.remaining),
             (1, 1, 0)
@@ -414,7 +432,7 @@ mod tests {
         let setup = Setup::new();
         setup.fix_all();
 
-        let all = run_retry(&setup.state, None, None, quiet).unwrap();
+        let all = run_retry(&setup.state, None, None, quiet, no_progress).unwrap();
 
         assert_eq!((all.retried, all.cleared, all.remaining), (2, 2, 0));
     }
@@ -425,7 +443,7 @@ mod tests {
         setup.fix_all();
         let held = acquire_scan_lock(&setup.state, Holder::User).unwrap();
 
-        let blocked = run_retry(&setup.state, None, None, quiet);
+        let blocked = run_retry(&setup.state, None, None, quiet, no_progress);
 
         assert_eq!(blocked.err().as_deref(), Some("a scan is already running"));
         let rows = setup.rows();
@@ -438,7 +456,7 @@ mod tests {
     fn retry_with_an_unknown_reason_is_an_error_before_the_lock() {
         let setup = Setup::new();
 
-        let result = run_retry(&setup.state, None, Some("nope"), quiet);
+        let result = run_retry(&setup.state, None, Some("nope"), quiet, no_progress);
 
         assert!(result.is_err());
         assert!(
