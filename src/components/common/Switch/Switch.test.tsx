@@ -12,7 +12,7 @@ import { ExportSections } from "../../export/ExportSections";
 // -- Type Imports --
 import type { ReactElement } from "react";
 
-type Button = ReactElement<{ onClick: () => void; disabled: boolean; "aria-checked": boolean }>;
+type Button = ReactElement<{ onClick: () => void; disabled: boolean; "aria-checked": boolean; "aria-busy"?: string }>;
 
 /** The switch is a hookless component, so its element tree reads straight off the call. */
 const button = (props: Partial<Parameters<typeof Switch>[0]> = {}): Button =>
@@ -32,6 +32,23 @@ describe("Switch", () => {
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain('aria-label="Mirroring"');
     expect(html).toContain("disabled");
+  });
+});
+
+describe("Switch pending", () => {
+  it("is busy, not disabled, and ignores the press", () => {
+    const onChange = vi.fn();
+    const el = button({ checked: false, onChange, pending: true });
+    el.props.onClick();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(el.props["aria-busy"]).toBe("true");
+    expect(el.props.disabled).toBe(false);
+  });
+
+  it("leaves the knob state and the busy mark off when not pending", () => {
+    const el = button({ checked: true });
+    expect(el.props["aria-busy"]).toBeUndefined();
+    expect(el.props["aria-checked"]).toBe(true);
   });
 });
 

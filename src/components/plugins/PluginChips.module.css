@@ -1,0 +1,23 @@
+/* A chip in a rail row: quiet ink, never animated and never resized by an update. */
+.chip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count is never cut short; a text chip beside it gives way. */
+.count {
+  flex: none;
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.warn {
+  color: var(--warn);
+}

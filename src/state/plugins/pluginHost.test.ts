@@ -9,7 +9,10 @@ import {
   isFrameLoaded,
   onPong,
   sendInit,
+  hasLiveFrame,
   sendPing,
+  sendRoute,
+  sendSidebar,
   sendVisibility,
   startPluginHost,
 } from "./pluginHost";
@@ -57,7 +60,7 @@ afterEach(() => {
   stop = null;
 });
 
-function setup(sleep?: (ms: number) => Promise<void>) {
+function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: string) => void) {
   let listener: ((event: HostMessage) => void) | null = null;
   let themeListener: (() => void) | null = null;
   let theme: FrameTheme = "light";
@@ -75,6 +78,7 @@ function setup(sleep?: (ms: number) => Promise<void>) {
     },
     invoke,
     sleep,
+    frameGone,
     theme: () => theme,
     subscribeTheme: (fn) => {
       themeListener = fn;
@@ -434,6 +438,143 @@ describe("heartbeat traffic", () => {
     off();
     emit(a, { plisto: 1, type: "plisto:pong", seq: 5 });
     expect(seen).toEqual([["k-a", 3]]);
+  });
+});
+
+/** Attaches, loads and initialises one frame; resolves once its init is posted. */
+async function liveFrame(calls: Pending[], mountKey: string, pluginId: string, routePath: string | null = null) {
+  const win = new FakeWindow();
+  attachFrame(mountKey, pluginId, win);
+  frameLoaded(mountKey);
+  const from = calls.length;
+  const done = sendInit(mountKey, routePath);
+  answerInit(calls, from);
+  expect(await done).toBe(true);
+  return win;
+}
+
+const DELIVERY = { item_id: "auto", value: true, gesture: "g1.00000000000000000000000000000000" };
+
+describe("sidebar delivery", () => {
+  it("reaches only the newest live, initialised record of the plugin", async () => {
+    const { calls } = setup();
+    const older = await liveFrame(calls, "k-a1", "plug-a");
+    const newer = await liveFrame(calls, "k-a2", "plug-a");
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    // A newer frame of the plugin that has not finished init is skipped.
+    const loading = new FakeWindow();
+    attachFrame("k-a3", "plug-a", loading);
+    frameLoaded("k-a3");
+
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(true);
+    expect(newer.posted[newer.posted.length - 1]).toEqual({
+      msg: { plisto: 1, type: "plisto:sidebar", item_id: "auto", value: true, gesture: DELIVERY.gesture },
+      origin: "*",
+    });
+    expect(older.types()).toEqual(["plisto:init"]);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(loading.posted).toEqual([]);
+  });
+
+  it("never falls back to another plugin's frame", async () => {
+    const { calls } = setup();
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    const own = new FakeWindow();
+    attachFrame("k-a", "plug-a", own);
+    frameLoaded("k-a");
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(false);
+    expect(hasLiveFrame("plug-a")).toBe(false);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(own.posted).toEqual([]);
+  });
+
+  it("returns false with no frame, after detach and for a navigated frame", async () => {
+    const { calls } = setup();
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(false);
+    const a = await liveFrame(calls, "k-a", "plug-a");
+    expect(hasLiveFrame("plug-a")).toBe(true);
+    frameLoaded("k-a");
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(false);
+    detachFrame("k-a");
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(false);
+    expect(hasLiveFrame("plug-a")).toBe(false);
+    expect(a.types()).toEqual(["plisto:init"]);
+  });
+
+  it("falls back to the older record once the newer one is gone", async () => {
+    const { calls } = setup();
+    const older = await liveFrame(calls, "k-a1", "plug-a");
+    await liveFrame(calls, "k-a2", "plug-a");
+    detachFrame("k-a2");
+    expect(sendSidebar("plug-a", DELIVERY)).toBe(true);
+    expect(older.types()).toEqual(["plisto:init", "plisto:sidebar"]);
+  });
+});
+
+describe("route", () => {
+  it("holds a route until init, which carries the latest one", async () => {
+    const { calls, frame } = setup();
+    const a = frame("a");
+    frameLoaded("k-a");
+    sendVisibility("k-a", true);
+    sendRoute("k-a", "one");
+    const done = sendInit("k-a", "one");
+    sendRoute("k-a", "two");
+    answerInit(calls);
+    await done;
+    expect(a.types()).toEqual(["plisto:init"]);
+    expect(a.posted[0].msg).toMatchObject({ route: "two" });
+  });
+
+  it("posts only a changed route, only while the page is open", async () => {
+    const { calls } = setup();
+    const a = new FakeWindow();
+    attachFrame("k-a", "plug-a", a);
+    sendVisibility("k-a", true);
+    frameLoaded("k-a");
+    const done = sendInit("k-a", "x");
+    answerInit(calls);
+    await done;
+
+    sendRoute("k-a", "x");
+    expect(a.types()).toEqual(["plisto:init"]);
+    sendRoute("k-a", "y");
+    sendRoute("k-a", "y");
+    expect(a.types()).toEqual(["plisto:init", "plisto:route"]);
+    expect(a.posted[1].msg).toEqual({ plisto: 1, type: "plisto:route", route: "y" });
+
+    sendVisibility("k-a", false);
+    sendRoute("k-a", null);
+    expect(a.types()).toEqual(["plisto:init", "plisto:route", "plisto:visibility"]);
+    sendVisibility("k-a", true);
+    sendRoute("k-a", null);
+    expect(a.posted[a.posted.length - 1].msg).toEqual({ plisto: 1, type: "plisto:route", route: null });
+  });
+});
+
+describe("frame gone", () => {
+  it("reports a plugin once its last frame detaches", async () => {
+    const gone = vi.fn();
+    const { calls } = setup(undefined, gone);
+    await liveFrame(calls, "k-a1", "plug-a");
+    await liveFrame(calls, "k-a2", "plug-a");
+    detachFrame("k-a1");
+    expect(gone).not.toHaveBeenCalled();
+    detachFrame("k-a2");
+    detachFrame("k-a2");
+    expect(gone.mock.calls).toEqual([["plug-a"]]);
+  });
+
+  it("does not report a frame replaced by a new attach, and reports every plugin on stop", () => {
+    const gone = vi.fn();
+    const { frame } = setup(undefined, gone);
+    const a = frame("a");
+    attachFrame("k-a", "plug-a", a);
+    frame("b");
+    expect(gone).not.toHaveBeenCalled();
+    stop?.();
+    stop = null;
+    expect(gone.mock.calls.map((c) => c[0]).sort()).toEqual(["plug-a", "plug-b"]);
   });
 });
 

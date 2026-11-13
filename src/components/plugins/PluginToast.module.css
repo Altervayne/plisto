@@ -1,0 +1,41 @@
+/*
+ * The plugin pill on the shared toast material: the plugin's identity leads, then its text on one line
+ * when it fits and wrapped inside the max width when not. The `div` raises this over the pill's own padding.
+ */
+div.pill {
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  max-width: min(560px, calc(100vw - 48px));
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-2);
+}
+
+/* The name and the action label are the plugin's text too, so they clip as `.text` does. */
+.name {
+  flex: none;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+  overflow: hidden;
+  line-height: 1.45;
+}
+
+div.pill button {
+  flex: none;
+  overflow: hidden;
+}
+
+.text {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+  /* Clips a stack of combining marks to the pill; the line height keeps accents and descenders whole. */
+  overflow: hidden;
+  line-height: 1.45;
+}

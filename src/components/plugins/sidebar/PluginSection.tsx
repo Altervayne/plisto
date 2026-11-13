@@ -32,27 +32,31 @@ import type { ZoneSection } from "../../shell/navVisibility";
 import shellStyles from "../../shell/Sidebar.module.css";
 import styles from "./PluginSection.module.css";
 
-/** One declared item in its fixed Plisto-drawn form. Only a nav item is live at rest. */
+/** One declared item in its fixed Plisto-drawn form, live once the plugin sets its state. */
 function ItemRow({
+  pluginId,
+  pluginName,
   item,
   active,
   onOpen,
 }: {
+  pluginId: string;
+  pluginName: string;
   item: PluginSidebarItem;
   active: boolean;
   onOpen: (route: string | null) => void;
 }) {
   switch (item.type) {
     case "nav":
-      return <NavRowItem item={item} active={active} onOpen={onOpen} />;
+      return <NavRowItem pluginId={pluginId} item={item} active={active} onOpen={onOpen} />;
     case "status":
-      return <StatusLineItem item={item} />;
+      return <StatusLineItem pluginId={pluginId} item={item} />;
     case "progress":
-      return <ProgressItem item={item} />;
+      return <ProgressItem pluginId={pluginId} item={item} />;
     case "toggle":
-      return <ToggleItem item={item} />;
+      return <ToggleItem pluginId={pluginId} pluginName={pluginName} item={item} />;
     case "action":
-      return <ActionItem item={item} />;
+      return <ActionItem pluginId={pluginId} pluginName={pluginName} item={item} />;
   }
 }
 
@@ -107,7 +111,14 @@ export function PluginSection({
       {collapsed ? null : (
         <div id={itemsId} className={styles.items}>
           {items.map((item) => (
-            <ItemRow key={item.id} item={item} active={item.id === activeId} onOpen={onOpen} />
+            <ItemRow
+              key={item.id}
+              pluginId={plugin.id}
+              pluginName={name}
+              item={item}
+              active={item.id === activeId}
+              onOpen={onOpen}
+            />
           ))}
         </div>
       )}

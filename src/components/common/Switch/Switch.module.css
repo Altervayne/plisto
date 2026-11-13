@@ -21,6 +21,11 @@
   opacity: 0.5;
 }
 
+/* A change is on its way: dimmed, with no motion in or out. */
+.switch.pending {
+  opacity: 0.55;
+}
+
 /* The knob rides from left to right as the switch flips. */
 .knob {
   position: absolute;

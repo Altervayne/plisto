@@ -10,6 +10,8 @@ import {
   pingMsg,
   resultMsg,
   route,
+  routeMsg,
+  sidebarMsg,
   themeMsg,
   visibilityMsg,
 } from "./bridge";
@@ -161,6 +163,16 @@ describe("route: hostile data", () => {
     expect(send(call({ type: 5 }))).toEqual({ kind: "drop" });
     expect(send({ type: "plisto:call" })).toEqual({ kind: "drop" });
   });
+
+  it("drops a frame that sends the host-only sidebar and route messages", () => {
+    const { send } = setup();
+    const sidebar = { plisto: 1, type: "plisto:sidebar", item_id: "auto", value: true, gesture: "g1.x" };
+    const routeMessage = { plisto: 1, type: "plisto:route", route: "settings" };
+    expect(send(sidebar)).toEqual({ kind: "drop" });
+    expect(send(routeMessage)).toEqual({ kind: "drop" });
+    expect(send(call({ type: "plisto:sidebar" }))).toEqual({ kind: "drop" });
+    expect(send(call({ type: "plisto:route" }))).toEqual({ kind: "drop" });
+  });
 });
 
 describe("route: pong", () => {
@@ -290,6 +302,21 @@ describe("FrameMap", () => {
     expect(map.live()).toEqual([]);
     expect(map.detach("missing")).toBeUndefined();
   });
+
+  it("lists only the live records of one plugin, oldest first", () => {
+    const map = new FrameMap<Win>();
+    const first = rec(win("a"), { mountKey: "k1", pluginId: "p" });
+    const second = rec(win("b"), { mountKey: "k2", pluginId: "p" });
+    const other = rec(win("c"), { mountKey: "k3", pluginId: "q" });
+    const gone = rec(win("d"), { mountKey: "k4", pluginId: "p" });
+    for (const r of [first, second, other, gone]) map.attach(r.source, r);
+    map.detach("k4");
+    expect(map.byPlugin("p")).toEqual([first, second]);
+    expect(map.byPlugin("q")).toEqual([other]);
+    second.dead = true;
+    expect(map.byPlugin("p")).toEqual([first]);
+    expect(map.byPlugin("none")).toEqual([]);
+  });
 });
 
 describe("builders", () => {
@@ -306,6 +333,19 @@ describe("builders", () => {
     expect(pingMsg(4)).toEqual({ plisto: 1, type: "plisto:ping", seq: 4 });
     expect(visibilityMsg(false)).toEqual({ plisto: 1, type: "plisto:visibility", page_open: false });
     expect(themeMsg("dark")).toEqual({ plisto: 1, type: "plisto:theme", theme: "dark" });
+  });
+
+  it("builds the sidebar and route messages", () => {
+    expect(sidebarMsg("auto", true, "g1.abc")).toEqual({
+      plisto: 1,
+      type: "plisto:sidebar",
+      item_id: "auto",
+      value: true,
+      gesture: "g1.abc",
+    });
+    expect(sidebarMsg("ping", null, "g1.abc")).toMatchObject({ value: null });
+    expect(routeMsg("settings")).toEqual({ plisto: 1, type: "plisto:route", route: "settings" });
+    expect(routeMsg(null)).toEqual({ plisto: 1, type: "plisto:route", route: null });
   });
 
   it("builds a result from a reply, success or error", () => {

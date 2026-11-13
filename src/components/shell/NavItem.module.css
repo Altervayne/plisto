@@ -46,6 +46,22 @@
   white-space: nowrap;
 }
 
+/* With chips the label gives way first: the chips keep their width, up to just over half the row. */
+.hasChips .txt,
+.hasChips .tagged {
+  flex: 0 1 auto;
+}
+
+.chips {
+  flex: 0 0 auto;
+  max-width: 55%;
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .count {
   font-size: 12px;
   color: var(--ink-3);

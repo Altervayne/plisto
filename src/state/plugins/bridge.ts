@@ -60,7 +60,9 @@ export type HostToFrame =
   | { plisto: 1; type: "plisto:result"; id: number; ok: false; error: ApiErrorShape }
   | { plisto: 1; type: "plisto:ping"; seq: number }
   | { plisto: 1; type: "plisto:visibility"; page_open: boolean }
-  | { plisto: 1; type: "plisto:theme"; theme: "light" | "dark" };
+  | { plisto: 1; type: "plisto:theme"; theme: "light" | "dark" }
+  | { plisto: 1; type: "plisto:sidebar"; item_id: string; value: boolean | null; gesture: string }
+  | { plisto: 1; type: "plisto:route"; route: string | null };
 
 /** One mounted frame as the host tracks it. */
 export interface FrameRecord<S> {
@@ -109,6 +111,11 @@ export class FrameMap<S> {
   /** The records that still take messages. */
   live(): FrameRecord<S>[] {
     return [...this.byMountKey.values()].filter((rec) => !rec.dead);
+  }
+
+  /** The live records of one plugin, oldest attach first, so the last is the newest. */
+  byPlugin(pluginId: string): FrameRecord<S>[] {
+    return this.live().filter((rec) => rec.pluginId === pluginId);
   }
 }
 
@@ -235,4 +242,13 @@ export function visibilityMsg(pageOpen: boolean): HostToFrame {
 
 export function themeMsg(theme: "light" | "dark"): HostToFrame {
   return { plisto: PROTOCOL, type: "plisto:theme", theme };
+}
+
+/** A click Rust accepted on one of the plugin's items; `value` is null for an action. */
+export function sidebarMsg(itemId: string, value: boolean | null, gesture: string): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:sidebar", item_id: itemId, value, gesture };
+}
+
+export function routeMsg(routePath: string | null): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:route", route: routePath };
 }

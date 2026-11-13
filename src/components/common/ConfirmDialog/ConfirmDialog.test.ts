@@ -16,7 +16,13 @@ import { ConfirmDialog } from "./ConfirmDialog";
 // -- Type Imports --
 import type { ReactElement, ReactNode } from "react";
 
-type El = ReactElement<{ children?: ReactNode; onClick?: () => void; className?: string }>;
+type El = ReactElement<{
+  children?: ReactNode;
+  onClick?: () => void;
+  className?: string;
+  role?: string;
+  "data-plugin-prompt"?: string;
+}>;
 
 /** Every element in a rendered tree, depth first. */
 function walk(node: ReactNode, out: El[] = []): El[] {
@@ -73,5 +79,41 @@ describe("ConfirmDialog", () => {
     buttons[1].props.onClick?.();
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries no plugin mark and no identity band by default", () => {
+    const { all } = render({ identity: { icon: "i", name: "Tandem", line: "From a plugin" } });
+    const dialog = all.find((e) => e.props.role === "alertdialog");
+    expect(dialog?.props["data-plugin-prompt"]).toBeUndefined();
+    expect(JSON.stringify(all.map((e) => e.props.children))).not.toContain("From a plugin");
+  });
+
+  describe("plugin variant", () => {
+    const identity = { icon: "i", name: "Tandem", line: "From a plugin" };
+
+    it("marks the dialog and draws the identity band", () => {
+      const { all } = render({ variant: "plugin", identity });
+      const dialog = all.find((e) => e.props.role === "alertdialog");
+      expect(dialog?.props["data-plugin-prompt"]).toBe("");
+      const band = all.find((e) => e.props.children === "From a plugin");
+      expect(band).toBeDefined();
+      expect(all.some((e) => e.props.children === "i")).toBe(true);
+    });
+
+    it("never applies the destructive or accent class to the confirm", () => {
+      const plain = render({ variant: "plugin", identity });
+      const loud = render({ variant: "plugin", identity, destructive: true, accent: true });
+      expect(loud.buttons[1].props.className).toBe(plain.buttons[1].props.className);
+      const tinted = render({ destructive: true, accent: true });
+      expect(tinted.buttons[1].props.className).not.toBe(plain.buttons[1].props.className);
+    });
+
+    it("keeps Cancel and the confirm behavior", () => {
+      const { buttons, onConfirm, onClose } = render({ variant: "plugin", identity });
+      expect(buttons.map((b) => b.props.children)).toEqual(["No", "Yes"]);
+      buttons[1].props.onClick?.();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,7 +1,8 @@
 /*
- * The non-nav items of a plugin section at rest. Each spans the same row box as a built-in nav row (8px
- * padding both sides, 12px icon gap), reads in quiet ink, and has no hover or press state: nothing here
- * is live yet, and nothing moves.
+ * The non-nav items of a plugin section. Each spans the same row box as a built-in nav row (8px padding
+ * both sides, 12px icon gap) and reads in quiet ink. At rest nothing is live, so there is no hover or
+ * press state; once the plugin sets an item (`.live`) it reads one step brighter. The only motion is the
+ * slow indeterminate sweep.
  */
 
 .row {
@@ -14,6 +15,10 @@
   color: var(--ink-3);
 }
 
+.row.live {
+  color: var(--ink-2);
+}
+
 .row svg {
   flex: none;
   opacity: 0.8;
@@ -22,6 +27,8 @@
 /* Reserves the icon column, so a status line's text lines up with the rows around it. */
 .slot {
   flex: none;
+  display: flex;
+  justify-content: center;
   width: 17px;
 }
 
@@ -37,7 +44,27 @@
   font-size: 13px;
 }
 
-/* The bar runs from the icon column to the right padding: the label over an empty track. */
+.row.status.warn {
+  color: var(--warn);
+}
+
+/* The status tone: quiet by default, accent or warn when the plugin says so. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.dotAccent {
+  background: var(--accent);
+}
+
+.dotWarn {
+  background: var(--warn);
+}
+
+/* The bar runs from the icon column to the right padding: the label over a track. */
 .progress {
   display: flex;
   flex-direction: column;
@@ -46,12 +73,54 @@
   padding: 4px 8px 8px;
   font-size: 12px;
   color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .track {
+  position: relative;
   height: 4px;
   border-radius: var(--pill);
   background: var(--veil-2);
+  overflow: hidden;
+}
+
+.fill,
+.sweep {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink-2);
+}
+
+/* A determinate fill follows its value directly; the width never transitions. */
+.fill {
+  width: 0;
+}
+
+/* The unknown-length bar: a calm side-to-side slide with no pulse and no fade. */
+.sweep {
+  position: absolute;
+  left: 0;
+  width: 32%;
+  animation: plugin-sweep 3.2s ease-in-out infinite alternate;
+}
+
+@keyframes plugin-sweep {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(212%);
+  }
+}
+
+/* Reduced motion: a still bar. Stated outright, since the global reduce rule would leave one near-zero iteration. */
+@media (prefers-reduced-motion: reduce) {
+  .sweep {
+    animation: none;
+    transform: none;
+    width: 45%;
+  }
 }
 
 /* A disabled action keeps the nav row's box; the browser's own disabled button look is reset. */
@@ -62,5 +131,23 @@
   text-align: left;
   font: inherit;
   font-weight: 500;
+  cursor: default;
+}
+
+/* A live action is pressable: it warms with the veil on hover like a quiet button. */
+.action.live {
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.action.live:hover:not(:disabled) {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.action.live:disabled {
+  opacity: 0.4;
   cursor: default;
 }

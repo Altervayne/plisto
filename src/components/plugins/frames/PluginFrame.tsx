@@ -12,6 +12,7 @@ import {
   frameLoaded,
   isFrameLoaded,
   sendInit,
+  sendRoute,
   sendVisibility,
 } from "../../../state/plugins/pluginHost";
 
@@ -52,7 +53,7 @@ export function PluginFrame({
   /** Whether this frame's page is the open one. */
   pageOpen: boolean;
   rect: FrameRect | null;
-  /** The route the plugin's page was opened on, handed over at init. */
+  /** The shell's current plugin route: handed over at init, then posted whenever it changes. */
   route: string | null;
   onWait: (mountKey: string) => void;
 }) {
@@ -96,6 +97,11 @@ export function PluginFrame({
   useLayoutEffect(() => {
     if (src != null) sendVisibility(mountKey, pageOpen);
   }, [src, mountKey, pageOpen]);
+
+  // After the visibility effect: the host refuses a route while the page is closed.
+  useLayoutEffect(() => {
+    if (src != null && pageOpen) sendRoute(mountKey, route);
+  }, [src, mountKey, pageOpen, route]);
 
   const onLoad = () => {
     const health = useFrameHealthStore.getState();

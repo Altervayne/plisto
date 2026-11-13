@@ -125,3 +125,87 @@
   cursor: not-allowed;
   filter: none;
 }
+
+/* The plugin variant: an identity band over a plain body. Both buttons stay neutral; the prompt must
+ * never read as one of Plisto's own sheets. */
+.dialog.plugin {
+  width: min(420px, 92vw);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  background: var(--veil-2);
+}
+
+.who {
+  min-width: 0;
+}
+
+.tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--ink);
+}
+
+.from {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 22px 18px;
+}
+
+/* The plugin's own title and prompt clip to their region: a stack of combining marks can neither climb over
+ * the identity band nor spill past the card. The line height leaves room for accents and descenders. */
+.pluginText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.pluginText .title,
+.pluginText .prompt {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.pluginText .title {
+  line-height: 1.4;
+}
+
+.pluginText .title + .prompt {
+  margin-top: 0;
+}
+
+/* The button labels are the plugin's text too. */
+.dialog.plugin .actions button {
+  overflow: hidden;
+}

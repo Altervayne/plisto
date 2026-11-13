@@ -1,0 +1,7 @@
+/* The line that says Plisto drew this message and the plugin only hears the answer. */
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}

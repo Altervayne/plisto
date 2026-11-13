@@ -1,0 +1,64 @@
+/*
+ * The toast pill: lifted on a soft shadow with no border so it reads as an object on the continuous
+ * ground - the same material as the selection bar. One quiet line, no accent. Centering and position
+ * belong to the stack, so the keyframes move the pill vertically only.
+ */
+.toast {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+}
+
+/* Rises from the bottom edge and settles on enter, sinks back and fades on exit. */
+.toast[data-state="enter"] {
+  animation: toast-in var(--dur-soft) var(--ease-cover) both;
+}
+
+.toast[data-state="exit"] {
+  animation: toast-out var(--dur-fast) var(--ease-exit) both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Plugin pills sit above Plisto's in the reversed column. */
+.plugin {
+  order: 1;
+}
+
+/* The one shared foot container: pills stack upward from the window foot, the first-ordered nearest it. */
+.stack {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 8px;
+  z-index: 6;
+  pointer-events: none;
+}

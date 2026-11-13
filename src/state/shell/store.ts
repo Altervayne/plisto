@@ -41,6 +41,17 @@ interface ShellStore {
   // land on. Null when the page was opened without one.
   pluginRoute: string | null;
   setPluginRoute: (route: string | null) => void;
+  // A plugin's ask to show its own page on a route. A counter like `settingsRequest`, so asking twice
+  // for the same page still fires; the shell decides whether the page can show.
+  pluginPageRequest: PluginPageRequest | null;
+  requestPluginPage: (id: string, route: string | null) => void;
+}
+
+/** One request to open a plugin's page; `seq` grows with every request. */
+export interface PluginPageRequest {
+  id: string;
+  route: string | null;
+  seq: number;
 }
 
 const useShellStore = create<ShellStore>((set) => ({
@@ -57,7 +68,15 @@ const useShellStore = create<ShellStore>((set) => ({
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
   pluginRoute: null,
   setPluginRoute: (pluginRoute) => set({ pluginRoute }),
+  pluginPageRequest: null,
+  requestPluginPage: (id, route) =>
+    set((s) => ({ pluginPageRequest: { id, route, seq: (s.pluginPageRequest?.seq ?? 0) + 1 } })),
 }));
+
+/** Asks the shell to show a plugin's page, from outside React. */
+export function requestPluginPage(id: string, route: string | null): void {
+  useShellStore.getState().requestPluginPage(id, route);
+}
 
 // -- Selectors (narrow: one value or one stable setter each) --
 
@@ -83,3 +102,7 @@ export const useSetShortcutsOpen = (): ((open: boolean) => void) =>
 export const usePluginRoute = (): string | null => useShellStore((s) => s.pluginRoute);
 export const useSetPluginRoute = (): ((route: string | null) => void) =>
   useShellStore((s) => s.setPluginRoute);
+
+export const usePluginPageRequest = (): PluginPageRequest | null => useShellStore((s) => s.pluginPageRequest);
+export const useRequestPluginPage = (): ((id: string, route: string | null) => void) =>
+  useShellStore((s) => s.requestPluginPage);

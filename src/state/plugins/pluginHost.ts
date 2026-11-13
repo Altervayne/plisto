@@ -6,17 +6,30 @@
  */
 
 // -- State Imports --
-import { FrameMap, errorMsg, initMsg, pingMsg, resultMsg, route, themeMsg, visibilityMsg } from "./bridge";
+import {
+  FrameMap,
+  errorMsg,
+  initMsg,
+  pingMsg,
+  resultMsg,
+  route,
+  routeMsg,
+  sidebarMsg,
+  themeMsg,
+  visibilityMsg,
+} from "./bridge";
+import { useFrameHealthStore } from "./frameHealth";
+import { useSidebarState } from "./sidebarState";
 
 // -- IPC Imports --
-import { pluginCall } from "../../lib/ipc";
+import { pluginCall, pluginFrameEvent } from "../../lib/ipc";
 
 // -- Utils Imports --
 import { isDarkTheme, subscribeTheme } from "../../theme";
 
 // -- Type Imports --
 import type { AppInfo, FrameRecord, HostToFrame } from "./bridge";
-import type { PluginCallReply } from "../../types";
+import type { PluginCallReply, PluginSidebarDelivery } from "../../types";
 
 export type FrameTheme = "light" | "dark";
 
@@ -41,6 +54,8 @@ export interface HostDeps {
   subscribeTheme: (onChange: () => void) => () => void;
   /** Waits the given milliseconds. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called once a plugin's last mapped frame is detached. */
+  frameGone?: (pluginId: string) => void;
 }
 
 const HOST_CALL_ATTEMPTS = 5;
@@ -62,6 +77,8 @@ interface FrameExtra {
   init: "none" | "pending" | "done";
   /** The theme the frame last received, through init or a theme push. */
   theme: FrameTheme | null;
+  /** The route the frame last received, or before init the one its init will carry. */
+  route: string | null;
 }
 
 const UNREACHABLE: PluginCallReply = {
@@ -77,6 +94,9 @@ interface Host {
   sendInit: (mountKey: string, routePath: string | null) => Promise<boolean>;
   sendPing: (mountKey: string, seq: number) => boolean;
   sendVisibility: (mountKey: string, pageOpen: boolean) => void;
+  sendRoute: (mountKey: string, routePath: string | null) => void;
+  sendSidebar: (pluginId: string, delivery: PluginSidebarDelivery) => boolean;
+  hasLiveFrame: (pluginId: string) => boolean;
   stop: () => void;
 }
 
@@ -167,9 +187,27 @@ function createHost(deps: HostDeps): Host {
     }
   };
 
-  const detach = (mountKey: string) => {
+  const unmap = (mountKey: string) => {
     const rec = map.detach(mountKey);
     if (rec) extras.get(rec)?.calls.clear();
+    return rec;
+  };
+
+  // Reported only when no other frame of the plugin is left, so a remount does not release what the
+  // newer frame opened.
+  const detach = (mountKey: string) => {
+    const rec = unmap(mountKey);
+    if (rec && map.byPlugin(rec.pluginId).length === 0) deps.frameGone?.(rec.pluginId);
+  };
+
+  /** The plugin's newest live record whose init is done. Never a record of another plugin. */
+  const initialised = (pluginId: string) => {
+    const recs = map.byPlugin(pluginId);
+    for (let i = recs.length - 1; i >= 0; i -= 1) {
+      const rec = recs[i];
+      if (rec.pluginId === pluginId && extras.get(rec)?.init === "done" && isLive(rec)) return rec;
+    }
+    return null;
   };
 
   const removeListener = deps.addListener(onMessage);
@@ -182,12 +220,12 @@ function createHost(deps: HostDeps): Host {
 
   return {
     attach(mountKey, pluginId, source) {
-      detach(mountKey);
+      unmap(mountKey);
       const holder = map.get(source);
-      if (holder) detach(holder.mountKey);
+      if (holder) unmap(holder.mountKey);
       const rec: FrameRecord<FrameWindow> = { mountKey, pluginId, source, loads: 0, pending: 0, dead: false };
       map.attach(source, rec);
-      extras.set(rec, { calls: new Set(), pageOpen: false, init: "none", theme: null });
+      extras.set(rec, { calls: new Set(), pageOpen: false, init: "none", theme: null, route: null });
     },
 
     detach,
@@ -214,12 +252,13 @@ function createHost(deps: HostDeps): Host {
       if (!found || found.rec.loads !== 1 || found.extra.init !== "none") return false;
       const { rec, extra } = found;
       extra.init = "pending";
+      extra.route = routePath;
       const [info, methods] = await Promise.all([hostCall(rec, "app.info"), hostCall(rec, "app.methods")]);
       const names = (methods as { methods?: unknown } | null)?.methods;
       if (!info || !Array.isArray(names) || !isLive(rec)) return false;
       const appInfo = info as AppInfo;
-      // Read after the await, so a visibility change during init is carried by the init itself.
-      post(rec, initMsg(appInfo, names as string[], extra.pageOpen, routePath));
+      // Read after the await, so a visibility or route change during init is carried by the init itself.
+      post(rec, initMsg(appInfo, names as string[], extra.pageOpen, extra.route));
       extra.init = "done";
       extra.theme = appInfo.theme;
       pushTheme(rec, extra);
@@ -238,6 +277,30 @@ function createHost(deps: HostDeps): Host {
       if (!found || found.extra.pageOpen === pageOpen) return;
       found.extra.pageOpen = pageOpen;
       if (found.extra.init === "done") post(found.rec, visibilityMsg(pageOpen));
+    },
+
+    sendRoute(mountKey, routePath) {
+      const found = entry(mountKey);
+      if (!found) return;
+      const { rec, extra } = found;
+      if (extra.init !== "done") {
+        extra.route = routePath;
+        return;
+      }
+      if (!extra.pageOpen || extra.route === routePath) return;
+      extra.route = routePath;
+      post(rec, routeMsg(routePath));
+    },
+
+    sendSidebar(pluginId, delivery) {
+      const rec = initialised(pluginId);
+      if (!rec) return false;
+      post(rec, sidebarMsg(delivery.item_id, delivery.value, delivery.gesture));
+      return true;
+    },
+
+    hasLiveFrame(pluginId) {
+      return initialised(pluginId) != null;
     },
 
     stop() {
@@ -260,6 +323,13 @@ export function browserHostDeps(): HostDeps {
     theme: () => (isDarkTheme() ? "dark" : "light"),
     subscribeTheme,
     sleep: defaultSleep,
+    frameGone: (pluginId) => {
+      const crashed = useFrameHealthStore.getState().health[pluginId]?.phase === "crashed";
+      pluginFrameEvent(pluginId, crashed ? "crashed" : "detached").catch(() => {
+        // Best-effort: Rust's deadlines still free what this report would have released.
+      });
+      if (crashed) useSidebarState.getState().drop(pluginId);
+    },
   };
 }
 
@@ -281,7 +351,10 @@ export function attachFrame(mountKey: string, pluginId: string, source: FrameWin
   active?.attach(mountKey, pluginId, source);
 }
 
-/** Forgets a frame. Answers still in flight for it are dropped. */
+/**
+ * Forgets a frame. Answers still in flight for it are dropped. When it was the plugin's last frame, Rust
+ * hears that it detached or crashed, which ends the plugin's open toasts and prompts.
+ */
 export function detachFrame(mountKey: string): void {
   active?.detach(mountKey);
 }
@@ -318,6 +391,27 @@ export function sendPing(mountKey: string, seq: number): boolean {
  */
 export function sendVisibility(mountKey: string, pageOpen: boolean): void {
   active?.sendVisibility(mountKey, pageOpen);
+}
+
+/**
+ * Sets the route of the frame's shown page. Posted only after init, only while the page is open and only
+ * when it differs from the last route the frame received; before init it is carried by `plisto:init`.
+ */
+export function sendRoute(mountKey: string, routePath: string | null): void {
+  active?.sendRoute(mountKey, routePath);
+}
+
+/**
+ * Posts an accepted sidebar click to the plugin's newest live, initialised frame. Returns false when
+ * there is none; nothing is held for a later frame.
+ */
+export function sendSidebar(pluginId: string, delivery: PluginSidebarDelivery): boolean {
+  return active?.sendSidebar(pluginId, delivery) ?? false;
+}
+
+/** Whether the plugin has a live frame whose init is done. */
+export function hasLiveFrame(pluginId: string): boolean {
+  return active?.hasLiveFrame(pluginId) ?? false;
 }
 
 /** Subscribes to accepted pongs. Returns the unsubscribe. */

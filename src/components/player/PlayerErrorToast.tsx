@@ -1,8 +1,8 @@
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
 
-// -- Hook Imports --
-import { useMountTransition } from "../../hooks/useMountTransition";
+// -- Component Imports --
+import { Toast } from "../common/Toast/Toast";
 
 // -- State Imports --
 import { usePlayerError, useSetPlayerError } from "../../state/player/store";
@@ -16,9 +16,6 @@ import styles from "./QueueToast.module.css";
 /** How long the toast holds before it clears itself. */
 const VISIBLE_MS = 4000;
 
-/** The exit before it unmounts, matching --dur-fast on the exit keyframe. */
-const EXIT_MS = 120;
-
 /**
  * The playback-notice nudge: the same foot-of-the-window pill as the queue toast, so a failure reads as
  * one quiet line. It shows when the player store holds a notice - a file that would not play, a lost
@@ -29,7 +26,6 @@ export function PlayerErrorToast() {
   const error = usePlayerError();
   const setError = useSetPlayerError();
   const t = useT();
-  const toast = useMountTransition(error != null, EXIT_MS);
 
   // Clear the error as the visible window ends; the fade rides the flip to null.
   useEffect(() => {
@@ -52,11 +48,9 @@ export function PlayerErrorToast() {
   const lastMessage = useRef(message);
   if (error != null) lastMessage.current = message;
 
-  if (!toast.mounted) return null;
-
   return (
-    <div className={styles.toast} data-state={toast.state} role="status" aria-live="polite">
+    <Toast visible={error != null}>
       <span className={styles.text}>{lastMessage.current}</span>
-    </div>
+    </Toast>
   );
 }

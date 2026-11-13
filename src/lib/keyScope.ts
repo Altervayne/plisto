@@ -15,6 +15,25 @@ export function modalOpen(): boolean {
   return document.querySelector('[role="alertdialog"], [aria-modal="true"]') != null;
 }
 
+/** The parts of an element and of the document `plistoSheetOpen` reads. */
+interface ModalCandidate {
+  getAttribute(name: string): string | null;
+  hasAttribute(name: string): boolean;
+}
+interface ModalRoot {
+  querySelectorAll(selector: string): ArrayLike<ModalCandidate>;
+}
+
+/**
+ * Whether one of Plisto's own sheets is open. A plugin prompt carries `data-plugin-prompt` and does not
+ * count, nor does a non-modal overlay marked `aria-modal="false"`.
+ */
+export function plistoSheetOpen(root: ModalRoot = document): boolean {
+  return Array.from(root.querySelectorAll("[aria-modal]")).some(
+    (el) => el.getAttribute("aria-modal") === "true" && !el.hasAttribute("data-plugin-prompt"),
+  );
+}
+
 /** Whether a popup menu is open. Menus mount only while open, so presence is the signal. */
 export function menuOpen(): boolean {
   return document.querySelector('[role="menu"]') != null;

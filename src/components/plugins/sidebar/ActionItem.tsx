@@ -1,5 +1,9 @@
+// -- Hook Imports --
+import { useItemView } from "./useItemView";
+
 // -- Utils Imports --
-import { NEUTRAL_ICON } from "./pluginNavIcons";
+import { NEUTRAL_ICON, navIconFor } from "./pluginNavIcons";
+import { sendInput } from "./sendInput";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -10,9 +14,39 @@ import type { PluginSidebarItem } from "../../../types";
 // -- Style Imports --
 import styles from "./PluginItems.module.css";
 
-/** A declared action at rest: its label on a disabled row that does nothing. */
-export function ActionItem({ item }: { item: PluginSidebarItem }) {
+/**
+ * A declared action. At rest its label sits on a disabled row that does nothing. Live, it is a button
+ * with the plugin's label or the declared one; a press reports a click the plugin can use as a gesture.
+ */
+export function ActionItem({
+  pluginId,
+  pluginName,
+  item,
+}: {
+  pluginId: string;
+  pluginName: string;
+  item: PluginSidebarItem;
+}) {
   const t = useT();
+  const view = useItemView(pluginId, item);
+  if (view.kind === "hidden") return null;
+
+  if (view.kind === "action") {
+    const Icon = navIconFor(item.icon);
+    return (
+      <button
+        type="button"
+        className={`${styles.row} ${styles.action} ${styles.live}`}
+        disabled={!view.enabled}
+        title={view.enabled ? undefined : t((d) => d.plugins.ui.itemWaiting, { name: pluginName })}
+        onClick={() => void sendInput(pluginId, item.id, null)}
+      >
+        <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+        <span className={styles.label}>{view.label}</span>
+      </button>
+    );
+  }
+
   const Icon = NEUTRAL_ICON;
   return (
     <button
