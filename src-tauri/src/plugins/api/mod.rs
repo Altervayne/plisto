@@ -9,13 +9,18 @@
 pub(crate) mod app;
 pub(crate) mod error;
 pub(crate) mod files;
+pub(crate) mod host_event;
 mod kv_file;
 pub(crate) mod log;
+pub(crate) mod pending;
 pub(crate) mod rate;
 #[cfg(test)]
 mod sdk_parity;
+pub(crate) mod sidebar;
 pub(crate) mod state;
 mod storage;
+mod ui;
+pub(crate) mod ui_state;
 
 // -- Library Imports --
 use std::path::Path;
@@ -26,6 +31,8 @@ use serde_json::{Map, Value};
 
 // -- Local Imports --
 use self::error::ApiError;
+use self::host_event::HostEvent;
+use self::pending::Pending;
 use self::rate::RateClass;
 use self::state::{ApiState, InFlight};
 use super::manifest::Capability;
@@ -46,10 +53,12 @@ pub enum Need {
 
 pub type Handler = fn(&CallCtx<'_>, &Map<String, Value>) -> Outcome;
 
-/// What a handler produces.
+/// What a handler produces: a result, or a request that stays open until the user or its deadline
+/// ends it.
 #[derive(Debug)]
 pub enum Outcome {
     Done(Result<Value, ApiError>),
+    Pending(Pending),
 }
 
 #[cfg(test)]
@@ -57,6 +66,7 @@ impl Outcome {
     fn done(self) -> Result<Value, ApiError> {
         match self {
             Outcome::Done(result) => result,
+            Outcome::Pending(pending) => panic!("expected a result, got {pending:?}"),
         }
     }
 }
@@ -74,6 +84,10 @@ pub trait HostContext: Send + Sync {
     /// A row of the settings table; absent when unset or unreadable.
     fn setting(&self, key: &str) -> Option<String>;
     fn os_prefers_dark(&self) -> bool;
+    /// Sends an event to the main window. Best-effort: a window that is gone misses it.
+    fn emit(&self, event: HostEvent);
+    /// Whether the main window is visible and not minimized; `false` when it cannot be read.
+    fn main_window_shown(&self) -> bool;
 }
 
 /// Everything a handler may use. `id` is the admitted caller, never a value from the arguments.
@@ -100,7 +114,16 @@ static TABLE: OnceLock<Vec<MethodSpec>> = OnceLock::new();
 
 /// Every method this build answers.
 pub fn table() -> &'static [MethodSpec] {
-    TABLE.get_or_init(|| [app::METHODS, storage::METHODS, log::METHODS].concat())
+    TABLE.get_or_init(|| {
+        [
+            app::METHODS,
+            storage::METHODS,
+            log::METHODS,
+            ui::METHODS,
+            sidebar::METHODS,
+        ]
+        .concat()
+    })
 }
 
 /// The method names, sorted and unique.
@@ -159,7 +182,8 @@ fn admit_in(
     })
 }
 
-/// Parses the arguments of an admitted call and runs its handler.
+/// Parses the arguments of an admitted call and runs its handler. A pending outcome is waited on
+/// here, so the call keeps its in-flight slot until it resolves.
 pub fn run(
     admitted: &Admitted,
     args: &str,
@@ -181,6 +205,7 @@ pub fn run(
     };
     match (admitted.spec.run)(&ctx, &args) {
         Outcome::Done(result) => result,
+        Outcome::Pending(pending) => pending.wait(host, api.ui()),
     }
 }
 
@@ -200,12 +225,15 @@ pub fn dispatch(
     run(&admitted, args, app_data, host, api)
 }
 
-/// A host with settings set by the test and a fixed OS theme.
+/// A host with settings set by the test, a fixed OS theme and window state, and a record of the
+/// events sent.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct FakeHost {
     pub settings: std::collections::HashMap<String, String>,
     pub dark: bool,
+    pub events: std::sync::Mutex<Vec<HostEvent>>,
+    pub window_hidden: bool,
 }
 
 #[cfg(test)]
@@ -224,6 +252,14 @@ impl HostContext for FakeHost {
 
     fn os_prefers_dark(&self) -> bool {
         self.dark
+    }
+
+    fn emit(&self, event: HostEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+
+    fn main_window_shown(&self) -> bool {
+        !self.window_hidden
     }
 }
 
@@ -279,6 +315,7 @@ mod tests {
     use crate::plugins::session::BootState;
     use crate::plugins::state::PluginsState;
     use crate::plugins::test_kit::{ui, Kit, ID};
+    use serde_json::json;
     use std::time::Duration;
 
     fn plugins_with(granted: Vec<Capability>) -> PluginsState {
@@ -321,6 +358,110 @@ mod tests {
             run: nothing,
         },
     ];
+
+    fn open_toast(ctx: &CallCtx<'_>, _: &Map<String, Value>) -> Outcome {
+        let ui = ctx.api.ui();
+        let event = host_event::UiEvent {
+            request_id: ui.next_request_id(),
+            id: ctx.id.to_string(),
+            kind: host_event::UiKind::Toast {
+                text: "Saved".into(),
+                action: None,
+            },
+        };
+        match ui.open_toast(ctx.id, event, false, Instant::now()) {
+            Ok(pending) => Outcome::Pending(pending),
+            Err(e) => Outcome::Done(Err(e)),
+        }
+    }
+
+    // One pending method and one that returns at once, on a bucket large enough for 17 admits.
+    const PENDING: &[MethodSpec] = &[
+        MethodSpec {
+            name: "test.toast",
+            need: Need::Ambient,
+            class: RateClass::StorageRead,
+            run: open_toast,
+        },
+        MethodSpec {
+            name: "test.open",
+            need: Need::Ambient,
+            class: RateClass::StorageRead,
+            run: nothing,
+        },
+    ];
+
+    /// Starts `count` toast calls on their own threads and returns once all are open.
+    fn start_toasts(
+        plugins: &PluginsState,
+        host: &std::sync::Arc<FakeHost>,
+        count: usize,
+    ) -> Vec<std::thread::JoinHandle<Result<Value, ApiError>>> {
+        let handles = (0..count)
+            .map(|_| {
+                let admitted = admit_in(
+                    PENDING,
+                    &plugins.enabled_set(),
+                    plugins.api(),
+                    ID,
+                    "test.toast",
+                    2,
+                    Instant::now(),
+                )
+                .unwrap();
+                let (host, api) = (host.clone(), plugins.api().clone());
+                std::thread::spawn(move || run(&admitted, "{}", Path::new("unused"), &*host, &api))
+            })
+            .collect();
+        let started = Instant::now();
+        while plugins.api().ui().pending_events().len() < count {
+            assert!(started.elapsed() < Duration::from_secs(2), "calls never opened");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        handles
+    }
+
+    #[test]
+    fn a_pending_call_holds_its_in_flight_slot_until_it_resolves() {
+        let plugins = plugins_with(Vec::new());
+        let enabled = plugins.enabled_set();
+        let api = plugins.api();
+        let host = std::sync::Arc::new(FakeHost::default());
+        let waiting = start_toasts(&plugins, &host, 4);
+        let t0 = Instant::now();
+        let held: Vec<Admitted> = (0..12)
+            .map(|_| admit_in(PENDING, &enabled, api, ID, "test.open", 2, t0).unwrap())
+            .collect();
+        assert_eq!(api.in_flight(ID), 16);
+        let busy = admit_in(PENDING, &enabled, api, ID, "test.open", 2, t0);
+        assert_eq!(code(busy), Some(ApiCode::Busy));
+
+        api.ui().release(ID);
+        for handle in waiting {
+            assert_eq!(handle.join().unwrap(), Ok(json!({ "result": "dismissed" })));
+        }
+        assert_eq!(api.in_flight(ID), 12);
+        drop(held);
+        assert_eq!(api.in_flight(ID), 0);
+    }
+
+    #[test]
+    fn forget_releases_open_calls_and_drops_gestures() {
+        let plugins = plugins_with(Vec::new());
+        let api = plugins.api();
+        let host = std::sync::Arc::new(FakeHost::default());
+        let waiting = start_toasts(&plugins, &host, 2);
+        let token = api.ui().mint(ID, Instant::now());
+
+        api.forget(ID);
+        for handle in waiting {
+            assert_eq!(handle.join().unwrap(), Ok(json!({ "result": "dismissed" })));
+        }
+        assert!(api.ui().pending_events().is_empty());
+        assert_eq!(host.events.lock().unwrap().len(), 2);
+        assert!(!api.ui().consume(ID, &token, Instant::now()));
+        assert_eq!(api.in_flight(ID), 0);
+    }
 
     fn code(result: Result<Admitted, ApiError>) -> Option<ApiCode> {
         result.err().map(|e| e.code)
@@ -467,7 +608,7 @@ mod tests {
         let enabled = plugins.enabled_set();
         let api = ApiState::default();
         for method in [
-            "ui.toast",
+            "ui.missing",
             "library.tracks",
             "playback.state",
             "queue.add",

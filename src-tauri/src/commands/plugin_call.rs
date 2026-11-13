@@ -9,11 +9,12 @@
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use tauri::{AppHandle, Manager, State, Theme, Webview};
+use tauri::{AppHandle, Emitter, Manager, State, Theme, Webview};
 
 // -- Local Imports --
 use crate::db;
 use crate::plugins::api::error::{ApiError, CallReply};
+use crate::plugins::api::host_event::{HostEvent, EVENT_SIDEBAR, EVENT_UI};
 use crate::plugins::api::state::ApiState;
 use crate::plugins::api::{self, Admitted, HostContext};
 use crate::plugins::state::EnabledSet;
@@ -21,7 +22,8 @@ use crate::state::AppState;
 
 const MAIN_LABEL: &str = "main";
 
-/// The app as a plugin method sees it: the settings table and the main window's OS theme.
+/// The app as a plugin method sees it: the settings table, the main window's OS theme and whether it
+/// is shown, and events to it.
 struct TauriHost {
     app: AppHandle,
 }
@@ -38,6 +40,19 @@ impl HostContext for TauriHost {
             .get_webview_window(MAIN_LABEL)
             .and_then(|main| main.theme().ok())
             .is_some_and(|theme| matches!(theme, Theme::Dark))
+    }
+
+    fn emit(&self, event: HostEvent) {
+        let _ = match event {
+            HostEvent::Ui(event) => self.app.emit_to(MAIN_LABEL, EVENT_UI, event),
+            HostEvent::Sidebar(event) => self.app.emit_to(MAIN_LABEL, EVENT_SIDEBAR, event),
+        };
+    }
+
+    fn main_window_shown(&self) -> bool {
+        self.app.get_webview_window(MAIN_LABEL).is_some_and(|main| {
+            matches!(main.is_visible(), Ok(true)) && matches!(main.is_minimized(), Ok(false))
+        })
     }
 }
 

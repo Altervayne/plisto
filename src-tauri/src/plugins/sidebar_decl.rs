@@ -11,7 +11,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 // -- Local Imports --
-use super::manifest::{clip, text_problem, Capability, TextProblem, Tier};
+use super::manifest::{clip, text_problem, Capability, TextProblem, Tier, MAX_COMBINING_RUN};
 
 pub const MAX_ITEMS: usize = 6;
 pub const MAX_LABEL: usize = 24;
@@ -141,6 +141,7 @@ pub enum SidebarError {
     EmptyLabel(String),
     LabelTooLong(String),
     LabelControlChars(String),
+    LabelStackedMarks(String),
     UnknownType { item: String, kind: String },
     UnknownIcon { item: String, icon: String },
     BadRoute { item: String, reason: &'static str },
@@ -176,6 +177,10 @@ impl fmt::Display for SidebarError {
             SidebarError::LabelControlChars(id) => {
                 write!(f, "sidebar item '{id}' label has control characters")
             }
+            SidebarError::LabelStackedMarks(id) => write!(
+                f,
+                "sidebar item '{id}' label has more than {MAX_COMBINING_RUN} combining marks in a row"
+            ),
             SidebarError::UnknownType { item, kind } => {
                 write!(f, "sidebar item '{item}' has unknown type '{kind}'")
             }
@@ -207,7 +212,7 @@ fn valid_item_id(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn route_problem(route: &str) -> Option<&'static str> {
+pub(super) fn route_problem(route: &str) -> Option<&'static str> {
     if route.is_empty() {
         return Some("must not be empty");
     }
@@ -262,6 +267,7 @@ pub(super) fn validate(
             Some(TextProblem::Empty) => return Err(SidebarError::EmptyLabel(id)),
             Some(TextProblem::TooLong) => return Err(SidebarError::LabelTooLong(id)),
             Some(TextProblem::Control) => return Err(SidebarError::LabelControlChars(id)),
+            Some(TextProblem::Stacked) => return Err(SidebarError::LabelStackedMarks(id)),
             None => {}
         }
         if kind != ItemType::Nav {

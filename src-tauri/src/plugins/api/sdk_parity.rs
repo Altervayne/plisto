@@ -11,7 +11,7 @@ use std::path::Path;
 // -- Local Imports --
 use super::method_names;
 
-const SDK_TYPES: &str = "../examples/plugins/sdk/plisto-sdk.d.ts";
+const SDK_TYPES: &str = "../plugin-kit/sdk/plisto-sdk.d.ts";
 
 /// The method keys of `interface PlistoMethods`: one `"name":` per line, up to the line that closes it.
 fn declared_methods(text: &str) -> Option<BTreeSet<String>> {

@@ -14,32 +14,50 @@ pub enum RateClass {
     StorageRead,
     StorageWrite,
     Log,
+    Toast,
+    Confirm,
+    Chips,
+    Sidebar,
+    Nav,
+    /// Clicks on a plugin's sidebar controls. Not a method, so it never spends from `all`.
+    Input,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Limit {
     capacity: u64,
-    per_sec: u64,
+    // Milli-tokens per second, so a refill slower than one per second stays exact.
+    milli_per_sec: u64,
 }
 
 const ALL: Limit = Limit {
     capacity: 100,
-    per_sec: 50,
+    milli_per_sec: 50_000,
 };
 
 impl RateClass {
     fn limit(self) -> Limit {
-        let (capacity, per_sec) = match self {
-            RateClass::Ambient => (10, 2),
-            RateClass::StorageRead => (60, 30),
-            RateClass::StorageWrite => (20, 5),
-            RateClass::Log => (40, 10),
+        let (capacity, milli_per_sec) = match self {
+            RateClass::Ambient => (10, 2_000),
+            RateClass::StorageRead => (60, 30_000),
+            RateClass::StorageWrite => (20, 5_000),
+            RateClass::Log => (40, 10_000),
+            RateClass::Toast => (3, 100),
+            RateClass::Confirm => (1, 100),
+            RateClass::Chips => (10, 4_000),
+            RateClass::Sidebar => (20, 10_000),
+            RateClass::Nav => (3, 1_000),
+            RateClass::Input => (5, 5_000),
         };
-        Limit { capacity, per_sec }
+        Limit {
+            capacity,
+            milli_per_sec,
+        }
     }
 }
 
 const MILLI: u64 = 1000;
+const NANOS_PER_SEC: u128 = 1_000_000_000;
 
 #[derive(Clone, Debug)]
 pub struct Bucket {
@@ -62,14 +80,14 @@ impl Bucket {
     fn refill(&mut self, now: Instant) {
         let cap = self.limit.capacity * MILLI;
         let elapsed = now.saturating_duration_since(self.last).as_nanos();
-        // per_sec tokens per second is per_sec milli-tokens per millisecond.
-        let earned = (elapsed * u128::from(self.limit.per_sec) / 1_000_000) as u64;
+        let rate = u128::from(self.limit.milli_per_sec);
+        let earned = (elapsed * rate / NANOS_PER_SEC) as u64;
         if self.milli.saturating_add(earned) >= cap {
             self.milli = cap;
             self.last = now;
         } else {
             self.milli += earned;
-            let used = u128::from(earned) * 1_000_000 / u128::from(self.limit.per_sec);
+            let used = u128::from(earned) * NANOS_PER_SEC / rate;
             self.last += Duration::from_nanos(used as u64);
         }
     }
@@ -77,9 +95,11 @@ impl Bucket {
     /// Milliseconds until the bucket holds one whole token; 0 when it does.
     fn wait_ms(&mut self, now: Instant) -> u64 {
         self.refill(now);
-        MILLI
-            .saturating_sub(self.milli)
-            .div_ceil(self.limit.per_sec)
+        let missing = u128::from(MILLI.saturating_sub(self.milli));
+        let needed = (missing * NANOS_PER_SEC).div_ceil(u128::from(self.limit.milli_per_sec));
+        // Time since `last` already counts towards the next milli-token.
+        let progress = now.saturating_duration_since(self.last).as_nanos();
+        needed.saturating_sub(progress).div_ceil(1_000_000) as u64
     }
 
     fn take(&mut self, now: Instant) -> bool {
@@ -100,6 +120,12 @@ pub struct PluginBuckets {
     storage_read: Bucket,
     storage_write: Bucket,
     log: Bucket,
+    toast: Bucket,
+    confirm: Bucket,
+    chips: Bucket,
+    sidebar: Bucket,
+    nav: Bucket,
+    input: Bucket,
 }
 
 impl PluginBuckets {
@@ -112,6 +138,12 @@ impl PluginBuckets {
             storage_read: full(RateClass::StorageRead),
             storage_write: full(RateClass::StorageWrite),
             log: full(RateClass::Log),
+            toast: full(RateClass::Toast),
+            confirm: full(RateClass::Confirm),
+            chips: full(RateClass::Chips),
+            sidebar: full(RateClass::Sidebar),
+            nav: full(RateClass::Nav),
+            input: full(RateClass::Input),
         }
     }
 
@@ -121,6 +153,12 @@ impl PluginBuckets {
             RateClass::StorageRead => &mut self.storage_read,
             RateClass::StorageWrite => &mut self.storage_write,
             RateClass::Log => &mut self.log,
+            RateClass::Toast => &mut self.toast,
+            RateClass::Confirm => &mut self.confirm,
+            RateClass::Chips => &mut self.chips,
+            RateClass::Sidebar => &mut self.sidebar,
+            RateClass::Nav => &mut self.nav,
+            RateClass::Input => &mut self.input,
         }
     }
 
@@ -225,6 +263,39 @@ mod tests {
         assert_eq!(b.take(RateClass::StorageWrite, t0), Err(200));
         // With the class bucket full, only `all` is empty, and `take` does not spend from it.
         assert_eq!(b.take(RateClass::StorageRead, t0), Ok(()));
+    }
+
+    #[test]
+    fn a_slow_class_bursts_then_refills_one_per_ten_seconds() {
+        let t0 = Instant::now();
+        let mut b = PluginBuckets::new(t0);
+        for _ in 0..3 {
+            assert_eq!(b.take(RateClass::Toast, t0), Ok(()));
+        }
+        assert_eq!(b.take(RateClass::Toast, t0), Err(10_000));
+        assert_eq!(b.take(RateClass::Toast, t0 + ms(9_999)), Err(1));
+        assert_eq!(b.take(RateClass::Toast, t0 + ms(10_000)), Ok(()));
+        assert_eq!(b.take(RateClass::Toast, t0 + ms(10_000)), Err(10_000));
+        // Confirm holds one.
+        assert_eq!(b.take(RateClass::Confirm, t0), Ok(()));
+        assert_eq!(b.take(RateClass::Confirm, t0), Err(10_000));
+    }
+
+    #[test]
+    fn the_new_classes_hold_their_capacity() {
+        let t0 = Instant::now();
+        for (class, capacity, wait) in [
+            (RateClass::Chips, 10, 250),
+            (RateClass::Sidebar, 20, 100),
+            (RateClass::Nav, 3, 1_000),
+            (RateClass::Input, 5, 200),
+        ] {
+            let mut b = PluginBuckets::new(t0);
+            for _ in 0..capacity {
+                assert_eq!(b.take(class, t0), Ok(()), "{class:?}");
+            }
+            assert_eq!(b.take(class, t0), Err(wait), "{class:?}");
+        }
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::char::is_combining_mark;
 
 // -- Local Imports --
 use super::paths::{validate_id, validate_rel_path};
@@ -32,7 +33,12 @@ pub(super) enum TextProblem {
     Empty,
     TooLong,
     Control,
+    Stacked,
 }
+
+/// The longest run of combining marks a display string may hold. Ordinary writing stacks two to four;
+/// a longer run only serves to draw outside the line.
+pub(super) const MAX_COMBINING_RUN: usize = 6;
 
 /// Zero-width and bidi-control characters. They are invisible or reorder text, so a name could
 /// otherwise read differently on the install sheet than it is stored.
@@ -42,12 +48,26 @@ fn is_invisible(c: char) -> bool {
         | '\u{2060}'..='\u{2069}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
 }
 
-/// Checks a display string: not blank, no control characters, at most `max` characters.
+fn has_stacked_marks(s: &str) -> bool {
+    let mut run = 0;
+    for c in s.chars() {
+        run = if is_combining_mark(c) { run + 1 } else { 0 };
+        if run > MAX_COMBINING_RUN {
+            return true;
+        }
+    }
+    false
+}
+
+/// Checks a display string: not blank, no control characters, no long stack of combining marks, at
+/// most `max` characters.
 pub(super) fn text_problem(s: &str, max: usize) -> Option<TextProblem> {
     if s.trim().is_empty() {
         Some(TextProblem::Empty)
     } else if s.chars().any(|c| c.is_control() || is_invisible(c)) {
         Some(TextProblem::Control)
+    } else if has_stacked_marks(s) {
+        Some(TextProblem::Stacked)
     } else if s.chars().count() > max {
         Some(TextProblem::TooLong)
     } else {
@@ -218,6 +238,7 @@ pub enum ManifestError {
         max: usize,
     },
     ControlChars(&'static str),
+    StackedMarks(&'static str),
     BadVersion {
         field: &'static str,
         value: String,
@@ -269,6 +290,10 @@ impl fmt::Display for ManifestError {
             EmptyField(name) => write!(f, "'{name}' must not be empty"),
             FieldTooLong { field, max } => write!(f, "'{field}' is over {max} characters"),
             ControlChars(name) => write!(f, "'{name}' contains control characters"),
+            StackedMarks(name) => write!(
+                f,
+                "'{name}' has more than {MAX_COMBINING_RUN} combining marks in a row"
+            ),
             BadVersion { field, value } => write!(f, "'{field}' is not a valid version: '{value}'"),
             UnknownTier(t) => write!(f, "unknown tier '{t}'"),
             BadPath { field, reason } => write!(f, "'{field}' {reason}"),
@@ -351,6 +376,7 @@ fn check_text(s: &str, field: &'static str, max: usize) -> Result<(), ManifestEr
     match text_problem(s, max) {
         Some(TextProblem::Empty) => Err(ManifestError::EmptyField(field)),
         Some(TextProblem::Control) => Err(ManifestError::ControlChars(field)),
+        Some(TextProblem::Stacked) => Err(ManifestError::StackedMarks(field)),
         Some(TextProblem::TooLong) => Err(ManifestError::FieldTooLong { field, max }),
         None => Ok(()),
     }
@@ -1343,6 +1369,31 @@ mod tests {
         }
         let v = with(native(), "native_reason", json!("reads audio\u{202E}"));
         assert_eq!(run(&v), Err(ManifestError::ControlChars("native_reason")));
+    }
+
+    #[test]
+    fn combining_mark_runs_are_bounded() {
+        let marks = |n: usize| "\u{0301}".repeat(n);
+        let at_limit = format!("A{}", marks(MAX_COMBINING_RUN));
+        assert!(text_problem(&at_limit, 60).is_none());
+        let over = format!("A{}", marks(MAX_COMBINING_RUN + 1));
+        assert!(matches!(text_problem(&over, 60), Some(TextProblem::Stacked)));
+        let split = format!("A{}b{}", marks(5), marks(5));
+        assert!(text_problem(&split, 60).is_none());
+        for ok in [
+            "Tie\u{0302}\u{0301}ng Vie\u{0323}\u{0302}t",
+            "\u{0E19}\u{0E49}\u{0E33}",
+        ] {
+            assert!(text_problem(ok, 60).is_none(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn stacked_marks_in_a_name_reach_the_author() {
+        let name = format!("A{}", "\u{0301}".repeat(MAX_COMBINING_RUN + 1));
+        let err = run(&with(ui(), "name", json!(name))).unwrap_err();
+        assert_eq!(err, ManifestError::StackedMarks("name"));
+        assert!(err.to_string().contains("combining marks"));
     }
 
     #[test]

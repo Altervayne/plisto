@@ -29,6 +29,9 @@ pub struct ApiError {
     /// Only with `RateLimited`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
+    /// Refines a code without changing it: `no_gesture` with `Denied`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
 }
 
 impl ApiError {
@@ -37,11 +40,23 @@ impl ApiError {
             code,
             message: message.to_string(),
             retry_after_ms: None,
+            reason: None,
         }
     }
 
     pub fn denied() -> ApiError {
         ApiError::new(ApiCode::Denied, "This call is not permitted.")
+    }
+
+    /// A gated call made with the plugin's page hidden and no valid gesture token.
+    pub fn no_gesture() -> ApiError {
+        ApiError {
+            reason: Some("no_gesture"),
+            ..ApiError::new(
+                ApiCode::Denied,
+                "A prompt needs the plugin's page open or a recent click on its controls.",
+            )
+        }
     }
 
     pub fn rate_limited(retry_after_ms: u64) -> ApiError {
@@ -155,5 +170,20 @@ mod tests {
             assert_eq!(serde_json::to_value(error.code).unwrap(), name);
             assert!(error.message.is_ascii() && !error.message.is_empty());
         }
+    }
+
+    #[test]
+    fn the_reason_is_sent_only_when_set() {
+        let json = serde_json::to_value(CallReply::from(Err(ApiError::no_gesture()))).unwrap();
+        assert_eq!(
+            json["error"],
+            json!({
+                "code": "denied",
+                "message": "A prompt needs the plugin's page open or a recent click on its controls.",
+                "reason": "no_gesture"
+            })
+        );
+        let json = serde_json::to_value(ApiError::denied()).unwrap();
+        assert!(json.get("reason").is_none());
     }
 }

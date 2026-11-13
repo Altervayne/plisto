@@ -1,9 +1,11 @@
 /*
  * The plugin API's memory per plugin: rate buckets, the count of calls in flight, the one open page
- * slot, and the gates that serialize a plugin's own file work. The two map locks are held only for
- * in-memory work, never across disk I/O and never while taking another lock. A plugin's gates are the
- * one place a lock is held across disk work; they are kept for the life of the process, so a call made
- * after a re-enable never runs beside an older call under a different gate.
+ * slot, open toasts and prompts with gesture tokens, chips and sidebar item state, and the gates that
+ * serialize a plugin's own file work. The map locks are held only for in-memory work, never across
+ * disk I/O; `forget` takes them one after the other. The one nesting is the sidebar store's lock, then
+ * the serving set's (see `sidebar.rs`). A plugin's
+ * gates are the one place a lock is held across disk work; they are kept for the life of the process,
+ * so a call made after a re-enable never runs beside an older call under a different gate.
  */
 
 // -- Library Imports --
@@ -15,7 +17,9 @@ use std::time::Instant;
 // -- Local Imports --
 use super::error::ApiError;
 use super::rate::{PluginBuckets, RateClass};
+use super::sidebar::SidebarStore;
 use super::storage::StorageSlot;
+use super::ui_state::UiState;
 use super::MAX_IN_FLIGHT;
 
 /// Locks serializing one plugin's file work. Never taken under any other lock.
@@ -38,6 +42,8 @@ struct Shared {
     inner: Mutex<Inner>,
     // Never shrinks: one entry per plugin ever called.
     gates: Mutex<HashMap<String, Arc<PluginGates>>>,
+    ui: UiState,
+    sidebar: SidebarStore,
 }
 
 /// Cheap to clone; every clone shares the same state.
@@ -53,7 +59,7 @@ impl Drop for InFlight {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -123,8 +129,18 @@ impl ApiState {
         lock(&self.0.inner).open_page.as_deref() == Some(id)
     }
 
-    /// Drops everything kept for `id` except its gates. Waits for a storage call of `id` that is
-    /// running to finish, so none outlives this.
+    /// Open toasts and prompts, and gesture tokens.
+    pub fn ui(&self) -> &UiState {
+        &self.0.ui
+    }
+
+    /// Chips and sidebar item state.
+    pub fn sidebar(&self) -> &SidebarStore {
+        &self.0.sidebar
+    }
+
+    /// Drops everything kept for `id` except its gates, and ends its open toasts and prompts. Waits
+    /// for a storage call of `id` that is running to finish, so none outlives this.
     pub fn forget(&self, id: &str) {
         {
             let mut inner = lock(&self.0.inner);
@@ -134,6 +150,9 @@ impl ApiState {
                 inner.open_page = None;
             }
         }
+        self.0.ui.release(id);
+        self.0.ui.drop_gestures(id);
+        self.0.sidebar.forget(id);
         let gates = lock(&self.0.gates).get(id).cloned();
         if let Some(gates) = gates {
             *lock(&gates.storage) = StorageSlot::default();
