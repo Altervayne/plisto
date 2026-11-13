@@ -71,6 +71,7 @@ import { useSpectrumSync } from "../../state/player/spectrum";
 import { restoreResume } from "../../state/player/restoreResume";
 import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
+import { usePluginsSync } from "../../state/plugins/usePluginsSync";
 import {
   useHistoryLens,
   useOpenTool,
@@ -156,6 +157,8 @@ export function AppShell({
   useSpectrumSync();
   // The background library sync feeds its progress, row changes and root states in for the shell's life.
   useLibrarySync();
+  // The plugin registry, read at boot and kept live by the backend's change event.
+  usePluginsSync();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
   // already has the right rows.
   const appMode = useAppMode();

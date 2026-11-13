@@ -44,6 +44,8 @@ import type {
   PlayEvent,
   PlayerNotice,
   PlayerStatus,
+  PluginBootState,
+  PluginRow,
   PlaylistM3uSummary,
   PlaylistRow,
   PlaylistSnapshot,
@@ -1164,4 +1166,19 @@ export function spliceRun(
 /** Signals the running splice to stop. The backend finishes its current segment and reports cancelled. */
 export function spliceCancel(): Promise<void> {
   return invoke("splice_cancel");
+}
+
+/** Every plugin registry entry with its state and, for one that failed a boot check, the reason. */
+export function pluginsList(): Promise<PluginRow[]> {
+  return invoke<PluginRow[]>("plugins_list");
+}
+
+/** Whether safe mode is on and whether the previous run ended uncleanly. */
+export function pluginsBootState(): Promise<PluginBootState> {
+  return invoke<PluginBootState>("plugins_boot_state");
+}
+
+/** The frame base URL for an enabled plugin, or null when frames are unavailable or it is not enabled. */
+export function pluginFrameUrl(id: string): Promise<string | null> {
+  return invoke<string | null>("plugin_frame_url", { id });
 }

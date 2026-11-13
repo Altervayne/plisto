@@ -929,3 +929,56 @@ export interface CueSheet {
   performer: string | null;
   tracks: CueTrack[];
 }
+
+/** Where a plugin stands. Mirrors EntryState in registry.rs. */
+export type PluginEntryState = "needs_consent" | "ready" | "broken" | "incompatible";
+
+/** A plugin's tier. Mirrors Tier in manifest.rs. */
+export type PluginTier = "ui" | "native";
+
+/** A plugin capability in its manifest spelling. Mirrors Capability in manifest.rs. */
+export type PluginCapability =
+  | "storage"
+  | "library.read"
+  | "playback.read"
+  | "playback.control"
+  | "network"
+  | "background"
+  | "ui.toast"
+  | "ui.confirm"
+  | "ui.chips"
+  | "ui.sidebar"
+  | "audio.tap"
+  | "audio.events"
+  | "audio.device"
+  | "audio.output_takeover";
+
+/** How a plugin's sidebar items are laid out. Mirrors Layout in sidebar_decl.rs. */
+export type PluginSidebarLayout = "compact" | "section";
+
+/**
+ * One registry entry with the problem found at boot, if any. Mirrors PluginRow in state.rs, whose entry
+ * is flattened in. A broken row adopted from an invalid manifest carries placeholder tier and version.
+ */
+export interface PluginRow {
+  id: string;
+  version: string;
+  tier: PluginTier;
+  enabled: boolean;
+  granted: PluginCapability[];
+  installed_at: number;
+  manifest_hash: string;
+  state: PluginEntryState;
+  source_path: string | null;
+  sidebar_layout: PluginSidebarLayout | null;
+  sidebar_collapsed: boolean;
+  /** Set only while a formerly ready plugin sits broken or incompatible: whether it was enabled. */
+  ready_enabled?: boolean;
+  problem: string | null;
+}
+
+/** What the previous run left behind. Mirrors BootState in session.rs. */
+export interface PluginBootState {
+  safe_mode: boolean;
+  unclean: boolean;
+}
