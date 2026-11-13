@@ -409,10 +409,76 @@ fn homepage_problem(url: &str) -> Option<&'static str> {
     None
 }
 
-fn origin_problem(origin: &str) -> Option<&'static str> {
+// Last labels that never resolve on the public internet. Closed list: a name outside it is not refused.
+const RESERVED_TLDS: [&str; 13] = [
+    "localhost",
+    "invalid",
+    "test",
+    "example",
+    "local",
+    "internal",
+    "arpa",
+    "onion",
+    "home",
+    "lan",
+    "corp",
+    "intranet",
+    "localdomain",
+];
+
+const MAX_LABEL: usize = 63;
+
+/// How a network origin is reached: a public https host, or a developer's own machine over http.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OriginKind {
+    Public,
+    DevLoopback,
+}
+
+const NOT_DEV_ADDRESS: &str =
+    "is not a development address Plisto accepts (use http://127.0.0.1:<port>)";
+
+/// Classifies a declared network origin, or names why it is refused.
+pub(super) fn origin_kind(origin: &str) -> Result<OriginKind, &'static str> {
     if origin.len() > MAX_ORIGIN {
-        return Some("is too long");
+        return Err("is too long");
     }
+    if let Some(rest) = origin.strip_prefix("http://") {
+        return dev_loopback(rest);
+    }
+    match public_origin_problem(origin) {
+        Some(reason) => Err(reason),
+        None => Ok(OriginKind::Public),
+    }
+}
+
+// Only http://127.0.0.1:<port> and http://localhost:<port> are accepted over http. A loopback-looking
+// near miss gets the specific reason; any other http host falls through to the https requirement.
+fn dev_loopback(rest: &str) -> Result<OriginKind, &'static str> {
+    let host = rest.split(['/', '?', '#', ':']).next().unwrap_or("");
+    let loopback_like = rest.starts_with('[')
+        || host == "localhost"
+        || host == "0.0.0.0"
+        || host.starts_with("127.");
+    if !loopback_like {
+        return Err("must start with https://");
+    }
+    let port = rest
+        .strip_prefix("127.0.0.1:")
+        .or_else(|| rest.strip_prefix("localhost:"));
+    let valid = port.is_some_and(|p| {
+        !p.starts_with('0')
+            && p.bytes().all(|b| b.is_ascii_digit())
+            && p.parse::<u16>().is_ok()
+    });
+    if valid {
+        Ok(OriginKind::DevLoopback)
+    } else {
+        Err(NOT_DEV_ADDRESS)
+    }
+}
+
+fn public_origin_problem(origin: &str) -> Option<&'static str> {
     let Some(rest) = origin.strip_prefix("https://") else {
         return Some("must start with https://");
     };
@@ -440,6 +506,7 @@ fn origin_problem(origin: &str) -> Option<&'static str> {
     let labels: Vec<&str> = host.split('.').collect();
     let label_ok = |l: &&str| {
         !l.is_empty()
+            && l.len() <= MAX_LABEL
             && !l.starts_with('-')
             && !l.ends_with('-')
             && l.bytes()
@@ -452,6 +519,9 @@ fn origin_problem(origin: &str) -> Option<&'static str> {
     // TLD (alphabetic, or xn--) is required.
     if !labels[labels.len() - 1].starts_with(|c: char| c.is_ascii_lowercase()) {
         return Some("must not be an IP address");
+    }
+    if RESERVED_TLDS.contains(&labels[labels.len() - 1]) {
+        return Some("uses a reserved name that is not on the public internet");
     }
     None
 }
@@ -473,7 +543,7 @@ fn validate_network(
     }
     let mut seen = HashSet::new();
     for origin in &origins {
-        if let Some(reason) = origin_problem(origin) {
+        if let Err(reason) = origin_kind(origin) {
             return Err(ManifestError::BadNetworkOrigin {
                 origin: clip(origin),
                 reason,
@@ -1170,43 +1240,127 @@ mod tests {
     #[test]
     fn bad_network_origins_reject() {
         let v = with(ui(), "capabilities", json!(["network"]));
-        for origin in [
-            "http://api.example.com",
-            "api.example.com",
-            "https://*.example.com",
-            "https://*",
-            "https://user@example.com",
-            "https://example.com/path",
-            "https://example.com/",
-            "https://example.com?x=1",
-            "https://example.com#f",
-            "https://example.com:0",
-            "https://example.com:99999",
-            "https://example.com:",
-            "https://example.com:80a",
-            "https://localhost",
-            "https://127.0.0.1",
-            "https://1.2.3.4:8080",
-            "https://Example.com",
-            "https://exa mple.com",
-            "https://-a.example.com",
-            "https://a..example.com",
-            "https://example.com;x",
-            "https://[::1]",
+        let frame_host = format!(
+            "https://{}.invalid",
+            crate::plugins::frame_host::host_for_id("a.b")
+        );
+        let long_label = format!("https://{}.example.com", "a".repeat(MAX_LABEL + 1));
+        let reserved = "uses a reserved name that is not on the public internet";
+        let dns = "must be a lowercase DNS host name";
+        for (origin, expected) in [
+            ("http://api.example.com", "must start with https://"),
+            ("api.example.com", "must start with https://"),
+            ("https://*.example.com", "must not use wildcards"),
+            ("https://*", "must not use wildcards"),
+            ("https://user@example.com", "must not carry credentials"),
+            ("https://example.com/path", "must be a bare origin without a path, query or fragment"),
+            ("https://example.com/", "must be a bare origin without a path, query or fragment"),
+            ("https://example.com?x=1", "must be a bare origin without a path, query or fragment"),
+            ("https://example.com#f", "must be a bare origin without a path, query or fragment"),
+            ("https://example.com:0", "has an invalid port"),
+            ("https://example.com:99999", "has an invalid port"),
+            ("https://example.com:", "has an invalid port"),
+            ("https://example.com:80a", "has an invalid port"),
+            ("https://localhost", dns),
+            ("https://127.0.0.1", "must not be an IP address"),
+            ("https://1.2.3.4:8080", "must not be an IP address"),
+            ("https://Example.com", dns),
+            ("https://exa mple.com", dns),
+            ("https://-a.example.com", dns),
+            ("https://a..example.com", dns),
+            ("https://example.com;x", dns),
+            ("https://[::1]", "has an invalid port"),
+            ("https://api.localhost", reserved),
+            ("https://x.invalid", reserved),
+            (frame_host.as_str(), reserved),
+            ("https://a.test", reserved),
+            ("https://printer.local", reserved),
+            ("https://svc.internal", reserved),
+            ("https://1.0.0.127.in-addr.arpa", reserved),
+            ("https://x.onion", reserved),
+            ("https://x.example", reserved),
+            ("https://a.home", reserved),
+            ("https://a.lan", reserved),
+            ("https://a.corp", reserved),
+            ("https://a.intranet", reserved),
+            ("https://a.localdomain", reserved),
+            (long_label.as_str(), dns),
         ] {
-            assert!(
-                matches!(
-                    run(&with(v.clone(), "network", json!([origin]))),
-                    Err(ManifestError::BadNetworkOrigin { .. })
-                ),
+            assert_eq!(
+                run(&with(v.clone(), "network", json!([origin]))),
+                Err(ManifestError::BadNetworkOrigin {
+                    origin: clip(origin),
+                    reason: expected,
+                }),
                 "{origin}"
             );
         }
         let long = format!("https://{}.example.com", "a".repeat(MAX_ORIGIN));
-        assert!(matches!(
-            run(&with(v, "network", json!([long]))),
-            Err(ManifestError::BadNetworkOrigin { .. })
-        ));
+        assert_eq!(
+            run(&with(v.clone(), "network", json!([long]))),
+            Err(ManifestError::BadNetworkOrigin {
+                origin: clip(&long),
+                reason: "is too long",
+            })
+        );
+        let max_label = format!("https://{}.example.com", "a".repeat(MAX_LABEL));
+        for origin in [
+            "https://example.com",
+            "https://a.example.com:8443",
+            "https://localhost.com",
+            max_label.as_str(),
+        ] {
+            assert!(
+                run(&with(v.clone(), "network", json!([origin]))).is_ok(),
+                "{origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn dev_loopback_origins_are_accepted_with_their_kind() {
+        for origin in [
+            "http://127.0.0.1:8080",
+            "http://localhost:1",
+            "http://localhost:65535",
+        ] {
+            assert_eq!(origin_kind(origin), Ok(OriginKind::DevLoopback), "{origin}");
+            let v = with(ui(), "capabilities", json!(["network"]));
+            assert!(run(&with(v, "network", json!([origin]))).is_ok(), "{origin}");
+        }
+        for origin in [
+            "https://api.example.com",
+            "https://example.com:8443",
+            "https://a-b.example.co",
+        ] {
+            assert_eq!(origin_kind(origin), Ok(OriginKind::Public), "{origin}");
+        }
+    }
+
+    #[test]
+    fn near_miss_loopback_origins_reject() {
+        for origin in [
+            "http://127.0.0.1",
+            "http://127.0.0.2:80",
+            "http://[::1]:80",
+            "http://0.0.0.0:80",
+            "http://localhost:080",
+            "http://localhost:0",
+            "http://localhost:8080/",
+            "http://localhost:65536",
+            "http://localhost:",
+            "http://127.0.0.1:80a",
+        ] {
+            assert_eq!(origin_kind(origin), Err(NOT_DEV_ADDRESS), "{origin}");
+        }
+        assert_eq!(
+            origin_kind("http://example.com:80"),
+            Err("must start with https://")
+        );
+        assert_eq!(
+            origin_kind("https://localhost:8443"),
+            Err("must be a lowercase DNS host name")
+        );
     }
 
     #[test]
