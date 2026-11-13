@@ -7,16 +7,21 @@
  */
 
 // -- Library Imports --
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashSet, VecDeque};
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
 use serde::Serialize;
 
 // -- Local Imports --
+use super::install::sweep_staging;
 use super::registry::{self, Entry, FileRead, Registry};
 use super::revalidate::{adopt_folders, revalidate, Problems};
 use super::session::{self, BootState};
+
+/// How many inspected, not yet installed plugins are kept staged; one more evicts the oldest.
+pub const MAX_STAGED: usize = 8;
 
 /// The ids of enabled, ready plugins. Cheap to clone; every clone sees the same set.
 #[derive(Clone, Default)]
@@ -33,9 +38,20 @@ impl EnabledSet {
     }
 }
 
+/// A plugin copied into staging and inspected, waiting for install or discard. Memory only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedPlugin {
+    pub token: String,
+    pub dir: PathBuf,
+    pub id: String,
+    pub manifest_hash: String,
+    pub source: String,
+}
+
 struct Inner {
     registry: Registry,
     problems: Problems,
+    staged: VecDeque<StagedPlugin>,
 }
 
 /// One registry entry as the frontend sees it, with the problem found at boot, if any.
@@ -50,6 +66,8 @@ pub struct PluginsState {
     inner: Mutex<Inner>,
     enabled: EnabledSet,
     boot: BootState,
+    // False when the boot read could not get at the file, so saving would overwrite contents never read.
+    registry_writable: bool,
 }
 
 impl PluginsState {
@@ -57,9 +75,14 @@ impl PluginsState {
         let enabled = EnabledSet::default();
         enabled.replace(registry.serving_ids());
         PluginsState {
-            inner: Mutex::new(Inner { registry, problems }),
+            inner: Mutex::new(Inner {
+                registry,
+                problems,
+                staged: VecDeque::new(),
+            }),
             enabled,
             boot,
+            registry_writable: true,
         }
     }
 
@@ -70,14 +93,19 @@ impl PluginsState {
 
     /// Reads the previous run's marker, loads and re-validates the registry, then stamps this run.
     /// An unreadable registry is moved aside and rebuilt with every plugin folder needing consent;
-    /// a missing one is an empty registry. Never panics and never deletes a plugin folder.
+    /// a missing one is an empty registry. Leftover staging from an earlier run is removed first.
+    /// Never panics and never deletes a plugin folder.
     pub fn boot(app_data: &Path, app_version: &str, pid: u32, now: i64) -> PluginsState {
         let boot = session::boot_state(app_data, app_version);
-        let (registry, problems) = load(app_data, now);
+        sweep_staging(app_data);
+        let (registry, problems, registry_writable) = load(app_data, now);
         if let Err(e) = session::stamp(app_data, app_version, pid) {
             eprintln!("plugins: cannot write the session marker: {e}");
         }
-        PluginsState::new(registry, problems, boot)
+        PluginsState {
+            registry_writable,
+            ..PluginsState::new(registry, problems, boot)
+        }
     }
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
@@ -86,6 +114,10 @@ impl PluginsState {
 
     pub fn boot_state(&self) -> BootState {
         self.boot
+    }
+
+    pub fn registry_writable(&self) -> bool {
+        self.registry_writable
     }
 
     /// The handle the frame host keeps.
@@ -119,14 +151,61 @@ impl PluginsState {
     pub fn replace(&self, registry: Registry, problems: Problems) {
         let mut inner = self.inner();
         self.enabled.replace(registry.serving_ids());
-        *inner = Inner { registry, problems };
+        inner.registry = registry;
+        inner.problems = problems;
+    }
+
+    /// Adds a newly installed, disabled entry and saves the registry, all under the lock. `place` runs
+    /// first against the registry as it stands and returns the entry once its files are in place.
+    /// When the save fails, `undo` runs and memory is left as it was. The serving set is unchanged.
+    pub fn add_entry<E>(
+        &self,
+        app_data: &Path,
+        place: impl FnOnce(&Registry) -> Result<(Entry, Option<String>), E>,
+        undo: impl FnOnce(io::Error) -> E,
+    ) -> Result<PluginRow, E> {
+        let mut inner = self.inner();
+        let (entry, problem) = place(&inner.registry)?;
+        let mut next = inner.registry.clone();
+        next.entries.push(entry.clone());
+        registry::save(app_data, &next).map_err(undo)?;
+        inner.registry = next;
+        if let Some(problem) = &problem {
+            inner.problems.insert(entry.id.clone(), problem.clone());
+        }
+        Ok(PluginRow { entry, problem })
+    }
+
+    /// Records a staged plugin. Returns the oldest one when the table was full; the caller removes
+    /// its folder outside the lock.
+    pub fn keep_staged(&self, staged: StagedPlugin) -> Option<StagedPlugin> {
+        let mut inner = self.inner();
+        inner.staged.push_back(staged);
+        (inner.staged.len() > MAX_STAGED)
+            .then(|| inner.staged.pop_front())
+            .flatten()
+    }
+
+    pub fn staged(&self, token: &str) -> Option<StagedPlugin> {
+        self.inner()
+            .staged
+            .iter()
+            .find(|s| s.token == token)
+            .cloned()
+    }
+
+    pub fn take_staged(&self, token: &str) -> Option<StagedPlugin> {
+        let mut inner = self.inner();
+        let at = inner.staged.iter().position(|s| s.token == token)?;
+        inner.staged.remove(at)
     }
 }
 
 /// Loads the registry for this run. Plugin folders the registry does not list are added as
 /// needs-consent (or broken) entries. The file is rewritten only when it is safe to: never when it
-/// could not be read, and never when it could not be moved aside first.
-fn load(app_data: &Path, now: i64) -> (Registry, Problems) {
+/// could not be read, and never when it could not be moved aside first; the flag returned says
+/// whether later saves are safe.
+fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
     let mut may_save = true;
     let mut must_save = false;
     let mut loaded = match registry::read_file(app_data) {
@@ -162,7 +241,7 @@ fn load(app_data: &Path, now: i64) -> (Registry, Problems) {
             eprintln!("plugins: cannot save the registry: {e}");
         }
     }
-    (loaded, problems)
+    (loaded, problems, may_save)
 }
 
 #[cfg(test)]
@@ -198,6 +277,7 @@ mod tests {
             let dir = plugin_dir(&self.0, id);
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("plugin.json"), &json).unwrap();
+            fs::write(dir.join("index.html"), "<p></p>").unwrap();
             crate::plugins::revalidate::manifest_hash(json.as_bytes())
         }
 

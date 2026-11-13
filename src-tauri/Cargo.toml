@@ -73,6 +73,10 @@ opus-rs = "0.1.32"
 rodio = { version = "0.20", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 blake3 = "1"
+# Reads `.plistoplugin` archives. Stored and deflate only, through the flate2 backend already in the
+# tree; every member is written by the installer itself, never by the crate's extract helpers. Shared
+# with the updater, so a feature added here changes its zip too.
+zip = { version = "9.4", default-features = false, features = ["deflate-flate2"] }
 dunce = "1"
 unicode-normalization = "0.1"
 

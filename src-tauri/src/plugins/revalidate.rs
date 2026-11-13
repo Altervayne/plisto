@@ -1,46 +1,104 @@
 /*
- * Boot-time checks of the registry against the plugin folders. Each entry's manifest is read and parsed
- * again, so a folder that vanished, a manifest that no longer validates, or one edited since consent
- * shows up here instead of at first use. Nothing is ever deleted: a plugin that fails a check is marked
- * and disabled, and its folder stays where it is. Nothing here panics or waits on anything but the disk.
+ * Checks of a plugin folder against its manifest, shared by boot and install. At boot each registry
+ * entry's manifest is read and parsed again, so a folder that vanished, a manifest that no longer
+ * validates, or one edited since consent shows up here instead of at first use. Nothing is ever
+ * deleted: a plugin that fails a check is marked and disabled, and its folder stays where it is.
+ * Nothing here panics or waits on anything but the disk.
  */
 
 // -- Library Imports --
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
 // -- Local Imports --
 use super::frame_host::is_reparse_point;
-use super::manifest::{self, Compat, Manifest, Tier, MAX_MANIFEST_BYTES};
+use super::icon::{check_icon, IconError};
+use super::manifest::{self, Compat, Manifest, ManifestError, Tier, MAX_MANIFEST_BYTES};
 use super::paths::{plugin_dir, plugins_dir, validate_id};
 use super::registry::{Entry, EntryState, Registry};
 use super::sidebar_decl::Layout;
 
-const MANIFEST_FILE: &str = "plugin.json";
+pub const MANIFEST_FILE: &str = "plugin.json";
 
 /// One line per plugin that failed a check, keyed by id. Held in memory only; the next boot recomputes it.
 pub type Problems = HashMap<String, String>;
+
+/// Why a plugin folder failed `check_folder`. `Display` is the one line shown for a broken plugin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckError {
+    FolderMissing,
+    FolderNotPlain,
+    ManifestMissing,
+    ManifestNotPlain,
+    ManifestUnreadable(String),
+    Manifest(ManifestError),
+    WrongId,
+    Icon(IconError),
+    /// A file the manifest names is missing or not a plain file. Holds the manifest field.
+    MissingFile(&'static str),
+}
+
+impl fmt::Display for CheckError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CheckError::FolderMissing => write!(f, "the plugin folder is missing"),
+            CheckError::FolderNotPlain => write!(f, "the plugin folder is not a plain folder"),
+            CheckError::ManifestMissing => write!(f, "plugin.json is missing"),
+            CheckError::ManifestNotPlain => write!(f, "plugin.json is not a plain file"),
+            CheckError::ManifestUnreadable(e) => write!(f, "plugin.json cannot be read: {e}"),
+            CheckError::Manifest(e) => write!(f, "{e}"),
+            CheckError::WrongId => write!(f, "plugin.json names a different id than its folder"),
+            CheckError::Icon(e) => write!(f, "{e}"),
+            CheckError::MissingFile(field) => {
+                write!(f, "the file named by '{field}' is missing")
+            }
+        }
+    }
+}
+
+/// The problem line for a plugin that needs a newer Plisto.
+pub fn needs_newer(min: &str) -> String {
+    format!("needs Plisto {min} or newer")
+}
 
 /// The hash a registry entry records for a manifest.
 pub fn manifest_hash(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
 
-/// Reads and parses an installed plugin's manifest, refusing a folder or file that is a link. The
-/// error is the one line shown for a broken plugin.
-fn check(app_data: &Path, id: &str) -> Result<(Manifest, String), String> {
-    let dir = plugin_dir(app_data, id);
-    let meta =
-        fs::symlink_metadata(&dir).map_err(|_| "the plugin folder is missing".to_string())?;
+/// Whether `rel` (already accepted by the manifest parser) is a plain file inside `dir`, reached
+/// through plain folders only.
+fn plain_file(dir: &Path, rel: &str) -> bool {
+    let mut path = dir.to_path_buf();
+    let mut parts = rel.split('/').peekable();
+    while let Some(part) = parts.next() {
+        path.push(part);
+        let last = parts.peek().is_none();
+        let plain = fs::symlink_metadata(&path).is_ok_and(|meta| {
+            !is_reparse_point(&meta) && if last { meta.is_file() } else { meta.is_dir() }
+        });
+        if !plain {
+            return false;
+        }
+    }
+    true
+}
+
+/// Reads, parses and checks the manifest in `dir`: the folder and manifest are plain (never a link),
+/// the manifest validates against the running Plisto, its id is `id` when one is given, its icon passes
+/// the disk checks and its entry file exists. Returns the manifest and the hash of its bytes.
+pub fn check_folder(dir: &Path, id: Option<&str>) -> Result<(Manifest, String), CheckError> {
+    let meta = fs::symlink_metadata(dir).map_err(|_| CheckError::FolderMissing)?;
     if !meta.is_dir() || is_reparse_point(&meta) {
-        return Err("the plugin folder is not a plain folder".into());
+        return Err(CheckError::FolderNotPlain);
     }
     let path = dir.join(MANIFEST_FILE);
-    let meta = fs::symlink_metadata(&path).map_err(|_| "plugin.json is missing".to_string())?;
+    let meta = fs::symlink_metadata(&path).map_err(|_| CheckError::ManifestMissing)?;
     if !meta.is_file() || is_reparse_point(&meta) {
-        return Err("plugin.json is not a plain file".into());
+        return Err(CheckError::ManifestNotPlain);
     }
     let mut bytes = Vec::new();
     fs::File::open(&path)
@@ -48,12 +106,23 @@ fn check(app_data: &Path, id: &str) -> Result<(Manifest, String), String> {
             f.take(MAX_MANIFEST_BYTES as u64 + 1)
                 .read_to_end(&mut bytes)
         })
-        .map_err(|e| format!("plugin.json cannot be read: {e}"))?;
-    let parsed = manifest::parse(&bytes).map_err(|e| e.to_string())?;
-    if parsed.id != id {
-        return Err("plugin.json names a different id than its folder".into());
+        .map_err(|e| CheckError::ManifestUnreadable(e.to_string()))?;
+    let parsed = manifest::parse(&bytes).map_err(CheckError::Manifest)?;
+    if id.is_some_and(|id| parsed.id != id) {
+        return Err(CheckError::WrongId);
+    }
+    if let Some(icon) = &parsed.icon {
+        check_icon(dir, icon).map_err(CheckError::Icon)?;
+    }
+    if !plain_file(dir, &parsed.entry) {
+        return Err(CheckError::MissingFile("entry"));
     }
     Ok((parsed, manifest_hash(&bytes)))
+}
+
+/// `check_folder` on an installed plugin, with the error as its one line.
+fn check(app_data: &Path, id: &str) -> Result<(Manifest, String), String> {
+    check_folder(&plugin_dir(app_data, id), Some(id)).map_err(|e| e.to_string())
 }
 
 /// Checks every entry against its folder and updates its state:
@@ -99,7 +168,7 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
         entry.granted.retain(|c| parsed.capabilities.contains(c));
         if let Compat::NeedsNewer(min) = &parsed.compat {
             demote(entry, EntryState::Incompatible);
-            problems.insert(entry.id.clone(), format!("needs Plisto {min} or newer"));
+            problems.insert(entry.id.clone(), needs_newer(min));
         } else if matches!(entry.state, EntryState::Broken | EntryState::Incompatible) {
             match entry.ready_enabled.take() {
                 Some(enabled) => {
@@ -215,6 +284,7 @@ mod tests {
             let dir = plugin_dir(&self.0, id);
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("plugin.json"), manifest).unwrap();
+            fs::write(dir.join("index.html"), "<p></p>").unwrap();
         }
     }
 
@@ -312,6 +382,26 @@ mod tests {
         reg.entries[0] = ready(ID, &hash_of(&other));
         revalidate(&d.0, &mut reg);
         assert_eq!(reg.entries[0].state, EntryState::Broken);
+    }
+
+    #[test]
+    fn a_missing_entry_file_or_a_bad_icon_breaks_the_entry() {
+        let d = AppData::new();
+        let json = manifest_json(ID, "");
+        d.install(ID, &json);
+        fs::remove_file(plugin_dir(&d.0, ID).join("index.html")).unwrap();
+        let mut reg = registry(vec![ready(ID, &hash_of(&json))]);
+        let problems = revalidate(&d.0, &mut reg);
+        assert_eq!(reg.entries[0].state, EntryState::Broken);
+        assert!(problems[ID].contains("'entry'"));
+
+        let iconic = manifest_json(ID, r#","icon":"icon.png""#);
+        d.install(ID, &iconic);
+        fs::write(plugin_dir(&d.0, ID).join("icon.png"), b"not a png").unwrap();
+        let mut reg = registry(vec![ready(ID, &hash_of(&iconic))]);
+        let problems = revalidate(&d.0, &mut reg);
+        assert_eq!(reg.entries[0].state, EntryState::Broken);
+        assert!(problems[ID].contains("icon"));
     }
 
     #[test]

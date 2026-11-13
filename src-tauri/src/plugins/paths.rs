@@ -77,7 +77,8 @@ pub fn safe_mode_file(app_data: &Path) -> PathBuf {
     state_dir(app_data).join(SAFE_MODE)
 }
 
-fn is_reserved(component: &str) -> bool {
+/// Whether a path component names a DOS device, with or without an extension.
+pub fn is_reserved(component: &str) -> bool {
     let stem = component.split('.').next().unwrap_or("");
     RESERVED.iter().any(|r| r.eq_ignore_ascii_case(stem))
 }

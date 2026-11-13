@@ -488,7 +488,11 @@ pub fn run() {
             commands::visualizer::set_track_visualizer,
             commands::plugins::plugin_frame_url,
             commands::plugins::plugins_list,
-            commands::plugins::plugins_boot_state
+            commands::plugins::plugins_boot_state,
+            commands::plugins::plugin_inspect,
+            commands::plugins::plugin_install,
+            commands::plugins::plugin_discard,
+            commands::plugins::plugin_inbox
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
