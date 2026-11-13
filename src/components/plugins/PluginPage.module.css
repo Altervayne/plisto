@@ -1,0 +1,35 @@
+/* A plugin's page on the continuous surface: the header over the body, parted by space, no frame. */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 30px 24px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}

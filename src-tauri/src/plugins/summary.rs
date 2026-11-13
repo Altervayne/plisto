@@ -14,9 +14,10 @@ use serde::Serialize;
 
 // -- Local Imports --
 use super::frame_host::is_reparse_point;
-use super::manifest::{self, Capability, Compat, Manifest, MAX_MANIFEST_BYTES};
+use super::manifest::{self, Capability, Compat, Manifest, ModeOpt, MAX_MANIFEST_BYTES};
 use super::paths::plugin_dir;
 use super::revalidate::MANIFEST_FILE;
+use super::sidebar_decl::SidebarDecl;
 use super::state::PluginRow;
 use super::update::Updated;
 
@@ -30,6 +31,8 @@ pub struct ManifestSummary {
     pub origins: Vec<String>,
     pub native_reason: Option<String>,
     pub sidebar_items: usize,
+    pub sidebar: Option<SidebarDecl>,
+    pub modes: Vec<ModeOpt>,
     pub compat: Compat,
 }
 
@@ -43,6 +46,8 @@ impl ManifestSummary {
             origins: manifest.network.clone(),
             native_reason: manifest.native_reason.clone(),
             sidebar_items: sidebar_item_count(manifest),
+            sidebar: manifest.sidebar.clone(),
+            modes: manifest.modes.clone(),
             compat: manifest.compat.clone(),
         }
     }
@@ -154,6 +159,52 @@ mod tests {
         assert!(m["native_reason"].is_null());
         assert_eq!(m["sidebar_items"], 2);
         assert_eq!(m["compat"], json!({"state": "compatible"}));
+    }
+
+    #[test]
+    fn the_sidebar_declaration_and_modes_are_summarized() {
+        let k = Kit::new();
+        let mut manifest = ui("1.0.0", &["ui.sidebar", "background"]);
+        manifest["modes"] = json!(["player", "organizer"]);
+        manifest["sidebar"] = json!({
+            "layout": "section",
+            "items": [
+                {"id": "home", "type": "nav", "label": "Home", "route": "/", "icon": "music"},
+                {"id": "plain", "type": "nav", "label": "Plain"},
+                {"id": "state", "type": "status", "label": "State"},
+                {"id": "sync", "type": "progress", "label": "Sync"},
+                {"id": "auto", "type": "toggle", "label": "Auto"},
+                {"id": "go", "type": "action", "label": "Go"}
+            ]
+        });
+        k.install(&manifest);
+        let m = &row_json(&k)["manifest"];
+        assert_eq!(m["sidebar_items"], 6);
+        assert_eq!(m["modes"], json!(["player", "organizer"]));
+        assert_eq!(
+            m["sidebar"],
+            json!({
+                "layout": "section",
+                "items": [
+                    {"id": "home", "type": "nav", "label": "Home", "route": "/", "icon": "music"},
+                    {"id": "plain", "type": "nav", "label": "Plain", "route": null, "icon": null},
+                    {"id": "state", "type": "status", "label": "State", "route": null, "icon": null},
+                    {"id": "sync", "type": "progress", "label": "Sync", "route": null, "icon": null},
+                    {"id": "auto", "type": "toggle", "label": "Auto", "route": null, "icon": null},
+                    {"id": "go", "type": "action", "label": "Go", "route": null, "icon": null}
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn a_manifest_without_sidebar_or_modes_serializes_null_and_the_default_mode() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &[]));
+        let m = &row_json(&k)["manifest"];
+        assert!(m["sidebar"].is_null());
+        assert_eq!(m["sidebar_items"], 0);
+        assert_eq!(m["modes"], json!(["player"]));
     }
 
     #[test]

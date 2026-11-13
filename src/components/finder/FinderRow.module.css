@@ -30,6 +30,14 @@
   text-overflow: ellipsis;
 }
 
+/* A label with a tag after it: the label truncates, the tag stays whole. */
+.labelLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .label {
   font-size: 13.5px;
   font-weight: 550;

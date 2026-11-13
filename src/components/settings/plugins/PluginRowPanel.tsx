@@ -6,6 +6,7 @@ import { SegmentedControl } from "../../common/SegmentedControl";
 // -- Utils Imports --
 import { knownCapabilities, sortCapabilities } from "../../../state/plugins/capabilities";
 import { formatBytes } from "../../../lib/format";
+import { effectiveLayout } from "../../shell/navVisibility";
 
 // -- Hook Imports --
 import { useDataSize } from "./useDataSize";
@@ -56,7 +57,7 @@ export function PluginRowPanel({
           <span>{t((d) => d.plugins.panelSidebar)}</span>
           <SegmentedControl
             segments={layouts}
-            value={row.sidebar_layout ?? "compact"}
+            value={effectiveLayout(row)}
             onChange={onLayout}
             label={t((d) => d.plugins.panelSidebar)}
           />

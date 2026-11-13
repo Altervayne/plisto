@@ -277,6 +277,30 @@ pub fn set_sidebar_layout(
     )
 }
 
+/// Saves whether a plugin's sidebar group is collapsed. Allowed in any state; the serving set is untouched.
+pub fn set_sidebar_collapsed(
+    app_data: &Path,
+    plugins: &PluginsState,
+    id: &str,
+    collapsed: bool,
+) -> Result<PluginRow, InstallError> {
+    require_writable(plugins)?;
+    plugins.mutate(
+        app_data,
+        Withdraw::No,
+        |registry, problems| {
+            let entry = registry
+                .entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| not_installed(id))?;
+            entry.sidebar_collapsed = collapsed;
+            Ok(row(entry, problems))
+        },
+        save_failed,
+    )
+}
+
 /// Disables a plugin and stops it. Consent and grants are kept, so enabling again asks nothing. A
 /// broken or incompatible plugin that was enabled is remembered as disabled, so its recovery does
 /// not turn it back on. Anything else is left as it is.
@@ -1054,6 +1078,45 @@ mod tests {
 
         let err =
             set_sidebar_layout(&k.data, &plugins, "com.example.none", Layout::Section).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotInstalled);
+    }
+
+    #[test]
+    fn the_sidebar_collapsed_flag_is_saved_and_returned() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        assert!(!k.plugins.snapshot().entries[0].sidebar_collapsed);
+        let generation = k.plugins.generation();
+        let row = set_sidebar_collapsed(&k.data, &k.plugins, ID, true).unwrap();
+        assert!(row.entry.sidebar_collapsed);
+        assert!(k.saved_entry().sidebar_collapsed);
+        assert_eq!(k.plugins.generation(), generation + 1);
+        assert!(k.reboot().rows()[0].entry.sidebar_collapsed);
+
+        // The same value again saves nothing; an enabled plugin stays in service.
+        k.enable(&["storage"]);
+        let generation = k.plugins.generation();
+        set_sidebar_collapsed(&k.data, &k.plugins, ID, true).unwrap();
+        assert_eq!(k.plugins.generation(), generation);
+        let row = set_sidebar_collapsed(&k.data, &k.plugins, ID, false).unwrap();
+        assert!(!row.entry.sidebar_collapsed);
+        assert!(row.entry.enabled);
+        assert!(k.plugins.is_enabled(ID));
+        assert!(k.stops().is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_collapsed_flag_is_allowed_on_a_broken_plugin_and_refused_for_an_unknown_id() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        fs::remove_dir_all(plugin_dir(&k.data, ID)).unwrap();
+        let plugins = k.reboot();
+        assert_eq!(plugins.rows()[0].entry.state, EntryState::Broken);
+        let row = set_sidebar_collapsed(&k.data, &plugins, ID, true).unwrap();
+        assert!(row.entry.sidebar_collapsed);
+        assert_eq!(row.entry.state, EntryState::Broken);
+
+        let err = set_sidebar_collapsed(&k.data, &plugins, "com.example.none", true).unwrap_err();
         assert_eq!(err.code, ErrorCode::NotInstalled);
     }
 }

@@ -12,8 +12,18 @@
 // -- Type Imports --
 import type { AppMode } from "../../state/player/store";
 import type { CollectionTarget } from "../../state/collection/store";
+import type {
+  PluginManifestSummary,
+  PluginMode,
+  PluginRow,
+  PluginSidebarItem,
+  PluginSidebarLayout,
+} from "../../types";
 
-/** The region showing in the main pane: the landing, a library view, the export screen, or settings. */
+/**
+ * The region showing in the main pane: the landing, a library view, the export screen, settings, or an
+ * enabled plugin's page (`plugin:<id>`).
+ */
 export type Mode =
   | "home"
   | "files"
@@ -25,7 +35,11 @@ export type Mode =
   | "player"
   | "history"
   | "export"
-  | "settings";
+  | "settings"
+  | `plugin:${string}`;
+
+/** A destination that is not a plugin page. */
+export type BuiltInMode = Exclude<Mode, `plugin:${string}`>;
 
 /**
  * Where a navigation lands: a destination as it stands, or a Collection segment named explicitly. A bare
@@ -70,4 +84,101 @@ export function isSectionVisible(appMode: AppMode, section: readonly Mode[]): bo
 /** The first still-visible destination in nav order, the landing when a mode flip hides the current one. */
 export function firstVisibleDestination(appMode: AppMode): Mode {
   return NAV_ORDER.find((dest) => isDestinationVisible(appMode, dest)) ?? "settings";
+}
+
+// -- Plugin zone --
+
+/** The destination of a plugin's page. */
+export function pluginMode(id: string): Mode {
+  return `plugin:${id}`;
+}
+
+/** The plugin id behind a plugin destination, or null for any other destination. */
+export function pluginIdOf(mode: Mode): string | null {
+  return mode.startsWith("plugin:") ? mode.slice("plugin:".length) : null;
+}
+
+/** Whether a plugin declaring these modes shows under the app mode. Both shows every plugin. */
+export function isPluginVisible(appMode: AppMode, modes: readonly PluginMode[]): boolean {
+  return appMode === "both" || modes.includes(appMode);
+}
+
+/** A registry row that can be drawn: its manifest is readable. */
+export type ZonePlugin = PluginRow & { manifest: PluginManifestSummary };
+
+/**
+ * The plugins the rail and the finder may show, in install order: ready, enabled, a readable manifest,
+ * and visible under the app mode. Anything else is reachable from the Settings hub only.
+ */
+export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): ZonePlugin[] {
+  return rows
+    .filter(
+      (row): row is ZonePlugin =>
+        row.state === "ready" &&
+        row.enabled &&
+        row.manifest != null &&
+        isPluginVisible(appMode, row.manifest.modes),
+    )
+    .sort((a, b) => a.installed_at - b.installed_at);
+}
+
+/** The layout a plugin's sidebar items take: the user's choice, else the manifest default, else compact. */
+export function effectiveLayout(row: PluginRow): PluginSidebarLayout {
+  return row.sidebar_layout ?? row.manifest?.sidebar?.layout ?? "compact";
+}
+
+/** One plugin-owned sidebar section with its items and fold state. */
+export interface ZoneSection {
+  plugin: ZonePlugin;
+  items: PluginSidebarItem[];
+  collapsed: boolean;
+}
+
+/** The plugin zone: owned sections first, then the plugins sharing one compact group. */
+export interface PluginZoneModel {
+  sections: ZoneSection[];
+  compact: ZonePlugin[];
+}
+
+/**
+ * Sorts the qualified plugins into the zone. A plugin owns a section only when its effective layout is
+ * `section` and its manifest declares items; every other one is a row in the shared group. Both lists
+ * keep install order.
+ */
+export function pluginZoneModel(rows: readonly PluginRow[], appMode: AppMode): PluginZoneModel {
+  const sections: ZoneSection[] = [];
+  const compact: ZonePlugin[] = [];
+  for (const plugin of qualifiedPlugins(rows, appMode)) {
+    const items = plugin.manifest.sidebar?.items ?? [];
+    if (effectiveLayout(plugin) === "section" && items.length > 0) {
+      sections.push({ plugin, items, collapsed: plugin.sidebar_collapsed });
+    } else {
+      compact.push(plugin);
+    }
+  }
+  return { sections, compact };
+}
+
+/**
+ * The nav item a plugin page's current route lights: the first nav item declaring that route, null
+ * when none does. Two items sharing a route never both light.
+ */
+export function activeNavItemId(
+  items: readonly PluginSidebarItem[],
+  route: string | null,
+): string | null {
+  return items.find((item) => item.type === "nav" && item.route === route)?.id ?? null;
+}
+
+/** Whether the plugin is drawn in the zone, as a section or as a row in the shared group. */
+export function zoneHasPlugin(model: PluginZoneModel, id: string): boolean {
+  return (
+    model.sections.some((section) => section.plugin.id === id) ||
+    model.compact.some((plugin) => plugin.id === id)
+  );
+}
+
+/** Whether the zone has anything to draw; an empty zone renders nothing, label included. */
+export function isZoneEmpty(model: PluginZoneModel): boolean {
+  return model.sections.length === 0 && model.compact.length === 0;
 }

@@ -499,6 +499,7 @@ pub fn run() {
             commands::plugins::plugin_uninstall,
             commands::plugins::plugin_approve,
             commands::plugins::plugin_set_sidebar_layout,
+            commands::plugins::plugin_set_sidebar_collapsed,
             commands::plugins::plugin_icon,
             commands::plugins::plugin_staged_icon,
             commands::plugins::plugin_inbox_path,

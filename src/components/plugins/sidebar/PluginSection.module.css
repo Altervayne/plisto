@@ -1,0 +1,70 @@
+/* The Plisto-drawn heading of a plugin section: the label style of the built-in groups, led by the
+ * plugin's icon and followed by its tag, with the fold chevron at the far edge. */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  padding: 0 4px 0 8px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The name gives way before the icon or the tag do. */
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The tag keeps its own case inside the uppercase heading. */
+.tagWrap {
+  flex: none;
+  display: inline-flex;
+  text-transform: none;
+}
+
+.fold {
+  flex: none;
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.fold:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.fold svg {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.folded svg {
+  transform: rotate(-90deg);
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}

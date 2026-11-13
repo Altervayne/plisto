@@ -9,18 +9,21 @@ import styles from "./NavItem.module.css";
 
 /**
  * One sidebar nav row: an icon, a label, and an optional count. The active row carries the accent
- * text and left bar; the ground stays transparent and hover only warms with the veil.
+ * text and left bar; the ground stays transparent and hover only warms with the veil. A `tag` sits
+ * right after the label, which truncates before the tag does.
  */
 export function NavItem({
   icon,
   label,
   count,
+  tag,
   active,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   count?: number;
+  tag?: ReactNode;
   active: boolean;
   onClick: () => void;
 }) {
@@ -32,7 +35,14 @@ export function NavItem({
       onClick={onClick}
     >
       {icon}
-      <span className={styles.txt}>{label}</span>
+      {tag ? (
+        <span className={styles.tagged}>
+          <span className={styles.name}>{label}</span>
+          {tag}
+        </span>
+      ) : (
+        <span className={styles.txt}>{label}</span>
+      )}
       {count != null ? <span className={styles.count}>{formatCount(count)}</span> : null}
     </button>
   );

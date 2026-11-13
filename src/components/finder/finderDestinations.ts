@@ -26,7 +26,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 // -- Type Imports --
-import type { Mode, NavTarget } from "../shell/navVisibility";
+import type { BuiltInMode, NavTarget } from "../shell/navVisibility";
 import type { CollectionSegment } from "../../state/collection/store";
 
 // -- i18n Imports --
@@ -35,8 +35,11 @@ import type { Dict } from "../../i18n/en";
 /** A Collection segment with its own "Go to" row. Browse has none. */
 export type SegmentDestination = Exclude<CollectionSegment, "browse">;
 
-/** A place a "Go to" row reaches: a nav destination, a Collection segment, or the duplicates sheet. */
-export type FinderDestination = Mode | SegmentDestination | "duplicates";
+/**
+ * A place a "Go to" row reaches: a nav destination, a Collection segment, or the duplicates sheet. A
+ * plugin page has its own finder rows and is not one of these.
+ */
+export type FinderDestination = BuiltInMode | SegmentDestination | "duplicates";
 
 const SEGMENT_DESTINATIONS: readonly string[] = ["albums", "singles", "tracks"];
 

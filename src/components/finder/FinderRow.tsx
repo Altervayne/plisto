@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { FinderThumb } from "./FinderThumb";
+import { PluginTag } from "../plugins/PluginTag";
 
 // -- Type Imports --
 import type { FinderEntry } from "./finderIndex";
@@ -16,6 +17,7 @@ function sublabelOf(entry: FinderEntry, t: Translate): string | null {
   switch (entry.kind) {
     case "album":
     case "track":
+    case "plugin":
       return entry.sublabel ?? null;
     case "single": {
       const marker = t((d) => d.singles.marker);
@@ -65,7 +67,14 @@ export function FinderRow({
     >
       <FinderThumb entry={entry} />
       <span className={styles.text}>
-        <span className={styles.label}>{entry.label}</span>
+        {entry.kind === "plugin" && entry.tag ? (
+          <span className={styles.labelLine}>
+            <span className={styles.label}>{entry.label}</span>
+            <PluginTag kind={entry.tag} />
+          </span>
+        ) : (
+          <span className={styles.label}>{entry.label}</span>
+        )}
         {sublabel ? <span className={styles.sublabel}>{sublabel}</span> : null}
       </span>
     </div>

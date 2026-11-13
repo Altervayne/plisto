@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
+import { PluginIcon } from "../plugins/PluginIcon";
 
 // -- Hook Imports --
 import { useAlbumCover } from "../albums/useAlbumCover";
@@ -56,6 +57,10 @@ function lead(entry: FinderEntry) {
       return <Glyph icon={Tag} />;
     case "destination":
       return <Glyph icon={DESTINATION_ICON[entry.id]} />;
+    case "plugin":
+      return (
+        <PluginIcon source={{ kind: "installed", id: entry.pluginId, hash: entry.manifestHash }} size={34} />
+      );
   }
 }
 

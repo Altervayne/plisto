@@ -27,6 +27,7 @@ const KINDS: readonly string[] = [
   "genre",
   "track",
   "destination",
+  "plugin",
 ];
 
 function isRecentRef(value: unknown): value is RecentRef {

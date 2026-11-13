@@ -28,6 +28,7 @@ export interface FinderNav {
   openAlbum: (albumId: number) => void;
   openSingle: (albumId: number) => void;
   openPlaylist: (playlistId: number) => void;
+  openPlugin: (pluginId: string, route: string | null) => void;
 }
 
 /** What the finder can do with an entry: go to it, play it, or queue it. */
@@ -121,6 +122,9 @@ export function useFinderActions(nav: FinderNav): FinderActions {
         // The duplicates sheet opens over wherever the finder was summoned.
         if (entry.id === "duplicates") openDuplicates();
         else nav.go(destinationTarget(entry.id));
+        break;
+      case "plugin":
+        nav.openPlugin(entry.pluginId, entry.route);
         break;
     }
   };

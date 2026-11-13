@@ -37,6 +37,10 @@ interface ShellStore {
   // Whether the keyboard shortcuts sheet is up. Settings and the shell's own key both open it.
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
+  // The route a plugin nav row opened, so a page opened on `plugin:<id>` knows which of its views to
+  // land on. Null when the page was opened without one.
+  pluginRoute: string | null;
+  setPluginRoute: (route: string | null) => void;
 }
 
 const useShellStore = create<ShellStore>((set) => ({
@@ -51,6 +55,8 @@ const useShellStore = create<ShellStore>((set) => ({
   closeDuplicates: () => set({ duplicatesOpen: false }),
   shortcutsOpen: false,
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
+  pluginRoute: null,
+  setPluginRoute: (pluginRoute) => set({ pluginRoute }),
 }));
 
 // -- Selectors (narrow: one value or one stable setter each) --
@@ -73,3 +79,7 @@ export const useCloseDuplicates = (): (() => void) => useShellStore((s) => s.clo
 export const useShortcutsOpen = (): boolean => useShellStore((s) => s.shortcutsOpen);
 export const useSetShortcutsOpen = (): ((open: boolean) => void) =>
   useShellStore((s) => s.setShortcutsOpen);
+
+export const usePluginRoute = (): string | null => useShellStore((s) => s.pluginRoute);
+export const useSetPluginRoute = (): ((route: string | null) => void) =>
+  useShellStore((s) => s.setPluginRoute);

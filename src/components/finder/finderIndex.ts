@@ -12,9 +12,11 @@ import { playlistQueue } from "../playlists/playlistPlayback";
 import { buildAlbumIndex, resolveTrackAlbum } from "../tracks/trackAlbum";
 import { NAV_ORDER, isDestinationVisible } from "../shell/navVisibility";
 import { visibleSegments } from "../collection/collectionSegments";
+import { tagKind } from "../../state/plugins/trust";
 
 // -- Type Imports --
-import type { Mode } from "../shell/navVisibility";
+import type { BuiltInMode, PluginZoneModel, ZonePlugin } from "../shell/navVisibility";
+import type { PluginTagKind } from "../../state/plugins/trust";
 import type { FinderDestination, SegmentDestination } from "./finderDestinations";
 import type { AppMode } from "../../state/player/store";
 import type {
@@ -34,7 +36,8 @@ export type FinderKind =
   | "playlist"
   | "genre"
   | "track"
-  | "destination";
+  | "destination"
+  | "plugin";
 
 /** Where an artist name appears: on tracks, as an album artist, or both. */
 export type ArtistRole = "track" | "album" | "both";
@@ -73,7 +76,25 @@ export interface DestinationEntry extends EntryBase {
   id: FinderDestination;
 }
 
-export type FinderEntry = ArtistEntry | ContainerEntry | TrackEntry | DestinationEntry;
+/**
+ * A plugin's page, or one nav item of a plugin that owns a sidebar section. `id` is the plugin id, with
+ * `:<item id>` appended for an item, so every row has its own recents key.
+ */
+export interface PluginEntry extends EntryBase {
+  kind: "plugin";
+  id: string;
+  pluginId: string;
+  route: string | null;
+  manifestHash: string;
+  tag: PluginTagKind | null;
+}
+
+export type FinderEntry =
+  | ArtistEntry
+  | ContainerEntry
+  | TrackEntry
+  | DestinationEntry
+  | PluginEntry;
 
 /** The library rows the index derives from, plus the labels an untitled row falls back to. */
 export interface FinderSource {
@@ -302,7 +323,7 @@ export function buildFinderIndex(src: FinderSource): FinderIndex {
  * Collection's shown segment rows right after it, the possible-duplicates sheet, Settings.
  */
 export function finderDestinations(appMode: AppMode): FinderDestination[] {
-  const shown = (["home", ...NAV_ORDER] as Mode[]).filter((mode) =>
+  const shown = (["home", ...NAV_ORDER] as BuiltInMode[]).filter((mode) =>
     isDestinationVisible(appMode, mode),
   );
   const segments = visibleSegments(appMode).filter(
@@ -315,6 +336,56 @@ export function finderDestinations(appMode: AppMode): FinderDestination[] {
     "duplicates",
     "settings",
   ];
+}
+
+/** The words a plugin row is built from, already translated. */
+export interface PluginEntryText {
+  sublabel: string;
+  item: (plugin: string, item: string) => string;
+}
+
+function pluginEntry(
+  plugin: ZonePlugin,
+  id: string,
+  label: string,
+  route: string | null,
+  text: PluginEntryText,
+): PluginEntry {
+  return {
+    kind: "plugin",
+    id,
+    pluginId: plugin.id,
+    route,
+    manifestHash: plugin.manifest_hash,
+    tag: tagKind(plugin.tier),
+    label,
+    sublabel: text.sublabel,
+    fields: foldFields(label),
+    trackIds: [],
+  };
+}
+
+/**
+ * The finder rows for the plugin zone, in the rail's order. A plugin in the shared group is one row; one
+ * that owns a section gets a row per nav item, "<plugin>: <item>". A section with no nav item still gets
+ * its one plugin row, so the plugin stays reachable. Only plugins the rail draws appear.
+ */
+export function pluginEntries(zone: PluginZoneModel, text: PluginEntryText): PluginEntry[] {
+  const entries: PluginEntry[] = [];
+  for (const { plugin, items } of zone.sections) {
+    const nav = items.filter((item) => item.type === "nav");
+    if (nav.length === 0) {
+      entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text));
+    }
+    for (const item of nav) {
+      const label = text.item(plugin.manifest.name, item.label);
+      entries.push(pluginEntry(plugin, `${plugin.id}:${item.id}`, label, item.route, text));
+    }
+  }
+  for (const plugin of zone.compact) {
+    entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text));
+  }
+  return entries;
 }
 
 /** The "Go to" entries for the given destinations and their display labels. */

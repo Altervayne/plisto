@@ -31,6 +31,7 @@ const GROUP_OF: Record<FinderKind, FinderGroupKey> = {
   genre: "genres",
   track: "tracks",
   destination: "destinations",
+  plugin: "destinations",
 };
 
 /** How many hits each group shows, and the most rows the whole result renders. */
@@ -94,10 +95,10 @@ export function scoreEntry(fields: string[], tokens: string[]): number {
   return total;
 }
 
-/** Containers rank ahead of tracks on a tie; destinations come last. */
+/** Containers rank ahead of tracks on a tie; destinations and plugin pages come last. */
 function kindRank(kind: FinderKind): number {
   if (kind === "track") return 1;
-  if (kind === "destination") return 2;
+  if (kind === "destination" || kind === "plugin") return 2;
   return 0;
 }
 

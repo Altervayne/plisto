@@ -956,6 +956,27 @@ export type PluginCapability =
 /** How a plugin's sidebar items are laid out. Mirrors Layout in sidebar_decl.rs. */
 export type PluginSidebarLayout = "compact" | "section";
 
+/** An app working mode a plugin can show in. Mirrors Mode in manifest.rs. */
+export type PluginMode = "player" | "organizer";
+
+/** What a declared sidebar item is. Mirrors ItemType in sidebar_decl.rs. */
+export type PluginSidebarItemType = "nav" | "status" | "progress" | "toggle" | "action";
+
+/** One declared sidebar item. `route` and `icon` are null unless a nav item set them. */
+export interface PluginSidebarItem {
+  id: string;
+  type: PluginSidebarItemType;
+  label: string;
+  route: string | null;
+  icon: string | null;
+}
+
+/** A manifest's sidebar block: its default layout and up to six items. */
+export interface PluginSidebarDecl {
+  layout: PluginSidebarLayout;
+  items: PluginSidebarItem[];
+}
+
 /** Whether the running Plisto satisfies a manifest's `min_plisto`. Mirrors Compat in manifest.rs. */
 export type PluginCompat = { state: "compatible" } | { state: "needs_newer"; min_plisto: string };
 
@@ -973,6 +994,9 @@ export interface PluginManifestSummary {
   native_reason: string | null;
   sidebar_items: number;
   compat: PluginCompat;
+  /** The app modes it shows in; never empty. A manifest without modes arrives as `["player"]`. */
+  modes: PluginMode[];
+  sidebar: PluginSidebarDecl | null;
 }
 
 /**

@@ -223,6 +223,20 @@ pub async fn plugin_set_sidebar_layout(
     .await
 }
 
+/// Saves whether a plugin's sidebar group is collapsed. Returns its `plugins_list` row.
+#[tauri::command]
+pub async fn plugin_set_sidebar_collapsed(
+    id: String,
+    collapsed: bool,
+    app: AppHandle,
+) -> Result<RowView, InstallError> {
+    run_changing(app, move |app_data, plugins| {
+        let row = lifecycle::set_sidebar_collapsed(&app_data, plugins, &id, collapsed)?;
+        Ok(summary::view(&app_data, row))
+    })
+    .await
+}
+
 /// An installed plugin's icon as a `data:` URL; None when it has none, it cannot be read or the id
 /// is not valid.
 #[tauri::command]

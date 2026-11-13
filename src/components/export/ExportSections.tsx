@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { SegmentedControl } from "../common/SegmentedControl";
+import { Switch } from "../common/Switch/Switch";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -87,16 +88,7 @@ function SectionSwitch({
   return (
     <div className={styles.row}>
       <span className={styles.name}>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        className={styles.switch}
-        onClick={() => onChange(!checked)}
-      >
-        <span className={styles.knob} aria-hidden="true" />
-      </button>
+      <Switch checked={checked} onChange={onChange} label={label} />
     </div>
   );
 }

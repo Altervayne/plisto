@@ -1251,6 +1251,11 @@ export function pluginSetSidebarLayout(id: string, layout: PluginSidebarLayout):
   return invoke<PluginRow>("plugin_set_sidebar_layout", { id, layout });
 }
 
+/** Sets whether a plugin's sidebar section is folded. Returns its row. */
+export function pluginSetSidebarCollapsed(id: string, collapsed: boolean): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_set_sidebar_collapsed", { id, collapsed });
+}
+
 /**
  * Records consent for an installed plugin and leaves it ready and off. Takes the same arguments as
  * `pluginEnable`. Returns its row.

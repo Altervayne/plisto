@@ -30,6 +30,7 @@ import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
 import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
+import { PluginPage } from "../plugins/PluginPage";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -37,6 +38,7 @@ import { useFileDrop } from "../../hooks/useFileDrop";
 import { useShellShortcuts } from "./useShellShortcuts";
 import { useCollectionSegment } from "../collection/useCollectionSegment";
 import { useWarmCurrentVisualizer } from "../player/visualizers/useWarmVisualizers";
+import { usePluginZone } from "../plugins/sidebar/usePluginZone";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -76,6 +78,7 @@ import {
   useHistoryLens,
   useOpenTool,
   useSetOpenTool,
+  useSetPluginRoute,
   useSettingsRequest,
   useSetShortcutsOpen,
   useShortcutsOpen,
@@ -85,7 +88,13 @@ import {
 import { getStartupError, playerEnqueueFiles, playerPlayFiles } from "../../lib/ipc";
 
 // -- Unit Imports --
-import { firstVisibleDestination, isDestinationVisible } from "./navVisibility";
+import {
+  firstVisibleDestination,
+  isDestinationVisible,
+  pluginIdOf,
+  pluginMode,
+  zoneHasPlugin,
+} from "./navVisibility";
 import { visibleSegments } from "../collection/collectionSegments";
 import type { Mode, NavTarget } from "./navVisibility";
 
@@ -164,6 +173,18 @@ export function AppShell({
   const appMode = useAppMode();
   // Standalone opens on the Player over the handed file; the full app opens on the Home landing.
   const [mode, setMode] = useState<Mode>(standalone ? "player" : "home");
+  // A plugin page is open only while its plugin is still drawn in the rail.
+  const pluginZone = usePluginZone();
+  const pluginId = pluginIdOf(mode);
+  const pluginLive = pluginId != null && zoneHasPlugin(pluginZone, pluginId);
+  const setPluginRoute = useSetPluginRoute();
+  const openPlugin = useCallback(
+    (id: string, route: string | null) => {
+      setPluginRoute(route);
+      setMode(pluginMode(id));
+    },
+    [setPluginRoute],
+  );
   const segment = useCollectionSegment();
   const routeCollection = useRouteCollection();
   const fullAlbumId = useCollectionFullAlbumId();
@@ -351,14 +372,19 @@ export function AppShell({
   // mode still shows, in nav order. Settings lives in the foot and stays reachable, and an editor with a
   // live session is a file you opened, so neither is swept off. Standalone opens on its handed file and
   // owns its own landing, so it sits this out. The visibility guard keeps this from looping: once the
-  // landing is a shown destination it does not fire again.
+  // landing is a shown destination it does not fire again. A plugin page is held to the same rule: it
+  // goes when its plugin is disabled, uninstalled, or hidden by the new mode.
   useEffect(() => {
     if (standalone) return;
     if (mode === "settings") return;
     if (mode === "editor" && openTool != null) return;
+    if (pluginId != null) {
+      if (!pluginLive) setMode(firstVisibleDestination(appMode));
+      return;
+    }
     if (isDestinationVisible(appMode, mode)) return;
     setMode(firstVisibleDestination(appMode));
-  }, [appMode, mode, openTool, standalone]);
+  }, [appMode, mode, openTool, standalone, pluginId, pluginLive]);
 
   // The quick finder searches the library, so it opens only over one: never on the player-only
   // standalone surface, nor before a library holds any track.
@@ -395,6 +421,7 @@ export function AppShell({
       setOpenPlaylistId(playlistId);
       setMode("playlists");
     },
+    openPlugin,
   };
   const closeFinder = useCallback(() => setFinderOpen(false), []);
 
@@ -421,6 +448,7 @@ export function AppShell({
       <Sidebar
         mode={mode}
         onModeChange={setMode}
+        onOpenPlugin={openPlugin}
         filesCount={count}
         unsortedCount={unsorted.length}
         playlistsCount={playlists.length}
@@ -453,6 +481,8 @@ export function AppShell({
           )
         ) : mode === "settings" ? (
           <SettingsView onReviewGone={() => navigate({ segment: "tracks" })} />
+        ) : pluginId != null ? (
+          pluginLive ? <PluginPage id={pluginId} /> : null
         ) : mode === "editor" ? (
           // The workbench layer covers this while a session holds; the prompt shows only when idle.
           openTool ? null : (

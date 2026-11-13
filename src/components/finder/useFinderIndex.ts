@@ -8,11 +8,19 @@ import { usePlaylistsStore } from "../../state/playlists/store";
 import { useAppMode } from "../../state/player/store";
 
 // -- Utils Imports --
-import { buildFinderIndex, destinationEntries, finderDestinations } from "./finderIndex";
+import {
+  buildFinderIndex,
+  destinationEntries,
+  finderDestinations,
+  pluginEntries,
+} from "./finderIndex";
 import { DESTINATION_LABEL } from "./finderDestinations";
 
+// -- Hook Imports --
+import { usePluginZone } from "../plugins/sidebar/usePluginZone";
+
 // -- Type Imports --
-import type { DestinationEntry, FinderIndex, FinderSource } from "./finderIndex";
+import type { DestinationEntry, FinderIndex, FinderSource, PluginEntry } from "./finderIndex";
 
 // -- i18n Imports --
 import { createT, useLocale } from "../../i18n";
@@ -32,8 +40,15 @@ function indexFor(source: FinderSource): FinderIndex {
   return cached.index;
 }
 
-/** The library index over the live store rows, plus the destinations the current mode can reach. */
-export function useFinderIndex(): { index: FinderIndex; destinations: DestinationEntry[] } {
+/**
+ * The library index over the live store rows, plus the destinations the current mode can reach and the
+ * plugin rows for the plugins the rail draws.
+ */
+export function useFinderIndex(): {
+  index: FinderIndex;
+  destinations: DestinationEntry[];
+  plugins: PluginEntry[];
+} {
   const tracks = useAppStore((s) => s.tracks);
   const albums = useOrganizeStore((s) => s.org.albums);
   const membership = useOrganizeStore((s) => s.org.membership);
@@ -69,5 +84,15 @@ export function useFinderIndex(): { index: FinderIndex; destinations: Destinatio
     [appMode, t],
   );
 
-  return { index, destinations };
+  const zone = usePluginZone();
+  const plugins = useMemo(
+    () =>
+      pluginEntries(zone, {
+        sublabel: t((d) => d.plugins.finderSublabel),
+        item: (plugin, item) => t((d) => d.plugins.finderItem, { plugin, item }),
+      }),
+    [zone, t],
+  );
+
+  return { index, destinations, plugins };
 }

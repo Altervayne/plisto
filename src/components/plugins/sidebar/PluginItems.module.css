@@ -1,0 +1,66 @@
+/*
+ * The non-nav items of a plugin section at rest. Each spans the same row box as a built-in nav row (8px
+ * padding both sides, 12px icon gap), reads in quiet ink, and has no hover or press state: nothing here
+ * is live yet, and nothing moves.
+ */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.row svg {
+  flex: none;
+  opacity: 0.8;
+}
+
+/* Reserves the icon column, so a status line's text lines up with the rows around it. */
+.slot {
+  flex: none;
+  width: 17px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 13px;
+}
+
+/* The bar runs from the icon column to the right padding: the label over an empty track. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.track {
+  height: 4px;
+  border-radius: var(--pill);
+  background: var(--veil-2);
+}
+
+/* A disabled action keeps the nav row's box; the browser's own disabled button look is reset. */
+.action {
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-weight: 500;
+  cursor: default;
+}

@@ -3,6 +3,7 @@ import { NavItem } from "./NavItem";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
+import { PluginSidebarZone } from "../plugins/sidebar/PluginSidebarZone";
 
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
@@ -12,6 +13,7 @@ import { Home, LayoutGrid, Inbox, Library, ListMusic, Radio, History, Images, Au
 
 // -- State Imports --
 import { useAppMode } from "../../state/player/store";
+import { usePluginRoute } from "../../state/shell/store";
 
 // -- Unit Imports --
 import { NAV_SECTIONS, isDestinationVisible, isSectionVisible } from "./navVisibility";
@@ -34,10 +36,14 @@ import styles from "./Sidebar.module.css";
  * what remains: Player drops the file and utility sections, Organizer drops the Player and History rows,
  * and a section whose rows all go takes its label with it. The foot always shows. The Collection row
  * carries no count: its segment switch carries them.
+ *
+ * Enabled plugins add a zone between Library and Utilities, scrolling with the sections. A plugin
+ * opens through `onOpenPlugin`, which lands on its page with the route a nav row named.
  */
 export function Sidebar({
   mode,
   onModeChange,
+  onOpenPlugin,
   filesCount,
   unsortedCount,
   playlistsCount,
@@ -47,6 +53,7 @@ export function Sidebar({
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
+  onOpenPlugin: (id: string, route: string | null) => void;
   filesCount: number;
   unsortedCount: number;
   playlistsCount: number;
@@ -56,14 +63,16 @@ export function Sidebar({
 }) {
   const t = useT();
   const appMode = useAppMode();
+  const pluginRoute = usePluginRoute();
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // Keep the active row in view when the destination changes by click, shortcut, or the finder.
+  // Keep the active row in view when the destination changes by click, shortcut, or the finder. A plugin
+  // page changes its active row by route alone, so the route counts too.
   useEffect(() => {
     const active = viewportRef.current?.querySelector('[aria-current="page"]');
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     active?.scrollIntoView({ block: "nearest", behavior: reduced ? "instant" : "smooth" });
-  }, [mode]);
+  }, [mode, pluginRoute]);
 
   return (
     <aside
@@ -158,6 +167,8 @@ export function Sidebar({
                 ) : null}
               </div>
             ) : null}
+
+            <PluginSidebarZone mode={mode} onOpenPlugin={onOpenPlugin} />
 
             {isSectionVisible(appMode, NAV_SECTIONS.utilities) ? (
               <div className={styles.navgroup}>

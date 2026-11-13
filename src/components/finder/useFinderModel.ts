@@ -43,18 +43,17 @@ export interface FinderModel {
  * every keystroke over the prebuilt index, so it stays a plain synchronous pass.
  */
 export function useFinderModel(query: string): FinderModel {
-  const { index, destinations } = useFinderIndex();
+  const { index, destinations, plugins } = useFinderIndex();
   const lastPlayed = usePlayRecency();
   const storedRecents = usePreference(PREF_KEYS.finderRecent);
   const setPreference = useSetPreference();
 
   const lookup = useMemo(() => {
-    const destinationByKey = new Map(
-      destinations.map((entry) => [entryKey(entry.kind, entry.id), entry] as const),
+    const outsideByKey = new Map<string, FinderEntry>(
+      [...destinations, ...plugins].map((entry) => [entryKey(entry.kind, entry.id), entry] as const),
     );
-    return (key: string): FinderEntry | undefined =>
-      index.byKey.get(key) ?? destinationByKey.get(key);
-  }, [index, destinations]);
+    return (key: string): FinderEntry | undefined => index.byKey.get(key) ?? outsideByKey.get(key);
+  }, [index, destinations, plugins]);
 
   const recentRefs = useMemo(() => parseRecents(storedRecents), [storedRecents]);
 
@@ -78,7 +77,7 @@ export function useFinderModel(query: string): FinderModel {
       return { sections, noMatch: false, noRecents: recents.length === 0 };
     }
     const results = searchFinder(
-      [index.entries, destinations],
+      [index.entries, destinations, plugins],
       query,
       lastPlayed,
       index.goneTrackFields,
@@ -91,7 +90,7 @@ export function useFinderModel(query: string): FinderModel {
       return { key: group.key, items };
     });
     return { sections, noMatch: sections.length === 0, noRecents: false };
-  }, [blank, recentRefs, lookup, index, destinations, query, lastPlayed]);
+  }, [blank, recentRefs, lookup, index, destinations, plugins, query, lastPlayed]);
 
   const items = useMemo(() => view.sections.flatMap((section) => section.items), [view]);
 

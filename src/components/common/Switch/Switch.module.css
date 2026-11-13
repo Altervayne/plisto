@@ -1,0 +1,39 @@
+/* The track: a pill that fills cyan when on, sunken and quiet when off. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--sunken);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The knob rides from left to right as the switch flips. */
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur-fast) var(--ease-cover);
+}
+
+.switch[aria-checked="true"] .knob {
+  transform: translateX(16px);
+}
