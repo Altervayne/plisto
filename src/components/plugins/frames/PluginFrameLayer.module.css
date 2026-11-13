@@ -1,0 +1,8 @@
+/* The layer every plugin frame lives in: the whole main region, early in its stacking order so the tool
+ * layer, toasts, finder and dialogs paint above it. It never catches a pointer; only the shown wrapper does. */
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}

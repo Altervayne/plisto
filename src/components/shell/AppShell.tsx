@@ -31,6 +31,7 @@ import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
 import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 import { PluginPage } from "../plugins/PluginPage";
+import { PluginFrameLayer } from "../plugins/frames/PluginFrameLayer";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -572,6 +573,9 @@ export function AppShell({
             </div>
           </>
         )}
+
+        {/* Every plugin frame lives in this layer, over the plugin page's slot. */}
+        <PluginFrameLayer pageId={pluginLive ? pluginId : null} />
 
         {/* The Track Editor's workbench. It stays mounted while a session holds, so navigating off and
             back keeps the in-progress edit whole. Off the destination it is hidden, not torn down;

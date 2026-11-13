@@ -1,0 +1,71 @@
+/* The not-responding overlay: a veil over the frame with one lifted card. No transition or animation. */
+.veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+}
+
+.card {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.title + .line {
+  margin-top: -10px;
+}
+
+.line {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 15px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--veil-2);
+}
+
+.cancel {
+  color: var(--ink-2);
+}
+
+.cancel:hover {
+  color: var(--ink);
+}

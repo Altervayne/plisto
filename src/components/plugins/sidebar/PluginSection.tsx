@@ -5,6 +5,7 @@ import { useId } from "react";
 import { ChevronDown } from "lucide-react";
 
 // -- Component Imports --
+import { FrameMark } from "../FrameMark";
 import { PluginIcon } from "../PluginIcon";
 import { PluginTag } from "../PluginTag";
 import { NavRowItem } from "./NavRowItem";
@@ -90,6 +91,7 @@ export function PluginSection({
               <PluginTag kind={tag} />
             </span>
           ) : null}
+          <FrameMark id={plugin.id} name={name} />
         </span>
         <button
           type="button"

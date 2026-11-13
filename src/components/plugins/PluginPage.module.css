@@ -1,4 +1,5 @@
-/* A plugin's page on the continuous surface: the header over the body, parted by space, no frame. */
+/* A plugin's page on the continuous surface: the header over a soft recess, parted by space. The recess
+ * marks where the plugin's own content ends; its frame is laid over it. */
 .view {
   flex: 1;
   min-height: 0;
@@ -15,6 +16,21 @@
   min-width: 0;
 }
 
+.ttl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .title {
   margin: 0;
   min-width: 0;
@@ -27,9 +43,63 @@
   color: var(--ink);
 }
 
+/* The status line: the frame's state when it is not simply running, then the version. */
+.sub {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.warnDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--warn);
+}
+
+.recess {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 20px;
+  border-radius: var(--r-lg);
+  background: var(--veil);
+  overflow: hidden;
+}
+
 .line {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
   color: var(--ink-3);
+}
+
+/* The Starting card: static text, no spinner. */
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 440px;
+  text-align: center;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.cardLine {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
