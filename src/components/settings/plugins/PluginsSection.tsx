@@ -100,7 +100,6 @@ export function PluginsSection() {
               onToggle={(r, on) => void actions.setEnabled(r, on)}
               onReview={(r) => flow.openReview(r)}
               onUninstall={setUninstalling}
-              onLayout={(r, layout) => void actions.setLayout(r, layout)}
             />
           ))}
           {rows.length === 0 && (status === "idle" || status === "loading") ? (

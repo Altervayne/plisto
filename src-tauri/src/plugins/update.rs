@@ -287,7 +287,6 @@ mod tests {
     use crate::plugins::lifecycle::{disable, enable, uninstall};
     use crate::plugins::paths::{data_dir, registry_file, staging_dir};
     use crate::plugins::revalidate::{adopt_folders, manifest_hash};
-    use crate::plugins::sidebar_decl::Layout;
     use crate::plugins::test_kit::{native, ui, Kit, ID};
     use serde_json::json;
     use std::sync::{Arc, Mutex};
@@ -308,10 +307,7 @@ mod tests {
     fn an_unchanged_surface_keeps_the_plugin_ready_and_enabled() {
         let k = running(&["storage"]);
         // The user's own choices and data.
-        k.set_entry(|e| {
-            e.sidebar_layout = Some(Layout::Section);
-            e.sidebar_collapsed = true;
-        });
+        k.set_entry(|e| e.sidebar_collapsed = true);
         let installed_at = k.plugins.snapshot().entries[0].installed_at;
         let data = data_dir(&k.data, ID);
         fs::create_dir_all(&data).unwrap();
@@ -328,7 +324,6 @@ mod tests {
         assert!(e.enabled);
         assert_eq!(e.granted, vec![Capability::Storage]);
         assert_eq!(e.installed_at, installed_at);
-        assert_eq!(e.sidebar_layout, Some(Layout::Section));
         assert!(e.sidebar_collapsed);
         assert_eq!(e.manifest_hash, manifest_hash(next.to_string().as_bytes()));
         assert!(e.source_path.as_deref().unwrap().contains("src-"));

@@ -456,7 +456,6 @@ mod tests {
             manifest_hash: hash.to_string(),
             state: EntryState::Ready,
             source_path: None,
-            sidebar_layout: None,
             sidebar_collapsed: false,
             ready_enabled: None,
         }
@@ -717,7 +716,6 @@ mod tests {
             FileRead::Parsed(read) => {
                 assert_eq!(read.entries[0].state, EntryState::Broken);
                 assert!(!read.entries[0].enabled);
-                assert!(read.entries[0].sidebar_layout.is_some());
             }
             other => panic!("{other:?}"),
         }

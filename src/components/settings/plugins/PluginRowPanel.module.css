@@ -9,18 +9,6 @@
   background: var(--veil);
 }
 
-.rowx {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 24px;
-  min-height: 28px;
-  font-size: 13px;
-  font-weight: 550;
-  color: var(--ink);
-}
-
 .facts {
   display: grid;
   grid-template-columns: minmax(70px, 140px) minmax(0, 1fr);

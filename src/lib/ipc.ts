@@ -48,7 +48,6 @@ import type {
   PluginInboxItem,
   PluginInspection,
   PluginRow,
-  PluginSidebarLayout,
   PluginUninstalled,
   PluginUpdated,
   PlaylistM3uSummary,
@@ -1244,11 +1243,6 @@ export function pluginIcon(id: string): Promise<string | null> {
 /** A staged plugin's icon as a `data:` URL, or null when it has none or it cannot be read. */
 export function pluginStagedIcon(token: string): Promise<string | null> {
   return invoke<string | null>("plugin_staged_icon", { token });
-}
-
-/** Sets how a plugin's sidebar items are laid out. Returns its row. */
-export function pluginSetSidebarLayout(id: string, layout: PluginSidebarLayout): Promise<PluginRow> {
-  return invoke<PluginRow>("plugin_set_sidebar_layout", { id, layout });
 }
 
 /** Sets whether a plugin's sidebar section is folded. Returns its row. */

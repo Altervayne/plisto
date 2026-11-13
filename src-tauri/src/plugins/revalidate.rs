@@ -19,7 +19,6 @@ use super::icon::{check_icon, IconError};
 use super::manifest::{self, Compat, Manifest, ManifestError, Tier, MAX_MANIFEST_BYTES};
 use super::paths::{plugin_dir, plugins_dir, validate_id};
 use super::registry::{Entry, EntryState, Registry};
-use super::sidebar_decl::Layout;
 
 pub const MANIFEST_FILE: &str = "plugin.json";
 
@@ -145,14 +144,6 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
                 continue;
             }
         };
-        if entry.sidebar_layout.is_none() {
-            entry.sidebar_layout = Some(
-                parsed
-                    .sidebar
-                    .as_ref()
-                    .map_or(Layout::Compact, |s| s.layout),
-            );
-        }
         entry.tier = parsed.tier;
         entry.version = parsed.version.clone();
 
@@ -217,10 +208,6 @@ pub fn adopt_folders(app_data: &Path, now: i64, known: &HashSet<String>) -> (Vec
     for id in ids {
         let entry = match check(app_data, &id) {
             Ok((parsed, hash)) => {
-                let layout = parsed
-                    .sidebar
-                    .as_ref()
-                    .map_or(Layout::Compact, |s| s.layout);
                 Entry {
                     id,
                     version: parsed.version,
@@ -231,7 +218,6 @@ pub fn adopt_folders(app_data: &Path, now: i64, known: &HashSet<String>) -> (Vec
                     manifest_hash: hash,
                     state: EntryState::NeedsConsent,
                     source_path: None,
-                    sidebar_layout: Some(layout),
                     sidebar_collapsed: false,
                     ready_enabled: None,
                 }
@@ -248,7 +234,6 @@ pub fn adopt_folders(app_data: &Path, now: i64, known: &HashSet<String>) -> (Vec
                     manifest_hash: String::new(),
                     state: EntryState::Broken,
                     source_path: None,
-                    sidebar_layout: Some(Layout::Compact),
                     sidebar_collapsed: false,
                     ready_enabled: None,
                 }
@@ -312,7 +297,6 @@ mod tests {
             manifest_hash: hash.to_string(),
             state: EntryState::Ready,
             source_path: None,
-            sidebar_layout: Some(Layout::Compact),
             sidebar_collapsed: false,
             ready_enabled: None,
         }
@@ -570,35 +554,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_layout_is_backfilled_from_the_manifest_default() {
-        let d = AppData::new();
-        let section = manifest_json(
-            ID,
-            r#","sidebar":{"layout":"section","items":[
-            {"id":"a","type":"nav","label":"A"},{"id":"b","type":"nav","label":"B"}]}"#,
-        )
-        .replace("\"storage\"", "\"ui.sidebar\"");
-        d.install(ID, &section);
-        let plain = manifest_json("com.example.plain", "");
-        d.install("com.example.plain", &plain);
-
-        let mut section_entry = ready(ID, "");
-        section_entry.granted.clear();
-        section_entry.sidebar_layout = None;
-        let mut plain_entry = ready("com.example.plain", "");
-        plain_entry.sidebar_layout = None;
-        let mut reg = registry(vec![section_entry, plain_entry]);
-        revalidate(&d.0, &mut reg);
-        assert_eq!(reg.entries[0].sidebar_layout, Some(Layout::Section));
-        assert_eq!(reg.entries[1].sidebar_layout, Some(Layout::Compact));
-
-        // A choice the user already made is kept.
-        reg.entries[0].sidebar_layout = Some(Layout::Compact);
-        revalidate(&d.0, &mut reg);
-        assert_eq!(reg.entries[0].sidebar_layout, Some(Layout::Compact));
-    }
-
-    #[test]
     fn adopt_lists_unregistered_folders_and_marks_a_bad_manifest_broken() {
         let d = AppData::new();
         let json = manifest_json(ID, "");
@@ -622,7 +577,6 @@ mod tests {
         assert!(!e.enabled && e.granted.is_empty());
         assert_eq!(e.installed_at, 99);
         assert_eq!(e.manifest_hash, hash_of(&json));
-        assert_eq!(e.sidebar_layout, Some(Layout::Compact));
         assert!(
             plugin_dir(&d.0, "com.example.bad").is_dir(),
             "nothing is deleted"

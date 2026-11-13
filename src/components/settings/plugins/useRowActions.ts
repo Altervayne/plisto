@@ -1,7 +1,7 @@
 /*
- * The commands a hub row starts without a sheet: turn a plugin on or off, uninstall it, set its sidebar
- * layout. Each returns its row to the store at once, so the list does not wait for the change event. A
- * refusal becomes a message line; an enable that finds the manifest changed reopens the review instead.
+ * The commands a hub row starts without a sheet: turn a plugin on or off, uninstall it. Each
+ * returns its row to the store at once, so the list does not wait for the change event. A refusal
+ * becomes a message line; an enable that finds the manifest changed reopens the review instead.
  */
 
 // -- Framework Imports --
@@ -15,18 +15,13 @@ import { reopensReview } from "../../../state/plugins/review";
 import { logInstallError } from "../../../state/plugins/errors";
 
 // -- IPC Imports --
-import {
-  pluginDisable,
-  pluginEnable,
-  pluginSetSidebarLayout,
-  pluginUninstall,
-} from "../../../lib/ipc";
+import { pluginDisable, pluginEnable, pluginUninstall } from "../../../lib/ipc";
 
 // -- Type Imports --
 import type { OperationLock } from "../../../state/plugins/operationLock";
 import type { ReviewLead, ReviewPrevious } from "../../../state/plugins/review";
 import type { PluginErrorKey } from "../../../state/plugins/errors";
-import type { PluginRow, PluginSidebarLayout } from "../../../types";
+import type { PluginRow } from "../../../types";
 
 /** A line under the list about the last row command. */
 export type RowMessage =
@@ -38,7 +33,6 @@ export interface RowActions {
   dismiss: () => void;
   setEnabled: (row: PluginRow, on: boolean) => Promise<void>;
   uninstall: (row: PluginRow, deleteData: boolean) => Promise<void>;
-  setLayout: (row: PluginRow, layout: PluginSidebarLayout) => Promise<void>;
 }
 
 const nameOf = (row: PluginRow): string => row.manifest?.name ?? row.id;
@@ -94,16 +88,5 @@ export function useRowActions(
     });
   };
 
-  const setLayout = async (row: PluginRow, layout: PluginSidebarLayout) => {
-    await lock.run(async () => {
-      setMessage(null);
-      try {
-        store().upsertRow(await pluginSetSidebarLayout(row.id, layout));
-      } catch (e) {
-        fail(row, "sidebar layout", e);
-      }
-    });
-  };
-
-  return { message, dismiss: () => setMessage(null), setEnabled, uninstall, setLayout };
+  return { message, dismiss: () => setMessage(null), setEnabled, uninstall };
 }

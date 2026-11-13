@@ -1014,7 +1014,6 @@ export interface PluginRow {
   manifest_hash: string;
   state: PluginEntryState;
   source_path: string | null;
-  sidebar_layout: PluginSidebarLayout | null;
   sidebar_collapsed: boolean;
   /** Set only while a formerly ready plugin sits broken or incompatible: whether it was enabled. */
   ready_enabled?: boolean;

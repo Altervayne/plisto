@@ -19,7 +19,7 @@ import { useT } from "../../../i18n";
 
 // -- Type Imports --
 import type { Translate } from "../../../i18n";
-import type { PluginRow as RowData, PluginSidebarLayout } from "../../../types";
+import type { PluginRow as RowData } from "../../../types";
 import type { RowStatus } from "./rowModel";
 
 // -- Style Imports --
@@ -63,7 +63,6 @@ export function PluginRow({
   onToggle,
   onReview,
   onUninstall,
-  onLayout,
   currentVersion,
 }: {
   row: RowData;
@@ -73,7 +72,6 @@ export function PluginRow({
   onToggle: (row: RowData, on: boolean) => void;
   onReview: (row: RowData) => void;
   onUninstall: (row: RowData) => void;
-  onLayout: (row: RowData, layout: PluginSidebarLayout) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -139,7 +137,6 @@ export function PluginRow({
           busy={busy}
           onToggle={(on) => onToggle(row, on)}
           onUninstall={() => onUninstall(row)}
-          onLayout={(layout) => onLayout(row, layout)}
         />
       ) : null}
     </div>

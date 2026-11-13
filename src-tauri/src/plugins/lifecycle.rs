@@ -23,7 +23,6 @@ use super::manifest::{Capability, Compat, Manifest, Tier};
 use super::paths::{data_dir, plugin_dir};
 use super::registry::{Entry, EntryState, Registry};
 use super::revalidate::{check_folder, demote, needs_newer, CheckError, Problems};
-use super::sidebar_decl::Layout;
 use super::state::{PluginRow, PluginsState, Withdraw};
 use super::update::{not_installed, old_dir};
 
@@ -251,30 +250,6 @@ fn apply_enable(
         entry.enabled = true;
     }
     Ok(Ok(row(entry, problems)))
-}
-
-/// Saves how a plugin's sidebar items are laid out. Allowed in any state; the serving set is untouched.
-pub fn set_sidebar_layout(
-    app_data: &Path,
-    plugins: &PluginsState,
-    id: &str,
-    layout: Layout,
-) -> Result<PluginRow, InstallError> {
-    require_writable(plugins)?;
-    plugins.mutate(
-        app_data,
-        Withdraw::No,
-        |registry, problems| {
-            let entry = registry
-                .entries
-                .iter_mut()
-                .find(|e| e.id == id)
-                .ok_or_else(|| not_installed(id))?;
-            entry.sidebar_layout = Some(layout);
-            Ok(row(entry, problems))
-        },
-        save_failed,
-    )
 }
 
 /// Saves whether a plugin's sidebar group is collapsed. Allowed in any state; the serving set is untouched.
@@ -1033,52 +1008,6 @@ mod tests {
         let plugins = k.reboot();
         let err = approval(&plugins, &k.data, Some(&["storage"]), false).unwrap_err();
         assert_eq!(err.code, ErrorCode::RegistryUnavailable);
-    }
-
-    #[test]
-    fn the_sidebar_layout_is_saved_and_returned() {
-        let k = Kit::new();
-        k.install(&ui("1.0.0", &["storage"]));
-        assert_eq!(
-            k.plugins.snapshot().entries[0].sidebar_layout,
-            Some(Layout::Compact)
-        );
-        let generation = k.plugins.generation();
-        let row = set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Section).unwrap();
-        assert_eq!(row.entry.sidebar_layout, Some(Layout::Section));
-        assert_eq!(k.saved_entry().sidebar_layout, Some(Layout::Section));
-        assert_eq!(k.plugins.generation(), generation + 1);
-        assert_eq!(
-            k.reboot().rows()[0].entry.sidebar_layout,
-            Some(Layout::Section)
-        );
-
-        // The same layout again changes nothing; an enabled plugin stays in service.
-        k.enable(&["storage"]);
-        let generation = k.plugins.generation();
-        set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Section).unwrap();
-        assert_eq!(k.plugins.generation(), generation);
-        let row = set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Compact).unwrap();
-        assert_eq!(row.entry.sidebar_layout, Some(Layout::Compact));
-        assert!(row.entry.enabled);
-        assert!(k.plugins.is_enabled(ID));
-        assert!(k.stops().is_empty());
-    }
-
-    #[test]
-    fn the_sidebar_layout_is_allowed_on_a_broken_plugin_and_refused_for_an_unknown_id() {
-        let k = Kit::new();
-        k.install(&ui("1.0.0", &["storage"]));
-        fs::remove_dir_all(plugin_dir(&k.data, ID)).unwrap();
-        let plugins = k.reboot();
-        assert_eq!(plugins.rows()[0].entry.state, EntryState::Broken);
-        let row = set_sidebar_layout(&k.data, &plugins, ID, Layout::Section).unwrap();
-        assert_eq!(row.entry.sidebar_layout, Some(Layout::Section));
-        assert_eq!(row.entry.state, EntryState::Broken);
-
-        let err =
-            set_sidebar_layout(&k.data, &plugins, "com.example.none", Layout::Section).unwrap_err();
-        assert_eq!(err.code, ErrorCode::NotInstalled);
     }
 
     #[test]

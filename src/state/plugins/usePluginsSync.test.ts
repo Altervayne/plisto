@@ -26,7 +26,6 @@ const row = (id: string, enabled = false): PluginRow => ({
   manifest_hash: "h",
   state: "ready",
   source_path: null,
-  sidebar_layout: null,
   sidebar_collapsed: false,
   problem: null,
   manifest: null,

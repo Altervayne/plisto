@@ -30,7 +30,6 @@ export const row = (over: Partial<PluginRow> = {}): PluginRow => ({
   manifest_hash: "hash-1",
   state: "ready",
   source_path: null,
-  sidebar_layout: "compact",
   sidebar_collapsed: false,
   problem: null,
   manifest: manifest(),

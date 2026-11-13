@@ -25,7 +25,6 @@ const nav = (id: string, route: string | null): PluginSidebarItem => ({
 function plugin(id: string, over: Partial<PluginRow>, items: PluginSidebarItem[], layout: "compact" | "section") {
   return row({
     id,
-    sidebar_layout: layout,
     manifest: manifest({ name: id[0].toUpperCase() + id.slice(1), sidebar: { layout, items } }),
     ...over,
   });

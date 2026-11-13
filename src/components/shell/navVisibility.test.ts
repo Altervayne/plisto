@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import {
   NAV_SECTIONS,
   activeNavItemId,
-  effectiveLayout,
   firstVisibleDestination,
   isDestinationVisible,
   isPluginVisible,
@@ -114,7 +113,7 @@ const item = (
   route: string | null = null,
 ): PluginSidebarItem => ({ id, type, label: id, route, icon: null });
 
-/** A ready, enabled plugin; `layout` is the manifest default, `sidebar_layout` the user's choice. */
+/** A ready, enabled plugin; `layout` is the layout its manifest declares. */
 function plugin(
   id: string,
   over: {
@@ -126,7 +125,6 @@ function plugin(
 ): PluginRow {
   return row({
     id,
-    sidebar_layout: null,
     manifest: manifest({
       name: id.toUpperCase(),
       modes: over.modes ?? ["player", "organizer"],
@@ -178,20 +176,9 @@ describe("pluginZoneModel", () => {
     expect(model.compact.map((p) => p.id)).toEqual(["small", "bare"]);
   });
 
-  it("lets the user's choice override the manifest default, and null defer to it", () => {
-    const rows = [
-      plugin("down", { layout: "section", row: { sidebar_layout: "compact" } }),
-      plugin("up", { layout: "compact", row: { sidebar_layout: "section" } }),
-      plugin("default", { layout: "section" }),
-    ];
-    const model = pluginZoneModel(rows, "both");
-    expect(model.sections.map((s) => s.plugin.id)).toEqual(["up", "default"]);
-    expect(model.compact.map((p) => p.id)).toEqual(["down"]);
-  });
-
   it("keeps a plugin without a sidebar block or without items in the shared group", () => {
     const rows = [
-      plugin("none", { row: { sidebar_layout: "section", manifest: manifest({ sidebar: null }) } }),
+      plugin("none", { row: { manifest: manifest({ sidebar: null }) } }),
       plugin("empty", { layout: "section", items: [] }),
     ];
     const model = pluginZoneModel(rows, "both");
@@ -258,15 +245,6 @@ describe("pluginZoneModel", () => {
     expect(zoneHasPlugin(model, "big")).toBe(true);
     expect(zoneHasPlugin(model, "small")).toBe(true);
     expect(zoneHasPlugin(model, "gone")).toBe(false);
-  });
-});
-
-describe("effectiveLayout", () => {
-  it("falls back from the user's choice to the manifest default to compact", () => {
-    expect(effectiveLayout(plugin("a", { layout: "section", row: { sidebar_layout: "compact" } }))).toBe("compact");
-    expect(effectiveLayout(plugin("a", { layout: "section" }))).toBe("section");
-    expect(effectiveLayout(row({ sidebar_layout: null, manifest: manifest({ sidebar: null }) }))).toBe("compact");
-    expect(effectiveLayout(row({ sidebar_layout: null, manifest: null }))).toBe("compact");
   });
 });
 

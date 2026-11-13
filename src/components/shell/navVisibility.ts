@@ -17,7 +17,6 @@ import type {
   PluginMode,
   PluginRow,
   PluginSidebarItem,
-  PluginSidebarLayout,
 } from "../../types";
 
 /**
@@ -122,11 +121,6 @@ export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): 
     .sort((a, b) => a.installed_at - b.installed_at);
 }
 
-/** The layout a plugin's sidebar items take: the user's choice, else the manifest default, else compact. */
-export function effectiveLayout(row: PluginRow): PluginSidebarLayout {
-  return row.sidebar_layout ?? row.manifest?.sidebar?.layout ?? "compact";
-}
-
 /** One plugin-owned sidebar section with its items and fold state. */
 export interface ZoneSection {
   plugin: ZonePlugin;
@@ -141,16 +135,15 @@ export interface PluginZoneModel {
 }
 
 /**
- * Sorts the qualified plugins into the zone. A plugin owns a section only when its effective layout is
- * `section` and its manifest declares items; every other one is a row in the shared group. Both lists
- * keep install order.
+ * Sorts the qualified plugins into the zone. A plugin owns a section only when its manifest declares the
+ * `section` layout and items; every other one is a row in the shared group. Both lists keep install order.
  */
 export function pluginZoneModel(rows: readonly PluginRow[], appMode: AppMode): PluginZoneModel {
   const sections: ZoneSection[] = [];
   const compact: ZonePlugin[] = [];
   for (const plugin of qualifiedPlugins(rows, appMode)) {
     const items = plugin.manifest.sidebar?.items ?? [];
-    if (effectiveLayout(plugin) === "section" && items.length > 0) {
+    if (plugin.manifest.sidebar?.layout === "section" && items.length > 0) {
       sections.push({ plugin, items, collapsed: plugin.sidebar_collapsed });
     } else {
       compact.push(plugin);

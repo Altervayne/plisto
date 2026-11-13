@@ -26,7 +26,6 @@ use super::manifest::{Capability, Compat, Tier};
 use super::paths::{inbox_dir, plugin_dir, staging_dir};
 use super::registry::{Entry, EntryState};
 use super::revalidate::{check_folder, needs_newer};
-use super::sidebar_decl::Layout;
 use super::stage::{fits_under, Limits, Totals};
 use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
 use super::summary::sidebar_item_count;
@@ -311,10 +310,6 @@ fn commit_claimed(
                 Compat::Compatible => (EntryState::NeedsConsent, None),
                 Compat::NeedsNewer(min) => (EntryState::Incompatible, Some(needs_newer(min))),
             };
-            let layout = manifest
-                .sidebar
-                .as_ref()
-                .map_or(Layout::Compact, |s| s.layout);
             let entry = Entry {
                 id: staged.id.clone(),
                 version: manifest.version.clone(),
@@ -325,7 +320,6 @@ fn commit_claimed(
                 manifest_hash: hash.clone(),
                 state,
                 source_path: Some(staged.source.clone()),
-                sidebar_layout: Some(layout),
                 sidebar_collapsed: false,
                 ready_enabled: None,
             };
@@ -599,7 +593,6 @@ mod tests {
         assert_eq!(e.manifest_hash, manifest_hash(json.as_bytes()));
         assert_eq!(e.installed_at, 77);
         assert_eq!(e.source_path.as_deref(), src.to_str());
-        assert_eq!(e.sidebar_layout, Some(Layout::Compact));
         assert!(row.problem.is_none());
         assert!(!plugins.is_enabled(ID));
         assert!(plugin_dir(&data, ID).join("ui/index.html").is_file());

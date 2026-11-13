@@ -20,7 +20,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 // -- Local Imports --
 use super::manifest::{Capability, Tier};
 use super::paths::{registry_bad_file, registry_file, state_dir, validate_id};
-use super::sidebar_decl::Layout;
 
 /// The registry format written today. A file stamped higher was written by a newer Plisto and is
 /// not read.
@@ -76,9 +75,6 @@ pub struct Entry {
     /// The folder the plugin was installed from, for the developer-mode reload.
     #[serde(default)]
     pub source_path: Option<String>,
-    /// The user's choice of sidebar layout. Absent in the file means "the manifest default".
-    #[serde(default)]
-    pub sidebar_layout: Option<Layout>,
     #[serde(default)]
     pub sidebar_collapsed: bool,
     /// Set while an entry that was ready sits as broken or incompatible: whether it was enabled, so
@@ -114,9 +110,6 @@ impl Entry {
         if matches!(self.state, EntryState::NeedsConsent | EntryState::Ready) {
             self.ready_enabled = None;
         }
-        if self.sidebar_layout.is_none() {
-            self.sidebar_layout = Some(Layout::Compact);
-        }
     }
 
     /// Whether the frame host may serve this plugin.
@@ -147,8 +140,7 @@ impl Default for Registry {
 
 impl Registry {
     /// Drops rows whose id is not a valid id or repeats an earlier row, then restores each entry's
-    /// invariants. Runs before any id is turned into a path. A missing `sidebar_layout` becomes
-    /// compact here; revalidation fills it from the manifest first when the manifest is readable.
+    /// invariants. Runs before any id is turned into a path.
     pub fn normalize(&mut self) {
         self.version = REGISTRY_VERSION;
         let mut seen = HashSet::new();
@@ -393,7 +385,6 @@ mod tests {
             manifest_hash: "abc".into(),
             state: EntryState::Ready,
             source_path: Some("C:/dev/plugin".into()),
-            sidebar_layout: Some(Layout::Section),
             sidebar_collapsed: true,
             ready_enabled: None,
         }
@@ -427,7 +418,6 @@ mod tests {
             "\"manifest_hash\"",
             "\"state\": \"ready\"",
             "\"source_path\"",
-            "\"sidebar_layout\": \"section\"",
             "\"sidebar_collapsed\"",
         ] {
             assert!(text.contains(key), "{key} missing from {text}");
@@ -448,11 +438,25 @@ mod tests {
         assert!(!registry.dev_mode);
         let e = &registry.entries[0];
         assert_eq!(e.state, EntryState::NeedsConsent);
-        assert!(!e.enabled && e.granted.is_empty() && e.sidebar_layout.is_none());
+        assert!(!e.enabled && e.granted.is_empty());
         registry.normalize();
-        assert_eq!(registry.entries[0].sidebar_layout, Some(Layout::Compact));
         // Unknown fields are ignored.
         assert!(parse(br#"{"version":1,"future":{"a":1},"entries":[]}"#).is_ok());
+    }
+
+    #[test]
+    fn a_retired_sidebar_layout_key_reads_and_is_gone_after_a_save() {
+        let d = AppData::new();
+        d.write_registry(
+            br#"{"entries":[{"id":"com.example.one","tier":"ui","sidebar_layout":"section"}]}"#,
+        );
+        let FileRead::Parsed(registry) = read_file(&d.0) else {
+            panic!("registry did not load");
+        };
+        assert_eq!(registry.entries[0].id, "com.example.one");
+        save(&d.0, &registry).unwrap();
+        let text = fs::read_to_string(registry_file(&d.0)).unwrap();
+        assert!(!text.contains("sidebar_layout"), "{text}");
     }
 
     #[test]
@@ -487,7 +491,6 @@ mod tests {
                 },
                 Entry {
                     granted: vec![Capability::Storage, Capability::Storage],
-                    sidebar_layout: None,
                     ..entry("com.example.dup")
                 },
             ],
@@ -510,7 +513,6 @@ mod tests {
         assert!(!fresh.enabled && fresh.granted.is_empty());
         let dup = registry.entry("com.example.dup").unwrap();
         assert_eq!(dup.granted, vec![Capability::Storage]);
-        assert_eq!(dup.sidebar_layout, Some(Layout::Compact));
         let serving = registry.serving_ids();
         assert_eq!(serving.len(), 2);
         assert!(serving.contains("com.example.one") && serving.contains("com.example.dup"));

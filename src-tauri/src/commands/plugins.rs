@@ -23,7 +23,6 @@ use crate::plugins::install::{self, InboxItem, Inspection};
 use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::lifecycle::{self, Uninstalled};
 use crate::plugins::session::BootState;
-use crate::plugins::sidebar_decl::Layout;
 use crate::plugins::stage::Limits;
 use crate::plugins::state::PluginsState;
 use crate::plugins::summary::{self, RowView, UpdatedView};
@@ -204,20 +203,6 @@ pub async fn plugin_approve(
             native_ack == Some(true),
             manifest_hash.as_deref(),
         )?;
-        Ok(summary::view(&app_data, row))
-    })
-    .await
-}
-
-/// Saves how a plugin's sidebar items are laid out. Returns its `plugins_list` row.
-#[tauri::command]
-pub async fn plugin_set_sidebar_layout(
-    id: String,
-    layout: Layout,
-    app: AppHandle,
-) -> Result<RowView, InstallError> {
-    run_changing(app, move |app_data, plugins| {
-        let row = lifecycle::set_sidebar_layout(&app_data, plugins, &id, layout)?;
         Ok(summary::view(&app_data, row))
     })
     .await
