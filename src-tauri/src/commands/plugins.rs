@@ -1,24 +1,28 @@
 /*
  * The IPC commands for plugins: the registry listing, what the previous run left behind, the base
- * URL a plugin's sandboxed frames load from, and install from a folder or archive. The frame URL stays
- * None until the main webview's frame handler is installed, so nothing mounts a frame that no one would
- * answer. Install work touches the disk, so it runs on a blocking thread, never on the main one.
+ * URL a plugin's sandboxed frames load from, install from a folder or archive, and the lifecycle after
+ * it. The frame URL stays None until the main webview's frame handler is installed, so nothing mounts a
+ * frame that no one would answer. Install and lifecycle work touches the disk, so it runs on a blocking
+ * thread, never on the main one. Any call that changed the registry tells the main window with
+ * `plugins:changed`; the event carries nothing, the window reads the list again.
  */
 
 // -- Library Imports --
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
 use super::now_unix;
 use crate::plugins::frame_host;
 use crate::plugins::install::{self, InboxItem, Inspection};
 use crate::plugins::install_error::{ErrorCode, InstallError};
+use crate::plugins::lifecycle::{self, Uninstalled};
 use crate::plugins::session::BootState;
 use crate::plugins::stage::Limits;
 use crate::plugins::state::{PluginRow, PluginsState};
+use crate::plugins::update::{self, Updated};
 use crate::state::AppState;
 
 /// The frame base URL for an enabled plugin, or None when frames are unavailable or the plugin is
@@ -32,10 +36,13 @@ pub fn plugin_frame_url(id: String, app: AppHandle, state: State<'_, AppState>) 
     frame_host::installed_frame_url(&app_data, &id, &|id| state.plugins.is_enabled(id))
 }
 
-/// Every registry entry with its state and, for a plugin that failed a boot check, the reason.
+/// Every registry entry with its state and, for a plugin that failed a boot check, the reason. Off
+/// the main thread: a lifecycle call can hold the state lock while it moves files.
 #[tauri::command]
-pub fn plugins_list(state: State<'_, AppState>) -> Vec<PluginRow> {
-    state.plugins.rows()
+pub async fn plugins_list(app: AppHandle) -> Result<Vec<PluginRow>, InstallError> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().plugins.rows())
+        .await
+        .map_err(|_| InstallError::new(ErrorCode::Io, "the plugin list task failed to run"))
 }
 
 /// Whether safe mode is on and whether the previous run ended uncleanly.
@@ -58,6 +65,20 @@ async fn run_blocking<T: Send + 'static>(
         .map_err(|_| InstallError::new(ErrorCode::Io, "the install task failed to run"))?
 }
 
+/// `run_blocking` for a step that may change the registry. A refusal can change it too (a plugin
+/// found broken is saved as broken), so the event follows the change, not the result.
+async fn run_changing<T: Send + 'static>(
+    app: AppHandle,
+    job: impl FnOnce(PathBuf, &PluginsState) -> Result<T, InstallError> + Send + 'static,
+) -> Result<T, InstallError> {
+    let before = app.state::<AppState>().plugins.generation();
+    let result = run_blocking(app.clone(), job).await;
+    if app.state::<AppState>().plugins.generation() != before {
+        let _ = app.emit_to("main", "plugins:changed", ());
+    }
+    result
+}
+
 /// Stages and checks a plugin folder or `.plistoplugin` file and returns what the review sheet shows,
 /// with the token `plugin_install` and `plugin_discard` take.
 #[tauri::command]
@@ -71,8 +92,63 @@ pub async fn plugin_inspect(path: String, app: AppHandle) -> Result<Inspection, 
 /// Installs an inspected plugin, disabled and needing consent. Returns its `plugins_list` row.
 #[tauri::command]
 pub async fn plugin_install(token: String, app: AppHandle) -> Result<PluginRow, InstallError> {
-    run_blocking(app, move |app_data, plugins| {
+    run_changing(app, move |app_data, plugins| {
         install::install(&app_data, plugins, &token, now_unix())
+    })
+    .await
+}
+
+/// Enables a plugin. One that needs consent takes `grants`, exactly its declared capabilities,
+/// `manifest_hash`, the hash of the manifest the review sheet showed, and for a native plugin
+/// `native_ack`. Returns its `plugins_list` row.
+#[tauri::command]
+pub async fn plugin_enable(
+    id: String,
+    grants: Option<Vec<String>>,
+    native_ack: Option<bool>,
+    manifest_hash: Option<String>,
+    app: AppHandle,
+) -> Result<PluginRow, InstallError> {
+    run_changing(app, move |app_data, plugins| {
+        lifecycle::enable(
+            &app_data,
+            plugins,
+            &id,
+            grants.as_deref(),
+            native_ack == Some(true),
+            manifest_hash.as_deref(),
+        )
+    })
+    .await
+}
+
+/// Disables and stops a plugin, keeping its consent. Returns its `plugins_list` row.
+#[tauri::command]
+pub async fn plugin_disable(id: String, app: AppHandle) -> Result<PluginRow, InstallError> {
+    run_changing(app, move |app_data, plugins| {
+        lifecycle::disable(&app_data, plugins, &id)
+    })
+    .await
+}
+
+/// Replaces an installed plugin with one inspected by `plugin_inspect`.
+#[tauri::command]
+pub async fn plugin_update(token: String, app: AppHandle) -> Result<Updated, InstallError> {
+    run_changing(app, move |app_data, plugins| {
+        update::update(&app_data, plugins, &token)
+    })
+    .await
+}
+
+/// Removes a plugin's code, and its saved data when `delete_data` is set.
+#[tauri::command]
+pub async fn plugin_uninstall(
+    id: String,
+    delete_data: bool,
+    app: AppHandle,
+) -> Result<Uninstalled, InstallError> {
+    run_changing(app, move |app_data, plugins| {
+        lifecycle::uninstall(&app_data, plugins, &id, delete_data)
     })
     .await
 }

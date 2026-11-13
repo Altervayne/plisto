@@ -6,6 +6,7 @@
  */
 
 // -- Library Imports --
+use std::cell::Cell;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -20,13 +21,14 @@ use super::copy_in::copy_in;
 use super::extract::extract;
 use super::frame_host::is_reparse_point;
 use super::install_error::{ErrorCode, InstallError};
+use super::lifecycle::{park, save_failed};
 use super::manifest::{Capability, Compat, Tier};
 use super::paths::{inbox_dir, plugin_dir, staging_dir};
 use super::registry::{Entry, EntryState};
 use super::revalidate::{check_folder, needs_newer};
 use super::sidebar_decl::Layout;
 use super::stage::{fits_under, Limits, Totals};
-use super::state::{PluginRow, PluginsState, StagedPlugin};
+use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
 
 const MAX_INBOX: usize = 64;
 const PLUGIN_EXT: &str = "plistoplugin";
@@ -85,7 +87,7 @@ fn new_token() -> String {
 }
 
 /// The staging folder, created if missing. A link there would send writes outside the app data.
-fn staging_root(app_data: &Path) -> Result<PathBuf, InstallError> {
+pub(super) fn staging_root(app_data: &Path) -> Result<PathBuf, InstallError> {
     let root = staging_dir(app_data);
     fs::create_dir_all(&root)
         .map_err(|e| InstallError::io("cannot create the staging folder", e))?;
@@ -101,7 +103,7 @@ fn staging_root(app_data: &Path) -> Result<PathBuf, InstallError> {
 }
 
 /// A new, empty folder under the staging root and its token.
-fn new_staging_dir(root: &Path) -> Result<(String, PathBuf), InstallError> {
+pub(super) fn new_staging_dir(root: &Path) -> Result<(String, PathBuf), InstallError> {
     loop {
         let token = new_token();
         let dir = root.join(&token);
@@ -192,14 +194,14 @@ pub fn inspect(
     })
 }
 
-fn is_held(e: &io::Error) -> bool {
+pub(super) fn is_held(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::PermissionDenied
         || e.raw_os_error()
             .is_some_and(|code| HELD_FILE_ERRORS.contains(&code))
 }
 
 /// Renames, retrying only an error a briefly held file can cause.
-fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+pub(super) fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     let mut attempt = 1;
     loop {
         match fs::rename(from, to) {
@@ -221,26 +223,41 @@ pub fn install(
     token: &str,
     now: i64,
 ) -> Result<PluginRow, InstallError> {
-    if !plugins.registry_writable() {
-        return Err(InstallError::new(
-            ErrorCode::RegistryUnavailable,
-            "the plugin registry could not be read at launch",
-        ));
-    }
+    require_writable(plugins)?;
     let staged = claim(plugins, token)?;
     commit(app_data, plugins, staged, now)
 }
 
+/// Refuses any change when the registry could not be read at launch: a save would overwrite it.
+pub(super) fn require_writable(plugins: &PluginsState) -> Result<(), InstallError> {
+    if plugins.registry_writable() {
+        return Ok(());
+    }
+    Err(InstallError::new(
+        ErrorCode::RegistryUnavailable,
+        "the plugin registry could not be read at launch",
+    ))
+}
+
 /// Takes the record out of the staged table, so eviction and discard cannot remove its folder while
-/// an install works on it.
-fn claim(plugins: &PluginsState, token: &str) -> Result<StagedPlugin, InstallError> {
+/// an install or update works on it.
+pub(super) fn claim(plugins: &PluginsState, token: &str) -> Result<StagedPlugin, InstallError> {
     plugins.take_staged(token).ok_or_else(|| {
         InstallError::new(ErrorCode::UnknownToken, "no staged plugin for this token")
     })
 }
 
-/// Validates and commits a claimed plugin. On failure, a staged folder that is still there goes back
-/// into the table under the same token.
+/// Puts a claimed plugin back under its token, when its staged folder is still there.
+pub(super) fn restage(plugins: &PluginsState, staged: StagedPlugin) {
+    if !staged.dir.is_dir() {
+        return;
+    }
+    if let Some(old) = plugins.keep_staged(staged) {
+        let _ = fs::remove_dir_all(old.dir);
+    }
+}
+
+/// Validates and commits a claimed plugin. On failure it goes back into the staged table.
 fn commit(
     app_data: &Path,
     plugins: &PluginsState,
@@ -248,10 +265,8 @@ fn commit(
     now: i64,
 ) -> Result<PluginRow, InstallError> {
     let result = commit_claimed(app_data, plugins, &staged, now);
-    if result.is_err() && staged.dir.is_dir() {
-        if let Some(old) = plugins.keep_staged(staged) {
-            let _ = fs::remove_dir_all(old.dir);
-        }
+    if result.is_err() {
+        restage(plugins, staged);
     }
     result
 }
@@ -270,9 +285,12 @@ fn commit_claimed(
         ));
     }
     let target = plugin_dir(app_data, &staged.id);
-    plugins.add_entry(
+    // Where the undo parked a folder it could not move back; deleted once the lock is released.
+    let parked = Cell::new(None);
+    let committed = plugins.mutate(
         app_data,
-        |registry| {
+        Withdraw::No,
+        |registry, problems| {
             if registry.entry(&staged.id).is_some() || fs::symlink_metadata(&target).is_ok() {
                 return Err(InstallError::new(
                     ErrorCode::AlreadyInstalled,
@@ -303,16 +321,31 @@ fn commit_claimed(
                 sidebar_collapsed: false,
                 ready_enabled: None,
             };
-            Ok((entry, problem))
+            match &problem {
+                Some(line) => problems.insert(staged.id.clone(), line.clone()),
+                None => problems.remove(&staged.id),
+            };
+            registry.entries.push(entry.clone());
+            Ok(PluginRow { entry, problem })
         },
         |e| {
             // Back to staging, so no half-removed plugin folder is left for boot to adopt.
             if rename_with_retry(&target, &staged.dir).is_err() {
-                let _ = fs::remove_dir_all(&target);
+                parked.set(Some(park(app_data, &target, &staged.id)));
             }
-            InstallError::io("cannot save the plugin registry", e)
+            save_failed(e)
         },
-    )
+    );
+    match parked.into_inner() {
+        Some(Ok(holder)) => {
+            let _ = remove_tree(&holder);
+        }
+        Some(Err(_)) => {
+            let _ = remove_tree(&target);
+        }
+        None => {}
+    }
+    committed
 }
 
 /// Removes a staged plugin and forgets its token. An unknown token is a no-op.
@@ -371,17 +404,20 @@ pub fn sweep_staging(app_data: &Path) {
     };
     for item in read.filter_map(Result::ok) {
         let path = item.path();
-        let removed = match fs::symlink_metadata(&path) {
-            Ok(m) if m.is_dir() && !is_reparse_point(&m) => fs::remove_dir_all(&path),
-            // A link is removed itself, never followed.
-            _ => fs::remove_file(&path).or_else(|_| fs::remove_dir(&path)),
-        };
-        if let Err(e) = removed {
+        if let Err(e) = remove_tree(&path) {
             eprintln!(
                 "plugins: cannot remove leftover staging {}: {e}",
                 path.display()
             );
         }
+    }
+}
+
+/// Removes a folder and everything in it, or a file. A link is removed itself, never followed.
+pub(super) fn remove_tree(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() && !is_reparse_point(&m) => fs::remove_dir_all(path),
+        _ => fs::remove_file(path).or_else(|_| fs::remove_dir(path)),
     }
 }
 

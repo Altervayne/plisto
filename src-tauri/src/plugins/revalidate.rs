@@ -188,7 +188,7 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
 
 /// Moves an entry to `Broken` or `Incompatible`, disabled. A ready entry remembers whether it was
 /// enabled, so recovery can restore exactly that and nothing a user never consented to.
-fn demote(entry: &mut Entry, to: EntryState) {
+pub(super) fn demote(entry: &mut Entry, to: EntryState) {
     if entry.state == EntryState::Ready {
         entry.ready_enabled = Some(entry.enabled);
     }

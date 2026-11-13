@@ -1,9 +1,9 @@
 /*
  * Plugin system foundations: on-disk locations, the strict manifest parser and its sidebar
  * declaration, the frame host that serves plugin pages, and the registry of what is installed with the
- * session marker and safe-mode flag beside it, and the installer that stages a folder or archive and
- * commits it. Everything here is pure or takes the directory it reads from, except the WebView2 binding
- * of the frame host.
+ * session marker and safe-mode flag beside it, the installer that stages a folder or archive and
+ * commits it, and the lifecycle after that: consent, enable, disable, update and uninstall. Everything
+ * here is pure or takes the directory it reads from, except the WebView2 binding of the frame host.
  */
 
 // Nothing outside this module calls into it yet, so most items are unused.
@@ -19,6 +19,7 @@ pub(crate) mod frame_host_win;
 pub(crate) mod icon;
 pub(crate) mod install;
 pub(crate) mod install_error;
+pub(crate) mod lifecycle;
 pub(crate) mod manifest;
 pub(crate) mod paths;
 pub(crate) mod registry;
@@ -28,3 +29,6 @@ pub(crate) mod session;
 pub(crate) mod sidebar_decl;
 pub(crate) mod stage;
 pub(crate) mod state;
+#[cfg(test)]
+mod test_kit;
+pub(crate) mod update;

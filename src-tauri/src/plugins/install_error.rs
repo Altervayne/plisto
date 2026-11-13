@@ -1,6 +1,7 @@
 /*
- * The one error the install commands return. `code` is stable and snake_case so the frontend can map
- * it to its own text; `detail` is a short English line for logs and devtools, never shown as is.
+ * The one error the install and lifecycle commands return. `code` is stable and snake_case so the
+ * frontend can map it to its own text; `detail` is a short English line for logs and devtools, never
+ * shown as is.
  */
 
 // -- Library Imports --
@@ -30,6 +31,24 @@ pub enum ErrorCode {
     UnknownToken,
     RegistryUnavailable,
     Io,
+    /// An update for an id that is not installed.
+    NotInstalled,
+    /// An update that changes the tier; it must be uninstalled first.
+    TierChanged,
+    /// The manifest needs a newer Plisto.
+    Incompatible,
+    /// The plugin's folder or manifest no longer validates.
+    Broken,
+    /// plugin.json changed since it was reviewed; consent is asked again.
+    ManifestChanged,
+    /// The grants are not exactly the declared capabilities.
+    ConsentMismatch,
+    /// A native plugin enabled without the explicit acknowledgement.
+    NativeAckRequired,
+    /// A failed update could not be undone; the plugin is marked broken.
+    NeedsReinstall,
+    /// The plugin changed while this call checked it; trying again is safe.
+    Busy,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

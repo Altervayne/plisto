@@ -10,18 +10,33 @@
 use std::collections::{HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
 use serde::Serialize;
 
 // -- Local Imports --
 use super::install::sweep_staging;
-use super::registry::{self, Entry, FileRead, Registry};
-use super::revalidate::{adopt_folders, revalidate, Problems};
+use super::install_error::{ErrorCode, InstallError};
+use super::registry::{self, Entry, EntryState, FileRead, Registry};
+use super::revalidate::{adopt_folders, demote, revalidate, Problems};
 use super::session::{self, BootState};
+use super::update::recover_swaps;
 
 /// How many inspected, not yet installed plugins are kept staged; one more evicts the oldest.
 pub const MAX_STAGED: usize = 8;
+
+/// Stops a plugin's running code: before its files are touched, and when it is disabled. Called
+/// without the state lock held, so it may wait on the plugin.
+pub trait Stopper: Send + Sync {
+    fn stop(&self, id: &str);
+}
+
+impl<F: Fn(&str) + Send + Sync> Stopper for F {
+    fn stop(&self, id: &str) {
+        self(id)
+    }
+}
 
 /// The ids of enabled, ready plugins. Cheap to clone; every clone sees the same set.
 #[derive(Clone, Default)]
@@ -35,6 +50,13 @@ impl EnabledSet {
 
     fn replace(&self, ids: HashSet<String>) {
         *self.0.write().unwrap_or_else(PoisonError::into_inner) = ids;
+    }
+
+    fn remove(&self, id: &str) {
+        self.0
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(id);
     }
 }
 
@@ -52,6 +74,38 @@ struct Inner {
     registry: Registry,
     problems: Problems,
     staged: VecDeque<StagedPlugin>,
+    // Ids kept out of the serving set whatever the registry says: a demotion of them could not be
+    // saved. Cleared by the next saved change of that id.
+    held_out: HashSet<String>,
+}
+
+impl Inner {
+    fn serving_ids(&self) -> HashSet<String> {
+        let mut ids = self.registry.serving_ids();
+        ids.retain(|id| !self.held_out.contains(id));
+        ids
+    }
+}
+
+/// How a `PluginsState::mutate` call treats one plugin's place in the serving set.
+#[derive(Clone, Copy, Debug)]
+pub enum Withdraw<'a> {
+    /// The serving set follows the registry.
+    No,
+    /// Out while the change runs, then back when the registry still serves it.
+    While(&'a str),
+    /// Out while the change runs, and kept out when its save fails: the change takes rights away
+    /// and must hold in memory even when the disk refuses it.
+    Demoting(&'a str),
+}
+
+impl<'a> Withdraw<'a> {
+    fn id(self) -> Option<&'a str> {
+        match self {
+            Withdraw::No => None,
+            Withdraw::While(id) | Withdraw::Demoting(id) => Some(id),
+        }
+    }
 }
 
 /// One registry entry as the frontend sees it, with the problem found at boot, if any.
@@ -68,6 +122,9 @@ pub struct PluginsState {
     boot: BootState,
     // False when the boot read could not get at the file, so saving would overwrite contents never read.
     registry_writable: bool,
+    stopper: RwLock<Arc<dyn Stopper>>,
+    // Bumped by every registry change kept in memory, so a caller can tell whether its call changed it.
+    generation: AtomicU64,
 }
 
 impl PluginsState {
@@ -79,10 +136,13 @@ impl PluginsState {
                 registry,
                 problems,
                 staged: VecDeque::new(),
+                held_out: HashSet::new(),
             }),
             enabled,
             boot,
             registry_writable: true,
+            stopper: RwLock::new(Arc::new(|_: &str| {})),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -153,27 +213,107 @@ impl PluginsState {
         self.enabled.replace(registry.serving_ids());
         inner.registry = registry;
         inner.problems = problems;
+        inner.held_out.clear();
     }
 
-    /// Adds a newly installed, disabled entry and saves the registry, all under the lock. `place` runs
-    /// first against the registry as it stands and returns the entry once its files are in place.
-    /// When the save fails, `undo` runs and memory is left as it was. The serving set is unchanged.
-    pub fn add_entry<E>(
+    /// Takes `id` out of the serving set until the next change puts the set back in line with the
+    /// registry. Taken under the lock, so no change running now can put it back.
+    pub fn withdraw(&self, id: &str) {
+        let _inner = self.inner();
+        self.enabled.remove(id);
+    }
+
+    pub fn set_stopper(&self, stopper: Arc<dyn Stopper>) {
+        *self.stopper.write().unwrap_or_else(PoisonError::into_inner) = stopper;
+    }
+
+    /// Runs the stopper for `id`. Never holds a lock while the stopper runs.
+    pub fn stop(&self, id: &str) {
+        let stopper = self
+            .stopper
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        stopper.stop(id);
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// Changes the registry and saves it, all under the lock, so two changes never interleave.
+    /// `change` works on a copy of the registry and the problems and may move files; when it fails,
+    /// nothing is saved. When the save fails, `undo` puts the files back and memory is left as it was.
+    /// A change that leaves both as they were saves nothing. `withdraw` says how one id leaves the
+    /// serving set meanwhile; afterwards the set follows the registry. A `NeedsReinstall` error means
+    /// the withdrawn plugin's files are in an unknown state: its entry is marked broken in memory even
+    /// when that cannot be saved.
+    pub fn mutate<T>(
         &self,
         app_data: &Path,
-        place: impl FnOnce(&Registry) -> Result<(Entry, Option<String>), E>,
-        undo: impl FnOnce(io::Error) -> E,
-    ) -> Result<PluginRow, E> {
+        withdraw: Withdraw<'_>,
+        change: impl FnOnce(&mut Registry, &mut Problems) -> Result<T, InstallError>,
+        undo: impl FnOnce(io::Error) -> InstallError,
+    ) -> Result<T, InstallError> {
         let mut inner = self.inner();
-        let (entry, problem) = place(&inner.registry)?;
-        let mut next = inner.registry.clone();
-        next.entries.push(entry.clone());
-        registry::save(app_data, &next).map_err(undo)?;
-        inner.registry = next;
-        if let Some(problem) = &problem {
-            inner.problems.insert(entry.id.clone(), problem.clone());
+        if let Some(id) = withdraw.id() {
+            self.enabled.remove(id);
         }
-        Ok(PluginRow { entry, problem })
+        let mut registry = inner.registry.clone();
+        let mut problems = inner.problems.clone();
+        let result = match change(&mut registry, &mut problems) {
+            Ok(value) if registry == inner.registry && problems == inner.problems => Ok(value),
+            Ok(value) => match self.save(app_data, &registry) {
+                Ok(()) => {
+                    let before = &inner.registry;
+                    let held_out = inner
+                        .held_out
+                        .iter()
+                        .filter(|id| before.entry(id) == registry.entry(id))
+                        .cloned()
+                        .collect();
+                    inner.held_out = held_out;
+                    inner.registry = registry;
+                    inner.problems = problems;
+                    self.generation.fetch_add(1, Ordering::SeqCst);
+                    Ok(value)
+                }
+                Err(e) => {
+                    if let Withdraw::Demoting(id) = withdraw {
+                        inner.held_out.insert(id.to_string());
+                    }
+                    Err(undo(e))
+                }
+            },
+            Err(e) => Err(e),
+        };
+        if let (Err(e), Some(id)) = (&result, withdraw.id()) {
+            if e.code == ErrorCode::NeedsReinstall {
+                self.mark_broken(&mut inner, app_data, id, &e.detail);
+            }
+        }
+        self.enabled.replace(inner.serving_ids());
+        result
+    }
+
+    fn mark_broken(&self, inner: &mut Inner, app_data: &Path, id: &str, problem: &str) {
+        let Some(entry) = inner.registry.entries.iter_mut().find(|e| e.id == id) else {
+            return;
+        };
+        demote(entry, EntryState::Broken);
+        inner.problems.insert(id.to_string(), problem.to_string());
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        if let Err(e) = self.save(app_data, &inner.registry) {
+            eprintln!("plugins: cannot save the broken mark for {id}: {e}");
+        }
+    }
+
+    /// Never writes over a registry the boot could not read.
+    fn save(&self, app_data: &Path, registry: &Registry) -> io::Result<()> {
+        if !self.registry_writable {
+            return Err(io::Error::other("the registry could not be read at launch"));
+        }
+        registry::save(app_data, registry)
     }
 
     /// Records a staged plugin. Returns the oldest one when the table was full; the caller removes
@@ -208,9 +348,13 @@ impl PluginsState {
 fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
     let mut may_save = true;
     let mut must_save = false;
+    let mut parsed = false;
     let mut loaded = match registry::read_file(app_data) {
         FileRead::Missing => Registry::default(),
-        FileRead::Parsed(loaded) => loaded,
+        FileRead::Parsed(loaded) => {
+            parsed = true;
+            loaded
+        }
         FileRead::Unreadable(why) => {
             eprintln!("plugins: the registry is not usable ({why}); moving it aside");
             match registry::quarantine(app_data) {
@@ -230,6 +374,10 @@ fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
     };
     let as_read = loaded.clone();
     loaded.normalize();
+    // Only a registry actually read can say a plugin is gone; without one, every swap is undone.
+    let registered: Option<HashSet<String>> =
+        parsed.then(|| loaded.entries.iter().map(|e| e.id.clone()).collect());
+    recover_swaps(app_data, registered.as_ref());
     let mut problems = revalidate(app_data, &mut loaded);
     let known: HashSet<String> = loaded.entries.iter().map(|e| e.id.clone()).collect();
     let (adopted, adopted_problems) = adopt_folders(app_data, now, &known);
