@@ -1,0 +1,36 @@
+/*
+ * Base layer for plugin pages, served to plugin frames as /_plisto/plugin-base.css beside
+ * tokens.css. The app never imports it. The page stays transparent so the host's recess shows
+ * through, and it never sets the color scheme property, since a value that differs from the host's
+ * makes the webview paint an opaque backdrop behind the frame.
+ */
+
+html {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: transparent;
+}
+
+body {
+  margin: 0;
+  padding: 18px 20px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+}

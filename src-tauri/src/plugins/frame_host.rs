@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use tauri::http::{header, Response, StatusCode};
 
 // -- Local Imports --
+use super::frame_host_files::host_file;
 use super::paths::{plugin_dir, plugins_dir, validate_id, validate_rel_path};
 
 /// The request pattern the webview routes to the frame host.
@@ -321,7 +322,8 @@ fn served(mime: &'static str, body: Vec<u8>) -> Response<Vec<u8>> {
 /// `Sec-Fetch-Dest` headers, `kind` the webview's resource context, `enabled` whether the registry
 /// serves an id. Only GET is served, and the Referer check runs before the label is looked up, so a
 /// refused caller cannot tell an installed plugin from a missing one. A plugin that is installed but
-/// not enabled gets the same 404 as one that is not installed.
+/// not enabled gets the same 404 as one that is not installed. `/_plisto/` paths are the host's own
+/// files, never the plugin's.
 pub fn respond(
     app_data: &Path,
     method: &str,
@@ -343,9 +345,13 @@ pub fn respond(
     if !referer_allowed(label, referer, document) {
         return refusal(StatusCode::FORBIDDEN);
     }
-    id_for_label(app_data, label)
-        .filter(|id| enabled(id.as_str()))
-        .and_then(|id| resolve(app_data, &id, path))
+    let Some(id) = id_for_label(app_data, label).filter(|id| enabled(id.as_str())) else {
+        return refusal(StatusCode::NOT_FOUND);
+    };
+    if let Some(file) = host_file(path) {
+        return served(file.mime, file.body.to_vec());
+    }
+    resolve(app_data, &id, path)
         .and_then(|found| read_capped(&found.file).map(|body| served(found.mime, body)))
         .unwrap_or_else(|| refusal(StatusCode::NOT_FOUND))
 }
@@ -1193,7 +1199,7 @@ mod tests {
             "/index.html::$DATA",
             "/index.html%3A%3A%24DATA",
             "/index.html.",
-            "/_plisto/tokens.css",
+            "/_plisto/missing.css",
             "/missing.js",
         ] {
             assert_eq!(

@@ -27,6 +27,8 @@ pub struct ManifestSummary {
     pub name: String,
     pub author: String,
     pub homepage: Option<String>,
+    /// The page a frame loads, relative to the plugin's base URL.
+    pub entry: String,
     pub capabilities: Vec<Capability>,
     pub origins: Vec<String>,
     pub native_reason: Option<String>,
@@ -42,6 +44,7 @@ impl ManifestSummary {
             name: manifest.name.clone(),
             author: manifest.author.clone(),
             homepage: manifest.homepage.clone(),
+            entry: manifest.entry.clone(),
             capabilities: manifest.capabilities.clone(),
             origins: manifest.network.clone(),
             native_reason: manifest.native_reason.clone(),
@@ -148,6 +151,7 @@ mod tests {
         assert_eq!(m["name"], "Demo");
         assert_eq!(m["author"], "A");
         assert_eq!(m["homepage"], "https://example.com/demo");
+        assert_eq!(m["entry"], "index.html");
         assert_eq!(
             m["capabilities"],
             json!(["storage", "network", "ui.sidebar"])
