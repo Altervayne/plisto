@@ -45,6 +45,8 @@ describe("summaryFromSync", () => {
       returned: 1,
       deferred: 4,
       errors: 1,
+      issues: 5,
+      new_issues: 2,
       offline_roots: [9],
     });
     expect(s).toMatchObject({
@@ -58,6 +60,8 @@ describe("summaryFromSync", () => {
       returned: 1,
       deferred: 4,
       errors: 1,
+      issues: 5,
+      new_issues: 2,
       cancelled: false,
       offline_roots: [9],
     });

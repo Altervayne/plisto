@@ -1,0 +1,23 @@
+/* A calm status line under the chips. Static: nothing sweeps, pulses or loops. */
+.note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.check {
+  flex: none;
+  color: var(--good);
+}
+
+.ring {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin: 0 3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-3);
+}

@@ -17,7 +17,11 @@ import type {
 export type SummarySource = "blocking" | "sync";
 
 /** A scan summary tagged with its origin, since the two read differently on the summary line. */
-export type LibrarySummary = ScanSummary & { source: SummarySource };
+export type LibrarySummary = ScanSummary & {
+  source: SummarySource;
+  /** Issues new to a background session; a blocking scan leaves it unset. */
+  new_issues?: number;
+};
 
 /** The deltas gathered but not yet applied: row ids to fetch, or a full reload. */
 export interface PendingDelta {
@@ -74,6 +78,8 @@ export function summaryFromSync(s: LibrarySyncSummary): LibrarySummary {
     missing: s.missing,
     returned: s.returned,
     errors: s.errors,
+    issues: s.issues,
+    new_issues: s.new_issues,
     cancelled: false,
     offline_roots: s.offline_roots,
     deferred: s.deferred,

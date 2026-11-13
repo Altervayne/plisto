@@ -1,0 +1,10 @@
+/* The count sits before the Review button, in the quiet secondary tone of a row's meta. */
+.trail {
+  align-items: center;
+  gap: 4px;
+}
+
+.count {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}

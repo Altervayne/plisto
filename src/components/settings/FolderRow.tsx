@@ -17,6 +17,7 @@ import {
   useRescanQuiet,
 } from "../../state/store";
 import { locateEligible } from "../../state/relocate";
+import { useScanIssuesStore } from "../../state/scanIssues";
 
 // -- IPC Imports --
 import { rootRemovalImpact } from "../../lib/ipc";
@@ -74,6 +75,8 @@ export function FolderRow({ root }: { root: Root }) {
   const onConfirm = async () => {
     setImpact(null);
     await removeRoot(root.id);
+    // The removal cascades through the unreadable-file rows of the root.
+    void useScanIssuesStore.getState().refreshStanding();
   };
 
   const onLocateInstead = () => {

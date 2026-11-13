@@ -1,5 +1,6 @@
 // -- Module Declarations --
 mod adhoc;
+mod applog;
 mod audio;
 mod commands;
 mod covers;
@@ -432,6 +433,12 @@ pub fn run() {
             commands::roots::rescan_root,
             commands::roots::rescan_all,
             commands::roots::root_removal_impact,
+            commands::scan_issues::scan_issues_list,
+            commands::scan_issues::scan_issues_count,
+            commands::scan_issues::scan_issues_retry,
+            commands::scan_issues::scan_issues_text,
+            commands::scan_issues::scan_issues_clear,
+            commands::scan_issues::scan_issues_open_log,
             commands::relocate::relink_candidates,
             commands::relocate::preview_relocate,
             commands::relocate::relocate_root,
@@ -504,7 +511,12 @@ pub fn run() {
             commands::plugins::plugin_inbox_path,
             commands::plugins::plugin_data_size,
             commands::plugin_call::plugin_call,
-            commands::plugin_call::plugin_page_state
+            commands::plugin_call::plugin_page_state,
+            commands::plugin_ui::plugin_ui_answer,
+            commands::plugin_ui::plugin_ui_pending,
+            commands::plugin_ui::plugin_sidebar_state,
+            commands::plugin_ui::plugin_sidebar_input,
+            commands::plugin_ui::plugin_frame_event
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

@@ -1,0 +1,17 @@
+/* The bar actions at the foot of the sheet: the one accent button first, Dismiss trailing. */
+.bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.bar > button {
+  font-size: 13px;
+}
+
+.spacer {
+  flex: 1;
+}

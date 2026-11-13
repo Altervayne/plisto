@@ -21,6 +21,7 @@ const summary = (missing: number): ScanSummary => ({
   missing,
   returned: 0,
   errors: 0,
+  issues: 0,
   cancelled: false,
   offline_roots: [],
   deferred: 0,

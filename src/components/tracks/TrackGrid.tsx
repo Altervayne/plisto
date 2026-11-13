@@ -38,6 +38,7 @@ import {
   useReleaseSync,
   useTracks,
 } from "../../state/store";
+import { useScanIssuesStore } from "../../state/scanIssues";
 import {
   useAddSelection,
   useAlbums,
@@ -751,7 +752,9 @@ export function TrackGrid({
         confirmLabel={t((d) => d.tracks.goneConfirmButton, { n: goneIds.length })}
         cancelLabel={t((d) => d.common.cancel)}
         destructive
-        onConfirm={() => void purgeGoneTracks(goneIds)}
+        onConfirm={() =>
+          void purgeGoneTracks(goneIds).then(() => useScanIssuesStore.getState().refreshStanding())
+        }
         onClose={() => setConfirmPurge(false)}
       />
     </div>

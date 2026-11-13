@@ -1,0 +1,93 @@
+/*
+ * The Copy list panel: a small lifted card over its own scrim, above the sheet. The preview is the exact
+ * shape of the clipboard text in the mono face, on a sunken recess. The scrim is a single translucent
+ * black so it dims the light ground and deepens the dark one alike.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.35);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(680px, 94vw);
+  max-height: 90vh;
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.lead {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.clip {
+  margin: 0;
+  max-height: 300px;
+  padding: 14px 16px;
+  overflow: auto;
+  scrollbar-width: none;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.clip::-webkit-scrollbar {
+  display: none;
+}
+
+.header {
+  color: var(--ink-3);
+}
+
+.more {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.privacy {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}

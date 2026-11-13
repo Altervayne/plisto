@@ -1,0 +1,269 @@
+/*
+ * The unreadable-files review. The same dimmed scrim and lifted card as the duplicates review: a header
+ * carrying the safety lines, the reason chips and one status line, then the scrolling rows over the bar
+ * actions. The scrim is a single translucent black on purpose - it dims the light ground and deepens the
+ * dark one alike. Every state is still: nothing sweeps, pulses or loops.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.overlay[data-state="enter"] .backdrop {
+  animation: scrim-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .backdrop {
+  animation: scrim-out var(--dur-soft) var(--ease-exit) both;
+}
+
+.overlay[data-state="enter"] .panel {
+  animation: card-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .panel {
+  animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.panel {
+  position: relative;
+  transform-origin: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(940px, 94vw);
+  max-height: min(860px, 90vh);
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.count {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-3);
+}
+
+.summary {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.safety {
+  margin: 2px 0 0;
+  max-width: 72ch;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+/* -- Rows -- */
+
+/* The list takes the card's spare height and scrolls on the app's own bar once it runs long. */
+.list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 -8px;
+}
+
+.list :global(.hide-native-scrollbar) {
+  max-height: max(200px, calc(min(860px, 90vh) - 340px));
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px 4px 0;
+}
+
+.more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 0 4px;
+}
+
+/* A failed read over rows still held: the line and its Retry, the rows set back and inert. */
+.inlineError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.stale {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* -- Loading, empty, error -- */
+
+.center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 56px 0 64px;
+  text-align: center;
+}
+
+.center b {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.center span {
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.center button {
+  margin-top: 10px;
+  background: var(--veil);
+}
+
+/* A still skeleton on the real row geometry, so the list does not jump when the rows arrive. */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 14px;
+  padding: 12px 8px;
+}
+
+.skeletonRow i {
+  display: block;
+  height: 9px;
+  width: 50%;
+  border-radius: var(--pill);
+  background: var(--veil);
+}
+
+.skeletonRow i + i {
+  margin-top: 8px;
+  height: 7px;
+  width: 68%;
+  opacity: 0.7;
+}
+
+.skeletonRow em {
+  align-self: center;
+  width: 60%;
+  height: 9px;
+  border-radius: var(--pill);
+  background: var(--veil);
+}
+
+.loading {
+  margin: 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* -- Foot -- */
+
+.logLine {
+  flex: none;
+  margin: -6px 0 0;
+  max-width: 72ch;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}

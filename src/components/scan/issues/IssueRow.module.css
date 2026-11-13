@@ -1,0 +1,196 @@
+/*
+ * One unreadable-files row on the continuous surface: no card, no divider. Rows are parted by space and
+ * warm with the veil on hover, like a folder row. An opened row and its detail are a single surface:
+ * the veil sits on the item, so the detail reads as the row's own contents.
+ */
+.item {
+  border-radius: var(--r-sm);
+}
+
+.item.open {
+  margin: 2px 0;
+  background: var(--veil);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px auto;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.item.open .row,
+.item.open .row:hover {
+  background: transparent;
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.name > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.name svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 14px;
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* A notice, not an alarm: a neutral dot and plain text, never the danger tone. */
+.reason {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.reason::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.glyph:hover {
+  background: var(--veil-2);
+  color: var(--ink);
+}
+
+.glyph:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.glyph:disabled:hover {
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.glyph svg {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.expanded {
+  color: var(--ink);
+}
+
+.expanded svg {
+  transform: rotate(180deg);
+}
+
+/* Holds the Retry slot while the row is closed, so the other glyphs keep their place. */
+.ghost {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 8px 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+}
+
+.facts dt {
+  color: var(--ink-3);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+}

@@ -23,6 +23,7 @@ const busy: LibrarySummary = {
   missing: 4,
   returned: 0,
   errors: 1,
+  issues: 1,
   cancelled: true,
   offline_roots: [],
   deferred: 0,
@@ -40,6 +41,8 @@ const quietSession: LibrarySummary = {
   missing: 0,
   returned: 0,
   errors: 0,
+  issues: 0,
+  new_issues: 0,
   cancelled: false,
   offline_roots: [],
   deferred: 0,
@@ -56,7 +59,7 @@ describe("scanSummaryParts after a blocking scan", () => {
       "3 new",
       "1 changed",
       "2 removed",
-      "1 unreadable",
+      "issues:1",
       "cancelled",
       "gone:4",
     ]);
@@ -69,14 +72,14 @@ describe("scanSummaryParts after a blocking scan", () => {
       "3 nouvelles",
       "1 modifiée",
       "2 retirées",
-      "1 illisible",
+      "issues:1",
       "annulée",
       "gone:4",
     ]);
   });
 
   it("drops the new count on a first scan, where it only echoes the total", () => {
-    const first = { ...busy, inserted: 1240, updated: 0, removed: 0, missing: 0, errors: 0, cancelled: false };
+    const first = { ...busy, inserted: 1240, updated: 0, removed: 0, missing: 0, errors: 0, issues: 0, cancelled: false };
     expect(read(scanSummaryParts(first, createT("en")))).toEqual(["1,240 indexed"]);
   });
 });
@@ -89,6 +92,8 @@ describe("scanSummaryParts after a background session", () => {
     returned: 2,
     missing: 3,
     errors: 1,
+    issues: 6,
+    new_issues: 1,
     deferred: 1,
   };
 
@@ -98,7 +103,7 @@ describe("scanSummaryParts after a background session", () => {
       "1 changed",
       "2 returned",
       "gone:3",
-      "1 unreadable",
+      "issues:1",
       "1 still copying",
     ]);
   });
@@ -109,7 +114,7 @@ describe("scanSummaryParts after a background session", () => {
       "1 modifiée",
       "2 revenues",
       "gone:3",
-      "1 illisible",
+      "issues:1",
       "1 en cours de copie",
     ]);
   });
@@ -122,6 +127,53 @@ describe("scanSummaryParts after a background session", () => {
   it("reads up to date when nothing changed", () => {
     expect(read(scanSummaryParts(quietSession, createT("en")))).toEqual(["Up to date"]);
     expect(read(scanSummaryParts(quietSession, createT("fr")))).toEqual(["À jour"]);
+  });
+});
+
+describe("scanSummaryParts unreadable files", () => {
+  const en = createT("en");
+  const fr = createT("fr");
+
+  it("shows the standing count after a blocking scan even when this pass read cleanly", () => {
+    const rescan = { ...busy, errors: 0, issues: 12, cancelled: false, removed: 0, missing: 0 };
+    expect(read(scanSummaryParts(rescan, en))).toEqual(["1,240 indexed", "3 new", "1 changed", "issues:12"]);
+  });
+
+  it("hides the part at zero issues, whatever the pass counter says", () => {
+    const parts = read(scanSummaryParts({ ...busy, errors: 3, issues: 0 }, en));
+    expect(parts.join()).not.toContain("issues");
+  });
+
+  it("shows after a session only when it found new ones", () => {
+    const known = { ...quietSession, issues: 4, new_issues: 0 };
+    expect(read(scanSummaryParts(known, en))).toEqual(["Up to date"]);
+    const fresh = { ...quietSession, issues: 4, new_issues: 1 };
+    expect(read(scanSummaryParts(fresh, en))).toEqual(["issues:1"]);
+  });
+
+  it("treats a missing new_issues as none", () => {
+    const { new_issues: _drop, ...bare } = { ...quietSession, issues: 4 };
+    expect(read(scanSummaryParts(bare, en))).toEqual(["Up to date"]);
+  });
+
+  it("marks the session count as new and the blocking count as the standing total", () => {
+    const [blocking] = scanSummaryParts({ ...busy, issues: 12 }, en).filter((p) => p.kind === "issues");
+    expect(blocking).toEqual({ kind: "issues", n: 12, fresh: false });
+    const [session] = scanSummaryParts({ ...quietSession, issues: 15, new_issues: 3 }, en);
+    expect(session).toEqual({ kind: "issues", n: 3, fresh: true });
+  });
+
+  it("words the new-unreadable count in both locales", () => {
+    expect(en((d) => d.scan.summaryNewUnreadable, { n: 3 })).toBe("3 new unreadable");
+    expect(fr((d) => d.scan.summaryNewUnreadable, { n: 1 })).toBe("1 nouveau illisible");
+    expect(fr((d) => d.scan.summaryNewUnreadable, { n: 3 })).toBe("3 nouveaux illisibles");
+  });
+
+  it("words the count in both locales, singular and plural", () => {
+    expect(en((d) => d.scan.summaryUnreadable, { n: 1 })).toBe("1 unreadable");
+    expect(en((d) => d.scan.summaryUnreadable, { n: 5 })).toBe("5 unreadable");
+    expect(fr((d) => d.scan.summaryUnreadable, { n: 1 })).toBe("1 illisible");
+    expect(fr((d) => d.scan.summaryUnreadable, { n: 5 })).toBe("5 illisibles");
   });
 });
 

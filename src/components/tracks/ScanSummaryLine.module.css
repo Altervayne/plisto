@@ -23,3 +23,21 @@
 .review:hover {
   color: var(--ink);
 }
+
+/* With news in the line (unreadable files), the lead text gives way first and the news never clips. */
+.split {
+  display: flex;
+  align-items: baseline;
+}
+
+.lead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.news {
+  flex: none;
+  white-space: nowrap;
+}

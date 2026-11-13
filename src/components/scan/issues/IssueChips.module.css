@@ -1,0 +1,41 @@
+/* The reason filter chips: the facet-chip grammar, a veil fill at rest and the accent tint when on. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.chip:hover {
+  background: var(--veil-2);
+  color: var(--ink);
+}
+
+.on,
+.on:hover {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.count {
+  margin-left: 6px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}

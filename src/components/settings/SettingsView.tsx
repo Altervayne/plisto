@@ -16,6 +16,7 @@ import { SoundSection } from "./SoundSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { ProgressLine } from "../scan/ProgressLine";
+import { ScanIssuesRow, issuesRowState } from "./ScanIssuesRow";
 
 // -- State Imports --
 import {
@@ -32,6 +33,7 @@ import {
   useSetLibraryGone,
 } from "../../state/store";
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
+import { useOpenScanIssues, useScanIssuesStore } from "../../state/scanIssues";
 import {
   useCloseToTray,
   useKeepLibraryUpToDate,
@@ -65,7 +67,9 @@ import styles from "./SettingsView.module.css";
  * while a quiet scan runs its progress and a Cancel sit under the buttons, which stay live since a
  * request joins it and adding a folder preempts it. A failed check leaves a warn line there. Otherwise
  * the last summary sits under the buttons; when it left files gone from disk, its Review link opens All
- * Tracks filtered to them through `onReviewGone`. The keep-up-to-date switch closes the section.
+ * Tracks filtered to them through `onReviewGone`. Files a scan could not read add a standing row under
+ * it with the count on record and a Review button for the sheet. The keep-up-to-date switch closes the
+ * section.
  */
 export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const roots = useRoots();
@@ -91,12 +95,21 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const keepUpToDate = useKeepLibraryUpToDate();
   const setKeepUpToDate = useSetKeepLibraryUpToDate();
   const setShortcutsOpen = useSetShortcutsOpen();
+  const issueCount = useScanIssuesStore((s) => s.count);
+  const issueStatus = useScanIssuesStore((s) => s.countStatus);
+  const refreshIssueCount = useScanIssuesStore((s) => s.refreshCount);
+  const openIssues = useOpenScanIssues();
   const t = useT();
 
   // Settings can open before Organize ever loads, so pull the vocabulary in on mount.
   useEffect(() => {
     void loadGenres();
   }, [loadGenres]);
+
+  // The standing unreadable count is read on mount and again whenever a scan lands a new summary.
+  useEffect(() => {
+    void refreshIssueCount();
+  }, [refreshIssueCount, scanSummary]);
 
   // Review opens All Tracks already narrowed to the gone tracks, the chip naming why; it never purges,
   // it only surfaces them for the user to act on there.
@@ -174,8 +187,18 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               {checkFailed ? (
                 <p className={styles.scanFailed}>{t((d) => d.window.checkFailed)}</p>
               ) : null}
-              {scanSummary ? (
-                <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
+              {scanSummary || issuesRowState(issueCount, issueStatus) !== "hidden" ? (
+                <div className={styles.pref}>
+                  {scanSummary ? (
+                    <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
+                  ) : null}
+                  <ScanIssuesRow
+                    count={issueCount}
+                    status={issueStatus}
+                    onReview={openIssues}
+                    onRetry={() => void refreshIssueCount()}
+                  />
+                </div>
               ) : null}
             </>
           )}
