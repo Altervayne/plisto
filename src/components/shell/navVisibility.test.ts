@@ -10,9 +10,11 @@ import {
   isPluginVisible,
   isSectionVisible,
   isZoneEmpty,
+  livePlugins,
   pluginIdOf,
   pluginMode,
   pluginZoneModel,
+  qualifiedPlugins,
   zoneHasPlugin,
 } from "./navVisibility";
 import { manifest, row } from "../../state/plugins/fixtures";
@@ -156,6 +158,41 @@ describe("plugin destinations", () => {
     expect(pluginMode("tandem")).toBe("plugin:tandem");
     expect(pluginIdOf("plugin:tandem")).toBe("tandem");
     expect(pluginIdOf("settings")).toBeNull();
+  });
+});
+
+describe("livePlugins and qualifiedPlugins", () => {
+  const rows = [
+    plugin("late", { row: { installed_at: 30 } }),
+    plugin("play", { modes: ["player"], row: { installed_at: 20 } }),
+    plugin("off", { row: { enabled: false } }),
+    plugin("consent", { row: { state: "needs_consent" } }),
+    plugin("unreadable", { row: { manifest: null } }),
+    plugin("early", { modes: ["organizer"], row: { installed_at: 10 } }),
+  ];
+
+  it("keeps ready, enabled, readable plugins in install order, whatever the modes", () => {
+    expect(livePlugins(rows).map((p) => p.id)).toEqual(["early", "play", "late"]);
+  });
+
+  it("qualifies a subset of the live plugins under every app mode", () => {
+    const live = livePlugins(rows).map((p) => p.id);
+    for (const appMode of ["both", "player", "organizer"] as AppMode[]) {
+      const ids = qualifiedPlugins(rows, appMode).map((p) => p.id);
+      expect(ids).toEqual(live.filter((id) => ids.includes(id)));
+    }
+  });
+
+  it("filters the live plugins by mode", () => {
+    expect(qualifiedPlugins(rows, "both").map((p) => p.id)).toEqual(["early", "play", "late"]);
+    expect(qualifiedPlugins(rows, "player").map((p) => p.id)).toEqual(["play", "late"]);
+    expect(qualifiedPlugins(rows, "organizer").map((p) => p.id)).toEqual(["early", "late"]);
+  });
+
+  it("does not mutate the input order", () => {
+    const before = rows.map((r) => r.id);
+    livePlugins(rows);
+    expect(rows.map((r) => r.id)).toEqual(before);
   });
 });
 

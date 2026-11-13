@@ -106,19 +106,23 @@ export function isPluginVisible(appMode: AppMode, modes: readonly PluginMode[]):
 export type ZonePlugin = PluginRow & { manifest: PluginManifestSummary };
 
 /**
- * The plugins the rail and the finder may show, in install order: ready, enabled, a readable manifest,
- * and visible under the app mode. Anything else is reachable from the Settings hub only.
+ * The plugins that are live, in install order: ready, enabled and a readable manifest. The base of every
+ * "is this plugin running" question; the app mode only filters it further.
  */
-export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): ZonePlugin[] {
+export function livePlugins(rows: readonly PluginRow[]): ZonePlugin[] {
   return rows
     .filter(
-      (row): row is ZonePlugin =>
-        row.state === "ready" &&
-        row.enabled &&
-        row.manifest != null &&
-        isPluginVisible(appMode, row.manifest.modes),
+      (row): row is ZonePlugin => row.state === "ready" && row.enabled && row.manifest != null,
     )
     .sort((a, b) => a.installed_at - b.installed_at);
+}
+
+/**
+ * The plugins the rail and the finder may show, in install order: the live ones that are visible under
+ * the app mode. Anything else is reachable from the Settings hub only.
+ */
+export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): ZonePlugin[] {
+  return livePlugins(rows).filter((row) => isPluginVisible(appMode, row.manifest.modes));
 }
 
 /** One plugin-owned sidebar section with its items and fold state. */

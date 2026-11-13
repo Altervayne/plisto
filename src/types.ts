@@ -997,6 +997,34 @@ export interface PluginManifestSummary {
   /** The app modes it shows in; never empty. A manifest without modes arrives as `["player"]`. */
   modes: PluginMode[];
   sidebar: PluginSidebarDecl | null;
+  /** The page's entry file, relative to the plugin folder. */
+  entry: string;
+}
+
+/** Every stable code a plugin API call fails with. Mirrors ApiCode in plugins/api/error.rs. */
+export type PluginApiErrorCode =
+  | "denied"
+  | "rate_limited"
+  | "invalid_args"
+  | "too_large"
+  | "not_found"
+  | "unknown_method"
+  | "busy"
+  | "timeout"
+  | "unavailable";
+
+/** One refused plugin API call. `retry_after_ms` is present only with `rate_limited`. */
+export interface PluginApiError {
+  code: PluginApiErrorCode;
+  message: string;
+  retry_after_ms?: number;
+}
+
+/** What `plugin_call` resolves: a result or an error, never both. Mirrors CallReply in api/error.rs. */
+export interface PluginCallReply {
+  ok: boolean;
+  result?: unknown;
+  error?: PluginApiError;
 }
 
 /**

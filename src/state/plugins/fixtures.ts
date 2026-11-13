@@ -17,6 +17,7 @@ export const manifest = (over: Partial<PluginManifestSummary> = {}): PluginManif
   compat: { state: "compatible" },
   modes: ["player"],
   sidebar: null,
+  entry: "index.html",
   ...over,
 });
 
