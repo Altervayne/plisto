@@ -61,6 +61,8 @@ export interface ScanSummary {
   missing: number;
   returned: number;
   errors: number;
+  /** Unreadable files on record after the pass, whenever each one first failed. */
+  issues: number;
   cancelled: boolean;
   /** Roots that could not be read this pass; their tracks were left untouched. */
   offline_roots: number[];
@@ -117,7 +119,54 @@ export interface LibrarySyncSummary {
   returned: number;
   deferred: number;
   errors: number;
+  /** Unreadable files on record after the session. */
+  issues: number;
+  /** Issues that appeared or changed reason during the session. */
+  new_issues: number;
   offline_roots: number[];
+}
+
+/** What a scan could not read: a file's tags, a file's stat, or a whole folder. Mirrors ScanIssueKind. */
+export type ScanIssueKind = 'tags' | 'stat' | 'folder';
+
+/** Why a read failed, a closed set the UI words. Mirrors ScanIssueReason in scan/issues.rs. */
+export type ScanIssueReason =
+  | 'access_denied'
+  | 'in_use'
+  | 'path_too_long'
+  | 'corrupt_or_unsupported'
+  | 'disk_error'
+  | 'other';
+
+/** One recorded read failure. `track_id` is set for kind 'tags' only. Mirrors ScanIssue in dto.rs. */
+export interface ScanIssue {
+  id: number;
+  path: string;
+  root_id: number;
+  track_id: number | null;
+  kind: ScanIssueKind;
+  reason: ScanIssueReason;
+  /** The raw error text, sanitized and capped. */
+  detail: string;
+  first_seen: number;
+  last_seen: number;
+}
+
+/**
+ * One page of the issue list. `total` follows the reason filter; `by_reason` counts the whole table and
+ * omits reasons with no rows. Mirrors ScanIssuePage in dto.rs.
+ */
+export interface ScanIssuePage {
+  total: number;
+  rows: ScanIssue[];
+  by_reason: Partial<Record<ScanIssueReason, number>>;
+}
+
+/** The outcome of a retry. Mirrors ScanIssueRetryResult in dto.rs. */
+export interface ScanIssueRetryResult {
+  retried: number;
+  cleared: number;
+  remaining: number;
 }
 
 /** One library root: its folder path, indexed track count and gone-track count. Mirrors Root in dto.rs. */
@@ -1018,6 +1067,8 @@ export interface PluginApiError {
   code: PluginApiErrorCode;
   message: string;
   retry_after_ms?: number;
+  /** A finer cause under the code; "no_gesture" is the only one, always with `denied`. */
+  reason?: string;
 }
 
 /** What `plugin_call` resolves: a result or an error, never both. Mirrors CallReply in api/error.rs. */
@@ -1026,6 +1077,70 @@ export interface PluginCallReply {
   result?: unknown;
   error?: PluginApiError;
 }
+
+/** How a chip or status line is toned. Mirrors Tone in plugins/api/sidebar.rs. */
+export type PluginTone = "neutral" | "accent" | "warn";
+
+/** One chip beside a plugin's row: free text or a count. Mirrors Chip in plugins/api/sidebar.rs. */
+export interface PluginChip {
+  text: string | null;
+  count: number | null;
+  tone: PluginTone;
+}
+
+/**
+ * The live state of one declared sidebar item, one shape per item type; every field is always set.
+ * Mirrors ItemState in plugins/api/sidebar.rs.
+ */
+export type PluginItemState =
+  | { type: "nav"; visible: boolean; label: string | null; chip: PluginChip | null }
+  | { type: "status"; visible: boolean; tone: PluginTone; text: string }
+  | { type: "progress"; visible: boolean; value: number | null; text: string | null }
+  | { type: "toggle"; visible: boolean; on: boolean; enabled: boolean }
+  | { type: "action"; visible: boolean; label: string | null; enabled: boolean };
+
+/** One plugin's live sidebar state at boot. Mirrors SidebarSnapshot in plugins/api/sidebar.rs. */
+export interface PluginSidebarSnapshot {
+  id: string;
+  chips: PluginChip[];
+  items: { item_id: string; state: PluginItemState }[];
+}
+
+/** A sidebar change pushed on "plugins:sidebar". Mirrors SidebarEvent in plugins/api/host_event.rs. */
+export type PluginSidebarEvent =
+  | { id: string; kind: "chips"; chips: PluginChip[] }
+  | { id: string; kind: "item"; item_id: string; state: PluginItemState };
+
+/** A prompt or toast change pushed on "plugins:ui". Mirrors UiEvent in plugins/api/host_event.rs. */
+export type PluginUiEvent =
+  | { request_id: string; id: string; kind: "toast"; payload: { text: string; action: string | null } }
+  | {
+      request_id: string;
+      id: string;
+      kind: "confirm";
+      payload: { title: string; body: string; confirm_label: string; cancel_label: string | null };
+    }
+  | { request_id: string; id: string; kind: "close"; payload: Record<string, never> }
+  | { request_id: string; id: string; kind: "open_page"; payload: { route: string | null } };
+
+/** What the user did with a toast or a prompt. Mirrors UiAnswer in plugins/api/ui_state.rs. */
+export type PluginUiAnswer = { kind: "toast"; action: boolean } | { kind: "confirm"; value: boolean };
+
+/** The gesture a click on a toggle or action earned, for the plugin's frame. Mirrors SidebarDelivery. */
+export interface PluginSidebarDelivery {
+  item_id: string;
+  value: boolean | null;
+  gesture: string;
+}
+
+/** What `plugin_sidebar_input` answers. Mirrors SidebarInputReply in plugins/api/sidebar.rs. */
+export interface PluginSidebarInputReply {
+  accepted: boolean;
+  frame: PluginSidebarDelivery | null;
+}
+
+/** Why a plugin frame went away, as reported to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
+export type PluginFrameEventKind = "detached" | "crashed";
 
 /**
  * One registry entry with the problem found at boot, if any. Mirrors PluginRow in state.rs, whose entry

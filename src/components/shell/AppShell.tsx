@@ -29,9 +29,12 @@ import { QuietButton } from "../common/QuietButton";
 import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
+import { ScanIssuesHost } from "../scan/ScanIssuesHost";
 import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 import { PluginPage } from "../plugins/PluginPage";
 import { PluginFrameLayer } from "../plugins/frames/PluginFrameLayer";
+import { PluginToast } from "../plugins/PluginToast";
+import { PluginConfirmHost } from "../plugins/PluginConfirmHost";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -75,9 +78,11 @@ import { restoreResume } from "../../state/player/restoreResume";
 import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
 import { usePluginsSync } from "../../state/plugins/usePluginsSync";
+import { usePluginUi } from "../../state/plugins/usePluginUi";
 import {
   useHistoryLens,
   useOpenTool,
+  usePluginPageRequest,
   useSetOpenTool,
   useSetPluginRoute,
   useSettingsRequest,
@@ -169,6 +174,8 @@ export function AppShell({
   useLibrarySync();
   // The plugin registry, read at boot and kept live by the backend's change event.
   usePluginsSync();
+  // The toasts, prompts, chips and item states plugins set, fed in for the shell's life.
+  usePluginUi();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
   // already has the right rows.
   const appMode = useAppMode();
@@ -368,6 +375,18 @@ export function AppShell({
     seenSettingsRequest.current = settingsRequest;
     setMode("settings");
   }, [settingsRequest]);
+
+  // A plugin asking to show its own page. Only a request made while this shell is mounted counts, and
+  // only for a plugin the rail draws: the app mode may hide the page, and then the ask is dropped.
+  const pluginPageRequest = usePluginPageRequest();
+  const seenPageRequest = useRef(pluginPageRequest?.seq ?? 0);
+  useEffect(() => {
+    if (!pluginPageRequest || pluginPageRequest.seq === seenPageRequest.current) return;
+    seenPageRequest.current = pluginPageRequest.seq;
+    if (zoneHasPlugin(pluginZone, pluginPageRequest.id)) {
+      openPlugin(pluginPageRequest.id, pluginPageRequest.route);
+    }
+  }, [pluginPageRequest, pluginZone, openPlugin]);
 
   // A mode flip can hide the destination you are standing on. When it does, land on the first the new
   // mode still shows, in nav order. Settings lives in the foot and stays reachable, and an editor with a
@@ -611,6 +630,9 @@ export function AppShell({
         {/* The added-to-queue nudge, over everything: a menu append from any surface lands here. */}
         <QueueToast />
 
+        {/* The plugin toast joins the same foot stack, above Plisto's own pills. */}
+        <PluginToast />
+
         {/* The playback-failure nudge, on the same pill: a file that could not be read lands here. The
             standalone all-fail case shows the refusal body instead and suppresses the toast, so the same
             file notice never doubles - and leaving it mounted would clear the notice and unlatch the body. */}
@@ -618,6 +640,8 @@ export function AppShell({
 
         {finderOpen ? <Finder nav={finderNav} onClose={closeFinder} /> : null}
         <DuplicatesHost />
+        <ScanIssuesHost />
+        <PluginConfirmHost />
 
         {shortcutsOpen ? <ShortcutsSheet onClose={closeShortcuts} /> : null}
       </main>

@@ -46,9 +46,14 @@ import type {
   PlayerStatus,
   PluginBootState,
   PluginCallReply,
+  PluginFrameEventKind,
   PluginInboxItem,
   PluginInspection,
   PluginRow,
+  PluginSidebarInputReply,
+  PluginSidebarSnapshot,
+  PluginUiAnswer,
+  PluginUiEvent,
   PluginUninstalled,
   PluginUpdated,
   PlaylistM3uSummary,
@@ -61,6 +66,9 @@ import type {
   RepeatMode,
   Root,
   RootRemovalImpact,
+  ScanIssuePage,
+  ScanIssueReason,
+  ScanIssueRetryResult,
   ScanProgress,
   ScanSummary,
   SilenceSpan,
@@ -1282,4 +1290,76 @@ export function pluginCall(id: string, method: string, args: string): Promise<Pl
 /** Reports whether a plugin's page is the shown destination with its frame live. */
 export function pluginPageState(id: string, open: boolean): Promise<void> {
   return invoke<void>("plugin_page_state", { id, open });
+}
+
+/** Answers an open plugin toast or prompt. False when the request is gone or the kind does not match. */
+export function pluginUiAnswer(requestId: string, answer: PluginUiAnswer): Promise<boolean> {
+  return invoke<boolean>("plugin_ui_answer", { requestId, answer });
+}
+
+/** The toasts and prompts Rust still holds open, in arrival order. */
+export function pluginUiPending(): Promise<PluginUiEvent[]> {
+  return invoke<PluginUiEvent[]>("plugin_ui_pending");
+}
+
+/** The live sidebar state of every serving plugin. */
+export function pluginSidebarState(): Promise<PluginSidebarSnapshot[]> {
+  return invoke<PluginSidebarSnapshot[]>("plugin_sidebar_state");
+}
+
+/** Reports a click on a toggle (`value` set) or an action (`value` null); the reply carries the frame delivery. */
+export function pluginSidebarInput(
+  id: string,
+  itemId: string,
+  value: boolean | null,
+): Promise<PluginSidebarInputReply> {
+  return invoke<PluginSidebarInputReply>("plugin_sidebar_input", { id, itemId, value });
+}
+
+/** Tells Rust a plugin's frame went away, so it frees that plugin's open toasts and prompts. */
+export function pluginFrameEvent(id: string, kind: PluginFrameEventKind): Promise<void> {
+  return invoke<void>("plugin_frame_event", { id, kind });
+}
+
+/** One page of recorded read failures in folder-then-name order; `reason` narrows `total` and the rows. */
+export function scanIssuesList(
+  offset: number,
+  limit: number,
+  reason: ScanIssueReason | null,
+): Promise<ScanIssuePage> {
+  return invoke<ScanIssuePage>("scan_issues_list", { offset, limit, reason });
+}
+
+/** The standing number of recorded read failures. */
+export function scanIssuesCount(): Promise<number> {
+  return invoke<number>("scan_issues_count");
+}
+
+/**
+ * Re-reads the issues named by `ids`, else those of `reason`, else all. Rejects with "a scan is already
+ * running" during a user scan.
+ */
+export function scanIssuesRetry(
+  ids: number[] | null,
+  reason: ScanIssueReason | null,
+): Promise<ScanIssueRetryResult> {
+  return invoke<ScanIssueRetryResult>("scan_issues_retry", { ids, reason });
+}
+
+/** The list as one plain-text block for the clipboard, narrowed by `reason`. English whatever the locale. */
+export function scanIssuesText(reason: ScanIssueReason | null): Promise<string> {
+  return invoke<string>("scan_issues_text", { reason });
+}
+
+/** Dismisses the issues named by `ids`, else those of `reason`, else all; returns how many it dismissed. */
+export function scanIssuesClear(
+  ids: number[] | null,
+  reason: ScanIssueReason | null,
+): Promise<number> {
+  return invoke<number>("scan_issues_clear", { ids, reason });
+}
+
+/** Opens the scan log in the default app. False when no log file exists yet. */
+export function scanIssuesOpenLog(): Promise<boolean> {
+  return invoke<boolean>("scan_issues_open_log");
 }
