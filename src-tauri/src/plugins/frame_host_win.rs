@@ -27,6 +27,7 @@ use windows62::Win32::UI::Shell::SHCreateMemStream;
 
 // -- Local Imports --
 use super::frame_host::{self, ResourceKind};
+use super::state::EnabledSet;
 
 struct Pending {
     args: ICoreWebView2WebResourceRequestedEventArgs,
@@ -60,17 +61,19 @@ impl<R: Runtime> Drop for Finish<R> {
 }
 
 /// Registers the frame host on one webview. Errors when the runtime lacks `ICoreWebView2_22`, the
-/// interface that lets the filter match requests from child frames.
+/// interface that lets the filter match requests from child frames. `enabled` is the registry's
+/// serving set: the handler only reads it, so a request never waits on the registry file.
 pub fn install<R: Runtime>(
     pw: &PlatformWebview,
     app: AppHandle<R>,
     app_data: PathBuf,
+    enabled: EnabledSet,
 ) -> Result<()> {
     let env = pw.environment();
     let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
         if let Some(args) = args {
             // SAFETY: called by WebView2 on the UI thread with live event args.
-            unsafe { on_request(&app, &app_data, &env, args) };
+            unsafe { on_request(&app, &app_data, &enabled, &env, args) };
         }
         Ok(())
     }));
@@ -124,6 +127,7 @@ unsafe fn resource_kind(args: &ICoreWebView2WebResourceRequestedEventArgs) -> Re
 unsafe fn on_request<R: Runtime>(
     app: &AppHandle<R>,
     app_data: &Path,
+    enabled: &EnabledSet,
     env: &ICoreWebView2Environment,
     args: ICoreWebView2WebResourceRequestedEventArgs,
 ) {
@@ -164,6 +168,7 @@ unsafe fn on_request<R: Runtime>(
 
     let app = app.clone();
     let app_data = app_data.to_path_buf();
+    let enabled = enabled.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut finish = Finish {
             key,
@@ -171,7 +176,8 @@ unsafe fn on_request<R: Runtime>(
             response: None,
         };
         let (referer, dest) = (referer.as_deref(), dest.as_deref());
-        let response = frame_host::respond(&app_data, &method, &uri, referer, dest, kind);
+        let serves = |id: &str| enabled.contains(id);
+        let response = frame_host::respond(&app_data, &method, &uri, referer, dest, kind, &serves);
         #[cfg(debug_assertions)]
         eprintln!(
             "{}",

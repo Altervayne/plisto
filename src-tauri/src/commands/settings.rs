@@ -28,10 +28,20 @@ pub fn workspace_root(state: State<'_, AppState>) -> Result<Option<String>, Stri
     db::first_root_path(&conn).map_err(|e| e.to_string())
 }
 
+/// Keys starting with `plugin` are refused in both directions: plugin state lives outside the library
+/// database, and the generic store must not become a way into it.
+fn guard_key(key: &str) -> Result<(), String> {
+    if key.to_ascii_lowercase().starts_with("plugin") {
+        return Err("this setting is not available".to_string());
+    }
+    Ok(())
+}
+
 /// The value stored under `key`, or None when it is unset. A client pref falls back to its own
 /// default on None.
 #[tauri::command]
 pub fn get_setting(key: String, state: State<'_, AppState>) -> Result<Option<String>, String> {
+    guard_key(&key)?;
     let conn = state
         .db
         .lock()
@@ -42,6 +52,7 @@ pub fn get_setting(key: String, state: State<'_, AppState>) -> Result<Option<Str
 /// Stores `value` under `key`, replacing any prior value.
 #[tauri::command]
 pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Result<(), String> {
+    guard_key(&key)?;
     let conn = state
         .db
         .lock()
@@ -81,5 +92,54 @@ pub fn open_default_apps_settings(app: tauri::AppHandle) -> Result<(), String> {
     {
         let _ = app;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_keys_are_refused() {
+        for key in [
+            "plugin",
+            "plugins",
+            "plugins.registry",
+            "plugin_anything",
+            "plugin.x",
+            "pluginX",
+            "Plugin",
+            "PLUGINS.x",
+        ] {
+            assert!(guard_key(key).is_err(), "{key}");
+        }
+    }
+
+    #[test]
+    fn every_existing_key_passes() {
+        for key in [
+            "drawer_width",
+            "locale",
+            "theme",
+            "app_mode",
+            "output_device",
+            "closeToTray",
+            "keepLibraryUpToDate",
+            "sound",
+            "player_visualizer",
+            "player_visualizer_reactivity",
+            "player_spectrum_layout",
+            "player_resume",
+            "player_enabled",
+            "updater_auto_check",
+            "collection_segment",
+            "finder_recent",
+            "home_layout_player",
+            "",
+            "a_plugin",
+            "plug",
+        ] {
+            assert!(guard_key(key).is_ok(), "{key}");
+        }
     }
 }

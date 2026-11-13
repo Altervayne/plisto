@@ -20,6 +20,7 @@ use crate::covers::InFlightGuard;
 use crate::dto::{ExportStatus, LibrarySyncStatus};
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
+use crate::plugins::state::PluginsState;
 use crate::scan_lock::Holder;
 
 /// Everything shared across commands and background threads, held by Tauri for the app's life. The
@@ -77,6 +78,8 @@ pub struct AppState {
     pub startup_error: Mutex<Option<PlayerNotice>>,
     /// Set once the main webview's plugin frame handler is installed; false means no frame may mount.
     pub frames_ready: AtomicBool,
+    /// The plugin registry, boot findings and the set of plugins the frame host serves.
+    pub plugins: PluginsState,
 }
 
 #[cfg(test)]
@@ -123,6 +126,7 @@ impl AppState {
             startup_file: Mutex::new(None),
             startup_error: Mutex::new(None),
             frames_ready: AtomicBool::new(false),
+            plugins: PluginsState::empty(),
         }
     }
 }

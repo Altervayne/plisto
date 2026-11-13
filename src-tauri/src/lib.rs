@@ -229,6 +229,16 @@ pub fn run() {
             let startup_paths = startup::audio_paths_from_argv(&startup_argv);
             let startup_file = (!startup_paths.is_empty()).then(|| startup_paths.clone());
 
+            // The plugin registry, read once and re-validated against the plugin folders. A bad file or
+            // folder marks entries instead of failing the launch.
+            let plugins = plugins::state::PluginsState::boot(
+                &data_dir,
+                env!("CARGO_PKG_VERSION"),
+                std::process::id(),
+                now,
+            );
+            let frames_enabled = plugins.enabled_set();
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 db_path,
@@ -263,6 +273,7 @@ pub fn run() {
                 startup_file: Mutex::new(startup_file),
                 startup_error: Mutex::new(None),
                 frames_ready: AtomicBool::new(false),
+                plugins,
             });
 
             // Feed the cold-launch files into the same buffer the warm forwards push into, now that its
@@ -306,7 +317,12 @@ pub fn run() {
                 let handle = app.handle().clone();
                 let app_data = data_dir.clone();
                 let _ = main.with_webview(move |pw| {
-                    let installed = plugins::frame_host_win::install(&pw, handle.clone(), app_data);
+                    let installed = plugins::frame_host_win::install(
+                        &pw,
+                        handle.clone(),
+                        app_data,
+                        frames_enabled,
+                    );
                     if let Err(e) = &installed {
                         eprintln!("plugin frames unavailable: {e}");
                     }
@@ -470,7 +486,9 @@ pub fn run() {
             commands::visualizer::get_visualizer_defaults,
             commands::visualizer::set_album_visualizer,
             commands::visualizer::set_track_visualizer,
-            commands::plugins::plugin_frame_url
+            commands::plugins::plugin_frame_url,
+            commands::plugins::plugins_list,
+            commands::plugins::plugins_boot_state
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -480,6 +498,10 @@ pub fn run() {
             // and stop the library sync, cutting short any pass it is running.
             if let tauri::RunEvent::Exit = event {
                 smtc::teardown(app);
+                // A clean exit removes the session marker; a crash or a kill leaves it behind.
+                if let Ok(dir) = app.path().app_data_dir() {
+                    plugins::session::clear(&dir);
+                }
                 if let Some(state) = app.try_state::<AppState>() {
                     state.bg_cancel.store(true, Ordering::SeqCst);
                     let _ = state.library_sync.send(SyncCmd::Shutdown);

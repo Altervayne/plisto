@@ -82,9 +82,17 @@ pub fn frame_url(id: &str) -> String {
     format!("{SCHEME_PREFIX}{}{HOST_SUFFIX}/", host_for_id(id))
 }
 
-/// The base URL for an installed plugin: a valid id whose folder is a plain directory. None otherwise.
-pub fn installed_frame_url(app_data: &Path, id: &str) -> Option<String> {
+/// The base URL for an enabled plugin: a valid id the registry serves whose folder is a plain
+/// directory. None otherwise.
+pub fn installed_frame_url(
+    app_data: &Path,
+    id: &str,
+    enabled: &dyn Fn(&str) -> bool,
+) -> Option<String> {
     validate_id(id).ok()?;
+    if !enabled(id) {
+        return None;
+    }
     let meta = fs::symlink_metadata(plugin_dir(app_data, id)).ok()?;
     (meta.is_dir() && !is_reparse_point(&meta)).then(|| frame_url(id))
 }
@@ -205,14 +213,14 @@ fn mime_for(rel: &str) -> Option<&'static str> {
 }
 
 #[cfg(windows)]
-fn is_reparse_point(meta: &fs::Metadata) -> bool {
+pub(super) fn is_reparse_point(meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
     meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
 }
 
 #[cfg(not(windows))]
-fn is_reparse_point(meta: &fs::Metadata) -> bool {
+pub(super) fn is_reparse_point(meta: &fs::Metadata) -> bool {
     meta.file_type().is_symlink()
 }
 
@@ -310,9 +318,10 @@ fn served(mime: &'static str, body: Vec<u8>) -> Response<Vec<u8>> {
 }
 
 /// Answers one frame host request. `referer` and `dest` are the request's `Referer` and
-/// `Sec-Fetch-Dest` headers, `kind` the webview's resource context. Only GET is served, and the
-/// Referer check runs before the label is looked up, so a refused caller cannot tell an installed
-/// plugin from a missing one.
+/// `Sec-Fetch-Dest` headers, `kind` the webview's resource context, `enabled` whether the registry
+/// serves an id. Only GET is served, and the Referer check runs before the label is looked up, so a
+/// refused caller cannot tell an installed plugin from a missing one. A plugin that is installed but
+/// not enabled gets the same 404 as one that is not installed.
 pub fn respond(
     app_data: &Path,
     method: &str,
@@ -320,6 +329,7 @@ pub fn respond(
     referer: Option<&str>,
     dest: Option<&str>,
     kind: ResourceKind,
+    enabled: &dyn Fn(&str) -> bool,
 ) -> Response<Vec<u8>> {
     if method != "GET" {
         return refusal(StatusCode::METHOD_NOT_ALLOWED);
@@ -334,6 +344,7 @@ pub fn respond(
         return refusal(StatusCode::FORBIDDEN);
     }
     id_for_label(app_data, label)
+        .filter(|id| enabled(id.as_str()))
         .and_then(|id| resolve(app_data, &id, path))
         .and_then(|found| read_capped(&found.file).map(|body| served(found.mime, body)))
         .unwrap_or_else(|| refusal(StatusCode::NOT_FOUND))
@@ -548,15 +559,15 @@ mod tests {
     #[test]
     fn frame_urls_are_handed_out_only_for_installed_plugins() {
         let d = AppData::new();
-        assert_eq!(installed_frame_url(&d.0, ID), Some(frame_url(ID)));
-        assert_eq!(installed_frame_url(&d.0, "com.example.missing"), None);
+        assert_eq!(installed_frame_url(&d.0, ID, &all), Some(frame_url(ID)));
+        assert_eq!(installed_frame_url(&d.0, "com.example.missing", &all), None);
         d.write("plugins/Com.Example.Demo/index.html", b"x");
-        assert_eq!(installed_frame_url(&d.0, "Com.Example.Demo"), None);
+        assert_eq!(installed_frame_url(&d.0, "Com.Example.Demo", &all), None);
         d.write("plugins/com.example.file", b"x");
-        assert_eq!(installed_frame_url(&d.0, "com.example.file"), None);
+        assert_eq!(installed_frame_url(&d.0, "com.example.file", &all), None);
         let linked = d.0.join("plugins").join("com.example.linked");
         if link_dir(&linked, &d.plugin()) {
-            assert_eq!(installed_frame_url(&d.0, "com.example.linked"), None);
+            assert_eq!(installed_frame_url(&d.0, "com.example.linked", &all), None);
         }
     }
 
@@ -808,6 +819,11 @@ mod tests {
     const DOC: ResourceKind = ResourceKind::Document;
     const SUB: ResourceKind = ResourceKind::Subresource;
 
+    /// A registry that serves every id, for the tests that are not about the registry.
+    fn all(_: &str) -> bool {
+        true
+    }
+
     fn get(
         d: &AppData,
         uri: &str,
@@ -815,7 +831,7 @@ mod tests {
         dest: Option<&str>,
         kind: ResourceKind,
     ) -> StatusCode {
-        respond(&d.0, "GET", uri, referer, dest, kind).status()
+        respond(&d.0, "GET", uri, referer, dest, kind, &all).status()
     }
 
     #[test]
@@ -829,6 +845,7 @@ mod tests {
             Some(APP_REFERER),
             Some("iframe"),
             DOC,
+            &all,
         );
         assert_eq!(page.status(), StatusCode::OK);
         assert_eq!(page.body(), b"<p>hi</p>");
@@ -1000,12 +1017,148 @@ mod tests {
     }
 
     #[test]
+    fn only_enabled_plugins_are_served() {
+        let d = AppData::new();
+        let own = format!("{}/index.html", origin(ID));
+        let page = url(ID, "/index.html");
+        let script = url(ID, "/ui/app.js");
+        let only_demo = |id: &str| id == ID;
+        let none = |_: &str| false;
+
+        let doc = |enabled: &dyn Fn(&str) -> bool| {
+            respond(
+                &d.0,
+                "GET",
+                &page,
+                Some(APP_REFERER),
+                Some("iframe"),
+                DOC,
+                enabled,
+            )
+        };
+        let sub = |enabled: &dyn Fn(&str) -> bool| {
+            respond(
+                &d.0,
+                "GET",
+                &script,
+                Some(&own),
+                Some("script"),
+                SUB,
+                enabled,
+            )
+        };
+        assert_eq!(doc(&only_demo).status(), StatusCode::OK);
+        assert_eq!(sub(&only_demo).status(), StatusCode::OK);
+
+        // Installed on disk but not enabled in the registry.
+        let disabled = doc(&none);
+        let disabled_sub = sub(&none);
+        assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+        assert_eq!(disabled_sub.status(), StatusCode::NOT_FOUND);
+        // Another plugin being enabled does not serve this one.
+        assert_eq!(
+            doc(&|id: &str| id == "com.example.other").status(),
+            StatusCode::NOT_FOUND
+        );
+
+        // In the registry but with no folder, and in neither: the same answer, byte for byte.
+        let unregistered = respond(
+            &d.0,
+            "GET",
+            &url("com.example.missing", "/index.html"),
+            Some(APP_REFERER),
+            Some("iframe"),
+            DOC,
+            &none,
+        );
+        let ghost = respond(
+            &d.0,
+            "GET",
+            &url("com.example.missing", "/index.html"),
+            Some(APP_REFERER),
+            Some("iframe"),
+            DOC,
+            &|_: &str| true,
+        );
+        for other in [&unregistered, &ghost] {
+            assert_eq!(disabled.status(), other.status());
+            assert_eq!(disabled.headers(), other.headers());
+            assert_eq!(disabled.body(), other.body());
+        }
+        assert_eq!(disabled_sub.headers(), unregistered.headers());
+        assert!(disabled.body().is_empty());
+        assert_eq!(
+            disabled.headers()[header::CONTENT_SECURITY_POLICY],
+            FRAME_CSP
+        );
+    }
+
+    #[test]
+    fn refusals_keep_their_status_when_the_plugin_is_disabled() {
+        let d = AppData::new();
+        let page = url(ID, "/index.html");
+        let none = |_: &str| false;
+        // The Referer and method rules run before the registry is consulted.
+        assert_eq!(
+            respond(
+                &d.0,
+                "POST",
+                &page,
+                Some(APP_REFERER),
+                Some("iframe"),
+                DOC,
+                &none
+            )
+            .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        assert_eq!(
+            respond(&d.0, "GET", &page, None, Some("iframe"), DOC, &none).status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            respond(
+                &d.0,
+                "GET",
+                &page,
+                Some(APP_REFERER),
+                Some("script"),
+                DOC,
+                &none
+            )
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn frame_urls_are_handed_out_only_for_enabled_plugins() {
+        let d = AppData::new();
+        assert_eq!(
+            installed_frame_url(&d.0, ID, &|id: &str| id == ID),
+            Some(frame_url(ID))
+        );
+        assert_eq!(installed_frame_url(&d.0, ID, &|_: &str| false), None);
+        // Enabled in the registry but never installed.
+        assert_eq!(installed_frame_url(&d.0, "com.example.missing", &all), None);
+    }
+
+    #[test]
     fn refusals_by_method_label_and_path() {
         let d = AppData::new();
         let page = url(ID, "/index.html");
         for method in ["POST", "PUT", "HEAD", "OPTIONS", "get", ""] {
             assert_eq!(
-                respond(&d.0, method, &page, Some(APP_REFERER), Some("iframe"), DOC).status(),
+                respond(
+                    &d.0,
+                    method,
+                    &page,
+                    Some(APP_REFERER),
+                    Some("iframe"),
+                    DOC,
+                    &all
+                )
+                .status(),
                 StatusCode::METHOD_NOT_ALLOWED,
                 "{method:?}"
             );
@@ -1077,11 +1230,43 @@ mod tests {
         let own = format!("{}/index.html", origin(ID));
         let page = url(ID, "/index.html");
         for res in [
-            respond(&d.0, "GET", &page, Some(APP_REFERER), Some("iframe"), DOC),
-            respond(&d.0, "POST", &page, Some(APP_REFERER), Some("iframe"), DOC),
-            respond(&d.0, "GET", &page, None, Some("iframe"), DOC),
-            respond(&d.0, "GET", &page, Some(APP_REFERER), Some("script"), DOC),
-            respond(&d.0, "GET", &url(ID, "/missing.js"), Some(&own), None, SUB),
+            respond(
+                &d.0,
+                "GET",
+                &page,
+                Some(APP_REFERER),
+                Some("iframe"),
+                DOC,
+                &all,
+            ),
+            respond(
+                &d.0,
+                "POST",
+                &page,
+                Some(APP_REFERER),
+                Some("iframe"),
+                DOC,
+                &all,
+            ),
+            respond(&d.0, "GET", &page, None, Some("iframe"), DOC, &all),
+            respond(
+                &d.0,
+                "GET",
+                &page,
+                Some(APP_REFERER),
+                Some("script"),
+                DOC,
+                &all,
+            ),
+            respond(
+                &d.0,
+                "GET",
+                &url(ID, "/missing.js"),
+                Some(&own),
+                None,
+                SUB,
+                &all,
+            ),
             respond(
                 &d.0,
                 "GET",
@@ -1089,6 +1274,7 @@ mod tests {
                 Some(APP_REFERER),
                 None,
                 SUB,
+                &all,
             ),
             refusal(StatusCode::INTERNAL_SERVER_ERROR),
         ] {

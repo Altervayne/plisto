@@ -57,7 +57,7 @@ pub(super) fn text_problem(s: &str, max: usize) -> Option<TextProblem> {
 
 // -- Vocabulary --
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
     Ui,

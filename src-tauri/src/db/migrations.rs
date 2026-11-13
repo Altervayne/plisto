@@ -1544,4 +1544,57 @@ mod tests {
             .unwrap();
         assert_eq!(tracks, 1, "the track row itself survives");
     }
+
+    /// A fresh database holds exactly these tables. Nothing plugin-shaped belongs in the library
+    /// database, so a new table has to be added here on purpose.
+    #[test]
+    fn a_fresh_database_has_exactly_the_known_tables() {
+        let path = std::env::temp_dir().join(format!(
+            "plisto-table-list-test-{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = crate::db::open_db(&path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap();
+        let tables: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        drop(stmt);
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.clone().into_os_string();
+            file.push(suffix);
+            let _ = std::fs::remove_file(file);
+        }
+
+        let expected = [
+            "album_tracks",
+            "albums",
+            "covers",
+            "duplicate_dismissals",
+            "export_ledger",
+            "folder_covers",
+            "genres",
+            "meta",
+            "playlist_tracks",
+            "playlists",
+            "plays",
+            "roots",
+            "settings",
+            "track_covers",
+            "track_edits",
+            "track_genres",
+            "track_visualizers",
+            "tracks",
+        ];
+        assert_eq!(tables, expected);
+        assert!(
+            !tables.iter().any(|t| t.contains("plugin")),
+            "no plugin table in the library database"
+        );
+    }
 }

@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 const PLUGINS: &str = "plugins";
 const PLUGINS_DATA: &str = "plugins-data";
+// Plisto's own plugin bookkeeping. Kept apart from `plugins/` so no file name there can read as an id.
+const STATE: &str = "plugins-state";
+const REGISTRY: &str = "registry.json";
+const REGISTRY_BAD: &str = "registry.json.bad";
+const SESSION: &str = ".session";
+const SAFE_MODE: &str = ".safe-mode";
 const INBOX: &str = "inbox";
 // A leading dot cannot start an id segment, so no plugin id can collide with this folder.
 const STAGING: &str = ".staging";
@@ -47,6 +53,28 @@ pub fn inbox_dir(app_data: &Path) -> PathBuf {
 /// Scratch space for extraction and update swaps.
 pub fn staging_dir(app_data: &Path) -> PathBuf {
     plugins_dir(app_data).join(STAGING)
+}
+
+/// The folder holding the registry, the session marker and the safe-mode flag.
+pub fn state_dir(app_data: &Path) -> PathBuf {
+    app_data.join(STATE)
+}
+
+pub fn registry_file(app_data: &Path) -> PathBuf {
+    state_dir(app_data).join(REGISTRY)
+}
+
+/// Where an unreadable registry is moved so its contents are never lost.
+pub fn registry_bad_file(app_data: &Path) -> PathBuf {
+    state_dir(app_data).join(REGISTRY_BAD)
+}
+
+pub fn session_file(app_data: &Path) -> PathBuf {
+    state_dir(app_data).join(SESSION)
+}
+
+pub fn safe_mode_file(app_data: &Path) -> PathBuf {
+    state_dir(app_data).join(SAFE_MODE)
 }
 
 fn is_reserved(component: &str) -> bool {
@@ -145,6 +173,12 @@ mod tests {
         );
         assert_eq!(inbox_dir(root), root.join("plugins").join("inbox"));
         assert_eq!(staging_dir(root), root.join("plugins").join(".staging"));
+        let state = root.join("plugins-state");
+        assert_eq!(state_dir(root), state);
+        assert_eq!(registry_file(root), state.join("registry.json"));
+        assert_eq!(registry_bad_file(root), state.join("registry.json.bad"));
+        assert_eq!(session_file(root), state.join(".session"));
+        assert_eq!(safe_mode_file(root), state.join(".safe-mode"));
     }
 
     #[test]
