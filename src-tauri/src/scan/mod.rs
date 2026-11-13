@@ -12,11 +12,16 @@
 
 // -- Module Declarations --
 mod deferral;
+pub(crate) mod issues;
+pub(crate) mod log;
 pub mod progress;
+pub(crate) mod retry;
 mod tags;
 
 // -- Library Imports --
 use std::collections::HashMap;
+use std::error::Error;
+use std::io;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,11 +34,14 @@ use walkdir::WalkDir;
 
 // -- Local Imports --
 use crate::db;
+use crate::db::scan_issues::{apply_pass, load_issue_keys, Applied, IssueScope};
 use crate::dto::{ScanPhase, ScanProgress, ScanSummary};
 use crate::model::TrackRecord;
 use crate::normalize::{folder_of, is_audio, needs_reread, normalize_path_key, normalize_track};
 use deferral::{read_decision, share_locked, ReadDecision};
+use issues::{classify, describe, IssueDraft, IssueKind};
 use progress::ProgressThrottle;
+use tags::read_tags_detailed;
 // Re-exported so ad-hoc playback reads a lone file's tags through the same reader the scan uses.
 pub(crate) use tags::read_tags;
 
@@ -83,7 +91,8 @@ pub enum ScanEmit {
 /// vanished files there flagged missing, returned ones cleared. Scanning one root never touches
 /// another root's rows. A root that cannot be read, before the walk, during it, or just before
 /// reconcile, is never taken as empty: it leaves the reconcile scope and its id is reported in
-/// `offline_roots`.
+/// `offline_roots`. Every file or folder that could not be read is recorded as a scan issue after
+/// reconcile; `issues` is the count standing once the pass is written.
 pub fn run_scan<E>(
     roots: &[ScanRoot],
     db_path: &Path,
@@ -91,6 +100,30 @@ pub fn run_scan<E>(
     scanned_at: i64,
     deferred_since: &HashMap<String, i64>,
     emit: E,
+) -> Result<ScanSummary, String>
+where
+    E: Fn(ScanEmit) + Sync,
+{
+    run_scan_with(
+        roots,
+        db_path,
+        cancel,
+        scanned_at,
+        deferred_since,
+        emit,
+        file_stats_checked,
+    )
+}
+
+/// `run_scan` with the first stat of each file supplied, so a test can make it fail.
+fn run_scan_with<E>(
+    roots: &[ScanRoot],
+    db_path: &Path,
+    cancel: &Arc<AtomicBool>,
+    scanned_at: i64,
+    deferred_since: &HashMap<String, i64>,
+    emit: E,
+    stat_file: fn(&Path) -> io::Result<(i64, i64)>,
 ) -> Result<ScanSummary, String>
 where
     E: Fn(ScanEmit) + Sync,
@@ -108,6 +141,7 @@ where
     let conn = db::open_db(db_path).map_err(|e| e.to_string())?;
 
     let stats_map = load_stats(&conn).map_err(|e| e.to_string())?;
+    let issue_keys = load_issue_keys(&conn).map_err(|e| e.to_string())?;
 
     // Walk each root once, tagging every path with its root id. `seen` (folded key -> real-case
     // path) is the union the sweep needs, both to reconcile presence and to drain display_path;
@@ -115,6 +149,7 @@ where
     let mut work: Vec<(PathBuf, i64)> = Vec::new();
     let mut seen: HashMap<String, String> = HashMap::new();
     let mut failed_dirs: Vec<String> = Vec::new();
+    let mut folder_issues: Vec<IssueDraft> = Vec::new();
     let mut scopes: Vec<Scope> = Vec::new();
     let mut offline_roots: Vec<i64> = Vec::new();
     for root in roots {
@@ -131,6 +166,7 @@ where
         work.extend(walk.paths.into_iter().map(|p| (p, root.id)));
         seen.extend(walk.seen);
         failed_dirs.extend(walk.failed_dirs);
+        folder_issues.extend(walk.folder_issues);
         scopes.push(Scope::of(root));
     }
     let total = work.len() as u32;
@@ -141,11 +177,13 @@ where
     let skipped = AtomicUsize::new(0);
     let errors = AtomicUsize::new(0);
     let deferred: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    let issues: Mutex<Vec<IssueDraft>> = Mutex::new(folder_issues);
+    let healed: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let done = AtomicBool::new(false);
 
     let (tx, rx) = bounded::<(TrackRecord, i64)>(CHANNEL_CAP);
 
-    let (missing, returned, gone) = std::thread::scope(|s| -> Result<WriterOutcome, String> {
+    let outcome = std::thread::scope(|s| -> Result<WriterOutcome, String> {
         // The progress emitter: samples the counters and emits throttled ticks until the walk
         // finishes, then fires the single terminal tick.
         let progress_handle = s.spawn(|| {
@@ -181,6 +219,8 @@ where
             seen,
             failed_dirs: &failed_dirs,
             scopes: &scopes,
+            issues: &issues,
+            healed: &healed,
         };
         let writer_handle =
             s.spawn(move || writer_loop(conn, rx, reconcile, scanned_at, writer_cancel, emit_ref));
@@ -193,8 +233,25 @@ where
             }
             let path_str = path.to_string_lossy();
             let key = normalize_path_key(&path_str);
-            let Some(stat) = file_stats(path) else {
-                return;
+            let stat = match stat_file(path) {
+                Ok(stat) => stat,
+                Err(err) => {
+                    // A file already recorded as unreadable keeps its `tags` row: a `stat` row would
+                    // be swept on the next pass, which skips the unchanged file, and forget it.
+                    let kind = if issue_keys.contains(&key) {
+                        IssueKind::Tags
+                    } else {
+                        IssueKind::Stat
+                    };
+                    if let Some(draft) = issue_draft(kind, *root_id, path, key, &err) {
+                        if let Ok(mut list) = issues.lock() {
+                            list.push(draft);
+                        }
+                    }
+                    // Counted so the pass still reaches its total.
+                    scanned.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
             };
 
             let known = stats_map.get(&key);
@@ -209,7 +266,7 @@ where
             // A file still being copied is held open by the writer or moves under the read: defer it
             // rather than index a torn read. It is present, so it is neither an error nor missing.
             let locked = share_locked(path);
-            let read = (!locked).then(|| (read_tags(path), file_stats(path)));
+            let read = (!locked).then(|| (read_tags_detailed(path), file_stats(path)));
             let after = read.as_ref().and_then(|(_, after)| *after);
             let since = deferred_since.get(&key).copied();
             if read_decision(locked, stat, after, since, scanned_at) == ReadDecision::Defer {
@@ -219,9 +276,9 @@ where
                 scanned.fetch_add(1, Ordering::Relaxed);
                 return;
             }
-            let (raw, is_err) = match read {
+            let (raw, failure) = match read {
                 Some((tags, _)) => tags,
-                None => read_tags(path),
+                None => read_tags_detailed(path),
             };
 
             if known.is_some() {
@@ -229,8 +286,26 @@ where
             } else {
                 inserted.fetch_add(1, Ordering::Relaxed);
             }
-            if is_err {
-                errors.fetch_add(1, Ordering::Relaxed);
+            match failure {
+                Some(failure) => {
+                    errors.fetch_add(1, Ordering::Relaxed);
+                    if let (Some(reason), Ok(mut list)) = (failure.reason, issues.lock()) {
+                        list.push(IssueDraft {
+                            path: path_str.to_string(),
+                            key,
+                            root_id: *root_id,
+                            kind: IssueKind::Tags,
+                            reason,
+                            detail: failure.detail,
+                        });
+                    }
+                }
+                None if issue_keys.contains(&key) => {
+                    if let Ok(mut list) = healed.lock() {
+                        list.push(key);
+                    }
+                }
+                None => {}
             }
             let rec = normalize_track(&path_str, stat.0, stat.1, scanned_at, &raw);
             let _ = tx.send((rec, *root_id));
@@ -250,8 +325,9 @@ where
 
         Ok(counts)
     })?;
-    offline_roots.extend(gone);
+    offline_roots.extend(outcome.gone);
     let deferred_paths = deferred.into_inner().unwrap_or_default();
+    log::log_pass(db_path, &outcome.issues.changed);
 
     Ok(ScanSummary {
         total,
@@ -261,13 +337,33 @@ where
         skipped: skipped.load(Ordering::Relaxed) as u32,
         // Reserved for a future confirmation-gated purge; a scan never deletes.
         removed: 0,
-        missing,
-        returned,
+        missing: outcome.missing,
+        returned: outcome.returned,
         errors: errors.load(Ordering::Relaxed) as u32,
         cancelled: cancel.load(Ordering::Relaxed),
         offline_roots,
         deferred: deferred_paths.len() as u32,
         deferred_paths,
+        issues: outcome.issues.total,
+        issue_changes: outcome.issues.changed,
+    })
+}
+
+/// The issue for a failed read of `path`, or None when the error is a missing file.
+fn issue_draft(
+    kind: IssueKind,
+    root_id: i64,
+    path: &Path,
+    key: String,
+    err: &(dyn Error + 'static),
+) -> Option<IssueDraft> {
+    Some(IssueDraft {
+        path: path.to_string_lossy().into_owned(),
+        key,
+        root_id,
+        kind,
+        reason: classify(err)?,
+        detail: describe(err),
     })
 }
 
@@ -329,10 +425,14 @@ impl Scope {
 
 /// Loads each indexed track's (size, mtime, art_known) into a map keyed by the canonical path,
 /// so the incremental check never queries the DB per file. `art_known` is whether the row's
-/// `has_embedded_cover` is non-NULL, which the re-read rule uses to drain unexamined rows.
+/// `has_embedded_cover` is non-NULL, which the re-read rule uses to drain unexamined rows. A track
+/// flagged missing reads as not known, so it is re-read once when its file returns and a still
+/// broken file gets its issue row back.
 fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64, bool)>> {
     let mut stmt = conn.prepare(
-        "SELECT source_path, size_bytes, mtime, has_embedded_cover IS NOT NULL FROM tracks",
+        "SELECT source_path, size_bytes, mtime,
+                has_embedded_cover IS NOT NULL AND missing_at IS NULL
+         FROM tracks",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))
@@ -346,11 +446,13 @@ fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64, 
 }
 
 /// One root's walk: the audio paths to read, the seen map for the sweep, and the canonical keys of
-/// the folders the walk could not read. `offline` is set when the root itself could not be read.
+/// the folders the walk could not read, with the issue recorded for each. `offline` is set when the
+/// root itself could not be read.
 struct Walk {
     paths: Vec<PathBuf>,
     seen: HashMap<String, String>,
     failed_dirs: Vec<String>,
+    folder_issues: Vec<IssueDraft>,
     offline: bool,
 }
 
@@ -363,13 +465,14 @@ fn enumerate(root: &ScanRoot, cancel: &Arc<AtomicBool>) -> Walk {
         paths: Vec::new(),
         seen: HashMap::new(),
         failed_dirs: Vec::new(),
+        folder_issues: Vec::new(),
         offline: false,
     };
     match &root.units {
-        None => walk_dir(&mut walk, &root.path, true, true, cancel),
+        None => walk_dir(&mut walk, root.id, &root.path, true, true, cancel),
         Some(units) => {
             for unit in units {
-                walk_dir(&mut walk, &unit.dir, unit.recursive, false, cancel);
+                walk_dir(&mut walk, root.id, &unit.dir, unit.recursive, false, cancel);
             }
         }
     }
@@ -380,7 +483,15 @@ fn enumerate(root: &ScanRoot, cancel: &Arc<AtomicBool>) -> Walk {
 /// is recorded in `failed_dirs` so reconcile leaves its subtree alone. A failure on the folder itself
 /// marks the whole root offline when it is the root; for a unit it is a failed folder, unless the
 /// folder no longer exists at all, which inside a reachable root means it was deleted or moved away.
-fn walk_dir(walk: &mut Walk, dir: &Path, recursive: bool, is_root: bool, cancel: &AtomicBool) {
+/// Each failed folder is also recorded as an issue of `root_id`; an offline root records none.
+fn walk_dir(
+    walk: &mut Walk,
+    root_id: i64,
+    dir: &Path,
+    recursive: bool,
+    is_root: bool,
+    cancel: &AtomicBool,
+) {
     let walker = if recursive {
         WalkDir::new(dir)
     } else {
@@ -396,6 +507,7 @@ fn walk_dir(walk: &mut Walk, dir: &Path, recursive: bool, is_root: bool, cancel:
                 Some(path) if err.depth() > 0 => {
                     walk.failed_dirs
                         .push(normalize_path_key(&path.to_string_lossy()));
+                    walk.folder_issues.extend(folder_issue(root_id, path, &err));
                     continue;
                 }
                 _ if is_root => {
@@ -408,6 +520,7 @@ fn walk_dir(walk: &mut Walk, dir: &Path, recursive: bool, is_root: bool, cancel:
                         .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound);
                     if !gone {
                         walk.failed_dirs.push(dir_key(dir));
+                        walk.folder_issues.extend(folder_issue(root_id, dir, &err));
                     }
                     break;
                 }
@@ -439,29 +552,52 @@ fn walk_dir(walk: &mut Walk, dir: &Path, recursive: bool, is_root: bool, cancel:
     }
 }
 
+/// The folder issue for a walk error at `dir`, classified from its OS error when it carries one.
+fn folder_issue(root_id: i64, dir: &Path, err: &walkdir::Error) -> Option<IssueDraft> {
+    let cause: &(dyn Error + 'static) = match err.io_error() {
+        Some(io) => io,
+        None => err,
+    };
+    issue_draft(IssueKind::Folder, root_id, dir, dir_key(dir), cause)
+}
+
 /// Reads a file's size and mtime. Returns None when the file cannot be stat'd, in which case
 /// the worker leaves it out of this pass rather than indexing a row it cannot describe.
 pub(crate) fn file_stats(path: &Path) -> Option<(i64, i64)> {
-    let md = std::fs::metadata(path).ok()?;
+    file_stats_checked(path).ok()
+}
+
+/// Reads a file's size and mtime, with the error when the file cannot be stat'd.
+pub(crate) fn file_stats_checked(path: &Path) -> io::Result<(i64, i64)> {
+    let md = std::fs::metadata(path)?;
     let mtime = md
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    Some((md.len() as i64, mtime))
+    Ok((md.len() as i64, mtime))
 }
 
-/// The writer's `(missing, returned, gone)`, `gone` being the ids of walked roots found unreachable
-/// at reconcile.
-type WriterOutcome = (u32, u32, Vec<i64>);
+/// What the writer reports: the reconcile tally, the ids of walked roots found unreachable at
+/// reconcile (`gone`), and the outcome of writing the pass's issues.
+struct WriterOutcome {
+    missing: u32,
+    returned: u32,
+    gone: Vec<i64>,
+    issues: Applied,
+}
 
 /// What the writer reconciles against once the upserts drain: the walk's seen map, the folders it
-/// could not read, and the scope of each walked root.
+/// could not read, and the scope of each walked root; then the issues the pass found and the
+/// `tags` issue keys it read cleanly. Workers are done by the time the drain ends, so both lists
+/// are complete when the writer takes them.
 struct ReconcileInput<'a> {
     seen: HashMap<String, String>,
     failed_dirs: &'a [String],
     scopes: &'a [Scope],
+    issues: &'a Mutex<Vec<IssueDraft>>,
+    healed: &'a Mutex<Vec<String>>,
 }
 
 /// Drains the channel, committing batched upserts stamped with each track's root id, then
@@ -494,10 +630,27 @@ where
         emit(ScanEmit::Changed(batch));
     }
 
+    let drafts = take_all(input.issues);
+    let healed = take_all(input.healed);
+
     // A cancelled walk has an incomplete seen set, so flagging "unseen" rows would mark present
-    // files missing. Only a complete pass reconciles.
+    // files missing. Only a complete pass reconciles, and only a complete pass sweeps issues.
     if cancel.load(Ordering::Relaxed) {
-        return Ok((0, 0, Vec::new()));
+        // A root pulled mid-walk contributes no rows, as on a complete pass.
+        let scopes: Vec<IssueScope> = input
+            .scopes
+            .iter()
+            .filter(|s| root_reachable(&s.path))
+            .map(issue_scope)
+            .collect();
+        let issues =
+            apply_pass(&conn, &drafts, &healed, &scopes, false, scanned_at).map_err(to_msg)?;
+        return Ok(WriterOutcome {
+            missing: 0,
+            returned: 0,
+            gone: Vec::new(),
+            issues,
+        });
     }
     // A drive pulled during the walk left that root's seen set partial: it leaves the scope.
     let (reachable, gone): (Vec<&Scope>, Vec<&Scope>) =
@@ -513,11 +666,31 @@ where
     if !outcome.changed.is_empty() {
         emit(ScanEmit::Changed(outcome.changed));
     }
-    Ok((
-        outcome.missing,
-        outcome.returned,
-        gone.iter().map(|r| r.id).collect(),
-    ))
+    // After reconcile, so the issue sweep sees the tracks it just flagged missing. A gone root is
+    // left out: its drafts are dropped and its rows kept.
+    let scopes: Vec<IssueScope> = reachable.iter().map(|s| issue_scope(s)).collect();
+    let issues = apply_pass(&conn, &drafts, &healed, &scopes, true, scanned_at).map_err(to_msg)?;
+    Ok(WriterOutcome {
+        missing: outcome.missing,
+        returned: outcome.returned,
+        gone: gone.iter().map(|r| r.id).collect(),
+        issues,
+    })
+}
+
+/// A walked root's scope as the issue sweep takes it.
+fn issue_scope(scope: &Scope) -> IssueScope<'_> {
+    IssueScope {
+        root_id: scope.id,
+        units: scope.units.as_deref(),
+    }
+}
+
+/// Empties a list the workers filled.
+fn take_all<T>(list: &Mutex<Vec<T>>) -> Vec<T> {
+    list.lock()
+        .map(|mut l| std::mem::take(&mut *l))
+        .unwrap_or_default()
 }
 
 /// The tally of one reconcile, with the ids of every row it rewrote.
@@ -651,6 +824,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::sync::atomic::AtomicU32;
+    use std::sync::OnceLock;
 
     // A unique throwaway directory under the system temp dir, removed on drop.
     struct TempDir {
@@ -681,6 +855,10 @@ mod tests {
     fn no_progress(_e: ScanEmit) {}
 
     fn scan(root: &Path, db_path: &Path) -> ScanSummary {
+        scan_at(root, db_path, 1000)
+    }
+
+    fn scan_at(root: &Path, db_path: &Path, scanned_at: i64) -> ScanSummary {
         let cancel = Arc::new(AtomicBool::new(false));
         // Get-or-create the root row so the writer has an id to stamp, exactly as the command does.
         let id = {
@@ -694,7 +872,15 @@ mod tests {
             path: root.to_path_buf(),
             units: None,
         }];
-        run_scan(&roots, db_path, &cancel, 1000, &HashMap::new(), no_progress).unwrap()
+        run_scan(
+            &roots,
+            db_path,
+            &cancel,
+            scanned_at,
+            &HashMap::new(),
+            no_progress,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1524,5 +1710,367 @@ mod tests {
         assert!(deep.covers(&format!("music{s}ab{s}t.mp3")));
         assert!(deep.covers(&format!("music{s}ab{s}x{s}t.mp3")));
         assert!(!deep.covers(&format!("music{s}abc{s}t.mp3")));
+    }
+
+    // Every scan issue as (kind, path_key, first_seen), by key.
+    fn issue_rows(db_path: &Path) -> Vec<(String, String, i64)> {
+        let conn = Connection::open(db_path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT kind, path_key, first_seen FROM scan_issues ORDER BY path_key")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn key_of(path: &Path) -> String {
+        normalize_path_key(&path.to_string_lossy())
+    }
+
+    // Records issues as an earlier pass over the whole root would have.
+    fn seed_issues(db_path: &Path, root_id: i64, found: &[(IssueKind, &Path)]) {
+        let drafts: Vec<IssueDraft> = found
+            .iter()
+            .map(|(kind, path)| IssueDraft {
+                path: path.to_string_lossy().into_owned(),
+                key: key_of(path),
+                root_id,
+                kind: *kind,
+                reason: issues::Reason::Other,
+                detail: String::new(),
+            })
+            .collect();
+        let scope = IssueScope {
+            root_id,
+            units: None,
+        };
+        let conn = db::open_db(db_path).unwrap();
+        apply_pass(&conn, &drafts, &[], &[scope], true, 500).unwrap();
+    }
+
+    // Fails the stat of `denied.mp3` as an access-denied error; every other file stats normally.
+    fn denied_stat(path: &Path) -> io::Result<(i64, i64)> {
+        if path.file_name().is_some_and(|n| n == "denied.mp3") {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        file_stats_checked(path)
+    }
+
+    // Runs one whole-root pass with `stat_file` in place of the real stat.
+    fn scan_with_stat(
+        root: &Path,
+        db_path: &Path,
+        cancel: &Arc<AtomicBool>,
+        stat_file: fn(&Path) -> io::Result<(i64, i64)>,
+        emit: impl Fn(ScanEmit) + Sync,
+    ) -> ScanSummary {
+        let roots = [ScanRoot {
+            id: root_id_of(db_path, root),
+            path: root.to_path_buf(),
+            units: None,
+        }];
+        run_scan_with(
+            &roots,
+            db_path,
+            cancel,
+            2000,
+            &HashMap::new(),
+            emit,
+            stat_file,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_unreadable_file_is_recorded_once_and_stands_until_it_reads() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let file = music.path.join("a.m4a");
+        fs::write(&file, b"this is not audio").unwrap();
+
+        let first = scan_at(&music.path, &db_path, 1000);
+        assert_eq!((first.errors, first.issues), (1, 1));
+        assert_eq!(first.issue_changes.len(), 1);
+        assert!(first.issue_changes[0].is_new);
+        assert_eq!(
+            issue_rows(&db_path),
+            vec![("tags".to_string(), key_of(&file), 1000)]
+        );
+
+        // The unchanged file is skipped, so the pass reads no error, yet the issue stands.
+        let second = scan_at(&music.path, &db_path, 2000);
+        assert_eq!((second.errors, second.issues), (0, 1));
+        assert!(second.issue_changes.is_empty());
+        assert_eq!(
+            issue_rows(&db_path),
+            vec![("tags".to_string(), key_of(&file), 1000)]
+        );
+
+        fs::write(&file, crate::covers::test_support::minimal_mp4()).unwrap();
+        let fixed = scan_at(&music.path, &db_path, 3000);
+        assert_eq!((fixed.updated, fixed.errors, fixed.issues), (1, 0, 0));
+        assert!(issue_rows(&db_path).is_empty());
+    }
+
+    #[test]
+    fn a_deleted_unreadable_file_loses_its_issue() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.mp3"), b"").unwrap();
+        assert_eq!(scan(&music.path, &db_path).issues, 2);
+
+        fs::remove_file(music.path.join("b.mp3")).unwrap();
+        let sum = scan_at(&music.path, &db_path, 2000);
+        assert_eq!((sum.missing, sum.issues), (1, 1));
+        assert_eq!(
+            issue_rows(&db_path)
+                .into_iter()
+                .map(|(_, key, _)| key)
+                .collect::<Vec<_>>(),
+            vec![key_of(&music.path.join("a.mp3"))]
+        );
+    }
+
+    #[test]
+    fn a_failed_stat_is_recorded_and_still_counted_as_scanned() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let denied = music.path.join("denied.mp3");
+        fs::write(&denied, b"").unwrap();
+        fs::write(
+            music.path.join("ok.m4a"),
+            crate::covers::test_support::minimal_mp4(),
+        )
+        .unwrap();
+
+        let last = Mutex::new(None);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let sum = scan_with_stat(&music.path, &db_path, &cancel, denied_stat, |e| {
+            if let ScanEmit::Progress(p) = e {
+                *last.lock().unwrap() = Some((p.scanned, p.total, p.done));
+            }
+        });
+        assert_eq!((sum.total, sum.seen, sum.inserted), (2, 2, 1));
+        assert_eq!(last.into_inner().unwrap(), Some((2, 2, true)));
+        assert_eq!(
+            issue_rows(&db_path),
+            vec![("stat".to_string(), key_of(&denied), 2000)]
+        );
+        let conn = db::open_db(&db_path).unwrap();
+        let rows = db::scan_issues::list(&conn, 0, 10, None).unwrap();
+        assert_eq!(rows[0].reason, "access_denied");
+
+        // The next complete pass stats it fine and replaces the finding.
+        let again = scan(&music.path, &db_path);
+        assert_eq!(again.inserted, 1);
+        assert!(issue_rows(&db_path).iter().all(|(kind, _, _)| kind != "stat"));
+    }
+
+    // The cancel flag the cancelling stat raises; only one test runs a pass with it.
+    static STAT_CANCEL: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+    // Cancels the pass from inside its first stat, which then fails.
+    fn cancelling_stat(_path: &Path) -> io::Result<(i64, i64)> {
+        STAT_CANCEL
+            .get_or_init(Default::default)
+            .store(true, Ordering::SeqCst);
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+
+    #[test]
+    fn a_cancelled_pass_records_its_findings_and_sweeps_nothing() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let file = music.path.join("a.mp3");
+        fs::write(&file, b"").unwrap();
+        let id = root_id_of(&db_path, &music.path);
+        let stale = music.path.join("old.mp3");
+        let stale_dir = music.path.join("old");
+        seed_issues(
+            &db_path,
+            id,
+            &[(IssueKind::Stat, &stale), (IssueKind::Folder, &stale_dir)],
+        );
+
+        let cancel = Arc::clone(STAT_CANCEL.get_or_init(Default::default));
+        let sum = scan_with_stat(&music.path, &db_path, &cancel, cancelling_stat, no_progress);
+        assert!(sum.cancelled);
+        assert_eq!(sum.issues, 3);
+        assert_eq!(
+            issue_rows(&db_path)
+                .into_iter()
+                .map(|(kind, key, _)| (kind, key))
+                .collect::<Vec<_>>(),
+            vec![
+                ("stat".to_string(), key_of(&file)),
+                ("folder".to_string(), key_of(&stale_dir)),
+                ("stat".to_string(), key_of(&stale)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_narrowed_pass_sweeps_only_inside_its_units() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let inside = music.path.join("in");
+        let outside = music.path.join("out");
+        fs::create_dir_all(&inside).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let id = root_id_of(&db_path, &music.path);
+        seed_issues(
+            &db_path,
+            id,
+            &[
+                (IssueKind::Stat, &inside.join("a.mp3")),
+                (IssueKind::Folder, &inside.join("sub")),
+                (IssueKind::Stat, &outside.join("b.mp3")),
+                (IssueKind::Folder, &outside.join("sub")),
+            ],
+        );
+
+        let (sum, _) = scan_units(&music.path, &db_path, vec![unit(&inside, true)]);
+        assert_eq!(sum.issues, 2);
+        assert_eq!(
+            issue_rows(&db_path)
+                .into_iter()
+                .map(|(_, key, _)| key)
+                .collect::<Vec<_>>(),
+            vec![key_of(&outside.join("b.mp3")), key_of(&outside.join("sub"))]
+        );
+    }
+
+    #[test]
+    fn a_folder_issue_is_classified_and_clears_once_the_folder_reads() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let locked = music.path.join("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("x.m4a"), crate::covers::test_support::minimal_mp4()).unwrap();
+        let id = root_id_of(&db_path, &music.path);
+
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        let draft = issue_draft(IssueKind::Folder, id, &locked, dir_key(&locked), &denied)
+            .expect("a denied folder is an issue");
+        assert_eq!((draft.kind, draft.reason), (IssueKind::Folder, issues::Reason::AccessDenied));
+        assert_eq!(draft.key, key_of(&locked));
+        let gone = io::Error::from(io::ErrorKind::NotFound);
+        assert!(issue_draft(IssueKind::Folder, id, &locked, dir_key(&locked), &gone).is_none());
+
+        seed_issues(&db_path, id, &[(IssueKind::Folder, &locked)]);
+        let sum = scan(&music.path, &db_path);
+        assert_eq!((sum.inserted, sum.issues), (1, 0));
+        assert!(issue_rows(&db_path).is_empty());
+    }
+
+    // Removes the folder holding the file, as a drive pulled mid-pass, then fails the stat.
+    fn unplugging_stat(path: &Path) -> io::Result<(i64, i64)> {
+        if let Some(root) = path.parent() {
+            let _ = fs::remove_dir_all(root);
+        }
+        Err(io::Error::from(io::ErrorKind::PermissionDenied))
+    }
+
+    #[test]
+    fn an_unreachable_root_records_nothing_and_keeps_its_issues() {
+        let base = TempDir::new("scan_offline");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let music = base.path.join("drive");
+        fs::create_dir_all(&music).unwrap();
+        let file = music.join("a.mp3");
+        fs::write(&file, b"").unwrap();
+        assert_eq!(scan(&music, &db_path).issues, 1);
+        let id = root_id_of(&db_path, &music);
+        let before = issue_rows(&db_path);
+
+        // Unplugged between the walk and reconcile: the stat failure it caused is dropped.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let sum = scan_with_stat(&music, &db_path, &cancel, unplugging_stat, no_progress);
+        assert_eq!(sum.offline_roots, vec![id]);
+        assert_eq!(sum.issues, 1);
+        assert!(sum.issue_changes.is_empty());
+        assert_eq!(issue_rows(&db_path), before);
+
+        // Unreachable before the walk: nothing is walked and nothing is swept.
+        let sum = scan_at(&music, &db_path, 3000);
+        assert_eq!((sum.offline_roots, sum.issues), (vec![id], 1));
+        assert_eq!(issue_rows(&db_path), before);
+    }
+
+    // The cancel flag the unplugging, cancelling stat raises; only one test runs a pass with it.
+    static UNPLUG_CANCEL: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+    fn unplugging_cancelling_stat(path: &Path) -> io::Result<(i64, i64)> {
+        UNPLUG_CANCEL
+            .get_or_init(Default::default)
+            .store(true, Ordering::SeqCst);
+        unplugging_stat(path)
+    }
+
+    #[test]
+    fn a_cancelled_pass_drops_the_findings_of_a_root_pulled_mid_walk() {
+        let base = TempDir::new("scan_offline");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let music = base.path.join("drive");
+        fs::create_dir_all(&music).unwrap();
+        fs::write(music.join("a.mp3"), b"").unwrap();
+        assert_eq!(scan(&music, &db_path).issues, 1);
+        let before = issue_rows(&db_path);
+
+        let cancel = Arc::clone(UNPLUG_CANCEL.get_or_init(Default::default));
+        let sum = scan_with_stat(&music, &db_path, &cancel, unplugging_cancelling_stat, no_progress);
+        assert!(sum.cancelled);
+        assert!(sum.issue_changes.is_empty());
+        assert_eq!(issue_rows(&db_path), before);
+    }
+
+    #[test]
+    fn a_tags_row_survives_a_pass_whose_stat_fails() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let denied = music.path.join("denied.mp3");
+        fs::write(&denied, b"").unwrap();
+        assert_eq!(scan(&music.path, &db_path).issues, 1);
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        scan_with_stat(&music.path, &db_path, &cancel, denied_stat, no_progress);
+        let again = scan(&music.path, &db_path);
+
+        assert_eq!(again.issues, 1);
+        let conn = db::open_db(&db_path).unwrap();
+        let rows = db::scan_issues::list(&conn, 0, 10, None).unwrap();
+        assert_eq!(rows[0].kind, "tags");
+        assert!(rows[0].track_id.is_some());
+    }
+
+    #[test]
+    fn a_broken_file_that_goes_missing_and_returns_gets_its_issue_back() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        let file = music.path.join("a.mp3");
+        fs::write(&file, b"").unwrap();
+        assert_eq!(scan_at(&music.path, &db_path, 1000).issues, 1);
+
+        // Moved out and back, so its size and mtime are unchanged.
+        let held = store.path.join("held.mp3");
+        fs::rename(&file, &held).unwrap();
+        let gone = scan_at(&music.path, &db_path, 2000);
+        assert_eq!((gone.missing, gone.issues), (1, 0));
+
+        fs::rename(&held, &file).unwrap();
+        let back = scan_at(&music.path, &db_path, 3000);
+        assert_eq!((back.returned, back.errors, back.issues), (1, 1, 1));
     }
 }

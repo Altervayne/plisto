@@ -6,8 +6,9 @@
  */
 
 // -- Library Imports --
+#[cfg(test)]
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,10 +19,11 @@ use super::error::ApiError;
 use super::files::ensure_data_dir;
 use super::rate::RateClass;
 use super::{CallCtx, MethodSpec, Need, Outcome};
-use crate::plugins::install::rename_with_retry;
+use crate::applog::{append_line, sanitize};
 use crate::plugins::paths::{log_file, log_old_file};
 
-pub const MAX_LINE_BYTES: usize = 2048;
+#[cfg(test)]
+use crate::applog::MAX_LINE_BYTES;
 pub const ROTATE_BYTES: u64 = 262_144;
 
 pub(super) const METHODS: &[MethodSpec] = &[MethodSpec {
@@ -63,24 +65,6 @@ impl Level {
     }
 }
 
-/// Replaces line breaks and other control characters with spaces, then cuts the text to
-/// `MAX_LINE_BYTES` at a character boundary. The flag says whether it was cut.
-pub fn sanitize(text: &str) -> (String, bool) {
-    let mut out = String::with_capacity(text.len().min(MAX_LINE_BYTES));
-    for c in text.chars() {
-        let c = if c < ' ' || matches!(c, '\u{7F}' | '\u{2028}' | '\u{2029}') {
-            ' '
-        } else {
-            c
-        };
-        if out.len() + c.len_utf8() > MAX_LINE_BYTES {
-            return (out, true);
-        }
-        out.push(c);
-    }
-    (out, false)
-}
-
 fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -99,20 +83,12 @@ pub fn append(
     ensure_data_dir(app_data, id)?;
     let (text, truncated) = sanitize(text);
     let line = format!("{now_ms} {} {text}\n", level.as_str());
-    let path = log_file(app_data, id);
-    let size = match fs::metadata(&path) {
-        Ok(meta) => meta.len(),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => 0,
-        Err(e) => return Err(e),
-    };
-    if size > 0 && size + line.len() as u64 > ROTATE_BYTES {
-        rename_with_retry(&path, &log_old_file(app_data, id))?;
-    }
-    fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?
-        .write_all(line.as_bytes())?;
+    append_line(
+        &log_file(app_data, id),
+        &log_old_file(app_data, id),
+        &line,
+        ROTATE_BYTES,
+    )?;
     Ok(truncated)
 }
 

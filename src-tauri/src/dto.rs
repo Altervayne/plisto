@@ -146,6 +146,40 @@ pub struct PurgeSummary {
     pub albums_emptied: i64,
 }
 
+/// One file or folder a scan could not read, shaped for the frontend. `kind` is `tags`, `stat` or
+/// `folder`; `reason` is a closed code and `detail` the raw error text. `track_id` is set for `tags`
+/// only. Times are unix seconds. Mirrors ScanIssue in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScanIssue {
+    pub id: i64,
+    pub path: String,
+    pub root_id: i64,
+    pub track_id: Option<i64>,
+    pub kind: String,
+    pub reason: String,
+    pub detail: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+}
+
+/// One page of the issue review. `total` counts the rows matching the page's reason filter; `by_reason`
+/// is the row count per reason code over the whole table, so the filter chips are right on every page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScanIssuePage {
+    pub total: u32,
+    pub rows: Vec<ScanIssue>,
+    pub by_reason: std::collections::BTreeMap<String, u32>,
+}
+
+/// The result of retrying issues: how many rows were retried, how many of them cleared, and how many
+/// rows remain in the whole table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScanIssueRetryResult {
+    pub retried: u32,
+    pub cleared: u32,
+    pub remaining: u32,
+}
+
 /// One vocabulary genre shaped for the frontend: its display name and how many tracks carry it,
 /// from a COUNT join over `track_genres`. Genre is per-track and multi-valued behind this managed
 /// vocabulary, so a row here is a vocabulary entry, not a per-track membership. Mirrors GenreRow.
@@ -191,6 +225,9 @@ pub struct ScanProgress {
 /// is reserved for a future purge command and reads 0 during a scan. `offline_roots` are the ids
 /// of roots that could not be read this pass; their rows were left untouched. `deferred` counts
 /// files still being written, left unindexed until a later pass; their paths stay backend-side.
+/// `issues` is the count of recorded read issues standing after the pass, across every root, so it
+/// stays true on a pass that skips the failed files; `issue_changes` are the issues this pass found
+/// new or with a changed reason, also backend-side.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanSummary {
     pub total: u32,
@@ -207,6 +244,9 @@ pub struct ScanSummary {
     pub deferred: u32,
     #[serde(skip)]
     pub deferred_paths: Vec<std::path::PathBuf>,
+    pub issues: u32,
+    #[serde(skip)]
+    pub issue_changes: Vec<crate::db::scan_issues::DraftChange>,
 }
 
 /// The `library:sync` tick: whether a background session runs and its running totals across passes.
@@ -228,8 +268,9 @@ pub enum LibraryDelta {
     Reload { reload: bool },
 }
 
-/// The `library:summary` payload: one background session's totals, sent once at its end. Mirrors
-/// LibrarySyncSummary in types.ts.
+/// The `library:summary` payload: one background session's totals, sent once at its end. `issues` is
+/// the standing count after the last pass, not a sum; `new_issues` counts the issues first recorded
+/// during the session. Mirrors LibrarySyncSummary in types.ts.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct LibrarySyncSummary {
     pub inserted: u32,
@@ -239,6 +280,8 @@ pub struct LibrarySyncSummary {
     pub deferred: u32,
     pub errors: u32,
     pub offline_roots: Vec<i64>,
+    pub issues: u32,
+    pub new_issues: u32,
 }
 
 /// How a root is kept current: `watching` on live change notifications, `polling` on a pass when the

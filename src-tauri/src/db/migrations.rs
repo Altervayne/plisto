@@ -10,7 +10,7 @@
 use rusqlite::Connection;
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 20;
+const LATEST_VERSION: i64 = 21;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -406,6 +406,29 @@ CREATE TABLE track_visualizers (
 );
 ";
 
+// Version 21: the unreadable-file record. One row per path a scan could not read: `tags` (the file was
+// indexed but its tags could not be parsed), `stat` (its size and mtime could not be read) or `folder`
+// (a directory could not be listed). `path_key` is the canonical key and the row's identity; `track_id`
+// links a `tags` row to its track. Kind and reason are stored as plain strings and not checked, so a
+// code retired later leaves a harmless row. Both FKs CASCADE, so removing a root or purging a track
+// clears its rows. A new table and indexes only, so every existing row is untouched.
+const MIGRATION_V21: &str = "
+CREATE TABLE scan_issues (
+    id         INTEGER PRIMARY KEY,
+    path_key   TEXT NOT NULL UNIQUE,
+    path       TEXT NOT NULL,
+    root_id    INTEGER NOT NULL REFERENCES roots(id) ON DELETE CASCADE,
+    track_id   INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    reason     TEXT NOT NULL,
+    detail     TEXT NOT NULL,
+    first_seen INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL
+);
+CREATE INDEX idx_scan_issues_root ON scan_issues(root_id);
+CREATE INDEX idx_scan_issues_track ON scan_issues(track_id);
+";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -433,6 +456,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             17 => conn.execute_batch(MIGRATION_V18)?,
             18 => conn.execute_batch(MIGRATION_V19)?,
             19 => conn.execute_batch(MIGRATION_V20)?,
+            20 => conn.execute_batch(MIGRATION_V21)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -1424,6 +1448,67 @@ mod tests {
         assert_eq!(rows, 0, "no track carries a default until one is set");
     }
 
+    /// A v20 DB with rows upgrades to v21 additively: every row survives and `scan_issues` exists
+    /// empty, with both its indexes.
+    #[test]
+    fn v20_db_with_rows_migrates_additively() {
+        let conn = v13_db();
+        for step in [
+            MIGRATION_V14,
+            MIGRATION_V15,
+            MIGRATION_V16,
+            MIGRATION_V17,
+            MIGRATION_V18,
+            MIGRATION_V19,
+            MIGRATION_V20,
+        ] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 20).unwrap();
+        conn.execute(
+            "INSERT INTO roots (root_key, path, added_at) VALUES ('/music', '/Music', 1)",
+            [],
+        )
+        .unwrap();
+        insert_track(&conn, 1, Some(1));
+        insert_track(&conn, 2, None);
+        conn.execute(
+            "INSERT INTO albums (title, created_at, updated_at, visualizer) VALUES ('Keep', 1, 2, 'ridge')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, LATEST_VERSION);
+
+        let count = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(count("SELECT COUNT(*) FROM tracks"), 2, "every track survives");
+        assert_eq!(count("SELECT COUNT(*) FROM roots"), 1, "the root survives");
+        let album: (String, Option<String>) = conn
+            .query_row("SELECT title, visualizer FROM albums", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(album, ("Keep".to_string(), Some("ridge".to_string())));
+
+        assert_eq!(
+            count("SELECT COUNT(*) FROM scan_issues"),
+            0,
+            "no issue is recorded until a scan finds one"
+        );
+        assert_eq!(
+            count(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index' AND name IN ('idx_scan_issues_root', 'idx_scan_issues_track')"
+            ),
+            2
+        );
+    }
+
     /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row
     /// survives, other formats keep their flag, and no other column of an MP4 row changes.
     #[test]
@@ -1584,6 +1669,7 @@ mod tests {
             "playlists",
             "plays",
             "roots",
+            "scan_issues",
             "settings",
             "track_covers",
             "track_edits",

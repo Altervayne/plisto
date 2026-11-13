@@ -185,6 +185,7 @@ pub fn move_root(
     let (root, rows) = read_side(&tx, root_id)?;
     let new_root = Path::new(new_path);
 
+    drop_location_issues(&tx, root_id)?;
     for row in &rows {
         rewrite_track(&tx, row, new_root)?;
     }
@@ -239,6 +240,7 @@ pub fn merge_root(
     for &(o, n) in &plan.pairs {
         carry_track(&tx, o, n, now)?;
         carry_loudness(&tx, o, n)?;
+        carry_issue(&tx, o, n)?;
         scans.push((o, scan_values(&tx, n)?));
         tx.execute("DELETE FROM tracks WHERE id = ?1", params![n])?;
     }
@@ -256,6 +258,13 @@ pub fn merge_root(
     if left > 0 {
         return Err(RelocateError::AbsorbNotEmpty);
     }
+    // Both roots change location, so their folder and stat findings go; the tracks' own rows follow them.
+    drop_location_issues(&tx, keep.id)?;
+    drop_location_issues(&tx, absorb.id)?;
+    tx.execute(
+        "UPDATE scan_issues SET root_id = ?1 WHERE root_id = ?2",
+        params![keep.id, absorb.id],
+    )?;
     tx.execute("DELETE FROM roots WHERE id = ?1", params![absorb.id])?;
     tx.execute(
         "UPDATE roots SET path = ?1, root_key = ?2 WHERE id = ?3",
@@ -431,15 +440,42 @@ fn path_key(path: &Path) -> String {
 }
 
 fn rewrite_track(conn: &Connection, row: &RelRow, new_root: &Path) -> rusqlite::Result<()> {
+    let key = path_key(&rebase(new_root, &row.rel_key));
+    let display = rebase(new_root, &row.rel_disp)
+        .to_string_lossy()
+        .into_owned();
     conn.execute(
         "UPDATE tracks SET source_path = ?1, display_path = ?2 WHERE id = ?3",
-        params![
-            path_key(&rebase(new_root, &row.rel_key)),
-            rebase(new_root, &row.rel_disp)
-                .to_string_lossy()
-                .into_owned(),
-            row.id
-        ],
+        params![key, display, row.id],
+    )?;
+    // The moved file keeps its size and mtime, so the next scan skips it and would never find its
+    // tag failure again: the record has to move with the track.
+    conn.execute(
+        "UPDATE scan_issues SET path_key = ?1, path = ?2,
+                root_id = (SELECT root_id FROM tracks WHERE id = ?3)
+         WHERE track_id = ?3",
+        params![key, display, row.id],
+    )?;
+    Ok(())
+}
+
+/// Deletes a root's `stat` and `folder` findings. They describe a location, and the rescan that follows a
+/// relocate finds them again if they still hold.
+fn drop_location_issues(conn: &Connection, root_id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM scan_issues WHERE root_id = ?1 AND kind IN ('stat', 'folder')",
+        params![root_id],
+    )?;
+    Ok(())
+}
+
+/// Hands absorbed track `n`'s tag-failure record to its kept twin `o`. `o` takes `n`'s scan columns, so
+/// its own record describes a read that no longer stands and goes.
+fn carry_issue(conn: &Connection, o: i64, n: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM scan_issues WHERE track_id = ?1", params![o])?;
+    conn.execute(
+        "UPDATE scan_issues SET track_id = ?1 WHERE track_id = ?2",
+        params![o, n],
     )?;
     Ok(())
 }
@@ -1450,6 +1486,96 @@ mod tests {
             "an absorbed-only cover stays"
         );
         assert_eq!(dump(&conn, "folder_covers", "folder_path").len(), 3);
+    }
+
+    // ---- Scan issues ----
+
+    // Records an issue row the way a pass would: a `tags` row is bound to its track.
+    fn add_issue(conn: &Connection, root_id: i64, track_id: Option<i64>, kind: &str, key: &str) {
+        conn.execute(
+            "INSERT INTO scan_issues
+                (path_key, path, root_id, track_id, kind, reason, detail, first_seen, last_seen)
+             VALUES (?1, ?1, ?2, ?3, ?4, 'other', 'boom', 1, 1)",
+            params![key, root_id, track_id, kind],
+        )
+        .unwrap();
+    }
+
+    // Every issue as (path_key, root_id, track_id, kind), ordered by key.
+    fn issues(conn: &Connection) -> Vec<(String, i64, Option<i64>, String)> {
+        conn.prepare("SELECT path_key, root_id, track_id, kind FROM scan_issues ORDER BY path_key")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn move_carries_the_tags_row_and_drops_location_rows() {
+        let mut conn = db::open_in_memory().unwrap();
+        let root = add_root(&conn, OLD);
+        let other = add_root(&conn, "/Other");
+        let id = add_track(&conn, root, OLD, &["Album", "1.mp3"], 10);
+        let stay = add_track(&conn, other, "/Other", &["x.mp3"], 10);
+        let (old_key, _) = paths_of(&conn, id);
+        add_issue(&conn, root, Some(id), "tags", &old_key);
+        add_issue(&conn, root, None, "stat", "/music/old/stat.mp3");
+        add_issue(&conn, root, None, "folder", "/music/old/locked");
+        let (stay_key, _) = paths_of(&conn, stay);
+        add_issue(&conn, other, Some(stay), "tags", &stay_key);
+        add_issue(&conn, other, None, "stat", "/other/stat.mp3");
+
+        move_root(&mut conn, root, NEW).unwrap();
+
+        let walked = walk(NEW, &["Album", "1.mp3"]);
+        let mut expected = vec![
+            (normalize_path_key(&walked), root, Some(id), "tags".to_string()),
+            (stay_key, other, Some(stay), "tags".to_string()),
+            ("/other/stat.mp3".to_string(), other, None, "stat".to_string()),
+        ];
+        expected.sort();
+        assert_eq!(issues(&conn), expected);
+        let shown: String = conn
+            .query_row(
+                "SELECT path FROM scan_issues WHERE track_id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(shown, walked, "the shown path follows the track");
+    }
+
+    #[test]
+    fn merge_settles_issue_rows_with_the_tracks() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        let key = |id: i64| paths_of(&conn, id).0;
+        // o[0]: stale record, twin n[0] clean. o[1]: stale record, twin n[1] failing now.
+        add_issue(&conn, fx.keep, Some(fx.o[0]), "tags", &key(fx.o[0]));
+        add_issue(&conn, fx.keep, Some(fx.o[1]), "tags", &key(fx.o[1]));
+        add_issue(&conn, fx.absorb, Some(fx.n[1]), "tags", &key(fx.n[1]));
+        add_issue(&conn, fx.keep, Some(fx.keep_only), "tags", &key(fx.keep_only));
+        add_issue(&conn, fx.absorb, Some(fx.absorb_only), "tags", &key(fx.absorb_only));
+        add_issue(&conn, fx.keep, None, "stat", "/music/old/stat.mp3");
+        add_issue(&conn, fx.absorb, None, "folder", "/volumes/disk/music/locked");
+        let n1_key = key(fx.n[1]);
+        let only_key = key(fx.absorb_only);
+        let moved = normalize_path_key(&walk(NEW, &["C", "old.mp3"]));
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        let mut expected = vec![
+            (n1_key, fx.keep, Some(fx.o[1]), "tags".to_string()),
+            (only_key, fx.keep, Some(fx.absorb_only), "tags".to_string()),
+            (moved, fx.keep, Some(fx.keep_only), "tags".to_string()),
+        ];
+        expected.sort();
+        assert_eq!(
+            issues(&conn),
+            expected,
+            "twin records follow the kept track, the kept-only record is re-keyed, an absorbed-only record is re-rooted, and location rows are dropped"
+        );
     }
 
     // ---- Earlier paths ----

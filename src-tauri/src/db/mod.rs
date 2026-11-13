@@ -11,6 +11,7 @@ mod duplicates;
 mod export_ledger;
 mod migrations;
 mod relocate;
+pub(crate) mod scan_issues;
 mod tag_albums;
 mod visualizer_defaults;
 
@@ -2589,7 +2590,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
 
         for table in [
             "tracks",
@@ -2668,7 +2669,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
     }
 
     #[test]

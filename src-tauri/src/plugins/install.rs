@@ -208,7 +208,7 @@ pub(super) fn is_held(e: &io::Error) -> bool {
 }
 
 /// Renames, retrying only an error a briefly held file can cause.
-pub(super) fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     let mut attempt = 1;
     loop {
         match fs::rename(from, to) {

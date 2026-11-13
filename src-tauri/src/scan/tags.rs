@@ -2,7 +2,7 @@
  * Reading one file's tags with lofty. Numeric tags (track, disc, year) are pulled as their
  * raw strings, not lofty's parsed integers, so the single numeric-parsing boundary stays in
  * normalize.rs. A file lofty cannot open is not dropped: it yields default (all-None) tags and
- * an error flag, so the caller still indexes it from its path and stats and counts it.
+ * the failure, so the caller still indexes it from its path and stats and records it.
  */
 
 // -- Library Imports --
@@ -16,23 +16,42 @@ use lofty::tag::Tag;
 use crate::covers::{art_key, read_with_art};
 
 // -- Type Imports --
+use super::issues::{classify, describe, Reason};
 use crate::model::RawTags;
 
+/// Why a file's tags could not be read. `reason` is None when the file vanished before the read,
+/// which is not recorded as an issue.
+pub struct TagFailure {
+    pub reason: Option<Reason>,
+    pub detail: String,
+}
+
 /// Reads the primary tag and duration from one file. Returns the tags plus a flag that is true
-/// when lofty could not parse the file, in which case the tags are all None and only the
-/// duration is missing. `has_embedded_cover` is always set here (Some) - any file lofty opens,
-/// tags or not, and any file it cannot, counts as examined, so the row never stays NULL.
+/// when lofty could not parse the file.
 pub fn read_tags(path: &Path) -> (RawTags, bool) {
+    let (raw, failure) = read_tags_detailed(path);
+    (raw, failure.is_some())
+}
+
+/// Reads the primary tag and duration from one file, with the failure when lofty could not parse
+/// it, in which case the tags are all None and only the duration is missing. `has_embedded_cover`
+/// is always set here (Some) - any file lofty opens, tags or not, and any file it cannot, counts as
+/// examined, so the row never stays NULL.
+pub fn read_tags_detailed(path: &Path) -> (RawTags, Option<TagFailure>) {
     let art = match read_with_art(path) {
         Ok(a) => a,
-        Err(_) => {
+        Err(err) => {
+            let failure = TagFailure {
+                reason: classify(&err),
+                detail: describe(&err),
+            };
             return (
                 RawTags {
                     has_embedded_cover: Some(false),
                     ..RawTags::default()
                 },
-                true,
-            )
+                Some(failure),
+            );
         }
     };
 
@@ -64,7 +83,7 @@ pub fn read_tags(path: &Path) -> (RawTags, bool) {
     raw.has_embedded_cover = Some(cover.is_some());
     raw.cover_art = cover.and_then(|picture| art_key(picture.data()));
 
-    (raw, false)
+    (raw, None)
 }
 
 /// Fills the four ReplayGain fields from the tag. lofty maps `REPLAYGAIN_*` for ID3v2 (TXXX), Vorbis
