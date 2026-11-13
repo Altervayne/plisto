@@ -1,0 +1,180 @@
+# Getting started
+
+This page builds a small plugin from an empty folder: a counter that survives restarts. It ends with the
+plugin installed and visible in the sidebar. The finished idea is the same as
+[`examples/hello-ui`](../examples/hello-ui/), which you can open beside this page.
+
+You need a text editor and Plisto 2.7 or newer. No build tools are required.
+
+## 1. Make the folder
+
+```
+my-plugin/
+  plugin.json
+  index.html
+  app.js
+  plisto-sdk.js
+```
+
+A plugin is self-contained: everything it needs sits in its own folder, including its own copy of the
+SDK. Copy `sdk/plisto-sdk.js` from this kit into `my-plugin/`.
+
+## 2. Write the manifest
+
+`plugin.json` tells Plisto what the plugin is and what it needs.
+
+```json
+{
+  "manifest_version": 1,
+  "id": "com.example.counter",
+  "name": "Counter",
+  "version": "1.0.0",
+  "tier": "ui",
+  "entry": "index.html",
+  "capabilities": ["storage"],
+  "min_plisto": "2.7.0",
+  "author": "Your Name"
+}
+```
+
+- `id` is your plugin's permanent name: reverse-DNS style, lowercase, for example `com.example.counter`.
+  Pick it once. Changing it later makes a different plugin.
+- `capabilities` lists what the plugin may do. `storage` lets it save data. The user sees this list
+  before the plugin is turned on.
+- `entry` is the page Plisto opens.
+- `min_plisto` is the oldest Plisto version the plugin works with.
+
+Every field, limit and rule is in the [manifest reference](manifest.md).
+
+## 3. Write the page
+
+`index.html`:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Counter</title>
+    <link rel="stylesheet" href="/_plisto/tokens.css" />
+    <link rel="stylesheet" href="/_plisto/plugin-base.css" />
+    <script src="plisto-sdk.js"></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <h1>Counter</h1>
+    <p id="count">...</p>
+    <button type="button" id="add">Add one</button>
+  </body>
+</html>
+```
+
+The rules that matter here:
+
+- Load scripts as classic scripts with `src`. A script with `type="module"` does not load, and an inline
+  `<script>` block never runs. All code goes in `.js` files in your folder.
+- Load `plisto-sdk.js` first, in `<head>`. It starts answering Plisto at once. Load your own script with
+  `defer` so it runs after the page is parsed.
+- No external addresses: no CDN, no remote fonts, no analytics. Put what you need in the folder.
+- Use hash routing (`#/page`) if you need routes. Anything that loads a new document, a reload included,
+  counts as the page crashing.
+
+### Styling with Plisto's tokens
+
+The two `<link>` lines load files that Plisto serves itself:
+
+- `/_plisto/tokens.css` defines Plisto's colors, radii and fonts as CSS variables: `--bg`, `--surface`,
+  `--surface-2`, `--ink`, `--ink-2`, `--ink-3`, `--accent`, `--warn`, `--danger`, `--good`, `--hairline`,
+  `--r-sm`, `--r-md`, `--r-lg`, `--font-ui`, `--font-mono` and others.
+- `/_plisto/plugin-base.css` gives a transparent page background, the UI font and ink color, some body
+  padding and a focus ring.
+
+Light and dark follow the `data-theme` attribute on `<html>`, which the SDK sets when the page starts and
+whenever the theme changes. Use the variables and your page follows the theme with no code.
+
+```css
+.card { background: var(--surface); border-radius: var(--r-md); padding: 16px; }
+```
+
+The tokens track Plisto's own look and are not versioned. A name can change, so keep to the common ones
+above. Never set `color-scheme` in your CSS: a value that differs from Plisto's paints an opaque box
+behind the page.
+
+Put your own styles in a `.css` file next to the page and link it after the two Plisto sheets.
+
+## 4. Write the script
+
+`app.js`:
+
+```js
+(function () {
+  "use strict";
+
+  var countEl = document.getElementById("count");
+  var count = 0;
+
+  function show() {
+    countEl.textContent = String(count);
+  }
+
+  plisto.ready.then(function (info) {
+    // Plisto has initialised the page. info holds the app language, theme and so on.
+    return plisto.storage.get("count", 0).then(function (saved) {
+      count = saved;
+      show();
+    });
+  });
+
+  document.getElementById("add").addEventListener("click", function () {
+    count += 1;
+    show();
+    plisto.storage.set("count", count).catch(function (e) {
+      plisto.log.warn("save failed: " + e.code);
+    });
+  });
+})();
+```
+
+What this uses:
+
+- `plisto.ready` is a promise that resolves with the app info once Plisto has initialised the page.
+- `plisto.storage.get(key, fallback)` returns the saved value, or the fallback when the key does not exist.
+- `plisto.storage.set(key, value)` saves any JSON value.
+- `plisto.log.warn(text)` writes a line to your plugin's log file.
+
+Every call returns a promise and can reject with a `PlistoError` that has a `code`. The full list is in
+the [API reference](api.md).
+
+## 5. Install it
+
+1. In Plisto, open Settings > Plugins.
+2. Choose Install from folder and pick `my-plugin`.
+3. Read the review sheet. It lists what the plugin asks for. Press Install.
+4. The plugin lands in the list turned off. Turn its switch on.
+
+If Plisto refuses the folder, it says why. Common causes: `plugin.json` has a typo or a missing field, a
+file named in the manifest is missing, or an `id` that breaks the rules. See the
+[manifest reference](manifest.md).
+
+## 6. See it in the sidebar
+
+With the plugin on, it has a row in the sidebar under its own name, in the plugins zone. Click it and
+your page opens. Click Add one a few times, quit Plisto, start it and open the plugin again: the count
+is still there, because it was saved with `storage.set`.
+
+A plugin with no `sidebar` block gets one row like this. To give it a section with several links, or
+live items such as a progress bar, see the [sidebar guide](sidebar.md).
+
+## 7. Change it and try again
+
+Edit your files, raise `version` in `plugin.json` (for example to `1.0.1`), then install the folder again
+in Settings > Plugins. Plisto sees the same `id` and offers an update that replaces the old version and
+keeps your saved data. The [install and test guide](install-and-test.md) has the details and a debugging
+checklist.
+
+## Where to go from here
+
+- Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
+- Running in the background: [lifecycle](lifecycle.md).
+- Every method with its limits: [API reference](api.md).
+- A larger working example: [`examples/hello-background`](../examples/hello-background/).

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.hello-bg",
+  "name": "Hello background",
+  "version": "1.1.0",
+  "tier": "ui",
+  "entry": "index.html",
+  "capabilities": [
+    "storage",
+    "background",
+    "ui.toast",
+    "ui.confirm",
+    "ui.chips",
+    "ui.sidebar"
+  ],
+  "modes": ["player", "organizer"],
+  "min_plisto": "2.6.0",
+  "author": "Plisto",
+  "icon": "icon.svg",
+  "sidebar": {
+    "layout": "section",
+    "items": [
+      { "id": "home", "type": "nav", "label": "Home", "icon": "house" },
+      { "id": "settings", "type": "nav", "label": "Settings", "icon": "cog", "route": "settings" },
+      { "id": "state", "type": "status", "label": "Status" },
+      { "id": "work", "type": "progress", "label": "Work" },
+      { "id": "auto", "type": "toggle", "label": "Automatic" },
+      { "id": "ping", "type": "action", "label": "Ping" }
+    ]
+  }
+}

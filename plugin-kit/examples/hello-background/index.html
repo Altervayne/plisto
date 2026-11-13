@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello background</title>
+    <link rel="stylesheet" href="/_plisto/tokens.css" />
+    <link rel="stylesheet" href="/_plisto/plugin-base.css" />
+    <link rel="stylesheet" href="hello.css" />
+    <script src="plisto-sdk.js"></script>
+    <script src="hello.js" defer></script>
+  </head>
+  <body>
+    <h1>Hello background</h1>
+
+    <section class="card">
+      <p class="count" id="count">...</p>
+      <dl>
+        <dt>Page open</dt>
+        <dd id="page-open">...</dd>
+        <dt>Route</dt>
+        <dd id="route">(none)</dd>
+        <dt>Theme</dt>
+        <dd id="theme">...</dd>
+        <dt>Last saved</dt>
+        <dd id="saved">...</dd>
+        <dt>Toggle</dt>
+        <dd id="auto">...</dd>
+        <dt>Last refusal</dt>
+        <dd id="refusal">(none)</dd>
+      </dl>
+      <button type="button" class="warn" id="busy20">Busy for 20 s (hang test)</button>
+      <p class="note">
+        This page keeps counting while Plisto shows another page. The busy button freezes this page's
+        own thread with a synchronous loop, so it cannot answer the heartbeat.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Sidebar items</h2>
+      <label class="check">
+        <input type="checkbox" id="ignore" />
+        Ignore toggles (the toggle never confirms, so its dimming ends after 3 s)
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Gesture tests</h2>
+      <div class="row">
+        <button type="button" id="ask-no-click">Ask without a click in 11 s</button>
+        <button type="button" id="ask-old-click">Ask with an old click</button>
+      </div>
+      <p class="note">
+        Both buttons wait 11 seconds, then ask. Leave this page within those 11 seconds: while this page is
+        open, a prompt needs no click. Press Ping in the sidebar first for the old click test. The refusal
+        shows in the status line and in Last refusal.
+      </p>
+    </section>
+  </body>
+</html>

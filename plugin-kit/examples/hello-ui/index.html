@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello UI</title>
+    <link rel="stylesheet" href="/_plisto/tokens.css" />
+    <link rel="stylesheet" href="/_plisto/plugin-base.css" />
+    <link rel="stylesheet" href="hello.css" />
+    <script src="plisto-sdk.js"></script>
+    <script src="hello.js" defer></script>
+  </head>
+  <body>
+    <h1>Hello UI</h1>
+
+    <section class="card">
+      <h2>Counter (saved with storage.set)</h2>
+      <p class="count" id="count">...</p>
+      <div class="row">
+        <button type="button" id="increment">Add one</button>
+        <button type="button" id="reset">Reset</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>App info</h2>
+      <dl id="info"></dl>
+    </section>
+
+    <section class="card">
+      <h2>Toasts</h2>
+      <div class="row">
+        <button type="button" id="toast">Toast</button>
+        <button type="button" id="toast-action">Toast with action</button>
+        <button type="button" id="toast-flood">Flood 10 toasts</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Prompts</h2>
+      <div class="row">
+        <button type="button" id="confirm">Confirm</button>
+        <button type="button" id="confirm-twice">Confirm twice</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Sidebar chips</h2>
+      <div class="row">
+        <button type="button" id="chips-set">Set chips</button>
+        <button type="button" id="chips-long">Long chip</button>
+        <button type="button" id="chips-clear">Clear chips</button>
+        <button type="button" id="chips-flood">Flood chips 30 in 1 s</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Routes</h2>
+      <p class="route">Route: <span id="route">(none)</span></p>
+      <div class="row">
+        <button type="button" id="go-settings">Go to settings route</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <ol class="results" id="results"></ol>
+    </section>
+
+    <section class="card">
+      <h2>Host tests (these misbehave on purpose)</h2>
+      <div class="row">
+        <button type="button" class="warn" id="busy8">Busy for 8 s (overlay test)</button>
+        <button type="button" class="warn" id="busy20">Busy for 20 s (crash test)</button>
+        <button type="button" class="warn" id="navigate">Navigate away (double-load test)</button>
+      </div>
+      <p class="note">
+        The busy buttons freeze this page's own thread with a synchronous loop, so it cannot answer
+        the heartbeat. The navigate button reloads the page, which counts as a crash.
+      </p>
+    </section>
+  </body>
+</html>

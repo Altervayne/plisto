@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.hello-ui",
+  "name": "Hello UI",
+  "version": "1.1.0",
+  "tier": "ui",
+  "entry": "index.html",
+  "capabilities": [
+    "storage",
+    "ui.toast",
+    "ui.confirm",
+    "ui.chips"
+  ],
+  "min_plisto": "2.6.0",
+  "author": "Plisto",
+  "icon": "icon.svg",
+  "modes": [
+    "player",
+    "organizer"
+  ]
+}

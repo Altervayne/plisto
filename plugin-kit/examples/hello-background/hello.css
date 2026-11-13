@@ -1,0 +1,65 @@
+.card {
+  max-width: 560px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.row button {
+  margin-top: 0;
+}
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+h1 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.count {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+}
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+dt {
+  color: var(--ink-2);
+}
+dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+button {
+  margin-top: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+button.warn {
+  border-color: var(--warn);
+}
+.note {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+}
