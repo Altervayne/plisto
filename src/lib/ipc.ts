@@ -45,6 +45,7 @@ import type {
   PlayerNotice,
   PlayerStatus,
   PluginBootState,
+  PluginCallReply,
   PluginInboxItem,
   PluginInspection,
   PluginRow,
@@ -1271,4 +1272,14 @@ export function pluginInboxPath(): Promise<string> {
 /** Bytes of saved data a plugin holds; 0 when it has saved nothing. */
 export function pluginDataSize(id: string): Promise<number> {
   return invoke<number>("plugin_data_size", { id });
+}
+
+/** Runs one plugin API call. Always resolves a reply; a rejection means the call never reached Rust. */
+export function pluginCall(id: string, method: string, args: string): Promise<PluginCallReply> {
+  return invoke<PluginCallReply>("plugin_call", { id, method, args });
+}
+
+/** Reports whether a plugin's page is the shown destination with its frame live. */
+export function pluginPageState(id: string, open: boolean): Promise<void> {
+  return invoke<void>("plugin_page_state", { id, open });
 }
