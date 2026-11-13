@@ -1,5 +1,6 @@
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 // -- Style Imports --
@@ -12,6 +13,8 @@ import styles from "./ConfirmDialog.module.css";
  * Cancel so a stray Enter never confirms. `destructive` tints the confirm the danger red; `accent` fills
  * it with the accent for the one affirmative choice. An optional `title` heads the prompt, and an
  * optional `secondary` button sits between Cancel and the confirm, closing the dialog like them.
+ * `children` sit between the prompt and the buttons for a choice or note that belongs to the decision;
+ * `confirmDisabled` holds the confirm off while the decision cannot be carried out yet.
  */
 export function ConfirmDialog({
   open,
@@ -24,6 +27,8 @@ export function ConfirmDialog({
   destructive = false,
   accent = false,
   secondary,
+  children,
+  confirmDisabled = false,
 }: {
   open: boolean;
   title?: string;
@@ -35,6 +40,8 @@ export function ConfirmDialog({
   destructive?: boolean;
   accent?: boolean;
   secondary?: { label: string; onClick: () => void };
+  children?: ReactNode;
+  confirmDisabled?: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
@@ -59,6 +66,7 @@ export function ConfirmDialog({
       <div className={styles.dialog} role="alertdialog" aria-modal="true" aria-label={title ?? prompt}>
         {title ? <h2 className={styles.title}>{title}</h2> : null}
         <p className={styles.prompt}>{prompt}</p>
+        {children}
         <div className={styles.actions}>
           <button ref={cancelRef} type="button" className={styles.cancel} onClick={onClose}>
             {cancelLabel}
@@ -78,6 +86,7 @@ export function ConfirmDialog({
           <button
             type="button"
             className={`${styles.confirm} ${destructive ? styles.destructive : ""} ${accent ? styles.accent : ""}`}
+            disabled={confirmDisabled}
             onClick={() => {
               onConfirm();
               onClose();

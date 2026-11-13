@@ -78,6 +78,8 @@ blake3 = "1"
 # with the updater, so a feature added here changes its zip too.
 zip = { version = "9.4", default-features = false, features = ["deflate-flate2"] }
 dunce = "1"
+# Encodes a plugin icon as a data: URL.
+base64 = "0.22"
 unicode-normalization = "0.1"
 
 # Windows-only: the shell/COM surface for MTP direct-to-device export (1.6.0). cfg-gated so non-Windows

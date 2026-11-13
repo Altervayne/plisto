@@ -5,7 +5,7 @@
  */
 
 // -- Library Imports --
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 /** Opens a folder in the system file manager. A no-op when the desktop runtime is absent. */
 export async function openFolder(path: string): Promise<void> {
@@ -22,5 +22,15 @@ export async function revealFile(path: string): Promise<void> {
     await revealItemInDir(path);
   } catch {
     // No shell (a browser preview) or the path is gone: nothing to reveal.
+  }
+}
+
+/** Opens an http or https link in the system browser. Anything else, or no desktop runtime, is a no-op. */
+export async function openLink(url: string): Promise<void> {
+  if (!/^https?:\/\//i.test(url)) return;
+  try {
+    await openUrl(url);
+  } catch {
+    // No shell (a browser preview): nothing to open.
   }
 }

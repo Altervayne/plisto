@@ -23,8 +23,9 @@ use super::manifest::{Capability, Compat, Manifest, Tier};
 use super::paths::{data_dir, plugin_dir};
 use super::registry::{Entry, EntryState, Registry};
 use super::revalidate::{check_folder, demote, needs_newer, CheckError, Problems};
+use super::sidebar_decl::Layout;
 use super::state::{PluginRow, PluginsState, Withdraw};
-use super::update::old_dir;
+use super::update::{not_installed, old_dir};
 
 /// What uninstall did beyond removing the plugin.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -101,6 +102,32 @@ pub fn enable(
     native_ack: bool,
     reviewed: Option<&str>,
 ) -> Result<PluginRow, InstallError> {
+    enable_or_approve(app_data, plugins, id, grants, native_ack, reviewed, true)
+}
+
+/// Records consent exactly as `enable` does, but leaves the plugin off. A plugin that is already
+/// ready is returned as it is: this never turns one on or off.
+pub fn approve(
+    app_data: &Path,
+    plugins: &PluginsState,
+    id: &str,
+    grants: Option<&[String]>,
+    native_ack: bool,
+    reviewed: Option<&str>,
+) -> Result<PluginRow, InstallError> {
+    enable_or_approve(app_data, plugins, id, grants, native_ack, reviewed, false)
+}
+
+/// The shared path of `enable` and `approve`; `turn_on` says whether a passing check also enables.
+fn enable_or_approve(
+    app_data: &Path,
+    plugins: &PluginsState,
+    id: &str,
+    grants: Option<&[String]>,
+    native_ack: bool,
+    reviewed: Option<&str>,
+    turn_on: bool,
+) -> Result<PluginRow, InstallError> {
     require_writable(plugins)?;
     let seen = plugins
         .snapshot()
@@ -144,14 +171,17 @@ pub fn enable(
                 if entry.state != seen.state || entry.manifest_hash != seen.manifest_hash {
                     return Err(busy(id));
                 }
-                apply_enable(entry, problems, checked, grants, native_ack, reviewed)
+                apply_enable(
+                    entry, problems, checked, grants, native_ack, reviewed, turn_on,
+                )
             },
             save_failed,
         )
         .and_then(|done| done)
 }
 
-/// Applies an enable to an entry, from the folder check made before the lock.
+/// Applies an enable (or, without `turn_on`, only the consent) to an entry, from the folder check
+/// made before the lock.
 fn apply_enable(
     entry: &mut Entry,
     problems: &mut Problems,
@@ -159,6 +189,7 @@ fn apply_enable(
     grants: Option<&[String]>,
     native_ack: bool,
     reviewed: Option<&str>,
+    turn_on: bool,
 ) -> Outcome {
     let id = entry.id.clone();
     let (manifest, hash) = match checked {
@@ -216,8 +247,34 @@ fn apply_enable(
         entry.state = EntryState::Ready;
         entry.granted = manifest.capabilities;
     }
-    entry.enabled = true;
+    if turn_on {
+        entry.enabled = true;
+    }
     Ok(Ok(row(entry, problems)))
+}
+
+/// Saves how a plugin's sidebar items are laid out. Allowed in any state; the serving set is untouched.
+pub fn set_sidebar_layout(
+    app_data: &Path,
+    plugins: &PluginsState,
+    id: &str,
+    layout: Layout,
+) -> Result<PluginRow, InstallError> {
+    require_writable(plugins)?;
+    plugins.mutate(
+        app_data,
+        Withdraw::No,
+        |registry, problems| {
+            let entry = registry
+                .entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| not_installed(id))?;
+            entry.sidebar_layout = Some(layout);
+            Ok(row(entry, problems))
+        },
+        save_failed,
+    )
 }
 
 /// Disables a plugin and stops it. Consent and grants are kept, so enabling again asks nothing. A
@@ -784,5 +841,219 @@ mod tests {
         assert!(codes.iter().all(|c| *c == ErrorCode::RegistryUnavailable));
         assert!(registry_file(&k.data).is_dir());
         assert!(plugin_dir(&k.data, ID).join("plugin.json").is_file());
+    }
+
+    /// `approve` with the hash recorded for the demo plugin, as the review sheet would send it.
+    fn approval(
+        plugins: &PluginsState,
+        data: &Path,
+        caps: Option<&[&str]>,
+        ack: bool,
+    ) -> Result<PluginRow, InstallError> {
+        let hash = plugins
+            .snapshot()
+            .entry(ID)
+            .map(|e| e.manifest_hash.clone());
+        let given = caps.map(grants);
+        approve(data, plugins, ID, given.as_deref(), ack, hash.as_deref())
+    }
+
+    #[test]
+    fn approve_grants_consent_and_leaves_the_plugin_off() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage", "ui.toast"]));
+        let generation = k.plugins.generation();
+        let row = approval(&k.plugins, &k.data, Some(&["ui.toast", "storage"]), false).unwrap();
+        assert_eq!(row.entry.state, EntryState::Ready);
+        assert!(!row.entry.enabled);
+        assert_eq!(
+            row.entry.granted,
+            vec![Capability::Storage, Capability::UiToast]
+        );
+        assert!(!k.plugins.is_enabled(ID));
+        assert_eq!(k.plugins.generation(), generation + 1);
+        assert!(k.stops().is_empty());
+        let saved = k.saved_entry();
+        assert_eq!(saved.state, EntryState::Ready);
+        assert!(!saved.enabled);
+        assert_eq!(saved.granted, row.entry.granted);
+        assert!(!k.reboot().is_enabled(ID));
+
+        // Enabling afterwards needs no grants.
+        let row = enable(&k.data, &k.plugins, ID, None, false, None).unwrap();
+        assert!(row.entry.enabled);
+        assert!(k.plugins.is_enabled(ID));
+    }
+
+    #[test]
+    fn approve_refuses_what_enable_refuses() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage", "ui.toast"]));
+        let before = k.plugins.snapshot();
+        let generation = k.plugins.generation();
+        let caps = grants(&["storage", "ui.toast"]);
+        for reviewed in [None, Some("0".repeat(64))] {
+            let err = approve(
+                &k.data,
+                &k.plugins,
+                ID,
+                Some(&caps),
+                false,
+                reviewed.as_deref(),
+            )
+            .unwrap_err();
+            assert_eq!(err.code, ErrorCode::ManifestChanged, "{reviewed:?}");
+        }
+        let cases: [Option<&[&str]>; 4] = [
+            None,
+            Some(&["storage"]),
+            Some(&["storage", "ui.toast", "network"]),
+            Some(&["storage", "storage"]),
+        ];
+        for case in cases {
+            let err = approval(&k.plugins, &k.data, case, true).unwrap_err();
+            assert_eq!(err.code, ErrorCode::ConsentMismatch, "{case:?}");
+        }
+        assert_eq!(k.plugins.snapshot(), before);
+        assert_eq!(k.plugins.generation(), generation);
+
+        let err = approve(&k.data, &k.plugins, "com.example.none", None, false, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound);
+    }
+
+    #[test]
+    fn approving_a_native_plugin_needs_the_acknowledgement() {
+        let k = Kit::new();
+        k.install(&native("1.0.0", &["audio.tap"]));
+        let err = approval(&k.plugins, &k.data, Some(&["audio.tap"]), false).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NativeAckRequired);
+        assert_eq!(
+            k.plugins.snapshot().entries[0].state,
+            EntryState::NeedsConsent
+        );
+        let row = approval(&k.plugins, &k.data, Some(&["audio.tap"]), true).unwrap();
+        assert_eq!(row.entry.state, EntryState::Ready);
+        assert!(!row.entry.enabled);
+    }
+
+    #[test]
+    fn approving_a_ready_plugin_changes_nothing() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        k.enable(&["storage"]);
+        let before = k.plugins.snapshot();
+        let generation = k.plugins.generation();
+
+        // Enabled stays enabled.
+        let row = approve(&k.data, &k.plugins, ID, None, false, None).unwrap();
+        assert!(row.entry.enabled);
+        assert!(k.plugins.is_enabled(ID));
+        assert_eq!(k.plugins.snapshot(), before);
+        assert_eq!(k.plugins.generation(), generation);
+
+        // Disabled stays disabled.
+        disable(&k.data, &k.plugins, ID).unwrap();
+        let before = k.plugins.snapshot();
+        let generation = k.plugins.generation();
+        let row = approval(&k.plugins, &k.data, Some(&["storage"]), false).unwrap();
+        assert!(!row.entry.enabled);
+        assert!(!k.plugins.is_enabled(ID));
+        assert_eq!(k.plugins.snapshot(), before);
+        assert_eq!(k.plugins.generation(), generation);
+        assert_eq!(k.stops(), [ID]);
+    }
+
+    #[test]
+    fn approve_demotes_a_changed_folder_as_enable_does() {
+        let k = Kit::new();
+        let first = ui("1.0.0", &["storage"]);
+        k.install(&first);
+        k.enable(&["storage"]);
+        let mut edited = first.clone();
+        edited["name"] = json!("Edited");
+        let edited = edited.to_string();
+        fs::write(plugin_dir(&k.data, ID).join("plugin.json"), &edited).unwrap();
+        let generation = k.plugins.generation();
+        let err = approve(&k.data, &k.plugins, ID, None, false, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ManifestChanged);
+        assert_eq!(k.plugins.generation(), generation + 1);
+        let saved = k.saved_entry();
+        assert_eq!(saved.state, EntryState::NeedsConsent);
+        assert!(!saved.enabled && saved.granted.is_empty());
+        assert_eq!(saved.manifest_hash, manifest_hash(edited.as_bytes()));
+        assert!(
+            !k.plugins.is_enabled(ID),
+            "the demotion takes it out of service"
+        );
+        assert!(k.stops().is_empty(), "approve never calls the stopper");
+
+        fs::remove_file(plugin_dir(&k.data, ID).join("index.html")).unwrap();
+        let err = approval(&k.plugins, &k.data, Some(&["storage"]), false).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Broken);
+        assert_eq!(k.saved_entry().state, EntryState::Broken);
+    }
+
+    #[test]
+    fn approve_refuses_a_broken_plugin_and_an_unwritable_registry() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        fs::remove_dir_all(plugin_dir(&k.data, ID)).unwrap();
+        let plugins = k.reboot();
+        let err = approval(&plugins, &k.data, Some(&["storage"]), false).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Broken);
+
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        fs::remove_file(registry_file(&k.data)).unwrap();
+        fs::create_dir_all(registry_file(&k.data)).unwrap();
+        let plugins = k.reboot();
+        let err = approval(&plugins, &k.data, Some(&["storage"]), false).unwrap_err();
+        assert_eq!(err.code, ErrorCode::RegistryUnavailable);
+    }
+
+    #[test]
+    fn the_sidebar_layout_is_saved_and_returned() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        assert_eq!(
+            k.plugins.snapshot().entries[0].sidebar_layout,
+            Some(Layout::Compact)
+        );
+        let generation = k.plugins.generation();
+        let row = set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Section).unwrap();
+        assert_eq!(row.entry.sidebar_layout, Some(Layout::Section));
+        assert_eq!(k.saved_entry().sidebar_layout, Some(Layout::Section));
+        assert_eq!(k.plugins.generation(), generation + 1);
+        assert_eq!(
+            k.reboot().rows()[0].entry.sidebar_layout,
+            Some(Layout::Section)
+        );
+
+        // The same layout again changes nothing; an enabled plugin stays in service.
+        k.enable(&["storage"]);
+        let generation = k.plugins.generation();
+        set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Section).unwrap();
+        assert_eq!(k.plugins.generation(), generation);
+        let row = set_sidebar_layout(&k.data, &k.plugins, ID, Layout::Compact).unwrap();
+        assert_eq!(row.entry.sidebar_layout, Some(Layout::Compact));
+        assert!(row.entry.enabled);
+        assert!(k.plugins.is_enabled(ID));
+        assert!(k.stops().is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_layout_is_allowed_on_a_broken_plugin_and_refused_for_an_unknown_id() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        fs::remove_dir_all(plugin_dir(&k.data, ID)).unwrap();
+        let plugins = k.reboot();
+        assert_eq!(plugins.rows()[0].entry.state, EntryState::Broken);
+        let row = set_sidebar_layout(&k.data, &plugins, ID, Layout::Section).unwrap();
+        assert_eq!(row.entry.sidebar_layout, Some(Layout::Section));
+        assert_eq!(row.entry.state, EntryState::Broken);
+
+        let err =
+            set_sidebar_layout(&k.data, &plugins, "com.example.none", Layout::Section).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotInstalled);
     }
 }

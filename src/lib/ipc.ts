@@ -45,7 +45,12 @@ import type {
   PlayerNotice,
   PlayerStatus,
   PluginBootState,
+  PluginInboxItem,
+  PluginInspection,
   PluginRow,
+  PluginSidebarLayout,
+  PluginUninstalled,
+  PluginUpdated,
   PlaylistM3uSummary,
   PlaylistRow,
   PlaylistSnapshot,
@@ -1181,4 +1186,90 @@ export function pluginsBootState(): Promise<PluginBootState> {
 /** The frame base URL for an enabled plugin, or null when frames are unavailable or it is not enabled. */
 export function pluginFrameUrl(id: string): Promise<string | null> {
   return invoke<string | null>("plugin_frame_url", { id });
+}
+
+/** Stages and checks a plugin folder or `.plistoplugin` file. Rejects with `{ code, detail }`. */
+export function pluginInspect(path: string): Promise<PluginInspection> {
+  return invoke<PluginInspection>("plugin_inspect", { path });
+}
+
+/** Installs an inspected plugin, turned off and needing consent. Returns its row. */
+export function pluginInstall(token: string): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_install", { token });
+}
+
+/** Drops an inspected plugin and its staged copy. */
+export function pluginDiscard(token: string): Promise<void> {
+  return invoke<void>("plugin_discard", { token });
+}
+
+/** The folders and `.plistoplugin` files waiting in the plugins inbox. */
+export function pluginInbox(): Promise<PluginInboxItem[]> {
+  return invoke<PluginInboxItem[]>("plugin_inbox");
+}
+
+/**
+ * Turns a plugin on. A plugin that needs consent takes `grants` (exactly its declared capabilities),
+ * `manifestHash` (the manifest the sheet showed) and, when native, `nativeAck`. Returns its row.
+ */
+export function pluginEnable(
+  id: string,
+  grants?: string[],
+  nativeAck?: boolean,
+  manifestHash?: string,
+): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_enable", { id, grants, nativeAck, manifestHash });
+}
+
+/** Turns a plugin off, keeping its consent. Returns its row. */
+export function pluginDisable(id: string): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_disable", { id });
+}
+
+/** Replaces an installed plugin with an inspected one. */
+export function pluginUpdate(token: string): Promise<PluginUpdated> {
+  return invoke<PluginUpdated>("plugin_update", { token });
+}
+
+/** Removes a plugin's code, and its saved data when `deleteData` is set. */
+export function pluginUninstall(id: string, deleteData: boolean): Promise<PluginUninstalled> {
+  return invoke<PluginUninstalled>("plugin_uninstall", { id, deleteData });
+}
+
+/** An installed plugin's icon as a `data:` URL, or null when it has none or it cannot be read. */
+export function pluginIcon(id: string): Promise<string | null> {
+  return invoke<string | null>("plugin_icon", { id });
+}
+
+/** A staged plugin's icon as a `data:` URL, or null when it has none or it cannot be read. */
+export function pluginStagedIcon(token: string): Promise<string | null> {
+  return invoke<string | null>("plugin_staged_icon", { token });
+}
+
+/** Sets how a plugin's sidebar items are laid out. Returns its row. */
+export function pluginSetSidebarLayout(id: string, layout: PluginSidebarLayout): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_set_sidebar_layout", { id, layout });
+}
+
+/**
+ * Records consent for an installed plugin and leaves it ready and off. Takes the same arguments as
+ * `pluginEnable`. Returns its row.
+ */
+export function pluginApprove(
+  id: string,
+  grants: string[],
+  nativeAck: boolean | undefined,
+  manifestHash: string,
+): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_approve", { id, grants, nativeAck, manifestHash });
+}
+
+/** The plugins inbox folder, created if missing. */
+export function pluginInboxPath(): Promise<string> {
+  return invoke<string>("plugin_inbox_path");
+}
+
+/** Bytes of saved data a plugin holds; 0 when it has saved nothing. */
+export function pluginDataSize(id: string): Promise<number> {
+  return invoke<number>("plugin_data_size", { id });
 }

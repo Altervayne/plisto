@@ -17,6 +17,19 @@ export async function pickFolder(): Promise<string | null> {
   }
 }
 
+/** Opens the file picker filtered to `.plistoplugin` archives, resolving with the chosen path or null. */
+export async function pickPluginFile(): Promise<string | null> {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Plisto plugin", extensions: ["plistoplugin"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Opens the image picker filtered to the accepted art formats, resolving with the path or null. */
 export async function pickImageFile(): Promise<string | null> {
   try {

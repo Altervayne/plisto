@@ -60,7 +60,7 @@ pub(super) fn old_dir(app_data: &Path, id: &str) -> PathBuf {
     plugins_dir(app_data).join(format!("{id}{OLD_SUFFIX}"))
 }
 
-fn not_installed(id: &str) -> InstallError {
+pub(super) fn not_installed(id: &str) -> InstallError {
     InstallError::new(
         ErrorCode::NotInstalled,
         format!("{id} is not installed; install it instead"),

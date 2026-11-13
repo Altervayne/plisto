@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 
 // -- Local Imports --
-use super::install::{inspect, install};
+use super::install::{inspect, install, Inspection};
 use super::lifecycle::{enable, save_failed};
 use super::paths::state_dir;
 use super::registry::{self, Entry, FileRead};
@@ -92,6 +92,34 @@ impl Kit {
         inspect(&self.data, plugins, src.to_str().unwrap(), Limits::DEFAULT)
             .unwrap()
             .token
+    }
+
+    /// Writes a source folder for `manifest` with `files` beside it, and returns its path.
+    pub fn source(&self, manifest: &Value, files: &[(&str, &[u8])]) -> PathBuf {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let src = self
+            .temp
+            .0
+            .join(format!("files-{}", N.fetch_add(1, Ordering::Relaxed)));
+        fs::create_dir_all(src.join("bin")).unwrap();
+        fs::write(src.join("plugin.json"), manifest.to_string()).unwrap();
+        fs::write(src.join("index.html"), b"<p>").unwrap();
+        fs::write(src.join("bin/tool.exe"), b"MZ").unwrap();
+        for (name, bytes) in files {
+            fs::write(src.join(name), bytes).unwrap();
+        }
+        src
+    }
+
+    /// Inspects a folder written by `source`.
+    pub fn inspect_path(&self, src: &Path) -> Inspection {
+        inspect(
+            &self.data,
+            &self.plugins,
+            src.to_str().unwrap(),
+            Limits::DEFAULT,
+        )
+        .unwrap()
     }
 
     pub fn install(&self, manifest: &Value) -> PluginRow {

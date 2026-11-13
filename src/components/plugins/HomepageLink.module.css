@@ -1,0 +1,19 @@
+/* A plugin's website as a text link; the text can wrap anywhere so a long address never breaks the layout. */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.plain {
+  overflow-wrap: anywhere;
+}

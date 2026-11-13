@@ -1,0 +1,68 @@
+/* The details panel under an open row: a soft recess holding what the plugin can do, who made it and its actions. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 2px 8px 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+}
+
+.rowx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  min-height: 28px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(70px, 140px) minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.facts dt {
+  color: var(--ink-3);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.can {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-left: -12px;
+}
+
+.origins {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+  color: var(--ink-3);
+}

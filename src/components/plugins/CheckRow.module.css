@@ -1,0 +1,72 @@
+/* A labelled checkbox row: a small rounded box that fills with the accent when ticked. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 5px;
+  background: transparent;
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.row:not(:disabled):hover .box {
+  border-color: var(--ink-2);
+}
+
+.row[aria-checked="true"] .box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.box::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0;
+}
+
+.row[aria-checked="true"] .box::after {
+  opacity: 1;
+}
+
+.label {
+  min-width: 0;
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+.trailing {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

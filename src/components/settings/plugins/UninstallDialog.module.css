@@ -1,0 +1,7 @@
+/* The data tick and the line that the library is untouched, set under the prompt of the confirm dialog. */
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}

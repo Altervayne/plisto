@@ -1,0 +1,17 @@
+/* The icon tile: a soft recess holding the plugin's own icon, or the generic puzzle piece. */
+.tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  color: var(--ink-2);
+  overflow: hidden;
+}
+
+.img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}

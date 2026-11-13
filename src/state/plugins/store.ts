@@ -18,10 +18,15 @@ interface PluginsStore {
   /** Null until the boot state has been read once. */
   boot: PluginBootState | null;
   status: PluginsLoadStatus;
+  /** Bumped by every local row change, so a listing that began before one can be told apart. */
+  epoch: number;
   setStatus: (status: PluginsLoadStatus) => void;
   /** Applies a fresh listing, keeping the rows and the array that did not change. */
   applyRows: (rows: PluginRow[]) => void;
   applyBoot: (boot: PluginBootState) => void;
+  /** Puts one row in place, appending it when its id is new. The next listing settles the order. */
+  upsertRow: (row: PluginRow) => void;
+  removeRow: (id: string) => void;
 }
 
 const sameRow = (a: PluginRow, b: PluginRow): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -41,8 +46,22 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
   rows: [],
   boot: null,
   status: "idle",
+  epoch: 0,
   setStatus: (status) => set({ status }),
   applyRows: (rows) => set((s) => ({ rows: reuse(s.rows, rows) })),
+  upsertRow: (row) =>
+    set((s) => {
+      const at = s.rows.findIndex((r) => r.id === row.id);
+      const epoch = s.epoch + 1;
+      if (at < 0) return { rows: [...s.rows, row], epoch };
+      if (sameRow(s.rows[at], row)) return { epoch };
+      return { rows: s.rows.map((r, i) => (i === at ? row : r)), epoch };
+    }),
+  removeRow: (id) =>
+    set((s) => ({
+      rows: s.rows.some((r) => r.id === id) ? s.rows.filter((r) => r.id !== id) : s.rows,
+      epoch: s.epoch + 1,
+    })),
   applyBoot: (boot) =>
     set((s) => (s.boot && s.boot.safe_mode === boot.safe_mode && s.boot.unclean === boot.unclean ? s : { boot })),
 }));

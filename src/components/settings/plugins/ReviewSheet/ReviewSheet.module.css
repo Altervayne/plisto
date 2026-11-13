@@ -1,0 +1,323 @@
+/*
+ * The review sheet: the confirm dialog's scrim and lifted card, widened, portalled to the body. The
+ * header and the actions stay put and the body between them scrolls, so a long reason or eight network
+ * origins never push the buttons off the window. Weight comes from the extra step and the plain
+ * warning box, not from colour. No dividers; space separates the parts.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fade-in var(--dur-soft) var(--ease-cover) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.sheet {
+  position: relative;
+  width: min(480px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+
+.sheet:focus {
+  outline: none;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 22px 12px;
+}
+
+.headText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nameRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.nameText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.version {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.byline {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+/* The scroll area gives way first when the sheet meets the window edge. */
+.area {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.area :global(.hide-native-scrollbar) {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 6px 22px 12px;
+}
+
+.sect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.prompt {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.box {
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.warnNote {
+  color: var(--warn);
+}
+
+.caps {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.caps > li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.caps > li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transform: translateY(-3px);
+}
+
+.capText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.origins {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.origins > li {
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--pill);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 22px 20px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cancel,
+.confirm {
+  padding: 8px 15px;
+  border: 0;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  background: var(--veil);
+  color: var(--ink);
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.cancel {
+  color: var(--ink-2);
+}
+
+.cancel:hover {
+  background: var(--veil-2);
+  color: var(--ink);
+}
+
+.confirm {
+  background: var(--accent-solid);
+  color: var(--on-solid);
+}
+
+.confirm:hover {
+  filter: brightness(1.08);
+}
+
+.cancel:disabled,
+.confirm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* Static steps while a command runs: nothing animates. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+}
+
+.steps > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-3);
+}
+
+.steps > li.now {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.steps > li.done {
+  color: var(--ink-2);
+}
+
+.dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-3);
+}
+
+.now .dot {
+  border-color: var(--accent);
+}
+
+.done .dot {
+  border-color: var(--good);
+  background: var(--good);
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}

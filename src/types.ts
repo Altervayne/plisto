@@ -956,9 +956,29 @@ export type PluginCapability =
 /** How a plugin's sidebar items are laid out. Mirrors Layout in sidebar_decl.rs. */
 export type PluginSidebarLayout = "compact" | "section";
 
+/** Whether the running Plisto satisfies a manifest's `min_plisto`. Mirrors Compat in manifest.rs. */
+export type PluginCompat = { state: "compatible" } | { state: "needs_newer"; min_plisto: string };
+
+/**
+ * The manifest fields a row shows, read from the installed `plugin.json`. Mirrors ManifestSummary in
+ * plugins/summary.rs. `origins` are the declared network origins; `sidebar_items` counts the declared
+ * sidebar entries.
+ */
+export interface PluginManifestSummary {
+  name: string;
+  author: string;
+  homepage: string | null;
+  capabilities: PluginCapability[];
+  origins: string[];
+  native_reason: string | null;
+  sidebar_items: number;
+  compat: PluginCompat;
+}
+
 /**
  * One registry entry with the problem found at boot, if any. Mirrors PluginRow in state.rs, whose entry
  * is flattened in. A broken row adopted from an invalid manifest carries placeholder tier and version.
+ * `manifest` is null when the installed manifest cannot be read.
  */
 export interface PluginRow {
   id: string;
@@ -975,10 +995,84 @@ export interface PluginRow {
   /** Set only while a formerly ready plugin sits broken or incompatible: whether it was enabled. */
   ready_enabled?: boolean;
   problem: string | null;
+  manifest: PluginManifestSummary | null;
 }
 
 /** What the previous run left behind. Mirrors BootState in session.rs. */
 export interface PluginBootState {
   safe_mode: boolean;
   unclean: boolean;
+}
+
+/** What the review sheet shows before an install or update. Mirrors Inspection in install.rs. */
+export interface PluginInspection {
+  token: string;
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  tier: PluginTier;
+  capabilities: PluginCapability[];
+  native_reason: string | null;
+  homepage: string | null;
+  compat: PluginCompat;
+  file_count: number;
+  total_bytes: number;
+  /** The installed version when the id is already installed; empty when only its folder exists. */
+  installed: string | null;
+  origins: string[];
+  sidebar_items: number;
+}
+
+/** What waits in the plugins inbox folder. Mirrors InboxItem in install.rs. */
+export interface PluginInboxItem {
+  name: string;
+  path: string;
+  kind: "folder" | "file";
+}
+
+/** The result of an update. Mirrors Updated in update.rs. */
+export interface PluginUpdated {
+  row: PluginRow;
+  previous_version: string;
+}
+
+/** The result of an uninstall. Mirrors Uninstalled in lifecycle.rs. */
+export interface PluginUninstalled {
+  id: string;
+  /** Set when the saved data was to be deleted and could not be. */
+  data_warning: string | null;
+}
+
+/** Every stable `code` an install or lifecycle command rejects with. Mirrors ErrorCode in install_error.rs. */
+export type PluginInstallErrorCode =
+  | "not_found"
+  | "too_large"
+  | "too_many_files"
+  | "unsafe_path"
+  | "link_not_allowed"
+  | "stream_not_allowed"
+  | "name_collision"
+  | "bad_archive"
+  | "invalid_manifest"
+  | "bad_icon"
+  | "missing_file"
+  | "already_installed"
+  | "unknown_token"
+  | "registry_unavailable"
+  | "io"
+  | "not_installed"
+  | "tier_changed"
+  | "incompatible"
+  | "broken"
+  | "manifest_changed"
+  | "consent_mismatch"
+  | "native_ack_required"
+  | "needs_reinstall"
+  | "busy";
+
+/** The rejection of an install or lifecycle command. `detail` is for logs, never for the user. */
+export interface PluginInstallError {
+  code: PluginInstallErrorCode;
+  detail: string;
 }

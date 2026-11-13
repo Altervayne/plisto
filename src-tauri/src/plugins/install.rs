@@ -29,6 +29,7 @@ use super::revalidate::{check_folder, needs_newer};
 use super::sidebar_decl::Layout;
 use super::stage::{fits_under, Limits, Totals};
 use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
+use super::summary::sidebar_item_count;
 
 const MAX_INBOX: usize = 64;
 const PLUGIN_EXT: &str = "plistoplugin";
@@ -57,6 +58,10 @@ pub struct Inspection {
     pub total_bytes: u64,
     /// The installed version when the id is already installed; empty when only its folder exists.
     pub installed: Option<String>,
+    /// The network origins the manifest declares.
+    pub origins: Vec<String>,
+    /// How many sidebar items the manifest declares.
+    pub sidebar_items: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -177,6 +182,7 @@ pub fn inspect(
     if let Some(old) = evicted {
         let _ = fs::remove_dir_all(old.dir);
     }
+    let sidebar_items = sidebar_item_count(&manifest);
     Ok(Inspection {
         token,
         id: manifest.id,
@@ -191,6 +197,8 @@ pub fn inspect(
         file_count: totals.files,
         total_bytes: totals.bytes,
         installed,
+        origins: manifest.network,
+        sidebar_items,
     })
 }
 
@@ -355,6 +363,13 @@ pub fn discard(plugins: &PluginsState, token: &str) {
     }
 }
 
+/// The inbox folder, created if missing.
+pub fn inbox_path(app_data: &Path) -> Result<String, InstallError> {
+    let dir = inbox_dir(app_data);
+    fs::create_dir_all(&dir).map_err(|e| InstallError::io("cannot create the inbox", e))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 /// The folders and `.plistoplugin` files directly in the inbox, sorted by name. Creates the inbox.
 pub fn inbox(app_data: &Path) -> Result<Vec<InboxItem>, InstallError> {
     let dir = inbox_dir(app_data);
@@ -429,6 +444,8 @@ mod tests {
     use crate::plugins::revalidate::{adopt_folders, manifest_hash};
     use crate::plugins::stage::{Temp, MAX_FULL_PATH};
     use crate::plugins::state::MAX_STAGED;
+    use crate::plugins::test_kit::{ui, Kit};
+    use serde_json::json;
     use std::collections::HashSet;
     use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
@@ -871,5 +888,45 @@ mod tests {
             fs::write(dir.join(format!("p{n:02}.plistoplugin")), b"").unwrap();
         }
         assert_eq!(inbox(&data).unwrap().len(), MAX_INBOX);
+    }
+
+    #[test]
+    fn an_inspection_carries_the_origins_and_sidebar_count() {
+        let k = Kit::new();
+        let mut manifest = ui("1.0.0", &["network", "ui.sidebar"]);
+        manifest["network"] = json!(["https://a.example.com"]);
+        manifest["sidebar"] = json!({
+            "layout": "compact",
+            "items": [
+                {"id": "home", "type": "nav", "label": "Home", "route": "/"},
+                {"id": "more", "type": "nav", "label": "More", "route": "/more"}
+            ]
+        });
+        let found = k.inspect_path(&k.source(&manifest, &[]));
+        assert_eq!(found.origins, ["https://a.example.com"]);
+        assert_eq!(found.sidebar_items, 2);
+
+        let plain = k.inspect_path(&k.source(&ui("1.0.0", &[]), &[]));
+        assert!(plain.origins.is_empty());
+        assert_eq!(plain.sidebar_items, 0);
+        let json = serde_json::to_value(&plain).unwrap();
+        assert_eq!(json["origins"], json!([]));
+        assert_eq!(json["sidebar_items"], 0);
+    }
+
+    #[test]
+    fn the_inbox_path_is_created_when_missing() {
+        let t = Temp::new("inbox-path");
+        let path = inbox_path(&t.0).unwrap();
+        assert_eq!(Path::new(&path), inbox_dir(&t.0));
+        assert!(Path::new(&path).is_dir());
+        assert_eq!(inbox_path(&t.0).unwrap(), path);
+    }
+
+    #[test]
+    fn the_inbox_path_fails_with_io_when_a_file_is_in_the_way() {
+        let t = Temp::new("inbox-path");
+        fs::write(plugins_dir(&t.0), b"").unwrap();
+        assert_eq!(inbox_path(&t.0).unwrap_err().code, ErrorCode::Io);
     }
 }

@@ -29,6 +29,7 @@ const row = (id: string, enabled = false): PluginRow => ({
   sidebar_layout: null,
   sidebar_collapsed: false,
   problem: null,
+  manifest: null,
 });
 const BOOT: PluginBootState = { safe_mode: false, unclean: false };
 const state = () => usePluginsStore.getState();
@@ -169,5 +170,77 @@ describe("enabled rows", () => {
     expect(enabledOf(state().rows)).toBe(first);
     state().applyRows([row("a", true), row("b", true)]);
     expect(enabledOf(state().rows)).not.toBe(first);
+  });
+});
+
+describe("a listing that began before a local change", () => {
+  /** A listing the test settles by hand. */
+  const held = () => {
+    let settle!: (rows: PluginRow[]) => void;
+    const promise = new Promise<PluginRow[]>((resolve) => (settle = resolve));
+    return { promise, settle };
+  };
+
+  it("does not undo an upsert: it is discarded and read once more", async () => {
+    pluginsList.mockResolvedValueOnce([row("a")]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    const slow = held();
+    pluginsList.mockReturnValueOnce(slow.promise).mockResolvedValue([row("a", true)]);
+    fire();
+    await vi.advanceTimersByTimeAsync(0);
+    state().upsertRow(row("a", true));
+    slow.settle([row("a", false)]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pluginsList).toHaveBeenCalledTimes(3);
+    expect(state().rows).toEqual([row("a", true)]);
+  });
+
+  it("does not bring a removed row back", async () => {
+    pluginsList.mockResolvedValueOnce([row("a"), row("b")]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    const slow = held();
+    pluginsList.mockReturnValueOnce(slow.promise).mockResolvedValue([row("b")]);
+    fire();
+    await vi.advanceTimersByTimeAsync(0);
+    state().removeRow("a");
+    slow.settle([row("a"), row("b")]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().rows.map((r) => r.id)).toEqual(["b"]);
+  });
+
+  it("applies the second read even if the store changed again meanwhile", async () => {
+    pluginsList.mockResolvedValueOnce([row("a")]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    const first = held();
+    const second = held();
+    pluginsList.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    fire();
+    await vi.advanceTimersByTimeAsync(0);
+    state().upsertRow(row("a", true));
+    first.settle([row("a")]);
+    await vi.advanceTimersByTimeAsync(0);
+    state().upsertRow(row("a", false));
+    second.settle([row("a", true)]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().rows).toEqual([row("a", true)]);
+    expect(pluginsList).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports whether a reload read the list", async () => {
+    const { reloadPlugins } = await import("./usePluginsSync");
+    pluginsList.mockResolvedValueOnce([row("a")]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    pluginsList.mockResolvedValue([row("a")]);
+    const ok = reloadPlugins();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await ok).toBe(true);
+    pluginsList.mockRejectedValue(new Error("gone"));
+    const bad = reloadPlugins();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await bad).toBe(false);
   });
 });
