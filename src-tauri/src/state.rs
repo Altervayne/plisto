@@ -75,6 +75,8 @@ pub struct AppState {
     pub startup_file: Mutex<Option<Vec<String>>>,
     /// Set when an OS-launch batch was wholly unreadable; taken once by get_startup_error.
     pub startup_error: Mutex<Option<PlayerNotice>>,
+    /// Set once the main webview's plugin frame handler is installed; false means no frame may mount.
+    pub frames_ready: AtomicBool,
 }
 
 #[cfg(test)]
@@ -120,6 +122,7 @@ impl AppState {
             close_to_tray: AtomicBool::new(false),
             startup_file: Mutex::new(None),
             startup_error: Mutex::new(None),
+            frames_ready: AtomicBool::new(false),
         }
     }
 }

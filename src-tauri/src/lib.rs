@@ -262,6 +262,7 @@ pub fn run() {
                 close_to_tray: AtomicBool::new(close_to_tray),
                 startup_file: Mutex::new(startup_file),
                 startup_error: Mutex::new(None),
+                frames_ready: AtomicBool::new(false),
             });
 
             // Feed the cold-launch files into the same buffer the warm forwards push into, now that its
@@ -297,6 +298,24 @@ pub fn run() {
 
             // Start the loudness worker on its own connection, once the state it reads is managed.
             loudness::spawn(app.handle().clone(), loudness_rx, levelling_on);
+
+            // Plugin pages load into sandboxed frames in the main window only, answered by its own
+            // request handler. No frame URL is handed out unless the handler is in place.
+            #[cfg(windows)]
+            if let Some(main) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                let app_data = data_dir.clone();
+                let _ = main.with_webview(move |pw| {
+                    let installed = plugins::frame_host_win::install(&pw, handle.clone(), app_data);
+                    if let Err(e) = &installed {
+                        eprintln!("plugin frames unavailable: {e}");
+                    }
+                    handle
+                        .state::<AppState>()
+                        .frames_ready
+                        .store(installed.is_ok(), Ordering::SeqCst);
+                });
+            }
 
             Ok(())
         })
@@ -450,7 +469,8 @@ pub fn run() {
             commands::splice::splice_parse_cue,
             commands::visualizer::get_visualizer_defaults,
             commands::visualizer::set_album_visualizer,
-            commands::visualizer::set_track_visualizer
+            commands::visualizer::set_track_visualizer,
+            commands::plugins::plugin_frame_url
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

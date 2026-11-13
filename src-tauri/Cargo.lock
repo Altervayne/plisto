@@ -3299,7 +3299,9 @@ dependencies = [
  "tauri-plugin-updater",
  "unicode-normalization",
  "walkdir",
+ "webview2-com",
  "windows 0.58.0",
+ "windows 0.62.2",
  "windows-core 0.58.0",
 ]
 

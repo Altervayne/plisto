@@ -18,7 +18,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+# Pinned exactly: the plugin frame sandbox rests on how this tauri, its tauri-runtime-wry and wry
+# classify and deliver frame IPC. A bump means re-running the sandbox probe first; a cargo test
+# fails while the lockfile drifts from the probed versions.
+tauri = { version = "=2.12.5", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
@@ -92,5 +95,13 @@ windows = { version = "0.58", features = [
     "Storage_Streams",
     "Foundation",
     "implement",
+] }
+# The plugin frame host's WebView2 handler. These are the exact versions wry builds against, so the
+# controller `with_webview` hands out has the same types as these imports.
+webview2-com = "=0.39.1"
+windows62 = { package = "windows", version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
 ] }
 

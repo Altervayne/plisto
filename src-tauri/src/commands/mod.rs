@@ -23,6 +23,7 @@ pub mod player;
 pub mod plays;
 pub mod playlist_export;
 pub mod playlists;
+pub mod plugins;
 pub mod relocate;
 pub mod roots;
 pub mod settings;
