@@ -7,7 +7,7 @@
  */
 
 // -- Library Imports --
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,7 +16,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use serde::Serialize;
 
 // -- Local Imports --
+use super::api::state::ApiState;
 use super::install::sweep_staging;
+use super::manifest::{Capability, Tier};
 use super::install_error::{ErrorCode, InstallError};
 use super::registry::{self, Entry, EntryState, FileRead, Registry};
 use super::revalidate::{adopt_folders, demote, revalidate, Problems};
@@ -38,18 +40,38 @@ impl<F: Fn(&str) + Send + Sync> Stopper for F {
     }
 }
 
-/// The ids of enabled, ready plugins. Cheap to clone; every clone sees the same set.
+/// What a serving plugin was granted, copied out of its registry entry so plugin calls never wait
+/// on the registry lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Serving {
+    pub tier: Tier,
+    pub version: String,
+    pub granted: Vec<Capability>,
+}
+
+/// The enabled, ready plugins. Cheap to clone; every clone sees the same set.
 #[derive(Clone, Default)]
-pub struct EnabledSet(Arc<RwLock<HashSet<String>>>);
+pub struct EnabledSet(Arc<RwLock<HashMap<String, Serving>>>);
 
 impl EnabledSet {
     /// Whether the id may be served. A poisoned lock answers no.
     pub fn contains(&self, id: &str) -> bool {
-        self.0.read().is_ok_and(|set| set.contains(id))
+        self.0.read().is_ok_and(|set| set.contains_key(id))
     }
 
-    fn replace(&self, ids: HashSet<String>) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = ids;
+    /// The id's serving entry. A poisoned lock answers none.
+    pub fn serving(&self, id: &str) -> Option<Serving> {
+        self.0.read().ok()?.get(id).cloned()
+    }
+
+    /// A set serving only `id`, for handler tests.
+    #[cfg(test)]
+    pub(crate) fn only(id: &str, serving: Serving) -> EnabledSet {
+        EnabledSet(Arc::new(RwLock::new(HashMap::from([(id.to_string(), serving)]))))
+    }
+
+    fn replace(&self, serving: HashMap<String, Serving>) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = serving;
     }
 
     fn remove(&self, id: &str) {
@@ -80,10 +102,10 @@ struct Inner {
 }
 
 impl Inner {
-    fn serving_ids(&self) -> HashSet<String> {
-        let mut ids = self.registry.serving_ids();
-        ids.retain(|id| !self.held_out.contains(id));
-        ids
+    fn serving(&self) -> HashMap<String, Serving> {
+        let mut serving = self.registry.serving();
+        serving.retain(|id, _| !self.held_out.contains(id));
+        serving
     }
 }
 
@@ -125,12 +147,13 @@ pub struct PluginsState {
     stopper: RwLock<Arc<dyn Stopper>>,
     // Bumped by every registry change kept in memory, so a caller can tell whether its call changed it.
     generation: AtomicU64,
+    api: ApiState,
 }
 
 impl PluginsState {
     pub fn new(registry: Registry, problems: Problems, boot: BootState) -> PluginsState {
         let enabled = EnabledSet::default();
-        enabled.replace(registry.serving_ids());
+        enabled.replace(registry.serving());
         PluginsState {
             inner: Mutex::new(Inner {
                 registry,
@@ -143,6 +166,7 @@ impl PluginsState {
             registry_writable: true,
             stopper: RwLock::new(Arc::new(|_: &str| {})),
             generation: AtomicU64::new(0),
+            api: ApiState::default(),
         }
     }
 
@@ -210,7 +234,7 @@ impl PluginsState {
     /// never disagree.
     pub fn replace(&self, registry: Registry, problems: Problems) {
         let mut inner = self.inner();
-        self.enabled.replace(registry.serving_ids());
+        self.enabled.replace(registry.serving());
         inner.registry = registry;
         inner.problems = problems;
         inner.held_out.clear();
@@ -227,8 +251,15 @@ impl PluginsState {
         *self.stopper.write().unwrap_or_else(PoisonError::into_inner) = stopper;
     }
 
-    /// Runs the stopper for `id`. Never holds a lock while the stopper runs.
+    /// The plugin API's per-plugin memory.
+    pub fn api(&self) -> &ApiState {
+        &self.api
+    }
+
+    /// Drops the plugin's API state, then runs the stopper for `id`. Never holds a state lock while
+    /// either runs.
     pub fn stop(&self, id: &str) {
+        self.api.forget(id);
         let stopper = self
             .stopper
             .read()
@@ -292,7 +323,7 @@ impl PluginsState {
                 self.mark_broken(&mut inner, app_data, id, &e.detail);
             }
         }
-        self.enabled.replace(inner.serving_ids());
+        self.enabled.replace(inner.serving());
         result
     }
 

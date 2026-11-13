@@ -8,7 +8,7 @@
  */
 
 // -- Library Imports --
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 // -- Local Imports --
 use super::manifest::{Capability, Tier};
 use super::paths::{registry_bad_file, registry_file, state_dir, validate_id};
+use super::state::Serving;
 
 /// The registry format written today. A file stamped higher was written by a newer Plisto and is
 /// not read.
@@ -161,6 +162,22 @@ impl Registry {
             .iter()
             .filter(|e| e.is_serving())
             .map(|e| e.id.clone())
+            .collect()
+    }
+
+    /// The serving entries with what plugin calls are checked against.
+    pub fn serving(&self) -> HashMap<String, Serving> {
+        self.entries
+            .iter()
+            .filter(|e| e.is_serving())
+            .map(|e| {
+                let serving = Serving {
+                    tier: e.tier,
+                    version: e.version.clone(),
+                    granted: e.granted.clone(),
+                };
+                (e.id.clone(), serving)
+            })
             .collect()
     }
 }

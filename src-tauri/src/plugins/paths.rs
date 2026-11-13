@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 
 const PLUGINS: &str = "plugins";
 const PLUGINS_DATA: &str = "plugins-data";
+const PLUGIN_KV: &str = "kv.json";
+const PLUGIN_KV_BAD: &str = "kv.json.bad";
+const PLUGIN_LOG: &str = "plugin.log";
+const PLUGIN_LOG_OLD: &str = "plugin.log.1";
 // Plisto's own plugin bookkeeping. Kept apart from `plugins/` so no file name there can read as an id.
 const STATE: &str = "plugins-state";
 const REGISTRY: &str = "registry.json";
@@ -43,6 +47,26 @@ pub fn plugin_dir(app_data: &Path, id: &str) -> PathBuf {
 /// A plugin's persistent data folder, kept outside its code folder so an update never touches it.
 pub fn data_dir(app_data: &Path, id: &str) -> PathBuf {
     app_data.join(PLUGINS_DATA).join(id)
+}
+
+/// The file behind a plugin's `storage.*` calls.
+pub fn kv_file(app_data: &Path, id: &str) -> PathBuf {
+    data_dir(app_data, id).join(PLUGIN_KV)
+}
+
+/// Where a storage file that is not valid is moved, so its contents are never lost.
+pub fn kv_bad_file(app_data: &Path, id: &str) -> PathBuf {
+    data_dir(app_data, id).join(PLUGIN_KV_BAD)
+}
+
+/// The log a plugin writes through `log.write`, with Plisto's own lines about it.
+pub fn log_file(app_data: &Path, id: &str) -> PathBuf {
+    data_dir(app_data, id).join(PLUGIN_LOG)
+}
+
+/// The one rotated log kept beside `log_file`.
+pub fn log_old_file(app_data: &Path, id: &str) -> PathBuf {
+    data_dir(app_data, id).join(PLUGIN_LOG_OLD)
 }
 
 /// Where the user drops `.plistoplugin` files and folders to install.
@@ -172,6 +196,11 @@ mod tests {
             data_dir(root, "com.a.b"),
             root.join("plugins-data").join("com.a.b")
         );
+        let data = root.join("plugins-data").join("com.a.b");
+        assert_eq!(kv_file(root, "com.a.b"), data.join("kv.json"));
+        assert_eq!(kv_bad_file(root, "com.a.b"), data.join("kv.json.bad"));
+        assert_eq!(log_file(root, "com.a.b"), data.join("plugin.log"));
+        assert_eq!(log_old_file(root, "com.a.b"), data.join("plugin.log.1"));
         assert_eq!(inbox_dir(root), root.join("plugins").join("inbox"));
         assert_eq!(staging_dir(root), root.join("plugins").join(".staging"));
         let state = root.join("plugins-state");

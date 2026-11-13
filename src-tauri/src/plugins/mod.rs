@@ -9,10 +9,12 @@
 // Nothing outside this module calls into it yet, so most items are unused.
 #![allow(dead_code)]
 
+pub(crate) mod api;
 pub(crate) mod copy_in;
 pub(crate) mod data_size;
 pub(crate) mod extract;
 pub(crate) mod frame_host;
+pub(crate) mod frame_host_files;
 #[cfg(test)]
 mod frame_host_guards;
 #[cfg(windows)]
