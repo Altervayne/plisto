@@ -1,0 +1,97 @@
+/*
+ * The release notes body. The scroll cap is a flex shrink: the modal's own max-height is the only definite
+ * length, so the viewport takes whatever room is left between the header and the footer and scrolls past it.
+ */
+.area {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.area :global(.hide-native-scrollbar) {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+}
+
+.notes {
+  padding: 6px 36px 22px 28px;
+}
+
+.notes:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: var(--r-md);
+}
+
+.heading {
+  margin: 26px 0 12px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.paragraph {
+  max-width: 60ch;
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.heading:first-child {
+  margin-top: 0;
+}
+
+.list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item {
+  position: relative;
+  max-width: 60ch;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.item::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.72em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0 22px;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.emptyText {
+  max-width: 46ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}

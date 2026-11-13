@@ -10,7 +10,7 @@ import { useSetUpdaterAutoCheck, useUpdaterAutoCheck } from "../../state/prefere
 import {
   useCheckForUpdate,
   useIsSkippedUpdate,
-  useOpenUpdatePrompt,
+  useOpenUpdateDetails,
   useUpdaterState,
 } from "../../state/updater/store";
 import { updateOf } from "../../state/updater/machine";
@@ -30,13 +30,13 @@ import updateStyles from "./UpdatesSection.module.css";
 
 /**
  * The Settings Updates section: the running version beside Check for updates, the automatic-check
- * switch, then one line for the last result. A found update opens the prompt, and the line keeps a Show link back to it; a failed
- * check or install states its reason in the warn tone.
+ * switch, then one line for the last result. A found update keeps a See more... link on that line, which
+ * opens the details modal; a failed check or install states its reason in the warn tone.
  */
 export function UpdatesSection() {
   const state = useUpdaterState();
   const check = useCheckForUpdate();
-  const openPrompt = useOpenUpdatePrompt();
+  const openDetails = useOpenUpdateDetails();
   const t = useT();
   const [version, setVersion] = useState<string | null>(null);
 
@@ -85,8 +85,8 @@ export function UpdatesSection() {
             {skipped
               ? t((d) => d.updater.skippedLine, { version: state.update.version })
               : t((d) => d.updater.availableLine, { version: state.update.version })}{" "}
-            <button type="button" className={updateStyles.show} onClick={openPrompt}>
-              {t((d) => d.updater.show)}
+            <button type="button" className={updateStyles.show} onClick={() => openDetails("settings")}>
+              {t((d) => d.updater.seeMore)}
             </button>
           </p>
         ) : state.kind === "error" ? (
@@ -94,6 +94,18 @@ export function UpdatesSection() {
             {state.update
               ? t((d) => d.updater.installFailed, { reason: state.message })
               : t((d) => d.updater.checkFailed, { reason: state.message })}
+            {state.update ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className={updateStyles.show}
+                  onClick={() => openDetails("settings")}
+                >
+                  {t((d) => d.updater.seeMore)}
+                </button>
+              </>
+            ) : null}
           </p>
         ) : null}
         <div className={styles.row}>

@@ -1,17 +1,18 @@
 /*
  * The update card: fixed in the lower right, on the toast material - the surface lifted on a soft shadow,
  * no border - so it reads as an object resting on the ground rather than a dialog. It sits under the
- * modal sheets and over the foot-of-window toasts.
+ * modal sheets and over the foot-of-window toasts. Larger than a toast: the mark and a 17px title carry
+ * it, and nothing on it animates beyond the mount and exit fades.
  */
 .card {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  width: min(340px, calc(100vw - 40px));
+  width: min(420px, calc(100vw - 40px));
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
+  gap: 14px;
+  padding: 20px 22px 16px;
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
@@ -48,45 +49,70 @@
   }
 }
 
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+}
+
 .title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 620;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  font-weight: 660;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
-/* The notes excerpt keeps its line breaks and clamps, so a long first line never grows the card. */
-.notes {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--ink-2);
-  white-space: pre-line;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  overflow: hidden;
+/* The version on the neutral veil: the Update now button stays the card's only accent. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 11px;
+  border-radius: var(--pill);
+  background: var(--veil-2);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.card > [role="progressbar"] {
+  max-width: none;
 }
 
 .note {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink-3);
 }
 
 .error {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.4;
   color: var(--warn);
   overflow-wrap: anywhere;
 }
 
+/* The buttons' own padding sits flush with the card's text edge; the spacer pushes the decisions right. */
 .actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 -8px 0 -12px;
+}
+
+.spacer {
+  flex: 1;
 }

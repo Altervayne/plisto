@@ -7,7 +7,7 @@ import { IDLE, errorMessage, reduceUpdater, runCheck, shouldPrompt, startupCheck
 // -- Type Imports --
 import type { UpdaterEvent, UpdaterState } from "./machine";
 
-const update = { version: "2.5.0", notes: "What's new" };
+const update = { version: "2.5.0", currentVersion: "2.4.0", notes: "What's new", date: null };
 
 const run = (events: UpdaterEvent[], from: UpdaterState = IDLE) => events.reduce(reduceUpdater, from);
 

@@ -19,11 +19,23 @@ vi.mock("../../lib/ipc", () => ({
   setSetting: vi.fn(async () => {}),
 }));
 
-const found = (version: string) => ({ version, body: "Notes", close: async () => {} });
+const found = (version: string) => ({
+  version,
+  currentVersion: "2.4.0",
+  date: "2026-11-12T10:00:00Z",
+  body: "Notes",
+  close: async () => {},
+});
+
+const downloading = {
+  kind: "downloading" as const,
+  update: { version: "2.5.0", currentVersion: "2.4.0", notes: "", date: null },
+  progress: 0.2,
+};
 
 beforeEach(() => {
   checkForUpdate.mockReset();
-  useUpdaterStore.setState({ state: IDLE, promptOpen: false });
+  useUpdaterStore.setState({ state: IDLE, promptOpen: false, details: null });
   usePreferencesStore.setState({ values: {} });
 });
 
@@ -86,6 +98,73 @@ describe("updater store", () => {
     checkForUpdate.mockResolvedValue(found("2.5.1"));
     await useUpdaterStore.getState().check("startup");
     expect(useUpdaterStore.getState().promptOpen).toBe(true);
+  });
+
+  it("carries the running version and the release date into the announced update", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    expect(useUpdaterStore.getState().state).toEqual({
+      kind: "available",
+      update: { version: "2.5.0", currentVersion: "2.4.0", notes: "Notes", date: "2026-11-12T10:00:00Z" },
+    });
+  });
+
+  it("opens the details modal only when an update is announced", async () => {
+    useUpdaterStore.getState().openDetails("settings");
+    expect(useUpdaterStore.getState().details).toBeNull();
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("prompt");
+    expect(useUpdaterStore.getState().details).toBe("prompt");
+  });
+
+  it("closes the modal without deciding anything, leaving the prompt up", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("prompt");
+    useUpdaterStore.getState().closeDetails();
+    expect(useUpdaterStore.getState().details).toBeNull();
+    expect(useUpdaterStore.getState().promptOpen).toBe(true);
+    expect(usePreferencesStore.getState().values).toEqual({});
+  });
+
+  it("closes the modal and the prompt on Later, writing nothing", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("prompt");
+    useUpdaterStore.getState().later();
+    expect(useUpdaterStore.getState().details).toBeNull();
+    expect(useUpdaterStore.getState().promptOpen).toBe(false);
+    expect(usePreferencesStore.getState().values).toEqual({});
+  });
+
+  it("stores the version and closes the modal and the prompt on Skip", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("prompt");
+    useUpdaterStore.getState().skip();
+    expect(useUpdaterStore.getState().details).toBeNull();
+    expect(useUpdaterStore.getState().promptOpen).toBe(false);
+    expect(usePreferencesStore.getState().values[PREF_KEYS.updaterSkipped]).toBe("2.5.0");
+  });
+
+  it("keeps the modal and the prompt through Later while a download runs", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("prompt");
+    useUpdaterStore.setState({ state: downloading });
+    useUpdaterStore.getState().later();
+    expect(useUpdaterStore.getState().details).toBe("prompt");
+    expect(useUpdaterStore.getState().promptOpen).toBe(true);
+  });
+
+  it("drops an open modal when a new check starts", async () => {
+    checkForUpdate.mockResolvedValue(found("2.5.0"));
+    await useUpdaterStore.getState().check("startup");
+    useUpdaterStore.getState().openDetails("settings");
+    const pending = useUpdaterStore.getState().check("manual");
+    expect(useUpdaterStore.getState().details).toBeNull();
+    await pending;
   });
 
   it("reports a failed manual check as an error, never up to date", async () => {

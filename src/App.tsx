@@ -7,6 +7,7 @@ import { WorkspaceGate } from "./components/WorkspaceGate";
 import { AppShell } from "./components/shell/AppShell";
 import { ConfirmQuitDialog } from "./components/shell/ConfirmQuitDialog";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { UpdateDetails } from "./components/updater/UpdateDetails";
 import { UpdatePrompt } from "./components/updater/UpdatePrompt";
 
 // -- State Imports --
@@ -75,6 +76,7 @@ function App() {
       </div>
       <ConfirmQuitDialog />
       <UpdatePrompt />
+      <UpdateDetails />
     </div>
   );
 }

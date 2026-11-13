@@ -1,6 +1,6 @@
 /*
- * The updater store: the machine's live state, whether the prompt is up, and the actions behind the
- * startup check, the Settings button and the prompt. The plugin's Update handle is a backend resource, so
+ * The updater store: the machine's live state, whether the prompt is up, whether the details modal is open
+ * and from where, and the actions behind the startup check, the Settings button, the prompt and the modal. The plugin's Update handle is a backend resource, so
  * it lives beside the store rather than in it; a newer check releases the one it replaces.
  */
 
@@ -22,14 +22,19 @@ import type { UpdateInfo, UpdaterEvent, UpdaterState } from "./machine";
 /** Where a check came from: the quiet one after boot, or the Settings button. */
 export type CheckSource = "startup" | "manual";
 
+/** Where the details modal was opened from: the prompt hides while it is open and returns after. */
+export type DetailsOrigin = "prompt" | "settings";
+
 interface UpdaterStore {
   state: UpdaterState;
   promptOpen: boolean;
+  details: DetailsOrigin | null;
   check: (source: CheckSource) => Promise<void>;
   install: () => Promise<void>;
   later: () => void;
   skip: () => void;
-  openPrompt: () => void;
+  openDetails: (origin: DetailsOrigin) => void;
+  closeDetails: () => void;
 }
 
 let held: Update | null = null;
@@ -46,15 +51,25 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => {
   return {
     state: IDLE,
     promptOpen: false,
+    details: null,
 
     check: async (source) => {
       const kind = get().state.kind;
       if (kind === "checking" || kind === "downloading" || kind === "ready") return;
       dispatch({ type: "check" });
+      // The check drops the announced update, so a modal open on it has nothing left to show.
+      set({ details: null });
       const outcome = await runCheck(async (): Promise<UpdateInfo | null> => {
         const update = await checkForUpdate();
         hold(update);
-        return update ? { version: update.version, notes: update.body ?? "" } : null;
+        return update
+          ? {
+              version: update.version,
+              currentVersion: update.currentVersion,
+              notes: update.body ?? "",
+              date: update.date ?? null,
+            }
+          : null;
       });
       // The startup check stays silent on failure: offline at launch is not worth a word.
       if (outcome.type === "checkFailed" && source === "startup") {
@@ -82,25 +97,28 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => {
       }
     },
 
-    // Closes the prompt for this session only; nothing is stored, so the next launch asks again.
+    // Closes the prompt and the modal for this session only; nothing is stored, so the next launch asks again.
     later: () => {
       const { state } = get();
       if (state.kind === "downloading" || state.kind === "ready") return;
-      set({ promptOpen: false });
+      set({ promptOpen: false, details: null });
     },
 
-    // Closes the prompt and stores the version, so it stays quiet until a newer one ships.
+    // Closes the prompt and the modal and stores the version, so it stays quiet until a newer one ships.
     skip: () => {
       const { state } = get();
       if (state.kind === "downloading" || state.kind === "ready") return;
       const update = updateOf(state);
       if (update) usePreferencesStore.getState().setPreference(PREF_KEYS.updaterSkipped, update.version);
-      set({ promptOpen: false });
+      set({ promptOpen: false, details: null });
     },
 
-    openPrompt: () => {
-      if (updateOf(get().state)) set({ promptOpen: true });
+    openDetails: (origin) => {
+      if (updateOf(get().state)) set({ details: origin });
     },
+
+    // Decides nothing: a modal opened from the prompt hands the screen back to it.
+    closeDetails: () => set({ details: null }),
   };
 });
 
@@ -115,4 +133,6 @@ export const useSkipUpdate = () => useUpdaterStore((s) => s.skip);
 /** Whether the user skipped exactly this version. */
 export const useIsSkippedUpdate = (version: string): boolean =>
   usePreferencesStore((s) => s.values[PREF_KEYS.updaterSkipped] === version);
-export const useOpenUpdatePrompt = () => useUpdaterStore((s) => s.openPrompt);
+export const useUpdateDetails = (): DetailsOrigin | null => useUpdaterStore((s) => s.details);
+export const useOpenUpdateDetails = () => useUpdaterStore((s) => s.openDetails);
+export const useCloseUpdateDetails = () => useUpdaterStore((s) => s.closeDetails);

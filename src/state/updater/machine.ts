@@ -4,10 +4,14 @@
  * while a newer one prompts again.
  */
 
-/** The one announced update the prompt and Settings read. */
+/** The one announced update the prompt, the details modal and Settings read. */
 export interface UpdateInfo {
   version: string;
+  /** The running build's version, shown beside the new one. */
+  currentVersion: string;
   notes: string;
+  /** The release's publish date as the updater reports it (RFC 3339), or null when the feed has none. */
+  date: string | null;
 }
 
 export type UpdaterState =
