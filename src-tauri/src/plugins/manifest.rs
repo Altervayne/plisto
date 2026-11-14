@@ -210,6 +210,8 @@ pub struct Manifest {
     pub version: String,
     pub tier: Tier,
     pub entry: String,
+    /// A native plugin's own HTML page; a UI plugin's page is its `entry`.
+    pub page: Option<String>,
     pub capabilities: Vec<Capability>,
     pub min_plisto: String,
     pub author: String,
@@ -252,7 +254,10 @@ pub enum ManifestError {
         tier: &'static str,
         expected: &'static str,
     },
+    WrongPageType,
     WrongIconType,
+    MissingPage,
+    DeviceNeedsEvents,
     UnknownCapability(String),
     DuplicateCapability(String),
     CapabilityNotForTier {
@@ -300,7 +305,16 @@ impl fmt::Display for ManifestError {
             WrongEntryType { tier, expected } => {
                 write!(f, "a {tier} plugin's entry must be a {expected} file")
             }
+            WrongPageType => write!(f, "'page' must be a .html file"),
             WrongIconType => write!(f, "'icon' must be a .png or .svg file"),
+            MissingPage => write!(
+                f,
+                "a native plugin with a sidebar 'nav' item must give 'page', the page the item opens"
+            ),
+            DeviceNeedsEvents => write!(
+                f,
+                "the 'audio.device' capability requires 'audio.events', the only place the device is reported"
+            ),
             UnknownCapability(c) => write!(f, "unknown capability '{c}'"),
             DuplicateCapability(c) => write!(f, "capability '{c}' is listed twice"),
             CapabilityNotForTier { capability, tier } => {
@@ -357,6 +371,7 @@ struct RawManifest {
     version: Option<String>,
     tier: Option<String>,
     entry: Option<String>,
+    page: Option<String>,
     capabilities: Option<Vec<String>>,
     min_plisto: Option<String>,
     author: Option<String>,
@@ -659,7 +674,30 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         });
     }
 
+    let page = match (&raw.page, tier) {
+        (None, _) => None,
+        (Some(_), Tier::Ui) => {
+            return Err(ManifestError::BadPath {
+                field: "page",
+                reason: "is only for native plugins (a UI plugin's page is its 'entry')",
+            })
+        }
+        (Some(page), Tier::Native) => {
+            check_path(page, "page")?;
+            if !has_ext(page, ".html") {
+                return Err(ManifestError::WrongPageType);
+            }
+            Some(page.clone())
+        }
+    };
+
     let capabilities = validate_capabilities(require(raw.capabilities, "capabilities")?, tier)?;
+    // The device name and id travel only in feed events, so the capability alone grants nothing.
+    if capabilities.contains(&Capability::AudioDevice)
+        && !capabilities.contains(&Capability::AudioEvents)
+    {
+        return Err(ManifestError::DeviceNeedsEvents);
+    }
 
     let min_plisto = require(raw.min_plisto, "min_plisto")?;
     let min = SemVer::parse(&min_plisto).ok_or_else(|| ManifestError::BadVersion {
@@ -701,6 +739,12 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         Some(block) => Some(sidebar_decl::validate(block, tier, &capabilities)?),
         None => None,
     };
+    let has_nav = sidebar
+        .as_ref()
+        .is_some_and(|s| s.items.iter().any(|i| i.kind == sidebar_decl::ItemType::Nav));
+    if tier == Tier::Native && has_nav && page.is_none() {
+        return Err(ManifestError::MissingPage);
+    }
 
     let compat = match running {
         Some(r) if min > *r => Compat::NeedsNewer(min_plisto.clone()),
@@ -713,6 +757,7 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         version,
         tier,
         entry,
+        page,
         capabilities,
         min_plisto,
         author,
@@ -1075,11 +1120,119 @@ mod tests {
                 ),
                 "{cap}"
             );
+            let native_caps = if cap == "audio.device" {
+                json!([cap, "audio.events"])
+            } else {
+                json!([cap])
+            };
             assert!(
-                run(&with(native(), "capabilities", json!([cap]))).is_ok(),
+                run(&with(native(), "capabilities", native_caps)).is_ok(),
                 "{cap} native"
             );
         }
+    }
+
+    #[test]
+    fn audio_device_requires_audio_events() {
+        assert_eq!(
+            run(&with(native(), "capabilities", json!(["audio.device"]))),
+            Err(ManifestError::DeviceNeedsEvents)
+        );
+        assert_eq!(
+            run(&with(
+                native(),
+                "capabilities",
+                json!(["audio.tap", "audio.device"])
+            )),
+            Err(ManifestError::DeviceNeedsEvents)
+        );
+        for caps in [
+            json!(["audio.device", "audio.events"]),
+            json!(["audio.events", "audio.device"]),
+        ] {
+            assert!(run(&with(native(), "capabilities", caps)).is_ok());
+        }
+        assert!(ManifestError::DeviceNeedsEvents
+            .to_string()
+            .contains("audio.events"));
+    }
+
+    #[test]
+    fn page_is_accepted_on_native_and_optional() {
+        assert_eq!(run(&native()).unwrap().page, None);
+        let m = run(&with(native(), "page", json!("ui/Panel.HTML"))).unwrap();
+        assert_eq!(m.page.as_deref(), Some("ui/Panel.HTML"));
+        assert_eq!(m.entry, "bin/tool.exe");
+    }
+
+    #[test]
+    fn page_on_a_ui_manifest_rejects() {
+        assert_eq!(
+            run(&with(ui(), "page", json!("page.html"))),
+            Err(ManifestError::BadPath {
+                field: "page",
+                reason: "is only for native plugins (a UI plugin's page is its 'entry')",
+            })
+        );
+    }
+
+    #[test]
+    fn bad_page_paths_reject() {
+        for p in [
+            "",
+            "/page.html",
+            "../page.html",
+            "ui/../../x.html",
+            "C:/x.html",
+            "ui\\page.html",
+            "ui//page.html",
+            "con.html",
+            "page.html:ads",
+            "page.html.",
+        ] {
+            assert!(
+                matches!(
+                    run(&with(native(), "page", json!(p))),
+                    Err(ManifestError::BadPath { field: "page", .. })
+                ),
+                "{p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn page_must_be_html() {
+        for p in ["bin/tool.exe", "page.js", "page", ".html", "page.html.exe"] {
+            assert_eq!(
+                run(&with(native(), "page", json!(p))),
+                Err(ManifestError::WrongPageType),
+                "{p}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_nav_items_require_a_page() {
+        let v = with(native(), "capabilities", json!(["ui.sidebar"]));
+        let nav = with(
+            v.clone(),
+            "sidebar",
+            json!({ "items": [{ "id": "a", "type": "nav", "label": "A" }] }),
+        );
+        assert_eq!(run(&nav), Err(ManifestError::MissingPage));
+        let reason = ManifestError::MissingPage.to_string();
+        assert!(reason.contains("'nav'") && reason.contains("'page'"));
+        assert!(run(&with(nav, "page", json!("page.html"))).is_ok());
+
+        let live = with(
+            v,
+            "sidebar",
+            json!({ "items": [
+                { "id": "t", "type": "toggle", "label": "T" },
+                { "id": "g", "type": "action", "label": "G" }
+            ] }),
+        );
+        assert!(run(&live).is_ok());
     }
 
     #[test]
@@ -1096,7 +1249,7 @@ mod tests {
 
     #[test]
     fn ui_surface_capabilities_fit_both_tiers() {
-        for tier in [ui(), native()] {
+        for tier in [ui(), with(native(), "page", json!("page.html"))] {
             let v = with(
                 tier,
                 "capabilities",

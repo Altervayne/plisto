@@ -29,6 +29,8 @@ pub struct ManifestSummary {
     pub homepage: Option<String>,
     /// The page a frame loads, relative to the plugin's base URL.
     pub entry: String,
+    /// A native plugin's own page, relative to the plugin's base URL; null when it has none.
+    pub page: Option<String>,
     pub capabilities: Vec<Capability>,
     pub origins: Vec<String>,
     pub native_reason: Option<String>,
@@ -45,6 +47,7 @@ impl ManifestSummary {
             author: manifest.author.clone(),
             homepage: manifest.homepage.clone(),
             entry: manifest.entry.clone(),
+            page: manifest.page.clone(),
             capabilities: manifest.capabilities.clone(),
             origins: manifest.network.clone(),
             native_reason: manifest.native_reason.clone(),
@@ -121,7 +124,7 @@ pub fn updated_view(app_data: &Path, updated: Updated) -> UpdatedView {
 mod tests {
     use super::*;
     use crate::plugins::paths::plugin_dir;
-    use crate::plugins::test_kit::{ui, Kit, ID};
+    use crate::plugins::test_kit::{native, ui, Kit, ID};
     use serde_json::{json, Value};
 
     fn row_json(k: &Kit) -> Value {
@@ -219,6 +222,19 @@ mod tests {
         assert_eq!(json["manifest"]["sidebar_items"], 0);
         assert_eq!(json["manifest"]["origins"], json!([]));
         assert!(json["manifest"]["homepage"].is_null());
+    }
+
+    #[test]
+    fn the_page_serializes_when_present_and_null_when_absent() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &[]));
+        assert!(row_json(&k)["manifest"]["page"].is_null());
+
+        let k = Kit::new();
+        let mut manifest = native("1.0.0", &[]);
+        manifest["page"] = json!("index.html");
+        k.install(&manifest);
+        assert_eq!(row_json(&k)["manifest"]["page"], "index.html");
     }
 
     #[test]

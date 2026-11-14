@@ -88,7 +88,7 @@ fn plain_file(dir: &Path, rel: &str) -> bool {
 
 /// Reads, parses and checks the manifest in `dir`: the folder and manifest are plain (never a link),
 /// the manifest validates against the running Plisto, its id is `id` when one is given, its icon passes
-/// the disk checks and its entry file exists. Returns the manifest and the hash of its bytes.
+/// the disk checks and its entry and page files exist. Returns the manifest and the hash of its bytes.
 pub fn check_folder(dir: &Path, id: Option<&str>) -> Result<(Manifest, String), CheckError> {
     let meta = fs::symlink_metadata(dir).map_err(|_| CheckError::FolderMissing)?;
     if !meta.is_dir() || is_reparse_point(&meta) {
@@ -115,6 +115,9 @@ pub fn check_folder(dir: &Path, id: Option<&str>) -> Result<(Manifest, String), 
     }
     if !plain_file(dir, &parsed.entry) {
         return Err(CheckError::MissingFile("entry"));
+    }
+    if parsed.page.as_ref().is_some_and(|page| !plain_file(dir, page)) {
+        return Err(CheckError::MissingFile("page"));
     }
     Ok((parsed, manifest_hash(&bytes)))
 }
@@ -386,6 +389,31 @@ mod tests {
         let problems = revalidate(&d.0, &mut reg);
         assert_eq!(reg.entries[0].state, EntryState::Broken);
         assert!(problems[ID].contains("icon"));
+    }
+
+    #[test]
+    fn a_missing_page_file_breaks_the_entry_and_a_present_one_passes() {
+        let d = AppData::new();
+        let json = manifest_json(
+            ID,
+            r#","page":"ui/panel.html""#,
+        )
+        .replace(r#""tier":"ui""#, r#""tier":"native","native_reason":"r""#)
+        .replace("index.html", "tool.exe");
+        d.install(ID, &json);
+        let dir = plugin_dir(&d.0, ID);
+        fs::rename(dir.join("index.html"), dir.join("tool.exe")).unwrap();
+        let mut reg = registry(vec![ready(ID, &hash_of(&json))]);
+        let problems = revalidate(&d.0, &mut reg);
+        assert_eq!(reg.entries[0].state, EntryState::Broken);
+        assert!(!reg.entries[0].enabled);
+        assert!(problems[ID].contains("'page'"), "{}", problems[ID]);
+
+        fs::create_dir_all(dir.join("ui")).unwrap();
+        fs::write(dir.join("ui").join("panel.html"), "<p></p>").unwrap();
+        let problems = revalidate(&d.0, &mut reg);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(reg.entries[0].state, EntryState::Ready);
     }
 
     #[test]
