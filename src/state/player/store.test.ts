@@ -53,3 +53,29 @@ describe("playNext", () => {
     expect(mocked.playerPlayTracks).toHaveBeenCalled();
   });
 });
+
+describe("setQueue", () => {
+  const album = { kind: "album", id: 3, label: "My Summer Romance" } as const;
+
+  beforeEach(() => {
+    mocked.getTrackDisplay.mockResolvedValue({ title: "Loose", artist: null });
+    usePlayerStore.setState({ playingFrom: album, queue: [1, 2], queueMeta: {} });
+  });
+
+  it("drops the source when opened files replace the queue", () => {
+    usePlayerStore.getState().setQueue([-4]);
+    expect(usePlayerStore.getState().playingFrom).toBeNull();
+  });
+
+  it("keeps the source when opened files join a library queue", () => {
+    usePlayerStore.getState().setQueue([1, 2, -4]);
+    expect(usePlayerStore.getState().playingFrom).toEqual(album);
+  });
+
+  it("keeps the source for a library queue and for an emptied one", () => {
+    usePlayerStore.getState().setQueue([2, 1]);
+    expect(usePlayerStore.getState().playingFrom).toEqual(album);
+    usePlayerStore.getState().setQueue([]);
+    expect(usePlayerStore.getState().playingFrom).toEqual(album);
+  });
+});

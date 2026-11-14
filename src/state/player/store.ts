@@ -164,9 +164,11 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   playingFrom: null,
   error: null,
   setStatus: (status) => set({ status }),
-  // Set the queue, then fill any ad-hoc row's display the play-time snapshot could not reach.
+  // Set the queue, then fill any ad-hoc row's display the play-time snapshot could not reach. A queue
+  // of opened files only was launched from no library source, so the source is dropped with it.
   setQueue: (queue) => {
-    set({ queue });
+    const openedFiles = queue.length > 0 && queue.every((id) => id < 0);
+    set(openedFiles ? { queue, playingFrom: null } : { queue });
     fillAdHocQueueMeta(get, set, queue);
   },
   setError: (error) => set({ error }),
