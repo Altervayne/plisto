@@ -4,6 +4,9 @@
  * dropped, on every path including a panic unwind. A cancel callback fires exactly once, with the
  * reason that ended its entry, and always outside the lock, so it may touch this state itself. A
  * stream or socket holds no in-flight slot: only the call that opens it does, until it resolves.
+ * A stream that plays through Plisto's engine is a `Playback` entry, opened behind a `PlaybackHead`
+ * until its headers: they share the stream and fetch caps, but neither a page's abort, a frame event
+ * nor the `forget` sweep ends them. They end only through `end` or their own guard.
  * A plugin's log outlives its entries and is kept until the app quits, 200 lines at most per plugin.
  */
 
@@ -33,17 +36,67 @@ pub const LOG_CAPACITY: usize = 200;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Fetch,
+    /// A stream read by the plugin's page.
     Stream,
+    /// A stream played through Plisto's engine.
+    Playback,
+    /// The request of a playback stream, until its headers.
+    PlaybackHead,
     Socket,
 }
 
 impl Kind {
+    /// The kind whose cap this one counts against.
+    fn group(self) -> Kind {
+        match self {
+            Kind::Playback => Kind::Stream,
+            Kind::PlaybackHead => Kind::Fetch,
+            kind => kind,
+        }
+    }
+
     /// Per plugin, then app-wide.
     fn caps(self) -> (usize, usize) {
-        match self {
+        match self.group() {
             Kind::Fetch => (MAX_FETCHES_PER_PLUGIN, MAX_FETCHES),
-            Kind::Stream => (MAX_STREAMS_PER_PLUGIN, MAX_STREAMS),
             Kind::Socket => (MAX_SOCKETS_PER_PLUGIN, MAX_SOCKETS),
+            _ => (MAX_STREAMS_PER_PLUGIN, MAX_STREAMS),
+        }
+    }
+
+    /// Ended by a page's abort, a frame event and `forget`; playback work is not.
+    fn ends_with_page(self) -> bool {
+        !matches!(self, Kind::Playback | Kind::PlaybackHead)
+    }
+}
+
+/// Who reads a streamed body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamKind {
+    Page,
+    Playback,
+}
+
+impl StreamKind {
+    pub fn kind(self) -> Kind {
+        match self {
+            StreamKind::Page => Kind::Stream,
+            StreamKind::Playback => Kind::Playback,
+        }
+    }
+
+    /// The kind of the slot held until the headers.
+    pub fn head_kind(self) -> Kind {
+        match self {
+            StreamKind::Page => Kind::Fetch,
+            StreamKind::Playback => Kind::PlaybackHead,
+        }
+    }
+
+    pub fn log_kind(self) -> LogKind {
+        match self {
+            StreamKind::Page => LogKind::Stream,
+            StreamKind::Playback => LogKind::Playback,
         }
     }
 }
@@ -93,6 +146,7 @@ struct Entry {
 pub enum LogKind {
     Fetch,
     Stream,
+    Playback,
     Socket,
 }
 
@@ -143,7 +197,7 @@ impl Inner {
     fn count(&self, kind: Kind, plugin: Option<&str>) -> usize {
         self.running
             .values()
-            .filter(|e| e.kind == kind && plugin.is_none_or(|id| e.plugin == id))
+            .filter(|e| e.kind.group() == kind.group() && plugin.is_none_or(|id| e.plugin == id))
             .count()
     }
 
@@ -179,6 +233,13 @@ pub struct NetState(Arc<Mutex<Inner>>);
 pub struct Running {
     state: NetState,
     key: u64,
+}
+
+impl Running {
+    /// Names the entry for `NetState::end`.
+    pub fn key(&self) -> u64 {
+        self.key
+    }
 }
 
 impl Drop for Running {
@@ -222,22 +283,36 @@ impl NetState {
         })
     }
 
-    /// Ends `id`'s entries opened with `abort_key`. Returns how many ended.
+    /// Ends `id`'s entries opened with `abort_key`, except playback work. Returns how many ended.
     pub fn abort(&self, id: &str, abort_key: &str) -> usize {
-        let callbacks =
-            lock(&self.0).take(|e| e.plugin == id && e.abort_key.as_deref() == Some(abort_key));
+        let callbacks = lock(&self.0).take(|e| {
+            e.plugin == id && e.kind.ends_with_page() && e.abort_key.as_deref() == Some(abort_key)
+        });
         fire(callbacks, EndReason::Abort)
     }
 
-    /// Ends everything `id` has running because its frame detached or crashed.
+    /// Ends the entry `key` with `why`. False when it already ended.
+    pub fn end(&self, key: u64, why: EndReason) -> bool {
+        let entry = lock(&self.0).running.remove(&key);
+        match entry {
+            Some(entry) => {
+                (entry.cancel)(why);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Ends what `id` has running because its frame detached or crashed, except playback work.
     pub fn frame_gone(&self, id: &str) {
-        let callbacks = lock(&self.0).take(|e| e.plugin == id);
+        let callbacks = lock(&self.0).take(|e| e.plugin == id && e.kind.ends_with_page());
         fire(callbacks, EndReason::FrameGone);
     }
 
-    /// Ends everything `id` has running because it stopped serving. Its log is kept.
+    /// Ends what `id` has running because it stopped serving, except playback work, which its owner
+    /// ends. Its log is kept.
     pub fn forget(&self, id: &str) {
-        let callbacks = lock(&self.0).take(|e| e.plugin == id);
+        let callbacks = lock(&self.0).take(|e| e.plugin == id && e.kind.ends_with_page());
         fire(callbacks, EndReason::Stopped);
     }
 
@@ -260,6 +335,7 @@ impl NetState {
             .unwrap_or_default()
     }
 
+    /// Counts playback work with the kind whose cap it shares.
     #[cfg(test)]
     pub fn running(&self, id: &str, kind: Kind) -> usize {
         lock(&self.0).count(kind, Some(id))
@@ -442,6 +518,54 @@ mod tests {
     #[test]
     fn forget_ends_every_entry_of_its_plugin_once() {
         end_all_of_a(|net| net.forget(A), EndReason::Stopped);
+    }
+
+    #[test]
+    fn a_playback_stream_shares_the_stream_caps() {
+        let net = NetState::default();
+        let _page = net.open(A, Kind::Stream, None, noop()).unwrap();
+        let _playback = net.open(A, Kind::Playback, None, noop()).unwrap();
+        let third = net.open(A, Kind::Playback, None, noop()).err();
+        assert_eq!(third.map(|e| e.code), Some(ApiCode::Busy));
+        assert!(net.open(A, Kind::Stream, None, noop()).is_err());
+        assert_eq!(net.running(A, Kind::Stream), 2);
+    }
+
+    #[test]
+    fn a_page_abort_skips_playback_work_with_the_same_key() {
+        let net = NetState::default();
+        let (cancel, playback) = recorder();
+        let _playback = net.open(A, Kind::Playback, Some("k"), cancel).unwrap();
+        let (cancel, head) = recorder();
+        let _head = net.open(A, Kind::PlaybackHead, Some("k"), cancel).unwrap();
+        let (cancel, page) = recorder();
+        let _page = net.open(A, Kind::Stream, Some("k"), cancel).unwrap();
+        assert_eq!(net.abort(A, "k"), 1);
+        assert_eq!(*page.lock().unwrap(), [EndReason::Abort]);
+        assert!(playback.lock().unwrap().is_empty());
+        assert!(head.lock().unwrap().is_empty());
+        assert_eq!(net.running(A, Kind::Fetch), 1);
+        assert_eq!(net.running(A, Kind::Stream), 1);
+    }
+
+    #[test]
+    fn a_playback_stream_outlives_frame_events_and_forget_and_ends_by_key() {
+        let net = NetState::default();
+        let (cancel, fired) = recorder();
+        let playback = net.open(A, Kind::Playback, Some("k"), cancel).unwrap();
+        let (cancel, page) = recorder();
+        let _page = net.open(A, Kind::Stream, None, cancel).unwrap();
+        net.frame_gone(A);
+        net.forget(A);
+        assert_eq!(*page.lock().unwrap(), [EndReason::FrameGone]);
+        assert!(fired.lock().unwrap().is_empty());
+        assert_eq!(net.running(A, Kind::Playback), 1);
+
+        assert!(net.end(playback.key(), EndReason::Stopped));
+        assert!(!net.end(playback.key(), EndReason::Abort));
+        assert_eq!(net.running(A, Kind::Playback), 0);
+        drop(playback);
+        assert_eq!(*fired.lock().unwrap(), [EndReason::Stopped]);
     }
 
     #[test]

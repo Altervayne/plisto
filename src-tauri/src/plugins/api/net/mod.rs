@@ -1,8 +1,8 @@
 /*
  * Plugin network requests. The guard (`address`, `policy`) is pure: it decides which addresses, URLs,
  * headers, methods, bodies and redirect hops a request may use, and every check fails closed. The
- * engine (`resolve`, `client`, `fetch`, `socket`) makes the requests and asks the guard before each
- * connection, and reports what arrives later through a `sink`.
+ * engine (`resolve`, `client`, `fetch`, `stream`, `socket`) makes the requests and asks the guard
+ * before each connection, and reports what arrives later through a `sink`.
  */
 
 // No method calls the engine yet; only the tests reach this module.
@@ -17,6 +17,7 @@ mod resolve;
 pub(crate) mod sink;
 mod socket;
 pub(crate) mod state;
+mod stream;
 #[cfg(test)]
 mod test_server;
 
@@ -55,6 +56,10 @@ pub const HANDSHAKE: &str = "handshake";
 pub const PLISTO_LIMIT: &str = "plisto_limit";
 /// A `dns`, `connect`, `tls` or `closed` failure while Windows has a proxy configured.
 pub const PROXY: &str = "proxy";
+/// A stream that received no byte for its idle time, with `timeout`.
+pub const IDLE: &str = "idle";
+/// A stream whose page acknowledged nothing for `STALL_MS` while data waited on it.
+pub const STALLED: &str = "stalled";
 
 /// The plugin API code a refusal maps to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,9 +1,10 @@
 /*
- * One buffered plugin request, start to end. The URL, headers and body pass the guard before anything
- * is sent. Redirects are followed here, not by the client: each hop is checked against the plugin's
- * own origins before its connection opens. The body is read up to the cap and no further, the whole
- * call runs under its deadline, and ending the call's entry (abort, frame gone, stopped) drops the
- * connection. Every call that gets past the URL check leaves one log entry, holding the origin only.
+ * One plugin request, start to end. The URL, headers and body pass the guard before anything is sent.
+ * Redirects are followed here, not by the client: each hop is checked against the plugin's own origins
+ * before its connection opens. A buffered request reads its body up to the cap and no further under
+ * one deadline. A streamed request stops at the headers and hands the open body to its reader, which
+ * writes the log entry when the stream ends. Ending a call's entry (abort, frame gone, stopped) drops
+ * the connection. Every call that gets past the URL check leaves one log entry, holding the origin only.
  */
 
 // -- Library Imports --
@@ -15,13 +16,16 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use reqwest::header::LOCATION;
 use reqwest::{Client, Response};
 use tauri::Url;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 // -- Local Imports --
 use super::client::Clients;
 use super::policy::{self, Consent, Method, ResponseHeaders, Sent, Target, Transport};
+use super::proxy::Proxy;
 use super::resolve::GuardError;
-use super::state::{CancelFn, EndReason, Kind, LogKind, NetLogEntry, NetState};
+use super::state::{
+    CancelFn, EndReason, Kind, LogKind, NetLogEntry, NetState, Running, StreamKind,
+};
 use super::{Refusal, CLOSED, CONNECT, MAX_RESPONSE_BODY, PROTOCOL, PROXY, REDIRECT, TLS};
 use crate::plugins::api::error::ApiError;
 
@@ -42,7 +46,7 @@ pub struct FetchRequest {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub redirect: RedirectMode,
-    /// The whole call, from the first lookup to the last body byte.
+    /// The whole call, from the first lookup to the last body byte; streamed, until the headers.
     pub timeout: Duration,
     pub abort_key: Option<String>,
     /// Sent unless the author set a `user-agent`.
@@ -71,6 +75,19 @@ struct Progress {
     cause: Option<&'static str>,
 }
 
+impl Progress {
+    fn at(url: Url) -> Progress {
+        Progress {
+            url,
+            status: None,
+            sent: 0,
+            received: 0,
+            on_wire: false,
+            cause: None,
+        }
+    }
+}
+
 /// Runs one buffered request for plugin `id`. It holds a fetch slot until the body is read, and ends
 /// with `aborted` as soon as its entry is ended.
 pub async fn execute(
@@ -86,14 +103,7 @@ pub async fn execute(
 
     let at_ms = unix_ms();
     let started = Instant::now();
-    let mut progress = Progress {
-        url: target.url.clone(),
-        status: None,
-        sent: 0,
-        received: 0,
-        on_wire: false,
-        cause: None,
-    };
+    let mut progress = Progress::at(target.url.clone());
     let checked = policy::check_headers(&request.headers).and_then(|headers| {
         policy::check_body(request.method, request.body.len())?;
         Ok(headers)
@@ -110,7 +120,7 @@ pub async fn execute(
                     // Past the deadline: a discovery wait never turns a failure into `timeout`.
                     Err(error) if progress.on_wire => {
                         let url = &progress.url;
-                        Err(explain(clients, error, url, &mut progress.cause).await)
+                        Err(explain(clients.proxy(), error, url, &mut progress.cause).await)
                     }
                     done => done,
                 }
@@ -127,14 +137,175 @@ pub async fn execute(
     net.record(
         id,
         log_entry(
+            LogKind::Fetch,
             request.method,
             &progress,
-            &outcome,
+            outcome.as_ref().err(),
             at_ms,
             started.elapsed(),
         ),
     );
     outcome
+}
+
+// ---- Streamed ----
+
+/// The head of a streamed response.
+pub struct StreamHead {
+    pub status: u16,
+    /// The URL that answered, after any followed redirect.
+    pub url: Url,
+    pub redirected: bool,
+    pub headers: ResponseHeaders,
+    /// None for a response without a body (`HEAD`, 204, 304): its stream entry is already released
+    /// and its log entry written.
+    pub body: Option<StreamBody>,
+}
+
+/// A streamed body still on its connection. Its reader reads `response`, ends when `ended` resolves,
+/// adds what it reads to `log.received`, and calls `finish` once, whichever way the stream ends.
+pub struct StreamBody {
+    pub response: Response,
+    /// The stream entry: it holds the stream slot until dropped.
+    pub running: Running,
+    pub ended: Ended,
+    /// The URL that answered, for `explain`.
+    pub url: Url,
+    pub log: NetLogEntry,
+    started: Instant,
+}
+
+impl StreamBody {
+    /// Drops the connection and the stream slot, then writes the log entry: complete when `error` is
+    /// none, `cause` being the transport reason a `proxy` error replaced.
+    pub fn finish(self, net: &NetState, id: &str, error: Option<&ApiError>, cause: Option<&str>) {
+        let StreamBody {
+            response,
+            running,
+            mut log,
+            started,
+            ..
+        } = self;
+        drop(response);
+        drop(running);
+        log.error = error.map(|error| error_text(error, cause));
+        log.ms = started.elapsed().as_millis() as u64;
+        net.record(id, log);
+    }
+}
+
+/// Resolves once an entry it was opened with is ended.
+pub struct Ended(mpsc::UnboundedReceiver<EndReason>);
+
+impl Ended {
+    /// The `aborted` error the entry ended with. A guard dropped with `Finished` is not an end.
+    pub async fn wait(&mut self) -> ApiError {
+        while let Some(why) = self.0.recv().await {
+            if let Some(error) = why.error() {
+                return error;
+            }
+        }
+        std::future::pending().await
+    }
+}
+
+/// A cancel callback that only sends, so it never blocks and never fails.
+fn signal(tx: &mpsc::UnboundedSender<EndReason>) -> CancelFn {
+    let tx = tx.clone();
+    Box::new(move |why| {
+        let _ = tx.send(why);
+    })
+}
+
+/// Sends a streamed request for plugin `id` and stops at the final response's headers. The stream
+/// slot is claimed first, so a plugin at its stream cap sends nothing; the fetch slot is held only
+/// until the headers, and released on every path. A request that fails before them writes its log
+/// entry here and leaves no entry behind.
+pub async fn open_streamed(
+    clients: &Clients,
+    net: &NetState,
+    id: &str,
+    consent: Consent<'_>,
+    request: &FetchRequest,
+    kind: StreamKind,
+) -> Result<StreamHead, ApiError> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let abort_key = request.abort_key.as_deref();
+    let stream = net.open(id, kind.kind(), abort_key, signal(&tx))?;
+    let fetch = net.open(id, kind.head_kind(), abort_key, signal(&tx))?;
+    // Once both callbacks are spent the channel closes, and `wait` stays pending.
+    drop(tx);
+    let mut ended = Ended(rx);
+    let target = policy::check_url(&request.url, Transport::Fetch, consent)?;
+
+    let at_ms = unix_ms();
+    let started = Instant::now();
+    let mut progress = Progress::at(target.url.clone());
+    let checked = policy::check_headers(&request.headers).and_then(|headers| {
+        policy::check_body(request.method, request.body.len())?;
+        Ok(headers)
+    });
+    let outcome = match checked {
+        Err(refusal) => Err(refusal.into()),
+        Ok(headers) => {
+            let work = async {
+                let follow = follow(clients, consent, request, target, headers, &mut progress);
+                let done = tokio::time::timeout(request.timeout, follow)
+                    .await
+                    .unwrap_or_else(|_| Err(ApiError::timeout()));
+                match done {
+                    // Past the deadline: a discovery wait never turns a failure into `timeout`.
+                    Err(error) if progress.on_wire => {
+                        let url = &progress.url;
+                        Err(explain(clients.proxy(), error, url, &mut progress.cause).await)
+                    }
+                    done => done,
+                }
+            };
+            tokio::select! {
+                biased;
+                error = ended.wait() => Err(error),
+                done = work => done,
+            }
+        }
+    };
+    drop(fetch);
+    let log_kind = kind.log_kind();
+    let last = match outcome {
+        Ok(last) => last,
+        Err(error) => {
+            let elapsed = started.elapsed();
+            let entry = log_entry(log_kind, request.method, &progress, Some(&error), at_ms, elapsed);
+            net.record(id, entry);
+            return Err(error);
+        }
+    };
+
+    let status = last.response.status().as_u16();
+    let headers = header_list(&last.response);
+    let log = log_entry(log_kind, request.method, &progress, None, at_ms, Duration::ZERO);
+    let body = StreamBody {
+        response: last.response,
+        running: stream,
+        ended,
+        url: last.url.clone(),
+        log,
+        started,
+    };
+    let bodiless = last.method == Method::Head || status == 204 || status == 304;
+    let body = if bodiless {
+        body.finish(net, id, None, None);
+        None
+    } else {
+        Some(body)
+    };
+    Ok(StreamHead {
+        status,
+        url: last.url,
+        redirected: last.redirected,
+        headers,
+        body,
+    })
 }
 
 /// The entry's cancel callback and the future it resolves. The callback only sends: it never blocks
@@ -158,9 +329,50 @@ async fn run(
     consent: Consent<'_>,
     request: &FetchRequest,
     target: Target,
-    mut headers: Vec<(String, String)>,
+    headers: Vec<(String, String)>,
     progress: &mut Progress,
 ) -> Result<FetchResponse, ApiError> {
+    let Last {
+        mut response,
+        url,
+        method,
+        redirected,
+    } = follow(clients, consent, request, target, headers, progress).await?;
+    let status = response.status().as_u16();
+    let body = match read_body(&mut response, method, progress).await {
+        Ok(body) => body,
+        Err(error) => {
+            progress.on_wire = true;
+            return Err(error);
+        }
+    };
+    Ok(FetchResponse {
+        status,
+        url,
+        redirected,
+        headers: header_list(&response),
+        body,
+    })
+}
+
+/// The final response of a request, its body unread.
+struct Last {
+    response: Response,
+    url: Url,
+    /// The method of the last hop.
+    method: Method,
+    redirected: bool,
+}
+
+/// Sends the request and follows its redirects, each hop checked before its connection opens.
+async fn follow(
+    clients: &Clients,
+    consent: Consent<'_>,
+    request: &FetchRequest,
+    target: Target,
+    mut headers: Vec<(String, String)>,
+    progress: &mut Progress,
+) -> Result<Last, ApiError> {
     let mut url = target.url;
     let mut kind = target.kind;
     let mut method = request.method;
@@ -170,7 +382,7 @@ async fn run(
         progress.url = url.clone();
         let client = clients.get(kind)?;
         let body = with_body.then_some(request.body.as_slice());
-        let mut response =
+        let response =
             match send(client, method, &url, &headers, &request.user_agent, body).await {
                 Ok(response) => response,
                 Err(error) => {
@@ -209,35 +421,30 @@ async fn run(
             }
         }
 
-        let body = match read_body(&mut response, method, progress).await {
-            Ok(body) => body,
-            Err(error) => {
-                progress.on_wire = true;
-                return Err(error);
-            }
-        };
-        let raw = response.headers().iter();
-        let headers = policy::response_headers(raw.map(|(n, v)| (n.as_str(), v.as_bytes())));
-        return Ok(FetchResponse {
-            status,
+        return Ok(Last {
+            response,
             url,
+            method,
             redirected: hops > 0,
-            headers,
-            body,
         });
     }
+}
+
+fn header_list(response: &Response) -> ResponseHeaders {
+    let raw = response.headers().iter();
+    policy::response_headers(raw.map(|(n, v)| (n.as_str(), v.as_bytes())))
 }
 
 /// Names a failure on the wire `proxy` when a proxy explains it, keeping the replaced reason in
 /// `cause` for the log entry.
 pub(super) async fn explain(
-    clients: &Clients,
+    proxy: &Proxy,
     error: ApiError,
     url: &Url,
     cause: &mut Option<&'static str>,
 ) -> ApiError {
     let reason = error.reason;
-    let error = clients.proxy().explain(error, url).await;
+    let error = proxy.explain(error, url).await;
     if error.reason == Some(PROXY) {
         *cause = reason;
     }
@@ -361,18 +568,16 @@ fn causes<'a>(error: &'a (dyn Error + 'static)) -> Vec<&'a (dyn Error + 'static)
 }
 
 fn log_entry(
+    kind: LogKind,
     method: Method,
     progress: &Progress,
-    outcome: &Result<FetchResponse, ApiError>,
+    error: Option<&ApiError>,
     at_ms: u64,
     elapsed: Duration,
 ) -> NetLogEntry {
-    let mut entry = NetLogEntry::new(LogKind::Fetch, method.as_str(), &progress.url, at_ms);
+    let mut entry = NetLogEntry::new(kind, method.as_str(), &progress.url, at_ms);
     entry.status = progress.status;
-    entry.error = outcome
-        .as_ref()
-        .err()
-        .map(|error| error_text(error, progress.cause));
+    entry.error = error.map(|error| error_text(error, progress.cause));
     entry.sent = progress.sent;
     entry.received = progress.received;
     entry.ms = elapsed.as_millis() as u64;

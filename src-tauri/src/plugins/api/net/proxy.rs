@@ -106,7 +106,8 @@ struct Cache {
     detected_until: Option<Instant>,
 }
 
-/// The proxy state shared by every plugin request.
+/// The proxy state shared by every plugin request. Clones share one cache.
+#[derive(Clone)]
 pub struct Proxy {
     source: Arc<dyn ProxySource>,
     clock: Arc<dyn Clock>,

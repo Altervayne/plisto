@@ -23,6 +23,7 @@ use futures_util::{FutureExt, SinkExt, StreamExt};
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::Upgraded;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant as TokioInstant;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
@@ -221,7 +222,7 @@ pub async fn open(
             .unwrap_or_else(|_| Err(ApiError::timeout()));
         match (done, failed) {
             // Past the deadline: a discovery wait never turns a failure into `timeout`.
-            (Err(error), Some(url)) => Err(explain(clients, error, &url, &mut cause).await),
+            (Err(error), Some(url)) => Err(explain(clients.proxy(), error, &url, &mut cause).await),
             (done, _) => done,
         }
     };
@@ -445,20 +446,16 @@ async fn drive(mut ws: Ws, link: &mut Link, mut signals: Signals) -> End {
             biased;
             why = &mut signals.ended => break abandon(&mut ws, why).await,
             Some(frame) = close_asked(&mut signals.close) => {
-                break close_now(&mut ws, link, &mut signals, frame).await;
+                let deadline = TokioInstant::now() + CLOSE_GRACE;
+                break close_now(&mut ws, link, &mut signals, frame, deadline).await;
             }
             message = signals.queued.recv(), if !queue_done => match message {
-                // A write to a server that stops reading must not hold off a cancel or a close.
-                Some(message) => tokio::select! {
-                    biased;
-                    why = &mut signals.ended => break abandon(&mut ws, why).await,
-                    Some(frame) = close_asked(&mut signals.close) => {
-                        break close_now(&mut ws, link, &mut signals, frame).await;
-                    }
-                    written = write(&mut ws, link, message) => {
-                        if let Err(error) = written {
-                            break End::dropped(error);
-                        }
+                Some(message) => match write_or_close(&mut ws, link, &mut signals, message).await {
+                    Step::Written => {}
+                    Step::Failed(error) => break End::dropped(error),
+                    Step::Ended(why) => break abandon(&mut ws, why).await,
+                    Step::Close(frame, deadline) => {
+                        break close_now(&mut ws, link, &mut signals, frame, deadline).await;
                     }
                 },
                 None => queue_done = true,
@@ -486,9 +483,55 @@ async fn drive(mut ws: Ws, link: &mut Link, mut signals: Signals) -> End {
     }
 }
 
-/// The plugin's close, bounded by `CLOSE_GRACE` and still ended at once by a cancel.
-async fn close_now(ws: &mut Ws, link: &mut Link, signals: &mut Signals, frame: CloseFrame) -> End {
-    let closing = close_by_us(ws, link, &mut signals.queued, frame);
+/// How a write taken off the queue ended.
+enum Step {
+    Written,
+    Failed(ApiError),
+    Ended(Result<EndReason, oneshot::error::RecvError>),
+    /// The plugin closed while the write ran; it finished, and the close is due by the deadline.
+    Close(CloseFrame, TokioInstant),
+}
+
+/// Writes one queued message. A cancel ends the write at once. A close lets it finish, since the
+/// message must reach the server before the close frame, but only within `CLOSE_GRACE`: a server
+/// that stopped reading cannot hold the socket open.
+async fn write_or_close(
+    ws: &mut Ws,
+    link: &mut Link,
+    signals: &mut Signals,
+    message: Message,
+) -> Step {
+    let writing = write(ws, link, message);
+    tokio::pin!(writing);
+    tokio::select! {
+        biased;
+        why = &mut signals.ended => Step::Ended(why),
+        written = &mut writing => match written {
+            Ok(()) => Step::Written,
+            Err(error) => Step::Failed(error),
+        },
+        Some(frame) = close_asked(&mut signals.close) => {
+            let deadline = TokioInstant::now() + CLOSE_GRACE;
+            let bounded = tokio::time::timeout_at(deadline, &mut writing);
+            match unless_ended(&mut signals.ended, bounded).await {
+                Err(why) => Step::Ended(why),
+                Ok(Ok(Ok(()))) => Step::Close(frame, deadline),
+                Ok(Ok(Err(error))) => Step::Failed(error),
+                Ok(Err(_)) => Step::Failed(Refusal::network(CLOSED).into()),
+            }
+        }
+    }
+}
+
+/// The plugin's close, due by `deadline` and still ended at once by a cancel.
+async fn close_now(
+    ws: &mut Ws,
+    link: &mut Link,
+    signals: &mut Signals,
+    frame: CloseFrame,
+    deadline: TokioInstant,
+) -> End {
+    let closing = close_by_us(ws, link, &mut signals.queued, frame, deadline);
     match unless_ended(&mut signals.ended, closing).await {
         Ok(end) => end,
         Err(why) => abandon(ws, why).await,
@@ -583,14 +626,15 @@ async fn over_limit(ws: &mut Ws) -> End {
 }
 
 /// Writes what the plugin queued before asking, then the close, then waits for the server's close,
-/// all within `CLOSE_GRACE`. Messages that arrive meanwhile are counted, not delivered.
+/// all by `deadline`. Messages that arrive meanwhile are counted, not delivered.
 async fn close_by_us(
     ws: &mut Ws,
     link: &mut Link,
     queued: &mut mpsc::Receiver<Message>,
     frame: CloseFrame,
+    deadline: TokioInstant,
 ) -> End {
-    let answer = tokio::time::timeout(CLOSE_GRACE, async {
+    let answer = tokio::time::timeout_at(deadline, async {
         while let Ok(message) = queued.try_recv() {
             write(ws, link, message).await.ok()?;
         }

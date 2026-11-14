@@ -186,14 +186,18 @@ async fn text_and_binary_echo_and_a_plugin_close_completes_cleanly() {
 #[tokio::test(flavor = "multi_thread")]
 async fn messages_queued_before_a_close_are_written_first() {
     let fx = Fixture::new().await;
-    let socket = fx.open_path("/ws").await;
-    for i in 0..5 {
-        fx.send(&socket, Outgoing::Text(format!("m{i}"))).unwrap();
+    // Repeated, so a close that lands while a queued message is being written is exercised.
+    for _ in 0..20 {
+        let socket = fx.open_path("/ws").await;
+        for i in 0..5 {
+            fx.send(&socket, Outgoing::Text(format!("m{i}"))).unwrap();
+        }
+        close(&fx.sockets, ID, &socket, None, "").unwrap();
+        assert_eq!(fx.ended(&socket).await, (NORMAL, String::new(), true));
+        let entry = fx.net.log(ID).pop().unwrap();
+        assert_eq!(entry.sent, 10);
+        assert!(until(|| fx.net.running(ID, Kind::Socket) == 0).await);
     }
-    close(&fx.sockets, ID, &socket, None, "").unwrap();
-    assert_eq!(fx.ended(&socket).await, (NORMAL, String::new(), true));
-    let entry = fx.net.log(ID).pop().unwrap();
-    assert_eq!(entry.sent, 10);
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -2,8 +2,9 @@
  * Test fixtures for the plugin network engine: a throwaway CA, a hand-rolled HTTP/1.1 server on
  * 127.0.0.1 (over TLS, or plain for the developer path) and a scripted resolver. The server answers
  * one request per connection and closes it, counts connections as they are accepted, records each
- * request, and counts the responses the client cut off by closing its end. Paths under `/ws` are
- * WebSocket routes, upgraded by hand and then run on the same frame codec the client uses.
+ * request, and counts the responses the client cut off by closing its end. Stream routes also count
+ * the body bytes they managed to write. Paths under `/ws` are WebSocket routes, upgraded by hand and
+ * then run on the same frame codec the client uses.
  */
 
 // -- Library Imports --
@@ -39,6 +40,17 @@ pub const WS_BIG_LEN: usize = 2 * 1_048_576;
 /// What `/ws-close` closes with.
 pub const WS_CLOSE_CODE: u16 = 4001;
 pub const WS_CLOSE_REASON: &str = "done";
+/// The `/stream` piece and its period: 32 KiB per second.
+pub const STREAM_PIECE: usize = 4 * 1024;
+const STREAM_EVERY: Duration = Duration::from_millis(125);
+/// The `/fast-stream` piece.
+const FAST_PIECE: usize = 16 * 1024;
+/// The one chunk `/stall-stream` sends.
+pub const STALL_PIECE: usize = 1024;
+/// The period of `/sse` events.
+const SSE_EVERY: Duration = Duration::from_millis(20);
+/// The 1-byte chunks `/tiny-stream` writes at once.
+const TINY_BATCH: usize = 4096;
 
 /// The byte at `i` of every generated body.
 pub fn pattern(len: usize) -> Vec<u8> {
@@ -112,6 +124,8 @@ struct Record {
     heads: Mutex<Vec<Head>>,
     /// The code of each close frame a WebSocket route received.
     ws_closes: Mutex<Vec<u16>>,
+    /// Body bytes the stream routes wrote, all connections together.
+    streamed: AtomicUsize,
 }
 
 pub struct TestServer {
@@ -163,6 +177,10 @@ impl TestServer {
         self.record.heads.lock().unwrap().clone()
     }
 
+    pub fn streamed(&self) -> usize {
+        self.record.streamed.load(Ordering::SeqCst)
+    }
+
     /// Waits up to 5 s until `count` responses were cut off by the client closing the connection.
     pub async fn saw_close(&self, count: usize) -> bool {
         for _ in 0..250 {
@@ -194,7 +212,7 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, record: Arc<Rec
     if head.path.starts_with("/ws") {
         return serve_ws(stream, &head, &record).await;
     }
-    if respond(&mut stream, &head).await.is_err() {
+    if respond(&mut stream, &head, &record).await.is_err() {
         record.cut_off.fetch_add(1, Ordering::SeqCst);
     }
     let _ = stream.shutdown().await;
@@ -290,6 +308,125 @@ async fn write_chunks<S: AsyncWrite + Unpin>(
     stream.flush().await
 }
 
+async fn write_chunk<S: AsyncWrite + Unpin>(stream: &mut S, data: &[u8]) -> io::Result<()> {
+    stream
+        .write_all(format!("{:x}\r\n", data.len()).as_bytes())
+        .await?;
+    stream.write_all(data).await?;
+    stream.write_all(b"\r\n").await?;
+    stream.flush().await
+}
+
+async fn write_chunked_head<S: AsyncWrite + Unpin>(stream: &mut S, kind: &str) -> io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: {kind}\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+    );
+    stream.write_all(head.as_bytes()).await?;
+    stream.flush().await
+}
+
+/// Writes `pattern` bytes as a chunked body, `size` at a time every `every`, counting each piece
+/// once written, until `total` bytes or, without one, until the client closes the connection.
+async fn write_stream<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    size: usize,
+    every: Duration,
+    total: Option<usize>,
+    record: &Record,
+) -> io::Result<()> {
+    write_chunked_head(stream, "application/octet-stream").await?;
+    let source = pattern(size + 251);
+    let mut at = 0;
+    while total.is_none_or(|total| at < total) {
+        let len = total.map_or(size, |total| size.min(total - at));
+        let offset = at % 251;
+        write_chunk(stream, &source[offset..offset + len]).await?;
+        at += len;
+        record.streamed.fetch_add(len, Ordering::SeqCst);
+        if !every.is_zero() {
+            tokio::time::sleep(every).await;
+        }
+    }
+    stream.write_all(b"0\r\n\r\n").await?;
+    stream.flush().await
+}
+
+/// Server-Sent Events numbered from one past the request's `last-event-id`, every `SSE_EVERY`; with
+/// `limit`, the connection drops after that many, without ending the chunked body.
+async fn write_events<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &Head,
+    limit: Option<u64>,
+    record: &Record,
+) -> io::Result<()> {
+    write_chunked_head(stream, "text/event-stream").await?;
+    write_chunk(stream, b"retry: 1000\n\n").await?;
+    let first: u64 = head
+        .header("last-event-id")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+        + 1;
+    for n in first.. {
+        if limit.is_some_and(|limit| n >= first + limit) {
+            return Ok(());
+        }
+        let event = format!("id: {n}\ndata: tick {n}\n\n");
+        write_chunk(stream, event.as_bytes()).await?;
+        record.streamed.fetch_add(event.len(), Ordering::SeqCst);
+        tokio::time::sleep(SSE_EVERY).await;
+    }
+    Ok(())
+}
+
+/// `len` bytes of `pattern` as chunks of `FAST_PIECE`, then a dropped connection with no end of body.
+async fn write_and_drop<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    len: usize,
+    record: &Record,
+) -> io::Result<()> {
+    write_chunked_head(stream, "application/octet-stream").await?;
+    let body = pattern(len);
+    for piece in body.chunks(FAST_PIECE) {
+        write_chunk(stream, piece).await?;
+        record.streamed.fetch_add(piece.len(), Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+/// `prefix` bytes in `FAST_PIECE` chunks, then an endless run of 1-byte chunks, written `TINY_BATCH`
+/// chunks at a time.
+async fn write_tiny<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    prefix: usize,
+    record: &Record,
+) -> io::Result<()> {
+    write_chunked_head(stream, "application/octet-stream").await?;
+    for piece in pattern(prefix).chunks(FAST_PIECE) {
+        write_chunk(stream, piece).await?;
+        record.streamed.fetch_add(piece.len(), Ordering::SeqCst);
+    }
+    let mut at = prefix;
+    loop {
+        let mut batch = Vec::with_capacity(TINY_BATCH * 6);
+        for i in at..at + TINY_BATCH {
+            batch.extend_from_slice(b"1\r\n");
+            batch.push((i % 251) as u8);
+            batch.extend_from_slice(b"\r\n");
+        }
+        stream.write_all(&batch).await?;
+        stream.flush().await?;
+        at += TINY_BATCH;
+        record.streamed.fetch_add(TINY_BATCH, Ordering::SeqCst);
+    }
+}
+
+/// Reads until the client closes the connection, then reports the close as a cut-off.
+async fn hold<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
+    let mut sink = [0u8; 1024];
+    while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+    Err(io::ErrorKind::ConnectionAborted.into())
+}
+
 /// Routes:
 /// - `/echo`: the request body back.
 /// - `/bin`: `BIN_LEN` bytes of `pattern`.
@@ -302,7 +439,21 @@ async fn write_chunks<S: AsyncWrite + Unpin>(
 /// - `/close`: no response; the connection closes after the request.
 /// - `/bad-chunk`: a chunked body whose size line is not hex.
 /// - `/short`: declares 100 bytes, sends 10 and closes.
-async fn respond<S: AsyncWrite + Unpin>(stream: &mut S, head: &Head) -> io::Result<()> {
+/// - `/hang`: no response; holds the connection until the client closes it.
+/// - `/stream`: an endless chunked body at `STREAM_PIECE` every 125 ms.
+/// - `/fast-stream`: a chunked body as fast as the connection takes it, endless, or `?len=<n>` bytes.
+/// - `/stall-stream`: one `STALL_PIECE` chunk, then silence until the client closes.
+/// - `/sse`: endless Server-Sent Events, numbered past `last-event-id`.
+/// - `/sse-drop`: 3 events, then the connection drops mid-body.
+/// - `/fast-drop?len=<n>`: `n` bytes fast, then the connection drops mid-body.
+/// - `/tiny-stream?prefix=<n>`: `n` bytes in large chunks, then endless 1-byte chunks.
+///
+/// Stream bodies carry `pattern` bytes, continued across pieces.
+async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &Head,
+    record: &Record,
+) -> io::Result<()> {
     let (path, query) = head.path.split_once('?').unwrap_or((&head.path, ""));
     let mut parts = path.trim_start_matches('/').splitn(3, '/');
     match (parts.next(), parts.next(), parts.next()) {
@@ -362,6 +513,30 @@ async fn respond<S: AsyncWrite + Unpin>(stream: &mut S, head: &Head) -> io::Resu
             write_response(stream, n.parse().unwrap_or(500), &[], b"status").await
         }
         (Some("close"), None, None) => Ok(()),
+        (Some("hang"), None, None) => hold(stream).await,
+        (Some("stream"), None, None) => {
+            write_stream(stream, STREAM_PIECE, STREAM_EVERY, None, record).await
+        }
+        (Some("fast-stream"), None, None) => {
+            let total = query.strip_prefix("len=").and_then(|n| n.parse().ok());
+            write_stream(stream, FAST_PIECE, Duration::ZERO, total, record).await
+        }
+        (Some("stall-stream"), None, None) => {
+            write_chunked_head(stream, "application/octet-stream").await?;
+            write_chunk(stream, &pattern(STALL_PIECE)).await?;
+            record.streamed.fetch_add(STALL_PIECE, Ordering::SeqCst);
+            hold(stream).await
+        }
+        (Some("sse"), None, None) => write_events(stream, head, None, record).await,
+        (Some("sse-drop"), None, None) => write_events(stream, head, Some(3), record).await,
+        (Some("fast-drop"), None, None) => {
+            let len = query.strip_prefix("len=").and_then(|n| n.parse().ok());
+            write_and_drop(stream, len.unwrap_or(0), record).await
+        }
+        (Some("tiny-stream"), None, None) => {
+            let prefix = query.strip_prefix("prefix=").and_then(|n| n.parse().ok());
+            write_tiny(stream, prefix.unwrap_or(0), record).await
+        }
         (Some("bad-chunk"), None, None) => {
             let raw = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\nzz\r\nabc\r\n";
             stream.write_all(raw.as_bytes()).await?;
