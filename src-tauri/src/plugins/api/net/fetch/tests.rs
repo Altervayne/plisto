@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 
 // -- Local Imports --
 use super::super::address;
+use super::super::proxy::{
+    Answer, Proxy, ProxyKind, ScriptedSource, SystemClock, UserProxy, DISCOVERY_WAIT,
+};
 use super::super::state::Kind;
 use super::super::test_server::{pattern, ScriptedLookup, TestCa, TestServer, BIN_LEN};
 use super::super::{
@@ -539,6 +542,154 @@ async fn a_body_cut_short_of_its_length_is_closed() {
     let fx = Fixture::new().await;
     let got = fx.fetch(get(fx.url(A, "/short"))).await;
     assert_eq!(code(&got), (ApiCode::Network, Some(CLOSED)));
+}
+
+// ---- Proxy ----
+
+/// A fixture whose proxy reads `answer`, with a listed origin on a port nothing listens on.
+async fn behind_proxy(answer: Answer) -> (Fixture, Arc<ScriptedSource>, String) {
+    let ca = TestCa::new();
+    let mut fx = Fixture::with(&ca, TestServer::tls(&ca, &[A, B]).await);
+    let source = Arc::new(ScriptedSource::new(answer));
+    fx.clients = Clients::for_tests(fx.lookup.clone(), test_allowed, ca.root())
+        .with_proxy(Proxy::new(source.clone(), Arc::new(SystemClock)));
+    let port = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let origin = format!("https://{A}:{port}");
+    fx.origins.push(origin.clone());
+    (fx, source, format!("{origin}/echo"))
+}
+
+const MANUAL: Answer = Answer {
+    user: UserProxy {
+        auto_detect: false,
+        auto_config: false,
+        proxy: true,
+    },
+    machine: false,
+    environment: false,
+    found: false,
+    delay: Duration::ZERO,
+    fails: false,
+    discovery_fails: false,
+    discovery_panics: false,
+};
+
+/// Auto-detect on, and a discovery that finds a proxy after `delay`.
+fn detecting(delay: Duration) -> Answer {
+    Answer {
+        user: UserProxy {
+            auto_detect: true,
+            ..UserProxy::default()
+        },
+        found: true,
+        delay,
+        ..Answer::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_discovery_never_turns_a_failure_into_timeout() {
+    let (fx, _, _) = behind_proxy(detecting(DISCOVERY_WAIT + Duration::from_secs(1))).await;
+    fx.lookup.answer(A, &[&[]]);
+    let request = FetchRequest {
+        timeout: Duration::from_millis(300),
+        ..get(fx.url(A, "/echo"))
+    };
+    let started = Instant::now();
+    let got = fx.fetch(request).await;
+    assert_eq!(code(&got), (ApiCode::Network, Some(DNS)));
+    assert!(started.elapsed() < DISCOVERY_WAIT + Duration::from_millis(800));
+    assert_eq!(fx.net.running(ID, Kind::Fetch), 0);
+
+    let recorded = Instant::now();
+    while fx.clients.proxy().kind() != ProxyKind::Detected {
+        assert!(recorded.elapsed() < Duration::from_secs(10), "never recorded");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let got = fx.fetch(get(fx.url(A, "/echo"))).await;
+    assert_eq!(code(&got), (ApiCode::Network, Some(PROXY)));
+    let entry = fx.net.log(ID).pop().unwrap();
+    assert_eq!(entry.error.as_deref(), Some("network/dns+proxy"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancel_during_the_discovery_wait_aborts() {
+    let (fx, _, _) = behind_proxy(detecting(DISCOVERY_WAIT + Duration::from_secs(1))).await;
+    fx.lookup.answer(A, &[&[]]);
+    let request = get(fx.url(A, "/echo"));
+    let ender = async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        fx.net.frame_gone(ID);
+    };
+    let started = Instant::now();
+    let (got, ()) = tokio::join!(fx.fetch(request), ender);
+    assert_eq!(code(&got), (ApiCode::Aborted, Some("frame_gone")));
+    assert!(started.elapsed() < DISCOVERY_WAIT);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_failure_behind_a_proxy_is_proxy_and_its_log_keeps_both() {
+    let (fx, _, closed) = behind_proxy(MANUAL).await;
+    let got = fx.fetch(get(closed)).await;
+    assert_eq!(code(&got), (ApiCode::Network, Some(PROXY)));
+    let entry = fx.net.log(ID).pop().unwrap();
+    assert_eq!(entry.error.as_deref(), Some("network/connect+proxy"));
+
+    let (fx, _, closed) = behind_proxy(Answer::default()).await;
+    let got = fx.fetch(get(closed)).await;
+    assert_eq!(code(&got), (ApiCode::Network, Some(CONNECT)));
+    let entry = fx.net.log(ID).pop().unwrap();
+    assert_eq!(entry.error.as_deref(), Some("network/connect"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn auto_detect_runs_one_discovery_after_a_failure() {
+    let detecting = Answer {
+        user: UserProxy {
+            auto_detect: true,
+            ..UserProxy::default()
+        },
+        found: true,
+        ..Answer::default()
+    };
+    let (fx, source, closed) = behind_proxy(detecting).await;
+    let got = fx.fetch(get(fx.url(A, "/echo"))).await;
+    assert!(got.is_ok());
+    assert_eq!(source.discoveries(), 0);
+    for _ in 0..2 {
+        let got = fx.fetch(get(closed.clone())).await;
+        assert_eq!(code(&got), (ApiCode::Network, Some(PROXY)));
+    }
+    assert_eq!(source.discoveries(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_refusal_behind_a_proxy_is_never_rewritten() {
+    let answer = Answer {
+        user: UserProxy {
+            auto_detect: true,
+            ..MANUAL.user
+        },
+        found: true,
+        ..MANUAL
+    };
+    let (fx, source, _) = behind_proxy(answer).await;
+    fx.lookup.answer(B, &[&[PRIVATE]]);
+    let got = fx.fetch(get(fx.url(B, "/echo"))).await;
+    assert_eq!(code(&got), (ApiCode::Denied, Some(BLOCKED_ADDRESS)));
+    let got = fx
+        .fetch(get("https://unlisted.plisto-fixture.com/x".into()))
+        .await;
+    assert_eq!(code(&got), (ApiCode::Denied, Some(ORIGIN_NOT_LISTED)));
+    assert_eq!(source.discoveries(), 0);
+    assert_eq!(
+        fx.net.log(ID).pop().unwrap().error.as_deref(),
+        Some("denied/blocked_address")
+    );
 }
 
 // ---- Log ----

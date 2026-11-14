@@ -2,7 +2,8 @@
  * Test fixtures for the plugin network engine: a throwaway CA, a hand-rolled HTTP/1.1 server on
  * 127.0.0.1 (over TLS, or plain for the developer path) and a scripted resolver. The server answers
  * one request per connection and closes it, counts connections as they are accepted, records each
- * request, and counts the responses the client cut off by closing its end.
+ * request, and counts the responses the client cut off by closing its end. Paths under `/ws` are
+ * WebSocket routes, upgraded by hand and then run on the same frame codec the client uses.
  */
 
 // -- Library Imports --
@@ -13,20 +14,31 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use futures_util::{SinkExt, StreamExt};
 use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::WebSocketStream;
 
 // -- Local Imports --
 use super::resolve::{Lookup, LookupFuture};
+use super::socket::handshake::accept_for;
 
 /// Length of the `/bin` body.
 pub const BIN_LEN: usize = 256 * 1024;
 /// What `/big` declares in `content-length`.
 pub const BIG_LEN: usize = 9 * 1_048_576;
+/// Length of the one message `/ws-big` sends.
+pub const WS_BIG_LEN: usize = 2 * 1_048_576;
+/// What `/ws-close` closes with.
+pub const WS_CLOSE_CODE: u16 = 4001;
+pub const WS_CLOSE_REASON: &str = "done";
 
 /// The byte at `i` of every generated body.
 pub fn pattern(len: usize) -> Vec<u8> {
@@ -98,6 +110,8 @@ struct Record {
     connections: AtomicUsize,
     cut_off: AtomicUsize,
     heads: Mutex<Vec<Head>>,
+    /// The code of each close frame a WebSocket route received.
+    ws_closes: Mutex<Vec<u16>>,
 }
 
 pub struct TestServer {
@@ -159,6 +173,17 @@ impl TestServer {
         }
         false
     }
+
+    /// Waits up to 5 s until a WebSocket route received a close frame with `code`.
+    pub async fn saw_ws_close(&self, code: u16) -> bool {
+        for _ in 0..250 {
+            if self.record.ws_closes.lock().unwrap().contains(&code) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
 }
 
 async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, record: Arc<Record>) {
@@ -166,6 +191,9 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, record: Arc<Rec
         return;
     };
     record.heads.lock().unwrap().push(head.clone());
+    if head.path.starts_with("/ws") {
+        return serve_ws(stream, &head, &record).await;
+    }
     if respond(&mut stream, &head).await.is_err() {
         record.cut_off.fetch_add(1, Ordering::SeqCst);
     }
@@ -346,6 +374,154 @@ async fn respond<S: AsyncWrite + Unpin>(stream: &mut S, head: &Head) -> io::Resu
             stream.flush().await
         }
         _ => write_response(stream, 404, &[], b"").await,
+    }
+}
+
+// ---- WebSocket routes ----
+
+/// Routes:
+/// - `/ws`: echoes text and binary; answers the first offered protocol, or `?choose=<p>`.
+/// - `/ws-close`: closes with `WS_CLOSE_CODE` and `WS_CLOSE_REASON`.
+/// - `/ws-drop`: drops the connection with no close frame.
+/// - `/ws-flood`: sends text messages as fast as it can.
+/// - `/ws-trickle`: sends a text message every 20 ms, under the rate limit, until the client goes.
+/// - `/ws-big`: sends one binary message of `WS_BIG_LEN` bytes.
+/// - `/ws-ping`: pings, and sends `pong-ok` once the pong arrives.
+/// - `/ws-heavy`: sends 1 MiB binary messages as fast as it can.
+/// - `/ws-fragments`: sends one binary message as two frames that together pass 1 MiB.
+/// - `/ws-bad-utf8`: sends a text frame that is not UTF-8.
+/// - `/ws-deaf`: never reads after the upgrade, and holds the connection open.
+/// - `/ws-reject`: answers 403.
+/// - `/ws-redirect`: answers 302 to `/ws`.
+/// - `/ws-bad-accept`: answers 101 with the wrong `sec-websocket-accept`.
+/// - `/ws-hang`: never answers; counts a cut-off when the client closes.
+async fn serve_ws<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, head: &Head, record: &Record) {
+    let (path, query) = head.path.split_once('?').unwrap_or((&head.path, ""));
+    let key = head.header("sec-websocket-key").unwrap_or_default();
+    let accept = match path {
+        "/ws-reject" => {
+            let _ = write_response(&mut stream, 403, &[], b"").await;
+            return;
+        }
+        "/ws-redirect" => {
+            let _ = write_response(&mut stream, 302, &[("location", "/ws")], b"").await;
+            return;
+        }
+        "/ws-hang" => {
+            let mut sink = [0u8; 1024];
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+            record.cut_off.fetch_add(1, Ordering::SeqCst);
+            return;
+        }
+        "/ws-bad-accept" => accept_for("another key"),
+        _ => accept_for(key),
+    };
+    let offered = head.header("sec-websocket-protocol").unwrap_or_default();
+    let chosen = match query.strip_prefix("choose=") {
+        Some(chosen) => chosen,
+        None => offered.split(',').next().unwrap_or_default().trim(),
+    };
+    let mut answer = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\nsec-websocket-accept: {accept}\r\n"
+    );
+    if !chosen.is_empty() {
+        answer.push_str(&format!("sec-websocket-protocol: {chosen}\r\n"));
+    }
+    answer.push_str("\r\n");
+    if stream.write_all(answer.as_bytes()).await.is_err() || stream.flush().await.is_err() {
+        return;
+    }
+    if let Some(frames) = raw_frames(path) {
+        // Written past the codec, which would refuse to send them; then wait for the client to go.
+        if stream.write_all(&frames).await.is_ok() && stream.flush().await.is_ok() {
+            let mut sink = [0u8; 1024];
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+        }
+        return;
+    }
+
+    let mut ws = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+    match path {
+        "/ws-close" => {
+            let frame = CloseFrame {
+                code: CloseCode::from(WS_CLOSE_CODE),
+                reason: WS_CLOSE_REASON.into(),
+            };
+            let _ = ws.close(Some(frame)).await;
+            while let Some(Ok(_)) = ws.next().await {}
+        }
+        "/ws-drop" => {}
+        "/ws-deaf" => tokio::time::sleep(Duration::from_secs(30)).await,
+        "/ws-heavy" => {
+            let message = pattern(1_048_576);
+            for _ in 0..20 {
+                if ws.send(Message::binary(message.clone())).await.is_err() {
+                    break;
+                }
+            }
+            while let Some(Ok(_)) = ws.next().await {}
+        }
+        "/ws-flood" => {
+            for _ in 0..100_000 {
+                if ws.send(Message::text("x")).await.is_err() {
+                    break;
+                }
+            }
+        }
+        "/ws-trickle" => {
+            while ws.send(Message::text("t")).await.is_ok() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        "/ws-big" => {
+            let _ = ws.send(Message::binary(pattern(WS_BIG_LEN))).await;
+            while let Some(Ok(_)) = ws.next().await {}
+        }
+        "/ws-ping" => {
+            let _ = ws.send(Message::Ping(b"p".to_vec().into())).await;
+            while let Some(Ok(message)) = ws.next().await {
+                if matches!(message, Message::Pong(_)) {
+                    let _ = ws.send(Message::text("pong-ok")).await;
+                }
+            }
+        }
+        _ => {
+            while let Some(Ok(message)) = ws.next().await {
+                match message {
+                    Message::Text(_) | Message::Binary(_) => {
+                        if ws.send(message).await.is_err() {
+                            break;
+                        }
+                    }
+                    Message::Close(frame) => {
+                        let code = frame.map_or(1005, |f| u16::from(f.code));
+                        record.ws_closes.lock().unwrap().push(code);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+/// Unmasked server frames for the routes that send what the codec would not.
+fn raw_frames(path: &str) -> Option<Vec<u8>> {
+    let frame = |first: u8, payload: &[u8]| {
+        let mut out = vec![first, 127];
+        out.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+        out.extend_from_slice(payload);
+        out
+    };
+    match path {
+        "/ws-bad-utf8" => Some(vec![0x81, 0x02, 0xff, 0xfe]),
+        "/ws-fragments" => {
+            let half = pattern(600 * 1024);
+            // A binary frame without FIN, then a final continuation frame.
+            let mut out = frame(0x02, &half);
+            out.extend(frame(0x80, &half));
+            Some(out)
+        }
+        _ => None,
     }
 }
 

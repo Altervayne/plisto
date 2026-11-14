@@ -22,7 +22,7 @@ use super::client::Clients;
 use super::policy::{self, Consent, Method, ResponseHeaders, Sent, Target, Transport};
 use super::resolve::GuardError;
 use super::state::{CancelFn, EndReason, Kind, LogKind, NetLogEntry, NetState};
-use super::{Refusal, CLOSED, CONNECT, MAX_RESPONSE_BODY, PROTOCOL, REDIRECT, TLS};
+use super::{Refusal, CLOSED, CONNECT, MAX_RESPONSE_BODY, PROTOCOL, PROXY, REDIRECT, TLS};
 use crate::plugins::api::error::ApiError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +65,10 @@ struct Progress {
     status: Option<u16>,
     sent: u64,
     received: u64,
+    /// The call failed sending or reading at `url`, so a proxy may explain its error.
+    on_wire: bool,
+    /// The transport reason a `proxy` error replaced.
+    cause: Option<&'static str>,
 }
 
 /// Runs one buffered request for plugin `id`. It holds a fetch slot until the body is read, and ends
@@ -87,6 +91,8 @@ pub async fn execute(
         status: None,
         sent: 0,
         received: 0,
+        on_wire: false,
+        cause: None,
     };
     let checked = policy::check_headers(&request.headers).and_then(|headers| {
         policy::check_body(request.method, request.body.len())?;
@@ -95,14 +101,25 @@ pub async fn execute(
     let outcome = match checked {
         Err(refusal) => Err(refusal.into()),
         Ok(headers) => {
-            let work = run(clients, consent, &request, target, headers, &mut progress);
+            let work = async {
+                let run = run(clients, consent, &request, target, headers, &mut progress);
+                let done = tokio::time::timeout(request.timeout, run)
+                    .await
+                    .unwrap_or_else(|_| Err(ApiError::timeout()));
+                match done {
+                    // Past the deadline: a discovery wait never turns a failure into `timeout`.
+                    Err(error) if progress.on_wire => {
+                        let url = &progress.url;
+                        Err(explain(clients, error, url, &mut progress.cause).await)
+                    }
+                    done => done,
+                }
+            };
             // Leaving the select drops the losing future, and with it any open connection.
             tokio::select! {
                 biased;
                 error = cancelled => Err(error),
-                done = tokio::time::timeout(request.timeout, work) => {
-                    done.unwrap_or_else(|_| Err(ApiError::timeout()))
-                }
+                done = work => done,
             }
         }
     };
@@ -153,9 +170,14 @@ async fn run(
         progress.url = url.clone();
         let client = clients.get(kind)?;
         let body = with_body.then_some(request.body.as_slice());
-        let mut response = send(client, method, &url, &headers, &request.user_agent, body)
-            .await
-            .map_err(|error| map_transport_error(&error))?;
+        let mut response =
+            match send(client, method, &url, &headers, &request.user_agent, body).await {
+                Ok(response) => response,
+                Err(error) => {
+                    progress.on_wire = true;
+                    return Err(map_transport_error(&error));
+                }
+            };
         progress.sent += body.map_or(0, |b| b.len() as u64);
         let status = response.status().as_u16();
         progress.status = Some(status);
@@ -187,7 +209,13 @@ async fn run(
             }
         }
 
-        let body = read_body(&mut response, method, progress).await?;
+        let body = match read_body(&mut response, method, progress).await {
+            Ok(body) => body,
+            Err(error) => {
+                progress.on_wire = true;
+                return Err(error);
+            }
+        };
         let raw = response.headers().iter();
         let headers = policy::response_headers(raw.map(|(n, v)| (n.as_str(), v.as_bytes())));
         return Ok(FetchResponse {
@@ -198,6 +226,22 @@ async fn run(
             body,
         });
     }
+}
+
+/// Names a failure on the wire `proxy` when a proxy explains it, keeping the replaced reason in
+/// `cause` for the log entry.
+pub(super) async fn explain(
+    clients: &Clients,
+    error: ApiError,
+    url: &Url,
+    cause: &mut Option<&'static str>,
+) -> ApiError {
+    let reason = error.reason;
+    let error = clients.proxy().explain(error, url).await;
+    if error.reason == Some(PROXY) {
+        *cause = reason;
+    }
+    error
 }
 
 fn wire_method(method: Method) -> reqwest::Method {
@@ -325,26 +369,31 @@ fn log_entry(
 ) -> NetLogEntry {
     let mut entry = NetLogEntry::new(LogKind::Fetch, method.as_str(), &progress.url, at_ms);
     entry.status = progress.status;
-    entry.error = outcome.as_ref().err().map(error_text);
+    entry.error = outcome
+        .as_ref()
+        .err()
+        .map(|error| error_text(error, progress.cause));
     entry.sent = progress.sent;
     entry.received = progress.received;
     entry.ms = elapsed.as_millis() as u64;
     entry
 }
 
-/// `code` or `code/reason`, with the code's wire name.
-fn error_text(error: &ApiError) -> String {
+/// `code` or `code/reason`, with the code's wire name. A `proxy` reason keeps the transport reason
+/// it replaced: `network/connect+proxy`.
+pub(super) fn error_text(error: &ApiError, cause: Option<&str>) -> String {
     let code = serde_json::to_value(error.code)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default();
-    match error.reason {
-        Some(reason) => format!("{code}/{reason}"),
-        None => code,
+    match (error.reason, cause) {
+        (Some(PROXY), Some(cause)) => format!("{code}/{cause}+{PROXY}"),
+        (Some(reason), _) => format!("{code}/{reason}"),
+        (None, _) => code,
     }
 }
 
-fn unix_ms() -> u64 {
+pub(super) fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)

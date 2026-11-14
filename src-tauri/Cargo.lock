@@ -3372,6 +3372,7 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest",
+ "ring",
  "rodio",
  "rusqlite",
  "rustls",

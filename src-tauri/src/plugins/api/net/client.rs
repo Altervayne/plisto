@@ -18,6 +18,9 @@ use reqwest::Client;
 
 // -- Local Imports --
 use super::address::{allowed, dev_allowed};
+#[cfg(test)]
+use super::proxy::{ScriptedSource, SystemClock};
+use super::proxy::Proxy;
 use super::resolve::{GuardedResolver, LocalhostLookup, Lookup, SystemLookup};
 use super::{Refusal, TLS};
 use crate::plugins::manifest::OriginKind;
@@ -30,6 +33,8 @@ pub struct Clients {
     dev: OnceLock<Option<Client>>,
     lookup: Arc<dyn Lookup>,
     allowed: fn(IpAddr) -> bool,
+    /// Read only to explain a failure; no client goes through a proxy.
+    proxy: Proxy,
     /// Trusted instead of the system store when set.
     #[cfg(test)]
     root: Option<Certificate>,
@@ -44,12 +49,14 @@ impl Clients {
             dev: OnceLock::new(),
             lookup: Arc::new(SystemLookup),
             allowed,
+            proxy: Proxy::system(),
             #[cfg(test)]
             root: None,
         })
     }
 
-    /// Clients that trust only `root` and resolve through `lookup` under the `allowed` policy.
+    /// Clients that trust only `root` and resolve through `lookup` under the `allowed` policy. They
+    /// see no proxy unless `with_proxy` sets one.
     #[cfg(test)]
     pub fn for_tests(
         lookup: Arc<dyn Lookup>,
@@ -61,8 +68,19 @@ impl Clients {
             dev: OnceLock::new(),
             lookup,
             allowed,
+            proxy: Proxy::new(Arc::new(ScriptedSource::default()), Arc::new(SystemClock)),
             root: Some(root),
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_proxy(self, proxy: Proxy) -> Clients {
+        Clients { proxy, ..self }
+    }
+
+    /// The proxy state that names a transport failure `proxy`.
+    pub fn proxy(&self) -> &Proxy {
+        &self.proxy
     }
 
     /// The client for a URL of this kind. A client that cannot be built (its TLS setup failed) refuses

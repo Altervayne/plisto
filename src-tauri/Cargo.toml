@@ -92,6 +92,8 @@ tokio-tungstenite = { version = "0.30", default-features = false }
 futures-util = "0.3"
 # The client's own HTTP/1.1 layer, named only to tell a connection closed early from malformed bytes.
 hyper = { version = "1", default-features = false }
+# Already in the tree through rustls; used for the WebSocket accept digest and handshake key.
+ring = "0.17"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 
 # Windows-only: the shell/COM surface for MTP direct-to-device export (1.6.0). cfg-gated so non-Windows
