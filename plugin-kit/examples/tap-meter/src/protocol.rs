@@ -3,7 +3,8 @@
  * the JSON byte length in decimal, a newline, one compact JSON object, and a newline. Every message is an
  * object tagged by `type`. The length comes first so a reader can refuse an oversized frame before
  * reading it. A frame that is valid JSON but of an unknown type or shape is reported, never fatal; a
- * broken frame ends the stream, since nothing after it can be trusted to be in step.
+ * broken frame ends the stream, since nothing after it can be trusted to be in step. Unknown fields on a
+ * known type are ignored, which is how the protocol grows.
  *
  * This module has no dependency on the rest of the program: copy it as is.
  */
@@ -19,12 +20,29 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const PROTOCOL_VERSION: u32 = 1;
+/// The plugin API version `hello` announces.
+pub const API_VERSION: u32 = 1;
 /// The largest JSON body either side may send.
 pub const MAX_FRAME: usize = 1 << 20;
+/// The longest `status` text, in characters after trimming.
+pub const STATUS_TEXT_MAX_CHARS: usize = 60;
 // Enough digits for MAX_FRAME.
 const MAX_LEN_DIGITS: usize = 7;
 // An unknown type name is reported shortened.
 const MAX_KIND_CHARS: usize = 32;
+
+/// Why a takeover is, or is no longer, held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TakeoverReason {
+    Granted,
+    Released,
+    Denied,
+    Busy,
+    User,
+    NotResponding,
+    Stopped,
+}
 
 /// Plisto to plugin.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -33,6 +51,7 @@ pub enum HostMessage {
     /// The first message. `granted` lists the capability names the user granted.
     Hello {
         protocol: u32,
+        api_version: u32,
         plisto_version: String,
         id: String,
         granted: Vec<String>,
@@ -41,16 +60,19 @@ pub enum HostMessage {
     Ping { seq: u64 },
     /// Exit now; the process is killed if it is still running after a short grace.
     Shutdown,
-    /// A call from the plugin's own page, answered by `result` with the same `seq`.
+    /// A call from the plugin's own page, answered by `result` with the same `seq`. `method` is the name
+    /// the page used, without the `plugin.` prefix.
     Call {
         seq: u64,
         method: String,
         #[serde(default)]
         args: Value,
     },
-    /// A playback event snapshot.
-    Feed { seq: u64, event: Value },
-    /// The answer to the plugin's `host_call` with the same `seq`.
+    /// A playback event snapshot. `event.seq` is the only feed counter; `lost` counts the snapshots this
+    /// plugin missed since its previous `feed`.
+    Feed { event: Value, lost: u64 },
+    /// The answer to the plugin's `host_call` with the same `seq`. A failure carries `error` as an object
+    /// `{code, message, reason?, retry_after_ms?}`.
     HostResult {
         seq: u64,
         ok: bool,
@@ -59,9 +81,48 @@ pub enum HostMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<Value>,
     },
+    /// The user used a sidebar toggle (`value` set) or action (`None`). `gesture` is an opaque token.
+    SidebarInput {
+        item_id: String,
+        value: Option<bool>,
+        gesture: String,
+    },
+    /// Whether the plugin holds Plisto's local output, and why that changed.
+    TakeoverState { held: bool, reason: TakeoverReason },
+    /// The plugin's page was shown or hidden.
+    Page { open: bool },
 }
 
-pub const HOST_KINDS: &[&str] = &["hello", "ping", "shutdown", "call", "feed", "host_result"];
+pub const HOST_KINDS: &[&str] = &[
+    "hello",
+    "ping",
+    "shutdown",
+    "call",
+    "feed",
+    "host_result",
+    "sidebar_input",
+    "takeover_state",
+    "page",
+];
+
+/// The states a plugin may report through `status`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedState {
+    On,
+    Idle,
+    Warn,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogLevel {
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
 
 /// Plugin to Plisto.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -74,10 +135,15 @@ pub enum ChildMessage {
     Pong {
         seq: u64,
     },
-    /// A state word and a line of text for the plugin's status row.
+    /// A state and a line of text for the plugin's status row. Build `text` with `clean_status_text`:
+    /// Plisto treats a text that fails `status_text_ok` as a malformed frame.
     Status {
-        state: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: ReportedState,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "status_text"
+        )]
         text: Option<String>,
     },
     /// The answer to a `call` with the same `seq`.
@@ -108,8 +174,8 @@ pub enum ChildMessage {
     },
     /// One line for the plugin's log.
     Log {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        level: Option<String>,
+        #[serde(default)]
+        level: LogLevel,
         text: String,
     },
 }
@@ -124,6 +190,49 @@ pub const CHILD_KINDS: &[&str] = &[
     "page_event",
     "log",
 ];
+
+/// A control character, or an invisible or direction-changing one, which a status text may not hold.
+fn forbidden_in_status(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{61C}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+        )
+}
+
+/// A status text is 1 to 60 chars after trimming and holds no forbidden character.
+pub fn status_text_ok(text: &str) -> bool {
+    let text = text.trim();
+    (1..=STATUS_TEXT_MAX_CHARS).contains(&text.chars().count())
+        && !text.chars().any(forbidden_in_status)
+}
+
+/// Turns any text into one `status_text_ok` accepts: forbidden characters become spaces, the result is
+/// trimmed and cut to the cap. None when nothing printable is left.
+pub fn clean_status_text(raw: &str) -> Option<String> {
+    let spaced: String = raw
+        .chars()
+        .map(|c| if forbidden_in_status(c) { ' ' } else { c })
+        .collect();
+    let cut: String = spaced.trim().chars().take(STATUS_TEXT_MAX_CHARS).collect();
+    let text = cut.trim_end();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn status_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let text = Option::<String>::deserialize(d)?;
+    match text {
+        Some(text) if !status_text_ok(&text) => Err(serde::de::Error::custom(
+            "status text is not 1-60 plain chars",
+        )),
+        other => Ok(other),
+    }
+}
 
 /// Why a stream of frames cannot go on.
 #[derive(Debug, PartialEq, Eq)]
@@ -153,7 +262,8 @@ pub enum Decoded<T> {
     Message(T),
     /// Valid JSON with a `type` this side does not know; the name, shortened.
     Unknown(String),
-    /// Not JSON, not an object with a string `type`, or a known type with the wrong fields.
+    /// Not JSON, not an object with a string `type`, or a known type with the wrong fields. The reason
+    /// never quotes the payload.
     Malformed(String),
 }
 
@@ -238,7 +348,8 @@ pub fn decode<T: DeserializeOwned>(body: &[u8], kinds: &[&str]) -> Decoded<T> {
     let kind = kind.to_string();
     match serde_json::from_value(value) {
         Ok(message) => Decoded::Message(message),
-        Err(e) => Decoded::Malformed(format!("{kind}: {e}")),
+        // The serde message can quote the offending value, so only the type is reported.
+        Err(_) => Decoded::Malformed(format!("{kind}: wrong or missing fields")),
     }
 }
 
@@ -252,6 +363,7 @@ mod tests {
         vec![
             HostMessage::Hello {
                 protocol: 1,
+                api_version: 1,
                 plisto_version: "2.7.0".into(),
                 id: "dev.plisto.tapmeter".into(),
                 granted: vec!["audio.tap".into()],
@@ -260,19 +372,34 @@ mod tests {
             HostMessage::Shutdown,
             HostMessage::Call {
                 seq: 1,
-                method: "plugin.ping".into(),
+                method: "ping".into(),
                 args: json!({"a": [1, "x\ny"]}),
             },
             HostMessage::Feed {
-                seq: 2,
-                event: json!({"cause": "start"}),
+                event: json!({"seq": 2, "cause": "start"}),
+                lost: 3,
             },
             HostMessage::HostResult {
                 seq: 3,
                 ok: false,
                 result: None,
-                error: Some(json!({"code": "denied"})),
+                error: Some(json!({"code": "denied", "message": "no"})),
             },
+            HostMessage::SidebarInput {
+                item_id: "mirror".into(),
+                value: Some(true),
+                gesture: "g-1".into(),
+            },
+            HostMessage::SidebarInput {
+                item_id: "reset".into(),
+                value: None,
+                gesture: "g-2".into(),
+            },
+            HostMessage::TakeoverState {
+                held: false,
+                reason: TakeoverReason::NotResponding,
+            },
+            HostMessage::Page { open: true },
         ]
     }
 
@@ -281,8 +408,8 @@ mod tests {
             ChildMessage::Ready { protocol: 1 },
             ChildMessage::Pong { seq: 9 },
             ChildMessage::Status {
-                state: "on".into(),
-                text: Some("Metering".into()),
+                state: ReportedState::On,
+                text: Some("peak -6.0 dB".into()),
             },
             ChildMessage::Result {
                 seq: 1,
@@ -300,8 +427,12 @@ mod tests {
                 topic: "levels".into(),
                 data: json!([0.5, 0.25]),
             },
+            ChildMessage::Status {
+                state: ReportedState::Idle,
+                text: None,
+            },
             ChildMessage::Log {
-                level: None,
+                level: LogLevel::Warn,
                 text: "started".into(),
             },
         ]
@@ -359,7 +490,7 @@ mod tests {
         );
 
         let big = ChildMessage::Log {
-            level: None,
+            level: LogLevel::Info,
             text: "x".repeat(MAX_FRAME),
         };
         assert_eq!(
@@ -384,30 +515,203 @@ mod tests {
         }
     }
 
+    fn wire(message: &impl Serialize) -> String {
+        serde_json::to_string(message).unwrap()
+    }
+
+    fn host(json: &str) -> Decoded<HostMessage> {
+        decode(json.as_bytes(), HOST_KINDS)
+    }
+
     #[test]
-    fn unknown_and_misshapen_messages_are_reported_not_fatal() {
+    fn every_host_message_decodes_from_the_json_plisto_writes() {
+        let wire = [
+            r#"{"type":"hello","protocol":1,"api_version":1,"plisto_version":"2.7.0","id":"dev.plisto.tapmeter","granted":["audio.tap"]}"#,
+            r#"{"type":"ping","seq":9}"#,
+            r#"{"type":"shutdown"}"#,
+            r#"{"type":"call","seq":1,"method":"ping","args":{"a":[1,"x\ny"]}}"#,
+            r#"{"type":"feed","event":{"cause":"start","seq":2},"lost":3}"#,
+            r#"{"type":"host_result","seq":3,"ok":false,"error":{"code":"denied","message":"no"}}"#,
+            r#"{"type":"sidebar_input","item_id":"mirror","value":true,"gesture":"g-1"}"#,
+            r#"{"type":"sidebar_input","item_id":"reset","value":null,"gesture":"g-2"}"#,
+            r#"{"type":"takeover_state","held":false,"reason":"not_responding"}"#,
+            r#"{"type":"page","open":true}"#,
+        ];
+        for (json, expected) in wire.iter().zip(host_messages()) {
+            assert_eq!(host(json), Decoded::Message(expected), "{json}");
+        }
+    }
+
+    #[test]
+    fn every_takeover_reason_has_its_snake_case_name() {
+        use TakeoverReason::*;
+        let all = [
+            (Granted, "granted"),
+            (Released, "released"),
+            (Denied, "denied"),
+            (Busy, "busy"),
+            (User, "user"),
+            (NotResponding, "not_responding"),
+            (Stopped, "stopped"),
+        ];
+        for (reason, name) in all {
+            let json = format!(r#"{{"type":"takeover_state","held":true,"reason":"{name}"}}"#);
+            assert_eq!(
+                host(&json),
+                Decoded::Message(HostMessage::TakeoverState { held: true, reason })
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_host_types_and_fields_are_ignored_not_fatal() {
         assert_eq!(
-            decode::<HostMessage>(br#"{"type":"teleport"}"#, HOST_KINDS),
+            host(r#"{"type":"teleport","x":1}"#),
             Decoded::Unknown("teleport".into())
         );
+        assert_eq!(
+            host(r#"{"type":"page","open":false,"since":12,"extra":{"a":1}}"#),
+            Decoded::Message(HostMessage::Page { open: false })
+        );
+        assert_eq!(
+            host(
+                r#"{"type":"hello","protocol":1,"api_version":1,"plisto_version":"9","id":"a","granted":[],"future":true}"#
+            ),
+            Decoded::Message(HostMessage::Hello {
+                protocol: 1,
+                api_version: 1,
+                plisto_version: "9".into(),
+                id: "a".into(),
+                granted: vec![]
+            })
+        );
+        // A feed has no frame-level seq; a stray one is an unknown field, not the counter.
+        assert!(matches!(
+            host(r#"{"type":"feed","seq":1,"event":{"seq":5},"lost":0}"#),
+            Decoded::Message(HostMessage::Feed { lost: 0, .. })
+        ));
         for json in [
             r#"{"type":"ping","seq":"one"}"#,
             r#"{"seq":1}"#,
             r#"[1]"#,
             r#"not json"#,
         ] {
-            assert!(
-                matches!(
-                    decode::<HostMessage>(json.as_bytes(), HOST_KINDS),
-                    Decoded::Malformed(_)
-                ),
-                "{json}"
-            );
+            assert!(matches!(host(json), Decoded::Malformed(_)), "{json}");
         }
-        // Unknown fields on a known type are ignored.
-        assert_eq!(
-            decode::<HostMessage>(br#"{"type":"ping","seq":1,"extra":true}"#, HOST_KINDS),
-            Decoded::Message(HostMessage::Ping { seq: 1 })
-        );
+    }
+
+    #[test]
+    fn every_child_message_encodes_to_the_wire_plisto_reads() {
+        let expected = [
+            r#"{"type":"ready","protocol":1}"#,
+            r#"{"type":"pong","seq":9}"#,
+            r#"{"type":"status","state":"on","text":"peak -6.0 dB"}"#,
+            r#"{"type":"result","seq":1,"ok":true,"result":42}"#,
+            r#"{"type":"takeover","hold":true}"#,
+            r#"{"type":"host_call","seq":4,"method":"ui.toast","args":{"text":"hi"}}"#,
+            r#"{"type":"page_event","topic":"levels","data":[0.5,0.25]}"#,
+            r#"{"type":"status","state":"idle"}"#,
+            r#"{"type":"log","level":"warn","text":"started"}"#,
+        ];
+        for (message, json) in child_messages().iter().zip(expected) {
+            assert_eq!(wire(message), json);
+        }
+    }
+
+    #[test]
+    fn the_status_vocabulary_and_log_levels_have_their_wire_names() {
+        for (state, name) in [
+            (ReportedState::On, "on"),
+            (ReportedState::Idle, "idle"),
+            (ReportedState::Warn, "warn"),
+        ] {
+            assert_eq!(wire(&state), format!("\"{name}\""));
+        }
+        for (level, name) in [
+            (LogLevel::Debug, "debug"),
+            (LogLevel::Info, "info"),
+            (LogLevel::Warn, "warn"),
+            (LogLevel::Error, "error"),
+        ] {
+            assert_eq!(wire(&level), format!("\"{name}\""));
+        }
+        assert_eq!(LogLevel::default(), LogLevel::Info);
+    }
+
+    #[test]
+    fn status_text_is_one_to_sixty_plain_chars_after_trim() {
+        assert!(status_text_ok("a"));
+        assert!(status_text_ok("  padded  "));
+        assert!(status_text_ok(&"e".repeat(60)));
+        assert!(status_text_ok(&"\u{e9}".repeat(60)));
+        assert!(!status_text_ok(""));
+        assert!(!status_text_ok("   "));
+        assert!(!status_text_ok(&"e".repeat(61)));
+        assert!(!status_text_ok("tab\there"));
+        assert!(!status_text_ok("bell\u{7}"));
+        assert!(!status_text_ok("\u{200B}\u{200D}"));
+        assert!(!status_text_ok("evil\u{202E}txt"));
+        assert!(!status_text_ok("split\u{2028}line"));
+        assert!(!status_text_ok("\u{FEFF}bom"));
+    }
+
+    #[test]
+    fn a_cleaned_status_text_always_passes_the_hosts_rule() {
+        let long = "x".repeat(500);
+        let accents = "\u{e9}".repeat(100);
+        let spaced_tail = format!("{} tail", "y".repeat(59));
+        let cases = [
+            "plain",
+            "  padded  ",
+            "tab\there",
+            "line\nbreak\r\n",
+            "\u{7}\u{1b}[0m",
+            long.as_str(),
+            accents.as_str(),
+            spaced_tail.as_str(),
+            "zero\u{200B}width\u{200D}",
+            "rtl\u{202E}override",
+            "line\u{2028}sep\u{2029}para",
+            "\u{61C}\u{2066}iso\u{2069}\u{FEFF}",
+        ];
+        for raw in cases {
+            let text = clean_status_text(raw).expect("has printable text");
+            assert!(status_text_ok(&text), "{raw:?} -> {text:?}");
+            assert!(text.chars().count() <= STATUS_TEXT_MAX_CHARS);
+            assert_eq!(text, text.trim());
+        }
+        assert_eq!(clean_status_text("  padded  ").unwrap(), "padded");
+        assert_eq!(clean_status_text("a\tb").unwrap(), "a b");
+        assert_eq!(clean_status_text(&long).unwrap().len(), 60);
+    }
+
+    #[test]
+    fn a_text_with_nothing_printable_cleans_to_none() {
+        for raw in [
+            "",
+            "   ",
+            "\n\t",
+            "\u{0}\u{7}",
+            "\u{200B}\u{200C}\u{200D}",
+            "\u{202E}\u{2028}",
+        ] {
+            assert_eq!(clean_status_text(raw), None, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn a_status_the_host_would_refuse_does_not_decode() {
+        let long = "x".repeat(61);
+        for text in ["", " ", long.as_str()] {
+            let json = format!(r#"{{"type":"status","state":"on","text":"{text}"}}"#);
+            assert!(matches!(
+                decode::<ChildMessage>(json.as_bytes(), CHILD_KINDS),
+                Decoded::Malformed(_)
+            ));
+        }
+        assert!(matches!(
+            decode::<ChildMessage>(br#"{"type":"status","state":"error"}"#, CHILD_KINDS),
+            Decoded::Malformed(_)
+        ));
     }
 }

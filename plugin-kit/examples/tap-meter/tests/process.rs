@@ -76,7 +76,7 @@ impl Plugin {
 
     fn hello(&mut self) {
         self.send(json!({
-            "type": "hello", "protocol": 1, "plisto_version": "2.7.0",
+            "type": "hello", "protocol": 1, "api_version": 1, "plisto_version": "2.7.0",
             "id": "dev.plisto.tapmeter", "granted": ["audio.tap", "audio.events"]
         }));
         let ready = self.next("ready");
@@ -143,7 +143,7 @@ fn the_end_of_input_ends_the_process() {
 fn a_call_is_answered_so_the_host_never_waits() {
     let mut p = Plugin::start("none", &[]);
     p.hello();
-    p.send(json!({"type": "call", "seq": 5, "method": "plugin.ping"}));
+    p.send(json!({"type": "call", "seq": 5, "method": "ping"}));
     let result = p.next("result");
     assert_eq!(result["seq"], 5);
     assert_eq!(result["ok"], false);
@@ -158,11 +158,9 @@ fn levels_follow_the_tap_and_the_feed() {
     p.hello();
     // The first status says the tap is open and silent.
     let first = p.next("status");
-    assert!(
-        first["text"].as_str().unwrap().contains("no audio"),
-        "{first}"
-    );
-    p.send(json!({"type": "feed", "seq": 1, "event": {"cause": "start", "transport": "playing"}}));
+    assert_eq!(first["state"], "idle", "{first}");
+    assert_eq!(first["text"], "silent", "{first}");
+    p.send(json!({"type": "feed", "lost": 0, "event": {"seq": 1, "cause": "start", "transport": "playing"}}));
 
     // A constant 0.5 on both channels is -6.0 dBFS.
     let end = Instant::now() + WAIT;
@@ -172,8 +170,7 @@ fn levels_follow_the_tap_and_the_feed() {
         }
         ring.publish();
         if let Some(m) = p.next_within("status", Duration::from_millis(20)) {
-            let text = m["text"].as_str().unwrap();
-            if text.starts_with("playing, peak -6.0 -6.0 dB") {
+            if m["state"] == "on" && m["text"] == "peak -6.0 -6.0 dB" {
                 break;
             }
         }
@@ -181,6 +178,37 @@ fn levels_follow_the_tap_and_the_feed() {
     }
     p.send(json!({"type": "shutdown"}));
     assert_eq!(p.exit().code(), Some(0));
+}
+
+#[test]
+fn a_missing_tap_is_a_warning_in_the_closed_vocabulary() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    let status = p.next("status");
+    assert_eq!(status["state"], "warn", "{status}");
+    assert_eq!(status["text"], "no tap", "{status}");
+}
+
+#[test]
+fn unknown_messages_and_fields_do_not_end_the_process() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    p.send(json!({"type": "teleport", "x": 1}));
+    p.send(json!({"type": "page", "open": true, "since": 3}));
+    p.send(json!({"type": "sidebar_input", "item_id": "a", "value": null, "gesture": "g"}));
+    p.send(json!({"type": "takeover_state", "held": false, "reason": "stopped"}));
+    p.send(json!({"type": "ping", "seq": 4, "future": [1]}));
+    assert_eq!(p.next("pong")["seq"], 4);
+}
+
+#[test]
+fn a_status_is_sent_only_when_it_changes() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    p.next("status");
+    assert!(p
+        .next_within("status", Duration::from_millis(1500))
+        .is_none());
 }
 
 #[test]

@@ -121,36 +121,65 @@ lock for the whole frame, so two frames never interleave.
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
-| `hello` | `protocol` (number), `plisto_version` (string), `id` (string), `granted` (list of capability names) | The first message. Answer with `ready`. |
+| `hello` | `protocol` (number), `api_version` (number), `plisto_version` (string), `id` (string), `granted` (list of capability names) | The first message. Answer with `ready`. `protocol` and `api_version` are both `1`. |
 | `ping` | `seq` (number) | Answer with `pong` and the same `seq`. See the ping rule. |
 | `shutdown` | none | Exit now. |
-| `call` | `seq`, `method` (string), `args` (any JSON) | A call from the plugin's own page. Answer with `result` and the same `seq`. |
-| `feed` | `seq`, `event` (object) | A playback snapshot. See "The feed". |
-| `host_result` | `seq`, `ok` (boolean), `result` and `error` (any JSON, either may be absent) | The answer to your `host_call` with the same `seq`. |
+| `call` | `seq` (number), `method` (string), `args` (any JSON) | A call from the plugin's own page. `method` is the name the page used, without the `plugin.` prefix. Answer with `result` and the same `seq`. |
+| `feed` | `event` (object), `lost` (number) | A playback snapshot. `lost` counts the snapshots you missed since your previous `feed`. There is no `seq` on the frame: the only counter is `event.seq`. See "The feed". |
+| `host_result` | `seq` (number), `ok` (boolean), `result` (any JSON, optional), `error` (object, optional) | The answer to your `host_call` with the same `seq`. A failure carries `error` as `{code, message, reason?, retry_after_ms?}`. |
+| `sidebar_input` | `item_id` (string), `value` (boolean or null), `gesture` (string) | The user used one of your sidebar items: a toggle (`value` is its new state) or an action (`value` is null). Treat `gesture` as an opaque token and never log it. |
+| `takeover_state` | `held` (boolean), `reason` (string) | Whether you hold Plisto's local output, and why that changed. `reason` is one of `granted`, `released`, `denied`, `busy`, `user`, `not_responding` and `stopped`. |
+| `page` | `open` (boolean) | Your plugin's page was shown or hidden. |
 
 ### Messages from your program to Plisto
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
 | `ready` | `protocol` (number) | The answer to `hello`. Always `1` for this protocol. |
-| `pong` | `seq` | The answer to `ping`. |
-| `status` | `state` (string), `text` (string, optional) | What the plugin is doing, for its status row. |
-| `result` | `seq`, `ok` (boolean), `result` and `error` (any JSON, either may be absent) | The answer to a `call`. |
+| `pong` | `seq` (number) | The answer to `ping`, with the same `seq`. |
+| `status` | `state` (`on`, `idle` or `warn`), `text` (string, optional) | What the plugin is doing, for its status dot. See "Status". |
+| `result` | `seq` (number), `ok` (boolean), `result` (any JSON, optional), `error` (object with an optional `message` string, optional) | The answer to a `call`. |
 | `takeover` | `hold` (boolean) | Ask to hold (`true`) or release (`false`) Plisto's local output. Needs `audio.output_takeover`. |
-| `host_call` | `seq`, `method` (string), `args` (any JSON) | Call a Plisto API method, the same ones a page uses. The answer is `host_result`. |
-| `page_event` | `topic` (string), `data` (any JSON) | Pushed to the plugin's page. |
-| `log` | `level` (string, optional), `text` (string) | One line for the plugin's log. Levels are `debug`, `info`, `warn` and `error`. |
+| `host_call` | `seq` (number), `method` (string), `args` (any JSON) | Call a Plisto API method, the same ones a page uses. The answer is `host_result` with the same `seq`. |
+| `page_event` | `topic` (string, 1 to 64 characters from `a-z`, `0-9`, `_`, `.` and `-`), `data` (any JSON) | Pushed to the plugin's page. |
+| `log` | `level` (`debug`, `info`, `warn` or `error`; default `info`), `text` (string) | One line for the plugin's log. See "Logging". |
 
-Use `state: "on"` while the plugin is healthy. Plisto decides the state it shows: if your process crashes or
-stops answering pings, Plisto says so whatever your last `status` claimed.
+Unknown fields are ignored in both directions, and so are message types you do not know. An integer is a
+JSON number no larger than 2^53.
+
+### Status
+
+`status` says what the plugin is doing in three words, so Plisto can show it the same way for every plugin.
+It is a closed vocabulary; any other `state` makes the frame malformed.
+
+| `state` | Use it for | In Plisto's sidebar |
+| --- | --- | --- |
+| `on` | The plugin is working. | A cyan dot. |
+| `idle` | Nothing to do right now: paused, stopped, silent. | A grey dot. |
+| `warn` | Something is wrong but the plugin goes on, such as a missing device. | An amber dot. |
+
+`text` is the dot's tooltip. Plisto trims it, then it must be 1 to 60 characters with no control characters
+and no invisible or direction-changing characters (zero-width characters, line and paragraph separators,
+bidirectional overrides and isolates, the byte order mark); a text that breaks the rule makes the whole frame malformed, so cut and clean it before you send it, in one
+helper. Plisto applies at most one `status` per second, so send one only when the state or the text
+changes, and not more than once a second.
+
+Plisto's own states override what you report. While the plugin is starting, not responding or restarting,
+the dot and tooltip are Plisto's ("Starting", "Not responding", "Stopped unexpectedly"), whatever your last
+`status` said. A plugin that has reported nothing shows no dot.
 
 ### The ping rule
 
-Plisto pings the plugin about once a second and expects the `pong` for each `seq`. About three seconds of
-silence marks the plugin as not responding. A plugin that answers again is marked healthy again, and
-nothing is killed because of silence alone.
+From `ready` on, Plisto sends a `ping` every second. Answer each one with a `pong` carrying the same `seq`.
+Three seconds without a valid `pong` and Plisto shows the plugin as not responding. If the plugin held
+Plisto's output, Plisto takes it back at that moment. A `pong` that arrives later marks the plugin healthy
+again, but the output stays with Plisto until the plugin asks for it again. Plisto never kills a plugin for
+silence alone.
 
-So answer `ping` from a **dedicated reader thread** that does nothing else slow: it reads frames, answers
+A `pong` is valid when its `seq` is one Plisto has sent and has not yet had answered. Any other `pong` is a
+protocol error and is ignored.
+
+So read standard input on a **dedicated thread** that does nothing else slow: it reads frames, answers
 pings at once, and hands other work to other threads. A program that does its heavy work on the thread that
 reads standard input looks hung while it works. Keep the reader's work to parsing a frame and a few stores.
 Do not let it wait on a lock another thread holds for long, on a disk, on the network or on a full queue.
@@ -158,8 +187,23 @@ Do not let it wait on a lock another thread holds for long, on a disk, on the ne
 ### Exit
 
 Exit when you receive `shutdown`, and when standard input ends (Plisto is gone or has dropped you). Plisto
-waits 2 seconds after `shutdown`, then kills the process and everything it started. An exit at any other
-time, with any code, is a crash. The exit code is not read.
+waits 2 seconds after `shutdown`, then kills the process and everything it started.
+
+### Crashes and restarts
+
+Plisto counts these as a crash: an exit it did not ask for, with any code (the code is not read); a broken
+frame; the end of the plugin's output. After a crash Plisto kills whatever is left of the process, takes
+back the output if the plugin held it, and starts the plugin again after 1 second, then 2, then 4. Three
+crashes within 60 seconds turn the plugin off and tell the user. A run that lasts 60 seconds counts as
+stable and starts the sequence over.
+
+### Protocol errors
+
+A frame that is complete but wrong is skipped and counted, and the stream goes on: an unknown or
+malformed message, a known type with wrong fields, a `status` with a bad state or text, a `result` whose
+`seq` matches no call, a `pong` out of range, a `host_call` whose `seq` is already open. A frame that is
+broken (bad length, over the size cap, torn) ends the process, since nothing after it can be trusted to be
+in step, and counts as a crash. The size cap is 1 MiB for each frame, in both directions.
 
 ## The audio tap
 
@@ -256,8 +300,8 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `seq` | number | Starts at 1 and rises by one per snapshot Plisto takes. A gap means you missed events. |
-| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume` or `device`. |
+| `seq` | number | Rises by one per snapshot Plisto takes, shared by every plugin, so your first value can be any number. A gap after it means you missed events. |
+| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume`, `device` or `snapshot`. A `snapshot` is sent once when you start receiving events and carries the current state. |
 | `tap_epoch` | number | The tap's latest epoch when the snapshot was taken. |
 | `tap_cursor` | number | The tap's `write_cursor` when the snapshot was taken. What the event changes reaches the ring at or after it. |
 | `transport` | string | `playing`, `paused` or `stopped`. |
@@ -270,9 +314,8 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 | `latency_ms` | number | The device's buffer period, a good estimate of the output delay. |
 
 Each plugin has its own bounded queue of events. If you are slow, the newest events are dropped and the
-`seq` gap shows it. Keep the last snapshot you received and treat it as the current state. Do not depend on
-every event arriving. The `seq` on the `feed` frame and the `seq` inside `event` are not the same counter:
-use the one inside `event` to detect loss.
+`seq` gap shows it, and `lost` on the frame counts them. Keep the last snapshot you received and treat it
+as the current state. Do not depend on every event arriving.
 
 ## Life of a native plugin
 
@@ -287,34 +330,31 @@ use the one inside `event` to detect loss.
   is killed instead, the job kills the plugin.
 - **Not started.** A native plugin does not start in safe mode, and does not start after an unclean exit
   until the user has chosen how to start.
-- **Your process exits by itself.** It is over. Plisto does not read the exit code.
+- **Your process exits by itself.** That is a crash: see "Crashes and restarts".
 
 ## Logging
 
 - Everything on standard error goes to `stderr.log` in the data directory, truncated at each launch. This
   is the log to read when the plugin will not start. Flush it, or the last lines are lost when you crash.
-- `log` messages are meant for the plugin's log next to the page plugins' (see [lifecycle](lifecycle.md)).
-  They are not delivered yet; see below.
+- `log` messages are written to `plugin.log` in the same folder, next to the page plugins' (see
+  [lifecycle](lifecycle.md)). They are rate-limited: lines over the limit are dropped and counted. Text is
+  cut at 2,000 characters.
 - Do not log secrets or personal data, and do not log in a tight loop.
 
 ## Not available yet
 
-The host in this release is the first part of the native tier. These pieces of this page are specified but
-do not work yet, so a plugin written today cannot rely on them.
+The protocol above is complete, but Plisto does not act on every message yet, so a plugin written today
+cannot rely on these:
 
-- **Restart and supervision.** Plisto does not restart a plugin that crashed, and does not mark it crashed
-  or disabled after repeated crashes. It does not send `ping`, so the ping rule and the not-responding
-  state have no effect yet. Write the plugin to the rule anyway.
-- **Status and log delivery.** After `ready`, Plisto reads what the plugin sends and drops it. `status`
-  does not appear anywhere and `log` is not written. Use standard error for now.
-- **Page relay and host calls.** `call`, `result`, `host_call`, `host_result` and `page_event` are defined,
-  and Plisto does not deliver them. A plugin's page cannot reach its program, and the program cannot reach
-  the Plisto API.
-- **The tap name and the feed.** The engine side exists: the tap, its mapping and the feed events are
-  built. Plisto does not yet pass a mapping name to the process (`--plisto-tap` is `none`), does not turn the
-  tap on for a plugin, and does not send `feed` messages. A plugin that wants to be tested against a tap
-  today has to be given a mapping name by hand.
-- **Output takeover.** `takeover` is read and dropped. Plisto's output stays on.
+- **The page relay.** Plisto does not forward `call` from the plugin's page and does not read `result`.
+- **Plugin API calls.** Plisto does not read `host_call` and sends no `host_result`.
+- **Page events.** Plisto reads `page_event` and drops it.
+- **Sidebar input.** Plisto sends no `sidebar_input`.
+- **The feed and the tap name.** Plisto sends no `feed` messages, and `--plisto-tap` is `none`: it does
+  not pass a mapping name or turn the tap on for a plugin. To test against a tap today, give the process
+  a mapping name by hand.
+- **Output takeover.** Plisto reads `takeover` and drops it; its output stays on, and it sends no
+  `takeover_state`.
 
-Every one of these arrives without a change to the protocol version: new behavior only adds. A plugin that
+Each of these arrives without a change to the protocol version: new behavior only adds. A plugin that
 ignores what it does not understand keeps working.

@@ -1,5 +1,5 @@
 /*
- * Peak and RMS per channel over a window of tap samples, and the status line built from them. A window
+ * Peak and RMS per channel over a window of tap samples, and the text built from them. A window
  * is what arrived since the last `take`; a discontinuity (new epoch, overrun) discards it, since levels
  * across a seek mean nothing.
  */
@@ -92,17 +92,12 @@ fn list(values: &[Option<f32>]) -> String {
     cells.join(" ")
 }
 
-/// The status line: levels, overruns and the last playback state. Short enough for a status row.
-pub fn status_text(window: &Window, overruns: u64, transport: Option<&str>) -> String {
-    let state = transport.unwrap_or("unknown");
+/// The peak of each channel in dB, such as `peak -6.0 -inf dB`; None when no channel got samples.
+pub fn peak_text(window: &Window) -> Option<String> {
     if window.peak_db.iter().all(Option::is_none) {
-        return format!("{state}, no audio, overruns {overruns}");
+        return None;
     }
-    format!(
-        "{state}, peak {} dB, rms {} dB, overruns {overruns}",
-        list(&window.peak_db),
-        list(&window.rms_db)
-    )
+    Some(format!("peak {} dB", list(&window.peak_db)))
 }
 
 #[cfg(test)]
@@ -145,20 +140,16 @@ mod tests {
         levels.take();
         let w = levels.take();
         assert_eq!(w.peak_db, vec![None, None]);
-        assert_eq!(
-            status_text(&w, 2, Some("playing")),
-            "playing, no audio, overruns 2"
-        );
+        assert_eq!(peak_text(&w), None);
     }
 
     #[test]
-    fn the_status_line_lists_every_channel() {
+    fn the_peak_text_lists_every_channel() {
         let mut levels = Levels::default();
         levels.add(&STEREO, 100, &[0.5, 0.0]);
-        let text = status_text(&levels.take(), 0, Some("playing"));
         assert_eq!(
-            text,
-            "playing, peak -6.0 -inf dB, rms -6.0 -inf dB, overruns 0"
+            peak_text(&levels.take()).as_deref(),
+            Some("peak -6.0 -inf dB")
         );
     }
 }

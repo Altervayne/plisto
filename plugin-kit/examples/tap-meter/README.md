@@ -2,18 +2,35 @@
 
 The reference native plugin. It is a small Rust program that Plisto starts as a child process. It speaks
 the native protocol on standard input and output, follows Plisto's audio tap in shared memory, and reports
-peak and RMS levels per channel. Read it next to the [native plugin guide](../../docs/native.md).
+what it sees through `status`. Read it next to the [native plugin guide](../../docs/native.md).
 
 ## What it does
 
 - Answers `hello` with `ready`, and every `ping` with `pong` from a reader thread that does nothing else
   slow.
-- Keeps the last `feed` event, so its status line shows the playback state.
-- Opens the tap named by `--plisto-tap` read-only, follows the ring by epoch and cursor, and every quarter
-  second sends a `status` line such as `playing, peak -6.0 -6.0 dB, rms -9.1 -9.2 dB, overruns 0`.
+- Keeps the last `feed` event, so it knows whether playback is paused or stopped.
+- Opens the tap named by `--plisto-tap` read-only, follows the ring by epoch and cursor, and measures peak
+  and RMS levels per channel.
+- Reports through `status`, using only the three states Plisto accepts (see below).
 - Counts overruns and logs them, with each new epoch, through `log` and standard error.
-- Answers any `call` with an error result, so a caller never waits.
+- Remembers whether its page is open (`page`). Nothing uses that yet.
+- Decodes `sidebar_input`, `takeover_state` and `host_result` and ignores them, apart from logging the
+  `takeover_state` answer to standard error. Any `call` gets an error `result`, so a caller never waits.
+- Ignores message types and fields it does not know, so a newer Plisto never breaks it.
 - Exits cleanly on `shutdown` and when standard input ends.
+
+## How its status reads
+
+| State | When | Text |
+| --- | --- | --- |
+| `on` | Audio is playing through the tap. | The peak of each channel, such as `peak -6.0 -6.0 dB`. |
+| `idle` | Playback is paused or stopped, or the tap is open and silent. | `paused`, `stopped` or `silent`. |
+| `warn` | Plisto gave it no tap, or the tap cannot be opened. | `no tap` or `tap not open`. |
+
+In Plisto's sidebar `on` is a cyan dot, `idle` a grey one and `warn` an amber one, with the text as the
+tooltip. A status goes out only when it changes, and at most once a second. The text is cleaned in one
+place, `clean_status_text` in `src/protocol.rs`, so it is always 1 to 60 characters with no control
+characters.
 
 ## Files
 
@@ -22,7 +39,8 @@ peak and RMS levels per channel. Read it next to the [native plugin guide](../..
 | `plugin.json` | The manifest: a native plugin with `audio.tap` and `audio.events`. |
 | `src/protocol.rs` | The wire protocol: frames and every message type. Lift it as it is. |
 | `src/tap.rs` | The tap reader for layout v1: open the mapping, follow epochs, detect overruns. Lift it as it is. |
-| `src/meter.rs` | Peak and RMS per channel, and the status line. |
+| `src/meter.rs` | Peak and RMS per channel, and the peak text. |
+| `src/status.rs` | Which `status` state fits what the tap is doing, and the gate that limits how often it is sent. |
 | `src/args.rs` | The command line and the flags file. |
 | `src/main.rs` | The two threads that tie the above to the protocol. |
 | `src/test_ring.rs` | A tap writer for tests. |
@@ -40,8 +58,8 @@ In this folder:
     cargo test
     cargo clippy --all-targets
 
-The tests include one that starts the built program, pipes it `hello` and `ping` and checks for `ready` and
-`pong`, and one that feeds it a tap written by the test.
+The tests include ones that start the built program, pipe it `hello`, `ping` and unknown messages and check
+the answers, and one that feeds it a tap written by the test and waits for an `on` status.
 
 ## Install into Plisto
 
@@ -65,10 +83,9 @@ Everything the program writes to standard error is in `stderr.log` inside the pl
 `%APPDATA%\com.altervayne.plisto\plugins-data\dev.plisto.tapmeter\`. It includes a line naming the
 Plisto version and the capabilities granted, and it is truncated at each launch.
 
-This release of Plisto does not show the plugin's `status` or `log` messages yet and does not pass a tap
-name, so the log file is the place to confirm that it started and said `ready`. Once Plisto passes a tap
-name and delivers feed events and pings, the program opens the tap and reports levels as described above.
-See "Not available yet" in the guide.
+The plugin's `status` shows in Plisto's sidebar, and its `log` messages are written to `plugin.log` in the
+same folder. At this stage Plisto does not pass a tap name or send `feed`, so the plugin reports `warn`
+with `no tap`. See "Not available yet" in the guide.
 
 ## Test flags
 
