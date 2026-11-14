@@ -11,6 +11,7 @@ const KEYS = [
   "startingLine",
   "notRespondingTitle",
   "notRespondingLine",
+  "notRespondingPluginLine",
   "wait",
   "disable",
   "crashTitle",

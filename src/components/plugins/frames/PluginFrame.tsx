@@ -6,6 +6,7 @@ import { NotRespondingOverlay } from "./NotRespondingOverlay";
 
 // -- State Imports --
 import { useFrameHealthStore } from "../../../state/plugins/frameHealth";
+import { usePluginStatusOf } from "../../../state/plugins/pluginStatus";
 import {
   attachFrame,
   detachFrame,
@@ -63,6 +64,15 @@ export function PluginFrame({
   const routeRef = useRef(route);
   routeRef.current = route;
   const [src, setSrc] = useState<string | null>(null);
+  const status = usePluginStatusOf(id);
+  const [waited, setWaited] = useState(false);
+  // A native plugin's process can hang while its page still answers; that overlay is the plugin's, not the page's.
+  const hungProcess = want.tier === "native" && status?.host === "not_responding";
+
+  // Wait lasts until the process leaves the not-responding state.
+  useEffect(() => {
+    if (!hungProcess) setWaited(false);
+  }, [hungProcess]);
 
   // A new mount starts over: whatever phase an earlier mount of this plugin left must not show for a frame.
   useLayoutEffect(() => {
@@ -138,8 +148,18 @@ export function PluginFrame({
       {view.shown && phase === "not_responding" ? (
         <NotRespondingOverlay
           name={name}
+          tier="ui"
           focusInFrame={() => document.activeElement === iframeRef.current}
           onWait={() => onWait(mountKey)}
+          onDisable={() => disablePlugin(id)}
+        />
+      ) : view.shown && hungProcess && !waited ? (
+        <NotRespondingOverlay
+          name={name}
+          tier={want.tier}
+          takeoverLine={status?.takeover_revoked === "not_responding"}
+          focusInFrame={() => document.activeElement === iframeRef.current}
+          onWait={() => setWaited(true)}
           onDisable={() => disablePlugin(id)}
         />
       ) : null}

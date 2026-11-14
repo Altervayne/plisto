@@ -40,6 +40,12 @@ describe("statusView, one case per row of the status table", () => {
     expect(v.body).toEqual({ kind: "frame" });
   });
 
+  it("running offers Restart for a native plugin and not for a UI plugin", () => {
+    expect(view({ host: "running" }).restart).toBe(true);
+    expect(view({ host: "running", reported: { state: "on", text: "Mirroring" } }).restart).toBe(true);
+    expect(view({ host: "running" }, row()).restart).toBe(false);
+  });
+
   it("running and idle: grey with the reported text", () => {
     const v = view({ reported: { state: "idle", text: "Paused" } });
     expect(v.dot).toBe("idle");

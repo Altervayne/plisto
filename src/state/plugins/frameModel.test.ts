@@ -20,6 +20,12 @@ import type { PluginRow } from "../../types";
 
 const ui = (id: string, over: Partial<PluginRow> = {}, modes: ("player" | "organizer")[] = ["player", "organizer"]) =>
   row({ id, granted: [], installed_at: 1, manifest: manifest({ name: id, modes, entry: `${id}.html` }), ...over });
+const nativePage = (id: string, over: Partial<PluginRow> = {}) =>
+  ui(id, {
+    tier: "native",
+    manifest: manifest({ name: id, modes: ["player", "organizer"], entry: `${id}.exe`, page: "page.html" }),
+    ...over,
+  });
 const bg = (id: string, over: Partial<PluginRow> = {}) => ui(id, { granted: ["background"], ...over });
 
 const input = (rows: PluginRow[], over: Partial<WantedInput> = {}): WantedInput => ({
@@ -54,6 +60,12 @@ describe("frameCapable and runsInBackground", () => {
     expect(frameCapable(ui("a", { manifest: null }))).toBe(false);
   });
 
+  it("accepts a live native plugin only when it declares a page", () => {
+    expect(frameCapable(nativePage("t"))).toBe(true);
+    expect(frameCapable(ui("t", { tier: "native" }))).toBe(false);
+    expect(frameCapable(nativePage("t", { enabled: false }))).toBe(false);
+  });
+
   it("adds the background grant", () => {
     expect(runsInBackground(bg("a"))).toBe(true);
     expect(runsInBackground(ui("a"))).toBe(false);
@@ -71,7 +83,7 @@ describe("wantedFrames", () => {
     const rows = [ui("p")];
     expect(ids(rows)).toEqual([]);
     expect(wantedFrames(input(rows, { pageId: "p" }))).toEqual([
-      { mountKey: "p|1.3.0|hash-1|0", id: "p", kind: "page", entry: "p.html", name: "p", active: true },
+      { mountKey: "p|1.3.0|hash-1|0", id: "p", kind: "page", entry: "p.html", name: "p", tier: "ui", active: true },
     ]);
   });
 
@@ -111,9 +123,24 @@ describe("wantedFrames", () => {
     expect(ids([bg("a", { state: "broken" })], { released })).toEqual([]);
   });
 
-  it("never mounts a native plugin", () => {
+  it("never mounts a native plugin without a page", () => {
     const native = bg("n", { tier: "native" });
     expect(ids([native], { released: new Set(["n"]), pageId: "n" })).toEqual([]);
+  });
+
+  it("mounts a native plugin's page only while it is open, never in the background", () => {
+    const tap = nativePage("tap");
+    expect(ids([tap], { released: new Set(["tap"]) })).toEqual([]);
+    expect(ids([tap], { pageId: "other" })).toEqual([]);
+    expect(ids([tap], { pageId: "tap" })).toEqual(["page:tap"]);
+    const granted = nativePage("tap", { granted: ["background"] });
+    expect(ids([granted], { released: new Set(["tap"]) })).toEqual([]);
+  });
+
+  it("loads a native plugin's page file, not its program", () => {
+    const [want] = wantedFrames(input([nativePage("tap")], { pageId: "tap" }));
+    expect(want.entry).toBe("page.html");
+    expect(want.tier).toBe("native");
   });
 
   it("excludes a crashed frame until restart bumps the generation", () => {

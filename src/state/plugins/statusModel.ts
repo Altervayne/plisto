@@ -89,7 +89,8 @@ export function statusView(
         tip: text ? { kind: "reported", text } : null,
         body: { kind: "frame" },
         hub: text ? { kind: "reported", text } : null,
-        restart: false,
+        // A native process is the plugin's own; the user may restart it while it runs.
+        restart: row.tier === "native",
       };
     }
     case "not_responding":

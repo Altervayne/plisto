@@ -1378,6 +1378,8 @@ export const fr: Dict = {
       notRespondingTitle: "{name} ne répond pas",
       notRespondingLine:
         "La page n'a pas répondu depuis quelques secondes. Patientez pour lui laisser plus de temps, ou désactivez-la.",
+      notRespondingPluginLine:
+        "Le plugin n'a pas répondu depuis quelques secondes. Patientez pour lui laisser plus de temps, ou désactivez-le.",
       wait: "Patienter",
       disable: "Désactiver",
       crashTitle: "{name} s'est arrêté de façon inattendue",
@@ -1500,7 +1502,7 @@ export const fr: Dict = {
       enablingTitle: "Activation de {name}",
       updatingTitle: "Mise à jour de {name}",
       stepUpdating: "Remplacement de la version installée...",
-      noticeInstallTitle: "Plisto n'a pas pu installer ce fichier",
+      noticeInstallTitle: "Plisto n'a pas pu installer ce plugin",
       noticeInstallNote: "Rien n'a été installé.",
       noticeUpdateTitle: "{name} n'a pas été mis à jour",
       noticeUpdateNote: "La version installée reste inchangée.",

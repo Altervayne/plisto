@@ -11,6 +11,7 @@ import {
   sendInit,
   hasLiveFrame,
   sendPing,
+  sendPluginEvent,
   sendRoute,
   sendSidebar,
   sendVisibility,
@@ -508,6 +509,45 @@ describe("sidebar delivery", () => {
     detachFrame("k-a2");
     expect(sendSidebar("plug-a", DELIVERY)).toBe(true);
     expect(older.types()).toEqual(["plisto:init", "plisto:sidebar"]);
+  });
+});
+
+describe("plugin events", () => {
+  it("reach only the newest live, initialised record of the plugin", async () => {
+    const { calls } = setup();
+    const older = await liveFrame(calls, "k-a1", "plug-a");
+    const newer = await liveFrame(calls, "k-a2", "plug-a");
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    const loading = new FakeWindow();
+    attachFrame("k-a3", "plug-a", loading);
+    frameLoaded("k-a3");
+
+    expect(sendPluginEvent("plug-a", "level", { db: -3 })).toBe(true);
+    expect(newer.posted[newer.posted.length - 1]).toEqual({
+      msg: { plisto: 1, type: "plisto:plugin-event", topic: "level", data: { db: -3 } },
+      origin: "*",
+    });
+    expect(older.types()).toEqual(["plisto:init"]);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(loading.posted).toEqual([]);
+  });
+
+  it("are dropped with no live frame, after detach and for a navigated frame", async () => {
+    const { calls } = setup();
+    expect(sendPluginEvent("plug-a", "level", 1)).toBe(false);
+    const a = await liveFrame(calls, "k-a", "plug-a");
+    frameLoaded("k-a");
+    expect(sendPluginEvent("plug-a", "level", 1)).toBe(false);
+    detachFrame("k-a");
+    expect(sendPluginEvent("plug-a", "level", 1)).toBe(false);
+    expect(a.types()).toEqual(["plisto:init"]);
+  });
+
+  it("never fall back to another plugin's frame", async () => {
+    const { calls } = setup();
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    expect(sendPluginEvent("plug-a", "level", 1)).toBe(false);
+    expect(other.types()).toEqual(["plisto:init"]);
   });
 });
 

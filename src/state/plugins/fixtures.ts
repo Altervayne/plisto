@@ -18,6 +18,7 @@ export const manifest = (over: Partial<PluginManifestSummary> = {}): PluginManif
   modes: ["player"],
   sidebar: null,
   entry: "index.html",
+  page: null,
   ...over,
 });
 

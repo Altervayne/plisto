@@ -1055,8 +1055,10 @@ export interface PluginManifestSummary {
   /** The app modes it shows in; never empty. A manifest without modes arrives as `["player"]`. */
   modes: PluginMode[];
   sidebar: PluginSidebarDecl | null;
-  /** The page's entry file, relative to the plugin folder. */
+  /** The page's entry file, relative to the plugin folder. For a native plugin, its program. */
   entry: string;
+  /** A native plugin's own page, relative to the plugin folder; null when it has none or is a UI plugin. */
+  page: string | null;
 }
 
 /** Every stable code a plugin API call fails with. Mirrors ApiCode in plugins/api/error.rs. */
@@ -1071,7 +1073,8 @@ export type PluginApiErrorCode =
   | "timeout"
   | "unavailable"
   | "network"
-  | "aborted";
+  | "aborted"
+  | "plugin_error";
 
 /** One refused plugin API call. `retry_after_ms` is present only with `rate_limited`. */
 export interface PluginApiError {
@@ -1148,6 +1151,13 @@ export interface PluginSidebarDelivery {
 export interface PluginSidebarInputReply {
   accepted: boolean;
   frame: PluginSidebarDelivery | null;
+}
+
+/** A page event a native plugin sent for its open page. Mirrors the `plugins:page_event` payload. */
+export interface PluginPageEvent {
+  id: string;
+  topic: string;
+  data: unknown;
 }
 
 /** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */

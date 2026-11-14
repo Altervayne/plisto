@@ -1364,6 +1364,8 @@ export const en = {
       notRespondingTitle: "{name} is not responding",
       notRespondingLine:
         "The page has not answered for a few seconds. Wait to give it more time, or turn it off.",
+      notRespondingPluginLine:
+        "The plugin has not answered for a few seconds. Wait to give it more time, or turn it off.",
       wait: "Wait",
       disable: "Disable",
       crashTitle: "{name} stopped unexpectedly",
@@ -1481,7 +1483,7 @@ export const en = {
       enablingTitle: "Turning on {name}",
       updatingTitle: "Updating {name}",
       stepUpdating: "Replacing the installed version...",
-      noticeInstallTitle: "Plisto could not install this file",
+      noticeInstallTitle: "Plisto could not install this plugin",
       noticeInstallNote: "Nothing was installed.",
       noticeUpdateTitle: "{name} was not updated",
       noticeUpdateNote: "The installed version stays as it was.",

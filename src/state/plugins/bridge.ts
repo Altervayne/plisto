@@ -46,7 +46,10 @@ export type FrameToHost =
   | { plisto: 1; type: "plisto:call"; id: number; method: string; args: string }
   | { plisto: 1; type: "plisto:pong"; seq: number };
 
-/** Every message the host sends a frame. */
+/**
+ * Every message the host sends a frame. `plisto:plugin-event` carries a native plugin's page event and
+ * exists in this direction only: the router never accepts it from a frame.
+ */
 export type HostToFrame =
   | {
       plisto: 1;
@@ -62,7 +65,8 @@ export type HostToFrame =
   | { plisto: 1; type: "plisto:visibility"; page_open: boolean }
   | { plisto: 1; type: "plisto:theme"; theme: "light" | "dark" }
   | { plisto: 1; type: "plisto:sidebar"; item_id: string; value: boolean | null; gesture: string }
-  | { plisto: 1; type: "plisto:route"; route: string | null };
+  | { plisto: 1; type: "plisto:route"; route: string | null }
+  | { plisto: 1; type: "plisto:plugin-event"; topic: string; data: unknown };
 
 /** One mounted frame as the host tracks it. */
 export interface FrameRecord<S> {
@@ -251,4 +255,9 @@ export function sidebarMsg(itemId: string, value: boolean | null, gesture: strin
 
 export function routeMsg(routePath: string | null): HostToFrame {
   return { plisto: PROTOCOL, type: "plisto:route", route: routePath };
+}
+
+/** A page event from the plugin's native process. */
+export function pluginEventMsg(topic: string, data: unknown): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:plugin-event", topic, data };
 }

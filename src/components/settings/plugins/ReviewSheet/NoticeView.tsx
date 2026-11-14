@@ -69,7 +69,7 @@ export function NoticeView({
 
   return (
     <>
-      <div className={styles.body}>
+      <div className={`${styles.body} ${styles.noticeBody}`}>
         <h2 id={titleId} className={styles.title}>
           {title}
         </h2>

@@ -10,7 +10,7 @@ import { PluginTag } from "./PluginTag";
 // -- State Imports --
 import { useFrameHealth } from "../../state/plugins/frameHealth";
 import { useFrameSlotStore } from "../../state/plugins/frameSlot";
-import { pluginRuntimeReady } from "../../state/plugins/frameModel";
+import { frameCapable, pluginRuntimeReady } from "../../state/plugins/frameModel";
 import { usePluginStatusOf } from "../../state/plugins/pluginStatus";
 import { crashDetail, pageState, statusView } from "../../state/plugins/statusModel";
 import { usePlugin, usePluginsBoot } from "../../state/plugins/store";
@@ -60,7 +60,7 @@ export function PluginPage({ id }: { id: string }) {
   if (!plugin || !plugin.manifest) return null;
   const tag = tagKind(plugin.tier);
   const name = plugin.manifest.name;
-  const framed = plugin.tier === "ui";
+  const framed = frameCapable(plugin);
   const runtimeReady = pluginRuntimeReady(boot);
   const cannotOpen = framed && (!runtimeReady || health?.phase === "unavailable");
   // No health entry yet: the frame is about to mount.

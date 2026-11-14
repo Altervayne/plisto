@@ -1,7 +1,7 @@
 /*
- * Which plugin frames should exist, as pure code. A frame is wanted for the open page of a UI plugin and
- * for every UI plugin that declares the `background` capability. The layer mounts what this returns and
- * unmounts the rest; nothing is kept for later. Background frames follow the live set, not the app mode:
+ * Which plugin frames should exist, as pure code. A frame is wanted for the open page of a UI plugin or of
+ * a native plugin that declares a `page`, and for every UI plugin that declares the `background`
+ * capability. The layer mounts what this returns and unmounts the rest; nothing is kept for later. Background frames follow the live set, not the app mode:
  * the mode only hides entry points, it is not a runtime switch.
  */
 
@@ -11,7 +11,7 @@ import { livePlugins, qualifiedPlugins } from "../../components/shell/navVisibil
 // -- Type Imports --
 import type { ZonePlugin } from "../../components/shell/navVisibility";
 import type { AppMode } from "../player/store";
-import type { PluginBootState, PluginRow } from "../../types";
+import type { PluginBootState, PluginRow, PluginTier } from "../../types";
 
 /** How long a released background frame holds the next release back, in ms. */
 export const RELEASE_GAP_MS = 2000;
@@ -26,6 +26,7 @@ export interface FrameWant {
   kind: "page" | "background";
   entry: string;
   name: string;
+  tier: PluginTier;
   /** Whether this frame is the shown page. */
   active: boolean;
 }
@@ -35,14 +36,20 @@ export function pluginRuntimeReady(boot: PluginBootState | null): boolean {
   return boot?.runtime === "running";
 }
 
-/** Whether the row is a live UI plugin, so it can own a frame. */
+/** Whether the row is a live UI plugin, or a live native plugin with a page, so it can own a frame. */
 export function frameCapable(row: PluginRow): row is ZonePlugin {
-  return livePlugins([row]).length === 1 && row.tier === "ui";
+  if (livePlugins([row]).length !== 1) return false;
+  return row.tier === "ui" || (row.tier === "native" && row.manifest?.page != null);
 }
 
-/** Whether the row's frame stays mounted without its page open. */
+/** Whether the row's frame stays mounted without its page open. A native page never does. */
 export function runsInBackground(row: PluginRow): row is ZonePlugin {
-  return frameCapable(row) && row.granted.includes("background");
+  return frameCapable(row) && row.tier === "ui" && row.granted.includes("background");
+}
+
+/** The file a row's frame loads: a native plugin's page, a UI plugin's entry. */
+export function frameEntry(row: ZonePlugin): string {
+  return row.tier === "native" ? (row.manifest.page ?? row.manifest.entry) : row.manifest.entry;
 }
 
 /** Whether a crashed row's frame is remounted when its status reaches `starting`: background frames only. */
@@ -79,8 +86,9 @@ export function wantedFrames(input: WantedInput): FrameWant[] {
     mountKey: keyOf(row),
     id: row.id,
     kind,
-    entry: row.manifest.entry,
+    entry: frameEntry(row),
     name: row.manifest.name,
+    tier: row.tier,
     active,
   });
 

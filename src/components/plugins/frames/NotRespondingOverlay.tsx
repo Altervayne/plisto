@@ -4,23 +4,29 @@ import { useEffect, useId, useRef } from "react";
 // -- i18n Imports --
 import { useT } from "../../../i18n";
 
+// -- Type Imports --
+import type { PluginTier } from "../../../types";
+
 // -- Style Imports --
 import styles from "./NotRespondingOverlay.module.css";
 
 /**
  * The veil and card over a frame that has stopped answering. Wait gives it more time, Disable turns the
- * plugin off. With `takeoverLine` it also says Plisto took its speakers back. It carries no motion: it
+ * plugin off. With `takeoverLine` it also says Plisto took its speakers back. `tier` picks the subject of
+ * the sentence: a UI plugin's hung page, or a native plugin's hung process. It carries no motion: it
  * appears and leaves as a plain mount. Focus moves to Wait only
  * when it was inside the frame, where keys typed into a hung page are lost; otherwise it stays put.
  */
 export function NotRespondingOverlay({
   name,
+  tier,
   takeoverLine = false,
   focusInFrame,
   onWait,
   onDisable,
 }: {
   name: string;
+  tier: PluginTier;
   takeoverLine?: boolean;
   /** Whether keyboard focus sits in the frame behind the veil, read once when the overlay appears. */
   focusInFrame: () => boolean;
@@ -52,7 +58,9 @@ export function NotRespondingOverlay({
         <p id={lineId} className={styles.line}>
           {takeoverLine
             ? t((d) => d.plugins.frame.takeoverLine, { name })
-            : t((d) => d.plugins.frame.notRespondingLine)}
+            : tier === "native"
+              ? t((d) => d.plugins.frame.notRespondingPluginLine)
+              : t((d) => d.plugins.frame.notRespondingLine)}
         </p>
         <div className={styles.actions}>
           <button ref={waitRef} type="button" className={`${styles.btn} ${styles.cancel}`} onClick={onWait}>

@@ -11,6 +11,7 @@ import {
   errorMsg,
   initMsg,
   pingMsg,
+  pluginEventMsg,
   resultMsg,
   route,
   routeMsg,
@@ -101,6 +102,7 @@ interface Host {
   sendVisibility: (mountKey: string, pageOpen: boolean) => void;
   sendRoute: (mountKey: string, routePath: string | null) => void;
   sendSidebar: (pluginId: string, delivery: PluginSidebarDelivery) => boolean;
+  sendPluginEvent: (pluginId: string, topic: string, data: unknown) => boolean;
   hasLiveFrame: (pluginId: string) => boolean;
   stop: () => void;
 }
@@ -304,6 +306,13 @@ function createHost(deps: HostDeps): Host {
       return true;
     },
 
+    sendPluginEvent(pluginId, topic, data) {
+      const rec = initialised(pluginId);
+      if (!rec) return false;
+      post(rec, pluginEventMsg(topic, data));
+      return true;
+    },
+
     hasLiveFrame(pluginId) {
       return initialised(pluginId) != null;
     },
@@ -419,6 +428,14 @@ export function sendRoute(mountKey: string, routePath: string | null): void {
  */
 export function sendSidebar(pluginId: string, delivery: PluginSidebarDelivery): boolean {
   return active?.sendSidebar(pluginId, delivery) ?? false;
+}
+
+/**
+ * Posts a native plugin's page event to the plugin's newest live, initialised frame. Returns false when
+ * there is none; the event is dropped, never held for a later frame.
+ */
+export function sendPluginEvent(pluginId: string, topic: string, data: unknown): boolean {
+  return active?.sendPluginEvent(pluginId, topic, data) ?? false;
 }
 
 /** Whether the plugin has a live frame whose init is done. */

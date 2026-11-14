@@ -8,6 +8,7 @@ import {
   MAX_PENDING_PER_FRAME,
   initMsg,
   pingMsg,
+  pluginEventMsg,
   resultMsg,
   route,
   routeMsg,
@@ -189,6 +190,13 @@ describe("route: pong", () => {
   });
 });
 
+describe("route: host-to-frame only types", () => {
+  it("drops a plugin event sent by a frame", () => {
+    const { send } = setup();
+    expect(send({ plisto: 1, type: "plisto:plugin-event", topic: "level", data: 1 })).toEqual({ kind: "drop" });
+  });
+});
+
 describe("route: call", () => {
   it("forwards a well-formed call", () => {
     const { record, send } = setup();
@@ -333,6 +341,15 @@ describe("builders", () => {
     expect(pingMsg(4)).toEqual({ plisto: 1, type: "plisto:ping", seq: 4 });
     expect(visibilityMsg(false)).toEqual({ plisto: 1, type: "plisto:visibility", page_open: false });
     expect(themeMsg("dark")).toEqual({ plisto: 1, type: "plisto:theme", theme: "dark" });
+  });
+
+  it("builds the plugin event message", () => {
+    expect(pluginEventMsg("level", { db: -3 })).toEqual({
+      plisto: 1,
+      type: "plisto:plugin-event",
+      topic: "level",
+      data: { db: -3 },
+    });
   });
 
   it("builds the sidebar and route messages", () => {

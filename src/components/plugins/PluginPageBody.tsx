@@ -81,6 +81,7 @@ export function PluginPageBody({
       return (
         <NotRespondingOverlay
           name={name}
+          tier={plugin.tier}
           takeoverLine={body.takeoverLine}
           focusInFrame={() => false}
           onWait={() => setWaited(true)}

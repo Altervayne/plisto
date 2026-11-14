@@ -113,6 +113,11 @@
   padding: 6px 22px 12px;
 }
 
+/* A notice has no header above it, so its body carries the header's top padding. */
+.body.noticeBody {
+  padding-top: 20px;
+}
+
 .sect {
   display: flex;
   flex-direction: column;
