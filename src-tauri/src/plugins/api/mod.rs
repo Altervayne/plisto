@@ -55,7 +55,14 @@ use super::paths::validate_id;
 use super::state::{EnabledSet, Serving};
 use crate::state::AppState;
 
+pub(crate) use self::net::methods::{environment as net_environment, fetch as net_fetch};
+pub(crate) use self::net::methods::{Fetched, NetEngine};
+pub(crate) use self::net::proxy::{NetEnvironment, ProxyKind};
+pub(crate) use self::net::state::{NetLogEntry, Ticket};
+
 // Lets command tests hold and inspect network entries without opening the module crate-wide.
+#[cfg(test)]
+pub(crate) use self::net::methods::NetFixture;
 #[cfg(test)]
 pub(crate) use self::net::state::{EndReason, Kind, Running};
 
@@ -143,6 +150,11 @@ pub trait HostContext: Send + Sync {
     fn app_state(&self) -> Option<&AppState>;
     /// Hands `method`, without its `plugin.` prefix, to plugin `id`'s child and waits for its answer.
     fn relay_call(&self, id: &str, method: &str, args: Value) -> Result<Value, ApiError>;
+    /// The network engine, reporting to the main window; none on a host that cannot deliver its
+    /// events, where the network methods are `unavailable`.
+    fn net(&self) -> Option<NetEngine> {
+        None
+    }
 }
 
 /// Everything a handler may use. `id` is the admitted caller, never a value from the arguments.
@@ -156,6 +168,8 @@ pub struct CallCtx<'a> {
     pub app_data: &'a Path,
     pub host: &'a dyn HostContext,
     pub api: &'a ApiState,
+    /// The network ticket taken with `serving`, which network work registers under.
+    pub ticket: Ticket,
 }
 
 /// A call that passed every check, holding its in-flight slot until dropped.
@@ -164,6 +178,7 @@ pub struct Admitted {
     method: String,
     serving: Serving,
     enabled: EnabledSet,
+    ticket: Ticket,
     spec: &'static MethodSpec,
     _in_flight: InFlight,
 }
@@ -190,6 +205,7 @@ pub fn table() -> &'static [MethodSpec] {
             library::METHODS,
             cover::METHODS,
             playback::METHODS,
+            net::methods::METHODS,
         ]
         .concat()
     })
@@ -290,6 +306,9 @@ fn admit_as(
     now: Instant,
 ) -> Result<Admitted, ApiError> {
     validate_id(id).map_err(|_| ApiError::not_found())?;
+    // Taken before the snapshot, so a forget between the two leaves the ticket stale, never the
+    // snapshot alone.
+    let ticket = api.net().ticket(id);
     let serving = enabled.serving(id).ok_or_else(ApiError::unavailable)?;
     api.take_all(id, now)?;
     let spec = lookup(table, caller, serving.tier, method)?;
@@ -308,6 +327,7 @@ fn admit_as(
         method: method.to_string(),
         serving,
         enabled: enabled.clone(),
+        ticket,
         spec,
         _in_flight: in_flight,
     })
@@ -335,6 +355,7 @@ pub fn start(
         app_data,
         host,
         api,
+        ticket: admitted.ticket,
     };
     match (admitted.spec.run)(&ctx, &args) {
         Outcome::Done(result) => Started::Done(result),
@@ -376,6 +397,7 @@ fn relay(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
 
 /// `start`, then blocks on a later job, so the call keeps its in-flight slot until it resolves. Never
 /// called from an async task: blocking on the runtime from inside it panics.
+#[cfg(test)]
 pub fn run(
     admitted: &Admitted,
     args: &str,
@@ -390,6 +412,7 @@ pub fn run(
 }
 
 /// `admit` then `run`, on the calling thread.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch(
     enabled: &EnabledSet,
@@ -406,8 +429,8 @@ pub fn dispatch(
 }
 
 /// A host with settings set by the test, a fixed OS theme and window state, a record of the events
-/// sent and the calls relayed, and the app state the test gives it. A relayed call is answered with
-/// `relay_answer`, or `unavailable` when it is unset.
+/// sent and the calls relayed, the app state and network engine the test gives it. A relayed call is
+/// answered with `relay_answer`, or `unavailable` when it is unset.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct FakeHost {
@@ -418,6 +441,7 @@ pub(crate) struct FakeHost {
     pub app: Option<AppState>,
     pub relayed: std::sync::Mutex<Vec<(String, String, Value)>>,
     pub relay_answer: Option<Result<Value, ApiError>>,
+    pub net: Option<NetEngine>,
 }
 
 #[cfg(test)]
@@ -456,6 +480,10 @@ impl HostContext for FakeHost {
         self.relay_answer
             .clone()
             .unwrap_or_else(|| Err(ApiError::unavailable()))
+    }
+
+    fn net(&self) -> Option<NetEngine> {
+        self.net.clone()
     }
 }
 
@@ -518,6 +546,7 @@ impl TestCall<'_> {
             app_data: self.app_data,
             host: self.host,
             api: &self.api,
+            ticket: self.api.net().ticket("com.example.demo"),
         }
     }
 }

@@ -7,6 +7,8 @@
  * A stream that plays through Plisto's engine is a `Playback` entry, opened behind a `PlaybackHead`
  * until its headers: they share the stream and fetch caps, but neither a page's abort, a frame event
  * nor the `forget` sweep ends them. They end only through `end` or their own guard.
+ * A call takes the plugin's ticket when admitted; work it registers after a forget or frame event that
+ * would have ended it is refused, so nothing outlives those events by racing them.
  * A plugin's log outlives its entries and is kept until the app quits, 200 lines at most per plugin.
  */
 
@@ -186,11 +188,22 @@ impl NetLogEntry {
     }
 }
 
+/// How many times a plugin was forgotten and lost its frame, as a call admitted at that moment saw
+/// it. Work registered under an older ticket is refused: it was admitted before an event that would
+/// have ended it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ticket {
+    stopped: u64,
+    frames: u64,
+}
+
 #[derive(Default)]
 struct Inner {
     next_key: u64,
     running: HashMap<u64, Entry>,
     logs: HashMap<String, VecDeque<NetLogEntry>>,
+    // Never shrinks: one entry per plugin that was ever forgotten or lost a frame.
+    tickets: HashMap<String, Ticket>,
 }
 
 impl Inner {
@@ -224,9 +237,10 @@ fn fire(callbacks: Vec<CancelFn>, why: EndReason) -> usize {
     count
 }
 
-/// Cheap to clone; every clone shares the same state.
+/// Cheap to clone; every clone shares the same state. A clone from `bound` also carries the ticket its
+/// registrations are checked against.
 #[derive(Clone, Default)]
-pub struct NetState(Arc<Mutex<Inner>>);
+pub struct NetState(Arc<Mutex<Inner>>, Option<Ticket>);
 
 /// Holds one running entry and its cap slot; dropping it ends the entry with `Finished` unless
 /// something ended it first.
@@ -252,8 +266,20 @@ impl Drop for Running {
 }
 
 impl NetState {
+    /// Plugin `id`'s ticket now, taken when a call is admitted.
+    pub fn ticket(&self, id: &str) -> Ticket {
+        lock(&self.0).tickets.get(id).copied().unwrap_or_default()
+    }
+
+    /// This state, refusing registrations made after `ticket` went stale.
+    pub fn bound(&self, ticket: Ticket) -> NetState {
+        NetState(self.0.clone(), Some(ticket))
+    }
+
     /// Registers a running fetch, stream or socket of plugin `id`, refused `busy` when the plugin or
-    /// the app already holds its kind's cap.
+    /// the app already holds its kind's cap. Bound to a ticket, it is refused `unavailable` once the
+    /// plugin was forgotten since, and `aborted` / `frame_gone` once its frame went, except playback
+    /// work, which a frame event does not end.
     pub fn open(
         &self,
         id: &str,
@@ -262,6 +288,15 @@ impl NetState {
         cancel: CancelFn,
     ) -> Result<Running, ApiError> {
         let mut inner = lock(&self.0);
+        if let Some(admitted) = self.1 {
+            let now = inner.tickets.get(id).copied().unwrap_or_default();
+            if now.stopped != admitted.stopped {
+                return Err(ApiError::unavailable());
+            }
+            if now.frames != admitted.frames && kind.ends_with_page() {
+                return Err(ApiError::aborted("frame_gone"));
+            }
+        }
         let (per_plugin, app_wide) = kind.caps();
         if inner.count(kind, Some(id)) >= per_plugin || inner.count(kind, None) >= app_wide {
             return Err(ApiError::busy());
@@ -305,14 +340,22 @@ impl NetState {
 
     /// Ends what `id` has running because its frame detached or crashed, except playback work.
     pub fn frame_gone(&self, id: &str) {
-        let callbacks = lock(&self.0).take(|e| e.plugin == id && e.kind.ends_with_page());
+        let callbacks = {
+            let mut inner = lock(&self.0);
+            inner.tickets.entry(id.to_string()).or_default().frames += 1;
+            inner.take(|e| e.plugin == id && e.kind.ends_with_page())
+        };
         fire(callbacks, EndReason::FrameGone);
     }
 
     /// Ends what `id` has running because it stopped serving, except playback work, which its owner
     /// ends. Its log is kept.
     pub fn forget(&self, id: &str) {
-        let callbacks = lock(&self.0).take(|e| e.plugin == id && e.kind.ends_with_page());
+        let callbacks = {
+            let mut inner = lock(&self.0);
+            inner.tickets.entry(id.to_string()).or_default().stopped += 1;
+            inner.take(|e| e.plugin == id && e.kind.ends_with_page())
+        };
         fire(callbacks, EndReason::Stopped);
     }
 
@@ -566,6 +609,44 @@ mod tests {
         assert_eq!(net.running(A, Kind::Playback), 0);
         drop(playback);
         assert_eq!(*fired.lock().unwrap(), [EndReason::Stopped]);
+    }
+
+    #[test]
+    fn a_stale_ticket_refuses_registration_with_the_event_that_staled_it() {
+        let net = NetState::default();
+        let page = [Kind::Fetch, Kind::Stream, Kind::Socket];
+        let playback = [Kind::Playback, Kind::PlaybackHead];
+
+        // A frame event refuses page work and leaves playback work alone.
+        let before = net.bound(net.ticket(A));
+        net.frame_gone(A);
+        for kind in page {
+            let refused = before.open(A, kind, None, noop()).err().unwrap();
+            assert_eq!(refused, ApiError::aborted("frame_gone"), "{kind:?}");
+        }
+        let held: Vec<Running> = playback
+            .iter()
+            .map(|kind| before.open(A, *kind, None, noop()).unwrap())
+            .collect();
+        drop(held);
+
+        // A forget refuses everything.
+        let before = net.bound(net.ticket(A));
+        net.forget(A);
+        for kind in page.into_iter().chain(playback) {
+            let refused = before.open(A, kind, None, noop()).err().unwrap();
+            assert_eq!(refused, ApiError::unavailable(), "{kind:?}");
+        }
+        for kind in page.into_iter().chain(playback) {
+            assert_eq!(net.running(A, kind), 0);
+        }
+
+        // A fresh ticket, another plugin's events and an unbound state register as before.
+        let now = net.bound(net.ticket(A));
+        net.frame_gone(B);
+        net.forget(B);
+        assert!(now.open(A, Kind::Socket, None, noop()).is_ok());
+        assert!(net.open(A, Kind::Socket, None, noop()).is_ok());
     }
 
     #[test]

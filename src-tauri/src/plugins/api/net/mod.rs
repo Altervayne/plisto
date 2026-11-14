@@ -2,17 +2,16 @@
  * Plugin network requests. The guard (`address`, `policy`) is pure: it decides which addresses, URLs,
  * headers, methods, bodies and redirect hops a request may use, and every check fails closed. The
  * engine (`resolve`, `client`, `fetch`, `stream`, `socket`) makes the requests and asks the guard
- * before each connection, and reports what arrives later through a `sink`.
+ * before each connection, and reports what arrives later through a `sink`. The plugin API reaches the
+ * engine through `methods` only.
  */
-
-// No method calls the engine yet; only the tests reach this module.
-#![allow(dead_code)]
 
 mod address;
 mod client;
 mod fetch;
+pub(super) mod methods;
 mod policy;
-mod proxy;
+pub(super) mod proxy;
 mod resolve;
 pub(crate) mod sink;
 mod socket;

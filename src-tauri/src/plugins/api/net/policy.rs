@@ -231,14 +231,17 @@ pub fn host_header(url: &Url) -> Option<String> {
 
 // ---- Response headers ----
 
-/// A response's headers as a plugin sees them: lowercase names in wire order, `set-cookie` moved out.
+/// A response's headers as a plugin sees them: lowercase names in the order the client's header map
+/// yields them, which is wire order except that a repeated name is grouped at its first position;
+/// `set-cookie` moved out.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResponseHeaders {
     pub headers: Vec<(String, String)>,
     pub set_cookies: Vec<String>,
 }
 
-/// Splits raw response headers. Values are read as Latin-1, so no byte is lost or refused.
+/// Splits raw response headers, keeping the order given. Values are read as Latin-1, so no byte is
+/// lost or refused.
 pub fn response_headers<'a>(raw: impl IntoIterator<Item = (&'a str, &'a [u8])>) -> ResponseHeaders {
     let mut out = ResponseHeaders::default();
     for (name, value) in raw {
@@ -936,6 +939,20 @@ mod tests {
             pairs(&[("content-type", "text/plain"), ("x-name", "caf\u{00e9}")])
         );
         assert_eq!(split.set_cookies, ["a=1; Path=/", "b=2"]);
+    }
+
+    #[test]
+    fn a_repeated_response_header_is_grouped_at_its_first_position() {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let mut map = HeaderMap::new();
+        for (name, value) in [("a", "1"), ("b", "2"), ("a", "3")] {
+            map.append(
+                HeaderName::from_static(name),
+                HeaderValue::from_static(value),
+            );
+        }
+        let split = response_headers(map.iter().map(|(n, v)| (n.as_str(), v.as_bytes())));
+        assert_eq!(split.headers, pairs(&[("a", "1"), ("a", "3"), ("b", "2")]));
     }
 
     #[test]

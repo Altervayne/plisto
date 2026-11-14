@@ -14,7 +14,8 @@ export type PlistoErrorCode =
   | "timeout"
   | "unavailable"
   | "network"
-  | "aborted";
+  | "aborted"
+  | "plugin_error";
 
 export type PlistoLocale = "en" | "fr" | (string & {});
 export type PlistoTheme = "light" | "dark";
@@ -296,8 +297,6 @@ export interface QueueResult {
   queued: number;
 }
 
-/** The seven net.* methods have no `PlistoMethods` keys yet: call them through the `plisto.net` helpers. */
-
 export interface NetFetchArgs {
   /** Absolute `https` URL (or `http` for a developer loopback origin) on a consented origin; at most 8192 bytes. */
   url: string;
@@ -517,6 +516,13 @@ export interface PlistoMethods {
   "queue.play": { args: QueuePlayArgs; result: QueueResult };
   "queue.add": { args: QueueSource; result: QueueResult };
   "queue.play_next": { args: QueueSource; result: QueueResult };
+  "net.fetch": { args: NetFetchArgs; result: NetFetchResult | NetStreamOpenResult };
+  "net.abort": { args: NetAbortArgs; result: { aborted: number } };
+  "net.stream.ack": { args: NetStreamAckArgs; result: EmptyResult };
+  "net.stream.cancel": { args: NetStreamCancelArgs; result: EmptyResult };
+  "net.socket.open": { args: NetSocketOpenArgs; result: NetSocketOpenResult };
+  "net.socket.send": { args: NetSocketSendArgs; result: EmptyResult };
+  "net.socket.close": { args: NetSocketCloseArgs; result: EmptyResult };
 }
 
 export interface CallOptions {
@@ -565,6 +571,19 @@ export interface Plisto {
   /** True when the host listed the method at init; false before init. */
   has(method: string): boolean;
   on<E extends keyof PlistoEvents>(event: E, callback: (value: PlistoEvents[E]) => void): () => void;
+  /**
+   * Subscribes to the page events a native plugin's program sends with `topic` (1 to 64 characters of
+   * a-z, 0-9, "_", "." and "-"; anything else throws TypeError). Returns an unsubscribe function.
+   */
+  onPluginEvent(topic: string, callback: (data: unknown) => void): () => void;
+  /** A native plugin's own program. A UI plugin's calls reject unknown_method. */
+  readonly plugin: {
+    /**
+     * Sends `name` to the program as a `call`. Rejects plugin_error when the program answers with an
+     * error, timeout after 10 seconds without an answer, unavailable when the program is not running.
+     */
+    call(name: string, args?: object, options?: CallOptions): Promise<unknown>;
+  };
   readonly app: {
     info(): Promise<AppInfo>;
     methods(): Promise<AppMethodsResult>;

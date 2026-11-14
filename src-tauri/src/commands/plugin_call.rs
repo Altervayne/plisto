@@ -28,7 +28,7 @@ const MAIN_LABEL: &str = "main";
 /// Admits a call made from the webview `label`: the main window only, and only once its frames can
 /// be served.
 #[allow(clippy::too_many_arguments)]
-fn call_from(
+pub(super) fn call_from(
     label: &str,
     frames_ready: bool,
     enabled: &EnabledSet,
