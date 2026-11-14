@@ -163,6 +163,10 @@ pub enum PlayerCmd {
     SetFineSpectrum(bool),
     // Sends the feed consumers one snapshot of the current state. Changes nothing.
     FeedSnapshot,
+    // Mutes Plisto's own output (true) while another player renders the music, or restores it (false).
+    // The sink keeps playing at volume 0, so position, the tap and the spectrum carry on, and the
+    // user's volume is kept for the restore. A preview stays audible.
+    SetOutputTakeover(bool),
 }
 
 /// One selectable output device, for the settings picker. `is_default` marks the current OS default
@@ -204,6 +208,8 @@ pub struct PlayerStatus {
     // The name of the device actually rendering, or None while output is following the system
     // default before a device is resolved / when no device is open.
     pub output_device: Option<String>,
+    // Whether Plisto's own output is muted for another player. `volume` stays the user's value.
+    pub output_taken_over: bool,
 }
 
 impl Default for PlayerStatus {
@@ -219,6 +225,7 @@ impl Default for PlayerStatus {
             queue_len: 0,
             shuffle: false,
             output_device: None,
+            output_taken_over: false,
         }
     }
 }

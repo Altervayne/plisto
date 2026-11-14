@@ -93,7 +93,10 @@ struct Engine {
     repeat: RepeatMode,
     paused: bool,
     playing: bool,
+    // The user's volume. Takeover never writes it, so a release restores exactly this value.
     volume: f32,
+    // Set while another player renders the music: library output plays on at volume 0.
+    taken_over: bool,
     cur_frames: Option<Arc<AtomicU64>>,
     // The current source's spectrum tap, tracked alongside cur_frames and read by emit_spectrum. None
     // when nothing plays.
@@ -172,6 +175,7 @@ impl Engine {
             queue_len: self.queue.len(),
             shuffle: self.shuffle,
             output_device: self.bound_device.clone(),
+            output_taken_over: self.taken_over,
         }
     }
 
@@ -218,9 +222,10 @@ impl Engine {
         self.playing && self.cur_track_id.is_some()
     }
 
-    /// The volume every `sink.set_volume` takes. The one place output volume is decided.
+    /// The volume every `sink.set_volume` takes. The one place output volume is decided. A preview is
+    /// the source while `stop_at_frame` is set.
     fn output_volume(&self) -> f32 {
-        self.volume
+        sink_volume(self.volume, self.taken_over, self.stop_at_frame.is_some())
     }
 
     /// Sends a transport snapshot to the feed consumers. With none attached it returns after one
@@ -1038,6 +1043,13 @@ impl Engine {
             PlayerCmd::SetSound(settings) => self.dsp.store(&DspParams::from(&settings)),
             PlayerCmd::SetFineSpectrum(on) => self.fine_spectrum = on,
             PlayerCmd::FeedSnapshot => self.feed(FeedCause::Snapshot),
+            PlayerCmd::SetOutputTakeover(on) => {
+                self.taken_over = on;
+                if let Some(sink) = &self.sink {
+                    sink.set_volume(self.output_volume());
+                }
+                self.emit(true);
+            }
         }
     }
 
@@ -1159,6 +1171,7 @@ fn run(
         paused: false,
         playing: false,
         volume: 1.0,
+        taken_over: false,
         cur_frames: None,
         cur_spectrum: None,
         prev_bands: [0.0; BAND_COUNT],
@@ -1226,6 +1239,16 @@ fn joins_gapless(spec: AudioSpec, cur_rate: u32, cur_channels: u16, drained: boo
     !drained && spec.sample_rate == cur_rate && spec.channels == cur_channels
 }
 
+/// The sink volume for the user's `volume`: silent while the output is taken over, except for a
+/// preview, which is auditioned at the user's volume.
+fn sink_volume(volume: f32, taken_over: bool, preview: bool) -> f32 {
+    if taken_over && !preview {
+        0.0
+    } else {
+        volume
+    }
+}
+
 /// Wall-clock milliseconds since the Unix epoch, the clock the emit throttle measures against.
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -1257,5 +1280,108 @@ mod tests {
     #[test]
     fn a_preload_opened_after_the_current_source_drained_is_left_to_the_cold_end() {
         assert!(!joins_gapless(STEREO, 44_100, 2, true));
+    }
+
+    // ---- Output takeover ----
+
+    #[test]
+    fn the_sink_volume_follows_takeover_and_preview() {
+        // (user volume, taken over, preview) -> sink volume
+        let table = [
+            (0.8, false, false, 0.8),
+            (0.8, true, false, 0.0),
+            (0.8, false, true, 0.8),
+            (0.8, true, true, 0.8),
+            (0.0, false, false, 0.0),
+            (1.0, true, false, 0.0),
+            (1.0, true, true, 1.0),
+        ];
+        for (volume, taken_over, preview, want) in table {
+            assert_eq!(
+                sink_volume(volume, taken_over, preview),
+                want,
+                "volume {volume}, taken over {taken_over}, preview {preview}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_muted_sink_keeps_draining_and_feeding_the_tap() {
+        use crate::audio::source::tests::{bits, raw_samples, write_wav, TempDir};
+        use crate::audio::tap::tests::{source, tapped};
+        use crate::audio::tap::HeapRegion;
+        use rodio::source::UniformSourceIterator;
+
+        let dir = TempDir::new("takeover");
+        let path = dir.path.join("tone.wav");
+        let frames = 3_000usize;
+        write_wav(&path, 44_100, 2, frames);
+
+        let slot = Arc::new(TapSlot::new(HeapRegion::new()));
+        slot.set_active(true);
+        let src = source(&path, None, Some(slot.cold()));
+        let (played, ended) = (Arc::clone(&src.frames), Arc::clone(&src.ended));
+
+        let (sink, output) = rodio::Sink::new_idle();
+        sink.set_volume(sink_volume(0.8, true, false));
+        sink.append(src);
+        let mut out = UniformSourceIterator::<_, f32>::new(output, 2, 44_100);
+        let mut heard = Vec::new();
+        while !ended.load(Ordering::Relaxed) {
+            heard.push(out.next().expect("the keep-alive queue never ends"));
+        }
+
+        assert!(heard.iter().all(|&s| s == 0.0), "nothing is heard");
+        assert_eq!(played.load(Ordering::Relaxed), frames as u64);
+        assert_eq!(slot.write_cursor(), (frames * 2) as u64);
+        assert_eq!(bits(&tapped(&slot)), bits(&raw_samples(&path)));
+    }
+
+    #[test]
+    fn a_preview_plays_at_the_user_volume_while_taken_over() {
+        assert_eq!(sink_volume(0.6, true, true), 0.6);
+        assert_eq!(sink_volume(0.6, true, false), 0.0);
+    }
+
+    #[test]
+    fn every_set_volume_site_goes_through_the_helper() {
+        let file = include_str!("engine.rs");
+        let production = &file[..file.find("#[cfg(test)]").expect("the tests module")];
+        let mut current_fn = "";
+        let mut sites = Vec::new();
+        for line in production.lines() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed
+                .strip_prefix("fn ")
+                .or_else(|| trimmed.strip_prefix("pub fn "))
+            {
+                current_fn = rest.split(['(', '<']).next().unwrap_or("");
+            }
+            if trimmed.contains(".set_volume(") {
+                assert_eq!(
+                    trimmed, "sink.set_volume(self.output_volume());",
+                    "a set_volume site in {current_fn} skips output_volume"
+                );
+                sites.push(current_fn);
+            }
+        }
+        // A new site lands here on purpose: its sink must take output_volume like the rest.
+        assert_eq!(
+            sites,
+            ["start_source", "preview", "load", "seek", "rebind", "handle", "handle"]
+        );
+    }
+
+    #[test]
+    fn the_status_carries_the_takeover_flag() {
+        let status = PlayerStatus::default();
+        assert!(!status.output_taken_over);
+        let json = serde_json::to_value(PlayerStatus {
+            output_taken_over: true,
+            ..status
+        })
+        .expect("serializes");
+        assert_eq!(json["output_taken_over"], serde_json::Value::Bool(true));
+        assert_eq!(json["volume"], serde_json::json!(1.0));
     }
 }
