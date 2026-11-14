@@ -317,6 +317,8 @@ pub fn run() {
             // races the forwards for the queue.
             intake::push(app.handle(), startup_paths);
 
+            app.manage(commands::sandbox_check::SandboxCheck::default());
+
             // The tray icon and its popup toggle guard, once the state it reads is managed.
             app.manage(TrayState::default());
             tray::build_tray(app.handle())?;
@@ -554,6 +556,8 @@ pub fn run() {
             commands::plugin_ui::plugin_sidebar_state,
             commands::plugin_ui::plugin_sidebar_input,
             commands::plugin_ui::plugin_frame_event,
+            commands::sandbox_check::sandbox_check_open,
+            commands::sandbox_check::sandbox_check_close,
             #[cfg(windows)]
             commands::plugin_status::plugin_statuses,
             #[cfg(windows)]

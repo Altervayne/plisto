@@ -31,6 +31,7 @@ pub mod plugin_ui;
 pub mod plugins;
 pub mod relocate;
 pub mod roots;
+pub mod sandbox_check;
 pub mod scan_issues;
 pub mod settings;
 pub mod splice;
