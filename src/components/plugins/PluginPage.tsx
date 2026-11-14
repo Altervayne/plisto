@@ -2,18 +2,21 @@
 import { useLayoutEffect, useRef } from "react";
 
 // -- Component Imports --
-import { CrashCard } from "./CrashCard";
-import { disablePlugin } from "./frames/disablePlugin";
+import { Tooltip } from "../common/Tooltip";
 import { PluginIcon } from "./PluginIcon";
+import { PluginPageBody } from "./PluginPageBody";
 import { PluginTag } from "./PluginTag";
 
 // -- State Imports --
-import { useFrameHealth, useFrameHealthStore } from "../../state/plugins/frameHealth";
+import { useFrameHealth } from "../../state/plugins/frameHealth";
 import { useFrameSlotStore } from "../../state/plugins/frameSlot";
 import { pluginRuntimeReady } from "../../state/plugins/frameModel";
+import { usePluginStatusOf } from "../../state/plugins/pluginStatus";
+import { crashDetail, pageState, statusView } from "../../state/plugins/statusModel";
 import { usePlugin, usePluginsBoot } from "../../state/plugins/store";
 
 // -- Utils Imports --
+import { statusLabel } from "./statusText";
 import { tagKind } from "../../state/plugins/trust";
 
 // -- i18n Imports --
@@ -22,18 +25,28 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./PluginPage.module.css";
 
+/** The header's status words, cut to one line; the full text is in the tooltip. */
+function HeadStatus({ text }: { text: string }) {
+  return (
+    <Tooltip label={text}>
+      <span className={styles.statusText}>{text}</span>
+    </Tooltip>
+  );
+}
+
 /**
  * A plugin's page: the Plisto-drawn header (icon, name, tag, one status line) over a soft recess. The
  * recess is where the plugin's frame sits: it registers itself as the frame slot, and the frame layer
- * positions the shown frame over it. While the frame is not showing, the recess holds the Starting
- * card, the crash card or the unavailable line. Draws nothing for a plugin that is gone; the shell
- * leaves the page for its landing in that case.
+ * positions the shown frame over it. While the frame is not showing, the recess holds what the plugin's
+ * state calls for (see PluginPageBody). Draws nothing for a plugin that is gone; the shell leaves the
+ * page for its landing in that case.
  */
 export function PluginPage({ id }: { id: string }) {
   const t = useT();
   const plugin = usePlugin(id);
   const health = useFrameHealth(id);
   const boot = usePluginsBoot();
+  const status = usePluginStatusOf(id);
   const recess = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -48,21 +61,16 @@ export function PluginPage({ id }: { id: string }) {
   const tag = tagKind(plugin.tier);
   const name = plugin.manifest.name;
   const framed = plugin.tier === "ui";
-  // No health entry yet: the frame is about to mount.
   const runtimeReady = pluginRuntimeReady(boot);
-  const phase = health?.phase ?? "loading";
-  const cannotOpen = framed && (!runtimeReady || phase === "unavailable");
-  const warn = framed && (phase === "not_responding" || phase === "crashed");
-  const status =
-    !framed || cannotOpen
-      ? null
-      : phase === "loading"
-        ? t((d) => d.plugins.frame.statusStarting)
-        : phase === "not_responding"
-          ? t((d) => d.plugins.frame.statusNotResponding)
-          : phase === "crashed"
-            ? t((d) => d.plugins.frame.statusStopped)
-            : null;
+  const cannotOpen = framed && (!runtimeReady || health?.phase === "unavailable");
+  // No health entry yet: the frame is about to mount.
+  const page = pageState(
+    statusView(boot?.runtime ?? null, plugin, status),
+    framed,
+    health?.phase ?? "loading",
+  );
+  const head = cannotOpen ? null : page.head;
+  const detail = crashDetail(status?.crash ?? null, health?.reason ?? null);
 
   return (
     <div className={styles.view}>
@@ -74,30 +82,18 @@ export function PluginPage({ id }: { id: string }) {
             {tag ? <PluginTag kind={tag} /> : null}
           </div>
           <p className={styles.sub}>
-            {warn ? <span className={styles.warnDot} aria-hidden="true" /> : null}
-            {status ? <span>{status}</span> : null}
+            {page.warn && !cannotOpen ? <span className={styles.warnDot} aria-hidden="true" /> : null}
+            {head ? <HeadStatus text={statusLabel(head, t)} /> : null}
             <span>{t((d) => d.plugins.frame.version, { version: plugin.version })}</span>
           </p>
         </div>
       </div>
       <div className={styles.recess} ref={recess}>
-        {!framed ? (
-          <p className={styles.line}>{t((d) => d.plugins.pageUnavailable, { name })}</p>
-        ) : cannotOpen ? (
+        {cannotOpen ? (
           <p className={styles.line}>{t((d) => d.plugins.frame.unavailable, { name })}</p>
-        ) : phase === "loading" ? (
-          <div className={styles.card}>
-            <h2 className={styles.cardTitle}>{t((d) => d.plugins.frame.starting, { name })}</h2>
-            <p className={styles.cardLine}>{t((d) => d.plugins.frame.startingLine)}</p>
-          </div>
-        ) : phase === "crashed" ? (
-          <CrashCard
-            name={name}
-            reason={health?.reason}
-            onRestart={() => useFrameHealthStore.getState().restart(id)}
-            onDisable={() => disablePlugin(id)}
-          />
-        ) : null}
+        ) : (
+          <PluginPageBody plugin={plugin} body={page.body} framed={framed} detail={detail} />
+        )}
       </div>
     </div>
   );

@@ -22,12 +22,13 @@ const KEYS = [
   "reasonNavigated",
   "reasonInit",
   "unavailable",
-  "railNotResponding",
-  "railStopped",
   "statusStarting",
   "statusNotResponding",
   "statusStopped",
   "version",
+  "restartingLine",
+  "takeoverLine",
+  "failedTitle",
 ] as const;
 
 const slots = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort();

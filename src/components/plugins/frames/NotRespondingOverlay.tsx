@@ -9,16 +9,19 @@ import styles from "./NotRespondingOverlay.module.css";
 
 /**
  * The veil and card over a frame that has stopped answering. Wait gives it more time, Disable turns the
- * plugin off. It carries no motion: it appears and leaves as a plain mount. Focus moves to Wait only
+ * plugin off. With `takeoverLine` it also says Plisto took its speakers back. It carries no motion: it
+ * appears and leaves as a plain mount. Focus moves to Wait only
  * when it was inside the frame, where keys typed into a hung page are lost; otherwise it stays put.
  */
 export function NotRespondingOverlay({
   name,
+  takeoverLine = false,
   focusInFrame,
   onWait,
   onDisable,
 }: {
   name: string;
+  takeoverLine?: boolean;
   /** Whether keyboard focus sits in the frame behind the veil, read once when the overlay appears. */
   focusInFrame: () => boolean;
   onWait: () => void;
@@ -47,7 +50,9 @@ export function NotRespondingOverlay({
           {t((d) => d.plugins.frame.notRespondingTitle, { name })}
         </h3>
         <p id={lineId} className={styles.line}>
-          {t((d) => d.plugins.frame.notRespondingLine)}
+          {takeoverLine
+            ? t((d) => d.plugins.frame.takeoverLine, { name })
+            : t((d) => d.plugins.frame.notRespondingLine)}
         </p>
         <div className={styles.actions}>
           <button ref={waitRef} type="button" className={`${styles.btn} ${styles.cancel}`} onClick={onWait}>

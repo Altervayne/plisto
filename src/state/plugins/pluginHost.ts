@@ -29,7 +29,12 @@ import { isDarkTheme, subscribeTheme } from "../../theme";
 
 // -- Type Imports --
 import type { AppInfo, FrameRecord, HostToFrame } from "./bridge";
-import type { PluginCallReply, PluginSidebarDelivery } from "../../types";
+import type {
+  PluginCallReply,
+  PluginFrameCrashReason,
+  PluginFrameEventKind,
+  PluginSidebarDelivery,
+} from "../../types";
 
 export type FrameTheme = "light" | "dark";
 
@@ -311,6 +316,14 @@ function createHost(deps: HostDeps): Host {
   };
 }
 
+/**
+ * Tells Rust how a plugin's frame stands. Best-effort: Rust's own deadlines still free what a lost
+ * report would have released, and the next report overwrites a stale one.
+ */
+export function reportFrame(pluginId: string, kind: PluginFrameEventKind, reason?: PluginFrameCrashReason): void {
+  pluginFrameEvent(pluginId, kind, reason).catch(() => {});
+}
+
 /** The production dependencies: the real window, the `plugin_call` command and the theme runtime. */
 export function browserHostDeps(): HostDeps {
   return {
@@ -324,10 +337,9 @@ export function browserHostDeps(): HostDeps {
     subscribeTheme,
     sleep: defaultSleep,
     frameGone: (pluginId) => {
-      const crashed = useFrameHealthStore.getState().health[pluginId]?.phase === "crashed";
-      pluginFrameEvent(pluginId, crashed ? "crashed" : "detached").catch(() => {
-        // Best-effort: Rust's deadlines still free what this report would have released.
-      });
+      const health = useFrameHealthStore.getState().health[pluginId];
+      const crashed = health?.phase === "crashed";
+      reportFrame(pluginId, crashed ? "crashed" : "detached", crashed ? health.reason : undefined);
       if (crashed) useSidebarState.getState().drop(pluginId);
     },
   };

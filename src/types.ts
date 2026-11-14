@@ -1150,8 +1150,11 @@ export interface PluginSidebarInputReply {
   frame: PluginSidebarDelivery | null;
 }
 
-/** Why a plugin frame went away, as reported to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
-export type PluginFrameEventKind = "detached" | "crashed";
+/** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
+export type PluginFrameEventKind = "live" | "not_responding" | "crashed" | "detached";
+
+/** Why a frame crashed, sent with the `crashed` kind. */
+export type PluginFrameCrashReason = "silent" | "navigated" | "init";
 
 /**
  * One registry entry with the problem found at boot, if any. Mirrors PluginRow in state.rs, whose entry
@@ -1177,10 +1180,56 @@ export interface PluginRow {
   manifest: PluginManifestSummary | null;
 }
 
-/** What the previous run left behind. Mirrors BootState in session.rs. */
+/** Whether plugins may run: held for the user's answer, running, or off for the session. */
+export type PluginRuntime = "held" | "running" | "safe";
+
+/** The boot view. Mirrors BootView in state.rs: the runtime gate and what the previous run left. */
 export interface PluginBootState {
-  safe_mode: boolean;
+  runtime: PluginRuntime;
   unclean: boolean;
+  safe_flag: boolean;
+}
+
+/** Where a plugin's host side stands. Mirrors HostState in native/status.rs. */
+export type PluginHostState =
+  | { host: "off" }
+  | { host: "starting" }
+  | { host: "running" }
+  | { host: "not_responding" }
+  | { host: "stopping" }
+  | { host: "restarting"; retry_in_ms: number }
+  | { host: "stopped" }
+  | { host: "crash_loop" }
+  | { host: "failed"; reason: "invalid" | "changed" | "launch_denied" };
+
+/** Why Rust took a plugin's output takeover away. */
+export type PluginTakeoverReason =
+  | "granted"
+  | "released"
+  | "denied"
+  | "busy"
+  | "user"
+  | "not_responding"
+  | "stopped";
+
+/** One plugin's supervised status. Mirrors PluginStatus in native/status.rs. */
+export type PluginStatus = PluginHostState & {
+  id: string;
+  /** What a native plugin last reported; null until its first valid status and for UI plugins. */
+  reported: { state: "on" | "idle" | "warn"; text: string | null } | null;
+  /** This plugin holds Plisto's output now. */
+  takeover: boolean;
+  takeover_revoked: PluginTakeoverReason | null;
+  crash: { reason: string; exit_code: number | null; at_ms: number } | null;
+  protocol_errors: number;
+  /** Per plugin, grows with every change; an event that is not newer is stale. */
+  rev: number;
+};
+
+/** Plisto's own notice about a plugin, from `plugins:notice`. */
+export interface PluginNotice {
+  id: string;
+  kind: "auto_disabled";
 }
 
 /** What the review sheet shows before an install or update. Mirrors Inspection in install.rs. */

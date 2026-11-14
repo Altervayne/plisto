@@ -1,9 +1,9 @@
 /*
- * The frontend end of the plugin registry: reads the list and the boot state through the boot retry, then
- * reloads the list whenever the backend says it changed. A rejected read never reads as "no plugins": the
- * status becomes failed and the earlier rows stay. Only the latest reload may apply, so a slow earlier
- * one cannot overwrite a newer answer, and a read that began before a local row change is discarded and
- * run once more so it cannot undo that change.
+ * The frontend end of the plugin registry: reads the list and the boot view through the boot retry, then
+ * reloads the list whenever the backend says it changed and takes the runtime gate from its event. A
+ * rejected read never reads as "no plugins": the status becomes failed and the earlier rows stay. Only the
+ * latest reload may apply, so a slow earlier one cannot overwrite a newer answer, and a read that began
+ * before a local row change is discarded and run once more so it cannot undo that change.
  */
 
 // -- Framework Imports --
@@ -15,6 +15,9 @@ import { listen } from "@tauri-apps/api/event";
 // -- State Imports --
 import { usePluginsStore } from "./store";
 
+// -- Type Imports --
+import type { PluginBootState } from "../../types";
+
 // -- IPC Imports --
 import { pluginsBootState, pluginsList } from "../../lib/ipc";
 
@@ -23,6 +26,9 @@ import { withRetry } from "../../lib/withRetry";
 
 /** The event the backend emits after any registry change. Its payload is not used. */
 export const PLUGINS_CHANGED = "plugins:changed";
+
+/** The event the backend emits when the runtime gate changes; its payload is the boot view. */
+export const PLUGINS_RUNTIME = "plugins:runtime";
 
 // The running sync's reload, so a flow that found the list stale can read it again.
 let activeReload: (() => Promise<boolean>) | null = null;
@@ -36,7 +42,7 @@ export function reloadPlugins(): Promise<boolean> {
 export function startPluginsSync(): () => void {
   let alive = true;
   let latest = 0;
-  let unlisten: (() => void) | null = null;
+  const unlisten: (() => void)[] = [];
   const store = () => usePluginsStore.getState();
 
   /** Resolves true when the list was read, even if a newer read superseded it. */
@@ -45,14 +51,15 @@ export function startPluginsSync(): () => void {
     const epoch = store().epoch;
     if (store().status !== "ready") store().setStatus("loading");
     try {
-      // The boot state never changes within a run, so it is read only until it has been seen.
+      // The runtime event keeps the boot view current, so it is read only until one has been seen.
       const [rows, boot] = await Promise.all([
         withRetry(pluginsList),
         store().boot ? Promise.resolve(null) : withRetry(pluginsBootState),
       ]);
       if (!alive || mine !== latest) return true;
       if (store().epoch !== epoch && rerun) return load(false);
-      if (boot) store().applyBoot(boot);
+      // A runtime event that landed during the read is newer than the read.
+      if (boot && !store().boot) store().applyBoot(boot);
       store().applyRows(rows);
       store().setStatus("ready");
       return true;
@@ -64,11 +71,15 @@ export function startPluginsSync(): () => void {
 
   // Listening first, so a change during the first read is not lost. Without Tauri this rejects and the
   // read below fails into the failed status.
+  const track = (fn: () => void) => {
+    if (alive) unlisten.push(fn);
+    else fn();
+  };
   listen(PLUGINS_CHANGED, () => void load())
-    .then((fn) => {
-      if (alive) unlisten = fn;
-      else fn();
-    })
+    .then(track)
+    .catch(() => {});
+  listen<PluginBootState>(PLUGINS_RUNTIME, (event) => store().applyBoot(event.payload))
+    .then(track)
     .catch(() => {});
   void load();
   activeReload = load;
@@ -76,7 +87,7 @@ export function startPluginsSync(): () => void {
   return () => {
     alive = false;
     if (activeReload === load) activeReload = null;
-    unlisten?.();
+    unlisten.forEach((fn) => fn());
   };
 }
 

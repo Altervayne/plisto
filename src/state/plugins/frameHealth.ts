@@ -10,8 +10,9 @@ import { create } from "zustand";
 
 // -- Type Imports --
 import type { FramePhase } from "./frameModel";
+import type { PluginFrameCrashReason } from "../../types";
 
-export type FrameCrashReason = "silent" | "navigated" | "init";
+export type FrameCrashReason = PluginFrameCrashReason;
 
 export interface FrameHealth {
   phase: FramePhase;

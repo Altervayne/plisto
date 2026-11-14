@@ -1,5 +1,5 @@
 /*
- * The plugins store: the registry rows, the boot state and whether the last read worked. Rows are
+ * The plugins store: the registry rows, the boot view and whether the last read worked. Rows are
  * replaced only when their content changed and an unchanged row keeps its object, so a selector hands
  * back the same reference across an unrelated update. A failed read never clears the rows.
  */
@@ -8,14 +8,14 @@
 import { create } from "zustand";
 
 // -- Type Imports --
-import type { PluginBootState, PluginRow } from "../../types";
+import type { PluginBootState, PluginRow, PluginRuntime } from "../../types";
 
 /** Where the plugins read stands. */
 export type PluginsLoadStatus = "idle" | "loading" | "ready" | "failed";
 
 interface PluginsStore {
   rows: PluginRow[];
-  /** Null until the boot state has been read once. */
+  /** The runtime gate and boot record. Null until read once; the runtime event keeps it current. */
   boot: PluginBootState | null;
   status: PluginsLoadStatus;
   /** Bumped by every local row change, so a listing that began before one can be told apart. */
@@ -69,7 +69,14 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
       epoch: s.epoch + 1,
     })),
   applyBoot: (boot) =>
-    set((s) => (s.boot && s.boot.safe_mode === boot.safe_mode && s.boot.unclean === boot.unclean ? s : { boot })),
+    set((s) =>
+      s.boot &&
+      s.boot.runtime === boot.runtime &&
+      s.boot.unclean === boot.unclean &&
+      s.boot.safe_flag === boot.safe_flag
+        ? s
+        : { boot },
+    ),
 }));
 
 // The enabled slice is derived once per rows array, so a selector returns the same array until rows change.
@@ -92,3 +99,4 @@ export const usePlugin = (id: string): PluginRow | undefined =>
 export const useEnabledPlugins = (): PluginRow[] => usePluginsStore((s) => enabledOf(s.rows));
 export const usePluginsStatus = (): PluginsLoadStatus => usePluginsStore((s) => s.status);
 export const usePluginsBoot = (): PluginBootState | null => usePluginsStore((s) => s.boot);
+export const usePluginRuntime = (): PluginRuntime | null => usePluginsStore((s) => s.boot?.runtime ?? null);

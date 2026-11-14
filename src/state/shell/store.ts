@@ -45,6 +45,10 @@ interface ShellStore {
   // for the same page still fires; the shell decides whether the page can show.
   pluginPageRequest: PluginPageRequest | null;
   requestPluginPage: (id: string, route: string | null) => void;
+  // The hub row a surface outside Settings asked to land on. Settings opens it once and clears it.
+  pluginHubFocus: string | null;
+  openPluginHub: (id: string) => void;
+  clearPluginHubFocus: () => void;
 }
 
 /** One request to open a plugin's page; `seq` grows with every request. */
@@ -71,7 +75,15 @@ const useShellStore = create<ShellStore>((set) => ({
   pluginPageRequest: null,
   requestPluginPage: (id, route) =>
     set((s) => ({ pluginPageRequest: { id, route, seq: (s.pluginPageRequest?.seq ?? 0) + 1 } })),
+  pluginHubFocus: null,
+  openPluginHub: (id) => set((s) => ({ pluginHubFocus: id, settingsRequest: s.settingsRequest + 1 })),
+  clearPluginHubFocus: () => set({ pluginHubFocus: null }),
 }));
+
+/** Opens Settings on a plugin's hub row, from outside React. */
+export function openPluginHub(id: string): void {
+  useShellStore.getState().openPluginHub(id);
+}
 
 /** Asks the shell to show a plugin's page, from outside React. */
 export function requestPluginPage(id: string, route: string | null): void {
@@ -106,3 +118,6 @@ export const useSetPluginRoute = (): ((route: string | null) => void) =>
 export const usePluginPageRequest = (): PluginPageRequest | null => useShellStore((s) => s.pluginPageRequest);
 export const useRequestPluginPage = (): ((id: string, route: string | null) => void) =>
   useShellStore((s) => s.requestPluginPage);
+
+export const usePluginHubFocus = (): string | null => useShellStore((s) => s.pluginHubFocus);
+export const useClearPluginHubFocus = (): (() => void) => useShellStore((s) => s.clearPluginHubFocus);

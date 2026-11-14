@@ -17,6 +17,7 @@ import styles from "./ConfirmDialog.module.css";
  * `confirmDisabled` holds the confirm off while the decision cannot be carried out yet. `variant="plugin"`
  * draws a prompt that belongs to a plugin: an identity band on top, neutral buttons whatever `destructive`
  * and `accent` say, and a `data-plugin-prompt` mark so a plugin prompt is never taken for a Plisto sheet.
+ * `dismissable={false}` makes the choice required: Escape and the backdrop do nothing, only a button answers.
  */
 export function ConfirmDialog({
   open,
@@ -33,6 +34,7 @@ export function ConfirmDialog({
   confirmDisabled = false,
   variant = "default",
   identity,
+  dismissable = true,
 }: {
   open: boolean;
   title?: string;
@@ -48,6 +50,7 @@ export function ConfirmDialog({
   confirmDisabled?: boolean;
   variant?: "default" | "plugin";
   identity?: { icon: ReactNode; name: string; tag?: ReactNode; line: string };
+  dismissable?: boolean;
 }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
@@ -55,11 +58,11 @@ export function ConfirmDialog({
     if (!open) return;
     cancelRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && dismissable) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, dismissable]);
 
   if (!open) return null;
 
@@ -110,7 +113,7 @@ export function ConfirmDialog({
     // reach the onClick of whatever host rendered this dialog (a card's own open handler, say). Seal it so
     // cancelling or confirming never fires a second unintended action on the host.
     <div className={styles.overlay} onClick={(event) => event.stopPropagation()}>
-      <div className={styles.backdrop} onClick={onClose} aria-hidden="true" />
+      <div className={styles.backdrop} onClick={dismissable ? onClose : undefined} aria-hidden="true" />
       {plugin ? (
         <div
           className={`${styles.dialog} ${styles.plugin}`}

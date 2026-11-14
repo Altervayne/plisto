@@ -46,12 +46,14 @@ import type {
   PlayerStatus,
   PluginBootState,
   PluginCallReply,
+  PluginFrameCrashReason,
   PluginFrameEventKind,
   PluginInboxItem,
   PluginInspection,
   PluginRow,
   PluginSidebarInputReply,
   PluginSidebarSnapshot,
+  PluginStatus,
   PluginUiAnswer,
   PluginUiEvent,
   PluginUninstalled,
@@ -1186,7 +1188,7 @@ export function pluginsList(): Promise<PluginRow[]> {
   return invoke<PluginRow[]>("plugins_list");
 }
 
-/** Whether safe mode is on and whether the previous run ended uncleanly. */
+/** The runtime gate (held, running or safe) and what the previous run left behind. */
 export function pluginsBootState(): Promise<PluginBootState> {
   return invoke<PluginBootState>("plugins_boot_state");
 }
@@ -1316,9 +1318,31 @@ export function pluginSidebarInput(
   return invoke<PluginSidebarInputReply>("plugin_sidebar_input", { id, itemId, value });
 }
 
-/** Tells Rust a plugin's frame went away, so it frees that plugin's open toasts and prompts. */
-export function pluginFrameEvent(id: string, kind: PluginFrameEventKind): Promise<void> {
-  return invoke<void>("plugin_frame_event", { id, kind });
+/**
+ * Tells Rust how a plugin's frame stands: live, not responding, crashed (with `reason`) or detached. A
+ * crash or detach also frees that plugin's open toasts and prompts.
+ */
+export function pluginFrameEvent(
+  id: string,
+  kind: PluginFrameEventKind,
+  reason?: PluginFrameCrashReason,
+): Promise<void> {
+  return invoke<void>("plugin_frame_event", { id, kind, reason: reason ?? null });
+}
+
+/** Answers the held runtime: `safe` starts the session without plugins. Returns the resulting boot view. */
+export function pluginsResolveBoot(safe: boolean): Promise<PluginBootState> {
+  return invoke<PluginBootState>("plugins_resolve_boot", { safe });
+}
+
+/** The status of every serving plugin; empty while the runtime is not running. */
+export function pluginStatuses(): Promise<PluginStatus[]> {
+  return invoke<PluginStatus[]>("plugin_statuses");
+}
+
+/** Restarts a serving plugin with a fresh crash count. */
+export function pluginRestart(id: string): Promise<void> {
+  return invoke<void>("plugin_restart", { id });
 }
 
 /** One page of recorded read failures in folder-then-name order; `reason` narrows `total` and the rows. */

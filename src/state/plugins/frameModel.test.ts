@@ -8,6 +8,7 @@ import {
   frameCapable,
   nextRelease,
   pluginRuntimeReady,
+  remountsOnStarting,
   runsInBackground,
   wantedFrames,
 } from "./frameModel";
@@ -36,10 +37,11 @@ const ids = (rows: PluginRow[], over: Partial<WantedInput> = {}) =>
   wantedFrames(input(rows, over)).map((w) => `${w.kind}:${w.id}`);
 
 describe("pluginRuntimeReady", () => {
-  it("needs a read boot state that is not safe mode", () => {
+  it("is true only while the runtime is running", () => {
     expect(pluginRuntimeReady(null)).toBe(false);
-    expect(pluginRuntimeReady({ safe_mode: true, unclean: false })).toBe(false);
-    expect(pluginRuntimeReady({ safe_mode: false, unclean: true })).toBe(true);
+    expect(pluginRuntimeReady({ runtime: "held", unclean: true, safe_flag: false })).toBe(false);
+    expect(pluginRuntimeReady({ runtime: "safe", unclean: false, safe_flag: true })).toBe(false);
+    expect(pluginRuntimeReady({ runtime: "running", unclean: true, safe_flag: false })).toBe(true);
   });
 });
 
@@ -200,5 +202,30 @@ describe("nextRelease", () => {
 
   it("keeps install order when a later id was released early", () => {
     expect(nextRelease(order, new Set(["c"]), none, none, 0)).toBe("a");
+  });
+});
+
+describe("frames while the runtime is held", () => {
+  it("mounts nothing, even for a background plugin with its page open", () => {
+    const held = pluginRuntimeReady({ runtime: "held", unclean: true, safe_flag: false });
+    expect(ids([bg("a"), ui("b")], { runtime: held, pageId: "b", released: new Set(["a"]) })).toEqual([]);
+  });
+});
+
+describe("remountsOnStarting", () => {
+  const crashedOf = (r: PluginRow) => new Set([crashKey(r)]);
+
+  it("remounts a crashed background frame", () => {
+    const a = bg("a");
+    expect(remountsOnStarting(a, crashedOf(a))).toBe(true);
+  });
+
+  it("leaves a crashed page frame for the user's Restart", () => {
+    const a = ui("a");
+    expect(remountsOnStarting(a, crashedOf(a))).toBe(false);
+  });
+
+  it("leaves a background frame that did not crash", () => {
+    expect(remountsOnStarting(bg("a"), new Set())).toBe(false);
   });
 });

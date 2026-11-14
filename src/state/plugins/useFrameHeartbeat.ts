@@ -1,7 +1,8 @@
 /*
  * Runs the liveness machine of every mounted plugin frame on one shared interval: pings each loaded frame,
  * feeds accepted pongs back, pauses every machine while the main document is hidden and resumes them with
- * a fresh silence budget. Only phase changes reach the health store, never a plain tick. A frame whose
+ * a fresh silence budget. Only phase changes reach the health store, never a plain tick, and Rust hears
+ * the two that are not a crash (live, not responding); a crash is reported when its frame is detached. A frame whose
  * phase was settled elsewhere (crashed by navigation, or unavailable) is left alone.
  */
 
@@ -11,7 +12,7 @@ import { useCallback, useEffect, useRef } from "react";
 // -- State Imports --
 import { useFrameHealthStore } from "./frameHealth";
 import { PING_MS, hide, pong, show, start, tick, wait } from "./heartbeat";
-import { isFrameLoaded, onPong, sendPing } from "./pluginHost";
+import { isFrameLoaded, onPong, reportFrame, sendPing } from "./pluginHost";
 
 // -- Type Imports --
 import type { Heartbeat, HeartbeatPhase } from "./heartbeat";
@@ -40,6 +41,7 @@ function publish(machine: Machine, before: HeartbeatPhase): void {
   const health = useFrameHealthStore.getState();
   if (hb.phase === "crashed") health.crash(frame.id, frame.crashKey, "silent");
   else health.setPhase(frame.id, hb.phase);
+  if (hb.phase === "live" || hb.phase === "not_responding") reportFrame(frame.id, hb.phase);
 }
 
 /**

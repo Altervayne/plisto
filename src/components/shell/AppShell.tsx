@@ -35,6 +35,8 @@ import { PluginPage } from "../plugins/PluginPage";
 import { PluginFrameLayer } from "../plugins/frames/PluginFrameLayer";
 import { PluginToast } from "../plugins/PluginToast";
 import { PluginConfirmHost } from "../plugins/PluginConfirmHost";
+import { PluginNoticeHost } from "../plugins/PluginNoticeHost";
+import { SafeModeOffer } from "../plugins/SafeModeOffer";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -78,6 +80,7 @@ import { restoreResume } from "../../state/player/restoreResume";
 import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
 import { usePluginsSync } from "../../state/plugins/usePluginsSync";
+import { usePluginStatusSync } from "../../state/plugins/usePluginStatus";
 import { usePluginUi } from "../../state/plugins/usePluginUi";
 import {
   useHistoryLens,
@@ -174,6 +177,8 @@ export function AppShell({
   useLibrarySync();
   // The plugin registry, read at boot and kept live by the backend's change event.
   usePluginsSync();
+  // The supervised status of every serving plugin, for the rail dots, pages and hub lines.
+  usePluginStatusSync();
   // The toasts, prompts, chips and item states plugins set, fed in for the shell's life.
   usePluginUi();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
@@ -633,6 +638,9 @@ export function AppShell({
         {/* The plugin toast joins the same foot stack, above Plisto's own pills. */}
         <PluginToast />
 
+        {/* Plisto's own notice about a plugin it turned off, on the common pill. */}
+        <PluginNoticeHost />
+
         {/* The playback-failure nudge, on the same pill: a file that could not be read lands here. The
             standalone all-fail case shows the refusal body instead and suppresses the toast, so the same
             file notice never doubles - and leaving it mounted would clear the notice and unlatch the body. */}
@@ -642,6 +650,9 @@ export function AppShell({
         <DuplicatesHost />
         <ScanIssuesHost />
         <PluginConfirmHost />
+
+        {/* The offer to start without plugins, shown while the runtime is held after an unclean exit. */}
+        <SafeModeOffer />
 
         {shortcutsOpen ? <ShortcutsSheet onClose={closeShortcuts} /> : null}
       </main>

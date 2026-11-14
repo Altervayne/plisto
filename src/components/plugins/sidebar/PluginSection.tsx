@@ -5,8 +5,8 @@ import { useId } from "react";
 import { ChevronDown } from "lucide-react";
 
 // -- Component Imports --
-import { FrameMark } from "../FrameMark";
 import { PluginIcon } from "../PluginIcon";
+import { StatusDot } from "../StatusDot";
 import { PluginTag } from "../PluginTag";
 import { NavRowItem } from "./NavRowItem";
 import { StatusLineItem } from "./StatusLineItem";
@@ -16,6 +16,9 @@ import { ActionItem } from "./ActionItem";
 
 // -- Hook Imports --
 import { usePluginCollapse } from "./usePluginCollapse";
+
+// -- State Imports --
+import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 
 // -- Utils Imports --
 import { tagKind } from "../../../state/plugins/trust";
@@ -83,6 +86,7 @@ export function PluginSection({
   const tag = tagKind(plugin.tier);
   const name = plugin.manifest.name;
   const activeId = onPage ? activeNavItemId(items, route) : null;
+  const status = usePluginStatusView(plugin);
 
   return (
     <div className={shellStyles.navgroup}>
@@ -95,7 +99,7 @@ export function PluginSection({
               <PluginTag kind={tag} />
             </span>
           ) : null}
-          <FrameMark id={plugin.id} name={name} />
+          <StatusDot view={status} name={name} />
         </span>
         <button
           type="button"

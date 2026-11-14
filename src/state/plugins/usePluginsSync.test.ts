@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { PLUGINS_CHANGED, startPluginsSync } from "./usePluginsSync";
+import { PLUGINS_CHANGED, PLUGINS_RUNTIME, startPluginsSync } from "./usePluginsSync";
 import { enabledOf, usePluginsStore } from "./store";
 
 // -- Type Imports --
@@ -31,11 +31,12 @@ const row = (id: string, enabled = false): PluginRow => ({
   problem: null,
   manifest: null,
 });
-const BOOT: PluginBootState = { safe_mode: false, unclean: false };
+const BOOT: PluginBootState = { runtime: "running", unclean: false, safe_flag: false };
 const state = () => usePluginsStore.getState();
 
-/** The callback the sync registered for the change event. */
+/** The callbacks the sync registered for the change and runtime events. */
 let fire: () => void;
+let fireRuntime: (event: { payload: PluginBootState }) => void;
 let unlisten: ReturnType<typeof vi.fn>;
 let stop: (() => void) | null;
 
@@ -48,9 +49,10 @@ beforeEach(() => {
   pluginsList.mockReset();
   pluginsBootState.mockReset().mockResolvedValue(BOOT);
   unlisten = vi.fn();
-  listen.mockReset().mockImplementation(async (name: string, cb: () => void) => {
-    expect(name).toBe(PLUGINS_CHANGED);
-    fire = cb;
+  listen.mockReset().mockImplementation(async (name: string, cb: unknown) => {
+    if (name === PLUGINS_CHANGED) fire = cb as () => void;
+    else if (name === PLUGINS_RUNTIME) fireRuntime = cb as typeof fireRuntime;
+    else throw new Error(`unexpected event ${name}`);
     return unlisten;
   });
   usePluginsStore.setState({ rows: [], boot: null, status: "idle" });
@@ -63,6 +65,26 @@ afterEach(() => {
 });
 
 describe("plugins sync", () => {
+  it("takes the runtime gate from its event", async () => {
+    pluginsList.mockResolvedValue([]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    fireRuntime({ payload: { runtime: "safe", unclean: false, safe_flag: false } });
+    expect(state().boot?.runtime).toBe("safe");
+  });
+
+  it("keeps a runtime event that landed before the boot read", async () => {
+    let resolveBoot: (boot: PluginBootState) => void = () => {};
+    pluginsBootState.mockReset().mockReturnValue(new Promise((r) => (resolveBoot = r)));
+    pluginsList.mockResolvedValue([]);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    fireRuntime({ payload: BOOT });
+    resolveBoot({ runtime: "held", unclean: true, safe_flag: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().boot?.runtime).toBe("running");
+  });
+
   it("loads the rows and the boot state on start", async () => {
     pluginsList.mockResolvedValue([row("a")]);
     start();
@@ -129,7 +151,7 @@ describe("plugins sync", () => {
     await vi.advanceTimersByTimeAsync(0);
     stop?.();
     stop = null;
-    expect(unlisten).toHaveBeenCalledTimes(1);
+    expect(unlisten).toHaveBeenCalledTimes(2);
     release([row("late")]);
     await vi.advanceTimersByTimeAsync(0);
     expect(state().rows).toEqual([]);

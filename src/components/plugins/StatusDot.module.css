@@ -1,0 +1,19 @@
+/* A static status dot beside a plugin's name in the rail. It never animates, pulses or fades. */
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+}
+
+.idle {
+  background: var(--ink-3);
+}
+
+.on {
+  background: var(--accent);
+}
+
+.warn {
+  background: var(--warn);
+}

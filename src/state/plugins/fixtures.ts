@@ -4,7 +4,7 @@
  */
 
 // -- Type Imports --
-import type { PluginInspection, PluginManifestSummary, PluginRow } from "../../types";
+import type { PluginInspection, PluginManifestSummary, PluginRow, PluginStatus } from "../../types";
 
 export const manifest = (over: Partial<PluginManifestSummary> = {}): PluginManifestSummary => ({
   name: "Lyrics",
@@ -56,3 +56,16 @@ export const inspection = (over: Partial<PluginInspection> = {}): PluginInspecti
   sidebar_items: 1,
   ...over,
 });
+
+export const status = (over: Partial<PluginStatus> = {}): PluginStatus =>
+  ({
+    id: "lyrics",
+    host: "running",
+    reported: null,
+    takeover: false,
+    takeover_revoked: null,
+    crash: null,
+    protocol_errors: 0,
+    rev: 1,
+    ...over,
+  }) as PluginStatus;

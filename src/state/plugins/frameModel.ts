@@ -30,12 +30,9 @@ export interface FrameWant {
   active: boolean;
 }
 
-/**
- * Whether frames may run at all. The one switch for the runtime: false until the first registry read
- * lands, and false in safe mode.
- */
+/** Whether frames may run at all: Rust's runtime gate, closed while held or safe and before it is read. */
 export function pluginRuntimeReady(boot: PluginBootState | null): boolean {
-  return boot != null && !boot.safe_mode;
+  return boot?.runtime === "running";
 }
 
 /** Whether the row is a live UI plugin, so it can own a frame. */
@@ -46,6 +43,11 @@ export function frameCapable(row: PluginRow): row is ZonePlugin {
 /** Whether the row's frame stays mounted without its page open. */
 export function runsInBackground(row: PluginRow): row is ZonePlugin {
   return frameCapable(row) && row.granted.includes("background");
+}
+
+/** Whether a crashed row's frame is remounted when its status reaches `starting`: background frames only. */
+export function remountsOnStarting(row: PluginRow, crashed: ReadonlySet<string>): boolean {
+  return runsInBackground(row) && crashed.has(crashKey(row));
 }
 
 /** The crash key of a row: its identity without the restart generation. */

@@ -1,0 +1,14 @@
+/* Plisto's own notice pill: one line of text and a quiet action, padded tighter on the action's side. */
+div.pill {
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  max-width: min(560px, calc(100vw - 48px));
+}
+
+.text {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}

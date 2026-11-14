@@ -18,6 +18,7 @@ import {
   pluginRuntimeReady,
   wantedFrames,
 } from "../../../state/plugins/frameModel";
+import { startFrameRemount } from "../../../state/plugins/frameRemount";
 import { startPluginHost } from "../../../state/plugins/pluginHost";
 import { usePlugins, usePluginsBoot } from "../../../state/plugins/store";
 import { useAppMode } from "../../../state/player/store";
@@ -73,6 +74,9 @@ export function PluginFrameLayer({ pageId }: { pageId: string | null }) {
       setHostReady(false);
     };
   }, []);
+
+  // A crashed background frame remounts when Rust restarts its plugin.
+  useEffect(() => startFrameRemount(), []);
 
   const runtime = pluginRuntimeReady(boot);
   const order = useMemo(() => backgroundOrder(rows), [rows]);

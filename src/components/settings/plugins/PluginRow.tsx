@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // -- Library Imports --
 import { ChevronRight } from "lucide-react";
@@ -11,7 +11,12 @@ import { PluginIcon } from "../../plugins/PluginIcon";
 import { PluginTag } from "../../plugins/PluginTag";
 import { PluginRowPanel } from "./PluginRowPanel";
 
+// -- State Imports --
+import { useClearPluginHubFocus, usePluginHubFocus } from "../../../state/shell/store";
+import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
+
 // -- Utils Imports --
+import { hubLabel } from "../../plugins/statusText";
 import { rowView } from "./rowModel";
 
 // -- i18n Imports --
@@ -55,7 +60,9 @@ function statusText(status: RowStatus, t: Translate, current: string | null): st
 /**
  * One installed plugin in the hub: icon, name with its tag and version, one status line, and the one
  * action its state allows - the enable switch, Review, or Uninstall. A row that can be opened shows its
- * details panel under it. A row whose manifest cannot be read is named by its id, in the mono face.
+ * details panel under it. A ready row's supervised status, when it has one, replaces the plain status
+ * line. A row the shell asked to land on opens itself. A row whose manifest cannot be read is named by
+ * its id, in the mono face.
  */
 export function PluginRow({
   row,
@@ -74,11 +81,23 @@ export function PluginRow({
   onUninstall: (row: RowData) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const focus = usePluginHubFocus();
+  const clearFocus = useClearPluginHubFocus();
+  const [open, setOpen] = useState(focus === row.id);
+  const wrap = useRef<HTMLDivElement>(null);
   const view = rowView(row);
+  const hub = usePluginStatusView(row).hub;
+  const hubWarn = hub != null && hub.kind !== "reported" && hub.kind !== "starting";
+
+  useEffect(() => {
+    if (focus !== row.id) return;
+    setOpen(true);
+    wrap.current?.scrollIntoView?.({ block: "nearest" });
+    clearFocus();
+  }, [focus, row.id, clearFocus]);
 
   return (
-    <div className={`${styles.wrap} ${open ? styles.open : ""}`}>
+    <div ref={wrap} className={`${styles.wrap} ${open ? styles.open : ""}`}>
       <div className={`${styles.row} ${view.grey ? styles.grey : ""}`}>
         <PluginIcon
           source={row.manifest ? { kind: "installed", id: row.id, hash: row.manifest_hash } : null}
@@ -90,8 +109,8 @@ export function PluginRow({
             {view.tag ? <PluginTag kind={view.tag} /> : null}
             {view.version ? <span className={styles.version}>{view.version}</span> : null}
           </div>
-          <div className={`${styles.status} ${view.warn ? styles.warn : ""}`}>
-            {statusText(view.status, t, currentVersion)}
+          <div className={`${styles.status} ${view.warn || hubWarn ? styles.warn : ""}`}>
+            {row.state === "ready" && hub ? hubLabel(hub, t) : statusText(view.status, t, currentVersion)}
           </div>
         </div>
         <div className={styles.acts}>

@@ -1,12 +1,13 @@
 // -- Component Imports --
 import { NavItem } from "../../shell/NavItem";
-import { FrameMark, useFrameMarked } from "../FrameMark";
 import { PluginChips } from "../PluginChips";
 import { PluginIcon } from "../PluginIcon";
 import { PluginTag } from "../PluginTag";
+import { StatusDot } from "../StatusDot";
 
 // -- State Imports --
 import { usePluginChips } from "../../../state/plugins/sidebarState";
+import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 
 // -- Utils Imports --
 import { tagKind } from "../../../state/plugins/trust";
@@ -15,8 +16,8 @@ import { tagKind } from "../../../state/plugins/trust";
 import type { ZonePlugin } from "../../shell/navVisibility";
 
 /**
- * One plugin as a single row in the shared group: its icon, name and tag, plus the frame mark while its
- * page is not answering, and the chips the plugin set. Opens the plugin's page.
+ * One plugin as a single row in the shared group: its icon, name and tag, plus its status dot when it
+ * has one, and the chips the plugin set. Opens the plugin's page.
  */
 export function PluginCompactRow({
   plugin,
@@ -29,7 +30,7 @@ export function PluginCompactRow({
 }) {
   const tag = tagKind(plugin.tier);
   const name = plugin.manifest.name;
-  const marked = useFrameMarked(plugin.id);
+  const status = usePluginStatusView(plugin);
   const chips = usePluginChips(plugin.id);
   return (
     <NavItem
@@ -38,10 +39,10 @@ export function PluginCompactRow({
       }
       label={name}
       tag={
-        tag || marked ? (
+        tag || status.dot ? (
           <>
             {tag ? <PluginTag kind={tag} /> : null}
-            <FrameMark id={plugin.id} name={name} />
+            <StatusDot view={status} name={name} />
           </>
         ) : undefined
       }
