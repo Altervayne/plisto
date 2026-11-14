@@ -21,6 +21,7 @@ const status = (over: Partial<PlayerStatus> = {}): PlayerStatus => ({
   queue_len: 3,
   shuffle: false,
   output_device: null,
+  output_taken_over: false,
   ...over,
 });
 

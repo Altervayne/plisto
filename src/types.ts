@@ -799,6 +799,8 @@ export interface PlayerStatus {
   queue_len: number;
   shuffle: boolean;
   output_device: string | null;
+  /** True while a plugin holds the output takeover: playback continues but Plisto's own output is muted. */
+  output_taken_over: boolean;
 }
 
 /**
@@ -1262,10 +1264,10 @@ export type PluginStatus = PluginHostState & {
 };
 
 /** Plisto's own notice about a plugin, from `plugins:notice`. */
-export interface PluginNotice {
-  id: string;
-  kind: "auto_disabled";
-}
+export type PluginNotice =
+  | { id: string; kind: "auto_disabled" }
+  /** Raised by the frontend after the user took the output back; `id` is null when the holder is unknown. */
+  | { id: string | null; kind: "takeover_returned" };
 
 /** What the review sheet shows before an install or update. Mirrors Inspection in install.rs. */
 export interface PluginInspection {

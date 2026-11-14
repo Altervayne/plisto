@@ -1189,6 +1189,11 @@ export const fr: Dict = {
     lowerPreamp: "Baisser la pré-amplification",
     raisePreamp: "Monter la pré-amplification",
     moreInSettings: "Plus dans les Paramètres",
+    takeoverHeld: "{name} diffuse votre musique ailleurs. La sortie de Plisto est coupée pendant ce temps.",
+    takeoverHeldUnknown:
+      "Un plugin diffuse votre musique ailleurs. La sortie de Plisto est coupée pendant ce temps.",
+    takeoverReturn: "Revenir aux haut-parleurs de Plisto",
+    takeoverNotResponding: "{name} ne répond pas. Les haut-parleurs de Plisto rejouent le son.",
     idle: "S'applique quand vous lancez un morceau",
     bubbleHz: "{freq} Hz",
     bandGain: "Gain à {freq} Hz",
@@ -1427,6 +1432,8 @@ export const fr: Dict = {
       detailUnknown: "{name} s'est arrêté à {time}",
       noticeAutoDisabled: "{name} a été désactivé après des arrêts répétés.",
       noticeShow: "Afficher",
+      noticeTakeoverReturned: "{name} a arrêté la diffusion. Les haut-parleurs de Plisto rejouent le son.",
+      noticeTakeoverReturnedUnknown: "Diffusion arrêtée. Les haut-parleurs de Plisto rejouent le son.",
     },
     safeOffer: {
       title: "Plisto s'est fermé de façon inattendue",

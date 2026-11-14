@@ -1354,6 +1354,11 @@ export function pluginStatuses(): Promise<PluginStatus[]> {
   return invoke<PluginStatus[]>("plugin_statuses");
 }
 
+/** Takes the output back from whichever plugin holds it; true when a holder was released. */
+export function pluginTakeoverRelease(): Promise<boolean> {
+  return invoke<boolean>("plugin_takeover_release");
+}
+
 /** Restarts a serving plugin with a fresh crash count. */
 export function pluginRestart(id: string): Promise<void> {
   return invoke<void>("plugin_restart", { id });

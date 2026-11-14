@@ -40,11 +40,23 @@ export function PluginNoticeHost() {
   if (notice) last.current = notice;
   const shown = notice ?? last.current;
   if (!shown) return null;
-  const name = rows.find((row) => row.id === shown.id)?.manifest?.name ?? shown.id;
+  const name = shown.id == null ? null : (rows.find((row) => row.id === shown.id)?.manifest?.name ?? shown.id);
+
+  if (shown.kind === "takeover_returned") {
+    return (
+      <Toast visible={visible} className={styles.pill}>
+        <span className={styles.text}>
+          {name == null
+            ? t((d) => d.plugins.status.noticeTakeoverReturnedUnknown)
+            : t((d) => d.plugins.status.noticeTakeoverReturned, { name })}
+        </span>
+      </Toast>
+    );
+  }
 
   return (
     <Toast visible={visible} className={styles.pill}>
-      <span className={styles.text}>{t((d) => d.plugins.status.noticeAutoDisabled, { name })}</span>
+      <span className={styles.text}>{t((d) => d.plugins.status.noticeAutoDisabled, { name: name ?? shown.id })}</span>
       <QuietButton
         onClick={() => {
           dismissPluginNotice();

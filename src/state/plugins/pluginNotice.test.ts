@@ -66,4 +66,15 @@ describe("plugin notices", () => {
     dismissPluginNotice();
     expect(currentPluginNotice()).toEqual({ notice: tap, visible: false });
   });
+
+  it("treats the same takeover notice as one and a different holder as new", () => {
+    showPluginNotice({ id: "a", kind: "takeover_returned" });
+    const first = currentPluginNotice();
+    showPluginNotice({ id: "a", kind: "takeover_returned" });
+    expect(currentPluginNotice()).toBe(first);
+    showPluginNotice({ id: null, kind: "takeover_returned" });
+    expect(currentPluginNotice().notice).toEqual({ id: null, kind: "takeover_returned" });
+    showPluginNotice({ id: "a", kind: "auto_disabled" });
+    expect(currentPluginNotice().notice?.kind).toBe("auto_disabled");
+  });
 });

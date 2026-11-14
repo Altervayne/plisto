@@ -1,0 +1,47 @@
+/* The takeover block on a veil panel at the top of the Sound card. Static: nothing fades or pulses. */
+.take {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 10px 10px 6px 12px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+/* Centers the 7px dot on the first text line. */
+.dot {
+  margin-top: 5px;
+}
+
+/* min-width 0 lets a long name wrap inside the card instead of widening it. */
+.words {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.action {
+  align-self: flex-start;
+  margin-left: 12px;
+}
+
+.action button {
+  padding: 5px 8px;
+  font-size: 12.5px;
+  text-align: left;
+}

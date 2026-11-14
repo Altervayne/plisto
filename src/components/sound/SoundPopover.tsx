@@ -1,14 +1,20 @@
 // -- Icon Imports --
 import { ArrowRight, RotateCcw } from "lucide-react";
 
+// -- Framework Imports --
+import { useMemo } from "react";
+
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { EqCurve } from "./EqCurve";
 import { PresetRow } from "./PresetRow";
+import { TakeoverNotice } from "./TakeoverNotice";
 
 // -- State Imports --
-import { useCurrentTrackId } from "../../state/player/store";
+import { usePluginStatusStore } from "../../state/plugins/pluginStatus";
+import { usePlugins } from "../../state/plugins/store";
+import { useCurrentTrackId, usePlayerStore } from "../../state/player/store";
 import { useOpenSettings } from "../../state/shell/store";
 import { useSoundActions, useSoundSettings } from "../../state/sound/useSoundSettings";
 
@@ -16,6 +22,8 @@ import { useSoundActions, useSoundSettings } from "../../state/sound/useSoundSet
 import { canReset } from "../../state/sound/presets";
 import { formatDb } from "./formatDb";
 import { SOUND_SECTION_ID } from "./soundSectionId";
+import { takeoverView } from "./takeoverModel";
+import { useReturnOutput } from "./useReturnOutput";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -29,7 +37,8 @@ const SCROLL_DELAY_MS = 80;
 /**
  * The Sound card: the EQ switch, the preset row, a compact draggable curve, the preamp readout with Reset,
  * and a link to the full controls in Settings. Sound is a setting, so it stays editable with nothing
- * playing; the curve then says it applies once something plays.
+ * playing; the curve then says it applies once something plays. While a plugin holds the output a block
+ * at the top says so and offers the way back; the EQ below stays live.
  */
 export function SoundPopover({ onClose }: { onClose: () => void }) {
   const settings = useSoundSettings();
@@ -37,6 +46,11 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
   const nothingPlaying = useCurrentTrackId() == null;
   const openSettings = useOpenSettings();
   const t = useT();
+  const taken = usePlayerStore((s) => s.status.output_taken_over);
+  const statuses = usePluginStatusStore((s) => s.statuses);
+  const rows = usePlugins();
+  const view = useMemo(() => takeoverView(taken, statuses, rows), [taken, statuses, rows]);
+  const { busy, giveBack } = useReturnOutput();
 
   const goToSettings = () => {
     onClose();
@@ -62,6 +76,14 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
           />
         </span>
       </div>
+
+      {view && (
+        <TakeoverNotice
+          view={view}
+          busy={busy}
+          onReturn={() => giveBack(view.kind === "held" ? view.id : null)}
+        />
+      )}
 
       <PresetRow compact />
 
