@@ -1376,6 +1376,8 @@ mod tests {
         for (folder, id) in [
             ("sandbox-probe", "dev.plisto.probe"),
             ("sandbox-probe2", "dev.plisto.probe2"),
+            ("network-probe", "dev.plisto.netprobe"),
+            ("network-probe-none", "dev.plisto.netprobe0"),
         ] {
             let dir = root.join(folder);
             // The fixtures are local-only (the folder is git-ignored), so a fresh clone skips.
@@ -1389,6 +1391,17 @@ mod tests {
             assert_eq!(manifest.id, id);
             assert_eq!(manifest.tier, super::super::manifest::Tier::Ui);
             assert!(dir.join(&manifest.entry).is_file());
+        }
+
+        // The two network probe pages run one script, with and without the capability.
+        let with = root.join("network-probe/probe.js");
+        let without = root.join("network-probe-none/probe.js");
+        if with.is_file() && without.is_file() {
+            assert_eq!(
+                fs::read(with).unwrap(),
+                fs::read(without).unwrap(),
+                "the network probe pages must share one probe.js"
+            );
         }
     }
 
