@@ -49,6 +49,7 @@ manifest. For a first example see [getting started](getting-started.md); for the
 | `icon` | no | Relative path to a `.png` or `.svg` file. |
 | `modes` | no | List of `"player"` and `"organizer"`. |
 | `sidebar` | no | The sidebar block. Needs the `ui.sidebar` capability. |
+| `network` | with `network` | List of `https://host` origins, or `http://127.0.0.1:<port>` and `http://localhost:<port>` for development. At most 8. Present exactly when the `network` capability is declared. See the [network guide](network.md). |
 
 ### `id`
 
@@ -125,13 +126,14 @@ plugin runs. Plisto grants all of them or none: there is no partial grant.
 | `ui.confirm` | Ask the user to confirm something. | `ui.confirm` |
 | `ui.chips` | Put chips on the plugin's sidebar row. | `ui.chips` |
 | `ui.sidebar` | Declare sidebar entries and update them live. | `sidebar` block, `ui.sidebar.update` |
+| `network` | Exchange data with the sites in the `network` list, through Plisto. | `plisto.net`, see the [network guide](network.md) |
 
 `app.info`, `app.methods`, `log.write` and `ui.open_page` need no capability.
 
-The manifest also accepts the names `library.read`, `playback.read`, `playback.control` and `network`. No
-API method needs the first three yet, so asking for them gives your page nothing. `network` requires a
-`network` list of `https://host` origins in the manifest, but the page's security policy still blocks
-every request, so do not build on it. The audio capabilities are for native plugins only and a UI plugin
+The manifest also accepts the names `library.read`, `playback.read` and `playback.control`. `network`
+requires a `network` list of origins in the manifest, and the page can then reach only those sites, through
+`plisto.net` (not available yet: see the network guide). The [network guide](network.md) covers the origin rules and the developer loopback origins. The
+audio capabilities are for native plugins only and a UI plugin
 that lists one is refused. Ask only for what you use: a smaller list is easier for a user to approve.
 
 Two further rules:

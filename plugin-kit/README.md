@@ -21,13 +21,16 @@ program that runs on its own) is planned and is not available yet.
 - Write to its own log file.
 - Show short toasts, ask the user to confirm something and put badges ("chips") on its sidebar row.
 - Keep running in the background while the user looks at another page, if it asks for that.
+- Exchange data with the sites it lists: HTTP requests, streamed responses, Server-Sent Events and
+  sockets, all made by Plisto.
 - Read the app's language, theme and mode.
 
 Each of these beyond the basics is a capability that the user reviews before the plugin is turned on.
 
 ### What a plugin cannot do
 
-- Reach the network. The page's security policy blocks every request to an outside address.
+- Reach the network by itself. The page's security policy blocks every request. With the `network`
+  capability, Plisto makes requests for it to the sites it lists (see the network guide).
 - Read the user's files or library. No method for library data or playback control exists yet.
 - Touch Plisto's window, another plugin, or any browser storage (`localStorage`, cookies, IndexedDB).
   Saved data goes through `plisto.storage`.
@@ -47,10 +50,12 @@ Plisto does not review plugins. Users are told so when they install one.
 | `docs/api.md` | The API reference: every method, error code, event and SDK member. |
 | `docs/ui-surfaces.md` | Toasts, prompts, chips, the prompt gate and opening your page. |
 | `docs/sidebar.md` | The sidebar declaration and live items. |
+| `docs/network.md` | Network access: origins, fetch, streams, Server-Sent Events, sockets, limits and errors. |
 | `docs/lifecycle.md` | Install, enable, update, heartbeat, background plugins, crashes, safe mode, logging, versioning. |
 | `docs/install-and-test.md` | Installing into Plisto, testing, debugging and a release checklist. |
 | `sdk/plisto-sdk.js` | The SDK. Copy it into your plugin folder. |
 | `sdk/plisto-sdk.d.ts` | TypeScript types for the SDK. |
+| `tests/net-sdk.mjs` | Tests of the SDK's network code. Run with `node --test tests/net-sdk.mjs`. |
 | `examples/hello-ui/` | A page plugin that exercises toasts, prompts, chips and routes. |
 | `examples/hello-background/` | A background plugin with a sidebar section of live items. |
 

@@ -103,7 +103,8 @@ and stops it when the page closes. Whatever your page held in memory is gone, so
 `plisto.storage`. Opening it again starts it fresh.
 
 The frame is its own world: it has its own origin, cannot reach Plisto's window or another plugin, and its
-security policy allows only scripts, styles, images and fonts from your own folder. Plisto does not run
+security policy allows only scripts, styles, images and fonts from your own folder, and `blob:` images.
+Network access goes through Plisto and needs the `network` capability (see the [network guide](network.md)). Plisto does not run
 frames while the library is empty.
 
 Your page receives `plisto.ready` when Plisto has initialised it. Wait for it before reading `info`.
@@ -185,7 +186,7 @@ tight loop.
 - `app.info().api_version` is `1`. Within a version, methods and result fields are only added, never
   removed or changed in meaning. Ignore result fields you do not know. A removal or a change of meaning
   raises `api_version`.
-- The SDK has its own `sdkVersion`, currently `1.1.0`. A newer SDK is a drop-in replacement: copy the new
+- The SDK has its own `sdkVersion`, currently `1.3.0`. A newer SDK is a drop-in replacement: copy the new
   `plisto-sdk.js` over yours.
 - Your plugin's `version` is semantic versioning. Raise it for every release, or Plisto cannot tell an
   update from a reinstall.

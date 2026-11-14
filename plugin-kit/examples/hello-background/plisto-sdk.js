@@ -15,7 +15,7 @@
   var CONFIRM_TIMEOUT_MS = 310000;
 
   /**
-   * An API failure: `code` is one of the nine stable codes, `retryAfterMs` is set for rate_limited, `reason`
+   * An API failure: `code` is one of the eleven stable codes, `retryAfterMs` is set for rate_limited, `reason`
    * refines a code when the host gives one (denied + "no_gesture").
    */
   function PlistoError(code, message, retryAfterMs, reason) {
@@ -38,7 +38,7 @@
   var resolveReady = null;
 
   var plisto = {
-    sdkVersion: "1.2.0",
+    sdkVersion: "1.3.0",
     info: null,
     pageOpen: false,
     route: null,
@@ -49,9 +49,10 @@
     resolveReady = resolve;
   });
 
-  function post(msg) {
+  function post(msg, transfer) {
     msg.plisto = PROTOCOL;
-    window.parent.postMessage(msg, "*");
+    if (transfer) window.parent.postMessage(msg, "*", transfer);
+    else window.parent.postMessage(msg, "*");
   }
 
   function emit(event, value) {
@@ -149,14 +150,20 @@
         plisto.route = typeof data.route === "string" ? data.route : null;
         emit("route", plisto.route);
         break;
+      case "plisto:stream":
+        onStream(data);
+        break;
+      case "plisto:socket":
+        onSocket(data);
+        break;
       default:
         // Unknown types belong to later protocol additions and are ignored.
         break;
     }
   });
 
-  /** Calls a host method. Resolves with the method's result; rejects with PlistoError. */
-  plisto.call = function (method, args, options) {
+  // Sends one call. `body` is an ArrayBuffer moved to the host with the call; only net.fetch takes one.
+  function request(method, args, options, body) {
     return new Promise(function (resolve, reject) {
       var text;
       try {
@@ -180,8 +187,19 @@
         reject(new PlistoError("timeout", "The call timed out."));
       }, timeoutMs);
       pending[id] = { resolve: resolve, reject: reject, timer: timer };
-      post({ type: "plisto:call", id: id, method: method, args: text });
+      var msg = { type: "plisto:call", id: id, method: method, args: text };
+      if (body) {
+        msg.body = body;
+        post(msg, [body]);
+      } else {
+        post(msg);
+      }
     });
+  }
+
+  /** Calls a host method. Resolves with the method's result; rejects with PlistoError. */
+  plisto.call = function (method, args, options) {
+    return request(method, args, options, null);
   };
 
   /** True when the host listed `method` at init; false before init. */
@@ -369,6 +387,884 @@
     info: logLevel("info"),
     warn: logLevel("warn"),
     error: logLevel("error"),
+  };
+
+  // ---- net: pure helpers ----
+
+  var STREAM_WINDOW = 1048576;
+  var ACK_BYTES = 262144;
+  var ACK_DELAY_MS = 250;
+  var FETCH_DEFAULT_TIMEOUT_MS = 30000;
+  var SOCKET_DEFAULT_TIMEOUT_MS = 15000;
+  // The call waits this much longer than the host's own deadline, so the host answers first.
+  var CALL_MARGIN_MS = 5000;
+  var SSE_DEFAULT_RETRY_MS = 3000;
+  var SSE_MIN_RETRY_MS = 1000;
+  var ORPHAN_IDS_MAX = 16;
+  // Errors a retry can get past.
+  var RETRYABLE = { network: true, timeout: true, busy: true, rate_limited: true };
+  var CLOSED_IDS_MAX = 64;
+  // Largest line or event the event-stream parser holds, and the most a socket holds for a page that has
+  // not set its handlers.
+  var SSE_MAX_CHARS = 1048576;
+  var SOCKET_HELD_MAX = 100;
+  var SOCKET_HELD_BYTES = 4194304;
+
+  function noop() {}
+
+  function isArrayBuffer(v) {
+    return Object.prototype.toString.call(v) === "[object ArrayBuffer]";
+  }
+
+  function asPlistoError(e) {
+    return e instanceof PlistoError ? e : new PlistoError("invalid_args", e && e.message ? e.message : undefined);
+  }
+
+  /** Base64 of a Uint8Array, built in slices so a large array does not overflow the argument limit. */
+  function toBase64(bytes) {
+    var text = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(text);
+  }
+
+  /** One Uint8Array holding `chunks` (Uint8Arrays totalling `total` bytes), in order. */
+  function concatChunks(chunks, total) {
+    var out = new Uint8Array(total);
+    var at = 0;
+    for (var i = 0; i < chunks.length; i++) {
+      out.set(chunks[i], at);
+      at += chunks[i].byteLength;
+    }
+    return out;
+  }
+
+  /** Reads a ReadableStream of Uint8Array to its end and resolves the bytes as one Uint8Array. */
+  function readAll(stream) {
+    var reader = stream.getReader();
+    var chunks = [];
+    var total = 0;
+    function step() {
+      return reader.read().then(function (r) {
+        if (r.done) return concatChunks(chunks, total);
+        chunks.push(r.value);
+        total += r.value.byteLength;
+        return step();
+      });
+    }
+    return step();
+  }
+
+  /**
+   * Parses text/event-stream to the WHATWG HTML rules (data, event, id and retry fields, comments, CR, LF
+   * and CRLF line ends, a leading byte order mark). Feed decoded text to push() in any slicing. Handlers:
+   * onEvent({ type, data, lastEventId }), onRetry(ms), onId(id), onOverflow(). A line or an event over
+   * SSE_MAX_CHARS calls onOverflow once and the parser then ignores all input. An event the stream ends in
+   * the middle of is never dispatched.
+   */
+  function createEventParser(handlers, lastEventId) {
+    var buffer = "";
+    var skipLf = false;
+    var atStart = true;
+    var data = "";
+    var type = "";
+    var lastId = lastEventId || "";
+    var dead = false;
+
+    function overflow() {
+      dead = true;
+      buffer = "";
+      data = "";
+      if (handlers.onOverflow) handlers.onOverflow();
+    }
+
+    function dispatch() {
+      if (data === "") {
+        type = "";
+        return;
+      }
+      var event = { type: type === "" ? "message" : type, data: data.slice(0, -1), lastEventId: lastId };
+      data = "";
+      type = "";
+      handlers.onEvent(event);
+    }
+
+    function line(text) {
+      if (text === "") {
+        dispatch();
+        return;
+      }
+      if (text.charAt(0) === ":") return;
+      var field = text;
+      var value = "";
+      var colon = text.indexOf(":");
+      if (colon >= 0) {
+        field = text.slice(0, colon);
+        value = text.slice(colon + 1);
+        if (value.charAt(0) === " ") value = value.slice(1);
+      }
+      if (field === "event") {
+        type = value;
+      } else if (field === "data") {
+        data += value + "\n";
+        if (data.length > SSE_MAX_CHARS) overflow();
+      } else if (field === "id") {
+        if (value.indexOf("\u0000") < 0) {
+          lastId = value;
+          if (handlers.onId) handlers.onId(value);
+        }
+      } else if (field === "retry") {
+        if (/^[0-9]+$/.test(value) && handlers.onRetry) handlers.onRetry(parseInt(value, 10));
+      }
+    }
+
+    return {
+      push: function (text) {
+        if (!text || dead) return;
+        if (atStart) {
+          atStart = false;
+          if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+        }
+        // A CR ended the last chunk: an LF opening this one belongs to the same line end.
+        if (skipLf && text.charAt(0) === "\n") text = text.slice(1);
+        skipLf = false;
+        buffer += text;
+        var start = 0;
+        for (var i = 0; i < buffer.length; i++) {
+          var c = buffer.charAt(i);
+          if (c !== "\n" && c !== "\r") continue;
+          line(buffer.slice(start, i));
+          if (dead) return;
+          if (c === "\r") {
+            if (i + 1 < buffer.length) {
+              if (buffer.charAt(i + 1) === "\n") i++;
+            } else {
+              skipLf = true;
+            }
+          }
+          start = i + 1;
+        }
+        buffer = buffer.slice(start);
+        if (buffer.length > SSE_MAX_CHARS) overflow();
+      },
+    };
+  }
+
+  /**
+   * The body of a streamed response. The host's chunks arrive through chunk(seq, bytes), end() and fail(err);
+   * the page reads the returned ReadableStream. The stream queues at most STREAM_WINDOW bytes the page has
+   * not read; what the page has read is acknowledged so the host keeps sending: at once when ACK_BYTES are
+   * unacknowledged, else after ACK_DELAY_MS. A gap in `seq` fails the stream. `io` supplies everything with
+   * a side effect: ReadableStream, ack(totalBytes) (may return a promise; a retryable rejection is
+   * retried), cancel(), setTimer(fn, ms), clearTimer(handle) and onDone().
+   */
+  function createStreamBody(io) {
+    var expectSeq = 1;
+    var received = 0;
+    var acked = 0;
+    var timer = null;
+    var finished = false;
+    var controller = null;
+
+    // Bytes the page has read: everything received minus what still sits in the stream's queue.
+    function consumed() {
+      var desired = controller.desiredSize;
+      return desired === null ? acked : received - (STREAM_WINDOW - desired);
+    }
+
+    function sendAck(total) {
+      if (timer !== null) {
+        io.clearTimer(timer);
+        timer = null;
+      }
+      var previous = acked;
+      acked = total;
+      var sent = io.ack(total);
+      if (sent && typeof sent.then === "function") {
+        sent.then(null, function (e) {
+          // A refused acknowledgement that retrying can fix is sent again, or the host would end the stream as
+          // stalled.
+          if (finished || acked !== total || !(e && RETRYABLE[e.code] === true)) return;
+          acked = previous;
+          if (timer === null) {
+            var wait = typeof e.retryAfterMs === "number" ? Math.max(ACK_DELAY_MS, e.retryAfterMs) : ACK_DELAY_MS;
+            timer = io.setTimer(onTimer, wait);
+          }
+        });
+      }
+    }
+
+    function onTimer() {
+      timer = null;
+      if (finished) return;
+      var total = consumed();
+      if (total > acked) sendAck(total);
+    }
+
+    function account() {
+      if (finished) return;
+      var total = consumed();
+      if (total - acked >= ACK_BYTES) sendAck(total);
+      else if (total > acked && timer === null) timer = io.setTimer(onTimer, ACK_DELAY_MS);
+    }
+
+    function stop() {
+      finished = true;
+      if (timer !== null) {
+        io.clearTimer(timer);
+        timer = null;
+      }
+      io.onDone();
+    }
+
+    var body = new io.ReadableStream(
+      {
+        start: function (c) {
+          controller = c;
+        },
+        pull: account,
+        cancel: function () {
+          if (finished) return;
+          stop();
+          io.cancel();
+        },
+      },
+      {
+        highWaterMark: STREAM_WINDOW,
+        size: function (chunk) {
+          return chunk.byteLength;
+        },
+      },
+    );
+
+    return {
+      body: body,
+      chunk: function (seq, bytes) {
+        if (finished) return;
+        if (seq !== expectSeq) {
+          stop();
+          controller.error(new PlistoError("network", "The stream lost data.", undefined, "protocol"));
+          io.cancel();
+          return;
+        }
+        expectSeq++;
+        if (bytes.byteLength === 0) return;
+        received += bytes.byteLength;
+        controller.enqueue(bytes);
+        account();
+      },
+      end: function () {
+        if (finished) return;
+        stop();
+        controller.close();
+      },
+      fail: function (error) {
+        if (finished) return;
+        stop();
+        controller.error(error);
+      },
+    };
+  }
+
+  /** The bytes of an init body as a fresh ArrayBuffer, or null for no body. Sets a default content-type. */
+  function encodeBody(init, headers) {
+    var body = init.body;
+    var type = null;
+    if (init.json !== undefined) {
+      if (body !== undefined && body !== null) {
+        throw new PlistoError("invalid_args", "Give either body or json, not both.");
+      }
+      body = JSON.stringify(init.json);
+      if (typeof body !== "string") throw new PlistoError("invalid_args", "The json value could not be serialized.");
+      type = "application/json";
+    }
+    if (body === undefined || body === null) return null;
+    var bytes;
+    if (typeof body === "string") {
+      bytes = new TextEncoder().encode(body);
+      type = type || "text/plain;charset=UTF-8";
+    } else if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
+      bytes = new TextEncoder().encode(body.toString());
+      type = "application/x-www-form-urlencoded;charset=UTF-8";
+    } else if (isArrayBuffer(body)) {
+      bytes = new Uint8Array(body);
+    } else if (ArrayBuffer.isView(body)) {
+      bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    } else {
+      throw new PlistoError("invalid_args", "body must be a string, ArrayBuffer, typed array or URLSearchParams.");
+    }
+    if (type && !headers.has("content-type")) headers.set("content-type", type);
+    var out = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(out).set(bytes);
+    return out;
+  }
+
+  /** Header init (object, Headers or pairs) as a Headers; names and values the platform refuses are invalid_args. */
+  function toHeaders(init) {
+    try {
+      return new Headers(init);
+    } catch (e) {
+      throw new PlistoError("invalid_args", "The headers are not valid.");
+    }
+  }
+
+  /** A Headers as a plain object, or undefined when it holds none. */
+  function headersObject(headers) {
+    var out = {};
+    var any = false;
+    headers.forEach(function (value, name) {
+      out[name] = value;
+      any = true;
+    });
+    return any ? out : undefined;
+  }
+
+  // ---- net: host events ----
+
+  var streams = {};
+  var sockets = {};
+  // Events that arrive before the call that names their stream or socket has resolved wait here.
+  var orphans = {};
+  var orphanOrder = [];
+  // Ids of streams that ended on the page's side; late host events for them are ignored.
+  var closed = {};
+  var closedOrder = [];
+  var nextAbort = 1;
+
+  function markClosed(id) {
+    delete streams[id];
+    if (closed[id]) return;
+    if (closedOrder.length >= CLOSED_IDS_MAX) delete closed[closedOrder.shift()];
+    closed[id] = true;
+    closedOrder.push(id);
+  }
+
+  function holdOrphan(id, data) {
+    if (!orphans[id]) {
+      if (orphanOrder.length >= ORPHAN_IDS_MAX) delete orphans[orphanOrder.shift()];
+      orphans[id] = [];
+      orphanOrder.push(id);
+    }
+    orphans[id].push(data);
+  }
+
+  function takeOrphans(id) {
+    var held = orphans[id] || [];
+    if (orphans[id]) {
+      delete orphans[id];
+      orphanOrder.splice(orphanOrder.indexOf(id), 1);
+    }
+    return held;
+  }
+
+  function deliverStream(id, core, data) {
+    if (data.kind === "chunk") {
+      core.chunk(data.seq, new Uint8Array(isArrayBuffer(data.data) ? data.data : 0));
+    } else if (data.kind === "end") {
+      delete streams[id];
+      core.end();
+    } else if (data.kind === "error") {
+      delete streams[id];
+      core.fail(
+        new PlistoError(typeof data.code === "string" ? data.code : "network", undefined, undefined, data.reason),
+      );
+    }
+  }
+
+  function onStream(data) {
+    if (typeof data.stream !== "string" || closed[data.stream]) return;
+    var core = streams[data.stream];
+    if (core) deliverStream(data.stream, core, data);
+    else holdOrphan(data.stream, data);
+  }
+
+  function onSocket(data) {
+    if (typeof data.socket !== "string") return;
+    var sock = sockets[data.socket];
+    if (sock) sock.deliver(data);
+    else holdOrphan(data.socket, data);
+  }
+
+  // ---- net: fetch ----
+
+  function callTimeout(timeoutMs, fallback) {
+    var own = typeof timeoutMs === "number" && isFinite(timeoutMs) ? timeoutMs : fallback;
+    return Math.min(MAX_TIMEOUT_MS, own + CALL_MARGIN_MS);
+  }
+
+  function makeResponse(result, buffer, body) {
+    var headers = new Headers();
+    var pairs = Array.isArray(result.headers) ? result.headers : [];
+    for (var i = 0; i < pairs.length; i++) {
+      try {
+        headers.append(pairs[i][0], pairs[i][1]);
+      } catch (e) {
+        // A header the platform refuses is left out.
+      }
+    }
+    var used = false;
+
+    function consume() {
+      if (used || body.locked) return Promise.reject(new TypeError("The body was already read."));
+      used = true;
+      return buffer ? Promise.resolve(new Uint8Array(buffer)) : readAll(body);
+    }
+
+    var response = {
+      status: result.status,
+      ok: result.status >= 200 && result.status < 300,
+      url: result.url,
+      redirected: result.redirected === true,
+      headers: headers,
+      setCookies: Array.isArray(result.set_cookies) ? result.set_cookies : [],
+      body: body,
+      arrayBuffer: function () {
+        return consume().then(function (bytes) {
+          return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+            ? bytes.buffer
+            : bytes.slice().buffer;
+        });
+      },
+      bytes: consume,
+      text: function () {
+        return consume().then(function (bytes) {
+          return new TextDecoder("utf-8").decode(bytes);
+        });
+      },
+      json: function () {
+        return response.text().then(function (text) {
+          return JSON.parse(text);
+        });
+      },
+      blob: function () {
+        return consume().then(function (bytes) {
+          return new Blob([bytes], { type: headers.get("content-type") || "" });
+        });
+      },
+    };
+    Object.defineProperty(response, "bodyUsed", {
+      enumerable: true,
+      get: function () {
+        return used || body.locked;
+      },
+    });
+    return response;
+  }
+
+  function closedStream() {
+    return new ReadableStream({
+      start: function (c) {
+        c.close();
+      },
+    });
+  }
+
+  function bufferStream(buffer) {
+    return new ReadableStream({
+      start: function (c) {
+        if (buffer.byteLength > 0) c.enqueue(new Uint8Array(buffer));
+        c.close();
+      },
+    });
+  }
+
+  /**
+   * Fetches through Plisto. Resolves a PlistoResponse for any HTTP status; rejects with PlistoError when the
+   * request could not be made or completed.
+   */
+  function netFetch(url, init) {
+    init = init || {};
+    var args;
+    var bodyBuffer;
+    var signal = init.signal || null;
+    try {
+      args = { url: String(url) };
+      var headers = toHeaders(init.headers);
+      bodyBuffer = encodeBody(init, headers);
+      var names = headersObject(headers);
+      if (names) args.headers = names;
+      if (init.method !== undefined) args.method = String(init.method).toUpperCase();
+      if (init.redirect !== undefined) args.redirect = init.redirect;
+      if (init.timeoutMs !== undefined) args.timeout_ms = init.timeoutMs;
+      if (init.stream === true) args.stream = true;
+      if (init.idleMs !== undefined) args.idle_ms = init.idleMs;
+    } catch (e) {
+      return Promise.reject(asPlistoError(e));
+    }
+    if (signal && signal.aborted) {
+      return Promise.reject(new PlistoError("aborted", "The request was aborted.", undefined, "abort"));
+    }
+
+    var detach = noop;
+    if (signal) {
+      var key = "a" + nextAbort++ + "-" + Math.random().toString(36).slice(2, 10);
+      args.abort_key = key;
+      var onAbort = function () {
+        plisto.call("net.abort", { abort_key: key }).catch(noop);
+      };
+      signal.addEventListener("abort", onAbort);
+      detach = function () {
+        signal.removeEventListener("abort", onAbort);
+      };
+    }
+
+    var timeoutMs = callTimeout(init.timeoutMs, FETCH_DEFAULT_TIMEOUT_MS);
+    return request("net.fetch", args, { timeoutMs: timeoutMs }, bodyBuffer).then(
+      function (result) {
+        if (args.stream !== true) {
+          detach();
+          var buffer = isArrayBuffer(result.body) ? result.body : new ArrayBuffer(0);
+          return makeResponse(result, buffer, bufferStream(buffer));
+        }
+        if (typeof result.stream !== "string") {
+          detach();
+          return makeResponse(result, null, closedStream());
+        }
+        var id = result.stream;
+        var core = createStreamBody({
+          ReadableStream: ReadableStream,
+          ack: function (total) {
+            return plisto.call("net.stream.ack", { stream: id, bytes: total });
+          },
+          cancel: function () {
+            plisto.call("net.stream.cancel", { stream: id }).catch(noop);
+          },
+          setTimer: function (fn, ms) {
+            return setTimeout(fn, ms);
+          },
+          clearTimer: function (handle) {
+            clearTimeout(handle);
+          },
+          onDone: function () {
+            detach();
+            markClosed(id);
+          },
+        });
+        streams[id] = core;
+        var held = takeOrphans(id);
+        for (var i = 0; i < held.length; i++) {
+          if (streams[id]) deliverStream(id, core, held[i]);
+        }
+        return makeResponse(result, null, core.body);
+      },
+      function (e) {
+        detach();
+        throw e;
+      },
+    );
+  }
+
+  // ---- net: images ----
+
+  /** Fetches an image and resolves a blob: URL for an <img> (a data: URL when blob URLs are unavailable). */
+  function netImageUrl(url, init) {
+    return netFetch(url, Object.assign({}, init, { stream: false })).then(function (res) {
+      var type = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (!res.ok || type.indexOf("image/") !== 0) {
+        var error = new Error(res.ok ? "The response is not an image." : "The server answered " + res.status + ".");
+        error.status = res.status;
+        throw error;
+      }
+      return res.bytes().then(function (bytes) {
+        try {
+          return URL.createObjectURL(new Blob([bytes], { type: type }));
+        } catch (e) {
+          return "data:" + type + ";base64," + toBase64(bytes);
+        }
+      });
+    });
+  }
+
+  function netRevoke(url) {
+    if (typeof url !== "string" || url.indexOf("blob:") !== 0) return;
+    try {
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // Nothing to release.
+    }
+  }
+
+  // ---- net: server-sent events ----
+
+  /**
+   * Server-Sent Events over a streamed fetch. options: { headers, lastEventId, timeoutMs, idleMs }. Events
+   * go to onmessage (type "message") and to listeners added for their own type. The source reconnects after
+   * the server's `retry` (default 3 s, at least 1 s), sending last-event-id, until close(), a 204, a
+   * non-200 answer, a reply that is not text/event-stream, or an error that retrying cannot fix.
+   */
+  function netEventSource(url, options) {
+    options = options || {};
+    var target = String(url);
+    var retryMs = SSE_DEFAULT_RETRY_MS;
+    var lastId = typeof options.lastEventId === "string" ? options.lastEventId : "";
+    var listeners = Object.create(null);
+    var reconnectTimer = null;
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+
+    var source = {
+      url: target,
+      readyState: 0,
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      addEventListener: function (type, callback) {
+        if (typeof callback !== "function") return;
+        var list = listeners[type] || (listeners[type] = []);
+        if (list.indexOf(callback) < 0) list.push(callback);
+      },
+      removeEventListener: function (type, callback) {
+        var list = listeners[type];
+        if (!list) return;
+        var i = list.indexOf(callback);
+        if (i >= 0) list.splice(i, 1);
+      },
+      close: function () {
+        source.readyState = 2;
+        if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        if (controller) controller.abort();
+      },
+    };
+
+    // `own` marks Plisto's open and error events; a server event of any name reaches only the listeners for
+    // its type, and onmessage when it is a message.
+    function fire(event, own) {
+      var handler = own || event.type === "message" ? source["on" + event.type] : null;
+      var list = (listeners[event.type] || []).slice();
+      if (typeof handler === "function") list.unshift(handler);
+      for (var i = 0; i < list.length; i++) {
+        try {
+          list[i].call(source, event);
+        } catch (e) {
+          // A throwing listener must not stop the others or the stream.
+        }
+      }
+    }
+
+    function fail(error, canRetry) {
+      if (source.readyState === 2) return;
+      source.readyState = canRetry ? 0 : 2;
+      fire({ type: "error", error: error }, true);
+      if (!canRetry || source.readyState === 2) return;
+      var wait = retryMs;
+      if (error && typeof error.retryAfterMs === "number") wait = Math.max(wait, error.retryAfterMs);
+      reconnectTimer = setTimeout(connect, wait);
+    }
+
+    function connect() {
+      reconnectTimer = null;
+      if (source.readyState === 2) return;
+      var headers;
+      try {
+        headers = toHeaders(options.headers);
+      } catch (e) {
+        fail(e, false);
+        return;
+      }
+      headers.set("accept", "text/event-stream");
+      headers.set("cache-control", "no-cache");
+      if (lastId !== "" && lastId.length <= 4096 && /^[\x20-\x7e]*$/.test(lastId)) {
+        headers.set("last-event-id", lastId);
+      }
+      var init = { headers: headers, stream: true };
+      if (options.timeoutMs !== undefined) init.timeoutMs = options.timeoutMs;
+      if (options.idleMs !== undefined) init.idleMs = options.idleMs;
+      if (controller) init.signal = controller.signal;
+
+      netFetch(target, init)
+        .then(function (res) {
+          if (source.readyState === 2) {
+            res.body.cancel();
+            return null;
+          }
+          var type = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+          if (res.status !== 200 || type !== "text/event-stream") {
+            res.body.cancel();
+            fail(null, false);
+            return null;
+          }
+          source.readyState = 1;
+          fire({ type: "open" }, true);
+          var decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+          var parser = createEventParser(
+            {
+              onEvent: function (event) {
+                if (source.readyState === 1) fire(event);
+              },
+              onId: function (id) {
+                lastId = id;
+              },
+              onRetry: function (ms) {
+                retryMs = Math.max(SSE_MIN_RETRY_MS, ms);
+              },
+              onOverflow: function () {
+                fail(new PlistoError("too_large", "An event is over 1 MiB.", undefined, "event"), false);
+              },
+            },
+            lastId,
+          );
+          var reader = res.body.getReader();
+          var step = function () {
+            return reader.read().then(function (r) {
+              if (r.done) return null;
+              parser.push(decoder.decode(r.value, { stream: true }));
+              if (source.readyState === 1) return step();
+              reader.cancel();
+              return null;
+            });
+          };
+          return step().then(function () {
+            // The server closed the stream: connect again.
+            fail(null, true);
+          });
+        })
+        .catch(function (e) {
+          if (source.readyState === 2) return;
+          fail(e, e instanceof PlistoError && RETRYABLE[e.code] === true);
+        });
+    }
+
+    connect();
+    return source;
+  }
+
+  // ---- net: sockets ----
+
+  /** Opens a socket through Plisto. Resolves a PlistoSocket once the handshake is done. */
+  function netSocket(url, options) {
+    options = options || {};
+    var args = { url: String(url) };
+    try {
+      if (options.protocols !== undefined) args.protocols = options.protocols;
+      if (options.headers !== undefined) args.headers = headersObject(toHeaders(options.headers));
+    } catch (e) {
+      return Promise.reject(asPlistoError(e));
+    }
+    if (options.timeoutMs !== undefined) args.timeout_ms = options.timeoutMs;
+    var timeoutMs = callTimeout(options.timeoutMs, SOCKET_DEFAULT_TIMEOUT_MS);
+    return request("net.socket.open", args, { timeoutMs: timeoutMs }, null).then(function (result) {
+      var id = result.socket;
+      var queue = [];
+      var onmessage = null;
+      var onclose = null;
+      var socket = {
+        id: id,
+        protocol: typeof result.protocol === "string" ? result.protocol : null,
+        /** Sends a string as a text message, an ArrayBuffer or typed array as a binary one. */
+        send: function (data) {
+          var sendArgs = { socket: id };
+          if (typeof data === "string") {
+            sendArgs.text = data;
+          } else if (isArrayBuffer(data)) {
+            sendArgs.data_b64 = toBase64(new Uint8Array(data));
+          } else if (ArrayBuffer.isView(data)) {
+            sendArgs.data_b64 = toBase64(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+          } else {
+            return Promise.reject(
+              new PlistoError("invalid_args", "A socket sends a string, ArrayBuffer or typed array."),
+            );
+          }
+          return plisto.call("net.socket.send", sendArgs);
+        },
+        close: function (code, reason) {
+          var closeArgs = { socket: id };
+          if (code !== undefined) closeArgs.code = code;
+          if (reason !== undefined) closeArgs.reason = reason;
+          return plisto.call("net.socket.close", closeArgs);
+        },
+      };
+
+      // Held until the page sets a handler: at most SOCKET_HELD_MAX messages and SOCKET_HELD_BYTES bytes (the
+      // oldest are dropped first), and the close, which is never dropped.
+      var heldBytes = 0;
+      var closeEvent = null;
+      function sizeOf(data) {
+        return typeof data.data === "string" ? data.data.length : data.data ? data.data.byteLength : 0;
+      }
+      function call(handler, event) {
+        try {
+          handler.call(socket, event);
+        } catch (e) {
+          // A throwing handler must not stop later events.
+        }
+      }
+      function drain() {
+        if (typeof onmessage === "function") {
+          while (queue.length > 0) {
+            var data = queue.shift();
+            heldBytes -= sizeOf(data);
+            call(onmessage, { data: data.data });
+          }
+        }
+        // The close is final: messages still held have no handler and are dropped with it.
+        if (closeEvent && typeof onclose === "function") {
+          var close = closeEvent;
+          closeEvent = null;
+          queue.length = 0;
+          heldBytes = 0;
+          call(onclose, { code: close.code, reason: close.reason || "", wasClean: close.clean === true });
+        }
+      }
+      Object.defineProperty(socket, "onmessage", {
+        enumerable: true,
+        get: function () {
+          return onmessage;
+        },
+        set: function (fn) {
+          onmessage = fn;
+          drain();
+        },
+      });
+      Object.defineProperty(socket, "onclose", {
+        enumerable: true,
+        get: function () {
+          return onclose;
+        },
+        set: function (fn) {
+          onclose = fn;
+          drain();
+        },
+      });
+
+      var entry = {
+        deliver: function (data) {
+          if (data.kind === "close") {
+            delete sockets[id];
+            closeEvent = data;
+          } else {
+            queue.push(data);
+            heldBytes += sizeOf(data);
+            while (queue.length > SOCKET_HELD_MAX || heldBytes > SOCKET_HELD_BYTES) {
+              heldBytes -= sizeOf(queue.shift());
+            }
+          }
+          drain();
+        },
+      };
+      sockets[id] = entry;
+      var held = takeOrphans(id);
+      for (var i = 0; i < held.length; i++) entry.deliver(held[i]);
+      return socket;
+    });
+  }
+
+  plisto.net = {
+    fetch: netFetch,
+    eventSource: netEventSource,
+    imageUrl: netImageUrl,
+    revoke: netRevoke,
+    socket: netSocket,
+    // Pure helpers, reachable for the kit's tests. Not part of the API.
+    internals: {
+      createEventParser: createEventParser,
+      createStreamBody: createStreamBody,
+      readAll: readAll,
+      openStreams: function () {
+        return Object.keys(streams).length;
+      },
+      toBase64: toBase64,
+    },
   };
 
   window.plisto = plisto;

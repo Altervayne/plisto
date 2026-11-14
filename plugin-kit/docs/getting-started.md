@@ -176,5 +176,6 @@ checklist.
 
 - Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
 - Running in the background: [lifecycle](lifecycle.md).
+- Talking to a web service: [network](network.md).
 - Every method with its limits: [API reference](api.md).
 - A larger working example: [`examples/hello-background`](../examples/hello-background/).

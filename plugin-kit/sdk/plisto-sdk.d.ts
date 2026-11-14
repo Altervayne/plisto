@@ -12,7 +12,9 @@ export type PlistoErrorCode =
   | "unknown_method"
   | "busy"
   | "timeout"
-  | "unavailable";
+  | "unavailable"
+  | "network"
+  | "aborted";
 
 export type PlistoLocale = "en" | "fr" | (string & {});
 export type PlistoTheme = "light" | "dark";
@@ -294,6 +296,192 @@ export interface QueueResult {
   queued: number;
 }
 
+/** The seven net.* methods have no `PlistoMethods` keys yet: call them through the `plisto.net` helpers. */
+
+export interface NetFetchArgs {
+  /** Absolute `https` URL (or `http` for a developer loopback origin) on a consented origin; at most 8192 bytes. */
+  url: string;
+  /** Default "GET". */
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Record<string, string>;
+  /** Default "follow". */
+  redirect?: "follow" | "manual" | "error";
+  /** 1000 to 120000; default 30000. Buffered: the whole call. Streamed: until the headers arrive. */
+  timeout_ms?: number;
+  /** Default false. */
+  stream?: boolean;
+  /** Streamed only: 5000 to 600000; default 60000. */
+  idle_ms?: number;
+  /** 1 to 64 visible ASCII characters; `net.abort` with the same key ends the request or stream. */
+  abort_key?: string;
+}
+
+/** The answer to a buffered `net.fetch`. Header names are lowercase and `set-cookie` is left out of `headers`. */
+export interface NetFetchResult {
+  status: number;
+  url: string;
+  redirected: boolean;
+  headers: [string, string][];
+  set_cookies: string[];
+  /** Empty for HEAD, 204 and 304; at most 8 MiB. */
+  body: ArrayBuffer;
+}
+
+/** The answer to a streamed `net.fetch`: the headers, and the id of the stream (null when there is no body). */
+export interface NetStreamOpenResult {
+  status: number;
+  url: string;
+  redirected: boolean;
+  headers: [string, string][];
+  set_cookies: string[];
+  stream: string | null;
+}
+
+export interface NetAbortArgs {
+  abort_key: string;
+}
+export interface NetStreamAckArgs {
+  stream: string;
+  /** Total bytes the page has consumed so far; never decreases, never above what was sent. */
+  bytes: number;
+}
+export interface NetStreamCancelArgs {
+  stream: string;
+}
+export interface NetSocketOpenArgs {
+  /** `wss://` on a consented origin, or `ws://` on a developer loopback origin. */
+  url: string;
+  /** At most 8 tokens. */
+  protocols?: string[];
+  headers?: Record<string, string>;
+  /** 1000 to 30000; default 15000. */
+  timeout_ms?: number;
+}
+export interface NetSocketOpenResult {
+  socket: string;
+  protocol: string | null;
+}
+/** Exactly one of `text` and `data_b64`, each at most 64 KiB. */
+export interface NetSocketSendArgs {
+  socket: string;
+  text?: string;
+  data_b64?: string;
+}
+export interface NetSocketCloseArgs {
+  socket: string;
+  /** 1000 or 3000 to 4999; default 1000. */
+  code?: number;
+  /** At most 123 bytes. */
+  reason?: string;
+}
+
+export type NetBody = string | ArrayBuffer | ArrayBufferView | URLSearchParams;
+
+export interface PlistoFetchInit {
+  method?: string;
+  headers?: HeadersInit;
+  /** At most 1 MiB. Not with GET or HEAD. */
+  body?: NetBody | null;
+  /** Sent as JSON with `content-type: application/json`. Not together with `body`. */
+  json?: unknown;
+  redirect?: "follow" | "manual" | "error";
+  /** 1000 to 120000; default 30000. */
+  timeoutMs?: number;
+  /** Aborting sends `net.abort`; the call rejects with `aborted`. */
+  signal?: AbortSignal;
+  /** Resolve at the headers and read the body as it arrives. */
+  stream?: boolean;
+  /** Streamed only: 5000 to 600000; default 60000. */
+  idleMs?: number;
+}
+
+/** The result of `plisto.net.fetch`, shaped like a web `Response`. Any HTTP status resolves. */
+export interface PlistoResponse {
+  readonly status: number;
+  /** True for 200 to 299. */
+  readonly ok: boolean;
+  /** The final URL after redirects. */
+  readonly url: string;
+  readonly redirected: boolean;
+  readonly headers: Headers;
+  /** The `set-cookie` values, which `headers` does not carry. */
+  readonly setCookies: string[];
+  /** Buffered: a stream over the one buffer. Streamed: the live body, read under a 1 MiB window. */
+  readonly body: ReadableStream<Uint8Array>;
+  readonly bodyUsed: boolean;
+  /** The readers read to the end, so on a live stream they never finish. Each works once. */
+  arrayBuffer(): Promise<ArrayBuffer>;
+  bytes(): Promise<Uint8Array>;
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+  blob(): Promise<Blob>;
+}
+
+export interface PlistoEventSourceInit {
+  headers?: HeadersInit;
+  /** Sent as `last-event-id` on the first connect. */
+  lastEventId?: string;
+  timeoutMs?: number;
+  idleMs?: number;
+}
+
+export interface PlistoEventSourceEvent {
+  type: string;
+  data: string;
+  lastEventId: string;
+}
+
+/** The `error` event: `error` is the PlistoError behind it, or null for an answer that is not an event stream. */
+export interface PlistoEventSourceError {
+  type: "error";
+  error: PlistoError | null;
+}
+
+export interface PlistoEventSource {
+  readonly url: string;
+  /** 0 connecting, 1 open, 2 closed. */
+  readonly readyState: 0 | 1 | 2;
+  onopen: ((event: { type: "open" }) => void) | null;
+  onmessage: ((event: PlistoEventSourceEvent) => void) | null;
+  onerror: ((event: PlistoEventSourceError) => void) | null;
+  addEventListener(type: string, callback: (event: any) => void): void;
+  removeEventListener(type: string, callback: (event: any) => void): void;
+  close(): void;
+}
+
+export interface PlistoSocketInit {
+  protocols?: string[];
+  headers?: HeadersInit;
+  /** 1000 to 30000; default 15000. */
+  timeoutMs?: number;
+}
+
+export interface PlistoSocket {
+  readonly id: string;
+  /** The subprotocol the server chose, or null. */
+  readonly protocol: string | null;
+  /** A string goes as a text message, an ArrayBuffer or typed array as a binary one; at most 64 KiB. */
+  send(data: string | ArrayBuffer | ArrayBufferView): Promise<EmptyResult>;
+  /** `code` 1000 or 3000 to 4999; `reason` at most 123 bytes. */
+  close(code?: number, reason?: string): Promise<EmptyResult>;
+  /** Messages and the close that arrive before a handler is set are held and delivered when it is. */
+  onmessage: ((event: { data: string | ArrayBuffer }) => void) | null;
+  onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null;
+}
+
+export interface PlistoNet {
+  /** Needs `network`. Resolves for any HTTP status; rejects with PlistoError otherwise. */
+  fetch(url: string | URL, init?: PlistoFetchInit): Promise<PlistoResponse>;
+  /** Server-Sent Events over a streamed fetch. Needs `network`. */
+  eventSource(url: string | URL, options?: PlistoEventSourceInit): PlistoEventSource;
+  /** Resolves a blob: URL for an image (a data: URL when blob URLs are unavailable). A non-2xx answer or a non-image rejects with a plain Error carrying `status`. */
+  imageUrl(url: string | URL, init?: PlistoFetchInit): Promise<string>;
+  /** Releases a URL from `imageUrl`; does nothing for a data: URL. */
+  revoke(url: string): void;
+  /** Opens a socket and resolves it once the handshake is done. Needs `network`. */
+  socket(url: string | URL, options?: PlistoSocketInit): Promise<PlistoSocket>;
+}
+
 export interface PlistoMethods {
   "app.info": { args: {}; result: AppInfo };
   "app.methods": { args: {}; result: AppMethodsResult };
@@ -435,6 +623,8 @@ export interface Plisto {
     add(source: QueueSource): Promise<QueueResult>;
     playNext(source: QueueSource): Promise<QueueResult>;
   };
+  /** Needs network. */
+  readonly net: PlistoNet;
   readonly log: {
     debug(text: string): Promise<LogWriteResult>;
     info(text: string): Promise<LogWriteResult>;

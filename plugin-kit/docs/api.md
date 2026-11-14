@@ -48,6 +48,9 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | cover | `library.cover` | 30 | 10 per second |
 | playback read | `playback.state`, `playback.queue` | 20 | 10 per second |
 | play | the other `playback.*` methods, `queue.*` | 10 | 5 per second |
+| net | `net.fetch`, `net.socket.open` | 30 | 10 per second |
+| net send | `net.socket.send`, `net.socket.close`, `net.abort`, `net.stream.cancel` | 40 | 20 per second |
+| net stream | `net.stream.ack` | 40 | 20 per second |
 
 ## Methods
 
@@ -462,9 +465,17 @@ await plisto.queue.playNext({ album_id: 12 });
 await plisto.queue.play({ track_ids: [5, 9, 3] }, 1);
 ```
 
+### Network
+
+The network methods are `net.fetch`, `net.abort`, `net.stream.ack`, `net.stream.cancel`, `net.socket.open`,
+`net.socket.send` and `net.socket.close`. Use the `plisto.net` helpers rather than calling them with
+`plisto.call`: a fetch carries its body beside the arguments, and streams and sockets deliver their data as
+events the SDK reads for you. The [network guide](network.md) has the arguments, limits and errors. The
+network engine is not available yet: see "Not available yet" at the end of that guide.
+
 ## Error codes
 
-Every failure rejects with a `PlistoError` whose `code` is one of nine values:
+Every failure rejects with a `PlistoError` whose `code` is one of eleven values:
 
 | Code | Meaning |
 | --- | --- |
@@ -477,9 +488,12 @@ Every failure rejects with a `PlistoError` whose `code` is one of nine values:
 | `busy` | Too many calls are waiting, or a prompt or toast slot is taken. |
 | `timeout` | No answer within the call's timeout (raised by the SDK), or the user did not answer a prompt in 5 minutes (raised by Plisto). |
 | `unavailable` | Plisto cannot serve the plugin right now: it is disabled, updating or broken, or the call could not be delivered. |
+| `network` | A network request failed. `reason` says how: `dns`, `connect`, `tls`, `protocol`, `closed`, `redirect`, `handshake`, `stalled` or `proxy`. See the [network guide](network.md). |
+| `aborted` | A network request or stream was ended before it finished. `reason` is `abort`, `frame_gone` or `stopped`. |
 
-`reason` is `null` except for `denied` with `"no_gesture"`. Branch on `code`. Use `reason` to tell a missing
-gesture from a missing capability.
+`reason` is `null` unless Plisto gives one: `"no_gesture"` with `denied`, and the reasons listed in the
+[network guide](network.md) for the network methods. Branch on `code`. Use `reason` to tell a missing gesture
+from a missing capability, or one network failure from another.
 
 ```js
 try {
@@ -535,7 +549,7 @@ plisto.on("sidebar", ({ item_id, value, gesture }) => { /* see the sidebar guide
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
-version is `plisto.sdkVersion` (`1.2.0`).
+version is `plisto.sdkVersion` (`1.3.0`).
 
 | Member | Meaning |
 | --- | --- |
@@ -555,6 +569,7 @@ version is `plisto.sdkVersion` (`1.2.0`).
 | `library.tracks/tracksById/albums/album/albumTracks/playlists/playlist/playlistTracks/cover` | Helpers for the `library.*` methods. |
 | `playback.state/queue/toggle/pause/resume/next/prev/seek` | Helpers for the `playback.*` methods. |
 | `queue.play/add/playNext` | Helpers for the `queue.*` methods. |
+| `net.fetch/eventSource/imageUrl/revoke/socket` | Network helpers. Need `network`. See the [network guide](network.md). |
 | `PlistoError` | The error class. |
 
 Details:
