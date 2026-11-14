@@ -75,6 +75,9 @@ publish.
   address check. When Windows has a proxy configured, Plisto shows the user a warning on the review sheet and
   in the plugin's panel, and a request that fails to connect (`dns`, `connect`, `tls` or `closed`) is reported
   as `network` with reason `proxy`. See the error table below.
+- Plisto blocks WebRTC from plugin pages. `RTCPeerConnection` still exists, but it cannot reach a STUN or TURN
+  server or a peer, with or without the `network` capability. Use the `plisto.net` methods on this page for
+  network access.
 
 ## `plisto.net.fetch(url, init?)`
 
