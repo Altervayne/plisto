@@ -41,7 +41,7 @@ const DEV_ORIGIN: &str = "http://localhost:1420";
 const HOST_SEGMENT: &str = "_plisto";
 
 pub const FRAME_CSP: &str = "sandbox allow-scripts; default-src 'none'; script-src 'self'; \
-    style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'";
+    style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'";
 
 // Lowercase extension to Content-Type. Anything else is refused, so a plugin folder can never
 // serve an executable, a database or a type the frame CSP was not written for.
@@ -1009,14 +1009,19 @@ mod tests {
         assert_eq!(sources("default-src"), Some(vec!["'none'"]), "{reason}");
         assert_eq!(sources("connect-src"), Some(vec!["'none'"]), "{reason}");
         assert_eq!(sources("sandbox"), Some(vec!["allow-scripts"]), "{reason}");
+        assert_eq!(
+            sources("img-src"),
+            Some(vec!["'self'", "data:", "blob:"]),
+            "{reason}"
+        );
         for (name, values) in &directives {
             if *name == "sandbox" {
                 continue;
             }
             for value in values {
                 let keyword = value.starts_with('\'') && value.ends_with('\'');
-                let data_image = *name == "img-src" && *value == "data:";
-                assert!(keyword || data_image, "{name} allows {value:?}: {reason}");
+                let inline_image = *name == "img-src" && matches!(*value, "data:" | "blob:");
+                assert!(keyword || inline_image, "{name} allows {value:?}: {reason}");
                 assert!(!value.contains('*'), "{name} allows {value:?}: {reason}");
             }
         }
@@ -1373,6 +1378,11 @@ mod tests {
             ("sandbox-probe2", "dev.plisto.probe2"),
         ] {
             let dir = root.join(folder);
+            // The fixtures are local-only (the folder is git-ignored), so a fresh clone skips.
+            if !dir.is_dir() {
+                println!("skipping {folder}: fixture folder {} is absent", dir.display());
+                continue;
+            }
             let manifest =
                 super::super::manifest::parse(&fs::read(dir.join("plugin.json")).unwrap())
                     .expect("the probe fixture must parse");
