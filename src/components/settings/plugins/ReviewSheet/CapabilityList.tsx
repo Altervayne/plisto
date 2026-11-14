@@ -1,3 +1,6 @@
+// -- State Imports --
+import { useNetEnvironment } from "../../../../state/plugins/useNetEnvironment";
+
 // -- Utils Imports --
 import { knownCapabilities } from "../../../../state/plugins/capabilities";
 import { isDevOrigin } from "../../../../state/plugins/origins";
@@ -25,12 +28,14 @@ const readsPlisto = (subject: ReviewSubject): boolean =>
  */
 export function CapabilityList({ subject, heading }: { subject: ReviewSubject; heading: string }) {
   const t = useT();
+  const caps = knownCapabilities(subject.capabilities);
+  const proxy = useNetEnvironment(caps.includes("network"));
 
   return (
     <div className={styles.sect}>
       <span className={styles.label}>{heading}</span>
       <ul className={styles.caps}>
-        {knownCapabilities(subject.capabilities).map((cap) => (
+        {caps.map((cap) => (
           <li key={cap}>
             <div className={styles.capText}>
               {t((d) => d.plugins.capability[cap])}
@@ -57,6 +62,9 @@ export function CapabilityList({ subject, heading }: { subject: ReviewSubject; h
               ) : null}
               {cap === "network" && readsPlisto(subject) ? (
                 <p className={styles.netNote}>{t((d) => d.plugins.sheet.networkReadsNote)}</p>
+              ) : null}
+              {cap === "network" && proxy !== "none" ? (
+                <p className={styles.proxyNote}>{t((d) => d.plugins.net.proxyWarning)}</p>
               ) : null}
             </div>
           </li>

@@ -1519,6 +1519,10 @@ export const en = {
       loopbackNote:
         "While developer mode is on, plugins that list an address on this computer can connect to it.",
     },
+    net: {
+      proxyWarning:
+        "Windows is set to use a proxy on this network. Plisto does not send plugin connections through a proxy, so this plugin may not reach its sites.",
+    },
     capability: {
       storage: "Save its own settings and data",
       "library.read": "Read your library (titles, artists, albums; never file locations)",

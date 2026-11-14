@@ -221,6 +221,13 @@
   color: var(--ink-3);
 }
 
+.proxyNote {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
 .badge {
   margin-left: 8px;
   padding: 1px 7px;

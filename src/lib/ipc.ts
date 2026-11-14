@@ -50,6 +50,7 @@ import type {
   PluginFrameEventKind,
   PluginInboxItem,
   PluginInspection,
+  PluginNetEnvironment,
   PluginNetLogEntry,
   PluginRow,
   PluginSidebarInputReply,
@@ -1301,6 +1302,11 @@ export function pluginFetch(payload: Uint8Array): Promise<ArrayBuffer> {
 /** The last requests Plisto made for a plugin, held in memory only. */
 export function pluginNetLog(id: string): Promise<PluginNetLogEntry[]> {
   return invoke<PluginNetLogEntry[]>("plugin_net_log", { id });
+}
+
+/** Whether Windows is set to use a proxy on the current network. */
+export function pluginNetEnvironment(): Promise<PluginNetEnvironment> {
+  return invoke<PluginNetEnvironment>("plugin_net_environment");
 }
 
 /** Reports whether a plugin's page is the shown destination with its frame live. */

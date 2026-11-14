@@ -1174,10 +1174,10 @@ export type PluginNetEvent =
   | { id: string; socket: string; kind: "binary"; data_b64: string }
   | { id: string; socket: string; kind: "close"; code: number; reason: string; clean: boolean };
 
-/** One request Plisto made for a plugin. Mirrors NetLogEntry in commands/plugin_fetch.rs. */
+/** One request Plisto made for a plugin. Mirrors NetLogEntry in plugins/api/net/state.rs. */
 export interface PluginNetLogEntry {
   at_ms: number;
-  kind: "fetch" | "stream" | "socket";
+  kind: "fetch" | "stream" | "socket" | "playback";
   method: string;
   origin: string;
   status: number | null;
@@ -1185,6 +1185,11 @@ export interface PluginNetLogEntry {
   sent: number;
   received: number;
   ms: number;
+}
+
+/** What Windows reports about a proxy on the current network. Mirrors the reply of plugin_net_environment. */
+export interface PluginNetEnvironment {
+  proxy: "none" | "manual" | "pac" | "detected";
 }
 
 /** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */

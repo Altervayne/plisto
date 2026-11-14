@@ -1540,6 +1540,10 @@ export const fr: Dict = {
       loopbackNote:
         "Tant que le mode développeur est actif, les plugins qui indiquent une adresse de cet ordinateur peuvent s'y connecter.",
     },
+    net: {
+      proxyWarning:
+        "Windows utilise un proxy sur ce réseau. Plisto n'envoie pas les connexions des plugins par un proxy, ce plugin risque donc de ne pas joindre ses sites.",
+    },
     capability: {
       storage: "Enregistrer ses propres réglages et données",
       "library.read": "Lire votre bibliothèque (titres, artistes, albums ; jamais l'emplacement des fichiers)",

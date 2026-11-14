@@ -55,6 +55,13 @@
   color: var(--ink-3);
 }
 
+.proxyNote {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
 .devTag {
   margin-left: 8px;
   font-size: 11.5px;

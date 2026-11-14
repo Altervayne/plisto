@@ -5,6 +5,7 @@ import { QuietButton } from "../../common/QuietButton";
 // -- State Imports --
 import { restartPlugin } from "../../../state/plugins/restartPlugin";
 import { hubOpensPage } from "../../../state/plugins/statusModel";
+import { useNetEnvironment } from "../../../state/plugins/useNetEnvironment";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 import { usePlugins, usePluginsBoot } from "../../../state/plugins/store";
 import { useAppMode } from "../../../state/player/store";
@@ -53,6 +54,7 @@ export function PluginRowPanel({
   const canRestart = usePluginStatusView(row).restart;
   const boot = usePluginsBoot();
   const hasPage = hubOpensPage(boot, row, rows, appMode);
+  const proxy = useNetEnvironment(row.state === "ready" && granted.includes("network"));
 
   return (
     <div className={styles.panel}>
@@ -76,6 +78,9 @@ export function PluginRowPanel({
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {cap === "network" && proxy !== "none" ? (
+                      <p className={styles.proxyNote}>{t((d) => d.plugins.net.proxyWarning)}</p>
                     ) : null}
                   </li>
                 ))}
