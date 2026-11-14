@@ -48,6 +48,10 @@ pub trait Starter: Send + Sync {
     fn start(&self, plugins: &PluginsState, id: &str);
 }
 
+/// Runs when the runtime turns safe, with the new view, to stop whatever still runs. Never called
+/// with the state lock held.
+pub type SafeHook = Arc<dyn Fn(BootView) + Send + Sync>;
+
 /// What a serving plugin was granted, copied out of its registry entry so plugin calls never wait
 /// on the registry lock.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -224,6 +228,7 @@ pub struct PluginsState {
     registry_writable: bool,
     stopper: RwLock<Arc<dyn Stopper>>,
     starter: RwLock<Option<Arc<dyn Starter>>>,
+    on_safe: RwLock<Option<SafeHook>>,
     // Bumped by every registry change kept in memory, so a caller can tell whether its call changed it.
     generation: AtomicU64,
     api: ApiState,
@@ -248,6 +253,7 @@ impl PluginsState {
             registry_writable: true,
             stopper: RwLock::new(Arc::new(|_: &str| {})),
             starter: RwLock::new(None),
+            on_safe: RwLock::new(None),
             generation: AtomicU64::new(0),
             api: ApiState::default(),
         }
@@ -276,14 +282,38 @@ impl PluginsState {
     }
 
     /// A lock poisoned by a panic ends plugins for the session: the runtime turns safe and the serving
-    /// set empties, so nothing runs on state the panic may have left half changed.
+    /// set empties, so nothing runs on state the panic may have left half changed. The safe hook runs
+    /// on a thread of its own, since the caller holds the lock.
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|poisoned| {
             let mut inner = poisoned.into_inner();
+            let turned = inner.runtime != Runtime::Safe;
             inner.runtime = Runtime::Safe;
             self.enabled.replace(HashMap::new());
+            if turned {
+                if let Some(hook) = self.safe_hook() {
+                    let view = self.view(Runtime::Safe);
+                    let spawned = std::thread::Builder::new()
+                        .name("plugin-safe".into())
+                        .spawn(move || hook(view));
+                    if let Err(e) = spawned {
+                        eprintln!("plugins: cannot stop plugins after a failure: {e}");
+                    }
+                }
+            }
             inner
         })
+    }
+
+    fn safe_hook(&self) -> Option<SafeHook> {
+        self.on_safe
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn set_on_safe(&self, hook: SafeHook) {
+        *self.on_safe.write().unwrap_or_else(PoisonError::into_inner) = Some(hook);
     }
 
     /// What the previous run left behind. Whether plugins may run is `runtime`.
@@ -313,7 +343,8 @@ impl PluginsState {
         self.resolve_held(safe).unwrap_or_else(|| self.boot_view())
     }
 
-    /// `resolve_boot`, returning None when the runtime was not held and nothing changed.
+    /// `resolve_boot`, returning None when the runtime was not held and nothing changed. Turning safe
+    /// runs the safe hook.
     pub fn resolve_held(&self, safe: bool) -> Option<BootView> {
         let mut inner = self.inner();
         if inner.runtime != Runtime::Held {
@@ -321,7 +352,14 @@ impl PluginsState {
         }
         inner.runtime = if safe { Runtime::Safe } else { Runtime::Running };
         self.enabled.replace(inner.serving());
-        Some(self.view(inner.runtime))
+        let view = self.view(inner.runtime);
+        drop(inner);
+        if safe {
+            if let Some(hook) = self.safe_hook() {
+                hook(view);
+            }
+        }
+        Some(view)
     }
 
     pub fn registry_writable(&self) -> bool {
@@ -1114,6 +1152,50 @@ mod tests {
         assert_eq!(state.resolve_held(false), None);
         touch(&state, &d, Withdraw::No);
         assert!(!state.is_enabled(ID));
+    }
+
+    /// A safe hook that sends every view it is given.
+    fn watch_safe(state: &PluginsState) -> std::sync::mpsc::Receiver<BootView> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        state.set_on_safe(Arc::new(move |view| {
+            let _ = tx.lock().unwrap().send(view);
+        }));
+        rx
+    }
+
+    #[test]
+    fn a_poisoned_lock_runs_the_safe_hook_once() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let safe = watch_safe(&state);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _inner = state.inner.lock().unwrap();
+            panic!("poisons the state lock");
+        }));
+        assert_eq!(state.runtime(), Runtime::Safe);
+        let view = safe.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(view.runtime, Runtime::Safe);
+        // Every later read of the poisoned lock finds it safe already.
+        state.runtime();
+        touch(&state, &d, Withdraw::No);
+        assert!(safe.recv_timeout(std::time::Duration::from_millis(200)).is_err());
+    }
+
+    #[test]
+    fn resolving_to_safe_runs_the_safe_hook_and_running_does_not() {
+        let d = AppData::new();
+        let state = held(&d);
+        let safe = watch_safe(&state);
+        state.resolve_boot(true);
+        assert_eq!(safe.try_recv().unwrap().runtime, Runtime::Safe);
+
+        let d = AppData::new();
+        let state = held(&d);
+        let safe = watch_safe(&state);
+        state.resolve_boot(false);
+        assert!(safe.try_recv().is_err());
     }
 
     #[test]

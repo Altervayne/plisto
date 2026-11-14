@@ -21,13 +21,16 @@ use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCES
 use super::child::{Child, HandshakeError, Inbound, SendError, Stopped, INBOX_CAP, OUTBOX_CAP};
 use super::launch::{stderr_log, LaunchSpec};
 use super::child::CLOSED_EXITED;
+use super::link::{NoticeKind, RecordingLink};
 use super::protocol::{
     ChildMessage, HostMessage, ReportedState, API_VERSION, PROTOCOL_VERSION,
 };
-use super::test_child::MODE_FILE;
-use super::{boot_allows_start, NativeHost, StartError, STOP_GRACE};
+use super::status::{CrashReason, HostState};
+use super::test_child::{LAUNCHES_FILE, MODE_FILE, RESUME_FILE};
+use super::{Clock, FakeClock, NativeHost, StartError, STOP_GRACE};
 use crate::plugins::paths::{data_dir, plugin_dir};
 use crate::plugins::session::{self, BootState};
+use crate::plugins::state::{BootView, PluginsState, Runtime};
 use crate::plugins::test_kit::{native, ui, Kit, ID};
 
 // Upper bound for anything that only waits on a process starting or answering.
@@ -397,16 +400,23 @@ fn a_stalled_child_answers_pings_again_after_its_stall() {
     panic!("no pong after the stall");
 }
 
+/// A host that records what it sends to the app, reaching no plugin state.
+fn bare_host() -> NativeHost {
+    NativeHost::new(std::env::temp_dir(), Arc::new(RecordingLink::default()))
+}
+
 #[test]
 fn shutdown_all_stops_every_child_within_one_grace_period() {
-    let host = NativeHost::new(std::env::temp_dir());
+    let host = bare_host();
     let rigs: Vec<Rig> = (0..3).map(|_| Rig::new("ignore-stdin")).collect();
     let mut watches = Vec::new();
     for (n, rig) in rigs.iter().enumerate() {
         let child = rig.spawn();
         child.handshake(&hello(), SLOW).unwrap();
         watches.push(Watch::new(child.pid()));
-        assert!(host.adopt(&format!("com.example.n{n}"), Arc::new(child)));
+        let id = format!("com.example.n{n}");
+        let run = host.reserve(&id).unwrap();
+        assert!(host.adopt(&id, &run, Arc::new(child)));
     }
     let started = Instant::now();
     host.shutdown_all();
@@ -434,7 +444,10 @@ fn native_kit(mode: &str) -> Kit {
 #[test]
 fn enable_starts_the_plugin_and_disable_stops_it() {
     let k = native_kit("echo");
-    let host = Arc::new(NativeHost::new(k.data.clone()));
+    let host = Arc::new(NativeHost::new(
+        k.data.clone(),
+        Arc::new(RecordingLink::default()),
+    ));
     k.plugins.set_starter(host.clone());
     k.plugins.set_stopper(host.clone());
 
@@ -463,7 +476,7 @@ fn enable_starts_the_plugin_and_disable_stops_it() {
 #[test]
 fn start_refuses_a_ui_plugin_and_a_changed_manifest() {
     let k = native_kit("echo");
-    let host = NativeHost::new(k.data.clone());
+    let host = NativeHost::new(k.data.clone(), Arc::new(RecordingLink::default()));
     k.enable(&[]);
     let manifest = plugin_dir(&k.data, ID).join("plugin.json");
     let mut edited = native("1.0.0", &[]);
@@ -474,6 +487,12 @@ fn start_refuses_a_ui_plugin_and_a_changed_manifest() {
         Err(StartError::Changed)
     ));
     assert!(!host.is_running(ID));
+    assert_eq!(
+        host.status(ID).unwrap().host,
+        HostState::Failed {
+            reason: super::status::FailReason::Changed
+        }
+    );
 
     let k = Kit::new();
     k.install(&ui("1.0.0", &[]));
@@ -485,37 +504,344 @@ fn start_refuses_a_ui_plugin_and_a_changed_manifest() {
 }
 
 #[test]
-fn only_a_clean_boot_outside_safe_mode_allows_starts() {
-    let boot = |safe_mode, unclean| BootState { safe_mode, unclean };
-    assert!(boot_allows_start(boot(false, false)));
-    assert!(!boot_allows_start(boot(true, false)));
-    assert!(!boot_allows_start(boot(false, true)));
-    assert!(!boot_allows_start(boot(true, true)));
-}
-
-#[test]
-fn boot_starts_serving_native_plugins_only_when_the_boot_allows_it() {
+fn starting_the_serving_set_starts_nothing_while_held_or_safe() {
     let k = native_kit("echo");
     k.enable(&[]);
-    let host = NativeHost::new(k.data.clone());
+    let host = NativeHost::new(k.data.clone(), Arc::new(RecordingLink::default()));
 
     // The kit's own boot left its marker behind, so this boot reads as an unclean exit.
     let unclean = k.reboot();
-    assert!(unclean.boot_state().unclean);
-    assert!(!host.start_at_boot(&unclean));
+    assert_eq!(unclean.runtime(), Runtime::Held);
+    host.start_serving(&unclean);
     assert!(!host.is_running(ID));
 
     session::clear(&k.data);
     session::set_safe_mode(&k.data, true).unwrap();
     let safe = k.reboot();
-    assert!(!host.start_at_boot(&safe));
+    host.start_serving(&safe);
     assert!(!host.is_running(ID));
 
     session::clear(&k.data);
     session::set_safe_mode(&k.data, false).unwrap();
     let clean = k.reboot();
     assert_eq!(clean.boot_state(), BootState::default());
-    assert!(host.start_at_boot(&clean));
+    host.start_serving(&clean);
     assert!(host.is_running(ID));
     host.shutdown_all();
+}
+
+/// A native plugin enabled in a state the host starts, stops and disables through, on a fake clock.
+struct Supervised {
+    k: Kit,
+    plugins: Arc<PluginsState>,
+    host: NativeHost,
+    link: Arc<RecordingLink>,
+    clock: Arc<FakeClock>,
+}
+
+impl Supervised {
+    fn new(mode: &str) -> Supervised {
+        let k = native_kit(mode);
+        k.enable(&[]);
+        let plugins = Arc::new(k.relaunch());
+        let link = Arc::new(RecordingLink::default());
+        link.attach(&plugins, &k.data);
+        let clock = Arc::new(FakeClock::new());
+        let host = NativeHost::with_clock(k.data.clone(), link.clone(), clock.clone());
+        plugins.set_starter(Arc::new(host.clone()));
+        plugins.set_stopper(Arc::new(host.clone()));
+        Supervised {
+            k,
+            plugins,
+            host,
+            link,
+            clock,
+        }
+    }
+
+    fn start(&self) {
+        self.host.start(&self.plugins, ID).unwrap();
+    }
+
+    fn state(&self) -> Option<HostState> {
+        self.host.status(ID).map(|s| s.host)
+    }
+
+    /// Waits until the plugin's host state is `host`.
+    fn reaches(&self, host: HostState) -> bool {
+        eventually(|| self.state() == Some(host))
+    }
+
+    /// Moves the fake clock on and runs one supervisor step.
+    fn tick_after(&self, by: Duration) {
+        self.clock.advance(by);
+        self.host.tick();
+    }
+}
+
+impl Drop for Supervised {
+    fn drop(&mut self) {
+        self.host.shutdown_all();
+    }
+}
+
+#[test]
+fn a_crashing_child_restarts_with_backoff_and_the_third_crash_turns_it_off() {
+    let s = Supervised::new("crash");
+    s.start();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    let crash = s.host.status(ID).unwrap().crash.unwrap();
+    assert_eq!(crash.reason, CrashReason::Exited);
+    assert_eq!(crash.exit_code, Some(3));
+
+    // Not due yet.
+    s.tick_after(Duration::from_millis(999));
+    assert_eq!(s.state(), Some(HostState::Restarting { retry_in_ms: 1000 }));
+    s.tick_after(Duration::from_millis(1));
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 2000 }));
+    s.tick_after(Duration::from_secs(2));
+    assert!(s.reaches(HostState::CrashLoop));
+    // The notice follows the disable.
+    assert!(eventually(|| !s.link.notices().is_empty()));
+    assert_eq!(s.link.disabled(), [ID]);
+    assert!(!s.plugins.is_enabled(ID));
+    assert!(!s.k.saved_entry().enabled, "the disable is saved");
+    // Nothing restarts it, and the notice went out once.
+    s.tick_after(Duration::from_secs(10));
+    assert!(!s.host.is_running(ID));
+    assert_eq!(s.state(), Some(HostState::CrashLoop));
+    let notices = s.link.notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!((notices[0].id.as_str(), notices[0].kind), (ID, NoticeKind::AutoDisabled));
+
+    // Enabling again starts afresh.
+    crate::plugins::lifecycle::enable(&s.k.data, &s.plugins, ID, None, false, None).unwrap();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+}
+
+#[test]
+fn a_silent_child_goes_not_responding_and_recovers_without_being_killed() {
+    let s = Supervised::new("stall-until-file");
+    let silences = Arc::new(AtomicUsize::new(0));
+    let counted = silences.clone();
+    s.host.set_restore_hook(Arc::new(move |id: &str| {
+        assert_eq!(id, ID);
+        counted.fetch_add(1, Ordering::SeqCst);
+    }));
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let pid = s.host.pid(ID).unwrap();
+    for _ in 0..3 {
+        s.tick_after(Duration::from_secs(1));
+    }
+    assert_eq!(s.state(), Some(HostState::NotResponding));
+    assert_eq!(silences.load(Ordering::SeqCst), 1);
+    // Once its stall is over the child answers the next ping.
+    fs::write(data_dir(&s.k.data, ID).join(RESUME_FILE), b"").unwrap();
+    assert!(eventually(|| {
+        s.tick_after(Duration::from_secs(1));
+        s.state() == Some(HostState::Running)
+    }));
+    assert_eq!(silences.load(Ordering::SeqCst), 1, "the hook ran once");
+    assert_eq!(s.host.pid(ID), Some(pid), "the same process");
+    assert!(s.host.status(ID).unwrap().crash.is_none());
+}
+
+#[test]
+fn a_child_that_ignores_its_input_is_only_marked_and_its_stop_is_no_crash() {
+    let s = Supervised::new("ignore-stdin");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let watch = Watch::new(s.host.pid(ID).unwrap());
+    for _ in 0..10 {
+        s.tick_after(Duration::from_secs(1));
+    }
+    assert_eq!(s.state(), Some(HostState::NotResponding));
+    assert!(!watch.gone_within(Duration::ZERO), "silence never kills");
+
+    s.host.stop_plugin(ID);
+    assert!(watch.gone_within(Duration::ZERO));
+    let status = s.host.status(ID).unwrap();
+    assert_eq!(status.host, HostState::Off);
+    assert!(status.crash.is_none());
+    s.tick_after(Duration::from_secs(10));
+    assert!(!s.host.is_running(ID));
+    assert!(s.link.disabled().is_empty());
+}
+
+#[test]
+fn a_stop_is_never_a_crash() {
+    let s = Supervised::new("echo");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let watch = Watch::new(s.host.pid(ID).unwrap());
+    crate::plugins::lifecycle::disable(&s.k.data, &s.plugins, ID).unwrap();
+    assert!(watch.gone_within(SLOW));
+    let status = s.host.status(ID).unwrap();
+    assert_eq!(status.host, HostState::Off);
+    assert!(status.crash.is_none());
+    s.tick_after(Duration::from_secs(10));
+    assert!(!s.host.is_running(ID));
+    assert!(s.link.notices().is_empty());
+    // Every change went out in order.
+    let sent: Vec<HostState> = s.link.statuses().iter().map(|s| s.host).collect();
+    assert_eq!(
+        sent,
+        [
+            HostState::Starting,
+            HostState::Running,
+            HostState::Stopping,
+            HostState::Off
+        ]
+    );
+}
+
+#[test]
+fn a_broken_frame_kills_the_process_as_a_crash() {
+    let s = Supervised::new("broken-frame:300");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let watch = Watch::new(s.host.pid(ID).unwrap());
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    assert!(watch.gone_within(SLOW), "the child never exits by itself");
+    let crash = s.host.status(ID).unwrap().crash.unwrap();
+    assert_eq!(crash.reason, CrashReason::Protocol);
+    assert_eq!(crash.exit_code, None);
+}
+
+#[test]
+fn concurrent_starts_launch_the_plugin_once() {
+    let s = Supervised::new("echo");
+    thread::scope(|scope| {
+        for _ in 0..8 {
+            scope.spawn(|| s.host.start(&s.plugins, ID).unwrap());
+        }
+    });
+    assert!(s.reaches(HostState::Running));
+    let launches = fs::read_to_string(data_dir(&s.k.data, ID).join(LAUNCHES_FILE)).unwrap();
+    assert_eq!(launches.lines().count(), 1);
+}
+
+#[test]
+fn after_exit_begins_nothing_restarts_or_starts() {
+    let s = Supervised::new("crash");
+    s.start();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    s.host.begin_exit();
+    s.tick_after(Duration::from_secs(5));
+    assert!(!s.host.is_running(ID));
+    assert!(matches!(
+        s.host.start(&s.plugins, ID),
+        Err(StartError::Exiting)
+    ));
+    // The reservation itself is refused, whatever path reaches it.
+    assert!(s.host.reserve(ID).is_none());
+    assert!(!s.host.is_running(ID));
+}
+
+#[test]
+fn an_exit_is_seen_while_a_helper_holds_the_output_open_and_counted_once() {
+    let s = Supervised::new("exit-leaving-helper");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let watch = Watch::new(s.host.pid(ID).unwrap());
+    assert!(watch.gone_within(SLOW));
+    // The output stays open, so only the supervisor's own check can see the exit.
+    assert!(eventually(|| {
+        s.host.tick();
+        s.state() == Some(HostState::Restarting { retry_in_ms: 1000 })
+    }));
+    let crash = s.host.status(ID).unwrap().crash.unwrap();
+    assert_eq!((crash.reason, crash.exit_code), (CrashReason::Exited, Some(3)));
+    // Killing the job ends the helper and the output with it; the pump's end of output is the same
+    // exit and counts nothing more.
+    thread::sleep(Duration::from_millis(300));
+    s.host.tick();
+    assert_eq!(s.state(), Some(HostState::Restarting { retry_in_ms: 1000 }));
+}
+
+#[test]
+fn a_silence_seen_after_the_pong_that_ended_it_changes_nothing() {
+    let s = Supervised::new("echo");
+    let silences = Arc::new(AtomicUsize::new(0));
+    let counted = silences.clone();
+    s.host.set_restore_hook(Arc::new(move |_: &str| {
+        counted.fetch_add(1, Ordering::SeqCst);
+    }));
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let run = s.host.children.lock().unwrap().get(ID).unwrap().clone();
+    // The heartbeat is not hung: a late `WentSilent` is dropped.
+    s.host.went_silent(ID, &run);
+    assert_eq!(s.state(), Some(HostState::Running));
+    assert_eq!(silences.load(Ordering::SeqCst), 0);
+    // Hung again before a late `Recovered` lands: the child stays not responding.
+    let now = s.clock.now();
+    let beats = s
+        .host
+        .children
+        .lock()
+        .unwrap()
+        .get(ID)
+        .map(|run| {
+            let mut heartbeat = run.heartbeat.lock().unwrap();
+            heartbeat.as_mut().unwrap().tick(now + Duration::from_secs(5))
+        })
+        .unwrap();
+    assert!(beats.contains(&super::heartbeat::Beat::WentSilent));
+    s.host.went_silent(ID, &run);
+    assert_eq!(s.state(), Some(HostState::NotResponding));
+    s.host.recovered(ID, &run);
+    assert_eq!(s.state(), Some(HostState::NotResponding));
+}
+
+#[test]
+fn a_due_restart_of_a_plugin_that_no_longer_serves_clears_restarting() {
+    let s = Supervised::new("crash");
+    s.start();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    let withdrawn = s.plugins.withdraw(ID);
+    s.tick_after(Duration::from_secs(1));
+    assert!(s.reaches(HostState::Off));
+    assert!(!s.host.is_running(ID));
+    drop(withdrawn);
+}
+
+#[test]
+fn a_safe_runtime_stops_every_child_and_tells_the_window() {
+    let s = Supervised::new("echo");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let watch = Watch::new(s.host.pid(ID).unwrap());
+    let view = BootView {
+        runtime: Runtime::Safe,
+        unclean: false,
+        safe_flag: false,
+    };
+    s.host.on_runtime_safe(view);
+    assert!(watch.gone_within(Duration::ZERO));
+    assert_eq!(s.state(), Some(HostState::Off));
+    assert_eq!(s.link.runtimes(), [view]);
+}
+
+#[test]
+fn a_child_status_and_log_reach_the_board_and_the_plugin_log() {
+    let s = Supervised::new("bad-status");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(eventually(|| s
+        .host
+        .status(ID)
+        .is_some_and(|status| status.reported.is_some())));
+    let status = s.host.status(ID).unwrap();
+    assert_eq!(status.protocol_errors, 3);
+    let reported = status.reported.unwrap();
+    assert_eq!(reported.state, ReportedState::Idle);
+    assert_eq!(reported.text.as_deref(), Some("fine"));
+
+    let s = Supervised::new("spawn-grandchild");
+    s.start();
+    let log = crate::plugins::paths::log_file(&s.k.data, ID);
+    assert!(eventually(|| fs::read_to_string(&log)
+        .is_ok_and(|text| text.contains(" INFO grandchild="))));
 }

@@ -22,7 +22,6 @@ use crate::plugins::icon_url;
 use crate::plugins::install::{self, InboxItem, Inspection};
 use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::lifecycle::{self, Uninstalled};
-use crate::plugins::manifest::Tier;
 use crate::plugins::stage::Limits;
 use crate::plugins::state::{BootView, PluginsState, Runtime};
 use crate::plugins::summary::{self, RowView, UpdatedView};
@@ -81,25 +80,25 @@ pub async fn plugins_resolve_boot(safe: bool, webview: Webview, app: AppHandle) 
     let Some(view) = resolve_from(webview.label(), &state.plugins, safe) else {
         return state.plugins.boot_view();
     };
-    let _ = app.emit_to(MAIN_LABEL, "plugins:runtime", view);
+    // A safe answer is announced by the runtime's safe hook, which also stops what runs.
     if view.runtime == Runtime::Running {
+        let _ = app.emit_to(MAIN_LABEL, "plugins:runtime", view);
         let _ = app.emit_to(MAIN_LABEL, "plugins:changed", ());
-        start_serving_native(app.clone());
+        #[cfg(windows)]
+        start_serving(app.clone());
     }
     view
 }
 
-/// Starts every serving native plugin on a thread of its own, since each start reads its folder.
-fn start_serving_native(app: AppHandle) {
+/// Starts every serving plugin on a thread of its own, as the boot does, since each native start
+/// reads its folder.
+#[cfg(windows)]
+fn start_serving(app: AppHandle) {
     let _ = std::thread::Builder::new()
         .name("plugin-boot".into())
         .spawn(move || {
-            let state = app.state::<AppState>();
-            for (id, serving) in state.plugins.snapshot().serving() {
-                if serving.tier == Tier::Native {
-                    state.plugins.start(&id);
-                }
-            }
+            let native = app.state::<std::sync::Arc<crate::plugins::native::NativeHost>>();
+            native.start_serving(&app.state::<AppState>().plugins);
         });
 }
 
@@ -302,6 +301,7 @@ pub async fn plugin_data_size(id: String, app: AppHandle) -> Result<u64, Install
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugins::manifest::Tier;
     use crate::plugins::registry::{Entry, EntryState, Registry};
     use crate::plugins::revalidate::Problems;
     use crate::plugins::session::BootState;

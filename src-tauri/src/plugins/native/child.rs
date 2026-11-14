@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendError};
 use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::WaitForSingleObject;
+use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
 
 // -- Local Imports --
 use super::job::Job;
@@ -86,11 +86,6 @@ impl Inbox {
             },
             Raw::Closed(why) => Inbound::Closed(why),
         })
-    }
-
-    /// Takes and drops everything, unparsed, until the child's output ends.
-    pub fn discard(&self) {
-        for _ in self.rx.iter() {}
     }
 
     /// Frames waiting to be taken.
@@ -222,6 +217,18 @@ impl Child {
         // Safety: the process handle stays open while `self.process` lives.
         let event = unsafe { WaitForSingleObject(handle, ms) };
         event == WAIT_OBJECT_0
+    }
+
+    /// The process's exit code, once it has exited.
+    pub fn exit_code(&self) -> Option<u32> {
+        if !self.wait_exit(Duration::ZERO) {
+            return None;
+        }
+        let handle = HANDLE(self.process.as_raw_handle());
+        let mut code = 0u32;
+        // Safety: the process handle stays open while `self.process` lives, and `code` is a live u32.
+        unsafe { GetExitCodeProcess(handle, &mut code) }.ok()?;
+        Some(code)
     }
 
     /// Kills the whole tree now and waits for the process to be gone.

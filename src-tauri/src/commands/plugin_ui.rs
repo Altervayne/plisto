@@ -1,12 +1,14 @@
 /*
  * The IPC commands behind plugin UI surfaces: answering a toast or prompt, re-reading what is open and
- * the live sidebar state, reporting a sidebar click, and telling Rust a plugin's frame is gone. Only the
- * main window may call them. A click here is the only place a gesture is minted from user input, so a
- * plugin frame must never reach these commands itself.
+ * the live sidebar state, reporting a sidebar click, and telling Rust how a plugin's frame stands, which
+ * also feeds the supervisor. Only the main window may call them. A click here is the only place a
+ * gesture is minted from user input, so a plugin frame must never reach these commands itself.
  */
 
 // -- Library Imports --
 use std::path::Path;
+#[cfg(windows)]
+use std::sync::Arc;
 use std::time::Instant;
 
 use tauri::{AppHandle, Manager, State, Webview};
@@ -16,7 +18,11 @@ use crate::plugins::api::host_event::UiEvent;
 use crate::plugins::api::sidebar::{check_input, SidebarInputReply, SidebarSnapshot};
 use crate::plugins::api::state::ApiState;
 use crate::plugins::api::ui_state::UiAnswer;
+#[cfg(windows)]
+use crate::plugins::native::NativeHost;
 use crate::plugins::paths::validate_id;
+#[cfg(windows)]
+use crate::plugins::state::PluginsState;
 use crate::plugins::state::{EnabledSet, Runtime};
 use crate::state::AppState;
 
@@ -197,10 +203,46 @@ pub async fn plugin_sidebar_input(
     .unwrap_or(refused)
 }
 
-/// Reports that plugin `id`'s last frame went away: `kind` is `"detached"` or `"crashed"`.
+/// Feeds a frame report from `label` to the supervisor. Any other label has no effect.
+#[cfg(windows)]
+fn frame_status_from(
+    label: &str,
+    host: &NativeHost,
+    plugins: &PluginsState,
+    id: &str,
+    kind: &str,
+    reason: Option<&str>,
+) {
+    if label == MAIN_LABEL {
+        host.frame_event(plugins, id, kind, reason);
+    }
+}
+
+/// Reports how plugin `id`'s frame stands: `kind` is `"live"`, `"not_responding"`, `"crashed"` with a
+/// `reason`, or `"detached"`. A crash or detach also frees what the plugin holds.
 #[tauri::command]
-pub fn plugin_frame_event(id: String, kind: String, webview: Webview, state: State<'_, AppState>) {
+pub fn plugin_frame_event(
+    id: String,
+    kind: String,
+    reason: Option<String>,
+    webview: Webview,
+    app: AppHandle,
+) {
+    let state = app.state::<AppState>();
     frame_event_from(webview.label(), state.plugins.api(), &id, &kind);
+    #[cfg(windows)]
+    if let Some(native) = app.try_state::<Arc<NativeHost>>() {
+        frame_status_from(
+            webview.label(),
+            &native,
+            &state.plugins,
+            &id,
+            &kind,
+            reason.as_deref(),
+        );
+    }
+    #[cfg(not(windows))]
+    let _ = reason;
 }
 
 #[cfg(test)]
@@ -560,6 +602,111 @@ mod tests {
         );
         api.ui().release(ID);
         waiting.join().unwrap().unwrap();
+    }
+
+    /// A host on a fake clock whose link reaches `plugins`, booted from `data`.
+    #[cfg(windows)]
+    fn supervisor(
+        plugins: &Arc<PluginsState>,
+        data: &Temp,
+    ) -> (
+        NativeHost,
+        Arc<crate::plugins::native::link::RecordingLink>,
+        Arc<crate::plugins::native::FakeClock>,
+    ) {
+        use crate::plugins::native::{link::RecordingLink, FakeClock};
+        let link = Arc::new(RecordingLink::default());
+        link.attach(plugins, &data.0);
+        let clock = Arc::new(FakeClock::new());
+        let host = NativeHost::with_clock(data.0.clone(), link.clone(), clock.clone());
+        (host, link, clock)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_background_frame_is_supervised_like_a_child() {
+        use crate::plugins::native::status::{CrashReason, HostState};
+        let data = Temp::new("plugin-ui");
+        let mut registry = plugins_of(Tier::Ui).snapshot();
+        registry.entries[0].granted.push(Capability::Background);
+        let plugins = Arc::new(PluginsState::new(
+            registry,
+            Problems::new(),
+            BootState::default(),
+        ));
+        let (host, link, clock) = supervisor(&plugins, &data);
+        let report = |label: &str, kind: &str, reason: Option<&str>| {
+            frame_status_from(label, &host, &plugins, ID, kind, reason)
+        };
+        let state = || host.status(ID).map(|s| s.host);
+
+        for label in ["tray", "Main", ""] {
+            report(label, "live", None);
+        }
+        assert_eq!(state(), None);
+        report(MAIN_LABEL, "live", None);
+        assert_eq!(state(), Some(HostState::Running));
+        report(MAIN_LABEL, "not_responding", None);
+        assert_eq!(state(), Some(HostState::NotResponding));
+        report(MAIN_LABEL, "live", None);
+        // A crash with no known reason is not taken.
+        report(MAIN_LABEL, "crashed", Some("boom"));
+        report(MAIN_LABEL, "crashed", None);
+        assert_eq!(state(), Some(HostState::Running));
+
+        report(MAIN_LABEL, "crashed", Some("silent"));
+        let status = host.status(ID).unwrap();
+        assert_eq!(status.host, HostState::Restarting { retry_in_ms: 1000 });
+        assert_eq!(status.crash.unwrap().reason, CrashReason::Silent);
+        clock.advance(Duration::from_millis(999));
+        host.tick();
+        assert_eq!(state(), Some(HostState::Restarting { retry_in_ms: 1000 }));
+        clock.advance(Duration::from_millis(1));
+        host.tick();
+        assert_eq!(state(), Some(HostState::Starting));
+
+        report(MAIN_LABEL, "live", None);
+        report(MAIN_LABEL, "crashed", Some("navigated"));
+        assert_eq!(state(), Some(HostState::Restarting { retry_in_ms: 2000 }));
+        clock.advance(Duration::from_secs(2));
+        host.tick();
+        assert_eq!(state(), Some(HostState::Starting));
+        report(MAIN_LABEL, "crashed", Some("init"));
+        assert_eq!(state(), Some(HostState::CrashLoop));
+        assert_eq!(link.disabled(), [ID]);
+        assert_eq!(link.notices().len(), 1);
+        assert!(!plugins.is_enabled(ID), "turned off and saved");
+        // No longer serving: further reports are ignored and the crash loop shows on.
+        report(MAIN_LABEL, "detached", None);
+        assert_eq!(state(), Some(HostState::CrashLoop));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_page_frame_crash_waits_for_the_user_and_native_ids_are_ignored() {
+        use crate::plugins::native::status::HostState;
+        let data = Temp::new("plugin-ui");
+        let plugins = Arc::new(plugins_of(Tier::Ui));
+        let (host, link, clock) = supervisor(&plugins, &data);
+        let report = |kind: &str, reason: Option<&str>| {
+            frame_status_from(MAIN_LABEL, &host, &plugins, ID, kind, reason)
+        };
+        report("live", None);
+        for _ in 0..4 {
+            report("crashed", Some("silent"));
+            assert_eq!(host.status(ID).unwrap().host, HostState::Stopped);
+        }
+        clock.advance(Duration::from_secs(10));
+        host.tick();
+        assert_eq!(host.status(ID).unwrap().host, HostState::Stopped);
+        assert!(link.disabled().is_empty());
+        report("detached", None);
+        assert_eq!(host.status(ID).unwrap().host, HostState::Off);
+
+        let native = Arc::new(plugins_of(Tier::Native));
+        let (host, _, _) = supervisor(&native, &data);
+        frame_status_from(MAIN_LABEL, &host, &native, ID, "live", None);
+        assert!(host.status(ID).is_none());
     }
 
     #[test]

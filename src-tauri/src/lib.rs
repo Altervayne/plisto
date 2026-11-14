@@ -239,12 +239,19 @@ pub fn run() {
                 now,
             );
             let frames_enabled = plugins.enabled_set();
-            // Native plugin processes: started on enable, stopped on disable, uninstall, update and exit.
+            // Native plugin processes: started on enable, stopped on disable, uninstall, update, exit and
+            // when the runtime turns safe, supervised in between.
             #[cfg(windows)]
             {
-                let native = Arc::new(plugins::native::NativeHost::new(data_dir.clone()));
+                let link = Arc::new(plugins::native::link::TauriLink::new(app.handle().clone()));
+                let native = Arc::new(plugins::native::NativeHost::new(data_dir.clone(), link));
                 plugins.set_stopper(native.clone());
                 plugins.set_starter(native.clone());
+                let on_safe = native.clone();
+                plugins.set_on_safe(Arc::new(move |view| on_safe.on_runtime_safe(view)));
+                if let Err(e) = native.spawn_ticker() {
+                    eprintln!("plugins: no supervisor thread: {e}");
+                }
                 app.manage(native);
             }
 
@@ -296,7 +303,7 @@ pub fn run() {
                     .name("plugin-boot".into())
                     .spawn(move || {
                         let native = handle.state::<Arc<plugins::native::NativeHost>>();
-                        native.start_at_boot(&handle.state::<AppState>().plugins);
+                        native.start_serving(&handle.state::<AppState>().plugins);
                     });
             }
 
@@ -540,7 +547,11 @@ pub fn run() {
             commands::plugin_ui::plugin_ui_pending,
             commands::plugin_ui::plugin_sidebar_state,
             commands::plugin_ui::plugin_sidebar_input,
-            commands::plugin_ui::plugin_frame_event
+            commands::plugin_ui::plugin_frame_event,
+            #[cfg(windows)]
+            commands::plugin_status::plugin_statuses,
+            #[cfg(windows)]
+            commands::plugin_status::plugin_restart
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
@@ -550,9 +561,11 @@ pub fn run() {
             // and stop the library sync, cutting short any pass it is running.
             if let tauri::RunEvent::Exit = event {
                 smtc::teardown(app);
-                // Every native plugin process is gone before the session marker is.
+                // Every native plugin process is gone before the session marker is. Restarts end
+                // first, so nothing starts again while the rest stop.
                 #[cfg(windows)]
                 if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
+                    native.begin_exit();
                     native.shutdown_all();
                 }
                 // A clean exit removes the session marker; a crash or a kill leaves it behind.

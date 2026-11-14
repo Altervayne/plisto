@@ -25,6 +25,8 @@ use crate::plugins::paths::{log_file, log_old_file};
 #[cfg(test)]
 use crate::applog::MAX_LINE_BYTES;
 pub const ROTATE_BYTES: u64 = 262_144;
+/// The most characters kept from one native `log` message.
+pub const CHILD_TEXT_MAX_CHARS: usize = 2_000;
 
 pub(super) const METHODS: &[MethodSpec] = &[MethodSpec {
     name: "log.write",
@@ -90,6 +92,16 @@ pub fn append(
         ROTATE_BYTES,
     )?;
     Ok(truncated)
+}
+
+/// Appends a line a native plugin sent through its `log` message, stamped now. The text is cut to
+/// `CHILD_TEXT_MAX_CHARS` before the usual line rules. Callers hold the plugin's log gate.
+pub(crate) fn append_child(app_data: &Path, id: &str, level: Level, text: &str) -> io::Result<()> {
+    let text = match text.char_indices().nth(CHILD_TEXT_MAX_CHARS) {
+        Some((cut, _)) => &text[..cut],
+        None => text,
+    };
+    append(app_data, id, level, text, unix_ms()).map(|_| ())
 }
 
 /// Writes a `HOST` line about the plugin, stamped now.
@@ -181,6 +193,20 @@ mod tests {
         assert!(stamp.parse::<u64>().unwrap() > 0);
         assert_eq!(rest, "HOST storage reset");
         assert!(text.ends_with('\n'));
+    }
+
+    #[test]
+    fn a_child_line_is_cut_at_two_thousand_chars() {
+        let t = Temp::new("api-log");
+        let text = "\u{e9}".repeat(CHILD_TEXT_MAX_CHARS + 50);
+        append_child(&t.0, ID, Level::Warn, &text).unwrap();
+        append_child(&t.0, ID, Level::Info, "short").unwrap();
+        let log = read(&log_file(&t.0, ID));
+        let lines: Vec<&str> = log.lines().collect();
+        let (_, first) = lines[0].split_once(" WARN ").unwrap();
+        assert!(first.chars().all(|c| c == '\u{e9}'));
+        assert!(first.chars().count() <= CHILD_TEXT_MAX_CHARS);
+        assert!(lines[1].ends_with(" INFO short"));
     }
 
     #[test]

@@ -1,15 +1,26 @@
 /*
- * The native plugin host: starts an enabled native plugin as a child process and stops it. Each child
- * runs in its own kill-on-close job, so no plugin process outlives Plisto, however Plisto ends. A
- * start returns once the process runs; the handshake finishes on a thread of its own, so no command
- * waits on a plugin. Start and stop both read the serving set themselves, because a disable can race
- * an enable: a child that lands after its plugin was disabled is stopped again at once.
+ * The native plugin host: starts an enabled native plugin as a child process, supervises it, and stops
+ * it. Each child runs in its own kill-on-close job, so no plugin process outlives Plisto, however
+ * Plisto ends. A start returns once the process runs; the handshake and everything the child sends
+ * after it are handled on its pump thread, so no command waits on a plugin. One supervisor thread
+ * pings every running child, marks a silent one as not responding (never kills it), fires due
+ * restarts, and flushes held status changes.
+ * A crash is a child that ended or broke without Plisto asking; a stop Plisto asked for never is. The
+ * two are told apart by who takes the run out of `children` first. Status changes tied to a run are
+ * made while holding `children`, so a stale run never overwrites a newer one's status; the lock order
+ * is `children`, then `supervision` or a run's heartbeat, then the status board.
  */
 
 mod child;
+mod frames;
+mod heartbeat;
 mod job;
 mod launch;
+pub mod link;
 mod protocol;
+mod pump;
+pub mod status;
+mod supervisor;
 #[cfg(test)]
 mod test_child;
 #[cfg(test)]
@@ -19,24 +30,36 @@ mod tests;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // -- Local Imports --
-use super::manifest::Tier;
+use super::manifest::{Capability, Tier};
 use super::paths::{data_dir, plugin_dir};
 use super::revalidate::check_folder;
-use super::session::BootState;
-use super::state::{PluginsState, Starter, Stopper};
+use super::state::{BootView, PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
+use heartbeat::{Beat, Heartbeat};
 use launch::{entry_path, LaunchSpec};
+use link::{HostLink, Notice, NoticeKind};
 use protocol::{HostMessage, API_VERSION, PROTOCOL_VERSION};
+use status::{CrashInfo, CrashReason, FailReason, HostState, PluginStatus, StatusBoard};
+use supervisor::{CrashPolicy, Verdict};
 
 /// A first launch can sit behind an antivirus scan, so `ready` gets this long.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a child has to exit after `shutdown` before it is killed.
 pub const STOP_GRACE: Duration = Duration::from_secs(2);
+/// How often the supervisor thread ticks.
+pub const TICK: Duration = Duration::from_millis(250);
+// When a child's output ends, how long its process gets to exit so its exit code can be read.
+const EXIT_SETTLE: Duration = Duration::from_millis(500);
+// Windows error codes for an executable blocked by an antivirus or by policy.
+const ERROR_VIRUS_INFECTED: i32 = 225;
+const ERROR_VIRUS_DELETED: i32 = 226;
+const ERROR_ACCESS_DISABLED_BY_POLICY: i32 = 1260;
 
 #[derive(Debug)]
 pub enum StartError {
@@ -48,6 +71,8 @@ pub enum StartError {
     /// `plugin.json` is not the one consent was given on.
     Changed,
     Launch(io::Error),
+    /// Plisto is quitting.
+    Exiting,
 }
 
 impl std::fmt::Display for StartError {
@@ -58,26 +83,104 @@ impl std::fmt::Display for StartError {
             StartError::Invalid(why) => write!(f, "folder does not validate: {why}"),
             StartError::Changed => f.write_str("plugin.json changed since consent"),
             StartError::Launch(e) => write!(f, "cannot launch: {e}"),
+            StartError::Exiting => f.write_str("Plisto is quitting"),
         }
     }
 }
 
-type Children = Arc<Mutex<HashMap<String, Arc<Child>>>>;
+/// Where the host reads the time; tests drive it by hand.
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Instant;
+}
 
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+/// One run of a plugin, from the reservation made before its launch to its end. The child is set
+/// once it is launched.
+struct Run {
+    child: OnceLock<Arc<Child>>,
+    heartbeat: Mutex<Option<Heartbeat>>,
+}
+
+impl Run {
+    fn new() -> Run {
+        Run {
+            child: OnceLock::new(),
+            heartbeat: Mutex::new(None),
+        }
+    }
+}
+
+type Children = Arc<Mutex<HashMap<String, Arc<Run>>>>;
+
+#[derive(Default)]
+struct Supervision {
+    // Kept across restarts; dropped by a stop, so a disable, an update or an uninstall starts afresh.
+    policies: HashMap<String, CrashPolicy>,
+    due: HashMap<String, Instant>,
+}
+
+/// Runs once per silence of a child, with its id, to take back what it should no longer hold.
+pub type RestoreHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// A handle on the host; clones share everything.
+#[derive(Clone)]
 pub struct NativeHost {
     app_data: PathBuf,
     children: Children,
+    supervision: Arc<Mutex<Supervision>>,
+    board: Arc<StatusBoard>,
+    link: Arc<dyn HostLink>,
+    clock: Arc<dyn Clock>,
+    exiting: Arc<AtomicBool>,
+    restore: Arc<RwLock<Option<RestoreHook>>>,
 }
 
-fn lock(children: &Children) -> MutexGuard<'_, HashMap<String, Arc<Child>>> {
-    children.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Whether Windows refused to run the executable: access denied, or blocked by an antivirus or a
+/// policy. Retrying cannot help, so no restart follows.
+fn launch_denied(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied
+        || matches!(
+            e.raw_os_error(),
+            Some(ERROR_VIRUS_INFECTED | ERROR_VIRUS_DELETED | ERROR_ACCESS_DISABLED_BY_POLICY)
+        )
+}
+
+fn is_background(granted: &[Capability]) -> bool {
+    granted.contains(&Capability::Background)
 }
 
 impl NativeHost {
-    pub fn new(app_data: PathBuf) -> NativeHost {
+    pub fn new(app_data: PathBuf, link: Arc<dyn HostLink>) -> NativeHost {
+        NativeHost::with_clock(app_data, link, Arc::new(SystemClock))
+    }
+
+    pub fn with_clock(app_data: PathBuf, link: Arc<dyn HostLink>, clock: Arc<dyn Clock>) -> NativeHost {
         NativeHost {
+            board: Arc::new(StatusBoard::new(link.clone(), clock.now())),
             app_data,
             children: Arc::default(),
+            supervision: Arc::default(),
+            link,
+            clock,
+            exiting: Arc::default(),
+            restore: Arc::default(),
         }
     }
 
@@ -85,9 +188,43 @@ impl NativeHost {
         lock(&self.children).contains_key(id)
     }
 
+    /// The process id of the plugin's running child.
+    #[cfg(test)]
+    fn pid(&self, id: &str) -> Option<u32> {
+        lock(&self.children).get(id)?.child.get().map(|child| child.pid())
+    }
+
+    /// Every supervised plugin's status.
+    pub fn statuses(&self) -> Vec<PluginStatus> {
+        self.board.all()
+    }
+
+    pub fn status(&self, id: &str) -> Option<PluginStatus> {
+        self.board.get(id)
+    }
+
+    pub fn set_restore_hook(&self, hook: RestoreHook) {
+        *self.restore.write().unwrap_or_else(PoisonError::into_inner) = Some(hook);
+    }
+
+    /// Runs `f` on the plugin state the link reaches; None when there is none.
+    fn with_plugins<R>(&self, f: impl FnOnce(&PluginsState) -> R) -> Option<R> {
+        let mut f = Some(f);
+        let mut out = None;
+        self.link.with_plugins(&mut |plugins| {
+            if let Some(f) = f.take() {
+                out = Some(f(plugins));
+            }
+        });
+        out
+    }
+
     /// Starts the plugin when it is a serving native plugin whose manifest is the consented one. A
-    /// plugin already running is left as it is.
+    /// plugin already running, or being started, is left as it is.
     pub fn start(&self, plugins: &PluginsState, id: &str) -> Result<(), StartError> {
+        if self.exiting.load(Ordering::SeqCst) {
+            return Err(StartError::Exiting);
+        }
         let serving = plugins
             .enabled_set()
             .serving(id)
@@ -95,28 +232,45 @@ impl NativeHost {
         if serving.tier != Tier::Native {
             return Err(StartError::NotNative);
         }
-        if self.is_running(id) {
+        // Reserved before anything is read or launched, so a second start of the same id meanwhile
+        // finds it taken and never runs the plugin's code twice.
+        let Some(run) = self.reserve(id) else {
+            if self.exiting.load(Ordering::SeqCst) {
+                return Err(StartError::Exiting);
+            }
+            return Ok(());
+        };
+        let spec = match self.prepare(plugins, id) {
+            Ok(spec) => spec,
+            Err(e) => {
+                let reason = match e {
+                    StartError::Invalid(_) => Some(FailReason::Invalid),
+                    StartError::Changed => Some(FailReason::Changed),
+                    _ => None,
+                };
+                self.end_reservation(id, &run, reason.map(|reason| HostState::Failed { reason }));
+                return Err(e);
+            }
+        };
+        if !self.set_host_if_ours(id, &run, HostState::Starting) {
             return Ok(());
         }
-        let entry = plugins
-            .snapshot()
-            .entry(id)
-            .cloned()
-            .ok_or(StartError::NotServing)?;
-        let dir = plugin_dir(&self.app_data, id);
-        let (manifest, hash) =
-            check_folder(&dir, Some(id)).map_err(|e| StartError::Invalid(e.to_string()))?;
-        if hash != entry.manifest_hash {
-            return Err(StartError::Changed);
-        }
-        let spec = LaunchSpec {
-            exe: entry_path(&dir, &manifest.entry),
-            plugin_dir: dir,
-            data_dir: data_dir(&self.app_data, id),
-            tap: None,
+        let child = match Child::spawn(id, &spec) {
+            Ok(child) => Arc::new(child),
+            Err(e) => {
+                if launch_denied(&e) {
+                    let denied = HostState::Failed {
+                        reason: FailReason::LaunchDenied,
+                    };
+                    self.end_reservation(id, &run, Some(denied));
+                } else if self.end_reservation(id, &run, None) {
+                    plugins.api().forget(id);
+                    self.run_policy(id, self.crash_info(CrashReason::Launch, None));
+                }
+                return Err(StartError::Launch(e));
+            }
         };
-        let child = Arc::new(Child::spawn(id, &spec).map_err(StartError::Launch)?);
-        if !self.adopt(id, child.clone()) {
+        if !self.adopt(id, &run, child.clone()) {
             child.kill();
             return Ok(());
         }
@@ -135,11 +289,11 @@ impl NativeHost {
                 .map(|c| c.as_str().to_string())
                 .collect(),
         };
-        let children = self.children.clone();
-        let settle = move || settle(&children, child, &hello);
+        let host = self.clone();
+        let owned = id.to_string();
         if let Err(e) = thread::Builder::new()
-            .name(format!("plugin-start-{id}"))
-            .spawn(settle)
+            .name(format!("plugin-pump-{id}"))
+            .spawn(move || pump::run(&host, &owned, &run, &child, &hello))
         {
             self.stop_plugin(id);
             return Err(StartError::Launch(e));
@@ -147,86 +301,409 @@ impl NativeHost {
         Ok(())
     }
 
-    /// Starts every serving native plugin when the boot allows it. Returns whether it did. Reads each
-    /// plugin folder, so it belongs off the setup thread.
-    pub fn start_at_boot(&self, plugins: &PluginsState) -> bool {
-        let allowed = boot_allows_start(plugins.boot_state());
-        if allowed {
-            self.start_serving(plugins);
+    /// Checks the folder against the consented manifest and builds the launch.
+    fn prepare(&self, plugins: &PluginsState, id: &str) -> Result<LaunchSpec, StartError> {
+        let entry = plugins
+            .snapshot()
+            .entry(id)
+            .cloned()
+            .ok_or(StartError::NotServing)?;
+        let dir = plugin_dir(&self.app_data, id);
+        let (manifest, hash) =
+            check_folder(&dir, Some(id)).map_err(|e| StartError::Invalid(e.to_string()))?;
+        if hash != entry.manifest_hash {
+            return Err(StartError::Changed);
         }
-        allowed
+        Ok(LaunchSpec {
+            exe: entry_path(&dir, &manifest.entry),
+            plugin_dir: dir,
+            data_dir: data_dir(&self.app_data, id),
+            tap: None,
+        })
     }
 
-    /// Starts every serving native plugin. Failures are logged per plugin.
+    /// Starts every serving native plugin, and marks every serving background frame as starting.
+    /// Failures are logged per plugin. Reads each plugin folder, so it belongs off the setup thread.
     pub fn start_serving(&self, plugins: &PluginsState) {
         for (id, serving) in plugins.snapshot().serving() {
             if serving.tier == Tier::Native {
                 if let Err(e) = self.start(plugins, &id) {
                     eprintln!("plugins: {id}: not started: {e}");
                 }
+            } else if is_background(&serving.granted) && plugins.is_enabled(&id) {
+                self.board.set_host(&id, HostState::Starting, self.clock.now());
             }
         }
     }
 
-    /// Stops the plugin's child, if one runs: `shutdown`, the grace period, then a kill.
+    /// Forgets the plugin's crashes and any due restart, for a start the user asked for.
+    fn reset(&self, id: &str) {
+        let mut supervision = lock(&self.supervision);
+        supervision.policies.remove(id);
+        supervision.due.remove(id);
+        drop(supervision);
+        self.board.clear_crash(id, self.clock.now());
+    }
+
+    /// Restarts a serving plugin with a fresh crash count: a native child is stopped and started
+    /// again, a UI plugin's frames are told to remount through the `starting` state.
+    pub fn restart(&self, plugins: &PluginsState, id: &str) -> Result<(), StartError> {
+        let serving = plugins
+            .enabled_set()
+            .serving(id)
+            .ok_or(StartError::NotServing)?;
+        self.reset(id);
+        if serving.tier == Tier::Native {
+            self.stop_plugin(id);
+            return self.start(plugins, id);
+        }
+        self.board.set_host(id, HostState::Starting, self.clock.now());
+        Ok(())
+    }
+
+    /// Stops the plugin's child, if one runs: `shutdown`, the grace period, then a kill. Never a
+    /// crash. Drops its crash policy and any due restart.
     pub fn stop_plugin(&self, id: &str) {
-        let child = lock(&self.children).remove(id);
-        if let Some(child) = child {
+        {
+            let mut supervision = lock(&self.supervision);
+            supervision.policies.remove(id);
+            supervision.due.remove(id);
+        }
+        let run = lock(&self.children).remove(id);
+        let Some(run) = run else {
+            self.board.stopped(id, self.clock.now());
+            return;
+        };
+        self.board.set_host(id, HostState::Stopping, self.clock.now());
+        if let Some(child) = run.child.get() {
             if child.stop(STOP_GRACE) == Stopped::Killed {
                 eprintln!("plugins: {id}: killed after the shutdown grace");
             }
         }
+        self.board.set_host(id, HostState::Off, self.clock.now());
     }
 
     /// Stops every child at once, all within one grace period, and returns when every process is
     /// gone. For app exit and for anything that replaces the running binary.
     pub fn shutdown_all(&self) {
-        let all: Vec<Arc<Child>> = lock(&self.children).drain().map(|(_, c)| c).collect();
+        lock(&self.supervision).due.clear();
+        let all: Vec<(String, Arc<Run>)> = lock(&self.children).drain().collect();
+        for (id, _) in &all {
+            self.board.set_host(id, HostState::Stopping, self.clock.now());
+        }
         thread::scope(|scope| {
-            for child in &all {
-                scope.spawn(move || child.stop(STOP_GRACE));
+            for (_, run) in &all {
+                if let Some(child) = run.child.get() {
+                    scope.spawn(move || child.stop(STOP_GRACE));
+                }
             }
         });
+        for (id, _) in &all {
+            self.board.set_host(id, HostState::Off, self.clock.now());
+        }
     }
 
-    /// Records a launched child. False when another start of the same id got there first.
-    fn adopt(&self, id: &str, child: Arc<Child>) -> bool {
+    /// No restart and no new start from now on. The first step of app exit.
+    pub fn begin_exit(&self) {
+        // Under the children lock, so a reservation is either made before it, and stopped with the
+        // rest, or refused.
+        {
+            let _children = lock(&self.children);
+            self.exiting.store(true, Ordering::SeqCst);
+        }
+        lock(&self.supervision).due.clear();
+    }
+
+    /// The runtime turned safe: every child stops, every status goes off, and the main window is told.
+    pub fn on_runtime_safe(&self, view: BootView) {
+        self.shutdown_all();
+        {
+            let mut supervision = lock(&self.supervision);
+            supervision.policies.clear();
+            supervision.due.clear();
+        }
+        self.board.all_off(self.clock.now());
+        self.link.emit_runtime(view);
+    }
+
+    /// Starts the supervisor thread. It ends once the app begins to exit.
+    pub fn spawn_ticker(&self) -> io::Result<()> {
+        let host = self.clone();
+        thread::Builder::new()
+            .name("plugin-supervisor".into())
+            .spawn(move || {
+                while !host.exiting.load(Ordering::SeqCst) {
+                    host.tick();
+                    thread::sleep(TICK);
+                }
+            })
+            .map(|_| ())
+    }
+
+    /// One supervisor step: pings and silence for every running child, due restarts, held statuses.
+    pub fn tick(&self) {
+        let now = self.clock.now();
+        let runs: Vec<(String, Arc<Run>)> = lock(&self.children)
+            .iter()
+            .map(|(id, run)| (id.clone(), run.clone()))
+            .collect();
+        for (id, run) in runs {
+            // A helper the child started can hold its output open after it exits, so the exit is
+            // looked for here too, not only through the end of the output.
+            if let Some(child) = run.child.get() {
+                if child.wait_exit(Duration::ZERO) {
+                    self.end_run(&id, &run, child, CrashReason::Exited);
+                    continue;
+                }
+            }
+            let beats = match lock(&run.heartbeat).as_mut() {
+                Some(heartbeat) => heartbeat.tick(now),
+                None => continue,
+            };
+            for beat in beats {
+                match beat {
+                    Beat::Ping(seq) => {
+                        // A full outbox skips the ping; the silence then speaks for itself.
+                        if let Some(child) = run.child.get() {
+                            let _ = child.send(&HostMessage::Ping { seq });
+                        }
+                    }
+                    Beat::WentSilent => self.went_silent(&id, &run),
+                    Beat::Recovered | Beat::Nothing => {}
+                }
+            }
+        }
+        let due: Vec<String> = {
+            let mut supervision = lock(&self.supervision);
+            let due: Vec<String> = supervision
+                .due
+                .iter()
+                .filter(|(_, at)| **at <= now)
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in &due {
+                supervision.due.remove(id);
+            }
+            due
+        };
+        for id in due {
+            self.restart_due(&id);
+        }
+        self.board.flush(now);
+    }
+
+    /// Fires a restart the crash policy scheduled, if the plugin still serves. A native start reads
+    /// the plugin folder and launches a process, so it runs on a thread of its own and never holds
+    /// up the pings of other children.
+    fn restart_due(&self, id: &str) {
+        let now = self.clock.now();
+        let target = self
+            .with_plugins(|plugins| plugins.enabled_set().serving(id))
+            .flatten();
+        match target {
+            Some(serving) if serving.tier == Tier::Native => {
+                let host = self.clone();
+                let owned = id.to_string();
+                let spawned = thread::Builder::new()
+                    .name(format!("plugin-restart-{id}"))
+                    .spawn(move || host.restart_native(&owned));
+                if let Err(e) = spawned {
+                    eprintln!("plugins: {id}: not restarted: {e}");
+                    self.board.stopped(id, now);
+                }
+            }
+            Some(serving) if is_background(&serving.granted) => {
+                self.board.set_host(id, HostState::Starting, now);
+            }
+            _ => self.board.stopped(id, now),
+        }
+    }
+
+    /// Starts a native plugin again after a crash. When it no longer serves, or Plisto is quitting,
+    /// its status leaves "restarting".
+    fn restart_native(&self, id: &str) {
+        let result = self.with_plugins(|plugins| self.start(plugins, id));
+        match result {
+            Some(Ok(())) => {}
+            None | Some(Err(StartError::NotServing | StartError::Exiting)) => {
+                self.board.stopped(id, self.clock.now());
+            }
+            Some(Err(e)) => eprintln!("plugins: {id}: not restarted: {e}"),
+        }
+    }
+
+    /// Takes the id for a new run. None when a run already holds it or Plisto is quitting.
+    fn reserve(&self, id: &str) -> Option<Arc<Run>> {
         let mut children = lock(&self.children);
-        if children.contains_key(id) {
+        if children.contains_key(id) || self.exiting.load(Ordering::SeqCst) {
+            return None;
+        }
+        let run = Arc::new(Run::new());
+        children.insert(id.to_string(), run.clone());
+        Some(run)
+    }
+
+    /// Whether `run` is still the id's current run.
+    fn is_current(children: &HashMap<String, Arc<Run>>, id: &str, run: &Arc<Run>) -> bool {
+        children.get(id).is_some_and(|held| Arc::ptr_eq(held, run))
+    }
+
+    /// Gives back a reservation that launched nothing, setting `host` when given. False when a stop
+    /// took it first.
+    fn end_reservation(&self, id: &str, run: &Arc<Run>, host: Option<HostState>) -> bool {
+        let mut children = lock(&self.children);
+        if !Self::is_current(&children, id, run) {
             return false;
         }
-        children.insert(id.to_string(), child);
+        children.remove(id);
+        if let Some(host) = host {
+            self.board.set_host(id, host, self.clock.now());
+        }
         true
     }
-}
 
-/// Whether native plugins start with the app: never in safe mode, and not after an unclean exit,
-/// which holds every start until the user chooses how to boot.
-pub fn boot_allows_start(boot: BootState) -> bool {
-    !boot.safe_mode && !boot.unclean
-}
+    /// Records a launched child on its run. False when a stop took the run first.
+    fn adopt(&self, id: &str, run: &Arc<Run>, child: Arc<Child>) -> bool {
+        let children = lock(&self.children);
+        Self::is_current(&children, id, run) && run.child.set(child).is_ok()
+    }
 
-/// Runs the handshake. A child that fails it is removed and killed, unless a stop already took it.
-/// After `ready`, incoming messages are drained and dropped until something consumes them, so a
-/// child that talks never stalls on a full inbox.
-fn settle(children: &Children, child: Arc<Child>, hello: &HostMessage) {
-    match child.handshake(hello, HANDSHAKE_TIMEOUT) {
-        Ok(()) => {
-            let inbox = child.inbox();
-            drop(child);
-            inbox.discard();
+    /// Sets the host state when `run` is still current.
+    fn set_host_if_ours(&self, id: &str, run: &Arc<Run>, host: HostState) -> bool {
+        let children = lock(&self.children);
+        let ours = Self::is_current(&children, id, run);
+        if ours {
+            self.board.set_host(id, host, self.clock.now());
         }
-        Err(e) => {
-            eprintln!("plugins: {}: handshake failed: {e}", child.id());
-            let mut map = lock(children);
-            let ours = map
-                .get(child.id())
-                .is_some_and(|held| Arc::ptr_eq(held, &child));
-            if ours {
-                map.remove(child.id());
+        ours
+    }
+
+    /// The child sent `ready`: its heartbeat starts and it counts as up. False when a stop took it.
+    fn went_running(&self, id: &str, run: &Arc<Run>) -> bool {
+        let now = self.clock.now();
+        {
+            let children = lock(&self.children);
+            if !Self::is_current(&children, id, run) {
+                return false;
             }
-            drop(map);
-            child.kill();
+            *lock(&run.heartbeat) = Some(Heartbeat::start(now));
+            self.board.set_host(id, HostState::Running, now);
+        }
+        lock(&self.supervision)
+            .policies
+            .entry(id.to_string())
+            .or_default()
+            .on_running(now);
+        true
+    }
+
+    /// Whether the run's heartbeat is in a silence now.
+    fn is_hung(run: &Run) -> bool {
+        lock(&run.heartbeat)
+            .as_ref()
+            .is_some_and(Heartbeat::is_hung)
+    }
+
+    /// Marks the child not responding. A pong that came in since the silence was seen wins: the
+    /// heartbeat is read again under the `children` lock, which `recovered` also takes.
+    fn went_silent(&self, id: &str, run: &Arc<Run>) {
+        {
+            let children = lock(&self.children);
+            if !Self::is_current(&children, id, run) || !Self::is_hung(run) {
+                return;
+            }
+            self.board
+                .set_host(id, HostState::NotResponding, self.clock.now());
+        }
+        let hook = self
+            .restore
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(hook) = hook {
+            hook(id);
+        }
+    }
+
+    /// Marks the child running again, unless it went silent again since its pong.
+    fn recovered(&self, id: &str, run: &Arc<Run>) {
+        let children = lock(&self.children);
+        if Self::is_current(&children, id, run) && !Self::is_hung(run) {
+            self.board.set_host(id, HostState::Running, self.clock.now());
+        }
+    }
+
+    fn crash_info(&self, reason: CrashReason, exit_code: Option<u32>) -> CrashInfo {
+        CrashInfo {
+            reason,
+            exit_code,
+            at_ms: unix_ms(),
+        }
+    }
+
+    /// The child's run ended without a stop: the process tree is killed, its API state dropped, and
+    /// the crash policy decides what follows. The run keeps the id until the tree is dead, so no
+    /// start can launch a second copy beside a child that is still running. Nothing is counted when
+    /// a stop took the run first; of two callers for one run, only the first counts.
+    fn end_run(&self, id: &str, run: &Arc<Run>, child: &Child, reason: CrashReason) {
+        if !Self::is_current(&lock(&self.children), id, run) {
+            return;
+        }
+        let exit_code = if reason == CrashReason::Exited && child.wait_exit(EXIT_SETTLE) {
+            child.exit_code()
+        } else {
+            None
+        };
+        child.kill();
+        {
+            let mut children = lock(&self.children);
+            if !Self::is_current(&children, id, run) {
+                return;
+            }
+            children.remove(id);
+        }
+        self.with_plugins(|plugins| plugins.api().forget(id));
+        eprintln!("plugins: {id}: stopped unexpectedly ({reason:?}, exit code {exit_code:?})");
+        self.run_policy(id, self.crash_info(reason, exit_code));
+    }
+
+    /// Counts a crash and acts on the verdict: a restart later, or the plugin turned off for good.
+    fn run_policy(&self, id: &str, crash: CrashInfo) {
+        let now = self.clock.now();
+        if self.exiting.load(Ordering::SeqCst) {
+            self.board.crashed(id, HostState::Off, crash, now);
+            return;
+        }
+        let verdict = {
+            let children = lock(&self.children);
+            let mut supervision = lock(&self.supervision);
+            let verdict = supervision
+                .policies
+                .entry(id.to_string())
+                .or_default()
+                .on_crash(now);
+            // A start that came in after the crash owns the status now.
+            if children.contains_key(id) {
+                return;
+            }
+            match verdict {
+                Verdict::RestartIn(delay) => {
+                    supervision.due.insert(id.to_string(), now + delay);
+                    let retry_in_ms = delay.as_millis() as u64;
+                    self.board
+                        .crashed(id, HostState::Restarting { retry_in_ms }, crash, now);
+                }
+                Verdict::CrashLoop => self.board.crashed(id, HostState::CrashLoop, crash, now),
+            }
+            verdict
+        };
+        if verdict == Verdict::CrashLoop {
+            eprintln!("plugins: {id}: turned off after repeated crashes");
+            self.link.disable(id);
+            self.link.emit_notice(&Notice {
+                id: id.to_string(),
+                kind: NoticeKind::AutoDisabled,
+            });
         }
     }
 }
@@ -238,10 +715,43 @@ impl Stopper for NativeHost {
 }
 
 impl Starter for NativeHost {
+    /// An enable, an update or a resolved boot: a start the user asked for, so the crash count resets.
     fn start(&self, plugins: &PluginsState, id: &str) {
+        self.reset(id);
         match NativeHost::start(self, plugins, id) {
-            Ok(()) | Err(StartError::NotNative) => {}
+            Ok(()) => {}
+            Err(StartError::NotNative) => {
+                let background = plugins
+                    .enabled_set()
+                    .serving(id)
+                    .is_some_and(|serving| is_background(&serving.granted));
+                if background {
+                    self.board.set_host(id, HostState::Starting, self.clock.now());
+                }
+            }
             Err(e) => eprintln!("plugins: {id}: not started: {e}"),
         }
+    }
+}
+
+/// A clock that moves only when told to.
+#[cfg(test)]
+pub(crate) struct FakeClock(Mutex<Instant>);
+
+#[cfg(test)]
+impl FakeClock {
+    pub fn new() -> FakeClock {
+        FakeClock(Mutex::new(Instant::now()))
+    }
+
+    pub fn advance(&self, by: Duration) {
+        *lock(&self.0) += by;
+    }
+}
+
+#[cfg(test)]
+impl Clock for FakeClock {
+    fn now(&self) -> Instant {
+        *lock(&self.0)
     }
 }

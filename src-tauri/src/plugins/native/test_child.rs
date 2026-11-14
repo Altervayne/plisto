@@ -24,6 +24,10 @@ use super::protocol::{
 /// The file in the data folder that names the behavior, optionally followed by `:<number>` for the
 /// modes that take one.
 pub const MODE_FILE: &str = "test-mode";
+/// The file in the data folder where `echo` notes each launch.
+pub const LAUNCHES_FILE: &str = "launches";
+/// The file in the data folder whose presence ends a `stall-until-file` stall.
+pub const RESUME_FILE: &str = "resume";
 const CRASH_CODE: i32 = 3;
 const FLOOD_TEXT_BYTES: usize = 60_000;
 const DEFAULT_PAGE_EVENTS_PER_SEC: u64 = 50;
@@ -137,6 +141,46 @@ fn serve_stalling(input: &mut BufReader<io::Stdin>, stall: Duration) {
     }
 }
 
+/// Adds a line to `LAUNCHES_FILE`, so a test can count how many times the plugin was launched.
+fn note_launch(data: &Path) {
+    let launches = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data.join(LAUNCHES_FILE));
+    if let Ok(mut file) = launches {
+        let _ = writeln!(file, "launch");
+    }
+}
+
+/// Like `serve`, but ignores pings until `resume` exists.
+fn serve_until_resumed(input: &mut BufReader<io::Stdin>, resume: &Path) {
+    while let Some(message) = next(input) {
+        match message {
+            HostMessage::Ping { seq } if resume.exists() => send(&ChildMessage::Pong { seq }),
+            HostMessage::Shutdown => return,
+            _ => {}
+        }
+    }
+}
+
+/// Starts a sleeping process that shares this one's stdout, so the output stays open after it exits.
+fn spawn_helper_on_stdout(data: &Path) {
+    let dir = data.join("helper");
+    let _ = fs::create_dir_all(&dir);
+    let _ = fs::write(dir.join(MODE_FILE), "sleep");
+    let exe = std::env::current_exe().unwrap_or_default();
+    let spawned = Command::new(exe)
+        .args(["--plisto-protocol", "1", "--plisto-data"])
+        .arg(&dir)
+        .args(["--plisto-tap", "none"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .spawn();
+    if spawned.is_err() {
+        process::exit(CRASH_CODE);
+    }
+}
+
 fn spawn_grandchild(data: &Path) -> u32 {
     let dir = data.join("grandchild");
     let _ = fs::create_dir_all(&dir);
@@ -159,6 +203,7 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
     let mut input = BufReader::new(io::stdin());
     match mode {
         "echo" => {
+            note_launch(data);
             let cwd = std::env::current_dir().unwrap_or_default();
             let webview2 = std::env::var("WEBVIEW2_USER_DATA_FOLDER").unwrap_or_default();
             eprintln!("args={:?}", &args[1..]);
@@ -265,6 +310,26 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
             next(&mut input);
             ready();
             serve_stalling(&mut input, Duration::from_millis(param.unwrap_or(DEFAULT_STALL_MS)));
+        }
+        "stall-until-file" => {
+            next(&mut input);
+            ready();
+            serve_until_resumed(&mut input, &data.join(RESUME_FILE));
+        }
+        "exit-leaving-helper" => {
+            next(&mut input);
+            ready();
+            spawn_helper_on_stdout(data);
+            process::exit(CRASH_CODE);
+        }
+        "broken-frame" => {
+            next(&mut input);
+            ready();
+            thread::sleep(Duration::from_millis(param.unwrap_or(0)));
+            let mut out = io::stdout().lock();
+            let _ = out.write_all(b"abc\n").and_then(|()| out.flush());
+            drop(out);
+            sleep_forever();
         }
         _ => sleep_forever(),
     }

@@ -24,6 +24,8 @@ pub mod plays;
 pub mod playlist_export;
 pub mod playlists;
 pub mod plugin_call;
+#[cfg(windows)]
+pub mod plugin_status;
 pub mod plugin_ui;
 pub mod plugins;
 pub mod relocate;
