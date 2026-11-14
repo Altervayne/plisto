@@ -26,7 +26,7 @@ use super::protocol::{
 pub const MODE_FILE: &str = "test-mode";
 /// The file in the data folder where `echo` notes each launch.
 pub const LAUNCHES_FILE: &str = "launches";
-/// The file in the data folder whose presence ends a `stall-until-file` stall.
+/// The file in the data folder whose presence ends a `stall-until-file` or `read-after-file` stall.
 pub const RESUME_FILE: &str = "resume";
 const CRASH_CODE: i32 = 3;
 const FLOOD_TEXT_BYTES: usize = 60_000;
@@ -109,17 +109,18 @@ fn serve(input: &mut BufReader<io::Stdin>) {
                 result: Some(args),
                 error: None,
             }),
-            HostMessage::HostResult { .. } => log_host_result(&message),
+            HostMessage::HostResult { .. } => log_received("host_result", &message),
+            HostMessage::Feed { .. } => log_received("feed", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }
     }
 }
 
-/// The host's answer to a `host_call`, written to the stderr log for the test to read.
-fn log_host_result(message: &HostMessage) {
+/// A message from the host, written to the stderr log as `<name>=<json>` for the test to read.
+fn log_received(name: &str, message: &HostMessage) {
     eprintln!(
-        "host_result={}",
+        "{name}={}",
         serde_json::to_string(message).unwrap_or_default()
     );
 }
@@ -315,6 +316,16 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
             next(&mut input);
             ready();
             serve_until_resumed(&mut input, &data.join(RESUME_FILE));
+        }
+        "read-after-file" => {
+            next(&mut input);
+            ready();
+            // Reads nothing until resumed, so the host's outbox fills.
+            let resume = data.join(RESUME_FILE);
+            while !resume.exists() {
+                thread::sleep(Duration::from_millis(10));
+            }
+            serve(&mut input);
         }
         "exit-leaving-helper" => {
             next(&mut input);

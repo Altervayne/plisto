@@ -9,9 +9,11 @@
  * two are told apart by who takes the run out of `children` first. Status changes tied to a run are
  * made while holding `children`, so a stale run never overwrites a newer one's status; the lock order
  * is `children`, then `supervision` or a run's heartbeat, then the status board.
+ * A run's feed consumer is detached on every way the run ends, before its process is killed.
  */
 
 mod child;
+mod feed;
 mod frames;
 mod heartbeat;
 mod job;
@@ -41,6 +43,7 @@ use super::paths::{data_dir, plugin_dir};
 use super::revalidate::check_folder;
 use super::state::{BootView, PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
+use feed::{FeedGrant, FeedSlot};
 use heartbeat::{Beat, Heartbeat};
 use launch::{entry_path, LaunchSpec};
 use link::{HostLink, Notice, NoticeKind};
@@ -106,6 +109,7 @@ impl Clock for SystemClock {
 struct Run {
     child: OnceLock<Arc<Child>>,
     heartbeat: Mutex<Option<Heartbeat>>,
+    feed: Arc<FeedSlot>,
 }
 
 impl Run {
@@ -113,6 +117,7 @@ impl Run {
         Run {
             child: OnceLock::new(),
             heartbeat: Mutex::new(None),
+            feed: Arc::default(),
         }
     }
 }
@@ -240,7 +245,7 @@ impl NativeHost {
             }
             return Ok(());
         };
-        let spec = match self.prepare(plugins, id) {
+        let mut spec = match self.prepare(plugins, id) {
             Ok(spec) => spec,
             Err(e) => {
                 let reason = match e {
@@ -255,9 +260,14 @@ impl NativeHost {
         if !self.set_host_if_ours(id, &run, HostState::Starting) {
             return Ok(());
         }
+        // Every way out of this function that does not leave the child running detaches it again.
+        spec.tap = run
+            .feed
+            .attach(self.link.as_ref(), id, FeedGrant::of(&serving.granted));
         let child = match Child::spawn(id, &spec) {
             Ok(child) => Arc::new(child),
             Err(e) => {
+                run.feed.detach(self.link.as_ref());
                 if launch_denied(&e) {
                     let denied = HostState::Failed {
                         reason: FailReason::LaunchDenied,
@@ -271,6 +281,7 @@ impl NativeHost {
             }
         };
         if !self.adopt(id, &run, child.clone()) {
+            run.feed.detach(self.link.as_ref());
             child.kill();
             return Ok(());
         }
@@ -375,6 +386,7 @@ impl NativeHost {
             return;
         };
         self.board.set_host(id, HostState::Stopping, self.clock.now());
+        run.feed.detach(self.link.as_ref());
         if let Some(child) = run.child.get() {
             if child.stop(STOP_GRACE) == Stopped::Killed {
                 eprintln!("plugins: {id}: killed after the shutdown grace");
@@ -388,8 +400,9 @@ impl NativeHost {
     pub fn shutdown_all(&self) {
         lock(&self.supervision).due.clear();
         let all: Vec<(String, Arc<Run>)> = lock(&self.children).drain().collect();
-        for (id, _) in &all {
+        for (id, run) in &all {
             self.board.set_host(id, HostState::Stopping, self.clock.now());
+            run.feed.detach(self.link.as_ref());
         }
         thread::scope(|scope| {
             for (_, run) in &all {
@@ -649,6 +662,7 @@ impl NativeHost {
         if !Self::is_current(&lock(&self.children), id, run) {
             return;
         }
+        run.feed.detach(self.link.as_ref());
         let exit_code = if reason == CrashReason::Exited && child.wait_exit(EXIT_SETTLE) {
             child.exit_code()
         } else {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{json, Value};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
 
@@ -28,6 +28,7 @@ use super::protocol::{
 use super::status::{CrashReason, HostState};
 use super::test_child::{LAUNCHES_FILE, MODE_FILE, RESUME_FILE};
 use super::{Clock, FakeClock, NativeHost, StartError, STOP_GRACE};
+use crate::audio::{FeedCause, FeedState, Transport};
 use crate::plugins::paths::{data_dir, plugin_dir};
 use crate::plugins::session::{self, BootState};
 use crate::plugins::state::{BootView, PluginsState, Runtime};
@@ -431,8 +432,13 @@ fn shutdown_all_stops_every_child_within_one_grace_period() {
 
 /// Installs the demo native plugin with the test binary as its entry, answering as `mode`.
 fn native_kit(mode: &str) -> Kit {
+    native_kit_asking(mode, &[])
+}
+
+/// `native_kit` with a manifest that asks for `caps`.
+fn native_kit_asking(mode: &str, caps: &[&str]) -> Kit {
     let k = Kit::new();
-    k.install(&native("1.0.0", &[]));
+    k.install(&native("1.0.0", caps));
     let exe = plugin_dir(&k.data, ID).join("bin").join("tool.exe");
     fs::copy(std::env::current_exe().unwrap(), exe).unwrap();
     let data = data_dir(&k.data, ID);
@@ -541,8 +547,13 @@ struct Supervised {
 
 impl Supervised {
     fn new(mode: &str) -> Supervised {
-        let k = native_kit(mode);
-        k.enable(&[]);
+        Supervised::granted(mode, &[])
+    }
+
+    /// A plugin that asks for and is granted `caps`.
+    fn granted(mode: &str, caps: &[&str]) -> Supervised {
+        let k = native_kit_asking(mode, caps);
+        k.enable(caps);
         let plugins = Arc::new(k.relaunch());
         let link = Arc::new(RecordingLink::default());
         link.attach(&plugins, &k.data);
@@ -844,4 +855,259 @@ fn a_child_status_and_log_reach_the_board_and_the_plugin_log() {
     let log = crate::plugins::paths::log_file(&s.k.data, ID);
     assert!(eventually(|| fs::read_to_string(&log)
         .is_ok_and(|text| text.contains(" INFO grandchild="))));
+}
+
+// ---- Feed delivery ----
+
+/// A snapshot's state, on a device whose name carries a person's name.
+fn feed_state(volume: f32) -> FeedState {
+    FeedState {
+        transport: Transport::Playing,
+        sample_rate: 44_100,
+        channels: 2,
+        position_secs: 1.0,
+        volume,
+        device: Some("John's AirPods".into()),
+        device_id: Some("{0.0.0.00000000}.{airpods}".into()),
+        latency_ms: 10.0,
+    }
+}
+
+impl Supervised {
+    /// The child's stderr log; a read error comes back as text, so a failed assertion shows it.
+    fn stderr(&self) -> String {
+        fs::read_to_string(stderr_log(&data_dir(&self.k.data, ID)))
+            .unwrap_or_else(|e| format!("<stderr log unreadable: {e}>"))
+    }
+
+    /// Waits until the stderr log holds `want`.
+    fn logs(&self, want: &str) -> bool {
+        eventually(|| self.stderr().contains(want))
+    }
+
+    /// The `feed` frames the child received, in order.
+    fn feeds(&self) -> Vec<Value> {
+        self.stderr()
+            .lines()
+            .filter_map(|line| line.strip_prefix("feed="))
+            .filter_map(|json| serde_json::from_str(json).ok())
+            .collect()
+    }
+
+    fn feed_wanted(&self) -> bool {
+        self.link.feed_hub().wanted()
+    }
+
+    /// Whether every feed consumer attached so far was detached exactly once.
+    fn feeds_detached_once(&self) -> bool {
+        let (mut attached, mut detached) = self.link.feed_consumers();
+        attached.sort_unstable();
+        detached.sort_unstable();
+        attached == detached
+    }
+}
+
+#[test]
+fn a_tap_child_gets_the_tap_name_on_its_argv() {
+    let s = Supervised::granted("echo", &["audio.tap"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.feed_wanted());
+    // Debug quoting doubles the backslash in `Local\plisto-tap-<pid>-<nonce>`.
+    let tap = format!("{:?}", r"Local\plisto-tap-");
+    let tap = tap.trim_end_matches('"');
+    let want = format!(r#""--plisto-tap", {tap}"#);
+    assert!(s.logs(&want), "{}", s.stderr());
+    // Without `audio.events` nothing is forwarded, so no snapshot is asked for.
+    assert_eq!(s.link.snapshot_requests(), 0);
+}
+
+#[test]
+fn an_events_child_gets_no_tap_a_snapshot_and_feed_frames_without_device_fields() {
+    let s = Supervised::granted("echo", &["audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.logs(r#""--plisto-tap", "none""#), "{}", s.stderr());
+    assert!(eventually(|| s.link.snapshot_requests() == 1));
+    s.link
+        .feed_hub()
+        .publish(FeedCause::Volume, feed_state(0.5));
+    assert!(eventually(|| !s.feeds().is_empty()));
+    let frame = &s.feeds()[0];
+    assert_eq!(frame["lost"], 0);
+    let event = &frame["event"];
+    assert_eq!(event["cause"], "volume");
+    assert_eq!(event["volume"], 0.5);
+    assert_eq!(event["latency_ms"], 10.0);
+    assert!(event["device"].is_null());
+    assert!(event["device_id"].is_null());
+}
+
+#[test]
+fn the_device_fields_reach_a_child_granted_audio_device() {
+    let s = Supervised::granted("echo", &["audio.events", "audio.device"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    s.link
+        .feed_hub()
+        .publish(FeedCause::Device, feed_state(1.0));
+    assert!(eventually(|| !s.feeds().is_empty()));
+    let event = &s.feeds()[0]["event"];
+    assert_eq!(event["device"], "John's AirPods");
+    assert_eq!(event["device_id"], "{0.0.0.00000000}.{airpods}");
+}
+
+#[test]
+fn a_child_with_neither_grant_gets_no_consumer() {
+    let s = Supervised::new("echo");
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(!s.feed_wanted());
+    assert_eq!(s.link.feed_consumers(), (vec![], vec![]));
+    assert!(s.logs(r#""--plisto-tap", "none""#), "{}", s.stderr());
+    assert_eq!(s.link.snapshot_requests(), 0);
+}
+
+#[test]
+fn a_full_outbox_counts_into_lost() {
+    let s = Supervised::granted("read-after-file", &["audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    let hub = s.link.feed_hub();
+    // The child reads nothing yet, so its pipe and then the outbox fill and frames are refused.
+    let mut published = 0u64;
+    for _ in 0..50 {
+        for _ in 0..16 {
+            hub.publish(FeedCause::Volume, feed_state(0.5));
+            published += 1;
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    fs::write(data_dir(&s.k.data, ID).join(RESUME_FILE), b"").unwrap();
+    // Once the child reads again, a new snapshot gets through.
+    assert!(eventually(|| {
+        hub.publish(FeedCause::Volume, feed_state(0.5));
+        published += 1;
+        s.feeds()
+            .last()
+            .is_some_and(|frame| frame["event"]["seq"] == published)
+    }));
+    let feeds = s.feeds();
+    let seqs: Vec<u64> = feeds.iter().map(|f| f["event"]["seq"].as_u64().unwrap()).collect();
+    let lost: Vec<u64> = feeds.iter().map(|f| f["lost"].as_u64().unwrap()).collect();
+    // Every snapshot is either delivered or counted on the next frame that is.
+    assert_eq!(lost[0], seqs[0] - 1);
+    for i in 1..seqs.len() {
+        assert_eq!(lost[i], seqs[i] - seqs[i - 1] - 1, "frame {i}");
+    }
+    assert!(lost.iter().sum::<u64>() > 0);
+}
+
+#[test]
+fn a_stop_a_restart_and_a_disable_detach_and_a_restart_attaches_afresh() {
+    let s = Supervised::granted("echo", &["audio.tap", "audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(eventually(|| s.link.snapshot_requests() == 1));
+
+    s.host.restart(&s.plugins, ID).unwrap();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.feed_wanted());
+    assert!(eventually(|| s.link.snapshot_requests() == 2));
+    let (attached, detached) = s.link.feed_consumers();
+    assert_eq!((attached.len(), detached.len()), (2, 1));
+
+    s.host.stop_plugin(ID);
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+
+    crate::plugins::lifecycle::enable(&s.k.data, &s.plugins, ID, None, false, None).unwrap();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.feed_wanted());
+    crate::plugins::lifecycle::disable(&s.k.data, &s.plugins, ID).unwrap();
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+}
+
+#[test]
+fn a_crash_before_or_after_ready_detaches_once() {
+    let s = Supervised::granted("crash", &["audio.tap", "audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+    assert_eq!(s.link.feed_consumers().0.len(), 1);
+    // It never got to `ready`, so no snapshot was asked for.
+    assert_eq!(s.link.snapshot_requests(), 0);
+
+    let s = Supervised::granted("broken-frame:300", &["audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+    s.host.shutdown_all();
+    assert!(s.feeds_detached_once());
+}
+
+#[test]
+fn exit_and_safe_mode_detach_every_feed() {
+    let s = Supervised::granted("echo", &["audio.events"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.feed_wanted());
+    s.host.begin_exit();
+    s.host.shutdown_all();
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+
+    let s = Supervised::granted("echo", &["audio.tap"]);
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert!(s.feed_wanted());
+    s.host.on_runtime_safe(BootView {
+        runtime: Runtime::Safe,
+        unclean: false,
+        safe_flag: false,
+    });
+    assert!(!s.feed_wanted());
+    assert!(s.feeds_detached_once());
+}
+
+#[test]
+fn a_launch_refused_by_windows_detaches_once() {
+    let s = Supervised::granted("echo", &["audio.tap", "audio.events"]);
+    // A folder where the stderr log goes makes the launch fail with access denied.
+    let log = stderr_log(&data_dir(&s.k.data, ID));
+    let _ = fs::remove_file(&log);
+    fs::create_dir_all(&log).unwrap();
+    assert!(matches!(
+        s.host.start(&s.plugins, ID),
+        Err(StartError::Launch(_))
+    ));
+    assert_eq!(
+        s.state(),
+        Some(HostState::Failed {
+            reason: super::status::FailReason::LaunchDenied
+        })
+    );
+    assert!(!s.feed_wanted());
+    assert_eq!(s.link.feed_consumers().0.len(), 1);
+    assert!(s.feeds_detached_once());
+}
+
+#[test]
+fn a_launch_that_cannot_run_the_entry_detaches_once() {
+    let s = Supervised::granted("echo", &["audio.tap", "audio.events"]);
+    // Not a valid executable: Windows refuses to create the process.
+    let exe = plugin_dir(&s.k.data, ID).join("bin").join("tool.exe");
+    fs::write(&exe, b"MZ").unwrap();
+    assert!(matches!(
+        s.host.start(&s.plugins, ID),
+        Err(StartError::Launch(_))
+    ));
+    assert_eq!(s.state(), Some(HostState::Restarting { retry_in_ms: 1000 }));
+    assert!(!s.feed_wanted());
+    assert_eq!(s.link.feed_consumers().0.len(), 1);
+    assert!(s.feeds_detached_once());
 }

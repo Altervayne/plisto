@@ -2,7 +2,8 @@
  * A child's pump thread: runs the handshake, then drains everything the child sends for as long as its
  * output lasts. It only parses, stores and hands on, so a slow consumer never stalls the child behind a
  * full inbox. A broken frame or the end of the output ends the run as a crash, unless a stop already
- * took it. Unknown and malformed frames are counted and the stream goes on.
+ * took it. Unknown and malformed frames are counted and the stream goes on. Once the child is ready
+ * the run's feed forwarder starts.
  * Call answers, host calls, page events and takeover requests have no consumer: they are dropped and
  * counted.
  */
@@ -15,6 +16,7 @@ use crossbeam_channel::RecvTimeoutError;
 
 // -- Local Imports --
 use super::child::{Child, HandshakeError, Inbound, CLOSED_PROTOCOL};
+use super::feed;
 use super::heartbeat::Beat;
 use super::protocol::{ChildMessage, HostMessage, LogLevel};
 use super::status::{CrashReason, Reported};
@@ -63,6 +65,7 @@ pub(super) fn run(
         .with_plugins(|plugins| plugins.api().is_page_open(id))
         .unwrap_or(false);
     let _ = child.send(&HostMessage::Page { open });
+    feed::forward(&run.feed, host.link.as_ref(), id, child);
     let mut stats = ChildStats::default();
     loop {
         let inbound = match child.recv_timeout(IDLE_WAIT) {

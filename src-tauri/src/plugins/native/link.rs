@@ -1,17 +1,19 @@
 /*
  * What the native host needs from the app around it: sending events to the main window, turning a
- * plugin off through the lifecycle, commands to the player, and the plugin state. Behind a trait so
- * the supervisor runs in tests without a Tauri app. Events go to the main window only, never into a
- * plugin frame.
+ * plugin off through the lifecycle, commands to the player, the playback feed, and the plugin state.
+ * Behind a trait so the supervisor runs in tests without a Tauri app. Events go to the main window
+ * only, never into a plugin frame.
  */
 
 // -- Library Imports --
+use std::io;
+
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 // -- Local Imports --
 use super::status::PluginStatus;
-use crate::audio::PlayerCmd;
+use crate::audio::{self, FeedConsumer, PlayerCmd};
 use crate::plugins::lifecycle;
 use crate::plugins::state::{BootView, PluginsState};
 use crate::state::AppState;
@@ -42,7 +44,11 @@ pub trait HostLink: Send + Sync {
     fn emit_runtime(&self, view: BootView);
     /// Disables the plugin as the user would: saved, and the main window told.
     fn disable(&self, id: &str);
+    /// Queues a command for the player without waiting.
     fn player(&self, cmd: PlayerCmd);
+    /// Attaches a playback feed consumer; with `tap`, one that reads the tap.
+    fn attach_feed(&self, tap: bool) -> io::Result<FeedConsumer>;
+    fn detach_feed(&self, consumer: u64);
     /// Runs `f` on the plugin state; not at all when the app has none.
     fn with_plugins(&self, f: &mut dyn FnMut(&PluginsState));
 }
@@ -91,6 +97,14 @@ impl HostLink for TauriLink {
         }
     }
 
+    fn attach_feed(&self, tap: bool) -> io::Result<FeedConsumer> {
+        audio::attach_feed_consumer(tap)
+    }
+
+    fn detach_feed(&self, consumer: u64) {
+        audio::detach_feed_consumer(consumer);
+    }
+
     fn with_plugins(&self, f: &mut dyn FnMut(&PluginsState)) {
         if let Some(state) = self.app.try_state::<AppState>() {
             f(&state.plugins);
@@ -98,7 +112,9 @@ impl HostLink for TauriLink {
     }
 }
 
-/// A link for tests: records every event and disable, and reaches a plugin state when given one.
+/// A link for tests: records every event, disable, player command and feed attach and detach, and
+/// reaches a plugin state when given one. Its feed hub is its own, so tests running side by side
+/// never see each other's consumers.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct RecordingLink {
@@ -107,6 +123,10 @@ pub(crate) struct RecordingLink {
     runtimes: std::sync::Mutex<Vec<BootView>>,
     disabled: std::sync::Mutex<Vec<String>>,
     plugins: std::sync::Mutex<Option<(std::sync::Weak<PluginsState>, std::path::PathBuf)>>,
+    player: std::sync::Mutex<Vec<PlayerCmd>>,
+    feed: audio::FeedHub,
+    attached: std::sync::Mutex<Vec<u64>>,
+    detached: std::sync::Mutex<Vec<u64>>,
 }
 
 #[cfg(test)]
@@ -131,6 +151,26 @@ impl RecordingLink {
 
     pub fn disabled(&self) -> Vec<String> {
         self.disabled.lock().unwrap().clone()
+    }
+
+    pub fn feed_hub(&self) -> &audio::FeedHub {
+        &self.feed
+    }
+
+    pub fn snapshot_requests(&self) -> usize {
+        let player = self.player.lock().unwrap();
+        player
+            .iter()
+            .filter(|cmd| matches!(cmd, PlayerCmd::FeedSnapshot))
+            .count()
+    }
+
+    /// Feed consumers attached, then detached, in order.
+    pub fn feed_consumers(&self) -> (Vec<u64>, Vec<u64>) {
+        (
+            self.attached.lock().unwrap().clone(),
+            self.detached.lock().unwrap().clone(),
+        )
     }
 
     fn attached(&self) -> Option<(std::sync::Arc<PluginsState>, std::path::PathBuf)> {
@@ -161,7 +201,20 @@ impl HostLink for RecordingLink {
         }
     }
 
-    fn player(&self, _cmd: PlayerCmd) {}
+    fn player(&self, cmd: PlayerCmd) {
+        self.player.lock().unwrap().push(cmd);
+    }
+
+    fn attach_feed(&self, tap: bool) -> io::Result<FeedConsumer> {
+        let consumer = self.feed.attach(tap)?;
+        self.attached.lock().unwrap().push(consumer.id);
+        Ok(consumer)
+    }
+
+    fn detach_feed(&self, consumer: u64) {
+        self.detached.lock().unwrap().push(consumer);
+        self.feed.detach(consumer);
+    }
 
     fn with_plugins(&self, f: &mut dyn FnMut(&PluginsState)) {
         if let Some((plugins, _)) = self.attached() {
