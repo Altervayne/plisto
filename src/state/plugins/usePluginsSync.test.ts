@@ -22,6 +22,7 @@ const row = (id: string, enabled = false): PluginRow => ({
   tier: "ui",
   enabled,
   granted: [],
+  granted_origins: [],
   installed_at: 1,
   manifest_hash: "h",
   state: "ready",

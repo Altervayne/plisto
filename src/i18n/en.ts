@@ -1421,6 +1421,10 @@ export const en = {
       calmNote:
         "It runs in a sandbox inside Plisto. It cannot read your files, and it can only reach the sites listed above.",
       calmNoteOffline: "It runs in a sandbox inside Plisto. It cannot read your files or reach the network.",
+      networkHow:
+        "Plisto makes these connections for it and refuses every other address. The sites see your internet address, as when you visit them.",
+      networkReadsNote: "It can send what it reads here, such as your library or what is playing, to these sites.",
+      devOrigin: "This computer, only while developer mode is on",
       offNote: "It is installed turned off until you enable it.",
       updateNote: "Updating keeps your saved data. If the permissions changed, it stays off until you approve them.",
       incompatible: "This plugin needs Plisto {version} or newer, so it cannot be installed on this version.",
@@ -1465,12 +1469,16 @@ export const en = {
       noData: "It has no saved data to delete.",
       keepLine: "Your library and source folders are not touched.",
     },
+    devMode: {
+      loopbackNote:
+        "While developer mode is on, plugins that list an address on this computer can connect to it.",
+    },
     capability: {
       storage: "Save its own settings and data",
       "library.read": "Read your library (titles, artists, albums; never file locations)",
       "playback.read": "Read what is playing",
       "playback.control": "Play, pause and skip tracks",
-      network: "Talk to the sites listed below",
+      network: "Exchange data with the sites listed below",
       background: "Runs in the background while Plisto is open",
       "ui.toast": "Show short messages",
       "ui.confirm": "Ask you to confirm things",

@@ -54,3 +54,8 @@
   list-style: none;
   color: var(--ink-3);
 }
+
+.devTag {
+  margin-left: 8px;
+  font-size: 11.5px;
+}

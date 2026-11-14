@@ -1069,7 +1069,9 @@ export type PluginApiErrorCode =
   | "unknown_method"
   | "busy"
   | "timeout"
-  | "unavailable";
+  | "unavailable"
+  | "network"
+  | "aborted";
 
 /** One refused plugin API call. `retry_after_ms` is present only with `rate_limited`. */
 export interface PluginApiError {
@@ -1162,6 +1164,8 @@ export interface PluginRow {
   tier: PluginTier;
   enabled: boolean;
   granted: PluginCapability[];
+  /** The network origins the user consented to, as enforced; empty without the network capability. */
+  granted_origins: string[];
   installed_at: number;
   manifest_hash: string;
   state: PluginEntryState;

@@ -27,6 +27,7 @@ export const row = (over: Partial<PluginRow> = {}): PluginRow => ({
   tier: "ui",
   enabled: true,
   granted: ["playback.read", "network"],
+  granted_origins: ["lyrics.example.com"],
   installed_at: 1,
   manifest_hash: "hash-1",
   state: "ready",

@@ -10,6 +10,7 @@ import { useRequestPluginPage } from "../../../state/shell/store";
 // -- Utils Imports --
 import { qualifiedPlugins } from "../../shell/navVisibility";
 import { knownCapabilities, sortCapabilities } from "../../../state/plugins/capabilities";
+import { isDevOrigin } from "../../../state/plugins/origins";
 import { formatBytes } from "../../../lib/format";
 
 // -- Hook Imports --
@@ -64,10 +65,15 @@ export function PluginRowPanel({
                 {granted.map((cap) => (
                   <li key={cap}>
                     {t((d) => d.plugins.capability[cap])}
-                    {cap === "network" && m && m.origins.length > 0 ? (
+                    {cap === "network" && row.granted_origins.length > 0 ? (
                       <ul className={styles.origins}>
-                        {m.origins.map((origin) => (
-                          <li key={origin}>{origin}</li>
+                        {row.granted_origins.map((origin) => (
+                          <li key={origin}>
+                            {origin}
+                            {isDevOrigin(origin) ? (
+                              <span className={styles.devTag}>{t((d) => d.plugins.sheet.devOrigin)}</span>
+                            ) : null}
+                          </li>
                         ))}
                       </ul>
                     ) : null}

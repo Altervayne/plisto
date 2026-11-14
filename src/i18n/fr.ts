@@ -1437,6 +1437,11 @@ export const fr: Dict = {
         "Il s'exécute dans un bac à sable à l'intérieur de Plisto. Il ne peut pas lire vos fichiers et ne peut joindre que les sites indiqués ci-dessus.",
       calmNoteOffline:
         "Il s'exécute dans un bac à sable à l'intérieur de Plisto. Il ne peut ni lire vos fichiers ni accéder au réseau.",
+      networkHow:
+        "Plisto établit ces connexions pour lui et refuse toute autre adresse. Ces sites voient votre adresse internet, comme lorsque vous les visitez.",
+      networkReadsNote:
+        "Il peut envoyer à ces sites ce qu'il lit ici, comme votre bibliothèque ou ce qui est en lecture.",
+      devOrigin: "Cet ordinateur, uniquement en mode développeur",
       offNote: "Il est installé désactivé jusqu'à ce que vous l'activiez.",
       updateNote:
         "La mise à jour conserve vos données enregistrées. Si les autorisations ont changé, il reste désactivé jusqu'à votre approbation.",
@@ -1484,12 +1489,16 @@ export const fr: Dict = {
       noData: "Il n'a aucune donnée enregistrée à supprimer.",
       keepLine: "Votre bibliothèque et vos dossiers sources ne sont pas touchés.",
     },
+    devMode: {
+      loopbackNote:
+        "Tant que le mode développeur est actif, les plugins qui indiquent une adresse de cet ordinateur peuvent s'y connecter.",
+    },
     capability: {
       storage: "Enregistrer ses propres réglages et données",
       "library.read": "Lire votre bibliothèque (titres, artistes, albums ; jamais l'emplacement des fichiers)",
       "playback.read": "Lire ce qui est en cours de lecture",
       "playback.control": "Lancer, mettre en pause et passer des morceaux",
-      network: "Joindre les sites listés ci-dessous",
+      network: "Échanger des données avec les sites listés ci-dessous",
       background: "S'exécute en arrière-plan tant que Plisto est ouvert",
       "ui.toast": "Afficher de courts messages",
       "ui.confirm": "Vous demander de confirmer des choses",
