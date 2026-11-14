@@ -168,3 +168,15 @@ fn the_tauri_stack_is_the_probed_one() {
         );
     }
 }
+
+#[test]
+fn the_webview_guard_restates_the_probed_wry() {
+    let wry = PROBED.iter().find(|(name, _)| *name == "wry").unwrap().1;
+    assert_eq!(
+        crate::webview_guard::WRY_DEFAULTS_FROM,
+        wry,
+        "wry moved to {wry}. Re-read its default browser args (webview2/mod.rs, create_environment) \
+         and restate them in webview_guard.rs WRY_DEFAULT_ARGS, then re-run the WebRTC leak probe \
+         before updating WRY_DEFAULTS_FROM."
+    );
+}

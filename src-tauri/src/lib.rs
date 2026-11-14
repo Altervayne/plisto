@@ -27,6 +27,7 @@ mod startup;
 mod state;
 mod tags;
 mod tray;
+mod webview_guard;
 mod window_fit;
 
 // -- Library Imports --
@@ -65,6 +66,8 @@ fn app_info() -> AppInfo {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    webview_guard::apply(context.config_mut());
     tauri::Builder::default()
         // Registered first, as the plugin requires. A second launch (the OS opening a file while
         // Plisto already runs) routes here instead of starting a new process: surface the main window
@@ -558,7 +561,7 @@ pub fn run() {
             #[cfg(windows)]
             commands::plugin_status::plugin_restart
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running tauri application")
         .run(|app, event| {
             // Every quit funnels through app.exit(0), which fires RunEvent::Exit. Tear the OS media
