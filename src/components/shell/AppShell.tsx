@@ -81,6 +81,7 @@ import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
 import { usePluginsSync } from "../../state/plugins/usePluginsSync";
 import { usePluginStatusSync } from "../../state/plugins/usePluginStatus";
+import { usePluginNet } from "../../state/plugins/usePluginNet";
 import { usePluginPageEvents } from "../../state/plugins/usePluginPageEvents";
 import { usePluginUi } from "../../state/plugins/usePluginUi";
 import {
@@ -182,6 +183,8 @@ export function AppShell({
   usePluginStatusSync();
   // The toasts, prompts, chips and item states plugins set, fed in for the shell's life.
   usePluginUi();
+  // Stream chunks and socket messages from Rust, relayed to the plugin's page.
+  usePluginNet();
   // A native plugin's page events, relayed to its open page.
   usePluginPageEvents();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint

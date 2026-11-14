@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CapabilityList } from "./ReviewSheet/CapabilityList";
 import { PluginRowPanel } from "./PluginRowPanel";
 import { isDevOrigin } from "../../../state/plugins/origins";
-import { usePluginsStore } from "../../../state/plugins/store";
 import { inspection, manifest, row } from "../../../state/plugins/fixtures";
 import { subjectFromInspection } from "../../../state/plugins/review";
 
@@ -63,15 +62,6 @@ describe("row panel origins", () => {
     expect(html).toContain("http://127.0.0.1:9000");
     expect(html).toContain(en.plugins.sheet.devOrigin);
     expect(html).not.toContain("declared.example.com");
-  });
-
-  it("treats a row from Rust without granted_origins as an empty list", () => {
-    const { granted_origins: _omit, ...fromRust } = row();
-    usePluginsStore.getState().applyRows([fromRust as PluginRow]);
-    const stored = usePluginsStore.getState().rows[0];
-    expect(stored.granted_origins).toEqual([]);
-    expect(() => panel(stored)).not.toThrow();
-    usePluginsStore.getState().removeRow(stored.id);
   });
 });
 

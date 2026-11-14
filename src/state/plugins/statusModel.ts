@@ -6,9 +6,16 @@
  * translate the kinds; nothing here is user text except the plugin's own capped report.
  */
 
+// -- State Imports --
+import { frameCapable, pluginRuntimeReady } from "./frameModel";
+
+// -- Utils Imports --
+import { qualifiedPlugins } from "../../components/shell/navVisibility";
+
 // -- Type Imports --
 import type { FramePhase } from "./frameModel";
-import type { PluginRow, PluginRuntime, PluginStatus } from "../../types";
+import type { AppMode } from "../player/store";
+import type { PluginBootState, PluginRow, PluginRuntime, PluginStatus } from "../../types";
 
 export type DotTone = "idle" | "on" | "warn";
 
@@ -161,6 +168,23 @@ export function pageState(view: StatusView, framed: boolean, phase: FramePhase |
     default:
       return { body: { kind: "starting" }, head: { kind: "starting" }, warn: false };
   }
+}
+
+/**
+ * Whether the hub row offers Open settings: plugins are running (not held, not safe mode), the plugin has
+ * a page to land on (a UI plugin, or a native one that declares a page) and the rail draws it.
+ */
+export function hubOpensPage(
+  boot: PluginBootState | null,
+  row: PluginRow,
+  rows: readonly PluginRow[],
+  appMode: AppMode,
+): boolean {
+  return (
+    pluginRuntimeReady(boot) &&
+    frameCapable(row) &&
+    qualifiedPlugins(rows, appMode).some((plugin) => plugin.id === row.id)
+  );
 }
 
 /** One crash as the details line needs it: the reason, the exit code in hex and the local time. */

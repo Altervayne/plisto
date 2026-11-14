@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   ARGS_MAX_CHARS,
+  BODY_MAX_BYTES,
   FrameMap,
   MAX_PENDING_PER_FRAME,
   initMsg,
@@ -13,6 +14,8 @@ import {
   route,
   routeMsg,
   sidebarMsg,
+  socketMsg,
+  streamMsg,
   themeMsg,
   visibilityMsg,
 } from "./bridge";
@@ -78,6 +81,7 @@ describe("route: who sent it", () => {
       callId: 7,
       method: "storage.get",
       args: "{}",
+      body: null,
     });
     if (action.kind === "call") expect(action.rec.pluginId).toBe("plug-a");
   });
@@ -206,6 +210,7 @@ describe("route: call", () => {
       callId: 5,
       method: "storage.set",
       args: '{"key":"a","value":1}',
+      body: null,
     });
   });
 
@@ -286,6 +291,85 @@ describe("route: call", () => {
   });
 });
 
+describe("route: body", () => {
+  const fetchCall = (over: Record<string, unknown> = {}) => call({ method: "net.fetch", args: '{"url":"https://a.example"}', ...over });
+  const code = (action: ReturnType<typeof route<Win>>) =>
+    action.kind === "reply" && action.msg.type === "plisto:result" && !action.msg.ok ? action.msg.error.code : null;
+
+  it("carries an ArrayBuffer body on net.fetch, up to the cap itself", () => {
+    const { send } = setup();
+    for (const size of [0, 3, BODY_MAX_BYTES]) {
+      const body = new ArrayBuffer(size);
+      const action = send(fetchCall({ body }));
+      expect(action.kind).toBe("call");
+      if (action.kind === "call") expect(action.body).toBe(body);
+    }
+    const plain = send(fetchCall());
+    expect(plain.kind === "call" && plain.body).toBeNull();
+  });
+
+  it("refuses a body on any other method", () => {
+    const { send } = setup();
+    for (const body of [new ArrayBuffer(1), null, undefined]) {
+      expect(code(send(call({ method: "storage.set", body })))).toBe("invalid_args");
+    }
+    expect(code(send(call({ method: "net.socket.send", body: new ArrayBuffer(1) })))).toBe("invalid_args");
+  });
+
+  it("refuses every body that is not a real ArrayBuffer", () => {
+    const { send } = setup();
+    const lookalike = { byteLength: 3, slice: () => new ArrayBuffer(3) };
+    const tagged = { [Symbol.toStringTag]: "ArrayBuffer", byteLength: 3 };
+    const values: unknown[] = [
+      new Uint8Array(3),
+      new DataView(new ArrayBuffer(3)),
+      new Blob(["abc"]),
+      new SharedArrayBuffer(3),
+      lookalike,
+      tagged,
+      Object.create(ArrayBuffer.prototype),
+      new Proxy(new ArrayBuffer(3), {}),
+      [1, 2, 3],
+      "abc",
+      3,
+      null,
+      undefined,
+    ];
+    for (const body of values) expect(code(send(fetchCall({ body })))).toBe("invalid_args");
+  });
+
+  it("refuses an accessor body without running it, and reads a real buffer's length without its own getter", () => {
+    const { send } = setup();
+    let ran = 0;
+    const data = fetchCall();
+    Object.defineProperty(data, "body", {
+      enumerable: true,
+      get() {
+        ran++;
+        return new ArrayBuffer(1);
+      },
+    });
+    expect(code(send(data))).toBe("invalid_args");
+
+    const big = new ArrayBuffer(BODY_MAX_BYTES + 1);
+    Object.defineProperty(big, "byteLength", {
+      get() {
+        ran++;
+        return 1;
+      },
+    });
+    expect(code(send(fetchCall({ body: big })))).toBe("too_large");
+    expect(ran).toBe(0);
+  });
+
+  it("answers too_large above the cap, after the shape checks", () => {
+    const { send } = setup();
+    expect(code(send(fetchCall({ body: new ArrayBuffer(BODY_MAX_BYTES + 1) })))).toBe("too_large");
+    expect(code(send(call({ body: new ArrayBuffer(BODY_MAX_BYTES + 1) })))).toBe("invalid_args");
+    expect(code(send(fetchCall({ body: new Uint8Array(1), args: "x".repeat(ARGS_MAX_CHARS + 1) })))).toBe("invalid_args");
+  });
+});
+
 describe("FrameMap", () => {
   it("attaches, finds by source and key, and lists live records", () => {
     const map = new FrameMap<Win>();
@@ -350,6 +434,39 @@ describe("builders", () => {
       topic: "level",
       data: { db: -3 },
     });
+  });
+
+  it("builds the stream and socket messages", () => {
+    const data = new ArrayBuffer(2);
+    expect(streamMsg({ stream: "t1", kind: "chunk", seq: 1, data })).toEqual({
+      plisto: 1,
+      type: "plisto:stream",
+      stream: "t1",
+      kind: "chunk",
+      seq: 1,
+      data,
+    });
+    expect(streamMsg({ stream: "t1", kind: "error", code: "network", reason: "protocol" })).toEqual({
+      plisto: 1,
+      type: "plisto:stream",
+      stream: "t1",
+      kind: "error",
+      code: "network",
+      reason: "protocol",
+    });
+    expect(socketMsg({ socket: "s1", kind: "text", data: "hi" })).toEqual({
+      plisto: 1,
+      type: "plisto:socket",
+      socket: "s1",
+      kind: "text",
+      data: "hi",
+    });
+  });
+
+  it("drops a frame that sends the host-only stream and socket messages", () => {
+    const { send } = setup();
+    expect(send({ plisto: 1, type: "plisto:stream", stream: "t1", kind: "end" })).toEqual({ kind: "drop" });
+    expect(send({ plisto: 1, type: "plisto:socket", socket: "s1", kind: "text", data: "x" })).toEqual({ kind: "drop" });
   });
 
   it("builds the sidebar and route messages", () => {

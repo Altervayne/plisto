@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { crashDetail, pageState, statusView } from "./statusModel";
-import { row, status } from "./fixtures";
+import { crashDetail, hubOpensPage, pageState, statusView } from "./statusModel";
+import { manifest, row, status } from "./fixtures";
 
 // -- Type Imports --
 import type { PluginRow, PluginRuntime, PluginStatus } from "../../types";
@@ -184,5 +184,34 @@ describe("crashDetail", () => {
     expect(crashDetail({ reason: "protocol", exit_code: null, at_ms: 0 }, null)?.code).toBeNull();
     expect(crashDetail(null, "silent")).toEqual({ reason: "silent", code: null, time: null });
     expect(crashDetail(null, null)).toBeNull();
+  });
+});
+
+describe("hubOpensPage", () => {
+  const RUNNING = { runtime: "running", unclean: false, safe_flag: false } as const;
+  const opens = (r: PluginRow) => hubOpensPage(RUNNING, r, [r], "both");
+
+  it("offers a live UI plugin and a live native plugin with a page", () => {
+    expect(opens(row())).toBe(true);
+    expect(opens(native({ manifest: manifest({ page: "page/index.html" }) }))).toBe(true);
+  });
+
+  it("does not offer a native plugin without a page", () => {
+    expect(opens(native())).toBe(false);
+  });
+
+  it("does not offer a plugin that is off, not ready or hidden by the app mode", () => {
+    expect(opens(row({ enabled: false }))).toBe(false);
+    expect(opens(row({ state: "needs_consent" }))).toBe(false);
+    const paged = native({ manifest: manifest({ page: "page/index.html", modes: ["player"] }) });
+    expect(hubOpensPage(RUNNING, paged, [paged], "organizer")).toBe(false);
+    expect(hubOpensPage(RUNNING, paged, [], "both")).toBe(false);
+  });
+
+  it("does not offer anything in safe mode, while the boot offer is held or before boot is read", () => {
+    const r = row();
+    expect(hubOpensPage({ runtime: "safe", unclean: false, safe_flag: true }, r, [r], "both")).toBe(false);
+    expect(hubOpensPage({ runtime: "held", unclean: true, safe_flag: false }, r, [r], "both")).toBe(false);
+    expect(hubOpensPage(null, r, [r], "both")).toBe(false);
   });
 });

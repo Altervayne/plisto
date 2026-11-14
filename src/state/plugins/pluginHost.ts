@@ -7,6 +7,7 @@
 
 // -- State Imports --
 import {
+  FETCH_METHOD,
   FrameMap,
   errorMsg,
   initMsg,
@@ -16,20 +17,23 @@ import {
   route,
   routeMsg,
   sidebarMsg,
+  socketMsg,
+  streamMsg,
   themeMsg,
   visibilityMsg,
 } from "./bridge";
 import { useFrameHealthStore } from "./frameHealth";
+import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
 import { useSidebarState } from "./sidebarState";
 
 // -- IPC Imports --
-import { pluginCall, pluginFrameEvent } from "../../lib/ipc";
+import { pluginCall, pluginFetch, pluginFrameEvent } from "../../lib/ipc";
 
 // -- Utils Imports --
 import { isDarkTheme, subscribeTheme } from "../../theme";
 
 // -- Type Imports --
-import type { AppInfo, FrameRecord, HostToFrame } from "./bridge";
+import type { AppInfo, FrameRecord, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
 import type {
   PluginCallReply,
   PluginFrameCrashReason,
@@ -41,7 +45,7 @@ export type FrameTheme = "light" | "dark";
 
 /** The part of a frame's window the host uses. */
 export interface FrameWindow {
-  postMessage(message: unknown, targetOrigin: string): void;
+  postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void;
 }
 
 /** The fields of a received message event the shim reads. */
@@ -55,6 +59,8 @@ export interface HostDeps {
   /** Installs the message listener and returns its removal. */
   addListener: (onMessage: (event: HostMessage) => void) => () => void;
   invoke: (id: string, method: string, args: string) => Promise<PluginCallReply>;
+  /** Sends one framed `net.fetch` request and resolves the framed reply. */
+  fetch: (payload: Uint8Array) => Promise<ArrayBuffer>;
   /** The main window's effective theme. */
   theme: () => FrameTheme;
   subscribeTheme: (onChange: () => void) => () => void;
@@ -103,6 +109,8 @@ interface Host {
   sendRoute: (mountKey: string, routePath: string | null) => void;
   sendSidebar: (pluginId: string, delivery: PluginSidebarDelivery) => boolean;
   sendPluginEvent: (pluginId: string, topic: string, data: unknown) => boolean;
+  sendStream: (pluginId: string, delivery: StreamDelivery) => boolean;
+  sendSocket: (pluginId: string, delivery: SocketDelivery) => boolean;
   hasLiveFrame: (pluginId: string) => boolean;
   stop: () => void;
 }
@@ -116,10 +124,12 @@ function createHost(deps: HostDeps): Host {
 
   const isLive = (rec: FrameRecord<FrameWindow>) => !rec.dead && map.byKey(rec.mountKey) === rec;
 
-  const post = (rec: FrameRecord<FrameWindow>, msg: HostToFrame) => {
+  // A transferred buffer is detached once posted: nothing reads it after this call.
+  const post = (rec: FrameRecord<FrameWindow>, msg: HostToFrame, transfer?: ArrayBuffer[]) => {
     if (!isLive(rec)) return;
     try {
-      rec.source.postMessage(msg, "*");
+      if (transfer) rec.source.postMessage(msg, "*", transfer);
+      else rec.source.postMessage(msg, "*");
     } catch {
       // A window torn down mid-post has nothing left to tell.
     }
@@ -138,7 +148,24 @@ function createHost(deps: HostDeps): Host {
     post(rec, themeMsg(theme));
   };
 
-  const forward = async (rec: FrameRecord<FrameWindow>, extra: FrameExtra, callId: number, method: string, args: string) => {
+  /** Runs `net.fetch` over the raw command. Any failure, a malformed reply included, reads as unreachable. */
+  const fetchCall = async (pluginId: string, args: string, body: ArrayBuffer | null) => {
+    try {
+      const raw = await deps.fetch(encodeFetchRequest(pluginId, args, body));
+      return decodeFetchReply(raw) ?? { reply: UNREACHABLE, body: null };
+    } catch {
+      return { reply: UNREACHABLE, body: null };
+    }
+  };
+
+  const forward = async (
+    rec: FrameRecord<FrameWindow>,
+    extra: FrameExtra,
+    callId: number,
+    method: string,
+    args: string,
+    body: ArrayBuffer | null,
+  ) => {
     // The router cannot see which ids are still waiting, so a repeated one is refused here.
     if (extra.calls.has(callId)) {
       post(rec, errorMsg(callId, "invalid_args", "The call id is already waiting for an answer."));
@@ -147,14 +174,21 @@ function createHost(deps: HostDeps): Host {
     extra.calls.add(callId);
     rec.pending += 1;
     let reply: PluginCallReply;
-    try {
-      reply = await deps.invoke(rec.pluginId, method, args);
-    } catch {
-      reply = UNREACHABLE;
+    let transfer: ArrayBuffer[] | undefined;
+    if (method === FETCH_METHOD) {
+      const fetched = await fetchCall(rec.pluginId, args, body);
+      reply = fetched.reply;
+      transfer = fetched.body ? [fetched.body] : undefined;
+    } else {
+      try {
+        reply = await deps.invoke(rec.pluginId, method, args);
+      } catch {
+        reply = UNREACHABLE;
+      }
     }
     rec.pending -= 1;
     extra.calls.delete(callId);
-    post(rec, resultMsg(callId, reply ?? UNREACHABLE));
+    post(rec, resultMsg(callId, reply ?? UNREACHABLE), transfer);
   };
 
   /**
@@ -190,7 +224,7 @@ function createHost(deps: HostDeps): Host {
     else if (action.kind === "pong") pongs.forEach((listener) => listener(action.rec.mountKey, action.seq));
     else if (action.kind === "call") {
       const extra = extras.get(action.rec);
-      if (extra) void forward(action.rec, extra, action.callId, action.method, action.args);
+      if (extra) void forward(action.rec, extra, action.callId, action.method, action.args, action.body);
     }
   };
 
@@ -313,6 +347,20 @@ function createHost(deps: HostDeps): Host {
       return true;
     },
 
+    sendStream(pluginId, delivery) {
+      const rec = initialised(pluginId);
+      if (!rec) return false;
+      post(rec, streamMsg(delivery), delivery.kind === "chunk" ? [delivery.data] : undefined);
+      return true;
+    },
+
+    sendSocket(pluginId, delivery) {
+      const rec = initialised(pluginId);
+      if (!rec) return false;
+      post(rec, socketMsg(delivery), delivery.kind === "binary" ? [delivery.data] : undefined);
+      return true;
+    },
+
     hasLiveFrame(pluginId) {
       return initialised(pluginId) != null;
     },
@@ -333,7 +381,7 @@ export function reportFrame(pluginId: string, kind: PluginFrameEventKind, reason
   pluginFrameEvent(pluginId, kind, reason).catch(() => {});
 }
 
-/** The production dependencies: the real window, the `plugin_call` command and the theme runtime. */
+/** The production dependencies: the real window, the `plugin_call` and `plugin_fetch` commands and the theme runtime. */
 export function browserHostDeps(): HostDeps {
   return {
     addListener: (onMessage) => {
@@ -342,6 +390,7 @@ export function browserHostDeps(): HostDeps {
       return () => window.removeEventListener("message", handler);
     },
     invoke: pluginCall,
+    fetch: pluginFetch,
     theme: () => (isDarkTheme() ? "dark" : "light"),
     subscribeTheme,
     sleep: defaultSleep,
@@ -436,6 +485,22 @@ export function sendSidebar(pluginId: string, delivery: PluginSidebarDelivery): 
  */
 export function sendPluginEvent(pluginId: string, topic: string, data: unknown): boolean {
   return active?.sendPluginEvent(pluginId, topic, data) ?? false;
+}
+
+/**
+ * Posts a streamed-response event to the plugin's newest live, initialised frame, moving a chunk's
+ * buffer with it. Returns false when there is none; the event is dropped.
+ */
+export function sendStream(pluginId: string, delivery: StreamDelivery): boolean {
+  return active?.sendStream(pluginId, delivery) ?? false;
+}
+
+/**
+ * Posts a socket event to the plugin's newest live, initialised frame, moving a binary message's buffer
+ * with it. Returns false when there is none; the event is dropped.
+ */
+export function sendSocket(pluginId: string, delivery: SocketDelivery): boolean {
+  return active?.sendSocket(pluginId, delivery) ?? false;
 }
 
 /** Whether the plugin has a live frame whose init is done. */

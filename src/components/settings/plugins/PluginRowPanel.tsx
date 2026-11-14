@@ -4,13 +4,13 @@ import { QuietButton } from "../../common/QuietButton";
 
 // -- State Imports --
 import { restartPlugin } from "../../../state/plugins/restartPlugin";
+import { hubOpensPage } from "../../../state/plugins/statusModel";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
-import { usePlugins } from "../../../state/plugins/store";
+import { usePlugins, usePluginsBoot } from "../../../state/plugins/store";
 import { useAppMode } from "../../../state/player/store";
 import { useRequestPluginPage } from "../../../state/shell/store";
 
 // -- Utils Imports --
-import { qualifiedPlugins } from "../../shell/navVisibility";
 import { knownCapabilities, sortCapabilities } from "../../../state/plugins/capabilities";
 import { isDevOrigin } from "../../../state/plugins/origins";
 import { formatBytes } from "../../../lib/format";
@@ -51,12 +51,8 @@ export function PluginRowPanel({
   const appMode = useAppMode();
   const requestPage = useRequestPluginPage();
   const canRestart = usePluginStatusView(row).restart;
-  // Only a plugin the rail draws has a page to land on; anything else is reachable from this hub alone.
-  const hasPage =
-    row.state === "ready" &&
-    row.enabled &&
-    row.tier === "ui" &&
-    qualifiedPlugins(rows, appMode).some((plugin) => plugin.id === row.id);
+  const boot = usePluginsBoot();
+  const hasPage = hubOpensPage(boot, row, rows, appMode);
 
   return (
     <div className={styles.panel}>

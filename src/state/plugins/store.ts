@@ -31,15 +31,10 @@ interface PluginsStore {
 
 const sameRow = (a: PluginRow, b: PluginRow): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-// Rust does not send granted_origins yet; the slice that adds it to the row removes this default.
-const withOrigins = (row: PluginRow): PluginRow =>
-  Array.isArray(row.granted_origins) ? row : { ...row, granted_origins: [] };
-
 /** The previous array and rows where content matches, so unchanged data keeps its references. */
 function reuse(prev: PluginRow[], next: PluginRow[]): PluginRow[] {
   const byId = new Map(prev.map((row) => [row.id, row]));
-  const merged = next.map((incoming) => {
-    const row = withOrigins(incoming);
+  const merged = next.map((row) => {
     const old = byId.get(row.id);
     return old && sameRow(old, row) ? old : row;
   });
@@ -54,9 +49,8 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
   epoch: 0,
   setStatus: (status) => set({ status }),
   applyRows: (rows) => set((s) => ({ rows: reuse(s.rows, rows) })),
-  upsertRow: (incoming) =>
+  upsertRow: (row) =>
     set((s) => {
-      const row = withOrigins(incoming);
       const at = s.rows.findIndex((r) => r.id === row.id);
       const epoch = s.epoch + 1;
       if (at < 0) return { rows: [...s.rows, row], epoch };

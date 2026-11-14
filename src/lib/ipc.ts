@@ -50,6 +50,7 @@ import type {
   PluginFrameEventKind,
   PluginInboxItem,
   PluginInspection,
+  PluginNetLogEntry,
   PluginRow,
   PluginSidebarInputReply,
   PluginSidebarSnapshot,
@@ -1287,6 +1288,19 @@ export function pluginDataSize(id: string): Promise<number> {
 /** Runs one plugin API call. Always resolves a reply; a rejection means the call never reached Rust. */
 export function pluginCall(id: string, method: string, args: string): Promise<PluginCallReply> {
   return invoke<PluginCallReply>("plugin_call", { id, method, args });
+}
+
+/**
+ * Runs one framed `net.fetch` request and resolves the framed reply. A rejection means the request never
+ * reached Rust.
+ */
+export function pluginFetch(payload: Uint8Array): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("plugin_fetch", payload);
+}
+
+/** The last requests Plisto made for a plugin, held in memory only. */
+export function pluginNetLog(id: string): Promise<PluginNetLogEntry[]> {
+  return invoke<PluginNetLogEntry[]>("plugin_net_log", { id });
 }
 
 /** Reports whether a plugin's page is the shown destination with its frame live. */

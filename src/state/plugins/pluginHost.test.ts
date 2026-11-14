@@ -14,6 +14,8 @@ import {
   sendPluginEvent,
   sendRoute,
   sendSidebar,
+  sendSocket,
+  sendStream,
   sendVisibility,
   startPluginHost,
 } from "./pluginHost";
@@ -23,9 +25,13 @@ import type { FrameTheme, FrameWindow, HostMessage } from "./pluginHost";
 import type { PluginCallReply } from "../../types";
 
 class FakeWindow implements FrameWindow {
-  posted: { msg: Record<string, unknown>; origin: string }[] = [];
-  postMessage(message: unknown, targetOrigin: string): void {
-    this.posted.push({ msg: message as Record<string, unknown>, origin: targetOrigin });
+  posted: { msg: Record<string, unknown>; origin: string; transfer?: Transferable[] }[] = [];
+  postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void {
+    this.posted.push({
+      msg: message as Record<string, unknown>,
+      origin: targetOrigin,
+      ...(transfer ? { transfer } : {}),
+    });
   }
   types(): unknown[] {
     return this.posted.map((p) => p.msg.type);
@@ -37,6 +43,12 @@ interface Pending {
   method: string;
   args: string;
   resolve: (reply: PluginCallReply) => void;
+  reject: (err: unknown) => void;
+}
+
+interface PendingFetch {
+  payload: Uint8Array;
+  resolve: (raw: ArrayBuffer) => void;
   reject: (err: unknown) => void;
 }
 
@@ -70,6 +82,11 @@ function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: str
     (id: string, method: string, args: string) =>
       new Promise<PluginCallReply>((resolve, reject) => calls.push({ id, method, args, resolve, reject })),
   );
+  const fetches: PendingFetch[] = [];
+  const fetch = vi.fn(
+    (payload: Uint8Array) =>
+      new Promise<ArrayBuffer>((resolve, reject) => fetches.push({ payload, resolve, reject })),
+  );
   stop = startPluginHost({
     addListener: (fn) => {
       listener = fn;
@@ -78,6 +95,7 @@ function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: str
       };
     },
     invoke,
+    fetch,
     sleep,
     frameGone,
     theme: () => theme,
@@ -100,7 +118,7 @@ function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: str
     theme = next;
     themeListener?.();
   };
-  return { calls, invoke, emit, call, frame, setTheme, hasListener: () => listener !== null };
+  return { calls, invoke, fetches, fetch, emit, call, frame, setTheme, hasListener: () => listener !== null };
 }
 
 /** Answers the host's init calls in order. */
@@ -615,6 +633,145 @@ describe("frame gone", () => {
     stop?.();
     stop = null;
     expect(gone.mock.calls.map((c) => c[0]).sort()).toEqual(["plug-a", "plug-b"]);
+  });
+});
+
+/** A framed `plugin_fetch` reply: length prefix, meta JSON, then raw bytes. */
+function framedReply(meta: unknown, body: number[] = []): ArrayBuffer {
+  const json = new TextEncoder().encode(JSON.stringify(meta));
+  const out = new Uint8Array(4 + json.length + body.length);
+  new DataView(out.buffer).setUint32(0, json.length, true);
+  out.set(json, 4);
+  out.set(body, 4 + json.length);
+  return out.buffer;
+}
+
+const HEAD = { status: 200, url: "https://api.example.com/x", redirected: false, headers: [], set_cookies: [] };
+
+describe("net.fetch", () => {
+  const fetchCall = (id: number, body?: ArrayBuffer) => ({
+    plisto: 1,
+    type: "plisto:call",
+    id,
+    method: "net.fetch",
+    args: '{"url":"https://api.example.com/x"}',
+    ...(body ? { body } : {}),
+  });
+
+  it("frames the request with the record's plugin id and the body, never through plugin_call", () => {
+    const { invoke, fetches, emit, frame } = setup();
+    const a = frame("a");
+    emit(a, { ...fetchCall(1, new Uint8Array([7, 8, 9]).buffer), pluginId: "plug-b" });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(fetches).toHaveLength(1);
+    const bytes = fetches[0].payload;
+    const n = new DataView(bytes.buffer, bytes.byteOffset).getUint32(0, true);
+    const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + n)));
+    expect(meta).toEqual({ id: "plug-a", args: '{"url":"https://api.example.com/x"}' });
+    expect([...bytes.subarray(4 + n)]).toEqual([7, 8, 9]);
+  });
+
+  it("posts a buffered result with its body in the transfer list", async () => {
+    const { fetches, emit, frame } = setup();
+    const a = frame("a");
+    emit(a, fetchCall(4));
+    fetches[0].resolve(framedReply({ ok: true, result: HEAD }, [104, 105]));
+    await flush();
+    const { msg, transfer } = a.posted[0];
+    expect(msg).toMatchObject({ type: "plisto:result", id: 4, ok: true, result: { ...HEAD } });
+    const body = (msg.result as { body: ArrayBuffer }).body;
+    expect(new TextDecoder().decode(body)).toBe("hi");
+    expect(transfer).toEqual([body]);
+    expect(transfer?.[0]).toBe(body);
+  });
+
+  it("posts a streamed head and a refusal with nothing to transfer", async () => {
+    const { fetches, emit, frame } = setup();
+    const a = frame("a");
+    emit(a, fetchCall(1));
+    emit(a, fetchCall(2));
+    fetches[0].resolve(framedReply({ ok: true, result: { ...HEAD, stream: "t1" } }));
+    fetches[1].resolve(framedReply({ ok: false, error: { code: "denied", message: "no", reason: "origin_not_listed" } }));
+    await flush();
+    expect(a.posted[0].transfer).toBeUndefined();
+    expect(a.posted[0].msg).toMatchObject({ id: 1, ok: true, result: { stream: "t1" } });
+    expect(a.posted[0].msg.result).not.toHaveProperty("body");
+    expect(a.posted[1].transfer).toBeUndefined();
+    expect(a.posted[1].msg).toMatchObject({ id: 2, ok: false, error: { code: "denied", reason: "origin_not_listed" } });
+  });
+
+  it("answers a rejected or malformed plugin_fetch unavailable and frees the call", async () => {
+    const { fetches, emit, frame } = setup();
+    const a = frame("a");
+    emit(a, fetchCall(1));
+    emit(a, fetchCall(2));
+    fetches[0].reject(new Error("command plugin_fetch not found"));
+    fetches[1].resolve(new Uint8Array([200, 0, 0, 0, 1]).buffer);
+    await flush();
+    expect(a.posted.map((p) => p.msg)).toEqual([
+      { plisto: 1, type: "plisto:result", id: 1, ok: false, error: { code: "unavailable", message: expect.any(String) } },
+      { plisto: 1, type: "plisto:result", id: 2, ok: false, error: { code: "unavailable", message: expect.any(String) } },
+    ]);
+    emit(a, fetchCall(1));
+    expect(fetches).toHaveLength(3);
+  });
+
+  it("drops a reply for a dead record, even with a newer frame of the plugin and another plugin live", async () => {
+    const { calls, fetches, emit } = setup();
+    const old = await liveFrame(calls, "k-a1", "plug-a");
+    emit(old, fetchCall(1));
+    detachFrame("k-a1");
+    const newer = await liveFrame(calls, "k-a2", "plug-a");
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    fetches[0].resolve(framedReply({ ok: true, result: HEAD }, [1]));
+    await flush();
+    expect(old.types()).toEqual(["plisto:init"]);
+    expect(newer.types()).toEqual(["plisto:init"]);
+    expect(other.types()).toEqual(["plisto:init"]);
+  });
+});
+
+describe("stream and socket delivery", () => {
+  it("reaches only the newest live, initialised record of the plugin, with the buffer transferred", async () => {
+    const { calls } = setup();
+    const older = await liveFrame(calls, "k-a1", "plug-a");
+    const newer = await liveFrame(calls, "k-a2", "plug-a");
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    const loading = new FakeWindow();
+    attachFrame("k-a3", "plug-a", loading);
+    frameLoaded("k-a3");
+
+    const chunk = new Uint8Array([1, 2]).buffer;
+    expect(sendStream("plug-a", { stream: "t1", kind: "chunk", seq: 1, data: chunk })).toBe(true);
+    expect(sendStream("plug-a", { stream: "t1", kind: "end" })).toBe(true);
+    const binary = new Uint8Array([3]).buffer;
+    expect(sendSocket("plug-a", { socket: "s1", kind: "binary", data: binary })).toBe(true);
+    expect(sendSocket("plug-a", { socket: "s1", kind: "close", code: 1000, reason: "", clean: true })).toBe(true);
+
+    expect(newer.posted.slice(1)).toEqual([
+      { msg: { plisto: 1, type: "plisto:stream", stream: "t1", kind: "chunk", seq: 1, data: chunk }, origin: "*", transfer: [chunk] },
+      { msg: { plisto: 1, type: "plisto:stream", stream: "t1", kind: "end" }, origin: "*" },
+      { msg: { plisto: 1, type: "plisto:socket", socket: "s1", kind: "binary", data: binary }, origin: "*", transfer: [binary] },
+      {
+        msg: { plisto: 1, type: "plisto:socket", socket: "s1", kind: "close", code: 1000, reason: "", clean: true },
+        origin: "*",
+      },
+    ]);
+    expect(older.types()).toEqual(["plisto:init"]);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(loading.posted).toEqual([]);
+  });
+
+  it("is dropped with no live frame and never falls back to another plugin", async () => {
+    const { calls } = setup();
+    expect(sendStream("plug-a", { stream: "t1", kind: "end" })).toBe(false);
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    expect(sendSocket("plug-a", { socket: "s1", kind: "text", data: "x" })).toBe(false);
+    const a = await liveFrame(calls, "k-a", "plug-a");
+    detachFrame("k-a");
+    expect(sendStream("plug-a", { stream: "t1", kind: "error", code: "network", reason: "closed" })).toBe(false);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(a.types()).toEqual(["plisto:init"]);
   });
 });
 

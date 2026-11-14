@@ -1160,6 +1160,31 @@ export interface PluginPageEvent {
   data: unknown;
 }
 
+/**
+ * A streamed-response or socket event pushed on "plugins:net" for one plugin. Chunk `seq` counts from 1
+ * with no gaps; binary payloads ride as base64. Mirrors HostEvent::Net in plugins/api/host_event.rs.
+ */
+export type PluginNetEvent =
+  | { id: string; stream: string; kind: "chunk"; seq: number; data_b64: string }
+  | { id: string; stream: string; kind: "end" }
+  | { id: string; stream: string; kind: "error"; code: string; reason: string | null }
+  | { id: string; socket: string; kind: "text"; data: string }
+  | { id: string; socket: string; kind: "binary"; data_b64: string }
+  | { id: string; socket: string; kind: "close"; code: number; reason: string; clean: boolean };
+
+/** One request Plisto made for a plugin. Mirrors NetLogEntry in commands/plugin_fetch.rs. */
+export interface PluginNetLogEntry {
+  at_ms: number;
+  kind: "fetch" | "stream" | "socket";
+  method: string;
+  origin: string;
+  status: number | null;
+  error: string | null;
+  sent: number;
+  received: number;
+  ms: number;
+}
+
 /** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
 export type PluginFrameEventKind = "live" | "not_responding" | "crashed" | "detached";
 

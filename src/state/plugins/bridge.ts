@@ -17,6 +17,12 @@ export const ARGS_MAX_CHARS = 262144;
 /** The most calls of one frame that may await an answer at once. */
 export const MAX_PENDING_PER_FRAME = 32;
 
+/** The largest request body accepted, in bytes. */
+export const BODY_MAX_BYTES = 1048576;
+
+/** The only method that takes a body. */
+export const FETCH_METHOD = "net.fetch";
+
 /** The longest method name accepted. */
 const METHOD_MAX_CHARS = 64;
 
@@ -41,16 +47,30 @@ export interface AppInfo {
 
 export type ApiErrorShape = PluginApiError;
 
-/** The only two messages a frame may send. */
+/** The only two messages a frame may send. `body` is moved with the call and only `net.fetch` takes one. */
 export type FrameToHost =
-  | { plisto: 1; type: "plisto:call"; id: number; method: string; args: string }
+  | { plisto: 1; type: "plisto:call"; id: number; method: string; args: string; body?: ArrayBuffer }
   | { plisto: 1; type: "plisto:pong"; seq: number };
+
+/** One event of a streamed response, for the page that reads it. `seq` counts chunks from 1. */
+export type StreamDelivery =
+  | { stream: string; kind: "chunk"; seq: number; data: ArrayBuffer }
+  | { stream: string; kind: "end" }
+  | { stream: string; kind: "error"; code: string; reason: string | null };
+
+/** One event of an open socket, for the page that holds it. */
+export type SocketDelivery =
+  | { socket: string; kind: "text"; data: string }
+  | { socket: string; kind: "binary"; data: ArrayBuffer }
+  | { socket: string; kind: "close"; code: number; reason: string; clean: boolean };
 
 /**
  * Every message the host sends a frame. `plisto:plugin-event` carries a native plugin's page event and
  * exists in this direction only: the router never accepts it from a frame.
  */
 export type HostToFrame =
+  | ({ plisto: 1; type: "plisto:stream" } & StreamDelivery)
+  | ({ plisto: 1; type: "plisto:socket" } & SocketDelivery)
   | {
       plisto: 1;
       type: "plisto:init";
@@ -127,7 +147,7 @@ export class FrameMap<S> {
 export type Action<S> =
   | { kind: "drop" }
   | { kind: "reply"; rec: FrameRecord<S>; msg: HostToFrame }
-  | { kind: "call"; rec: FrameRecord<S>; callId: number; method: string; args: string }
+  | { kind: "call"; rec: FrameRecord<S>; callId: number; method: string; args: string; body: ArrayBuffer | null }
   | { kind: "pong"; rec: FrameRecord<S>; seq: number };
 
 const DROP = { kind: "drop" } as const;
@@ -154,6 +174,20 @@ function ownValue(obj: object, key: string): unknown {
 function isPlainObject(value: unknown): value is object {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   return Object.getPrototypeOf(value) === Object.prototype;
+}
+
+// The intrinsic getter, taken once: it throws for anything but a real ArrayBuffer (a typed array, a Blob,
+// a SharedArrayBuffer, a proxy, a look-alike with its own byteLength) and runs no code the value carries.
+const bufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get;
+
+/** The byte length of a real ArrayBuffer, or null for any other value. */
+function arrayBufferLength(value: unknown): number | null {
+  if (typeof value !== "object" || value === null || !bufferByteLength) return null;
+  try {
+    return Reflect.apply(bufferByteLength, value, []) as number;
+  } catch {
+    return null;
+  }
 }
 
 /** A shim-composed refusal for one call id. */
@@ -201,13 +235,29 @@ export function route<S>(map: FrameMap<S>, event: RouteInput<S>): Action<S> {
     ) {
       return refusal(rec, callId, "invalid_args", "The call is malformed.");
     }
+    // One descriptor read: an accessor body is refused without running it.
+    const bodyDesc = Object.getOwnPropertyDescriptor(data, "body");
+    let body: ArrayBuffer | null = null;
+    let bodyBytes = 0;
+    if (bodyDesc) {
+      if (method !== FETCH_METHOD) {
+        return refusal(rec, callId, "invalid_args", "Only net.fetch takes a body.");
+      }
+      const length = "value" in bodyDesc ? arrayBufferLength(bodyDesc.value) : null;
+      if (length === null) return refusal(rec, callId, "invalid_args", "The body must be an ArrayBuffer.");
+      body = bodyDesc.value as ArrayBuffer;
+      bodyBytes = length;
+    }
     if (args.length > ARGS_MAX_CHARS) {
       return refusal(rec, callId, "too_large", "The arguments are too large.");
+    }
+    if (bodyBytes > BODY_MAX_BYTES) {
+      return refusal(rec, callId, "too_large", "The body is too large.");
     }
     if (rec.pending >= MAX_PENDING_PER_FRAME) {
       return refusal(rec, callId, "busy", "Too many calls are waiting; retry later.");
     }
-    return { kind: "call", rec, callId, method, args };
+    return { kind: "call", rec, callId, method, args, body };
   } catch {
     return DROP;
   }
@@ -260,4 +310,12 @@ export function routeMsg(routePath: string | null): HostToFrame {
 /** A page event from the plugin's native process. */
 export function pluginEventMsg(topic: string, data: unknown): HostToFrame {
   return { plisto: PROTOCOL, type: "plisto:plugin-event", topic, data };
+}
+
+export function streamMsg(delivery: StreamDelivery): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:stream", ...delivery };
+}
+
+export function socketMsg(delivery: SocketDelivery): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:socket", ...delivery };
 }
