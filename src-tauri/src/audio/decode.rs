@@ -1,6 +1,7 @@
 /*
- * The one module that owns symphonia. It turns a file path into a pull-based PCM stream: the caller
- * asks for the next packet and gets interleaved f32 in [-1, 1], whatever the source sample format.
+ * The one module that owns symphonia. It turns a file path, or bytes arriving over time, into a
+ * pull-based PCM stream: the caller asks for the next packet and gets interleaved f32 in [-1, 1],
+ * whatever the source sample format.
  * A pull API is what lets one decoder feed two consumers at two drain rates - the player pulls a
  * packet at a time as it plays, the splicer drains the whole file for peaks and silence. No playback
  * type leaks in here, so the splicer never inherits a playback dependency. Symphonia decodes every
@@ -14,10 +15,12 @@ use std::path::Path;
 
 use opus_rs::OpusDecoder;
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{Decoder as SymphoniaDecoder, DecoderOptions, CODEC_TYPE_OPUS};
-use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::codecs::{
+    CodecParameters, Decoder as SymphoniaDecoder, DecoderOptions, CODEC_TYPE_OPUS,
+};
+use symphonia::core::errors::{Error as SymphoniaError, SeekErrorKind};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::units::{Time, TimeBase};
@@ -98,7 +101,6 @@ impl Decoder {
     /// else that fails to open returns `Open`.
     pub fn open(path: &Path) -> Result<Decoder, DecodeError> {
         let file = File::open(path).map_err(|_| DecodeError::Open)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         // Seed the probe with the extension so a raw stream with no container magic still routes.
         let mut hint = Hint::new();
@@ -106,59 +108,22 @@ impl Decoder {
             hint.with_extension(ext);
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
-                &hint,
-                mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
-            )
-            .map_err(map_open_error)?;
+        Decoder::open_media(Box::new(file), hint)
+    }
 
-        let format = probed.format;
-        let track = format
-            .default_track()
-            .ok_or(DecodeError::Open)?;
+    /// `open` over any media source: a file, or bytes that arrive over time. An unseekable source
+    /// plays from the front only.
+    pub fn open_media(source: Box<dyn MediaSource>, hint: Hint) -> Result<Decoder, DecodeError> {
+        Decoder::from_format(probe_media(source, &hint)?)
+    }
 
+    /// Builds the decoder for the default audio track of an already probed container.
+    pub(crate) fn from_format(format: Box<dyn FormatReader>) -> Result<Decoder, DecodeError> {
+        let track = format.default_track().ok_or(DecodeError::Open)?;
         let track_id = track.id;
-        let params = &track.codec_params;
-        let total_frames = params.n_frames;
-        let time_base = params.time_base;
-
-        // Opus rides its own decoder: symphonia demuxes the Ogg-Opus packets but ships no Opus decoder,
-        // so opus-rs takes the packet bytes. Opus always yields 48 kHz PCM, so the spec is fixed here;
-        // the container's rate hint is the granule clock, not the decoded rate.
-        let (backend, spec) = if params.codec == CODEC_TYPE_OPUS {
-            let channels = params.channels.map(|c| c.count()).unwrap_or(2);
-            // The opus-rs decoder tops out at stereo; music never exceeds it, and multistream Opus is
-            // out of scope.
-            if channels == 0 || channels > 2 {
-                return Err(DecodeError::Unsupported);
-            }
-            // OpusHead pre-skip: the encoder's priming frames, dropped from the front of the stream.
-            let pre_skip = params.delay.unwrap_or(0);
-            let dec = OpusDecoder::new(48_000, channels).map_err(|_| DecodeError::Open)?;
-            let backend = Backend::Opus(Box::new(OpusBackend {
-                dec,
-                channels,
-                out: vec![0.0; MAX_OPUS_FRAME * channels],
-                skip: pre_skip,
-            }));
-            let spec = AudioSpec {
-                sample_rate: 48_000,
-                channels: channels as u16,
-            };
-            (backend, spec)
-        } else {
-            let spec = AudioSpec {
-                sample_rate: params.sample_rate.unwrap_or(0),
-                channels: params.channels.map(|c| c.count() as u16).unwrap_or(0),
-            };
-            let decoder = symphonia::default::get_codecs()
-                .make(params, &DecoderOptions::default())
-                .map_err(map_open_error)?;
-            (Backend::Symphonia(decoder), spec)
-        };
+        let total_frames = track.codec_params.n_frames;
+        let time_base = track.codec_params.time_base;
+        let (backend, spec) = build_backend(&track.codec_params)?;
 
         Ok(Decoder {
             format,
@@ -171,6 +136,31 @@ impl Decoder {
             buf_rate: 0,
             buf_channels: 0,
         })
+    }
+
+    /// `declared_spec` of the container's current default track: after a `Reset`, the next one.
+    pub(crate) fn declared_track_spec(&self) -> AudioSpec {
+        declared_spec(&*self.format)
+    }
+
+    /// Rebuilds the backend from the container's current default track, after `pull` reported
+    /// `Reset`: a chained Ogg stream starts a new logical stream with its own codec setup.
+    pub(crate) fn reset_track(&mut self) -> Result<(), DecodeError> {
+        let track = self.format.default_track().ok_or(DecodeError::Open)?;
+        let track_id = track.id;
+        let total_frames = track.codec_params.n_frames;
+        let time_base = track.codec_params.time_base;
+        let (backend, spec) = build_backend(&track.codec_params)?;
+
+        self.backend = backend;
+        self.track_id = track_id;
+        self.spec = spec;
+        self.total_frames = total_frames;
+        self.time_base = time_base;
+        self.sample_buf = None;
+        self.buf_rate = 0;
+        self.buf_channels = 0;
+        Ok(())
     }
 
     /// The stream's rate and channel count as the container reports them. A container that withholds
@@ -203,12 +193,22 @@ impl Decoder {
     /// Packets belonging to other tracks are skipped, and a single corrupt packet is skipped rather
     /// than ending the stream, so one bad frame in the middle does not truncate playback.
     pub fn next_packet(&mut self) -> Option<PcmChunk> {
+        match self.pull() {
+            Pull::Chunk(chunk) => Some(chunk),
+            Pull::Reset | Pull::End | Pull::Error => None,
+        }
+    }
+
+    /// `next_packet` that tells a reset demand apart from the end, so a caller can rebuild with
+    /// `reset_track` and carry on.
+    pub(crate) fn pull(&mut self) -> Pull {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(p) => p,
-                // A clean end of stream and any read failure both end the pull; the caller treats
-                // None as done.
-                Err(_) => return None,
+                Err(SymphoniaError::ResetRequired) => return Pull::Reset,
+                // A clean end of stream and any read failure both end the pull.
+                Err(e) if is_end(&e) => return Pull::End,
+                Err(_) => return Pull::Error,
             };
 
             if packet.track_id() != self.track_id {
@@ -233,22 +233,25 @@ impl Decoder {
                             self.buf_channels = channels;
                         }
 
-                        let buf = self.sample_buf.as_mut()?;
+                        let Some(buf) = self.sample_buf.as_mut() else {
+                            return Pull::Error;
+                        };
                         buf.copy_interleaved_ref(decoded);
 
                         self.spec = AudioSpec {
                             sample_rate: rate,
                             channels: channels as u16,
                         };
-                        return Some(PcmChunk {
+                        return Pull::Chunk(PcmChunk {
                             samples: buf.samples().to_vec(),
                             spec: self.spec,
                         });
                     }
                     // A decode error on one packet is recoverable: skip it and pull the next.
                     Err(SymphoniaError::DecodeError(_)) => continue,
-                    // Anything else (a reset demand, an I/O failure) ends the stream cleanly.
-                    Err(_) => return None,
+                    Err(SymphoniaError::ResetRequired) => return Pull::Reset,
+                    // Anything else (an I/O failure) ends the stream cleanly.
+                    Err(_) => return Pull::Error,
                 },
                 Backend::Opus(ob) => match ob.dec.decode(&packet.data, MAX_OPUS_FRAME, &mut ob.out) {
                     Ok(spc) => {
@@ -264,7 +267,7 @@ impl Decoder {
                         if frames == 0 {
                             continue;
                         }
-                        return Some(PcmChunk {
+                        return Pull::Chunk(PcmChunk {
                             samples: ob.out[start..start + frames * ob.channels].to_vec(),
                             spec: self.spec,
                         });
@@ -280,16 +283,28 @@ impl Decoder {
     /// enough for the player to then refine by decoding forward. Clears the decoder so no stale state
     /// bleeds across the jump - symphonia resets in place, the Opus decoder is rebuilt.
     pub fn seek(&mut self, secs: f64) -> Result<(), DecodeError> {
+        match self.seek_in_range(secs) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(DecodeError::Decode),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `seek` that tells a target past the end apart: Ok(false), with the position unchanged.
+    pub(crate) fn seek_in_range(&mut self, secs: f64) -> Result<bool, DecodeError> {
         let time = Time::from(secs.max(0.0));
-        self.format
-            .seek(
-                SeekMode::Coarse,
-                SeekTo::Time {
-                    time,
-                    track_id: Some(self.track_id),
-                },
-            )
-            .map_err(|_| DecodeError::Decode)?;
+        let seeked = self.format.seek(
+            SeekMode::Coarse,
+            SeekTo::Time {
+                time,
+                track_id: Some(self.track_id),
+            },
+        );
+        match seeked {
+            Ok(_) => {}
+            Err(SymphoniaError::SeekError(SeekErrorKind::OutOfRange)) => return Ok(false),
+            Err(_) => return Err(DecodeError::Decode),
+        }
         match &mut self.backend {
             // Reset clears the symphonia decoder so no stale state bleeds across the jump.
             Backend::Symphonia(decoder) => decoder.reset(),
@@ -300,8 +315,96 @@ impl Decoder {
                 ob.skip = OPUS_SEEK_PREROLL;
             }
         }
-        Ok(())
+        Ok(true)
     }
+}
+
+/// One step of `Decoder::pull`. `Reset` is the container starting a new logical stream (a chained
+/// Ogg): the backend must be rebuilt before the next pull. `End` is the bytes running out; `Error`
+/// is any other failure that stops the pull, from the source or the data.
+pub(crate) enum Pull {
+    Chunk(PcmChunk),
+    Reset,
+    End,
+    Error,
+}
+
+// A container error that only means the bytes ran out.
+fn is_end(err: &SymphoniaError) -> bool {
+    matches!(err, SymphoniaError::IoError(e) if e.kind() == std::io::ErrorKind::UnexpectedEof)
+}
+
+/// Probes `source` for its container, seeded by `hint`.
+pub(crate) fn probe_media(
+    source: Box<dyn MediaSource>,
+    hint: &Hint,
+) -> Result<Box<dyn FormatReader>, DecodeError> {
+    let mss = MediaSourceStream::new(source, Default::default());
+    let probed = symphonia::default::get_probe()
+        .format(
+            hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(map_open_error)?;
+    Ok(probed.format)
+}
+
+/// The rate and channel count the container's default track declares, zero where it is silent.
+/// Read before a backend sizes anything from them.
+pub(crate) fn declared_spec(format: &dyn FormatReader) -> AudioSpec {
+    let Some(track) = format.default_track() else {
+        return AudioSpec {
+            sample_rate: 0,
+            channels: 0,
+        };
+    };
+    let params = &track.codec_params;
+    AudioSpec {
+        sample_rate: params.sample_rate.unwrap_or(0),
+        channels: params
+            .channels
+            .map(|c| c.count().min(u16::MAX as usize) as u16)
+            .unwrap_or(0),
+    }
+}
+
+/// Builds the decode backend for one track and the spec it starts with.
+fn build_backend(params: &CodecParameters) -> Result<(Backend, AudioSpec), DecodeError> {
+    // Opus rides its own decoder: symphonia demuxes the Ogg-Opus packets but ships no Opus decoder,
+    // so opus-rs takes the packet bytes. Opus always yields 48 kHz PCM, so the spec is fixed here;
+    // the container's rate hint is the granule clock, not the decoded rate.
+    if params.codec == CODEC_TYPE_OPUS {
+        let channels = params.channels.map(|c| c.count()).unwrap_or(2);
+        // The opus-rs decoder tops out at stereo; music never exceeds it, and multistream Opus is
+        // out of scope.
+        if channels == 0 || channels > 2 {
+            return Err(DecodeError::Unsupported);
+        }
+        // OpusHead pre-skip: the encoder's priming frames, dropped from the front of the stream.
+        let pre_skip = params.delay.unwrap_or(0);
+        let dec = OpusDecoder::new(48_000, channels).map_err(|_| DecodeError::Open)?;
+        let backend = Backend::Opus(Box::new(OpusBackend {
+            dec,
+            channels,
+            out: vec![0.0; MAX_OPUS_FRAME * channels],
+            skip: pre_skip,
+        }));
+        let spec = AudioSpec {
+            sample_rate: 48_000,
+            channels: channels as u16,
+        };
+        return Ok((backend, spec));
+    }
+    let spec = AudioSpec {
+        sample_rate: params.sample_rate.unwrap_or(0),
+        channels: params.channels.map(|c| c.count() as u16).unwrap_or(0),
+    };
+    let decoder = symphonia::default::get_codecs()
+        .make(params, &DecoderOptions::default())
+        .map_err(map_open_error)?;
+    Ok((Backend::Symphonia(decoder), spec))
 }
 
 /// Maps a symphonia open/build failure to the coarse error the app surfaces: a format or codec

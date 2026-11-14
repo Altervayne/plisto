@@ -29,6 +29,7 @@ mod queue;
 pub mod silence;
 mod source;
 pub mod spectrum;
+pub mod stream;
 mod tap;
 mod tap_map;
 
