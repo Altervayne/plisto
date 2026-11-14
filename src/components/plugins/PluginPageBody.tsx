@@ -7,7 +7,8 @@ import { NotRespondingOverlay } from "./frames/NotRespondingOverlay";
 
 // -- Utils Imports --
 import { disablePlugin } from "./frames/disablePlugin";
-import { restartPlugin } from "../../state/plugins/restartPlugin";
+import { usePluginStatusOf } from "../../state/plugins/pluginStatus";
+import { restartFromPage } from "../../state/plugins/restartPlugin";
 
 // -- Type Imports --
 import type { CrashDetail, PageBody } from "../../state/plugins/statusModel";
@@ -38,6 +39,7 @@ export function PluginPageBody({
   detail: CrashDetail | null;
 }) {
   const t = useT();
+  const status = usePluginStatusOf(plugin.id);
   const name = plugin.manifest?.name ?? plugin.id;
   const [waited, setWaited] = useState(false);
 
@@ -63,7 +65,7 @@ export function PluginPageBody({
           name={name}
           variant={body.kind}
           detail={detail}
-          onRestart={() => restartPlugin(plugin)}
+          onRestart={() => restartFromPage(plugin, status)}
           onDisable={() => disablePlugin(plugin.id)}
         />
       );
