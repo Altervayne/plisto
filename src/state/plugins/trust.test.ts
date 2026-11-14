@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { SANDBOX_PROBE, sheetVariant, tagKind } from "./trust";
+import { probeOutcome, sheetVariant, tagKind } from "./trust";
 
 describe("the sheet variant", () => {
   it("is heavy for a native plugin whatever the probe says", () => {
@@ -15,9 +15,20 @@ describe("the sheet variant", () => {
     expect(sheetVariant("ui", "not_passed")).toBe("unsandboxed");
   });
 
-  it("follows the recorded outcome by default", () => {
-    expect(sheetVariant("ui")).toBe(sheetVariant("ui", SANDBOX_PROBE));
-    expect(SANDBOX_PROBE).toBe("passed");
+  it("reads the live check outcome: only a leak makes it unsandboxed", () => {
+    expect(sheetVariant("ui", probeOutcome("leaking"))).toBe("unsandboxed");
+    for (const outcome of ["pending", "passed", "unverified"] as const) {
+      expect(sheetVariant("ui", probeOutcome(outcome))).toBe("calm");
+    }
+  });
+});
+
+describe("the probe outcome", () => {
+  it("maps a leak to not_passed and every other state to passed", () => {
+    expect(probeOutcome("leaking")).toBe("not_passed");
+    expect(probeOutcome("passed")).toBe("passed");
+    expect(probeOutcome("pending")).toBe("passed");
+    expect(probeOutcome("unverified")).toBe("passed");
   });
 });
 

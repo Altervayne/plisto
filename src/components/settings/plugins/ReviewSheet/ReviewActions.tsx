@@ -4,6 +4,9 @@ import { useState } from "react";
 // -- Component Imports --
 import { CheckRow } from "../../../plugins/CheckRow";
 
+// -- State Imports --
+import { useProbe } from "../../../../state/plugins/sandboxStore";
+
 // -- Utils Imports --
 import { canConfirm, isCompatible, needsTick } from "../../../../state/plugins/review";
 
@@ -34,7 +37,8 @@ export function ReviewActions({
 }) {
   const t = useT();
   const [ticked, setTicked] = useState(false);
-  const tick = needsTick(subject, mode);
+  const probe = useProbe();
+  const tick = needsTick(subject, mode, probe);
   const compatible = isCompatible(subject);
   const minVersion = subject.compat.state === "needs_newer" ? subject.compat.min_plisto : "";
 
@@ -59,7 +63,7 @@ export function ReviewActions({
         <button
           type="button"
           className={styles.confirm}
-          disabled={!canConfirm(subject, mode, ticked, false)}
+          disabled={!canConfirm(subject, mode, ticked, false, probe)}
           onClick={() => onConfirm(ticked)}
         >
           {mode === "install"

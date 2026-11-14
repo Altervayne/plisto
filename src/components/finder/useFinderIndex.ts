@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 // -- State Imports --
 import { useAppStore } from "../../state/store";
+import { useProbe } from "../../state/plugins/sandboxStore";
 import { useOrganizeStore } from "../../state/organize/store";
 import { usePlaylistsStore } from "../../state/playlists/store";
 import { useAppMode } from "../../state/player/store";
@@ -85,13 +86,18 @@ export function useFinderIndex(): {
   );
 
   const zone = usePluginZone();
+  const probe = useProbe();
   const plugins = useMemo(
     () =>
-      pluginEntries(zone, {
-        sublabel: t((d) => d.plugins.finderSublabel),
-        item: (plugin, item) => t((d) => d.plugins.finderItem, { plugin, item }),
-      }),
-    [zone, t],
+      pluginEntries(
+        zone,
+        {
+          sublabel: t((d) => d.plugins.finderSublabel),
+          item: (plugin, item) => t((d) => d.plugins.finderItem, { plugin, item }),
+        },
+        probe,
+      ),
+    [zone, t, probe],
   );
 
   return { index, destinations, plugins };

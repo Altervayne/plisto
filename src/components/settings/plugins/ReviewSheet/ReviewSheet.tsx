@@ -12,6 +12,9 @@ import { SheetHeader } from "./SheetHeader";
 import { UnsandboxedBody } from "./UnsandboxedBody";
 import { ScrollArea } from "../../../common/ScrollArea/ScrollArea";
 
+// -- State Imports --
+import { useProbe } from "../../../../state/plugins/sandboxStore";
+
 // -- Utils Imports --
 import { variantOf } from "../../../../state/plugins/review";
 
@@ -31,9 +34,9 @@ function iconOf(state: ReviewState): IconSource {
     : { kind: "installed", id: state.subject.id, hash: state.hash ?? "" };
 }
 
-/** The variant body for the subject's tier and the recorded sandbox outcome. */
+/** The variant body for the subject's tier and the sandbox check's live outcome. */
 function VariantBody({ state }: { state: ReviewState }) {
-  const variant = variantOf(state.subject);
+  const variant = variantOf(state.subject, useProbe());
   const props = { subject: state.subject, mode: state.mode, lead: state.lead };
   if (variant === "heavy") return <HeavyBody {...props} />;
   if (variant === "unsandboxed") return <UnsandboxedBody {...props} />;

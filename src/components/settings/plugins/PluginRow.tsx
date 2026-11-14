@@ -13,6 +13,7 @@ import { PluginRowPanel } from "./PluginRowPanel";
 
 // -- State Imports --
 import { useClearPluginHubFocus, usePluginHubFocus } from "../../../state/shell/store";
+import { useProbe } from "../../../state/plugins/sandboxStore";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 
 // -- Utils Imports --
@@ -85,7 +86,8 @@ export function PluginRow({
   const clearFocus = useClearPluginHubFocus();
   const [open, setOpen] = useState(focus === row.id);
   const wrap = useRef<HTMLDivElement>(null);
-  const view = rowView(row);
+  const probe = useProbe();
+  const view = rowView(row, probe);
   const hub = usePluginStatusView(row).hub;
   const hubWarn = hub != null && hub.kind !== "reported" && hub.kind !== "starting";
 

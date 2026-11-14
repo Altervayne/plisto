@@ -51,8 +51,8 @@ describe("the subject of a review", () => {
 
 describe("which sheet", () => {
   it("is calm for a sandboxed plugin and heavy for a native one", () => {
-    expect(variantOf(subjectFromInspection(inspection()))).toBe("calm");
-    expect(variantOf(subjectFromInspection(inspection({ tier: "native" })))).toBe("heavy");
+    expect(variantOf(subjectFromInspection(inspection()), "passed")).toBe("calm");
+    expect(variantOf(subjectFromInspection(inspection({ tier: "native" })), "passed")).toBe("heavy");
   });
 });
 
@@ -61,26 +61,33 @@ describe("the tick before confirming", () => {
   const calm = subjectFromInspection(inspection());
 
   it("is required to install or approve a native plugin", () => {
-    expect(needsTick(native, "install")).toBe(true);
-    expect(needsTick(native, "consent")).toBe(true);
-    expect(canConfirm(native, "install", false, false)).toBe(false);
-    expect(canConfirm(native, "install", true, false)).toBe(true);
-    expect(canConfirm(native, "consent", false, false)).toBe(false);
+    expect(needsTick(native, "install", "passed")).toBe(true);
+    expect(needsTick(native, "consent", "passed")).toBe(true);
+    expect(canConfirm(native, "install", false, false, "passed")).toBe(false);
+    expect(canConfirm(native, "install", true, false, "passed")).toBe(true);
+    expect(canConfirm(native, "consent", false, false, "passed")).toBe(false);
+  });
+
+  it("is required for a UI plugin only when the sandbox check did not pass", () => {
+    expect(needsTick(calm, "install", "not_passed")).toBe(true);
+    expect(needsTick(calm, "install", "passed")).toBe(false);
+    expect(needsTick(native, "install", "not_passed")).toBe(true);
+    expect(needsTick(native, "install", "passed")).toBe(true);
   });
 
   it("is not required for a plain update, which does not turn anything on", () => {
-    expect(needsTick(native, "update")).toBe(false);
-    expect(canConfirm(native, "update", false, false)).toBe(true);
+    expect(needsTick(native, "update", "passed")).toBe(false);
+    expect(canConfirm(native, "update", false, false, "passed")).toBe(true);
   });
 
   it("is not required on the calm sheet", () => {
-    expect(canConfirm(calm, "install", false, false)).toBe(true);
+    expect(canConfirm(calm, "install", false, false, "passed")).toBe(true);
   });
 
   it("never confirms while a command runs or for a plugin this Plisto cannot run", () => {
-    expect(canConfirm(calm, "install", true, true)).toBe(false);
+    expect(canConfirm(calm, "install", true, true, "passed")).toBe(false);
     const newer = subjectFromInspection(inspection({ compat: { state: "needs_newer", min_plisto: "9.0.0" } }));
-    expect(canConfirm(newer, "install", true, false)).toBe(false);
+    expect(canConfirm(newer, "install", true, false, "passed")).toBe(false);
   });
 });
 

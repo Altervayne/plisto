@@ -70,6 +70,8 @@ import type {
   RepeatMode,
   Root,
   RootRemovalImpact,
+  SandboxCheckCounts,
+  SandboxCheckSinks,
   ScanIssuePage,
   ScanIssueReason,
   ScanIssueRetryResult,
@@ -1307,6 +1309,16 @@ export function pluginNetLog(id: string): Promise<PluginNetLogEntry[]> {
 /** Whether Windows is set to use a proxy on the current network. */
 export function pluginNetEnvironment(): Promise<PluginNetEnvironment> {
   return invoke<PluginNetEnvironment>("plugin_net_environment");
+}
+
+/** Opens the loopback listeners the sandbox self-check aims its WebRTC traffic at. */
+export function sandboxCheckOpen(): Promise<SandboxCheckSinks> {
+  return invoke<SandboxCheckSinks>("sandbox_check_open");
+}
+
+/** Closes the listeners and returns how much traffic reached them. */
+export function sandboxCheckClose(token: string): Promise<SandboxCheckCounts> {
+  return invoke<SandboxCheckCounts>("sandbox_check_close", { token });
 }
 
 /** Reports whether a plugin's page is the shown destination with its frame live. */

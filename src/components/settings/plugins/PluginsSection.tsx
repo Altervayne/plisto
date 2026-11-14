@@ -19,6 +19,7 @@ import { useRowActions } from "./useRowActions";
 
 // -- State Imports --
 import { usePlugins, usePluginsStatus } from "../../../state/plugins/store";
+import { useSandboxLeaking } from "../../../state/plugins/sandboxStore";
 import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
 
 // -- IPC Imports --
@@ -50,6 +51,7 @@ export function PluginsSection() {
   const t = useT();
   const rows = usePlugins();
   const status = usePluginsStatus();
+  const leaking = useSandboxLeaking();
   const lock = useOperationLock();
   const flow = useReviewFlow(lock);
   const actions = useRowActions(lock, flow.openReview);
@@ -87,6 +89,8 @@ export function PluginsSection() {
     <section className={settingsStyles.section}>
       <h2 className={settingsStyles.label}>{t((d) => d.plugins.section)}</h2>
       <p className={settingsStyles.helper}>{t((d) => d.plugins.intro)}</p>
+
+      {leaking ? <p className={styles.leak}>{t((d) => d.plugins.sandboxLeak)}</p> : null}
 
       <div className={styles.group}>
         <span className={styles.sub}>{t((d) => d.plugins.installedLabel)}</span>

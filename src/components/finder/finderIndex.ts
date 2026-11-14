@@ -16,7 +16,7 @@ import { tagKind } from "../../state/plugins/trust";
 
 // -- Type Imports --
 import type { BuiltInMode, PluginZoneModel, ZonePlugin } from "../shell/navVisibility";
-import type { PluginTagKind } from "../../state/plugins/trust";
+import type { PluginTagKind, ProbeOutcome } from "../../state/plugins/trust";
 import type { FinderDestination, SegmentDestination } from "./finderDestinations";
 import type { AppMode } from "../../state/player/store";
 import type {
@@ -350,6 +350,7 @@ function pluginEntry(
   label: string,
   route: string | null,
   text: PluginEntryText,
+  probe: ProbeOutcome,
 ): PluginEntry {
   return {
     kind: "plugin",
@@ -357,7 +358,7 @@ function pluginEntry(
     pluginId: plugin.id,
     route,
     manifestHash: plugin.manifest_hash,
-    tag: tagKind(plugin.tier),
+    tag: tagKind(plugin.tier, probe),
     label,
     sublabel: text.sublabel,
     fields: foldFields(label),
@@ -370,20 +371,20 @@ function pluginEntry(
  * that owns a section gets a row per nav item, "<plugin>: <item>". A section with no nav item still gets
  * its one plugin row, so the plugin stays reachable. Only plugins the rail draws appear.
  */
-export function pluginEntries(zone: PluginZoneModel, text: PluginEntryText): PluginEntry[] {
+export function pluginEntries(zone: PluginZoneModel, text: PluginEntryText, probe: ProbeOutcome): PluginEntry[] {
   const entries: PluginEntry[] = [];
   for (const { plugin, items } of zone.sections) {
     const nav = items.filter((item) => item.type === "nav");
     if (nav.length === 0) {
-      entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text));
+      entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text, probe));
     }
     for (const item of nav) {
       const label = text.item(plugin.manifest.name, item.label);
-      entries.push(pluginEntry(plugin, `${plugin.id}:${item.id}`, label, item.route, text));
+      entries.push(pluginEntry(plugin, `${plugin.id}:${item.id}`, label, item.route, text, probe));
     }
   }
   for (const plugin of zone.compact) {
-    entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text));
+    entries.push(pluginEntry(plugin, plugin.id, plugin.manifest.name, null, text, probe));
   }
   return entries;
 }

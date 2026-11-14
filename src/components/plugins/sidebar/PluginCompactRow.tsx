@@ -7,6 +7,7 @@ import { StatusDot } from "../StatusDot";
 
 // -- State Imports --
 import { usePluginChips } from "../../../state/plugins/sidebarState";
+import { useProbe } from "../../../state/plugins/sandboxStore";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 
 // -- Utils Imports --
@@ -28,7 +29,7 @@ export function PluginCompactRow({
   active: boolean;
   onOpen: () => void;
 }) {
-  const tag = tagKind(plugin.tier);
+  const tag = tagKind(plugin.tier, useProbe());
   const name = plugin.manifest.name;
   const status = usePluginStatusView(plugin);
   const chips = usePluginChips(plugin.id);

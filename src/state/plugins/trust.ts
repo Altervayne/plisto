@@ -1,7 +1,8 @@
 /*
  * What the sandbox check proved, and the review sheet and tag each plugin tier earns from it. The check
- * is a build-time fact, so the outcome is a constant. A native plugin is always heavy; a UI plugin is
- * calm only once the sandbox is proven, and until then it carries the unsandboxed wording and tag.
+ * is a canary at every start: only a detected leak reads as not passed, so a check that is still running
+ * or could not run changes nothing. A native plugin is always heavy; a UI plugin is calm unless the
+ * sandbox is not passed, and then it carries the unsandboxed wording and tag.
  */
 
 // -- Type Imports --
@@ -10,8 +11,10 @@ import type { PluginTier } from "../../types";
 /** Whether the sandbox check passed. */
 export type ProbeOutcome = "passed" | "not_passed";
 
-/** The recorded outcome of the sandbox check. */
-export const SANDBOX_PROBE: ProbeOutcome = "passed";
+/** What the check found, as the trust model reads it. */
+export function probeOutcome(check: "pending" | "passed" | "leaking" | "unverified"): ProbeOutcome {
+  return check === "leaking" ? "not_passed" : "passed";
+}
 
 /** The review sheet a plugin gets. */
 export type SheetVariant = "calm" | "heavy" | "unsandboxed";
@@ -19,13 +22,13 @@ export type SheetVariant = "calm" | "heavy" | "unsandboxed";
 /** The tag a plugin wears next to its name. */
 export type PluginTagKind = "native" | "unsandboxed";
 
-export function sheetVariant(tier: PluginTier, probe: ProbeOutcome = SANDBOX_PROBE): SheetVariant {
+export function sheetVariant(tier: PluginTier, probe: ProbeOutcome): SheetVariant {
   if (tier === "native") return "heavy";
   return probe === "passed" ? "calm" : "unsandboxed";
 }
 
-/** The tag for a tier, or null when the plugin is sandboxed and proven so. */
-export function tagKind(tier: PluginTier, probe: ProbeOutcome = SANDBOX_PROBE): PluginTagKind | null {
+/** The tag for a tier, or null for a UI plugin unless the check found a leak. */
+export function tagKind(tier: PluginTier, probe: ProbeOutcome): PluginTagKind | null {
   if (tier === "native") return "native";
   return probe === "passed" ? null : "unsandboxed";
 }

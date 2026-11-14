@@ -8,6 +8,7 @@ import { PluginTag } from "./PluginTag";
 
 // -- State Imports --
 import { usePlugins } from "../../state/plugins/store";
+import { useProbe } from "../../state/plugins/sandboxStore";
 import { useCurrentPrompt, usePluginPromptStore } from "../../state/plugins/pluginPrompt";
 
 // -- Utils Imports --
@@ -29,6 +30,7 @@ export function PluginConfirmHost() {
   const t = useT();
   const prompt = useCurrentPrompt();
   const rows = usePlugins();
+  const probe = useProbe();
   const answered = useRef<string | null>(null);
 
   const requestId = prompt?.request_id ?? null;
@@ -54,7 +56,7 @@ export function PluginConfirmHost() {
 
   if (!prompt || !row || !manifest) return null;
 
-  const tag = tagKind(row.tier);
+  const tag = tagKind(row.tier, probe);
   const { title, body, confirm_label, cancel_label } = prompt.payload;
   return (
     <ConfirmDialog

@@ -9,6 +9,7 @@ import { PluginTag } from "./PluginTag";
 
 // -- State Imports --
 import { usePlugins } from "../../state/plugins/store";
+import { useProbe } from "../../state/plugins/sandboxStore";
 import { answerPluginToast, usePluginToast } from "../../state/plugins/pluginToast";
 
 // -- Utils Imports --
@@ -29,7 +30,8 @@ export function PluginToast() {
   const { toast, visible } = usePluginToast();
   const rows = usePlugins();
   const row = toast ? rows.find((r) => r.id === toast.id) : undefined;
-  const line = toast ? toastLine(row, toast) : null;
+  const probe = useProbe();
+  const line = toast ? toastLine(row, toast, probe) : null;
 
   useEffect(() => {
     if (visible && toast && !line) answerPluginToast(toast.request_id, false);

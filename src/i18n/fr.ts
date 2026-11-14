@@ -1444,6 +1444,8 @@ export const fr: Dict = {
       startSafe: "Démarrer sans les plugins",
     },
     actionFailed: "{name} : {message}",
+    sandboxLeak:
+      "La vérification du bac à sable des plugins a échoué sur ce système : une page de plugin pourrait accéder au réseau sans autorisation. Les plugins sont marqués « Sans bac à sable » tant que ce n'est pas corrigé.",
     dataWarning: "{name} a été supprimé, mais ses données enregistrées n'ont pas pu être effacées.",
     sheet: {
       byline: "Par {author}. Déclaré par le plugin, non vérifié.",

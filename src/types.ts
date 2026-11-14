@@ -1192,6 +1192,19 @@ export interface PluginNetEnvironment {
   proxy: "none" | "manual" | "pac" | "detected";
 }
 
+/** The loopback listeners opened for the sandbox self-check. Mirrors the reply of sandbox_check_open. */
+export interface SandboxCheckSinks {
+  token: string;
+  udp_port: number;
+  tcp_port: number;
+}
+
+/** What reached the listeners. Mirrors the reply of sandbox_check_close. */
+export interface SandboxCheckCounts {
+  udp: number;
+  tcp: number;
+}
+
 /** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
 export type PluginFrameEventKind = "live" | "not_responding" | "crashed" | "detached";
 

@@ -30,7 +30,15 @@ function plugin(id: string, over: Partial<PluginRow>, items: PluginSidebarItem[]
   });
 }
 
-const entriesFor = (rows: PluginRow[]) => pluginEntries(pluginZoneModel(rows, "both"), text);
+const entriesFor = (rows: PluginRow[]) => pluginEntries(pluginZoneModel(rows, "both"), text, "passed");
+
+describe("pluginEntries and the sandbox outcome", () => {
+  it("tags a UI plugin only when the probe is not passed", () => {
+    const zone = pluginZoneModel([plugin("lyrics", {}, [nav("home", "/")], "compact")], "both");
+    expect(pluginEntries(zone, text, "passed")[0].tag).toBeNull();
+    expect(pluginEntries(zone, text, "not_passed")[0].tag).toBe("unsandboxed");
+  });
+});
 
 describe("pluginEntries", () => {
   it("gives a compact plugin one row that opens its page", () => {

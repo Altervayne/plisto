@@ -8,7 +8,7 @@
 import { tagKind } from "../../../state/plugins/trust";
 
 // -- Type Imports --
-import type { PluginTagKind } from "../../../state/plugins/trust";
+import type { PluginTagKind, ProbeOutcome } from "../../../state/plugins/trust";
 import type { PluginInboxItem, PluginRow } from "../../../types";
 
 /** The status line of a row, before translation. */
@@ -39,12 +39,12 @@ export interface RowView {
   grey: boolean;
 }
 
-export function rowView(row: PluginRow): RowView {
+export function rowView(row: PluginRow, probe: ProbeOutcome): RowView {
   const m = row.manifest;
   const base = {
     name: m?.name ?? row.id,
     version: m ? row.version : null,
-    tag: m ? tagKind(row.tier) : null,
+    tag: m ? tagKind(row.tier, probe) : null,
   };
   switch (row.state) {
     case "ready":

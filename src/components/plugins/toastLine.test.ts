@@ -17,21 +17,21 @@ const event = (action: string | null = null): PluginToastEvent => ({
 
 describe("toastLine", () => {
   it("names the plugin from its manifest, not from the toast", () => {
-    const line = toastLine(row({ manifest: manifest({ name: "Lyrics" }) }), event());
+    const line = toastLine(row({ manifest: manifest({ name: "Lyrics" }) }), event(), "passed");
     expect(line).toEqual({ name: "Lyrics", tag: null, text: "Found it", action: null });
   });
 
   it("carries the tag its tier earns", () => {
-    expect(toastLine(row({ tier: "native" }), event())?.tag).toBe("native");
-    expect(toastLine(row({ tier: "ui" }), event())?.tag).toBeNull();
+    expect(toastLine(row({ tier: "native" }), event(), "passed")?.tag).toBe("native");
+    expect(toastLine(row({ tier: "ui" }), event(), "passed")?.tag).toBeNull();
   });
 
   it("carries the action label when the toast has one", () => {
-    expect(toastLine(row(), event("Show"))?.action).toBe("Show");
+    expect(toastLine(row(), event("Show"), "passed")?.action).toBe("Show");
   });
 
   it("is null when the plugin row or its manifest is gone", () => {
-    expect(toastLine(undefined, event())).toBeNull();
-    expect(toastLine(row({ manifest: null }), event())).toBeNull();
+    expect(toastLine(undefined, event(), "passed")).toBeNull();
+    expect(toastLine(row({ manifest: null }), event(), "passed")).toBeNull();
   });
 });

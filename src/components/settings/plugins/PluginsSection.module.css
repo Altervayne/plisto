@@ -1,7 +1,7 @@
 /*
  * The groups inside the Plugins section, which takes the settings column's section, label, helper and
- * list styles: the installed and inbox groups, the install buttons, the failed-read line and the
- * message line under them.
+ * list styles: the installed and inbox groups, the install buttons, the failed-read line, the sandbox
+ * warning above the list and the message line under the buttons.
  */
 .group {
   display: flex;
@@ -16,6 +16,15 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
+}
+
+.leak {
+  max-width: 68ch;
+  margin: 0;
+  padding: 2px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
 }
 
 .hint {

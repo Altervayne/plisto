@@ -19,6 +19,7 @@ import { usePluginCollapse } from "./usePluginCollapse";
 
 // -- State Imports --
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
+import { useProbe } from "../../../state/plugins/sandboxStore";
 
 // -- Utils Imports --
 import { tagKind } from "../../../state/plugins/trust";
@@ -83,7 +84,7 @@ export function PluginSection({
   const { plugin, items } = section;
   const { collapsed, toggle } = usePluginCollapse(plugin.id, section.collapsed);
   const itemsId = useId();
-  const tag = tagKind(plugin.tier);
+  const tag = tagKind(plugin.tier, useProbe());
   const name = plugin.manifest.name;
   const activeId = onPage ? activeNavItemId(items, route) : null;
   const status = usePluginStatusView(plugin);

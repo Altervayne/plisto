@@ -2,6 +2,9 @@
 import { PluginIcon } from "../../../plugins/PluginIcon";
 import { PluginTag } from "../../../plugins/PluginTag";
 
+// -- State Imports --
+import { useProbe } from "../../../../state/plugins/sandboxStore";
+
 // -- Utils Imports --
 import { tagKind } from "../../../../state/plugins/trust";
 
@@ -26,7 +29,7 @@ export function SheetHeader({
   titleId: string;
 }) {
   const t = useT();
-  const tag = tagKind(subject.tier);
+  const tag = tagKind(subject.tier, useProbe());
 
   return (
     <div className={styles.header}>

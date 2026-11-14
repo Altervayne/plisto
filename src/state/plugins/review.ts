@@ -11,7 +11,7 @@ import { versionChange } from "./version";
 
 // -- Type Imports --
 import type { VersionChange } from "./version";
-import type { SheetVariant } from "./trust";
+import type { ProbeOutcome, SheetVariant } from "./trust";
 import type {
   PluginCapability,
   PluginCompat,
@@ -106,7 +106,8 @@ export function subjectFromRow(row: PluginRow, previous: ReviewPrevious | null =
 }
 
 /** Which of the three sheets the subject gets. */
-export const variantOf = (subject: ReviewSubject): SheetVariant => sheetVariant(subject.tier);
+export const variantOf = (subject: ReviewSubject, probe: ProbeOutcome): SheetVariant =>
+  sheetVariant(subject.tier, probe);
 
 /** Whether a capability was not part of what was approved before. False when nothing is known. */
 export function isNewCapability(subject: ReviewSubject, capability: PluginCapability): boolean {
@@ -132,8 +133,8 @@ export const updateChange = (subject: ReviewSubject): VersionChange =>
   subject.previous ? versionChange(subject.previous.version, subject.version) : "unknown";
 
 /** Whether the confirm turns the plugin on, which is when the user must say they understand. */
-export function needsTick(subject: ReviewSubject, mode: ReviewMode): boolean {
-  return mode !== "update" && variantOf(subject) !== "calm";
+export function needsTick(subject: ReviewSubject, mode: ReviewMode, probe: ProbeOutcome): boolean {
+  return mode !== "update" && variantOf(subject, probe) !== "calm";
 }
 
 /** Whether this Plisto can run the plugin. */
@@ -145,9 +146,10 @@ export function canConfirm(
   mode: ReviewMode,
   ticked: boolean,
   busy: boolean,
+  probe: ProbeOutcome,
 ): boolean {
   if (busy || !isCompatible(subject)) return false;
-  return !needsTick(subject, mode) || ticked;
+  return !needsTick(subject, mode, probe) || ticked;
 }
 
 /** The arguments of the `plugin_enable` that turns on what the sheet showed. */

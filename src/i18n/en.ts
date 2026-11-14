@@ -1429,6 +1429,8 @@ export const en = {
       startSafe: "Start without plugins",
     },
     actionFailed: "{name}: {message}",
+    sandboxLeak:
+      "Plisto's check of the plugin sandbox failed on this system: a plugin page could reach the network without permission. Plugins are marked Unsandboxed until this is fixed.",
     dataWarning: "{name} was removed, but its saved data could not be deleted.",
     sheet: {
       byline: "By {author}. Declared by the plugin, not verified.",

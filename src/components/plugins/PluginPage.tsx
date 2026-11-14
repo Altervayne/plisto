@@ -9,6 +9,7 @@ import { PluginTag } from "./PluginTag";
 
 // -- State Imports --
 import { useFrameHealth } from "../../state/plugins/frameHealth";
+import { useProbe } from "../../state/plugins/sandboxStore";
 import { useFrameSlotStore } from "../../state/plugins/frameSlot";
 import { frameCapable, pluginRuntimeReady } from "../../state/plugins/frameModel";
 import { usePluginStatusOf } from "../../state/plugins/pluginStatus";
@@ -46,6 +47,7 @@ export function PluginPage({ id }: { id: string }) {
   const plugin = usePlugin(id);
   const health = useFrameHealth(id);
   const boot = usePluginsBoot();
+  const probe = useProbe();
   const status = usePluginStatusOf(id);
   const recess = useRef<HTMLDivElement>(null);
 
@@ -58,7 +60,7 @@ export function PluginPage({ id }: { id: string }) {
   }, [id]);
 
   if (!plugin || !plugin.manifest) return null;
-  const tag = tagKind(plugin.tier);
+  const tag = tagKind(plugin.tier, probe);
   const name = plugin.manifest.name;
   const framed = frameCapable(plugin);
   const runtimeReady = pluginRuntimeReady(boot);

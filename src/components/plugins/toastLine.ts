@@ -2,7 +2,7 @@
 import { tagKind } from "../../state/plugins/trust";
 
 // -- Type Imports --
-import type { PluginTagKind } from "../../state/plugins/trust";
+import type { PluginTagKind, ProbeOutcome } from "../../state/plugins/trust";
 import type { PluginToastEvent } from "../../state/plugins/uiQueue";
 import type { PluginRow } from "../../types";
 
@@ -19,11 +19,11 @@ export interface ToastLine {
  * The pill's content for a toast, or null when the plugin's row or manifest is gone and there is no
  * trustworthy name to draw it under.
  */
-export function toastLine(row: PluginRow | undefined, event: PluginToastEvent): ToastLine | null {
+export function toastLine(row: PluginRow | undefined, event: PluginToastEvent, probe: ProbeOutcome): ToastLine | null {
   if (!row?.manifest) return null;
   return {
     name: row.manifest.name,
-    tag: tagKind(row.tier),
+    tag: tagKind(row.tier, probe),
     text: event.payload.text,
     action: event.payload.action,
   };

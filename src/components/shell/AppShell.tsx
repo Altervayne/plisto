@@ -80,6 +80,7 @@ import { restoreResume } from "../../state/player/restoreResume";
 import { useResumeWriter } from "../../state/player/useResumeWriter";
 import { useLibrarySync } from "../../state/useLibrarySync";
 import { usePluginsSync } from "../../state/plugins/usePluginsSync";
+import { useSandboxCheck } from "../../state/plugins/sandboxStore";
 import { usePluginStatusSync } from "../../state/plugins/usePluginStatus";
 import { usePluginNet } from "../../state/plugins/usePluginNet";
 import { usePluginPageEvents } from "../../state/plugins/usePluginPageEvents";
@@ -179,6 +180,8 @@ export function AppShell({
   useLibrarySync();
   // The plugin registry, read at boot and kept live by the backend's change event.
   usePluginsSync();
+  // The sandbox self-check of this start, which decides whether plugins wear the unsandboxed tag.
+  useSandboxCheck();
   // The supervised status of every serving plugin, for the rail dots, pages and hub lines.
   usePluginStatusSync();
   // The toasts, prompts, chips and item states plugins set, fed in for the shell's life.
