@@ -10,6 +10,7 @@ import { create } from "zustand";
 
 // -- IPC Imports --
 import { getSetting, setSetting } from "../../lib/ipc";
+import { withRetry } from "../../lib/withRetry";
 
 // -- State Imports --
 import {
@@ -67,10 +68,14 @@ export const PREF_KEYS = {
   collectionBrowseGroup: "collection_browse_group",
   // The album id Browse last rested on.
   collectionBrowseFocus: "collection_browse_focus",
+  // The Export screen's remembered setups: the last one plus one per destination, a JSON blob.
+  exportSetups: "export_setups",
 } as const;
 
 interface PreferencesStore {
   values: Record<string, string>;
+  /** Keys whose boot read failed even after retries. */
+  failedKeys: ReadonlySet<string>;
   loaded: boolean;
 
   loadPreferences: () => Promise<void>;
@@ -80,24 +85,28 @@ interface PreferencesStore {
 
 export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
   values: {},
+  failedKeys: new Set<string>(),
   loaded: false,
 
   loadPreferences: async () => {
     const reads = await Promise.all(
       Object.values(PREF_KEYS).map(async (key) => {
-        // A failed read leaves the key absent, so the consumer keeps its default.
+        // A read that still fails after the retries leaves the key absent and is recorded, so a
+        // consumer that must not overwrite stored data can tell a failed read from an empty one.
         try {
-          return [key, await getSetting(key)] as const;
+          return [key, await withRetry(() => getSetting(key)), true] as const;
         } catch {
-          return [key, null] as const;
+          return [key, null, false] as const;
         }
       }),
     );
     const values: Record<string, string> = {};
-    for (const [key, value] of reads) {
-      if (value != null) values[key] = value;
+    const failedKeys = new Set<string>();
+    for (const [key, value, ok] of reads) {
+      if (!ok) failedKeys.add(key);
+      else if (value != null) values[key] = value;
     }
-    set({ values, loaded: true });
+    set({ values, failedKeys, loaded: true });
   },
 
   getPreference: (key) => get().values[key],

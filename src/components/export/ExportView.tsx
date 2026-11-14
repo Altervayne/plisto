@@ -19,6 +19,7 @@ import { ExportSections } from "./ExportSections";
 
 // -- Hook Imports --
 import { useExportChanges } from "./useExportChanges";
+import { useExportSetup } from "./useExportSetup";
 
 // -- State Imports --
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
@@ -51,8 +52,7 @@ import { useT } from "../../i18n";
 // -- Type Imports --
 import type { ExportScope as Scope } from "./scopeState";
 import type { ExportPreset } from "./templates";
-import type { PlaylistShape } from "./ExportSections";
-import type { DestinationCheck, ExportProgress, ExportSummary, ExportTarget } from "../../types";
+import type { ExportProgress, ExportSummary } from "../../types";
 
 // -- Style Imports --
 import styles from "./ExportView.module.css";
@@ -75,26 +75,35 @@ export function ExportView() {
   const t = useT();
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [target, setTarget] = useState<ExportTarget | null>(null);
-  const [check, setCheck] = useState<DestinationCheck | null>(null);
+  // The destination and the remembered choices, restored on open. Device mode: false drops a dated
+  // snapshot folder on the phone, true merges the export into the picked folder in place.
+  const {
+    target,
+    check,
+    setCheck,
+    deviceInPlace,
+    setDeviceInPlace,
+    scope,
+    setScope,
+    includeAlbums,
+    setIncludeAlbums,
+    includeSingles,
+    setIncludeSingles,
+    includePlaylists,
+    setIncludePlaylists,
+    playlistShape,
+    setPlaylistShape,
+    pick,
+    remember,
+  } = useExportSetup();
   // A failed run's reason, shown on the idle screen. Cleared on a fresh pick or a new run.
   const [error, setError] = useState<string | null>(null);
-  // Device mode: false drops a dated snapshot folder on the phone, true merges the export into the
-  // picked folder in place (incremental update). Only surfaced once a device is the target.
-  const [deviceInPlace, setDeviceInPlace] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [confirming, setConfirming] = useState(false);
   // Custom mode is a UI intent: the picker holds Custom even while its patterns still spell a preset, so
   // the fields stay open until the user leaves them. The persisted patterns remain the source of truth.
   const [customMode, setCustomMode] = useState(false);
-  // The three top-level sections and, when playlists are on, the shape each takes. Albums and singles
-  // default on (the pre-1.5 shape); playlists opt in, since they duplicate tracks already in an album.
-  const [includeAlbums, setIncludeAlbums] = useState(true);
-  const [includeSingles, setIncludeSingles] = useState(true);
-  const [includePlaylists, setIncludePlaylists] = useState(false);
-  const [playlistShape, setPlaylistShape] = useState<PlaylistShape>("mimic");
-  const [scope, setScope] = useState<Scope>("all");
   const [adopting, setAdopting] = useState(false);
 
   const setPreference = useSetPreference();
@@ -153,7 +162,7 @@ export function ExportView() {
   const onPickFolder = useCallback(async () => {
     const picked = await pickFolder();
     if (!picked) return;
-    setTarget({ kind: "folder", path: picked });
+    pick({ kind: "folder", path: picked });
     setConfirming(false);
     setError(null);
     try {
@@ -161,32 +170,37 @@ export function ExportView() {
     } catch {
       setCheck(null);
     }
-  }, []);
+  }, [pick, setCheck]);
 
   const onPickDevice = useCallback(async () => {
     const picked = await pickDeviceFolder();
     if (!picked) return;
-    setTarget({ kind: "device", target: picked });
+    pick({ kind: "device", target: picked });
     setConfirming(false);
     setError(null);
-    if (!deviceInPlace) setScope("all");
     try {
       setCheck(await checkDevice(picked.pidl));
     } catch {
       setCheck(null);
     }
-  }, [deviceInPlace]);
+  }, [pick, setCheck]);
 
   // A dated snapshot always holds everything, so switching to one drops a changed-only scope.
-  const onDeviceMode = useCallback((mode: "snapshot" | "inplace") => {
-    setDeviceInPlace(mode === "inplace");
-    if (mode === "snapshot") setScope("all");
-  }, []);
+  const onDeviceMode = useCallback(
+    (mode: "snapshot" | "inplace") => {
+      setDeviceInPlace(mode === "inplace");
+      if (mode === "snapshot") setScope("all");
+    },
+    [setDeviceInPlace, setScope],
+  );
 
-  const onScope = useCallback((next: Scope) => {
-    setScope(next);
-    setConfirming(false);
-  }, []);
+  const onScope = useCallback(
+    (next: Scope) => {
+      setScope(next);
+      setConfirming(false);
+    },
+    [setScope],
+  );
 
   const onSelectPreset = useCallback(
     (preset: ExportPreset) => {
@@ -212,6 +226,7 @@ export function ExportView() {
     setProgress(null);
     setSummary(null);
     setPhase("running");
+    remember(target);
 
     const channel = createExportChannel((tick) => {
       // exported is monotonic within a phase, but a device export runs two phases at different scales -
@@ -240,7 +255,7 @@ export function ExportView() {
     }
     // Even a failed run may have recorded what landed, so the preview reads the destination afresh.
     refresh();
-  }, [target, t, folder, file, options, refresh]);
+  }, [target, t, folder, file, options, refresh, remember]);
 
   // Records the destination as matching the library without copying a file, then re-reads the preview.
   const onAdopt = useCallback(async () => {
@@ -262,7 +277,7 @@ export function ExportView() {
       else if (section === "singles") setIncludeSingles(value);
       else setIncludePlaylists(value);
     },
-    [],
+    [setIncludeAlbums, setIncludeSingles, setIncludePlaylists],
   );
 
   // A non-empty destination arms a two-step confirm; otherwise the click runs straight away.

@@ -480,6 +480,12 @@ pub fn check_destination(destination: &str, roots: &[String]) -> DestinationChec
     }
 }
 
+/// Whether the destination is an existing directory. Reads only, so a remembered folder that was
+/// deleted stays absent instead of being recreated by `check_destination`'s probe.
+pub fn destination_present(destination: &str) -> bool {
+    !destination.is_empty() && Path::new(destination).is_dir()
+}
+
 /// Whether a directory exists and holds at least one entry. A missing directory reads as empty.
 pub(crate) fn dir_non_empty(dir: &Path) -> bool {
     fs::read_dir(dir)
@@ -660,6 +666,29 @@ mod tests {
         assert!(inside.inside_workspace, "a dest inside a root is refused");
         assert!(!inside.ok);
         assert!(!inside.writable);
+    }
+
+    #[test]
+    fn destination_present_is_true_for_an_existing_folder() {
+        let tmp = TempDir::new("present");
+        assert!(destination_present(tmp.path.to_str().unwrap()));
+    }
+
+    #[test]
+    fn destination_present_does_not_recreate_a_deleted_folder() {
+        let tmp = TempDir::new("deleted");
+        let gone = tmp.path.join("gone");
+        assert!(!destination_present(gone.to_str().unwrap()));
+        assert!(!gone.exists(), "the check must not create the folder");
+    }
+
+    #[test]
+    fn destination_present_is_false_for_a_file_and_an_empty_string() {
+        let tmp = TempDir::new("file");
+        let file = tmp.path.join("a.txt");
+        fs::write(&file, b"x").unwrap();
+        assert!(!destination_present(file.to_str().unwrap()));
+        assert!(!destination_present(""));
     }
 
     // A unique throwaway directory under the system temp dir, removed on drop.

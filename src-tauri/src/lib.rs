@@ -448,6 +448,7 @@ pub fn run() {
             commands::export::cancel_export,
             commands::export::export_template_preview,
             commands::export::validate_export_destination,
+            commands::export::destination_present,
             commands::export::get_export_status,
             commands::export::pick_device_folder,
             commands::export::check_device,

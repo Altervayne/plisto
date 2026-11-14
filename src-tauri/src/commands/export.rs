@@ -523,6 +523,13 @@ pub fn validate_export_destination(
     Ok(export::check_destination(&destination, &roots))
 }
 
+/// Whether a remembered destination still exists as a folder. Creates and writes nothing, unlike
+/// validate_export_destination, so restoring a deleted folder does not recreate it.
+#[tauri::command]
+pub fn destination_present(destination: String) -> bool {
+    export::destination_present(&destination)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
 
 // -- IPC Imports --
-import { validateExportDestination } from "../../lib/ipc";
+import { destinationPresent, validateExportDestination } from "../../lib/ipc";
 import { pickFolder } from "../../lib/dialog";
 
 // -- Type Imports --
@@ -34,10 +34,15 @@ export function useSpliceDestination(): SpliceDestination {
   useEffect(() => {
     if (!storedDestination) return;
     let alive = true;
-    setDestination(storedDestination);
-    validateExportDestination(storedDestination)
+    // The validation creates a missing folder, so a deleted remembered one is dropped before it.
+    destinationPresent(storedDestination)
+      .then((present) => {
+        if (!present) return null;
+        if (alive) setDestination(storedDestination);
+        return validateExportDestination(storedDestination);
+      })
       .then((c) => {
-        if (alive) setCheck(c);
+        if (alive && c) setCheck(c);
       })
       .catch(() => {
         if (alive) setCheck(null);
