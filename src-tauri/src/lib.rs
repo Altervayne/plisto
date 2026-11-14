@@ -543,6 +543,9 @@ pub fn run() {
             commands::plugins::plugin_data_size,
             commands::plugin_call::plugin_call,
             commands::plugin_call::plugin_page_state,
+            commands::plugin_fetch::plugin_fetch,
+            commands::plugin_fetch::plugin_net_log,
+            commands::plugin_fetch::plugin_net_environment,
             commands::plugin_ui::plugin_ui_answer,
             commands::plugin_ui::plugin_ui_pending,
             commands::plugin_ui::plugin_sidebar_state,
@@ -550,6 +553,8 @@ pub fn run() {
             commands::plugin_ui::plugin_frame_event,
             #[cfg(windows)]
             commands::plugin_status::plugin_statuses,
+            #[cfg(windows)]
+            commands::plugin_status::plugin_takeover_release,
             #[cfg(windows)]
             commands::plugin_status::plugin_restart
         ])
@@ -562,10 +567,12 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 smtc::teardown(app);
                 // Every native plugin process is gone before the session marker is. Restarts end
-                // first, so nothing starts again while the rest stop.
+                // first, so nothing starts again while the rest stop, and Plisto's own output is
+                // restored before any child is stopped.
                 #[cfg(windows)]
                 if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
                     native.begin_exit();
+                    native.release_takeover(plugins::native::TakeoverReason::Stopped);
                     native.shutdown_all();
                 }
                 // A clean exit removes the session marker; a crash or a kill leaves it behind.
