@@ -465,6 +465,28 @@ await plisto.queue.playNext({ album_id: 12 });
 await plisto.queue.play({ track_ids: [5, 9, 3] }, 1);
 ```
 
+### `plugin.*` (native plugins)
+
+Needs: nothing. Class: relay (40 at once, then 20 per second). Helper: `plisto.plugin.call(name, args?)`.
+
+A native plugin's page calls its own program. `plisto.plugin.call("ping", args)` sends the program a
+`call` for `ping`, and resolves with what the program answers. The name is one to three dotted parts of
+lowercase letters, digits and `_`, each part starting with a letter; with the `plugin.` prefix the whole
+name is at most 64 characters. `args` is any JSON object. The [native guide](native.md) has the program's
+side.
+
+Errors: `plugin_error` (the program answered with an error; its text is the message), `timeout` (no
+answer within 10 seconds), `unavailable` (the program is not running, or stopped while the call waited),
+`busy`, `too_large`, `invalid_args` (a bad name). A UI plugin gets `unknown_method`.
+
+```js
+try {
+  const answer = await plisto.plugin.call("ping", {});
+} catch (e) {
+  if (e.code === "plugin_error") console.log("the program said: " + e.message);
+}
+```
+
 ### Network
 
 The network methods are `net.fetch`, `net.abort`, `net.stream.ack`, `net.stream.cancel`, `net.socket.open`,
@@ -475,7 +497,7 @@ network engine is not available yet: see "Not available yet" at the end of that 
 
 ## Error codes
 
-Every failure rejects with a `PlistoError` whose `code` is one of eleven values:
+Every failure rejects with a `PlistoError` whose `code` is one of twelve values:
 
 | Code | Meaning |
 | --- | --- |
@@ -490,6 +512,7 @@ Every failure rejects with a `PlistoError` whose `code` is one of eleven values:
 | `unavailable` | Plisto cannot serve the plugin right now: it is disabled, updating or broken, or the call could not be delivered. |
 | `network` | A network request failed. `reason` says how: `dns`, `connect`, `tls`, `protocol`, `closed`, `redirect`, `handshake`, `stalled` or `proxy`. See the [network guide](network.md). |
 | `aborted` | A network request or stream was ended before it finished. `reason` is `abort`, `frame_gone` or `stopped`. |
+| `plugin_error` | A native plugin's program answered a `plisto.plugin.call` with an error. The message is the program's own text, cut to 200 characters. |
 
 `reason` is `null` unless Plisto gives one: `"no_gesture"` with `denied`, and the reasons listed in the
 [network guide](network.md) for the network methods. Branch on `code`. Use `reason` to tell a missing gesture
@@ -546,10 +569,19 @@ plisto.on("theme", (theme) => console.log("theme is now " + theme));
 plisto.on("sidebar", ({ item_id, value, gesture }) => { /* see the sidebar guide */ });
 ```
 
+A native plugin's page also hears its program's page events. Subscribe by topic with
+`plisto.onPluginEvent(topic, callback)`, which returns a function that unsubscribes. The callback gets the
+event's data. A topic is 1 to 64 characters of `a-z`, `0-9`, `_`, `.` and `-`; anything else throws
+`TypeError`. Events arrive only while the page is open, and none is replayed.
+
+```js
+plisto.onPluginEvent("levels", (data) => draw(data.peak_db));
+```
+
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
-version is `plisto.sdkVersion` (`1.3.0`).
+version is `plisto.sdkVersion` (`1.4.0`).
 
 | Member | Meaning |
 | --- | --- |
@@ -561,6 +593,8 @@ version is `plisto.sdkVersion` (`1.3.0`).
 | `call(method, args?, { timeoutMs }?)` | Calls any method. Resolves with the result, rejects with `PlistoError`. |
 | `has(method)` | Whether Plisto listed the method at start. |
 | `on(event, callback)` | Subscribes to an event. Returns an unsubscribe function. Throws `TypeError` for an unknown event. |
+| `onPluginEvent(topic, callback)` | Subscribes to a native program's page events of one topic. Returns an unsubscribe function. |
+| `plugin.call(name, args?, { timeoutMs }?)` | Calls the plugin's own native program. |
 | `app.info()`, `app.methods()` | Helpers for `app.info` and `app.methods`. |
 | `storage.get/set/remove/keys/clear/usage` | Helpers for the `storage.*` methods. |
 | `log.debug/info/warn/error` | Helpers for `log.write`. |
@@ -576,7 +610,8 @@ Details:
 
 - **Timeouts.** A call times out after 10 seconds unless you pass `timeoutMs` (1 to 600000). A result that
   arrives later is dropped. `ui.toast` waits up to 70 seconds and `ui.confirm` up to 310 seconds, longer
-  than Plisto's own deadlines, so Plisto answers first.
+  than Plisto's own deadlines, so Plisto answers first. `plugin.call` waits up to 12 seconds, past
+  Plisto's 10-second wait for the program.
 - **Arguments.** `call` takes an object. Leaving it out sends `{}`. Arguments that cannot be turned into
   JSON reject with `invalid_args`.
 - **`PlistoError`.** It extends `Error`. Fields: `code`, `message`, `retryAfterMs` (a number for

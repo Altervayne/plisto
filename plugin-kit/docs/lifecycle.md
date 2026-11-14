@@ -186,7 +186,7 @@ tight loop.
 - `app.info().api_version` is `1`. Within a version, methods and result fields are only added, never
   removed or changed in meaning. Ignore result fields you do not know. A removal or a change of meaning
   raises `api_version`.
-- The SDK has its own `sdkVersion`, currently `1.3.0`. A newer SDK is a drop-in replacement: copy the new
+- The SDK has its own `sdkVersion`, currently `1.4.0`. A newer SDK is a drop-in replacement: copy the new
   `plisto-sdk.js` over yours.
 - Your plugin's `version` is semantic versioning. Raise it for every release, or Plisto cannot tell an
   update from a reinstall.

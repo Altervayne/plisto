@@ -1,6 +1,6 @@
-# Builds tap-meter in release mode and lays out a folder Plisto can install: plugin.json and the
-# executable at the path the manifest names. Pass -Flags to write a tap-meter.flags file beside the
-# executable, for example -Flags "--crash-after 2".
+# Builds tap-meter in release mode and lays out a folder Plisto can install: plugin.json, the
+# executable at the path the manifest names, and the folder of the page the manifest names. Pass -Flags
+# to write a tap-meter.flags file beside the executable, for example -Flags "--crash-after 2".
 param(
     [string]$Out = (Join-Path $PSScriptRoot "dist\dev.plisto.tapmeter"),
     [string]$Flags = ""
@@ -19,6 +19,10 @@ try {
     New-Item -ItemType Directory -Force (Split-Path $exe) | Out-Null
     Copy-Item (Join-Path $PSScriptRoot "plugin.json") $Out
     Copy-Item (Join-Path $PSScriptRoot "target\release\tap-meter.exe") $exe
+    if ($manifest.page) {
+        $pageDir = Split-Path ($manifest.page -replace "/", "\")
+        Copy-Item (Join-Path $PSScriptRoot $pageDir) (Join-Path $Out $pageDir) -Recurse
+    }
     if ($Flags -ne "") {
         Set-Content -Path (Join-Path (Split-Path $exe) "tap-meter.flags") -Value $Flags -Encoding ascii
     }

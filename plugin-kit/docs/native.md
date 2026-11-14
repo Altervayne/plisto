@@ -1,10 +1,10 @@
 # Native plugins
 
 This page covers the native tier: a plugin that is a program Plisto starts and talks to. It explains when
-to choose it, what the manifest needs, how Plisto launches the process, the wire protocol in full, the
-audio tap, and what happens at each step of the plugin's life. The last section lists what Plisto does not
-do yet. The working reference is [`examples/tap-meter`](../examples/tap-meter/README.md), a small Rust
-program that implements everything here.
+to choose it, what the manifest needs, how Plisto launches the process, the wire protocol in full, how the
+program works with its page and its sidebar items, the audio tap and feed, output takeover, and what
+happens at each step of the plugin's life. The working reference is [`examples/tap-meter`](../examples/tap-meter/README.md), a small Rust program with a page
+that implements everything here.
 
 ## What a native plugin is
 
@@ -28,7 +28,7 @@ anything the browser engine does not offer. Choose native when you need one of t
 - To run native code: a network protocol, a device driver, a library with no web equivalent.
 
 If a page can do it, write a page. A native plugin can have a page too: its page is an ordinary UI-tier
-page, and the page and the program talk through Plisto (see "Not available yet").
+page, and the page and the program talk through Plisto (see "The page and the program").
 
 ## The manifest
 
@@ -40,7 +40,9 @@ differences.
 | `tier` | `"native"`. |
 | `entry` | A relative path to an `.exe` file inside the folder, for example `bin/tap-meter.exe`. |
 | `native_reason` | Required. 1 to 280 characters, shown on the review sheet. Say plainly why a page is not enough. |
+| `page` | Optional. A relative path to an `.html` file inside the folder: the plugin's page, an ordinary sandboxed page that loads the SDK. A sidebar `nav` item needs it. A UI plugin may not set it: its page is its `entry`. |
 | `capabilities` | The audio capabilities below are allowed. `background` is not: a native plugin runs whenever it is on. |
+| `sidebar` | As for any plugin (see the [sidebar guide](sidebar.md)), except that live items (`status`, `progress`, `toggle`, `action`) need no `background`: the program is what keeps them live. |
 
 The `entry` rules about paths are the same as for any file: forward slashes, letters, digits, `.`, `_` and
 `-`, no `..`, no device names.
@@ -51,8 +53,8 @@ The `entry` rules about paths are the same as for any file: forward slashes, let
 | --- | --- |
 | `audio.tap` | Plisto passes the name of the tap mapping at start and keeps the tap running while the plugin runs. |
 | `audio.events` | Plisto sends `feed` messages: playback snapshots. |
-| `audio.device` | Named in the manifest vocabulary. No message of protocol v1 depends on it yet. |
-| `audio.output_takeover` | The plugin may send `takeover` to hold Plisto's local output. |
+| `audio.device` | `feed` events carry the output device's name and id. Without it both are null, since a device name often carries a person's name. Needs `audio.events`. |
+| `audio.output_takeover` | The plugin may send `takeover` to hold Plisto's local output. See "Output takeover". |
 
 The user approves the list on the review sheet. Ask only for what you use. The UI capabilities (`ui.toast`,
 `ui.confirm`, `ui.chips`, `ui.sidebar`) and `storage` also apply to native plugins. The program learns which
@@ -124,12 +126,12 @@ lock for the whole frame, so two frames never interleave.
 | `hello` | `protocol` (number), `api_version` (number), `plisto_version` (string), `id` (string), `granted` (list of capability names) | The first message. Answer with `ready`. `protocol` and `api_version` are both `1`. |
 | `ping` | `seq` (number) | Answer with `pong` and the same `seq`. See the ping rule. |
 | `shutdown` | none | Exit now. |
-| `call` | `seq` (number), `method` (string), `args` (any JSON) | A call from the plugin's own page. `method` is the name the page used, without the `plugin.` prefix. Answer with `result` and the same `seq`. |
+| `call` | `seq` (number), `method` (string), `args` (any JSON) | A call from the plugin's own page. `method` is the name the page used, without the `plugin.` prefix. Answer with `result` and the same `seq`. See "The page and the program". |
 | `feed` | `event` (object), `lost` (number) | A playback snapshot. `lost` counts the snapshots you missed since your previous `feed`. There is no `seq` on the frame: the only counter is `event.seq`. See "The feed". |
 | `host_result` | `seq` (number), `ok` (boolean), `result` (any JSON, optional), `error` (object, optional) | The answer to your `host_call` with the same `seq`. A failure carries `error` as `{code, message, reason?, retry_after_ms?}`. |
 | `sidebar_input` | `item_id` (string), `value` (boolean or null), `gesture` (string) | The user used one of your sidebar items: a toggle (`value` is its new state) or an action (`value` is null). Treat `gesture` as an opaque token and never log it. |
 | `takeover_state` | `held` (boolean), `reason` (string) | Whether you hold Plisto's local output, and why that changed. `reason` is one of `granted`, `released`, `denied`, `busy`, `user`, `not_responding` and `stopped`. |
-| `page` | `open` (boolean) | Your plugin's page was shown or hidden. |
+| `page` | `open` (boolean) | Your plugin's page was shown or hidden. Also sent once right after `ready`, with the current value. |
 
 ### Messages from your program to Plisto
 
@@ -139,9 +141,9 @@ lock for the whole frame, so two frames never interleave.
 | `pong` | `seq` (number) | The answer to `ping`, with the same `seq`. |
 | `status` | `state` (`on`, `idle` or `warn`), `text` (string, optional) | What the plugin is doing, for its status dot. See "Status". |
 | `result` | `seq` (number), `ok` (boolean), `result` (any JSON, optional), `error` (object with an optional `message` string, optional) | The answer to a `call`. |
-| `takeover` | `hold` (boolean) | Ask to hold (`true`) or release (`false`) Plisto's local output. Needs `audio.output_takeover`. |
-| `host_call` | `seq` (number), `method` (string), `args` (any JSON) | Call a Plisto API method, the same ones a page uses. The answer is `host_result` with the same `seq`. |
-| `page_event` | `topic` (string, 1 to 64 characters from `a-z`, `0-9`, `_`, `.` and `-`), `data` (any JSON) | Pushed to the plugin's page. |
+| `takeover` | `hold` (boolean) | Ask to hold (`true`) or release (`false`) Plisto's local output. Needs `audio.output_takeover`. See "Output takeover". |
+| `host_call` | `seq` (number), `method` (string), `args` (any JSON) | Call a Plisto API method, the same ones a page uses. The answer is `host_result` with the same `seq`. See "Calling the API". |
+| `page_event` | `topic` (string, 1 to 64 characters from `a-z`, `0-9`, `_`, `.` and `-`), `data` (any JSON) | Pushed to the plugin's page while it is open. See "The page and the program". |
 | `log` | `level` (`debug`, `info`, `warn` or `error`; default `info`), `text` (string) | One line for the plugin's log. See "Logging". |
 
 Unknown fields are ignored in both directions, and so are message types you do not know. An integer is a
@@ -205,6 +207,89 @@ malformed message, a known type with wrong fields, a `status` with a bad state o
 broken (bad length, over the size cap, torn) ends the process, since nothing after it can be trusted to be
 in step, and counts as a crash. The size cap is 1 MiB for each frame, in both directions.
 
+## The page and the program
+
+A native plugin with `page` has a sandboxed page like any UI plugin, with the SDK loaded. The page cannot
+reach the program directly. Plisto carries messages both ways.
+
+### Calls from the page
+
+The page calls `plisto.plugin.call(name, args)`. Plisto sends the program `call` with `method` set to
+`name` (without the `plugin.` prefix), a `seq` of its own, and `args`. The program answers `result` with
+the same `seq`:
+
+| The program answers | The page gets |
+| --- | --- |
+| `result` with `ok: true` | The promise resolves with `result`, or `null` when there is none. |
+| `result` with `ok: false` | `plugin_error`, with `error.message` as the message, cut to 200 characters. Without a text message the message is Plisto's own. |
+| Nothing within 10 seconds | `timeout`. A `result` that comes later is a protocol error. |
+
+Plisto answers by itself in these cases: `unavailable` when the program is not running (starting,
+stopped, crashed) or its run ends while the call waits; `busy` when the frames to the program are backed
+up; `too_large` when the arguments do not fit in one frame. A program that is not responding still
+receives calls, and they run into the timeout if it stays silent.
+
+- The name is one to three parts separated by dots. Each part starts with a lowercase letter and holds
+  lowercase letters, digits and `_`. With the `plugin.` prefix the whole name is at most 64 characters.
+  Anything else is `invalid_args`.
+- Relay calls have their own budget, 40 at once then 20 per second, and count against the plugin's
+  overall budget and its 16 calls in flight like any call.
+- A UI plugin's `plisto.plugin.call` is `unknown_method`.
+
+Answer every `call`, even one you do not know, so the page never waits out the timeout. Answer from a
+thread that is not busy: the reader thread can answer a cheap call at once and hand a slow one to a worker.
+
+### Page events
+
+The program sends `page_event` with a `topic` and `data`. The page subscribes with
+`plisto.onPluginEvent(topic, callback)` and the callback gets `data`.
+
+- Plisto passes an event on only while the page is open. `page` tells you when that changes, so send
+  nothing while it is closed.
+- An event is at most 32 KiB, topic and serialized data together. Each plugin may send 20 at once, then 20
+  per second.
+- An event that breaks one of these rules is dropped and counted, never answered. A topic outside the
+  name rule is a protocol error.
+- Nothing is queued: a page that opens later sees later events only.
+
+### Calling the API
+
+The program calls Plisto's API with `host_call`, the same methods a page calls, and gets `host_result`
+with the same `seq`. A call is checked exactly like a page's (see the [API reference](api.md)): the
+capability, the rate budgets, the argument rules. The program and its page share the plugin's budgets.
+
+- `net.*` and `plugin.*` methods are `unknown_method` from the program: the network belongs to the page,
+  and the relay goes the other way.
+- At most 16 calls may be open at once; another is `busy`. A `seq` that is already open is a protocol
+  error, and that call is answered `invalid_args`.
+- A failure carries `error` as `{code, message, reason?, retry_after_ms?}`, the codes of the API
+  reference. Log refusals by their code; never treat one as fatal.
+- A call that takes a while, such as a prompt, does not hold the pipe: other frames flow while it waits.
+
+`ui.confirm` from the program follows the prompt gate: it is shown when the plugin's page is open, or
+when `args` carries a fresh `gesture`. The program gets a gesture with each `sidebar_input` and from a
+toast whose action button was pressed (`{ result: "action", gesture }`). A gesture is single-use and
+lasts 5 seconds. Without either, the call is refused `denied` with `reason: "no_gesture"`.
+
+When the program crashes, is restarted or is stopped, Plisto closes what that run opened: prompts,
+toasts, gestures, rate counts and sidebar state. Answers still owed to that run are dropped. What the page
+opened, such as its own network requests, stays while the page does.
+
+### Sidebar items
+
+A native plugin's sidebar items work as in the [sidebar guide](sidebar.md), with the program in the
+page's place.
+
+- A click on a `toggle` or an `action` reaches the program as `sidebar_input`. `value` is the position the
+  user asked for, or `null` for an action. The click is refused, and the toggle reverts, when the program
+  is not running or its frames are backed up.
+- A toggle does not move by itself. It dims until the program sends its next state with
+  `ui.sidebar.update`, or for 3 seconds. Confirm a click by sending the new `on`, refuse it by sending the
+  old one.
+- Sidebar state is kept in memory and cleared when the plugin is restarted or crashes. Send your items'
+  state again after each `ready`.
+- `gesture` lets the program ask `ui.confirm` or `ui.open_page` in answer to the click. Never log it.
+
 ## The audio tap
 
 The tap is a copy of the audio Plisto plays, in shared memory. It is taken from each track after Plisto's
@@ -263,10 +348,13 @@ cursor reaches it.
 
 ### Epochs
 
-The `epoch` rises on every cold start: a play, a skip, a load, a restore or a seek. A record with a new
-epoch follows a **discontinuity**: the samples before it and after it are not one continuous signal, so
-flush filters, delay lines and accumulators. A gapless boundary between two tracks, and a format change,
-get a new record with the **same** epoch: the signal continues, with a new format.
+A record with a new `epoch` follows a **discontinuity**: the samples before it and after it are not one
+continuous signal, so flush filters, delay lines and accumulators. The rule:
+
+- A cold start (a play, a skip, a load, a restore), a seek, or the writer resuming after it stopped opens
+  a new epoch.
+- A gapless successor continues the epoch its predecessor last wrote in: a new record, the **same** epoch.
+- A format change keeps the epoch, with a new record: the signal continues in a new format.
 
 ### Reading it
 
@@ -301,7 +389,7 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `seq` | number | Rises by one per snapshot Plisto takes, shared by every plugin, so your first value can be any number. A gap after it means you missed events. |
-| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume`, `device` or `snapshot`. A `snapshot` is sent once when you start receiving events and carries the current state. |
+| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume`, `device` or `snapshot`. A `snapshot` is sent once, right after `ready`, and carries the current state; it opens no epoch. |
 | `tap_epoch` | number | The tap's latest epoch when the snapshot was taken. |
 | `tap_cursor` | number | The tap's `write_cursor` when the snapshot was taken. What the event changes reaches the ring at or after it. |
 | `transport` | string | `playing`, `paused` or `stopped`. |
@@ -309,13 +397,73 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 | `channels` | number | The current source's channel count, `0` when stopped. |
 | `position_secs` | number | The play head, in seconds. |
 | `volume` | number | The user's volume, 0 to 1. The tap is taken before it. |
-| `device` | string or null | The name of the output device Plisto renders to, null when none is open. |
-| `device_id` | string or null | The Windows endpoint ID of that device, null when none is open or it could not be matched. Two devices can share a name; the ID tells them apart. |
-| `latency_ms` | number | The device's buffer period, a good estimate of the output delay. |
+| `device` | string or null | The name of the output device Plisto renders to, null when none is open. Always null without `audio.device`. |
+| `device_id` | string or null | The Windows endpoint ID of that device, null when none is open or it could not be matched. Two devices can share a name; the ID tells them apart. Always null without `audio.device`. |
+| `latency_ms` | number | The device's buffer period, a good estimate of the output delay. Always sent. |
 
-Each plugin has its own bounded queue of events. If you are slow, the newest events are dropped and the
-`seq` gap shows it, and `lost` on the frame counts them. Keep the last snapshot you received and treat it
-as the current state. Do not depend on every event arriving.
+- **The first event.** Right after `ready` Plisto asks for a `snapshot`, so you know at once whether
+  playback is playing, paused or stopped, without waiting for a change.
+- **Loss.** Each plugin has its own bounded queue of events. If you are slow, or your input is backed up,
+  events are dropped. `lost` on the next frame says how many you missed since your previous `feed`, so you
+  need not work it out from the `seq` gap. In normal play it stays 0. Keep the last event you received and
+  treat it as the current state. Do not depend on every event arriving.
+- **Epochs.** A `start` or a `seek` is followed in the tap by a record with a new epoch; a `gapless` by a
+  record in the same epoch. `tap_epoch` is the latest epoch when the event was taken, so it can still be
+  the old one: the tap's records are the authority.
+- **Previews.** Plisto's own previews (such as the Track Editor's) send no events and never reach the tap.
+  A snapshot taken during a preview says `stopped`.
+
+## Output takeover
+
+A plugin that plays the sound itself, for example on another device, can ask Plisto to stop playing it
+locally. Plisto then holds its own output at volume 0 and keeps everything else running: decoding, the tap,
+the spectrum and the visualizers. The `volume` in `feed` events stays the user's volume. Plisto's own
+previews stay audible.
+
+### Asking and releasing
+
+- Send `takeover` with `hold: true`. Plisto answers `takeover_state` with `held: true` and reason
+  `granted` when the plugin holds `audio.output_takeover`, Plisto shows it as running (not starting and
+  not "Not responding"), and no other plugin holds the output. Asking again while you hold it answers
+  `granted` again and changes nothing.
+- Otherwise the answer is `held: false` with `denied` (the capability is not granted, the plugin is not
+  running, or the frame came from a run that has already ended) or `busy` (another plugin holds it), and
+  nothing changes.
+- Send `takeover` with `hold: false` to give it back: Plisto's speakers play again and the answer is
+  `held: false`, `released`. The answer is the same when you held nothing.
+
+No user action is needed for a grant. The user consented when they approved `audio.output_takeover` on
+the review sheet at install; Plisto shows no prompt at the moment of the request.
+
+### When Plisto takes it back
+
+Every release, yours or Plisto's, restores Plisto's own output before anything else happens, so no later
+step can leave the user in silence. Plisto takes the output back by itself in these cases, and tells a
+program that is still running with `takeover_state`, `held: false` and the reason:
+
+| `reason` | When |
+| --- | --- |
+| `user` | The user chose "Return to Plisto's speakers" in the Sound popover. |
+| `not_responding` | Three seconds passed without a valid `pong`. |
+| `stopped` | The plugin is being stopped, disabled, updated, uninstalled or restarted, or Plisto enters safe mode or exits. A process that crashed is past hearing it, but its hold ends the same way. |
+
+A released takeover is never granted again without a fresh request. A program that recovers after
+`not_responding` does not get the output back: Plisto's speakers stay on until it asks again.
+
+The same state can arrive twice, so treat `takeover_state` as idempotent:
+
+- A `takeover_state` your input had no room for is sent again after your next valid `pong`.
+- A `not_responding` release is always sent again after your next valid `pong`, because a program that
+  was hung may have missed the first one.
+
+### Ask again on a new run
+
+A hold lives in memory only. Nothing survives a restart of the plugin or of Plisto: a plugin that wants
+the output from the start asks after each `ready`. Within one run, decide whether a revocation should end
+your attempt; tap-meter asks once per run and never again after a release.
+
+While you hold the output, the Sound popover shows that your plugin is playing the music elsewhere, with
+your `status` text beside it. Keep that text meaningful while you hold it.
 
 ## Life of a native plugin
 
@@ -340,21 +488,3 @@ as the current state. Do not depend on every event arriving.
   [lifecycle](lifecycle.md)). They are rate-limited: lines over the limit are dropped and counted. Text is
   cut at 2,000 characters.
 - Do not log secrets or personal data, and do not log in a tight loop.
-
-## Not available yet
-
-The protocol above is complete, but Plisto does not act on every message yet, so a plugin written today
-cannot rely on these:
-
-- **The page relay.** Plisto does not forward `call` from the plugin's page and does not read `result`.
-- **Plugin API calls.** Plisto does not read `host_call` and sends no `host_result`.
-- **Page events.** Plisto reads `page_event` and drops it.
-- **Sidebar input.** Plisto sends no `sidebar_input`.
-- **The feed and the tap name.** Plisto sends no `feed` messages, and `--plisto-tap` is `none`: it does
-  not pass a mapping name or turn the tap on for a plugin. To test against a tap today, give the process
-  a mapping name by hand.
-- **Output takeover.** Plisto reads `takeover` and drops it; its output stays on, and it sends no
-  `takeover_state`.
-
-Each of these arrives without a change to the protocol version: new behavior only adds. A plugin that
-ignores what it does not understand keeps working.

@@ -42,16 +42,22 @@ impl Line {
 
 /// `on` while audio plays through the tap, `idle` while it is paused, stopped or silent, `warn` while
 /// there is no tap to read. `transport` is the last playback state from the feed, if any arrived.
-pub fn line(tap: TapState, transport: Option<&str>, window: &Window) -> Line {
-    match tap {
-        TapState::Missing => Line::new(ReportedState::Warn, "no tap"),
-        TapState::Closed => Line::new(ReportedState::Warn, "tap not open"),
+/// While the plugin holds Plisto's output the text says so first, since Plisto shows it beside the
+/// takeover.
+pub fn line(tap: TapState, transport: Option<&str>, window: &Window, held: bool) -> Line {
+    let (state, text) = match tap {
+        TapState::Missing => (ReportedState::Warn, "no tap".to_string()),
+        TapState::Closed => (ReportedState::Warn, "tap not open".to_string()),
         TapState::Open => match (transport, peak_text(window)) {
-            (Some(state @ ("paused" | "stopped")), _) => Line::new(ReportedState::Idle, state),
-            (_, Some(peak)) => Line::new(ReportedState::On, &peak),
-            _ => Line::new(ReportedState::Idle, "silent"),
+            (Some(state @ ("paused" | "stopped")), _) => (ReportedState::Idle, state.to_string()),
+            (_, Some(peak)) => (ReportedState::On, peak),
+            _ => (ReportedState::Idle, "silent".to_string()),
         },
+    };
+    if held {
+        return Line::new(state, &format!("holding output; {text}"));
     }
+    Line::new(state, &text)
 }
 
 /// Lets a line through when it differs from the last one sent and a second has passed since that send.
@@ -94,19 +100,19 @@ mod tests {
 
     #[test]
     fn no_tap_is_a_warning() {
-        let missing = line(TapState::Missing, Some("playing"), &audible());
+        let missing = line(TapState::Missing, Some("playing"), &audible(), false);
         assert_eq!(missing, Line::new(ReportedState::Warn, "no tap"));
-        let closed = line(TapState::Closed, None, &silent());
+        let closed = line(TapState::Closed, None, &silent(), false);
         assert_eq!(closed.state, ReportedState::Warn);
     }
 
     #[test]
     fn audio_through_the_tap_is_on() {
-        let on = line(TapState::Open, Some("playing"), &audible());
+        let on = line(TapState::Open, Some("playing"), &audible(), false);
         assert_eq!(on, Line::new(ReportedState::On, "peak -6.0 -12.0 dB"));
         // Without a feed, audio in the tap is still audio.
         assert_eq!(
-            line(TapState::Open, None, &audible()).state,
+            line(TapState::Open, None, &audible(), false).state,
             ReportedState::On
         );
     }
@@ -114,11 +120,22 @@ mod tests {
     #[test]
     fn paused_stopped_and_silent_are_idle() {
         for transport in ["paused", "stopped"] {
-            let idle = line(TapState::Open, Some(transport), &audible());
+            let idle = line(TapState::Open, Some(transport), &audible(), false);
             assert_eq!(idle, Line::new(ReportedState::Idle, transport));
         }
-        let silence = line(TapState::Open, Some("playing"), &silent());
+        let silence = line(TapState::Open, Some("playing"), &silent(), false);
         assert_eq!(silence, Line::new(ReportedState::Idle, "silent"));
+    }
+
+    #[test]
+    fn a_held_output_leads_the_text() {
+        let held = line(TapState::Open, Some("playing"), &audible(), true);
+        assert_eq!(
+            held,
+            Line::new(ReportedState::On, "holding output; peak -6.0 -12.0 dB")
+        );
+        let paused = line(TapState::Open, Some("paused"), &audible(), true);
+        assert_eq!(paused.state, ReportedState::Idle);
     }
 
     #[test]
@@ -127,7 +144,7 @@ mod tests {
             peak_db: vec![Some(-100.5); 32],
             rms_db: vec![Some(-100.5); 32],
         };
-        let long = line(TapState::Open, Some("playing"), &many);
+        let long = line(TapState::Open, Some("playing"), &many, false);
         let text = long.text.expect("has a text");
         assert!(status_text_ok(&text));
         assert!(text.chars().count() <= STATUS_TEXT_MAX_CHARS);

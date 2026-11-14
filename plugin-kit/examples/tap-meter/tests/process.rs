@@ -102,6 +102,27 @@ impl Plugin {
         }
     }
 
+    // The next `host_call` other than the status item's updates, which the reporter sends on its own
+    // schedule.
+    fn next_call(&self) -> Value {
+        loop {
+            let call = self.next("host_call");
+            if call["args"]["item_id"] != "state" {
+                return call;
+            }
+        }
+    }
+
+    // The next `log` whose text contains `part`.
+    fn next_log(&self, part: &str) -> Value {
+        loop {
+            let line = self.next("log");
+            if line["text"].as_str().is_some_and(|t| t.contains(part)) {
+                return line;
+            }
+        }
+    }
+
     fn exit(&mut self) -> ExitStatus {
         let end = Instant::now() + WAIT;
         loop {
@@ -140,13 +161,87 @@ fn the_end_of_input_ends_the_process() {
 }
 
 #[test]
-fn a_call_is_answered_so_the_host_never_waits() {
+fn a_page_call_is_answered_and_an_unknown_one_fails() {
     let mut p = Plugin::start("none", &[]);
     p.hello();
-    p.send(json!({"type": "call", "seq": 5, "method": "ping"}));
+    p.send(json!({"type": "call", "seq": 5, "method": "ping", "args": {}}));
     let result = p.next("result");
     assert_eq!(result["seq"], 5);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["result"]["pong"], true);
+    p.send(json!({"type": "call", "seq": 6, "method": "nope", "args": {}}));
+    let result = p.next("result");
+    assert_eq!(result["seq"], 6);
     assert_eq!(result["ok"], false);
+    assert!(result["error"]["message"].is_string());
+}
+
+#[test]
+fn levels_go_to_the_page_only_while_it_is_open() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    p.send(json!({"type": "page", "open": false}));
+    assert!(p
+        .next_within("page_event", Duration::from_millis(400))
+        .is_none());
+    p.send(json!({"type": "page", "open": true}));
+    let event = p.next("page_event");
+    assert_eq!(event["topic"], "levels");
+    assert!(event["data"]["peak_db"].is_array());
+    p.send(json!({"type": "page", "open": false}));
+    // Anything already written drains; then nothing more comes.
+    thread::sleep(Duration::from_millis(200));
+    while p.frames.try_recv().is_ok() {}
+    assert!(p
+        .next_within("page_event", Duration::from_millis(400))
+        .is_none());
+}
+
+#[test]
+fn a_toggle_click_is_confirmed_through_the_sidebar() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    // The first host call of a run sets the toggle's starting state.
+    let first = p.next_call();
+    assert_eq!(first["method"], "ui.sidebar.update");
+    assert_eq!(first["args"]["state"]["on"], false);
+    p.send(json!({"type": "sidebar_input", "item_id": "mirror", "value": true, "gesture": "g"}));
+    let confirm = p.next_call();
+    assert_eq!(confirm["method"], "ui.sidebar.update");
+    assert_eq!(
+        confirm["args"],
+        json!({"item_id": "mirror", "state": {"on": true}})
+    );
+    assert_eq!(p.next_call()["method"], "ui.chips");
+}
+
+#[test]
+fn the_action_asks_with_its_gesture_and_unprompted_asks_without() {
+    let mut p = Plugin::start("none", &["--prompt-unprompted"]);
+    p.hello();
+    p.next_call();
+    // The state Plisto sends after `ready` asks nothing; closing the open page does.
+    p.send(json!({"type": "page", "open": false}));
+    p.send(json!({"type": "page", "open": true}));
+    p.send(json!({"type": "page", "open": false}));
+    let unprompted = p.next_call();
+    assert_eq!(unprompted["method"], "ui.confirm");
+    assert!(unprompted["args"].get("gesture").is_none());
+    p.send(json!({
+        "type": "host_result", "seq": unprompted["seq"], "ok": false,
+        "error": {"code": "denied", "message": "No gesture.", "reason": "no_gesture"}
+    }));
+    let refused = p.next_log("refused");
+    assert_eq!(refused["level"], "warn");
+    assert!(refused["text"]
+        .as_str()
+        .unwrap()
+        .ends_with("denied (no_gesture)"));
+
+    p.send(json!({"type": "sidebar_input", "item_id": "prompt", "value": null, "gesture": "g-9"}));
+    let asked = p.next_call();
+    assert_eq!(asked["method"], "ui.confirm");
+    assert_eq!(asked["args"]["gesture"], "g-9");
 }
 
 #[test]
@@ -226,12 +321,39 @@ fn a_stall_silences_pongs_then_recovers() {
 }
 
 #[test]
-fn takeover_is_requested_at_start_and_released_at_exit() {
+fn takeover_is_requested_at_start_and_released_at_exit_while_held() {
     let mut p = Plugin::start("none", &["--takeover"]);
     p.hello();
     assert_eq!(p.next("takeover")["hold"], true);
+    p.send(json!({"type": "takeover_state", "held": true, "reason": "granted"}));
+    // A status already on its way may still say otherwise; the next change says the output is held.
+    loop {
+        let status = p.next("status");
+        if status["text"] == "holding output; no tap" {
+            break;
+        }
+    }
     p.send(json!({"type": "shutdown"}));
     assert_eq!(p.next("takeover")["hold"], false);
+    assert_eq!(p.exit().code(), Some(0));
+}
+
+#[test]
+fn a_revoked_takeover_is_not_asked_for_again_or_released() {
+    let mut p = Plugin::start("none", &["--takeover"]);
+    p.hello();
+    assert_eq!(p.next("takeover")["hold"], true);
+    p.send(json!({"type": "takeover_state", "held": true, "reason": "granted"}));
+    p.send(json!({"type": "takeover_state", "held": false, "reason": "not_responding"}));
+    // Plisto repeats a release for silence after the next valid pong.
+    p.send(json!({"type": "ping", "seq": 1}));
+    assert_eq!(p.next("pong")["seq"], 1);
+    p.send(json!({"type": "takeover_state", "held": false, "reason": "not_responding"}));
+    assert_eq!(p.next_log("again: no change")["level"], "debug");
+    p.send(json!({"type": "shutdown"}));
+    assert!(p
+        .next_within("takeover", Duration::from_millis(500))
+        .is_none());
     assert_eq!(p.exit().code(), Some(0));
 }
 

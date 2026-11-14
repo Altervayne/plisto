@@ -13,9 +13,13 @@
   // Above the host's own deadlines (60 s for a toast, 300 s for a prompt), so the host answers first.
   var TOAST_TIMEOUT_MS = 70000;
   var CONFIRM_TIMEOUT_MS = 310000;
+  // Above the host's 10 s wait for a native plugin's answer, so the host's timeout arrives first.
+  var RELAY_TIMEOUT_MS = 12000;
+  var RELAY_PREFIX = "plugin.";
+  var TOPIC_RE = /^[a-z0-9_.-]{1,64}$/;
 
   /**
-   * An API failure: `code` is one of the eleven stable codes, `retryAfterMs` is set for rate_limited, `reason`
+   * An API failure: `code` is one of the twelve stable codes, `retryAfterMs` is set for rate_limited, `reason`
    * refines a code when the host gives one (denied + "no_gesture").
    */
   function PlistoError(code, message, retryAfterMs, reason) {
@@ -35,10 +39,13 @@
   var pending = {};
   var methodSet = null;
   var listeners = { visibility: [], theme: [], sidebar: [], route: [] };
+  // Native page event listeners by topic. No prototype, so a topic such as "__proto__" is a plain key.
+  var pluginEvents = Object.create(null);
+  var own = Object.prototype.hasOwnProperty;
   var resolveReady = null;
 
   var plisto = {
-    sdkVersion: "1.3.0",
+    sdkVersion: "1.4.0",
     info: null,
     pageOpen: false,
     route: null,
@@ -156,6 +163,9 @@
       case "plisto:socket":
         onSocket(data);
         break;
+      case "plisto:plugin-event":
+        onPluginEvent(data);
+        break;
       default:
         // Unknown types belong to later protocol additions and are ignored.
         break;
@@ -220,6 +230,50 @@
       var i = listeners[event].indexOf(callback);
       if (i >= 0) listeners[event].splice(i, 1);
     };
+  };
+
+  function onPluginEvent(data) {
+    if (typeof data.topic !== "string" || !own.call(pluginEvents, data.topic)) return;
+    var list = pluginEvents[data.topic].slice();
+    for (var i = 0; i < list.length; i++) {
+      try {
+        list[i](data.data);
+      } catch (e) {
+        // A throwing subscriber must not stop the others or the message loop.
+      }
+    }
+  }
+
+  /**
+   * Subscribes to the page events this plugin's native program sends with `topic` (1 to 64 characters of
+   * a-z, 0-9, "_", "." and "-"). The callback gets the event's data. Returns an unsubscribe function.
+   */
+  plisto.onPluginEvent = function (topic, callback) {
+    if (typeof topic !== "string" || !TOPIC_RE.test(topic) || typeof callback !== "function") {
+      throw new TypeError("plisto.onPluginEvent: bad topic or callback");
+    }
+    if (!own.call(pluginEvents, topic)) pluginEvents[topic] = [];
+    pluginEvents[topic].push(callback);
+    return function () {
+      var list = pluginEvents[topic];
+      var i = list ? list.indexOf(callback) : -1;
+      if (i >= 0) list.splice(i, 1);
+    };
+  };
+
+  plisto.plugin = {
+    /**
+     * Calls `name` on this plugin's own native program, which answers it as a `call`. Resolves with its
+     * result; rejects with PlistoError, `plugin_error` when the program answered with an error.
+     */
+    call: function (name, args, options) {
+      if (typeof name !== "string") {
+        return Promise.reject(new PlistoError("invalid_args", "The method name must be a string."));
+      }
+      var timeout = { timeoutMs: RELAY_TIMEOUT_MS };
+      if (options && options.timeoutMs !== undefined) timeout.timeoutMs = options.timeoutMs;
+      return request(RELAY_PREFIX + name, args, timeout, null);
+    },
   };
 
   plisto.app = {

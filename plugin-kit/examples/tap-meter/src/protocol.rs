@@ -31,6 +31,28 @@ const MAX_LEN_DIGITS: usize = 7;
 // An unknown type name is reported shortened.
 const MAX_KIND_CHARS: usize = 32;
 
+/// The opaque token of a `sidebar_input`, to pass on to `ui.confirm` or `ui.open_page`. Its `Debug` output
+/// is redacted, so no log line can print it.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Gesture(String);
+
+impl Gesture {
+    pub fn new(text: impl Into<String>) -> Gesture {
+        Gesture(text.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Gesture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Gesture(<redacted>)")
+    }
+}
+
 /// Why a takeover is, or is no longer, held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -81,11 +103,11 @@ pub enum HostMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<Value>,
     },
-    /// The user used a sidebar toggle (`value` set) or action (`None`). `gesture` is an opaque token.
+    /// The user used a sidebar toggle (`value` set) or action (`None`).
     SidebarInput {
         item_id: String,
         value: Option<bool>,
-        gesture: String,
+        gesture: Gesture,
     },
     /// Whether the plugin holds Plisto's local output, and why that changed.
     TakeoverState { held: bool, reason: TakeoverReason },
@@ -343,7 +365,15 @@ pub fn decode<T: DeserializeOwned>(body: &[u8], kinds: &[&str]) -> Decoded<T> {
         return Decoded::Malformed("no string 'type'".into());
     };
     if !kinds.contains(&kind) {
-        return Decoded::Unknown(kind.chars().take(MAX_KIND_CHARS).collect());
+        // Only name characters survive, so the name is safe to print in a log line.
+        let tag = kind.chars().take(MAX_KIND_CHARS);
+        return Decoded::Unknown(
+            tag.map(|c| match c {
+                'a'..='z' | '0'..='9' | '_' | '.' | '-' => c,
+                _ => '?',
+            })
+            .collect(),
+        );
     }
     let kind = kind.to_string();
     match serde_json::from_value(value) {
@@ -388,12 +418,12 @@ mod tests {
             HostMessage::SidebarInput {
                 item_id: "mirror".into(),
                 value: Some(true),
-                gesture: "g-1".into(),
+                gesture: Gesture::new("g-1"),
             },
             HostMessage::SidebarInput {
                 item_id: "reset".into(),
                 value: None,
-                gesture: "g-2".into(),
+                gesture: Gesture::new("g-2"),
             },
             HostMessage::TakeoverState {
                 held: false,
@@ -697,6 +727,28 @@ mod tests {
         ] {
             assert_eq!(clean_status_text(raw), None, "{raw:?}");
         }
+    }
+
+    #[test]
+    fn debug_output_never_shows_a_gesture() {
+        let input = HostMessage::SidebarInput {
+            item_id: "mirror".into(),
+            value: None,
+            gesture: Gesture::new("secret-gesture-token"),
+        };
+        let shown = format!("{input:?}");
+        assert!(!shown.contains("secret-gesture-token"), "{shown}");
+        assert!(shown.contains("mirror"));
+        // The wire still carries it.
+        assert!(wire(&input).contains("secret-gesture-token"));
+    }
+
+    #[test]
+    fn an_unknown_type_name_keeps_only_name_characters() {
+        assert_eq!(
+            host(r#"{"type":"x\nforged: line"}"#),
+            Decoded::Unknown("x?forged??line".into())
+        );
     }
 
     #[test]

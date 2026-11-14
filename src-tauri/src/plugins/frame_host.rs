@@ -1391,4 +1391,49 @@ mod tests {
             assert!(dir.join(&manifest.entry).is_file());
         }
     }
+
+    // `manifest::parse` is the whole content check install runs; it reads no files, so the files
+    // each manifest points at are checked here. The tap-meter entry is a build product, so only its
+    // page and sidebar are checked.
+    #[test]
+    fn kit_examples_are_valid_manifests() {
+        use super::super::manifest::{parse, Tier};
+        use super::super::sidebar_decl::ItemType;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugin-kit/examples");
+        for (folder, tier) in [
+            ("hello-ui", Tier::Ui),
+            ("hello-background", Tier::Ui),
+            ("tap-meter", Tier::Native),
+        ] {
+            let dir = root.join(folder);
+            let bytes = fs::read(dir.join("plugin.json"))
+                .unwrap_or_else(|e| panic!("kit example {folder}: plugin.json unreadable: {e}"));
+            let manifest = parse(&bytes)
+                .unwrap_or_else(|e| panic!("kit example {folder}: manifest refused: {e}"));
+            assert_eq!(manifest.tier, tier, "kit example {folder}: wrong tier");
+
+            let mut files = Vec::new();
+            if tier == Tier::Ui {
+                files.push(manifest.entry.clone());
+            }
+            files.extend(manifest.page.clone());
+            files.extend(manifest.icon.clone());
+            for file in files {
+                assert!(
+                    dir.join(&file).is_file(),
+                    "kit example {folder}: declared file {file} is missing"
+                );
+            }
+
+            if folder == "tap-meter" {
+                assert_eq!(manifest.page.as_deref(), Some("page/index.html"));
+                let sidebar = manifest.sidebar.as_ref().expect("tap-meter declares a sidebar");
+                assert!(
+                    sidebar.items.iter().any(|i| i.kind == ItemType::Nav),
+                    "tap-meter sidebar has no nav item"
+                );
+            }
+        }
+    }
 }

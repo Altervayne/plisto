@@ -1,8 +1,9 @@
 /*
  * What tap-meter is told at start. Plisto passes `--plisto-protocol`, `--plisto-data` and
  * `--plisto-tap` on the command line. The manifest has no field for extra arguments, so the test flags
- * (`--crash-after`, `--stall`, `--takeover`) are read from a `tap-meter.flags` text file beside the
- * executable; the same flags are also accepted on the command line, for running it by hand.
+ * (`--crash-after`, `--stall`, `--takeover`, `--prompt-unprompted`) are read from a `tap-meter.flags`
+ * text file beside the executable; the same flags are also accepted on the command line, for running it
+ * by hand.
  */
 
 // -- Library Imports --
@@ -20,10 +21,12 @@ pub struct Config {
     pub tap: Option<String>,
     /// Exit abruptly this long after `ready`.
     pub crash_after: Option<Duration>,
-    /// Stop answering pings for this long, starting at the second ping.
+    /// Stop answering pings and page calls for this long, starting at the second ping.
     pub stall: Option<Duration>,
     /// Ask Plisto to hold its local output after `ready`.
     pub takeover: bool,
+    /// Ask for a prompt with no gesture once the page is closed, to show the refusal.
+    pub prompt_unprompted: bool,
     /// Arguments that were not understood, one line each.
     pub warnings: Vec<String>,
 }
@@ -41,6 +44,7 @@ pub fn parse(tokens: impl IntoIterator<Item = String>) -> Config {
     while let Some(flag) = tokens.next() {
         match flag.as_str() {
             "--takeover" => config.takeover = true,
+            "--prompt-unprompted" => config.prompt_unprompted = true,
             "--plisto-protocol" | "--plisto-data" | "--plisto-tap" | "--crash-after"
             | "--stall" => {
                 let Some(value) = tokens.next() else {
@@ -115,10 +119,14 @@ mod tests {
 
     #[test]
     fn the_test_flags_are_read() {
-        let c = parse(tokens("--crash-after 2s --stall 5 --takeover"));
+        let c = parse(tokens(
+            "--crash-after 2s --stall 5 --takeover --prompt-unprompted",
+        ));
         assert_eq!(c.crash_after, Some(Duration::from_secs(2)));
         assert_eq!(c.stall, Some(Duration::from_secs(5)));
         assert!(c.takeover);
+        assert!(c.prompt_unprompted);
+        assert!(c.warnings.is_empty());
     }
 
     #[test]

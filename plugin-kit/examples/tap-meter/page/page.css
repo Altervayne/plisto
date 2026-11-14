@@ -1,0 +1,68 @@
+.card {
+  max-width: 560px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+h1 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 600;
+}
+h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button {
+  padding: 6px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.answer {
+  margin: 10px 0 0;
+  font-family: var(--font-mono);
+}
+.meters {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.meter-label {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+}
+.meter {
+  position: relative;
+  height: 10px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  overflow: hidden;
+}
+.meter-rms,
+.meter-peak {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.meter-peak {
+  background: var(--accent-weak);
+}
+.meter-rms {
+  background: var(--accent);
+}
+.note {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+}

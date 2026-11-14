@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tap meter</title>
+    <link rel="stylesheet" href="/_plisto/tokens.css" />
+    <link rel="stylesheet" href="/_plisto/plugin-base.css" />
+    <link rel="stylesheet" href="page.css" />
+    <script src="plisto-sdk.js"></script>
+    <script src="page.js" defer></script>
+  </head>
+  <body>
+    <h1>Tap meter</h1>
+
+    <section class="card">
+      <h2>Calls to the program</h2>
+      <div class="row">
+        <button type="button" id="ping">Ping</button>
+        <button type="button" id="unknown">Call a missing method</button>
+      </div>
+      <p class="answer" id="answer">No call yet.</p>
+    </section>
+
+    <section class="card">
+      <h2>Levels</h2>
+      <div class="meters" id="meters"></div>
+      <p class="note" id="levels-note">Waiting for the first levels event.</p>
+    </section>
+  </body>
+</html>

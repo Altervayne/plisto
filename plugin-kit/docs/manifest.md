@@ -40,8 +40,10 @@ manifest. For a first example see [getting started](getting-started.md); for the
 | `id` | yes | See below. |
 | `name` | yes | 1 to 40 characters. |
 | `version` | yes | Semantic version, for example `1.2.3`. |
-| `tier` | yes | `"ui"` for everything in this kit. |
-| `entry` | yes | Relative path to an `.html` file in the folder. |
+| `tier` | yes | `"ui"`, or `"native"` for a program Plisto starts (see the [native guide](native.md)). |
+| `entry` | yes | Relative path to an `.html` file in the folder; for a native plugin, to an `.exe` file. |
+| `page` | native only | Relative path to an `.html` file in the folder: the native plugin's page. Same path rules as `entry`; the name must end in `.html` (any case) and the file must exist. A native plugin with a sidebar `nav` item must give it. A UI plugin that sets it is refused: its page is its `entry`. |
+| `native_reason` | native only | 1 to 280 characters, shown on the review sheet. Required for a native plugin. |
 | `capabilities` | yes | List of capability names. May be empty. No duplicates. |
 | `min_plisto` | yes | Semantic version of the oldest Plisto that runs the plugin. |
 | `author` | yes | 1 to 80 characters. |
@@ -139,8 +141,9 @@ that lists one is refused. Ask only for what you use: a smaller list is easier f
 Two further rules:
 
 - `background` is for UI plugins only.
-- A `sidebar` block needs `ui.sidebar`. Live items (anything but `nav`) also need `background`. See the
-  [sidebar guide](sidebar.md).
+- A `sidebar` block needs `ui.sidebar`. Live items (anything but `nav`) depend on the tier. A UI plugin
+  needs `background` for them, since a running page is what keeps them live. A native plugin needs no
+  `background`: its program handles them. See the [sidebar guide](sidebar.md).
 
 ## Why a manifest is refused
 

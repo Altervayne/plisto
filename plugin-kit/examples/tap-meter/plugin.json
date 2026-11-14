@@ -2,14 +2,30 @@
   "manifest_version": 1,
   "id": "dev.plisto.tapmeter",
   "name": "Tap meter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "tier": "native",
   "entry": "bin/tap-meter.exe",
+  "page": "page/index.html",
   "capabilities": [
     "audio.tap",
-    "audio.events"
+    "audio.events",
+    "audio.device",
+    "audio.output_takeover",
+    "ui.toast",
+    "ui.confirm",
+    "ui.chips",
+    "ui.sidebar"
   ],
-  "min_plisto": "2.7.0",
+  "min_plisto": "2.6.0",
   "author": "Plisto",
-  "native_reason": "Reads the raw audio stream in real time through shared memory, which a sandboxed page cannot do."
+  "native_reason": "Reads the raw audio stream in real time through shared memory, and can hold Plisto's own output while it plays the sound itself, which a sandboxed page cannot do.",
+  "sidebar": {
+    "layout": "section",
+    "items": [
+      { "id": "meters", "type": "nav", "label": "Meters", "icon": "audio-lines" },
+      { "id": "state", "type": "status", "label": "Status" },
+      { "id": "mirror", "type": "toggle", "label": "Mirroring" },
+      { "id": "prompt", "type": "action", "label": "Ask me" }
+    ]
+  }
 }
