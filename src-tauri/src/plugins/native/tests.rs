@@ -20,7 +20,10 @@ use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCES
 // -- Local Imports --
 use super::child::{Child, HandshakeError, Inbound, SendError, Stopped, INBOX_CAP, OUTBOX_CAP};
 use super::launch::{stderr_log, LaunchSpec};
-use super::protocol::{ChildMessage, HostMessage, PROTOCOL_VERSION};
+use super::child::CLOSED_EXITED;
+use super::protocol::{
+    ChildMessage, HostMessage, ReportedState, API_VERSION, PROTOCOL_VERSION,
+};
 use super::test_child::MODE_FILE;
 use super::{boot_allows_start, NativeHost, StartError, STOP_GRACE};
 use crate::plugins::paths::{data_dir, plugin_dir};
@@ -71,6 +74,7 @@ impl Drop for Rig {
 fn hello() -> HostMessage {
     HostMessage::Hello {
         protocol: PROTOCOL_VERSION,
+        api_version: API_VERSION,
         plisto_version: "2.7.0".into(),
         id: ID.into(),
         granted: Vec::new(),
@@ -149,7 +153,7 @@ fn a_well_behaved_child_handshakes_answers_and_exits_on_shutdown() {
     assert!(child.wait_exit(Duration::ZERO));
     assert_eq!(
         child.recv_timeout(SLOW),
-        Ok(Inbound::Closed("output ended".into()))
+        Ok(Inbound::Closed(CLOSED_EXITED.into()))
     );
 }
 
@@ -233,8 +237,8 @@ fn a_grandchild_dies_with_the_job() {
     let child = rig.spawn();
     child.handshake(&hello(), SLOW).unwrap();
     let pid = match next_message(&child) {
-        ChildMessage::Status { state, text } if state == "grandchild" => {
-            text.unwrap().parse::<u32>().unwrap()
+        ChildMessage::Log { text, .. } if text.starts_with("grandchild=") => {
+            text["grandchild=".len()..].parse::<u32>().unwrap()
         }
         other => panic!("{other:?}"),
     };
@@ -286,6 +290,111 @@ fn a_flooding_child_is_bounded_and_never_blocks_the_sender() {
     assert!(started.elapsed() < SLOW);
     assert!(child.inbox_len() <= INBOX_CAP);
     assert_eq!(child.stop(STOP_GRACE), Stopped::Killed);
+}
+
+#[test]
+fn a_child_that_sends_bad_statuses_has_each_one_reported() {
+    let rig = Rig::new("bad-status");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    for _ in 0..3 {
+        match child.recv_timeout(SLOW) {
+            Ok(Inbound::Malformed(_)) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(
+        next_message(&child),
+        ChildMessage::Status {
+            state: ReportedState::Idle,
+            text: Some("fine".into())
+        }
+    );
+}
+
+#[test]
+fn a_status_flooding_child_alternates_states() {
+    let rig = Rig::new("status-flood");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    let mut states = Vec::new();
+    for _ in 0..4 {
+        match next_message(&child) {
+            ChildMessage::Status { state, .. } => states.push(state),
+            other => panic!("{other:?}"),
+        }
+    }
+    use ReportedState::{On, Warn};
+    assert_eq!(states, [On, Warn, On, Warn]);
+}
+
+#[test]
+fn a_host_call_is_answered_and_the_child_logs_the_result() {
+    let rig = Rig::new("host-call");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    assert_eq!(
+        next_message(&child),
+        ChildMessage::HostCall {
+            seq: 1,
+            method: "library.stats".into(),
+            args: json!({})
+        }
+    );
+    child
+        .send(&HostMessage::HostResult {
+            seq: 1,
+            ok: true,
+            result: Some(json!({"tracks": 3})),
+            error: None,
+        })
+        .unwrap();
+    let log = stderr_log(&rig.spec.data_dir);
+    assert!(eventually(|| fs::read_to_string(&log)
+        .is_ok_and(|text| text.contains(r#"host_result={"type":"host_result","seq":1,"ok":true"#))));
+}
+
+#[test]
+fn a_page_event_child_streams_events_and_a_takeover_child_asks_once() {
+    let rig = Rig::new("page-events:200");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    for n in 0..3 {
+        assert_eq!(
+            next_message(&child),
+            ChildMessage::PageEvent {
+                topic: "levels".into(),
+                data: json!({ "n": n })
+            }
+        );
+    }
+    drop(child);
+
+    let rig = Rig::new("takeover");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    assert_eq!(next_message(&child), ChildMessage::Takeover { hold: true });
+}
+
+#[test]
+fn a_stalled_child_answers_pings_again_after_its_stall() {
+    let rig = Rig::new("stall-pongs:600");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    child.send(&HostMessage::Ping { seq: 1 }).unwrap();
+    assert!(child.recv_timeout(Duration::from_millis(200)).is_err());
+    let started = Instant::now();
+    let mut seq = 1;
+    while started.elapsed() < SLOW {
+        seq += 1;
+        child.send(&HostMessage::Ping { seq }).unwrap();
+        if let Ok(Inbound::Message(ChildMessage::Pong { .. })) =
+            child.recv_timeout(Duration::from_millis(100))
+        {
+            return;
+        }
+    }
+    panic!("no pong after the stall");
 }
 
 #[test]

@@ -15,12 +15,51 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const PROTOCOL_VERSION: u32 = 1;
+/// The plugin API version `hello` announces.
+pub const API_VERSION: u32 = 1;
 /// The largest JSON body either side may send.
 pub const MAX_FRAME: usize = 1 << 20;
 // Enough digits for MAX_FRAME.
 const MAX_LEN_DIGITS: usize = 7;
-// An unknown type name is logged; this keeps a hostile one short.
+// An unknown type name is reported; this keeps a hostile one short.
 const MAX_KIND_CHARS: usize = 32;
+const STATUS_TEXT_MAX_CHARS: usize = 60;
+const NAME_MAX_CHARS: usize = 64;
+
+/// The text of a `sidebar_input` gesture. Its `Debug` output is redacted, so no log path can print it.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Gesture(String);
+
+impl Gesture {
+    pub fn new(text: impl Into<String>) -> Gesture {
+        Gesture(text.into())
+    }
+
+    #[allow(dead_code)] // The sidebar input path is the first caller.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Gesture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Gesture(<redacted>)")
+    }
+}
+
+/// Why a takeover is, or is no longer, held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TakeoverReason {
+    Granted,
+    Released,
+    Denied,
+    Busy,
+    User,
+    NotResponding,
+    Stopped,
+}
 
 /// Plisto to plugin.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -29,6 +68,7 @@ pub enum HostMessage {
     /// The first message. `granted` lists the capability names the user granted.
     Hello {
         protocol: u32,
+        api_version: u32,
         plisto_version: String,
         id: String,
         granted: Vec<String>,
@@ -44,8 +84,8 @@ pub enum HostMessage {
         #[serde(default)]
         args: Value,
     },
-    /// A playback event snapshot.
-    Feed { seq: u64, event: Value },
+    /// A playback event snapshot; `lost` counts the snapshots this child missed since its last `feed`.
+    Feed { event: Value, lost: u64 },
     /// The answer to the child's `host_call` with the same `seq`.
     HostResult {
         seq: u64,
@@ -55,9 +95,48 @@ pub enum HostMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<Value>,
     },
+    /// The user used a sidebar toggle (`value` set) or action (`None`).
+    SidebarInput {
+        item_id: String,
+        value: Option<bool>,
+        gesture: Gesture,
+    },
+    /// Whether the child holds Plisto's local output, and why that changed.
+    TakeoverState { held: bool, reason: TakeoverReason },
+    /// The plugin's page was shown or hidden.
+    Page { open: bool },
 }
 
-pub const HOST_KINDS: &[&str] = &["hello", "ping", "shutdown", "call", "feed", "host_result"];
+pub const HOST_KINDS: &[&str] = &[
+    "hello",
+    "ping",
+    "shutdown",
+    "call",
+    "feed",
+    "host_result",
+    "sidebar_input",
+    "takeover_state",
+    "page",
+];
+
+/// The states a child may report through `status`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedState {
+    On,
+    Idle,
+    Warn,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogLevel {
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
 
 /// Plugin to Plisto.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -70,9 +149,14 @@ pub enum ChildMessage {
     Pong {
         seq: u64,
     },
+    /// A text that fails `status_text_ok` makes the frame malformed.
     Status {
-        state: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: ReportedState,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "status_text"
+        )]
         text: Option<String>,
     },
     /// The answer to a `call` with the same `seq`.
@@ -102,8 +186,8 @@ pub enum ChildMessage {
         data: Value,
     },
     Log {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        level: Option<String>,
+        #[serde(default)]
+        level: LogLevel,
         text: String,
     },
 }
@@ -118,6 +202,44 @@ pub const CHILD_KINDS: &[&str] = &[
     "page_event",
     "log",
 ];
+
+/// Characters that could spoof or hide display text: refused in a status, with control characters.
+fn invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{61c}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
+        )
+}
+
+/// A status text, checked after trimming: 1 to 60 chars, none a control or invisible formatting char.
+pub fn status_text_ok(text: &str) -> bool {
+    let text = text.trim();
+    (1..=STATUS_TEXT_MAX_CHARS).contains(&text.chars().count()) && !text.chars().any(invisible)
+}
+
+/// Keeps the trimmed text, so what is stored is never longer than the rule allows.
+fn status_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    match Option::<String>::deserialize(d)? {
+        Some(text) if status_text_ok(&text) => Ok(Some(text.trim().to_string())),
+        Some(_) => Err(serde::de::Error::custom("status text is not 1-60 plain chars")),
+        None => Ok(None),
+    }
+}
+
+/// A `page_event` topic or relayed method name: 1 to 64 chars of `[a-z0-9_.-]`.
+#[allow(dead_code)] // The relay and page-event paths are the first callers.
+pub fn name_ok(name: &str) -> bool {
+    (1..=NAME_MAX_CHARS).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-'))
+}
 
 /// Why a stream of frames cannot go on.
 #[derive(Debug, PartialEq, Eq)]
@@ -147,7 +269,8 @@ pub enum Decoded<T> {
     Message(T),
     /// Valid JSON with a `type` this side does not know; the name, shortened.
     Unknown(String),
-    /// Not JSON, not an object with a string `type`, or a known type with the wrong fields.
+    /// Not JSON, not an object with a string `type`, or a known type with the wrong fields. The reason
+    /// never quotes the payload.
     Malformed(String),
 }
 
@@ -226,12 +349,21 @@ pub fn decode<T: DeserializeOwned>(body: &[u8], kinds: &[&str]) -> Decoded<T> {
         return Decoded::Malformed("no string 'type'".into());
     };
     if !kinds.contains(&kind) {
-        return Decoded::Unknown(kind.chars().take(MAX_KIND_CHARS).collect());
+        // Only name characters survive, so a child cannot forge a log line through its type tag.
+        let tag = kind.chars().take(MAX_KIND_CHARS);
+        return Decoded::Unknown(
+            tag.map(|c| match c {
+                'a'..='z' | '0'..='9' | '_' | '.' | '-' => c,
+                _ => '?',
+            })
+            .collect(),
+        );
     }
     let kind = kind.to_string();
     match serde_json::from_value(value) {
         Ok(message) => Decoded::Message(message),
-        Err(e) => Decoded::Malformed(format!("{kind}: {e}")),
+        // The serde message can quote the offending value, so only the type is reported.
+        Err(_) => Decoded::Malformed(format!("{kind}: wrong or missing fields")),
     }
 }
 
@@ -258,6 +390,7 @@ mod tests {
         vec![
             HostMessage::Hello {
                 protocol: 1,
+                api_version: 1,
                 plisto_version: "2.7.0".into(),
                 id: "com.example.demo".into(),
                 granted: vec!["audio.tap".into()],
@@ -270,15 +403,30 @@ mod tests {
                 args: json!({"a": [1, "x\ny"]}),
             },
             HostMessage::Feed {
-                seq: 2,
-                event: json!({"kind": "play"}),
+                event: json!({"seq": 2, "cause": "play"}),
+                lost: 3,
             },
             HostMessage::HostResult {
                 seq: 3,
                 ok: false,
                 result: None,
-                error: Some(json!({"code": "denied"})),
+                error: Some(json!({"code": "denied", "message": "no"})),
             },
+            HostMessage::SidebarInput {
+                item_id: "mirror".into(),
+                value: Some(true),
+                gesture: Gesture::new("g-1"),
+            },
+            HostMessage::SidebarInput {
+                item_id: "reset".into(),
+                value: None,
+                gesture: Gesture::new("g-2"),
+            },
+            HostMessage::TakeoverState {
+                held: false,
+                reason: TakeoverReason::NotResponding,
+            },
+            HostMessage::Page { open: true },
         ]
     }
 
@@ -287,7 +435,7 @@ mod tests {
             ChildMessage::Ready { protocol: 1 },
             ChildMessage::Pong { seq: 9 },
             ChildMessage::Status {
-                state: "on".into(),
+                state: ReportedState::On,
                 text: Some("Mirroring".into()),
             },
             ChildMessage::Result {
@@ -306,8 +454,12 @@ mod tests {
                 topic: "levels".into(),
                 data: json!([0.5, 0.25]),
             },
+            ChildMessage::Status {
+                state: ReportedState::Idle,
+                text: None,
+            },
             ChildMessage::Log {
-                level: None,
+                level: LogLevel::Warn,
                 text: "started".into(),
             },
         ]
@@ -346,12 +498,20 @@ mod tests {
             let v = serde_json::to_value(&m).unwrap();
             assert!(HOST_KINDS.contains(&v["type"].as_str().unwrap()), "{v}");
         }
-        assert_eq!(host_messages().len(), HOST_KINDS.len());
+        let host_kinds: std::collections::HashSet<_> = host_messages()
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap()["type"].to_string())
+            .collect();
+        assert_eq!(host_kinds.len(), HOST_KINDS.len());
         for m in child_messages() {
             let v = serde_json::to_value(&m).unwrap();
             assert!(CHILD_KINDS.contains(&v["type"].as_str().unwrap()), "{v}");
         }
-        assert_eq!(child_messages().len(), CHILD_KINDS.len());
+        let child_kinds: std::collections::HashSet<_> = child_messages()
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap()["type"].to_string())
+            .collect();
+        assert_eq!(child_kinds.len(), CHILD_KINDS.len());
     }
 
     #[test]
@@ -383,7 +543,7 @@ mod tests {
         assert_eq!(read_all(b"99999999\n")[0], Err(FrameError::BadLength));
 
         let big = ChildMessage::Log {
-            level: None,
+            level: LogLevel::Info,
             text: "x".repeat(MAX_FRAME),
         };
         assert_eq!(
@@ -493,5 +653,224 @@ mod tests {
             decode::<ChildMessage>(deep.as_bytes(), CHILD_KINDS),
             Decoded::Malformed(_)
         ));
+    }
+
+    fn wire(message: &impl Serialize) -> String {
+        serde_json::to_string(message).unwrap()
+    }
+
+    #[test]
+    fn messages_carry_the_exact_wire_field_names() {
+        assert_eq!(
+            wire(&host_messages()[0]),
+            r#"{"type":"hello","protocol":1,"api_version":1,"plisto_version":"2.7.0","id":"com.example.demo","granted":["audio.tap"]}"#
+        );
+        assert_eq!(
+            wire(&host_messages()[4]),
+            r#"{"type":"feed","event":{"cause":"play","seq":2},"lost":3}"#
+        );
+        assert_eq!(
+            wire(&host_messages()[6]),
+            r#"{"type":"sidebar_input","item_id":"mirror","value":true,"gesture":"g-1"}"#
+        );
+        assert_eq!(
+            wire(&host_messages()[7]),
+            r#"{"type":"sidebar_input","item_id":"reset","value":null,"gesture":"g-2"}"#
+        );
+        assert_eq!(
+            wire(&host_messages()[8]),
+            r#"{"type":"takeover_state","held":false,"reason":"not_responding"}"#
+        );
+        assert_eq!(wire(&host_messages()[9]), r#"{"type":"page","open":true}"#);
+        assert_eq!(
+            wire(&child_messages()[2]),
+            r#"{"type":"status","state":"on","text":"Mirroring"}"#
+        );
+        assert_eq!(
+            wire(&child_messages()[7]),
+            r#"{"type":"status","state":"idle"}"#
+        );
+    }
+
+    #[test]
+    fn a_feed_has_no_frame_level_seq() {
+        let feed = serde_json::to_value(&host_messages()[4]).unwrap();
+        assert!(feed.get("seq").is_none());
+        assert_eq!(feed["event"]["seq"], 2);
+        assert!(matches!(
+            decode::<HostMessage>(br#"{"type":"feed","seq":1,"event":{}}"#, HOST_KINDS),
+            Decoded::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn every_takeover_reason_has_its_snake_case_name() {
+        use TakeoverReason::*;
+        let all = [
+            (Granted, "granted"),
+            (Released, "released"),
+            (Denied, "denied"),
+            (Busy, "busy"),
+            (User, "user"),
+            (NotResponding, "not_responding"),
+            (Stopped, "stopped"),
+        ];
+        for (reason, name) in all {
+            assert_eq!(wire(&reason), format!("\"{name}\""));
+        }
+    }
+
+    fn child_decode(json: &str) -> Decoded<ChildMessage> {
+        decode(json.as_bytes(), CHILD_KINDS)
+    }
+
+    #[test]
+    fn status_accepts_only_the_closed_vocabulary() {
+        for (state, expected) in [
+            ("on", ReportedState::On),
+            ("idle", ReportedState::Idle),
+            ("warn", ReportedState::Warn),
+        ] {
+            let json = format!(r#"{{"type":"status","state":"{state}"}}"#);
+            assert_eq!(
+                child_decode(&json),
+                Decoded::Message(ChildMessage::Status {
+                    state: expected,
+                    text: None
+                })
+            );
+        }
+        for json in [
+            r#"{"type":"status","state":"error"}"#,
+            r#"{"type":"status","state":"ON"}"#,
+            r#"{"type":"status"}"#,
+            r#"{"type":"status","state":7}"#,
+        ] {
+            assert!(matches!(child_decode(json), Decoded::Malformed(_)), "{json}");
+        }
+    }
+
+    #[test]
+    fn status_text_is_one_to_sixty_plain_chars_after_trim() {
+        assert!(status_text_ok("a"));
+        assert!(status_text_ok("  padded  "));
+        assert!(status_text_ok(&"e".repeat(60)));
+        // Characters are counted, not bytes.
+        assert!(status_text_ok(&"\u{e9}".repeat(60)));
+        assert!(!status_text_ok(""));
+        assert!(!status_text_ok("   "));
+        assert!(!status_text_ok(&"e".repeat(61)));
+        assert!(!status_text_ok("tab\there"));
+        assert!(!status_text_ok("line\nbreak"));
+        assert!(!status_text_ok("bell\u{7}"));
+        assert!(!status_text_ok("\u{a0}\u{a0}"));
+
+        let long = "x".repeat(61);
+        for text in ["", " ", long.as_str(), "a\\u0001b"] {
+            let json = format!(r#"{{"type":"status","state":"on","text":"{text}"}}"#);
+            assert!(matches!(child_decode(&json), Decoded::Malformed(_)), "{json}");
+        }
+        assert!(matches!(
+            child_decode(r#"{"type":"status","state":"on","text":null}"#),
+            Decoded::Message(ChildMessage::Status { text: None, .. })
+        ));
+    }
+
+    #[test]
+    fn a_padded_status_text_is_stored_trimmed() {
+        let json = format!(
+            r#"{{"type":"status","state":"on","text":"{pad}a{pad}"}}"#,
+            pad = " ".repeat(1_000_000)
+        );
+        assert_eq!(
+            child_decode(&json),
+            Decoded::Message(ChildMessage::Status {
+                state: ReportedState::On,
+                text: Some("a".into())
+            })
+        );
+    }
+
+    #[test]
+    fn invisible_and_bidi_chars_are_refused_in_a_status_text() {
+        assert!(!status_text_ok("\u{200b}\u{200b}"));
+        assert!(!status_text_ok("\u{feff}"));
+        assert!(!status_text_ok("ab\u{202e}cd"));
+        assert!(!status_text_ok("ab\u{2028}cd"));
+        assert!(!status_text_ok("ab\u{2029}cd"));
+        assert!(!status_text_ok("ab\u{2066}cd"));
+        assert!(!status_text_ok("ab\u{61c}cd"));
+        assert!(!status_text_ok("ab\u{2060}cd"));
+        let json = "{\"type\":\"status\",\"state\":\"on\",\"text\":\"ab\u{202e}cd\"}";
+        assert!(matches!(child_decode(json), Decoded::Malformed(_)));
+    }
+
+    #[test]
+    fn sixty_chars_pass_and_sixty_one_fail_after_trim() {
+        assert!(status_text_ok(&format!("  {}  ", "e".repeat(60))));
+        assert!(!status_text_ok(&format!("  {}  ", "e".repeat(61))));
+    }
+
+    #[test]
+    fn an_unknown_type_tag_keeps_only_name_characters() {
+        let json = r#"{"type":"x\nplugins: forged"}"#;
+        assert_eq!(
+            child_decode(json),
+            Decoded::Unknown("x?plugins??forged".into())
+        );
+    }
+
+    #[test]
+    fn log_levels_are_closed_and_default_to_info() {
+        assert_eq!(
+            child_decode(r#"{"type":"log","text":"x"}"#),
+            Decoded::Message(ChildMessage::Log {
+                level: LogLevel::Info,
+                text: "x".into()
+            })
+        );
+        for (name, level) in [
+            ("debug", LogLevel::Debug),
+            ("info", LogLevel::Info),
+            ("warn", LogLevel::Warn),
+            ("error", LogLevel::Error),
+        ] {
+            let json = format!(r#"{{"type":"log","level":"{name}","text":"x"}}"#);
+            assert_eq!(
+                child_decode(&json),
+                Decoded::Message(ChildMessage::Log {
+                    level,
+                    text: "x".into()
+                })
+            );
+        }
+        assert!(matches!(
+            child_decode(r#"{"type":"log","level":"trace","text":"x"}"#),
+            Decoded::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn names_are_one_to_sixty_four_lowercase_chars() {
+        for ok in ["a", "levels", "ui.toast", "a-b_c.9", &"a".repeat(64)] {
+            assert!(name_ok(ok), "{ok}");
+        }
+        for bad in ["", "Levels", "a b", "a/b", "a:b", "caf\u{e9}", &"a".repeat(65)] {
+            assert!(!name_ok(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn debug_output_never_shows_a_gesture() {
+        let input = HostMessage::SidebarInput {
+            item_id: "mirror".into(),
+            value: None,
+            gesture: Gesture::new("secret-gesture-token"),
+        };
+        let shown = format!("{input:?} {:#?}", Gesture::new("secret-gesture-token"));
+        assert!(!shown.contains("secret-gesture-token"), "{shown}");
+        assert!(shown.contains("mirror"));
+        // The wire still carries it.
+        assert!(wire(&input).contains("secret-gesture-token"));
     }
 }

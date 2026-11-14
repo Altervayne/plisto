@@ -31,7 +31,7 @@ use super::session::BootState;
 use super::state::{PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
 use launch::{entry_path, LaunchSpec};
-use protocol::{HostMessage, PROTOCOL_VERSION};
+use protocol::{HostMessage, API_VERSION, PROTOCOL_VERSION};
 
 /// A first launch can sit behind an antivirus scan, so `ready` gets this long.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -126,6 +126,7 @@ impl NativeHost {
         }
         let hello = HostMessage::Hello {
             protocol: PROTOCOL_VERSION,
+            api_version: API_VERSION,
             plisto_version: env!("CARGO_PKG_VERSION").to_string(),
             id: id.to_string(),
             granted: serving

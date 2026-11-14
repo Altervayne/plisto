@@ -9,11 +9,9 @@
  */
 
 // -- Library Imports --
-use std::io::{BufReader, Write};
+use std::io::{BufReader, Read, Write};
 use std::os::windows::io::AsRawHandle;
-use std::process::{self, ChildStdin, ChildStdout};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::process::{self, ChildStdin};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -25,7 +23,8 @@ use windows::Win32::System::Threading::WaitForSingleObject;
 use super::job::Job;
 use super::launch::{launch, LaunchSpec};
 use super::protocol::{
-    decode, encode, read_frame, ChildMessage, Decoded, HostMessage, CHILD_KINDS, PROTOCOL_VERSION,
+    decode, encode, read_frame, ChildMessage, Decoded, FrameError, HostMessage, CHILD_KINDS,
+    PROTOCOL_VERSION,
 };
 
 /// Frames waiting to be written to the child.
@@ -34,15 +33,22 @@ pub const OUTBOX_CAP: usize = 64;
 pub const INBOX_CAP: usize = 64;
 // After a forced kill, how long to wait for the process to be gone.
 const KILL_WAIT: Duration = Duration::from_secs(5);
-// Lines logged per child about frames that were dropped, so a noisy child cannot flood the log.
-const DROP_LOG_LIMIT: u32 = 16;
 const READ_BUFFER: usize = 64 * 1024;
 
-/// What the inbox delivers.
+/// Why the child's output ended: it closed the stream cleanly.
+pub const CLOSED_EXITED: &str = "exited";
+/// Why the child's output ended: a frame broke, so nothing after it can be trusted.
+pub const CLOSED_PROTOCOL: &str = "protocol";
+
+/// What the inbox delivers. Reporting is the caller's job: the inbox logs nothing.
 #[derive(Debug, PartialEq)]
 pub enum Inbound {
     Message(ChildMessage),
-    /// The child's output ended or broke; nothing follows.
+    /// A well-formed frame of a type Plisto does not know; the type tag, shortened.
+    Unknown(String),
+    /// A frame that is not JSON or has the wrong fields; a short reason, never the payload.
+    Malformed(String),
+    /// The child's output ended, with `CLOSED_EXITED` or `CLOSED_PROTOCOL`; nothing follows.
     Closed(String),
 }
 
@@ -65,35 +71,24 @@ enum Raw {
 /// The receiving end of a child's output. Clones share one queue.
 #[derive(Clone)]
 pub struct Inbox {
-    id: Arc<str>,
     rx: Receiver<Raw>,
-    dropped: Arc<AtomicU32>,
 }
 
 impl Inbox {
-    /// The next message, parsing frames as they are taken. Frames of an unknown type or shape are
-    /// logged and skipped.
+    /// The next frame, parsed as it is taken. Unknown types and malformed bodies are returned, not
+    /// skipped, so the caller can count them.
     pub fn recv_timeout(&self, timeout: Duration) -> Result<Inbound, RecvTimeoutError> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let body = match self.rx.recv_timeout(left)? {
-                Raw::Frame(body) => body,
-                Raw::Closed(why) => return Ok(Inbound::Closed(why)),
-            };
-            match decode::<ChildMessage>(&body, CHILD_KINDS) {
-                Decoded::Message(message) => return Ok(Inbound::Message(message)),
-                Decoded::Unknown(kind) => self.note(&format!("unknown type '{kind}'")),
-                Decoded::Malformed(why) => self.note(&why),
-            }
-            // A stream of skipped frames must not hold the caller past its deadline.
-            if Instant::now() >= deadline {
-                return Err(RecvTimeoutError::Timeout);
-            }
-        }
+        Ok(match self.rx.recv_timeout(timeout)? {
+            Raw::Frame(body) => match decode::<ChildMessage>(&body, CHILD_KINDS) {
+                Decoded::Message(message) => Inbound::Message(message),
+                Decoded::Unknown(kind) => Inbound::Unknown(kind),
+                Decoded::Malformed(why) => Inbound::Malformed(why),
+            },
+            Raw::Closed(why) => Inbound::Closed(why),
+        })
     }
 
-    /// Takes and drops everything until the child's output ends.
+    /// Takes and drops everything, unparsed, until the child's output ends.
     pub fn discard(&self) {
         for _ in self.rx.iter() {}
     }
@@ -101,19 +96,6 @@ impl Inbox {
     /// Frames waiting to be taken.
     pub fn waiting(&self) -> usize {
         self.rx.len()
-    }
-
-    fn note(&self, what: &str) {
-        let dropped = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
-        if dropped <= DROP_LOG_LIMIT {
-            eprintln!("plugins: {}: dropped a frame: {what}", self.id);
-        }
-        if dropped == DROP_LOG_LIMIT {
-            eprintln!(
-                "plugins: {}: further dropped frames are not logged",
-                self.id
-            );
-        }
     }
 }
 
@@ -170,11 +152,7 @@ impl Child {
             job,
             process,
             outbox,
-            inbox: Inbox {
-                id: id.into(),
-                rx: inbox,
-                dropped: Arc::default(),
-            },
+            inbox: Inbox { rx: inbox },
         };
         let (Some(stdin), Some(stdout)) = (stdin, stdout) else {
             return Err(std::io::Error::other("the child has no pipes"));
@@ -214,7 +192,7 @@ impl Child {
         self.inbox.recv_timeout(timeout)
     }
 
-    /// Sends `hello` and waits for `ready`. Other messages before it are dropped.
+    /// Sends `hello` and waits for `ready`. Anything else before it is dropped.
     pub fn handshake(&self, hello: &HostMessage, timeout: Duration) -> Result<(), HandshakeError> {
         self.send(hello).map_err(HandshakeError::Send)?;
         let deadline = Instant::now() + timeout;
@@ -227,7 +205,7 @@ impl Child {
                         other => Err(HandshakeError::Protocol(other)),
                     };
                 }
-                Ok(Inbound::Message(_)) => {}
+                Ok(Inbound::Message(_) | Inbound::Unknown(_) | Inbound::Malformed(_)) => {}
                 Ok(Inbound::Closed(why)) => return Err(HandshakeError::Exited(why)),
                 Err(RecvTimeoutError::Timeout) => return Err(HandshakeError::Timeout),
                 Err(RecvTimeoutError::Disconnected) => {
@@ -291,7 +269,7 @@ fn write_loop(mut stdin: ChildStdin, outgoing: Receiver<Vec<u8>>) {
     }
 }
 
-fn read_loop(stdout: ChildStdout, incoming: Sender<Raw>) {
+fn read_loop(stdout: impl Read, incoming: Sender<Raw>) {
     let mut reader = BufReader::with_capacity(READ_BUFFER, stdout);
     let end = loop {
         match read_frame(&mut reader) {
@@ -301,9 +279,77 @@ fn read_loop(stdout: ChildStdout, incoming: Sender<Raw>) {
                     return;
                 }
             }
-            Ok(None) => break "output ended".to_string(),
-            Err(e) => break format!("{e}; output no longer read"),
+            Ok(None) | Err(FrameError::Io(_)) => break CLOSED_EXITED,
+            Err(_) => break CLOSED_PROTOCOL,
         }
     };
-    let _ = incoming.send(Raw::Closed(end));
+    let _ = incoming.send(Raw::Closed(end.to_string()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn taken(bytes: Vec<u8>) -> Vec<Inbound> {
+        let (tx, rx) = bounded(INBOX_CAP);
+        read_loop(Cursor::new(bytes), tx);
+        let inbox = Inbox { rx };
+        let mut out = Vec::new();
+        loop {
+            let next = inbox.recv_timeout(Duration::ZERO).unwrap();
+            let done = matches!(next, Inbound::Closed(_));
+            out.push(next);
+            if done {
+                return out;
+            }
+        }
+    }
+
+    fn frame(json: &str) -> Vec<u8> {
+        format!("{}\n{json}\n", json.len()).into_bytes()
+    }
+
+    #[test]
+    fn unknown_and_malformed_frames_are_surfaced_and_the_stream_goes_on() {
+        let mut bytes = frame(r#"{"type":"pong","seq":1}"#);
+        bytes.extend(frame(r#"{"type":"teleport","x":1}"#));
+        bytes.extend(frame("not json"));
+        bytes.extend(frame(r#"{"type":"pong","seq":"secret-payload"}"#));
+        bytes.extend(frame(r#"{"type":"status","state":"bogus"}"#));
+        bytes.extend(frame(r#"{"type":"pong","seq":2}"#));
+        let got = taken(bytes);
+        assert_eq!(got.len(), 7);
+        assert_eq!(got[0], Inbound::Message(ChildMessage::Pong { seq: 1 }));
+        assert_eq!(got[1], Inbound::Unknown("teleport".into()));
+        for malformed in &got[2..5] {
+            match malformed {
+                Inbound::Malformed(why) => assert!(!why.contains("secret-payload"), "{why}"),
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(got[5], Inbound::Message(ChildMessage::Pong { seq: 2 }));
+        assert_eq!(got[6], Inbound::Closed(CLOSED_EXITED.into()));
+    }
+
+    #[test]
+    fn a_clean_end_of_output_closes_as_exited() {
+        assert_eq!(taken(Vec::new()), [Inbound::Closed(CLOSED_EXITED.into())]);
+    }
+
+    #[test]
+    fn a_broken_frame_closes_as_protocol_after_the_frames_before_it() {
+        let over = format!("{}\n", (1 << 20) + 1).into_bytes();
+        for broken in [&b"abc
+"[..], b"10
+{\"type\"", b"2
+{}x", &over[..]] {
+            let mut bytes = frame(r#"{"type":"pong","seq":1}"#);
+            bytes.extend_from_slice(broken);
+            let got = taken(bytes);
+            assert_eq!(got.len(), 2, "{broken:?}");
+            assert_eq!(got[0], Inbound::Message(ChildMessage::Pong { seq: 1 }));
+            assert_eq!(got[1], Inbound::Closed(CLOSED_PROTOCOL.into()));
+        }
+    }
 }

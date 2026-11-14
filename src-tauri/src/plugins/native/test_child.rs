@@ -7,22 +7,27 @@
 
 // -- Library Imports --
 use std::fs;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use serde_json::json;
 
 // -- Local Imports --
 use super::protocol::{
-    decode, read_frame, write_message, ChildMessage, Decoded, HostMessage, HOST_KINDS,
-    PROTOCOL_VERSION,
+    decode, read_frame, write_message, ChildMessage, Decoded, HostMessage, LogLevel,
+    ReportedState, HOST_KINDS, PROTOCOL_VERSION,
 };
 
-/// The file in the data folder that names the behavior.
+/// The file in the data folder that names the behavior, optionally followed by `:<number>` for the
+/// modes that take one.
 pub const MODE_FILE: &str = "test-mode";
 const CRASH_CODE: i32 = 3;
 const FLOOD_TEXT_BYTES: usize = 60_000;
+const DEFAULT_PAGE_EVENTS_PER_SEC: u64 = 50;
+const DEFAULT_STALL_MS: u64 = 3_000;
 
 #[used]
 #[link_section = ".CRT$XCU"]
@@ -40,12 +45,27 @@ extern "C" fn child_hook() {
         .map(PathBuf::from)
         .unwrap_or_default();
     let mode = fs::read_to_string(data.join(MODE_FILE)).unwrap_or_default();
-    run(mode.trim(), &data, &args);
+    let (mode, param) = match mode.trim().split_once(':') {
+        Some((mode, param)) => (mode, param.parse().ok()),
+        None => (mode.trim(), None),
+    };
+    run(mode, param, &data, &args);
     process::exit(0);
 }
 
 fn send(message: &ChildMessage) {
     if write_message(&mut io::stdout().lock(), message).is_err() {
+        process::exit(0);
+    }
+}
+
+/// Writes a frame whose body is not a message the codec would produce.
+fn send_raw(json: &str) {
+    let mut out = io::stdout().lock();
+    if write!(out, "{}\n{json}\n", json.len())
+        .and_then(|()| out.flush())
+        .is_err()
+    {
         process::exit(0);
     }
 }
@@ -85,6 +105,32 @@ fn serve(input: &mut BufReader<io::Stdin>) {
                 result: Some(args),
                 error: None,
             }),
+            HostMessage::HostResult { .. } => log_host_result(&message),
+            HostMessage::Shutdown => return,
+            _ => {}
+        }
+    }
+}
+
+/// The host's answer to a `host_call`, written to the stderr log for the test to read.
+fn log_host_result(message: &HostMessage) {
+    eprintln!(
+        "host_result={}",
+        serde_json::to_string(message).unwrap_or_default()
+    );
+}
+
+/// Like `serve`, but ignores pings for `stall` after the first one, then answers them again.
+fn serve_stalling(input: &mut BufReader<io::Stdin>, stall: Duration) {
+    let mut first_ping = None;
+    while let Some(message) = next(input) {
+        match message {
+            HostMessage::Ping { seq } => {
+                let since = *first_ping.get_or_insert_with(Instant::now);
+                if since.elapsed() >= stall {
+                    send(&ChildMessage::Pong { seq });
+                }
+            }
             HostMessage::Shutdown => return,
             _ => {}
         }
@@ -109,7 +155,7 @@ fn spawn_grandchild(data: &Path) -> u32 {
     }
 }
 
-fn run(mode: &str, data: &Path, args: &[String]) {
+fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
     let mut input = BufReader::new(io::stdin());
     match mode {
         "echo" => {
@@ -140,9 +186,9 @@ fn run(mode: &str, data: &Path, args: &[String]) {
             next(&mut input);
             let pid = spawn_grandchild(data);
             ready();
-            send(&ChildMessage::Status {
-                state: "grandchild".into(),
-                text: Some(pid.to_string()),
+            send(&ChildMessage::Log {
+                level: LogLevel::Info,
+                text: format!("grandchild={pid}"),
             });
             serve(&mut input);
         }
@@ -152,10 +198,73 @@ fn run(mode: &str, data: &Path, args: &[String]) {
             let text = "x".repeat(FLOOD_TEXT_BYTES);
             loop {
                 send(&ChildMessage::Log {
-                    level: None,
+                    level: LogLevel::Info,
                     text: text.clone(),
                 });
             }
+        }
+        "status-flood" => {
+            next(&mut input);
+            ready();
+            let mut on = true;
+            loop {
+                let state = if on {
+                    ReportedState::On
+                } else {
+                    ReportedState::Warn
+                };
+                send(&ChildMessage::Status { state, text: None });
+                on = !on;
+            }
+        }
+        "bad-status" => {
+            next(&mut input);
+            ready();
+            send_raw(r#"{"type":"status","state":"bogus"}"#);
+            let long = "x".repeat(61);
+            send_raw(&format!(r#"{{"type":"status","state":"on","text":"{long}"}}"#));
+            send_raw(r#"{"type":"status","state":"on","text":"bell\u0007"}"#);
+            send(&ChildMessage::Status {
+                state: ReportedState::Idle,
+                text: Some("fine".into()),
+            });
+            serve(&mut input);
+        }
+        "host-call" => {
+            next(&mut input);
+            ready();
+            send(&ChildMessage::HostCall {
+                seq: 1,
+                method: "library.stats".into(),
+                args: json!({}),
+            });
+            serve(&mut input);
+        }
+        "page-events" => {
+            next(&mut input);
+            ready();
+            let rate = param.unwrap_or(DEFAULT_PAGE_EVENTS_PER_SEC).max(1);
+            let gap = Duration::from_millis(1000 / rate);
+            let mut n = 0u64;
+            loop {
+                send(&ChildMessage::PageEvent {
+                    topic: "levels".into(),
+                    data: json!({ "n": n }),
+                });
+                thread::sleep(gap);
+                n += 1;
+            }
+        }
+        "takeover" => {
+            next(&mut input);
+            ready();
+            send(&ChildMessage::Takeover { hold: true });
+            serve(&mut input);
+        }
+        "stall-pongs" => {
+            next(&mut input);
+            ready();
+            serve_stalling(&mut input, Duration::from_millis(param.unwrap_or(DEFAULT_STALL_MS)));
         }
         _ => sleep_forever(),
     }
