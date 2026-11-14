@@ -1037,6 +1037,7 @@ impl Engine {
             PlayerCmd::RestoreLibrary { secs, playing } => self.restore_library(secs, playing),
             PlayerCmd::SetSound(settings) => self.dsp.store(&DspParams::from(&settings)),
             PlayerCmd::SetFineSpectrum(on) => self.fine_spectrum = on,
+            PlayerCmd::FeedSnapshot => self.feed(FeedCause::Snapshot),
         }
     }
 

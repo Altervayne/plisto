@@ -42,6 +42,8 @@ pub enum FeedCause {
     Volume,
     /// The output device changed or was lost.
     Device,
+    /// A consumer asked for the current state. Nothing changed and the tap epoch carries on.
+    Snapshot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -418,6 +420,17 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_with_no_consumer_sends_nothing() {
+        let hub = FeedHub::new();
+        hub.publish(FeedCause::Snapshot, state(Transport::Playing));
+        let c = hub.attach(false).expect("attaches");
+        hub.publish(FeedCause::Snapshot, state(Transport::Playing));
+        let seqs: Vec<u64> = c.events.try_iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, vec![1]);
+        hub.detach(c.id);
+    }
+
+    #[test]
     fn a_dropped_receiver_is_detached() {
         let hub = FeedHub::new();
         let c = hub.attach(false).expect("attaches");
@@ -438,6 +451,7 @@ mod tests {
             FeedCause::Volume,
             FeedCause::Gapless,
             FeedCause::Device,
+            FeedCause::Snapshot,
             FeedCause::Stop,
         ];
         for cause in causes {
@@ -491,6 +505,12 @@ mod tests {
         assert_eq!(json["transport"], "playing");
         assert_eq!(json["tap_cursor"], 100);
         assert_eq!(json["latency_ms"], 10.0);
+    }
+
+    #[test]
+    fn the_snapshot_cause_serializes_as_snapshot() {
+        let json = serde_json::to_value(FeedCause::Snapshot).expect("serializes");
+        assert_eq!(json, "snapshot");
     }
 }
 
@@ -624,6 +644,42 @@ mod tap_tests {
             .iter()
             .all(|s| s.load(Ordering::Relaxed) == 0));
         hub.detach(events_only.id);
+    }
+
+    #[test]
+    fn a_snapshot_reports_the_current_state_and_opens_no_epoch() {
+        let dir = TempDir::new("feed_snapshot");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 6_000);
+        let hub = FeedHub::new();
+        let slot = Arc::clone(hub.slot());
+        let c = hub.attach(true).expect("attaches");
+
+        let mut playing = source(&path, None, Some(slot.cold()));
+        hub.publish(
+            FeedCause::Start,
+            state(Transport::Playing, 44_100, 2, 0.0, 1.0),
+        );
+        let _: Vec<f32> = playing.by_ref().take(2_000).collect();
+        let (epoch, cursor) = (slot.epoch(), slot.write_cursor());
+        hub.publish(
+            FeedCause::Snapshot,
+            state(Transport::Playing, 44_100, 2, 0.02, 1.0),
+        );
+        // The source plays on in the same epoch after the snapshot.
+        let _: Vec<f32> = playing.collect();
+
+        let events: Vec<FeedEvent> = c.events.try_iter().collect();
+        assert_eq!(events.len(), 2);
+        let snap = &events[1];
+        assert_eq!(stamp(snap), (FeedCause::Snapshot, epoch, cursor));
+        assert_eq!(snap.seq, events[0].seq + 1);
+        assert_eq!(snap.state.transport, Transport::Playing);
+        assert_eq!(snap.state.sample_rate, 44_100);
+        assert_eq!(snap.state.position_secs, 0.02);
+        assert_eq!(slot.epoch(), epoch);
+        assert_eq!(segments(&slot), vec![segment(0, 1, STEREO)]);
+        hub.detach(c.id);
     }
 
     // Drives the transitions the engine reports, in the order a session runs them, and checks what

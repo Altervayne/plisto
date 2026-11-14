@@ -62,6 +62,13 @@ pub fn detach_feed_consumer(id: u64) {
     FEED.detach(id);
 }
 
+/// Asks the engine for one snapshot of the current state, so a consumer that attached mid-session
+/// learns it without waiting for a transport change. Any thread; never blocks. False when the engine
+/// thread is gone.
+pub fn request_feed_snapshot(player: &crossbeam_channel::Sender<PlayerCmd>) -> bool {
+    player.try_send(PlayerCmd::FeedSnapshot).is_ok()
+}
+
 /// Snapshots dropped on full consumer channels since launch. Any thread.
 pub fn feed_dropped() -> u64 {
     FEED.dropped()
@@ -154,6 +161,8 @@ pub enum PlayerCmd {
     // Turns the 128-band `player:spectrum_fine` emit on or off. Off by default, so nothing beyond the
     // regular bands is analyzed unless a visualizer asks for it.
     SetFineSpectrum(bool),
+    // Sends the feed consumers one snapshot of the current state. Changes nothing.
+    FeedSnapshot,
 }
 
 /// One selectable output device, for the settings picker. `is_default` marks the current OS default
