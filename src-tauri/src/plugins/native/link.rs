@@ -181,6 +181,18 @@ impl RecordingLink {
             .count()
     }
 
+    /// Every output takeover command, in order: true mutes, false restores.
+    pub fn takeovers(&self) -> Vec<bool> {
+        let player = self.player.lock().unwrap();
+        player
+            .iter()
+            .filter_map(|cmd| match cmd {
+                PlayerCmd::SetOutputTakeover(on) => Some(*on),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Feed consumers attached, then detached, in order.
     pub fn feed_consumers(&self) -> (Vec<u64>, Vec<u64>) {
         (

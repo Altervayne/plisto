@@ -329,6 +329,30 @@ impl StatusBoard {
         });
     }
 
+    /// The plugin holds Plisto's output; a previous revocation no longer shows.
+    pub fn took_over(&self, id: &str, now: Instant) {
+        self.update(id, now, |slot| {
+            if !slot.status.takeover || slot.status.takeover_revoked.is_some() {
+                slot.status.takeover = true;
+                slot.status.takeover_revoked = None;
+                slot.changed();
+            }
+        });
+    }
+
+    /// The plugin no longer holds Plisto's output; `revoked` names a host-side release.
+    pub fn gave_back(&self, id: &str, revoked: Option<TakeoverReason>, now: Instant) {
+        self.update(id, now, |slot| {
+            if slot.status.takeover {
+                slot.status.takeover = false;
+                if revoked.is_some() {
+                    slot.status.takeover_revoked = revoked;
+                }
+                slot.changed();
+            }
+        });
+    }
+
     pub fn protocol_error(&self, id: &str, now: Instant) {
         self.update(id, now, |slot| {
             slot.status.protocol_errors = slot.status.protocol_errors.saturating_add(1);

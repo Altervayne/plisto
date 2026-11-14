@@ -1,7 +1,8 @@
 /*
- * The IPC commands behind the plugin status channel: every supervised plugin's status, and a restart
- * the user asked for. Only the main window may call them. Changes reach that window as
- * `plugins:status` events; this read is for a window that just mounted or saw the runtime change.
+ * The IPC commands behind the plugin status channel: every supervised plugin's status, a restart the
+ * user asked for, and giving Plisto's output back from a plugin that holds it. Only the main window
+ * may call them. Changes reach that window as `plugins:status` events; this read is for a window that
+ * just mounted or saw the runtime change.
  */
 
 // -- Library Imports --
@@ -12,7 +13,7 @@ use tauri::{AppHandle, Manager, State, Webview};
 // -- Local Imports --
 use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::native::status::PluginStatus;
-use crate::plugins::native::{NativeHost, StartError};
+use crate::plugins::native::{NativeHost, StartError, TakeoverReason};
 use crate::plugins::registry::EntryState;
 use crate::plugins::state::{PluginsState, Runtime};
 use crate::state::AppState;
@@ -50,6 +51,11 @@ fn restartable(label: &str, plugins: &PluginsState, id: &str) -> Result<(), Inst
         _ if !plugins.is_enabled(id) => Err(not_found()),
         _ => Ok(()),
     }
+}
+
+/// Gives the output back as the user asked, when `label` is the main window. True when a plugin held it.
+fn release_from(label: &str, host: &NativeHost) -> bool {
+    label == MAIN_LABEL && host.release_takeover(TakeoverReason::User)
 }
 
 fn start_error(id: &str, e: StartError) -> InstallError {
@@ -91,6 +97,12 @@ pub async fn plugin_restart(
     })
     .await
     .map_err(|_| InstallError::new(ErrorCode::Io, "the restart task failed to run"))?
+}
+
+/// Plisto's own output again, from whichever plugin holds it. True when one did.
+#[tauri::command]
+pub fn plugin_takeover_release(webview: Webview, native: State<'_, Arc<NativeHost>>) -> bool {
+    release_from(webview.label(), &native)
 }
 
 #[cfg(test)]
@@ -167,6 +179,22 @@ mod tests {
         assert_eq!(code(MAIN_LABEL, &broken), Some(ErrorCode::Broken));
         let old = plugins_with(EntryState::Incompatible, true, Vec::new());
         assert_eq!(code(MAIN_LABEL, &old), Some(ErrorCode::Incompatible));
+    }
+
+    #[test]
+    fn only_the_main_window_gives_the_output_back() {
+        let host = host();
+        assert!(!release_from(MAIN_LABEL, &host), "nothing held");
+        host.hold_output_for(ID);
+        for label in ["tray", "nowplaying", "Main", ""] {
+            assert!(!release_from(label, &host), "{label:?}");
+            assert!(host.status(ID).unwrap().takeover, "{label:?}");
+        }
+        assert!(release_from(MAIN_LABEL, &host));
+        let status = host.status(ID).unwrap();
+        assert!(!status.takeover);
+        assert_eq!(status.takeover_revoked, Some(TakeoverReason::User));
+        assert!(!release_from(MAIN_LABEL, &host));
     }
 
     #[test]

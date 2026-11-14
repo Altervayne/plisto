@@ -552,13 +552,26 @@ impl Supervised {
 
     /// A plugin that asks for and is granted `caps`.
     pub(super) fn granted(mode: &str, caps: &[&str]) -> Supervised {
+        Supervised::hosted(mode, caps, |host| host)
+    }
+
+    /// `granted`, with the host passed through `adapt` before anything else holds it.
+    pub(super) fn hosted(
+        mode: &str,
+        caps: &[&str],
+        adapt: impl FnOnce(NativeHost) -> NativeHost,
+    ) -> Supervised {
         let k = native_kit_asking(mode, caps);
         k.enable(caps);
         let plugins = Arc::new(k.relaunch());
         let link = Arc::new(RecordingLink::default());
         link.attach(&plugins, &k.data);
         let clock = Arc::new(FakeClock::new());
-        let host = NativeHost::with_clock(k.data.clone(), link.clone(), clock.clone());
+        let host = adapt(NativeHost::with_clock(
+            k.data.clone(),
+            link.clone(),
+            clock.clone(),
+        ));
         plugins.set_starter(Arc::new(host.clone()));
         plugins.set_stopper(Arc::new(host.clone()));
         Supervised {

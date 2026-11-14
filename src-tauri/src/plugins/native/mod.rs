@@ -11,6 +11,9 @@
  * is `children`, then `supervision` or a run's heartbeat, then the status board.
  * A run's feed consumer is detached on every way the run ends, before its process is killed, and its
  * open relays are failed as soon as the run is taken out of `children`.
+ * Plisto's own output comes back first on every way a run ends or stops answering: a crash, a stop, a
+ * silence and exit each restore it before anything else, in the same `children` critical section that
+ * takes the run out, so no grant can land between the two.
  */
 
 mod child;
@@ -26,12 +29,17 @@ mod pump;
 mod relay;
 pub mod status;
 mod supervisor;
+pub mod takeover;
 #[cfg(test)]
 mod test_child;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_bridge;
+#[cfg(test)]
+mod tests_takeover;
+
+pub use protocol::TakeoverReason;
 
 // -- Library Imports --
 use std::collections::HashMap;
@@ -58,6 +66,7 @@ use pump::ChildStats;
 use relay::{Relays, RELAY_TIMEOUT};
 use status::{CrashInfo, CrashReason, FailReason, HostState, PluginStatus, StatusBoard};
 use supervisor::{CrashPolicy, Verdict};
+use takeover::{TakeoverHub, ThroughLink};
 
 /// A first launch can sit behind an antivirus scan, so `ready` gets this long.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -121,6 +130,10 @@ struct Run {
     relays: Relays,
     host_calls: HostCalls,
     stats: ChildStats,
+    /// The `takeover_state` the child is still to hear, as `(held, reason)`.
+    takeover_owed: Mutex<Option<(bool, TakeoverReason)>>,
+    /// Set when the run starts to end without a stop; from then on it is granted nothing.
+    ending: AtomicBool,
 }
 
 impl Run {
@@ -132,6 +145,8 @@ impl Run {
             relays: Relays::default(),
             host_calls: HostCalls::default(),
             stats: ChildStats::default(),
+            takeover_owed: Mutex::new(None),
+            ending: AtomicBool::new(false),
         }
     }
 }
@@ -145,7 +160,8 @@ struct Supervision {
     due: HashMap<String, Instant>,
 }
 
-/// Runs once per silence of a child, with its id, to take back what it should no longer hold.
+/// Runs once per silence of a child, with its id, after the host took its output takeover back, to
+/// take back anything else it should no longer hold.
 pub type RestoreHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A handle on the host; clones share everything.
@@ -160,6 +176,7 @@ pub struct NativeHost {
     exiting: Arc<AtomicBool>,
     restore: Arc<RwLock<Option<RestoreHook>>>,
     relay_timeout: Duration,
+    takeover: Arc<TakeoverHub>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -194,6 +211,7 @@ impl NativeHost {
     pub fn with_clock(app_data: PathBuf, link: Arc<dyn HostLink>, clock: Arc<dyn Clock>) -> NativeHost {
         NativeHost {
             board: Arc::new(StatusBoard::new(link.clone(), clock.now())),
+            takeover: Arc::new(TakeoverHub::new(Arc::new(ThroughLink(link.clone())))),
             app_data,
             children: Arc::default(),
             supervision: Arc::default(),
@@ -202,6 +220,15 @@ impl NativeHost {
             exiting: Arc::default(),
             restore: Arc::default(),
             relay_timeout: RELAY_TIMEOUT,
+        }
+    }
+
+    /// The same host with its takeover commands going to `player`. Only before anything holds it.
+    #[cfg(test)]
+    fn with_takeover_player(self, player: Arc<dyn takeover::PlayerLink>) -> NativeHost {
+        NativeHost {
+            takeover: Arc::new(TakeoverHub::new(player)),
+            ..self
         }
     }
 
@@ -379,14 +406,16 @@ impl NativeHost {
             .enabled_set()
             .serving(id)
             .ok_or(StartError::NotServing)?;
-        self.reset(id);
         if serving.tier == Tier::Native {
-            // After the stop, so nothing the old child asked for during its grace outlives it. The
-            // page frame stays on screen, so its page slot and network work are kept.
+            // The stop restores any output the child held before the status changes. The API is
+            // forgotten after the stop, so nothing the old child asked for during its grace outlives
+            // it. The page frame stays on screen, so its page slot and network work are kept.
             self.stop_plugin(id);
+            self.reset(id);
             plugins.api().forget_run(id);
             return self.start(plugins, id);
         }
+        self.reset(id);
         self.board.set_host(id, HostState::Starting, self.clock.now());
         Ok(())
     }
@@ -399,7 +428,12 @@ impl NativeHost {
             supervision.policies.remove(id);
             supervision.due.remove(id);
         }
-        let run = lock(&self.children).remove(id);
+        let run = {
+            let mut children = lock(&self.children);
+            let run = children.remove(id);
+            self.give_back(id, TakeoverReason::Stopped, run.as_deref());
+            run
+        };
         let Some(run) = run else {
             self.board.stopped(id, self.clock.now());
             return;
@@ -420,7 +454,11 @@ impl NativeHost {
     /// replaces the running binary.
     pub fn shutdown_all(&self) {
         lock(&self.supervision).due.clear();
-        let all: Vec<(String, Arc<Run>)> = lock(&self.children).drain().collect();
+        let all: Vec<(String, Arc<Run>)> = {
+            let mut children = lock(&self.children);
+            self.give_back_any(TakeoverReason::Stopped, &children);
+            children.drain().collect()
+        };
         for (id, run) in &all {
             run.relays.fail_all();
             self.board.set_host(id, HostState::Stopping, self.clock.now());
@@ -648,6 +686,9 @@ impl NativeHost {
             if !Self::is_current(&children, id, run) || !Self::is_hung(run) {
                 return;
             }
+            // Taken back once per silence, before the status shows it; a child that answers again
+            // has to ask for it again.
+            self.give_back(id, TakeoverReason::NotResponding, Some(run.as_ref()));
             self.board
                 .set_host(id, HostState::NotResponding, self.clock.now());
         }
@@ -730,8 +771,13 @@ impl NativeHost {
     /// Nothing is counted when a stop took the run first; of two callers for one run, only the first
     /// counts.
     fn end_run(&self, id: &str, run: &Arc<Run>, child: &Child, reason: CrashReason) {
-        if !Self::is_current(&lock(&self.children), id, run) {
-            return;
+        {
+            let children = lock(&self.children);
+            if !Self::is_current(&children, id, run) {
+                return;
+            }
+            run.ending.store(true, Ordering::SeqCst);
+            self.give_back(id, TakeoverReason::Stopped, None);
         }
         run.relays.fail_all();
         run.feed.detach(self.link.as_ref());
@@ -747,6 +793,8 @@ impl NativeHost {
                 return;
             }
             children.remove(id);
+            // A backstop: no grant reaches an ending run, and none may outlive it.
+            self.give_back(id, TakeoverReason::Stopped, None);
         }
         self.with_plugins(|plugins| plugins.api().forget_run(id));
         eprintln!("plugins: {id}: stopped unexpectedly ({reason:?}, exit code {exit_code:?})");

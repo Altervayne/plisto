@@ -118,6 +118,7 @@ fn serve_with(input: &mut BufReader<io::Stdin>, mut also: impl FnMut(&HostMessag
             HostMessage::Feed { .. } => log_received("feed", &message),
             HostMessage::Page { .. } => log_received("page", &message),
             HostMessage::SidebarInput { .. } => log_received("sidebar_input", &message),
+            HostMessage::TakeoverState { .. } => log_received("takeover_state", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }
@@ -191,11 +192,12 @@ fn note_launch(data: &Path) {
     }
 }
 
-/// Like `serve`, but ignores pings until `resume` exists.
+/// Like `serve`, but ignores pings until `resume` exists. Logs every takeover state it hears.
 fn serve_until_resumed(input: &mut BufReader<io::Stdin>, resume: &Path) {
     while let Some(message) = next(input) {
         match message {
             HostMessage::Ping { seq } if resume.exists() => send(&ChildMessage::Pong { seq }),
+            HostMessage::TakeoverState { .. } => log_received("takeover_state", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }

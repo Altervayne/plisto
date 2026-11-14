@@ -5,8 +5,7 @@
  * and page events reach the main window only while the plugin's page is open. A broken frame or the end
  * of the output ends the run as a crash, unless a stop already took it. Unknown and malformed frames are
  * counted and the stream goes on. Once the child is ready it hears whether its page is open, and the
- * run's feed forwarder starts.
- * Takeover requests have no consumer: they are dropped and counted.
+ * run's feed forwarder starts. A takeover state the child is owed goes out after its next valid pong.
  */
 
 // -- Library Imports --
@@ -44,8 +43,8 @@ const IDLE_WAIT: Duration = Duration::from_secs(60);
 pub struct ChildStats {
     pub protocol_errors: AtomicU32,
     pub logs_dropped: AtomicU32,
-    /// Takeover requests, which have no consumer.
-    pub unhandled: AtomicU32,
+    /// `takeover_state` frames the outbox had no room for.
+    pub takeover_dropped: AtomicU32,
     /// Page events sent while the page was closed, over the size cap or over the rate.
     pub page_events_dropped: AtomicU32,
     /// `host_result` frames the outbox had no room for.
@@ -135,8 +134,12 @@ fn handle(
                 .as_mut()
                 .map(|heartbeat| heartbeat.pong(seq, now));
             match beat {
-                Some(Ok(Beat::Recovered)) => host.recovered(id, run),
-                Some(Ok(_)) => {}
+                Some(Ok(beat)) => {
+                    if beat == Beat::Recovered {
+                        host.recovered(id, run);
+                    }
+                    host.resend_takeover(id, run);
+                }
                 Some(Err(())) | None => protocol_error(host, id, run, "pong out of range"),
             }
         }
@@ -172,8 +175,8 @@ fn handle(
                 bump(&run.stats.page_events_dropped);
             }
         }
-        ChildMessage::Takeover { .. } => {
-            bump(&run.stats.unhandled);
+        ChildMessage::Takeover { hold } => {
+            host.takeover(id, run, hold);
         }
     }
 }
