@@ -11,11 +11,21 @@ import { useTrackCover } from "../tracks/useTrackCover";
 import { useTrackDisplay } from "./useTrackDisplay";
 
 // -- State Imports --
-import { usePlayerActions, usePlayerStatus, usePlayingFrom } from "../../state/player/store";
+import {
+  usePlayerActions,
+  usePlayerStatus,
+  usePlayingFrom,
+  useSeatedStream,
+} from "../../state/player/store";
+import { showsScrubber, streamLines, waitingPhase } from "../../state/player/streamView";
+import { useRequestPluginPage } from "../../state/shell/store";
+
+// -- Local Imports --
+import { waitWord } from "./streamWords";
 
 // -- Type Imports --
 import type { Ref, RefObject } from "react";
-import type { PlaybackSource } from "../../types";
+import type { PlaybackSource, StreamNow } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -30,6 +40,10 @@ import styles from "./PlayerHero.module.css";
  * of the view; every other control reads by weight and material. Under the Liquid and Dot cover
  * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow, and
  * the real cover crossfades with it through the stage's dip.
+ *
+ * A seated plugin stream swaps the content, not the layout: the source line names the plugin (linking to
+ * its page), the plugin's now line or title leads, a scrubber shows only for an item that is seekable
+ * with a known length (else the listened time stands in its place), and Stop joins the transport.
  */
 export function PlayerHero({
   trackId,
@@ -62,19 +76,30 @@ export function PlayerHero({
   onEnterAmbient?: () => void;
   ambientRef?: Ref<HTMLButtonElement>;
 }) {
-  const { cover } = useTrackCover(trackId);
-  const { title, artist } = useTrackDisplay(trackId);
+  const stream = useSeatedStream();
+  const { cover } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
+  const { title, artist } = useTrackDisplay(stream ? null : trackId);
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const t = useT();
   const coverSrc = cover?.src ?? null;
+  const lines = stream ? streamLines(stream) : null;
+  const wait = stream ? waitingPhase(stream.state) : null;
+  const scrubbable = stream ? showsScrubber(stream, status.duration_secs) : true;
+  // One static word for every waiting phase: between the times of a scrubbable item, in the listened slot
+  // of any other.
+  const note = wait ? waitWord(t, wait) : null;
 
   return (
     <div ref={heroRef} className={styles.hero}>
       <div className={styles.column} data-legible={legible ? "" : undefined}>
         {/* The identity - source, cover, title - centers in the flexible upper space. */}
         <div className={styles.identity}>
-          <SourceLine onNavigate={onNavigate} sourceRef={sourceRef} />
+          {stream ? (
+            <StreamSourceLine stream={stream} sourceRef={sourceRef} />
+          ) : (
+            <SourceLine onNavigate={onNavigate} sourceRef={sourceRef} />
+          )}
 
           <span ref={coverRef} className={styles.cover}>
             <span className={styles.coverArt} data-drawn={drawnArt ? "" : undefined}>
@@ -86,8 +111,11 @@ export function PlayerHero({
           </span>
 
           <div ref={textRef} className={styles.text}>
-            <h1 className={styles.title}>{title ?? t((d) => d.albums.untitled)}</h1>
-            <p className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</p>
+            <h1 className={styles.title}>{lines ? lines.first : title ?? t((d) => d.albums.untitled)}</h1>
+            {/* The second line of a stream is empty, not absent, so the centred block never jumps. */}
+            <p className={styles.artist}>
+              {lines ? (lines.second ?? " ") : (artist ?? t((d) => d.albums.unknownArtist))}
+            </p>
           </div>
         </div>
 
@@ -98,6 +126,8 @@ export function PlayerHero({
               position={status.position_secs}
               duration={status.duration_secs}
               onSeek={actions.seek}
+              listenedOnly={!scrubbable}
+              note={note}
             />
           </div>
 
@@ -106,7 +136,7 @@ export function PlayerHero({
               <SoundMenu />
             </div>
             <div className={styles.cluster}>
-              <Transport size="lg" shortcutHints />
+              <Transport size="lg" shortcutHints withStop />
             </div>
             <div className={styles.volumeSlot}>
               {onEnterAmbient ? <AmbientButton ref={ambientRef} onEnter={onEnterAmbient} /> : null}
@@ -187,6 +217,33 @@ function SourceLine({
       ) : (
         <span className={styles.sourceNamePlain}>{name}</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The source line of a plugin stream: the "Streaming from" micro-label over the plugin's name, which links
+ * to the plugin's own page as an album name links to its album. The shell drops the request when the
+ * plugin is not drawn in the rail.
+ */
+function StreamSourceLine({
+  stream,
+  sourceRef,
+}: {
+  stream: StreamNow;
+  sourceRef?: RefObject<HTMLDivElement | null>;
+}) {
+  const requestPage = useRequestPluginPage();
+  const t = useT();
+
+  return (
+    <div ref={sourceRef} className={styles.source}>
+      <span className={styles.sourceLabel}>{t((d) => d.player.stream.streamingFrom)}</span>
+      {stream.plugin_id ? (
+        <button type="button" className={styles.sourceName} onClick={() => requestPage(stream.plugin_id, null)}>
+          {stream.plugin_name}
+        </button>
+      ) : null}
     </div>
   );
 }

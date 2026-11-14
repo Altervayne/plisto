@@ -22,16 +22,19 @@
 }
 
 /* A small dip on press, so the button gives under the pointer. */
-.icon:not(:disabled):active {
+.icon:not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(0.96);
 }
 
-.icon:disabled {
+/* aria-disabled dims like disabled but keeps receiving hover, so a tooltip can say why it is off. */
+.icon:disabled,
+.icon[aria-disabled="true"] {
   opacity: 0.4;
   cursor: default;
 }
 
-.icon:disabled:hover {
+.icon:disabled:hover,
+.icon[aria-disabled="true"]:hover {
   background: transparent;
   color: var(--ink-2);
 }

@@ -29,15 +29,23 @@ function clamp01(v: number): number {
  * the incoming prop so the engine's ticks never fight the thumb, then seeks once on release. A track
  * with no known length renders inert - there is nowhere to seek to. Keyboard: arrows nudge, Home/End
  * jump to the ends, each seeking at once.
+ *
+ * `listenedOnly` swaps the whole bar for the listened time, for an item that cannot be scrubbed (a plugin
+ * stream with no known length or no seek). `note` is one static word: between the two times when
+ * scrubbing, or in place of the listened time when not.
  */
 export function SeekBar({
   position,
   duration,
   onSeek,
+  listenedOnly = false,
+  note = null,
 }: {
   position: number;
   duration: number;
   onSeek: (secs: number) => void;
+  listenedOnly?: boolean;
+  note?: string | null;
 }) {
   const t = useT();
   const railRef = useRef<HTMLDivElement>(null);
@@ -101,6 +109,16 @@ export function SeekBar({
     }
   };
 
+  if (listenedOnly) {
+    return (
+      <div className={styles.listened}>
+        <span className={`${styles.listenedText} tabular`}>
+          {note ?? t((d) => d.player.stream.listened, { time: formatDuration(position) })}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.seek}>
       <div
@@ -129,6 +147,7 @@ export function SeekBar({
       </div>
       <div className={styles.times}>
         <span className={`${styles.time} tabular`}>{formatDuration(value)}</span>
+        {note ? <span className={`${styles.time} tabular`}>{note}</span> : null}
         <span className={`${styles.time} tabular`}>{formatDuration(known ? duration : null)}</span>
       </div>
     </div>

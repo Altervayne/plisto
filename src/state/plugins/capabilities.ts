@@ -15,13 +15,14 @@ const ORDER: Record<PluginCapability, number> = {
   "audio.device": 4,
   "audio.output_takeover": 5,
   "playback.control": 6,
-  "ui.sidebar": 7,
-  "ui.chips": 8,
-  "ui.toast": 9,
-  "ui.confirm": 10,
-  storage: 11,
-  background: 12,
-  network: 13,
+  "playback.stream": 7,
+  "ui.sidebar": 8,
+  "ui.chips": 9,
+  "ui.toast": 10,
+  "ui.confirm": 11,
+  storage: 12,
+  background: 13,
+  network: 14,
 };
 
 const ORDER_END = 1000;

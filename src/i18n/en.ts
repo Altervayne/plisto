@@ -1165,6 +1165,15 @@ export const en = {
     visualizerUseGlobal: "Use global pick",
     visualizerUseAlbumDefault: "Use album default ({name})",
     visualizerAlbumDefaultLine: "Album default: {name}",
+    stream: {
+      streamingFrom: "Streaming from",
+      listened: "{time} listened",
+      paused: "Paused",
+      connecting: "Connecting",
+      buffering: "Buffering",
+      reconnecting: "Reconnecting",
+      noSkip: "{name} does not skip tracks",
+    },
   },
 
   sound: {
@@ -1540,6 +1549,8 @@ export const en = {
       "audio.events": "Follow changes in your sound devices and playback",
       "audio.device": "Use your sound devices",
       "audio.output_takeover": "Silence Plisto's own speakers while it plays your music",
+      "playback.stream":
+        "Play audio streams through Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen",
     },
     errors: {
       not_found: "Plisto could not find that file or plugin.",

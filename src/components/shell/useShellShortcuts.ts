@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 
 // -- State Imports --
 import { usePlayerStore } from "../../state/player/store";
+import { resolveStream, showsPause, skipAllowed } from "../../state/player/streamView";
 import { SEEK_STEP, VOLUME_STEP, nudgeSeek, nudgeVolume } from "../../state/player/nudge";
 import { activeViewKeys } from "../../state/shell/viewKeys";
 
@@ -45,7 +46,8 @@ export function useShellShortcuts(shell: ShellShortcuts): void {
     const onKey = (e: KeyboardEvent) => {
       const s = ref.current;
       const active = document.activeElement;
-      const { status, actions } = usePlayerStore.getState();
+      const { status, actions, streamNow } = usePlayerStore.getState();
+      const stream = resolveStream(status.stream != null, streamNow, status.track_id);
       const view = s.viewKeysLive ? activeViewKeys() : null;
       const action = resolveShortcut(e, {
         typing: inTextEntry(active),
@@ -76,13 +78,13 @@ export function useShellShortcuts(shell: ShellShortcuts): void {
           s.redo();
           break;
         case "togglePlay":
-          actions.toggle();
+          if (stream) (showsPause(stream) ? actions.pause : actions.resume)();
+          else actions.toggle();
           break;
         case "next":
-          actions.next();
-          break;
         case "prev":
-          actions.prev();
+          // A stream takes a skip only when its plugin accepts that direction.
+          if (skipAllowed(stream, action)) (action === "next" ? actions.next : actions.prev)();
           break;
         case "seekForward":
         case "seekBack": {

@@ -8,6 +8,7 @@ import { SpectrumRidge } from "../SpectrumRidge";
 
 // -- Hook Imports --
 import { useCoverPalette } from "../../covers/useCoverPalette";
+import { useStreamArtRev } from "../../../state/player/store";
 
 // -- Local Imports --
 import { seedPalette } from "./coverSeed";
@@ -36,7 +37,7 @@ export function Visualizer({
   floorRef?: RefObject<HTMLElement | null>;
   hushRefs?: readonly RefObject<HTMLElement | null>[];
 }) {
-  const palette = useCoverPalette(trackId);
+  const palette = useCoverPalette(trackId, useStreamArtRev());
   const { coverless } = choice;
   const colors = useMemo(
     () => paletteFloats(coverless ? seedPalette(trackId) : palette),

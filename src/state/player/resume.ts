@@ -1,7 +1,7 @@
 /*
  * The resume blob: what the player saves so the next launch comes back paused on the same track. This
  * file is the pure shape and its normalizer; the writer and the boot restore live beside it. Only library
- * tracks are saved, so an ad-hoc session never replaces the blob.
+ * tracks are saved, so an ad-hoc session or a plugin stream never replaces the blob with its own item.
  */
 
 // -- Type Imports --
@@ -66,8 +66,28 @@ export function normalizeResume(raw: string | null | undefined): ResumeState | n
 /**
  * The blob to persist for the current playback, or null while it must not be written: nothing loaded,
  * an ad-hoc track, or a queue mirror that does not yet hold the current track.
+ *
+ * With a stream seated the stream itself is never saved; the parked slot is. A parked track gives the
+ * blob it would write with no stream, a cleared parked queue gives an empty blob that reads as nothing to
+ * restore, and nothing parked yet keeps the saved blob.
  */
 export function buildResumeBlob(status: PlayerStatus, queue: number[]): ResumeBlob | null {
+  const stream = status.stream;
+  if (stream) {
+    const common = { v: 1 as const, volume: status.volume, repeat: status.repeat };
+    if (stream.parked) {
+      const parked = stream.parked.track_id;
+      if (parked <= 0 || !queue.includes(parked)) return null;
+      return {
+        ...common,
+        ids: queue.filter((q) => q > 0),
+        current_id: parked,
+        secs: stream.parked.secs,
+      };
+    }
+    return stream.parked_cleared ? { ...common, ids: [], current_id: 0, secs: 0 } : null;
+  }
+
   const id = status.track_id;
   if (id == null || id <= 0 || !queue.includes(id)) return null;
   return {

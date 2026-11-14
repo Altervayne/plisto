@@ -23,7 +23,7 @@ describe("capability labels", () => {
   });
 
   it("covers the whole closed set", () => {
-    expect(ALL_CAPABILITIES).toHaveLength(14);
+    expect(ALL_CAPABILITIES).toHaveLength(15);
   });
 });
 

@@ -80,6 +80,21 @@
   justify-content: space-between;
 }
 
+/* The listened time that stands where an unscrubbable item's bar would be; it holds the bar's height so the
+ * rows below do not move. */
+.listened {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+}
+
+.listenedText {
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
 .time {
   font-size: 11px;
   color: var(--ink-3);

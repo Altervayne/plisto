@@ -1170,6 +1170,15 @@ export const fr: Dict = {
     visualizerUseGlobal: "Utiliser le choix global",
     visualizerUseAlbumDefault: "Utiliser le défaut de l'album ({name})",
     visualizerAlbumDefaultLine: "Défaut de l'album : {name}",
+    stream: {
+      streamingFrom: "Flux de",
+      listened: "{time} d'écoute",
+      paused: "En pause",
+      connecting: "Connexion",
+      buffering: "Mise en mémoire tampon",
+      reconnecting: "Reconnexion",
+      noSkip: "{name} ne gère pas le changement de piste",
+    },
   },
 
   sound: {
@@ -1561,6 +1570,8 @@ export const fr: Dict = {
       "audio.events": "Suivre les changements de vos périphériques audio et de la lecture",
       "audio.device": "Utiliser vos périphériques audio",
       "audio.output_takeover": "Couper les haut-parleurs de Plisto pendant qu'il lit votre musique",
+      "playback.stream":
+        "Lire des flux audio dans le lecteur de Plisto à tout moment, en mettant votre musique en pause, avec leurs propres titres sur vos touches multimédia et l'écran de verrouillage",
     },
     errors: {
       not_found: "Plisto n'a pas trouvé ce fichier ou ce plugin.",

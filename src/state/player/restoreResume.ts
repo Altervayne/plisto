@@ -1,5 +1,6 @@
 /*
- * The boot restore: reads the saved resume blob and seats it on the engine paused, never playing. It runs
+ * The boot restore: reads the saved resume blob and seats it on the engine paused, never playing (or, with
+ * a plugin stream already seated, into the parked slot under it). It runs
  * once per session from the main window's shell, only after the startup-file probe found no file (an
  * open-with launch never mounts the library shell, so it ignores the blob and leaves it intact).
  */
@@ -30,9 +31,15 @@ export async function restoreResume(): Promise<void> {
   const saved = normalizeResume(raw);
   if (!saved) return;
 
-  // Something already plays (the user was faster than the read): leave it alone.
+  // Something already plays (the user was faster than the read): leave it alone. A seated stream is not
+  // the user's playback: the saved queue still loads, into the parked slot, unless the user already
+  // parked a track or cleared the queue.
   const status = await withRetry(() => getPlayerStatus()).catch(() => null);
-  if (!status || status.track_id != null) return;
+  if (!status) return;
+  const taken = status.stream
+    ? status.stream.parked != null || status.stream.parked_cleared
+    : status.track_id != null;
+  if (taken) return;
 
   const { actions } = usePlayerStore.getState();
   // Volume and repeat first, so the load emits the status the UI should show.

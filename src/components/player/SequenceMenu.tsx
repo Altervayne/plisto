@@ -9,7 +9,7 @@ import { ArrowRight, Check, Repeat, Repeat1, Shuffle } from "lucide-react";
 import { IconToggle } from "../common/IconToggle";
 
 // -- State Imports --
-import { usePlayerActions, usePlayerStatus } from "../../state/player/store";
+import { useIsStream, usePlayerActions, usePlayerStatus } from "../../state/player/store";
 
 // -- Type Imports --
 import type { RepeatMode } from "../../types";
@@ -27,15 +27,18 @@ import styles from "./SequenceMenu.module.css";
  * The queue's sequencing control: one button opening a small anchored popover with the repeat radio and
  * an independent randomize toggle. Repeat and shuffle stay orthogonal - the popover just repackages them
  * - so it reads and writes the engine through the existing status and actions. The button glyph mirrors
- * the pair and lifts into a chip when a non-default mode is on.
+ * the pair and lifts into a chip when a non-default mode is on. With a plugin stream seated it is disabled
+ * and shut: the parked queue is neither shuffled nor repeated while the stream plays.
  */
 export function SequenceMenu() {
   const status = usePlayerStatus();
   const actions = usePlayerActions();
+  const seated = useIsStream();
   const t = useT();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const firstRef = useRef<HTMLButtonElement | null>(null);
-  const [open, setOpen] = useState(false);
+  const [openRaw, setOpen] = useState(false);
+  const open = openRaw && !seated;
 
   // While open, an outside press dismisses it, mirroring the app's other floating panels. Escape is
   // handled on the wrapper below so it can be kept from reaching an ancestor's own Escape handler.
@@ -79,6 +82,7 @@ export function SequenceMenu() {
         aria-label={t((d) => d.player.sequencing)}
         aria-haspopup="menu"
         aria-expanded={open}
+        disabled={seated}
         onClick={() => setOpen((was) => !was)}
       >
         {glyph === "shuffle" ? (

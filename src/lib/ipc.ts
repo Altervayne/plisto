@@ -82,6 +82,7 @@ import type {
   SpliceJob,
   SpliceProgress,
   SpliceReport,
+  StreamNow,
   TagAlbumPlan,
   TagAlbumReceipt,
   TrackDisplay,
@@ -294,6 +295,11 @@ export function cancelExport(): Promise<void> {
 /** Inspects a picked destination before a run: workspace overlap, non-empty warn, writability. */
 export function validateExportDestination(destination: string): Promise<DestinationCheck> {
   return invoke<DestinationCheck>("validate_export_destination", { destination });
+}
+
+/** Whether a remembered destination is still a folder. Creates nothing, unlike the validation. */
+export function destinationPresent(destination: string): Promise<boolean> {
+  return invoke<boolean>("destination_present", { destination });
 }
 
 /** Opens the device-capable folder picker; resolves with the picked device target or null on cancel. */
@@ -906,6 +912,16 @@ export function playerResume(): Promise<void> {
 /** Stops playback and clears the queue. */
 export function playerStop(): Promise<void> {
   return invoke("player_stop");
+}
+
+/** Empties the parked queue while a plugin stream is seated; the stream keeps playing. Ignored with no stream. */
+export function playerClearParked(): Promise<void> {
+  return invoke("player_clear_parked");
+}
+
+/** The seated plugin stream's display state, or null when none is seated. */
+export function getStreamNow(): Promise<StreamNow | null> {
+  return invoke<StreamNow | null>("get_stream_now");
 }
 
 /** Advances to the next track in the queue. */

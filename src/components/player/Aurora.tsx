@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 
 // -- State Imports --
+import { useStreamArtRev } from "../../state/player/store";
 import { getLatestLevel, getLatestSpectrum, smoothBands, foldToThirds } from "../../state/player/spectrum";
 import { LEVEL_TAU, easeEnvelope } from "../../state/player/visualSignal";
 
@@ -143,7 +144,7 @@ export function Aurora({
 }) {
   const easedRef = useRef(eased);
   easedRef.current = eased;
-  const coverPalette = useCoverPalette(trackId);
+  const coverPalette = useCoverPalette(trackId, useStreamArtRev());
   // Memoized: the paint loop crossfades on a palette identity change.
   const seeded = useMemo(() => (coverless ? seedPalette(trackId) : null), [coverless, trackId]);
   const palette = seeded ?? coverPalette;

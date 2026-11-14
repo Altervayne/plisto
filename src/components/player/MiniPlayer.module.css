@@ -146,6 +146,32 @@
   text-overflow: ellipsis;
 }
 
+/* A plugin stream's second line: the plugin's name, then the elapsed time and the paused word. The name
+ * yields room to them before it truncates. */
+.pluginLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.pluginName {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pluginTag {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* The control row: the prev/play/next transport centered, flanked by the pop-out on the left and the
  * full-stop on the right. The flankers reserve equal width even while hidden, so the transport stays
  * centered and nothing shifts when they appear. */
@@ -179,7 +205,8 @@
 }
 
 .mini:hover .side,
-.mini:focus-within .side {
+.mini:focus-within .side,
+.sidePinned {
   opacity: 1;
   pointer-events: auto;
 }

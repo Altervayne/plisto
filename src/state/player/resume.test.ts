@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import { buildResumeBlob, normalizeResume } from "./resume";
 
+// -- Local Imports --
+import { streamStatusFixture } from "./streamFixtures";
+
 // -- Type Imports --
-import type { PlayerStatus } from "../../types";
+import type { PlayerStatus, StreamStatus } from "../../types";
 
 const blob = (over: Record<string, unknown> = {}): string =>
   JSON.stringify({ v: 1, ids: [3, 5, 8], current_id: 5, secs: 61.5, volume: 0.4, repeat: "all", ...over });
@@ -22,6 +25,7 @@ const status = (over: Partial<PlayerStatus> = {}): PlayerStatus => ({
   shuffle: false,
   output_device: null,
   output_taken_over: false,
+  stream: null,
   ...over,
 });
 
@@ -99,5 +103,37 @@ describe("buildResumeBlob", () => {
 
   it("leaves ad-hoc ids out of the saved queue", () => {
     expect(buildResumeBlob(status(), [-1, 5, 8])?.ids).toEqual([5, 8]);
+  });
+});
+
+describe("buildResumeBlob with a stream seated", () => {
+  // The stream's own id is the status track id; the parked slot is what the blob describes.
+  const seated = (over: Partial<StreamStatus> = {}, rest: Partial<PlayerStatus> = {}) =>
+    status({ track_id: -41, position_secs: 3, duration_secs: 0, stream: streamStatusFixture(over), ...rest });
+
+  it("writes the blob it would write with no stream, from the parked slot", () => {
+    const parked = { track_id: 5, secs: 61.5 };
+    expect(buildResumeBlob(seated({ parked }), [3, 5, 8])).toEqual(buildResumeBlob(status(), [3, 5, 8]));
+  });
+
+  it("never writes the stream's ad-hoc id, nor a position tick of the stream", () => {
+    const blob = buildResumeBlob(seated({ parked: { track_id: 5, secs: 10 } }, { position_secs: 999 }), [3, 5, -41]);
+    expect(blob?.current_id).toBe(5);
+    expect(blob?.secs).toBe(10);
+    expect(blob?.ids).toEqual([3, 5]);
+  });
+
+  it("skips while the queue mirror does not hold the parked track yet", () => {
+    expect(buildResumeBlob(seated({ parked: { track_id: 5, secs: 10 } }), [3, 8])).toBeNull();
+  });
+
+  it("writes the cleared blob after Clear queue, and normalizeResume reads it as nothing", () => {
+    const blob = buildResumeBlob(seated({ parked: null, parked_cleared: true }), []);
+    expect(blob).toEqual({ v: 1, ids: [], current_id: 0, secs: 0, volume: 0.4, repeat: "all" });
+    expect(normalizeResume(JSON.stringify(blob))).toBeNull();
+  });
+
+  it("keeps the saved blob while nothing is parked and nothing is cleared", () => {
+    expect(buildResumeBlob(seated({ parked: null, parked_cleared: false }), [3, 5])).toBeNull();
   });
 });

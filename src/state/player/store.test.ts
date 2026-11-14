@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { usePlayerStore } from "./store";
+import { streamSelectors, usePlayerStore } from "./store";
+import { streamNowFixture, streamStatusFixture } from "./streamFixtures";
 
 // -- IPC Imports --
 import * as ipc from "../../lib/ipc";
@@ -11,6 +12,8 @@ vi.mock("../../lib/ipc", () => ({
   getPlayerQueue: vi.fn(async () => []),
   getPlayerStatus: vi.fn(),
   getTrackDisplay: vi.fn(),
+  getStreamNow: vi.fn(async () => null),
+  playerClearParked: vi.fn(async () => {}),
   playerEnqueue: vi.fn(async () => {}),
   playerJump: vi.fn(),
   playerMoveQueueItem: vi.fn(),
@@ -36,7 +39,10 @@ const source = { kind: "files" } as const;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  usePlayerStore.setState({ status: { ...usePlayerStore.getState().status, track_id: null } });
+  usePlayerStore.setState({
+    status: { ...usePlayerStore.getState().status, track_id: null, stream: null },
+    streamNow: null,
+  });
 });
 
 describe("playNext", () => {
@@ -77,5 +83,71 @@ describe("setQueue", () => {
     expect(usePlayerStore.getState().playingFrom).toEqual(album);
     usePlayerStore.getState().setQueue([]);
     expect(usePlayerStore.getState().playingFrom).toEqual(album);
+  });
+});
+
+describe("stream selectors", () => {
+  const seat = () =>
+    usePlayerStore.setState({
+      status: { ...usePlayerStore.getState().status, track_id: -41, stream: streamStatusFixture() },
+      streamNow: streamNowFixture({ art_rev: 2 }),
+    });
+
+  it("return primitives or the hub's own object, so a position tick changes none of them", () => {
+    seat();
+    const before = usePlayerStore.getState();
+    usePlayerStore.setState({ status: { ...before.status, position_secs: before.status.position_secs + 1 } });
+    const after = usePlayerStore.getState();
+    expect(after.status).not.toBe(before.status);
+    for (const select of Object.values(streamSelectors)) {
+      expect(Object.is(select(after), select(before))).toBe(true);
+    }
+  });
+
+  it("change when a stream is seated, rev'd or cleared", () => {
+    const idle = usePlayerStore.getState();
+    seat();
+    const seated = usePlayerStore.getState();
+    expect(streamSelectors.isStream(idle)).toBe(false);
+    expect(streamSelectors.isStream(seated)).toBe(true);
+    expect(streamSelectors.artRev(seated)).toBe(2);
+    expect(streamSelectors.artRev(idle)).toBe(0);
+    usePlayerStore.getState().setStreamNow(streamNowFixture({ art_rev: 3 }));
+    expect(streamSelectors.artRev(usePlayerStore.getState())).toBe(3);
+  });
+
+  it("read the art revision as zero once the engine holds no stream", () => {
+    usePlayerStore.setState({
+      status: { ...usePlayerStore.getState().status, stream: null },
+      streamNow: streamNowFixture({ art_rev: 4 }),
+    });
+    expect(streamSelectors.artRev(usePlayerStore.getState())).toBe(0);
+  });
+});
+
+describe("clearParked", () => {
+  it("asks the engine to empty the parked queue and never stops the stream", () => {
+    usePlayerStore.getState().actions.clearParked();
+    expect(mocked.playerClearParked).toHaveBeenCalledTimes(1);
+    expect(mocked.playerStop).not.toHaveBeenCalled();
+  });
+});
+
+describe("stream end", () => {
+  const notice = { plugin_id: "night-radio", plugin_name: "Night Radio", reason: "network", detail: "closed" } as const;
+
+  it("holds the notice for the toast until it is cleared", () => {
+    usePlayerStore.getState().setStreamEnd(notice);
+    expect(usePlayerStore.getState().streamEnd).toEqual(notice);
+    usePlayerStore.getState().setStreamEnd(null);
+    expect(usePlayerStore.getState().streamEnd).toBeNull();
+  });
+
+  it("clears the hub state on a null event without touching the notice", () => {
+    usePlayerStore.getState().setStreamNow(streamNowFixture());
+    usePlayerStore.getState().setStreamEnd(notice);
+    usePlayerStore.getState().setStreamNow(null);
+    expect(usePlayerStore.getState().streamNow).toBeNull();
+    expect(usePlayerStore.getState().streamEnd).toEqual(notice);
   });
 });

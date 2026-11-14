@@ -66,9 +66,10 @@ function toSrc(path: string): string {
 /**
  * Owns a track's cover: loads its resolved art and every candidate source on trackId change, and
  * exposes the import/use/remove actions, each reloading afterwards. All IPC lives here so the
- * cover surface stays presentational. A stale load from a fast track switch is discarded.
+ * cover surface stays presentational. A stale load from a fast track switch is discarded. `rev` reloads
+ * the art when it changes under the same id, as a plugin stream's artwork does mid-item.
  */
-export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
+export function useTrackCover(trackId: number, keepOwn = false, rev = 0): TrackCover {
   const [cover, setCover] = useState<CoverView | null>(null);
   const [coverFor, setCoverFor] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<CandidateView[]>([]);
@@ -125,7 +126,7 @@ export function useTrackCover(trackId: number, keepOwn = false): TrackCover {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, rev]);
 
   // Switching tracks abandons any assign spinner from the previous one - the flag is hook-wide, so it must
   // not bleed onto the newly shown track.

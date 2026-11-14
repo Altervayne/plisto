@@ -20,7 +20,7 @@ import { useTrackCover } from "../tracks/useTrackCover";
 import { useVisualizerChoice } from "./visualizers/useVisualizerChoice";
 
 // -- State Imports --
-import { useCurrentTrackId } from "../../state/player/store";
+import { useCurrentTrackId, useStreamArtRev } from "../../state/player/store";
 import { fillsStage } from "../../state/player/visualizerKind";
 
 // -- Type Imports --
@@ -120,7 +120,7 @@ function PlayerStage({
   onEnterAmbient: () => void;
   entryRef: Ref<HTMLButtonElement>;
 }) {
-  const { cover, coverFor, loading } = useTrackCover(trackId);
+  const { cover, coverFor, loading } = useTrackCover(trackId, false, useStreamArtRev());
   const artStatus = coverStatus(trackId, coverFor, loading, cover != null);
   const coverSrc = cover?.src ?? null;
   // Shared with the aurora and the visualizer so they center on the art.

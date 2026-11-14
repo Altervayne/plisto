@@ -15,7 +15,14 @@ import { useTrackDisplay } from "./useTrackDisplay";
 
 // -- State Imports --
 import { useTrack } from "../../state/store";
-import { useCurrentTrackId } from "../../state/player/store";
+import { useCurrentTrackId, usePlayerStore, useSeatedStream } from "../../state/player/store";
+import { waitingPhase } from "../../state/player/streamView";
+
+// -- Format Imports --
+import { formatDuration } from "../../lib/format";
+
+// -- Local Imports --
+import { waitWord } from "./streamWords";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -42,17 +49,27 @@ export function MiniPlayer({ onExpand }: { onExpand: () => void }) {
  * An ad-hoc file (a negative id) carries no library row, so its text comes from the resolved display over
  * IPC - the title from the stash, the artist hidden when the file has none. A library id keeps the
  * library store and its "Unknown Artist" fallback unchanged.
+ *
+ * A seated plugin stream reads from the hub instead: the now line or title (or the one static word of a
+ * waiting phase) over the plugin's name, with Stop pinned visible. The bar reads only the hub's object, so
+ * a position tick re-renders just the elapsed-time span.
  */
 function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () => void }) {
   const adHoc = trackId < 0;
+  const stream = useSeatedStream();
   const track = useTrack(trackId);
-  const display = useTrackDisplay(adHoc ? trackId : null);
-  const { cover } = useTrackCover(trackId);
+  const display = useTrackDisplay(adHoc && !stream ? trackId : null);
+  const { cover } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
   const t = useT();
 
-  const title = adHoc
-    ? display.title ?? t((d) => d.albums.untitled)
-    : track?.title_edit ?? track?.raw_title ?? t((d) => d.albums.untitled);
+  const wait = stream ? waitingPhase(stream.state) : null;
+  const title = stream
+    ? wait
+      ? waitWord(t, wait)
+      : stream.now ?? stream.title
+    : adHoc
+      ? display.title ?? t((d) => d.albums.untitled)
+      : track?.title_edit ?? track?.raw_title ?? t((d) => d.albums.untitled);
   const artist = adHoc
     ? display.artist
     : track?.artist_edit ?? track?.raw_artist ?? t((d) => d.albums.unknownArtist);
@@ -77,7 +94,17 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
             </span>
             <span className={styles.text}>
               <span className={styles.title}>{title}</span>
-              {artist ? <span className={styles.artist}>{artist}</span> : null}
+              {stream ? (
+                <span className={styles.pluginLine}>
+                  <span className={styles.pluginName}>{stream.plugin_name}</span>
+                  <StreamElapsed />
+                  {stream.state === "paused" ? (
+                    <span className={styles.pluginTag}>{t((d) => d.player.stream.paused)}</span>
+                  ) : null}
+                </span>
+              ) : artist ? (
+                <span className={styles.artist}>{artist}</span>
+              ) : null}
             </span>
           </button>
           <span className={styles.sound}>
@@ -91,11 +118,24 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
           <span className={styles.pill}>
             <Transport shortcutHints />
           </span>
-          <span className={styles.side}>
+          <span className={stream ? `${styles.side} ${styles.sidePinned}` : styles.side}>
             <StopButton />
           </span>
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * The elapsed time of a stream item with a known length, as its own subscriber so the bar above never
+ * re-renders on a tick. The selector returns a whole second, or -1 with no known length, which renders
+ * nothing.
+ */
+function StreamElapsed() {
+  const secs = usePlayerStore((s) =>
+    s.status.duration_secs > 0 ? Math.floor(s.status.position_secs) : -1,
+  );
+  if (secs < 0) return null;
+  return <span className={`${styles.pluginTag} tabular`}>{formatDuration(secs)}</span>;
 }

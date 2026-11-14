@@ -9,7 +9,7 @@
  */
 
 // -- Framework Imports --
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 // -- Library Imports --
 import { create } from "zustand";
@@ -20,7 +20,9 @@ import { listen } from "@tauri-apps/api/event";
 import {
   getPlayerQueue,
   getPlayerStatus,
+  getStreamNow,
   getTrackDisplay,
+  playerClearParked,
   playerEnqueue,
   playerJump,
   playerMoveQueueItem,
@@ -46,9 +48,17 @@ import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store
 // -- Local Imports --
 import { snapshotQueueMeta } from "./queueMeta";
 import { added } from "./queueToast";
+import { resolveStream } from "./streamView";
 
 // -- Type Imports --
-import type { PlaybackSource, PlayerNotice, PlayerStatus, RepeatMode } from "../../types";
+import type {
+  PlaybackSource,
+  PlayerNotice,
+  PlayerStatus,
+  RepeatMode,
+  StreamEndNotice,
+  StreamNow,
+} from "../../types";
 import type { QueueTrackMeta } from "./queueMeta";
 
 /** The stopped default, held before the first play and after a stop. */
@@ -64,6 +74,7 @@ const STOPPED: PlayerStatus = {
   shuffle: false,
   output_device: null,
   output_taken_over: false,
+  stream: null,
 };
 
 /** The transport actions, poking the engine and letting its event drive `status` back. */
@@ -88,6 +99,8 @@ interface PlayerActions {
   setVolume: (v: number) => void;
   setRepeat: (mode: RepeatMode) => void;
   setShuffle: (on: boolean) => void;
+  // Empties the parked queue while a stream is seated. The stream keeps playing; never a stop.
+  clearParked: () => void;
 }
 
 /** Returns `list` with the item at `from` moved to `to`, leaving the input untouched. */
@@ -98,7 +111,7 @@ function arrayMove<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-interface PlayerStore {
+export interface PlayerStore {
   status: PlayerStatus;
   // Bumped on each `plays:changed` event. The play-history reads depend on it, so a recorded play
   // refetches them without a remount. The event fires after the DB insert, so the new row is present.
@@ -113,9 +126,16 @@ interface PlayerStore {
   playingFrom: PlaybackSource | null;
   // The last player notice, or null. The error toast maps it to a localized line, then clears it.
   error: PlayerNotice | null;
+  // The seated plugin stream's display state from the hub, or null. Replaced only when the hub emits, so
+  // it never changes on a position tick.
+  streamNow: StreamNow | null;
+  // The last stream end the toast has not shown yet, or null.
+  streamEnd: StreamEndNotice | null;
   setStatus: (status: PlayerStatus) => void;
   setQueue: (queue: number[]) => void;
   setError: (error: PlayerNotice | null) => void;
+  setStreamNow: (now: StreamNow | null) => void;
+  setStreamEnd: (end: StreamEndNotice | null) => void;
   bumpPlaysVersion: () => void;
   // One stable object, so a card selecting it never re-renders on a status tick. See the perf boundary above.
   actions: PlayerActions;
@@ -164,6 +184,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   queueMeta: {},
   playingFrom: null,
   error: null,
+  streamNow: null,
+  streamEnd: null,
   setStatus: (status) => set({ status }),
   // Set the queue, then fill any ad-hoc row's display the play-time snapshot could not reach. A queue
   // of opened files only was launched from no library source, so the source is dropped with it.
@@ -173,6 +195,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     fillAdHocQueueMeta(get, set, queue);
   },
   setError: (error) => set({ error }),
+  setStreamNow: (streamNow) => set({ streamNow }),
+  setStreamEnd: (streamEnd) => set({ streamEnd }),
   bumpPlaysVersion: () => set((s) => ({ playsVersion: s.playsVersion + 1 })),
   actions: {
     // Play records the frontend-only bits the engine cannot know: the source and a metadata snapshot of
@@ -230,6 +254,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     setVolume: (v) => void playerSetVolume(v).catch(() => {}),
     setRepeat: (mode) => void playerSetRepeat(mode).catch(() => {}),
     setShuffle: (on) => void playerSetShuffle(on).catch(() => {}),
+    clearParked: () => void playerClearParked().catch(() => {}),
   },
 }));
 
@@ -242,6 +267,32 @@ export const useIsPlaying = (): boolean => usePlayerStore((s) => s.status.playin
 export const useCurrentOutputDevice = (): string | null =>
   usePlayerStore((s) => s.status.output_device);
 export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.actions);
+
+/**
+ * The stream selectors as plain functions, so a test can pin that a position tick leaves each result
+ * unchanged. `now` is the hub's object, replaced only on a hub emit; `isStream` is a bare boolean off the
+ * engine's status; `artRev` is the seated stream's artwork revision (0 with none).
+ */
+export const streamSelectors = {
+  now: (s: PlayerStore): StreamNow | null => s.streamNow,
+  isStream: (s: PlayerStore): boolean => s.status.stream != null,
+  artRev: (s: PlayerStore): number => (s.status.stream ? (s.streamNow?.art_rev ?? 0) : 0),
+};
+
+export const useStreamNow = (): StreamNow | null => usePlayerStore(streamSelectors.now);
+export const useIsStream = (): boolean => usePlayerStore(streamSelectors.isStream);
+/** The stream to draw, or null: the hub's state, or a connecting placeholder in the frame before it arrives. */
+export const useSeatedStream = (): StreamNow | null => {
+  const seated = useIsStream();
+  const now = useStreamNow();
+  const item = usePlayerStore((s) => s.status.track_id);
+  return useMemo(() => resolveStream(seated, now, item), [seated, now, item]);
+};
+// The artwork revision feeds the id-keyed cover hooks.
+export const useStreamArtRev = (): number => usePlayerStore(streamSelectors.artRev);
+export const useStreamEnd = (): StreamEndNotice | null => usePlayerStore((s) => s.streamEnd);
+export const useSetStreamEnd = (): ((end: StreamEndNotice | null) => void) =>
+  usePlayerStore((s) => s.setStreamEnd);
 
 // The last playback error and its setter, for the toast. The setter is a stable reference, so reading it
 // never re-renders on a status tick.
@@ -302,12 +353,15 @@ export const useOrganizeEnabled = (): boolean => useAppMode() !== "player";
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once, then follows the
- * `player:status`, `player:queue`, and `player:error` events. Mount once high in the tree.
+ * `player:status`, `player:queue`, `player:error`, `player:stream` and `player:stream_end` events. Mount
+ * once high in the tree.
  */
 export function usePlayerSync(): void {
   const setStatus = usePlayerStore((s) => s.setStatus);
   const setQueue = usePlayerStore((s) => s.setQueue);
   const setError = usePlayerStore((s) => s.setError);
+  const setStreamNow = usePlayerStore((s) => s.setStreamNow);
+  const setStreamEnd = usePlayerStore((s) => s.setStreamEnd);
   const bumpPlaysVersion = usePlayerStore((s) => s.bumpPlaysVersion);
 
   useEffect(() => {
@@ -327,6 +381,11 @@ export function usePlayerSync(): void {
           if (alive) setQueue(ids);
         })
         .catch(() => {});
+      void getStreamNow()
+        .then((now) => {
+          if (alive) setStreamNow(now);
+        })
+        .catch(() => {});
     };
     seed();
 
@@ -342,6 +401,12 @@ export function usePlayerSync(): void {
       unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
       unlisteners.push(await listen<PlayerNotice>("player:error", (e) => setError(e.payload)));
       unlisteners.push(await listen("plays:changed", () => bumpPlaysVersion()));
+      unlisteners.push(
+        await listen<StreamNow | null>("player:stream", (e) => setStreamNow(e.payload)),
+      );
+      unlisteners.push(
+        await listen<StreamEndNotice>("player:stream_end", (e) => setStreamEnd(e.payload)),
+      );
     };
     void subscribe().catch(() => {});
 
@@ -350,5 +415,5 @@ export function usePlayerSync(): void {
       document.removeEventListener("visibilitychange", onVisibility);
       unlisteners.forEach((fn) => fn());
     };
-  }, [setStatus, setQueue, setError, bumpPlaysVersion]);
+  }, [setStatus, setQueue, setError, setStreamNow, setStreamEnd, bumpPlaysVersion]);
 }

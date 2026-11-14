@@ -801,6 +801,79 @@ export interface PlayerStatus {
   output_device: string | null;
   /** True while a plugin holds the output takeover: playback continues but Plisto's own output is muted. */
   output_taken_over: boolean;
+  /** The seated plugin stream, or null. While set, `track_id` is the stream's ad-hoc id. */
+  stream: StreamStatus | null;
+}
+
+/** The engine's phase for a seated stream. `playing` is the only phase that counts as `PlayerStatus.playing`. */
+export type StreamPhase = "connecting" | "buffering" | "playing" | "paused";
+
+/** The queue slot a stream's end re-seats: the track and the position it was parked at. */
+export interface ParkedSlot {
+  track_id: number;
+  secs: number;
+}
+
+/**
+ * The engine's view of a seated stream. `parked` names the track the queue returns to (null when
+ * nothing is parked) and `parked_cleared` is true from a Clear queue until the parked queue gains a
+ * track; the resume writer reads both. Mirrors StreamStatus in audio/mod.rs.
+ */
+export interface StreamStatus {
+  live: boolean;
+  seekable: boolean;
+  phase: StreamPhase;
+  parked: ParkedSlot | null;
+  parked_cleared: boolean;
+}
+
+/** The hub's phases for a stream item, the display truth for the main button and the phase words. */
+export type StreamNowState = "connecting" | "buffering" | "playing" | "paused" | "reconnecting";
+
+/**
+ * What a seated stream shows: the plugin's own title, artist, album and now line, the plugin identity
+ * and the transport flags. The `player:stream` event and `get_stream_now` carry it; null when no stream
+ * is seated. Mirrors StreamNow in plugins/api/stream/mod.rs.
+ */
+export interface StreamNow {
+  item: number;
+  plugin_id: string;
+  plugin_name: string;
+  title: string;
+  artist: string | null;
+  album: string | null;
+  /** The live line (a station's current song); live items only. */
+  now: string | null;
+  live: boolean;
+  seekable: boolean;
+  state: StreamNowState;
+  skip: { next: boolean; prev: boolean };
+  /** Bumps when the artwork changes; 0 means none yet. */
+  art_rev: number;
+  /** Bumps on any change. */
+  rev: number;
+}
+
+/** Why a stream ended. Mirrors StreamEndReason in plugins/api/stream/mod.rs. */
+export type StreamEndReason =
+  | "user"
+  | "replaced"
+  | "stopped"
+  | "finished"
+  | "plugin_gone"
+  | "producer_gone"
+  | "network"
+  | "denied"
+  | "unsupported"
+  | "no_audio"
+  | "stalled";
+
+/** The `player:stream_end` payload, sent once per end for the player's toast. */
+export interface StreamEndNotice {
+  plugin_id: string;
+  plugin_name: string;
+  reason: StreamEndReason;
+  detail: string | null;
 }
 
 /**
@@ -1011,7 +1084,8 @@ export type PluginCapability =
   | "audio.tap"
   | "audio.events"
   | "audio.device"
-  | "audio.output_takeover";
+  | "audio.output_takeover"
+  | "playback.stream";
 
 /** How a plugin's sidebar items are laid out. Mirrors Layout in sidebar_decl.rs. */
 export type PluginSidebarLayout = "compact" | "section";
