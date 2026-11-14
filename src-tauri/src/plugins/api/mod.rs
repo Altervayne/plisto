@@ -16,6 +16,7 @@ mod kv_file;
 mod library;
 mod library_rows;
 pub(crate) mod log;
+mod net;
 pub(crate) mod pending;
 mod playback;
 pub(crate) mod rate;
@@ -662,12 +663,14 @@ mod tests {
 
         kit.enable(&["storage"]);
         assert_eq!(call(Duration::ZERO), None);
-        kit.plugins.withdraw(ID);
+        let withdrawn = kit.plugins.withdraw(ID);
         assert_eq!(call(Duration::ZERO), Some(ApiCode::Unavailable));
 
-        // The next change puts the set back in line with the registry.
+        // A change while the plugin is withdrawn does not put it back; the end of the withdraw does.
         let registry = kit.plugins.snapshot();
         kit.plugins.replace(registry.clone(), Problems::new());
+        assert_eq!(call(Duration::ZERO), Some(ApiCode::Unavailable));
+        drop(withdrawn);
         assert_eq!(call(Duration::ZERO), None);
         let mut off = registry;
         off.entries[0].enabled = false;
