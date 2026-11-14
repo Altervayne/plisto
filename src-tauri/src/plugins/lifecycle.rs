@@ -161,7 +161,7 @@ fn enable_or_approve(
     } else {
         Withdraw::No
     };
-    plugins
+    let row = plugins
         .mutate(
             app_data,
             withdraw,
@@ -176,7 +176,16 @@ fn enable_or_approve(
             },
             save_failed,
         )
-        .and_then(|done| done)
+        .and_then(|done| done);
+    // A demoted plugin left the serving set, so its running code stops too.
+    if demotes && seen.is_serving() && !plugins.is_enabled(id) {
+        plugins.stop(id);
+    }
+    let row = row?;
+    if turn_on {
+        plugins.start(id);
+    }
+    Ok(row)
 }
 
 /// Applies an enable (or, without `turn_on`, only the consent) to an entry, from the folder check
@@ -389,6 +398,8 @@ pub fn uninstall(
     if let Err(e) = removed {
         // Only removes the holder when nothing was left in it.
         let _ = fs::remove_dir(&holder);
+        // The plugin is still installed and was stopped above; it runs again if still serving.
+        plugins.start(id);
         return Err(e);
     }
     let _ = remove_tree(&holder);
@@ -551,6 +562,51 @@ mod tests {
         assert!(!k.plugins.is_enabled(ID));
         let row = consent(&k.plugins, &k.data, Some(&["audio.tap"]), true).unwrap();
         assert_eq!(row.entry.state, EntryState::Ready);
+        assert!(k.plugins.is_enabled(ID));
+    }
+
+    #[test]
+    fn enable_runs_the_starter_and_approve_does_not() {
+        let k = Kit::new();
+        k.install(&native("1.0.0", &["audio.tap"]));
+        approval(&k.plugins, &k.data, Some(&["audio.tap"]), true).unwrap();
+        assert!(k.starts().is_empty());
+        enable(&k.data, &k.plugins, ID, None, false, None).unwrap();
+        // Runs after the change is saved, so the plugin is already serving.
+        assert_eq!(k.starts(), [ID]);
+        let err = enable(&k.data, &k.plugins, ID, Some(&[][..]), false, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConsentMismatch);
+        assert_eq!(k.starts(), [ID], "a refused enable starts nothing");
+    }
+
+    #[test]
+    fn an_enable_that_demotes_a_running_plugin_stops_it() {
+        let k = Kit::new();
+        k.install(&native("1.0.0", &[]));
+        k.enable(&[]);
+        let mut edited = native("1.0.0", &[]);
+        edited["name"] = json!("Edited");
+        fs::write(
+            plugin_dir(&k.data, ID).join("plugin.json"),
+            edited.to_string(),
+        )
+        .unwrap();
+        let err = enable(&k.data, &k.plugins, ID, None, false, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ManifestChanged);
+        assert!(!k.plugins.is_enabled(ID));
+        assert_eq!(k.stops(), [ID]);
+        assert_eq!(k.starts(), [ID], "only the first enable started it");
+    }
+
+    #[test]
+    fn a_failed_uninstall_starts_the_stopped_plugin_again() {
+        let k = Kit::new();
+        k.install(&native("1.0.0", &[]));
+        k.enable(&[]);
+        k.break_saves();
+        uninstall(&k.data, &k.plugins, ID, false).unwrap_err();
+        assert_eq!(k.stops(), [ID]);
+        assert_eq!(k.starts(), [ID, ID]);
         assert!(k.plugins.is_enabled(ID));
     }
 
@@ -984,7 +1040,7 @@ mod tests {
             !k.plugins.is_enabled(ID),
             "the demotion takes it out of service"
         );
-        assert!(k.stops().is_empty(), "approve never calls the stopper");
+        assert_eq!(k.stops(), [ID], "the demotion stops the running plugin");
 
         fs::remove_file(plugin_dir(&k.data, ID).join("index.html")).unwrap();
         let err = approval(&k.plugins, &k.data, Some(&["storage"]), false).unwrap_err();

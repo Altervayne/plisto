@@ -153,6 +153,8 @@ pub fn update(
     require_writable(plugins)?;
     let staged = claim(plugins, token)?;
     let result = update_claimed(app_data, plugins, &staged, &|| {});
+    // The update stopped the plugin; whatever the outcome, it runs again if it is still serving.
+    plugins.start(&staged.id);
     if result.is_err() {
         restage(plugins, staged);
     }
@@ -511,6 +513,26 @@ mod tests {
         assert!(!old_dir(&k.data, ID).exists());
         let kept = k.plugins.staged(&token).unwrap();
         assert!(kept.dir.join("plugin.json").is_file());
+    }
+
+    #[test]
+    fn an_update_starts_the_stopped_plugin_again() {
+        let k = running(&["storage"]);
+        let token = k.inspect(&ui("1.1.0", &["storage"]));
+        update(&k.data, &k.plugins, &token).unwrap();
+        assert_eq!(k.stops(), [ID]);
+        assert_eq!(k.starts(), [ID, ID], "after the enable, then after the update");
+    }
+
+    #[test]
+    fn a_rolled_back_update_starts_the_stopped_plugin_again() {
+        let k = running(&["storage"]);
+        let token = k.inspect(&ui("1.1.0", &["storage"]));
+        k.break_saves();
+        update(&k.data, &k.plugins, &token).unwrap_err();
+        assert_eq!(k.stops(), [ID]);
+        assert_eq!(k.starts(), [ID, ID]);
+        assert!(k.plugins.is_enabled(ID));
     }
 
     #[test]

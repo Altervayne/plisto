@@ -40,6 +40,12 @@ impl<F: Fn(&str) + Send + Sync> Stopper for F {
     }
 }
 
+/// Starts a plugin's running code once it is enabled. Called without the state lock held; it checks
+/// for itself that the plugin is still serving.
+pub trait Starter: Send + Sync {
+    fn start(&self, plugins: &PluginsState, id: &str);
+}
+
 /// What a serving plugin was granted, copied out of its registry entry so plugin calls never wait
 /// on the registry lock.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,6 +151,7 @@ pub struct PluginsState {
     // False when the boot read could not get at the file, so saving would overwrite contents never read.
     registry_writable: bool,
     stopper: RwLock<Arc<dyn Stopper>>,
+    starter: RwLock<Option<Arc<dyn Starter>>>,
     // Bumped by every registry change kept in memory, so a caller can tell whether its call changed it.
     generation: AtomicU64,
     api: ApiState,
@@ -165,6 +172,7 @@ impl PluginsState {
             boot,
             registry_writable: true,
             stopper: RwLock::new(Arc::new(|_: &str| {})),
+            starter: RwLock::new(None),
             generation: AtomicU64::new(0),
             api: ApiState::default(),
         }
@@ -249,6 +257,22 @@ impl PluginsState {
 
     pub fn set_stopper(&self, stopper: Arc<dyn Stopper>) {
         *self.stopper.write().unwrap_or_else(PoisonError::into_inner) = stopper;
+    }
+
+    pub fn set_starter(&self, starter: Arc<dyn Starter>) {
+        *self.starter.write().unwrap_or_else(PoisonError::into_inner) = Some(starter);
+    }
+
+    /// Runs the starter for `id`, if one is set. Never holds a state lock while it runs.
+    pub fn start(&self, id: &str) {
+        let starter = self
+            .starter
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(starter) = starter {
+            starter.start(self, id);
+        }
     }
 
     /// The plugin API's per-plugin memory.

@@ -18,7 +18,7 @@ use super::lifecycle::{enable, save_failed};
 use super::paths::state_dir;
 use super::registry::{self, Entry, FileRead};
 use super::stage::{Limits, Temp};
-use super::state::{PluginRow, PluginsState, Withdraw};
+use super::state::{PluginRow, PluginsState, Starter, Withdraw};
 
 pub const ID: &str = "com.example.demo";
 const VERSION: &str = "2.7.0";
@@ -47,6 +47,17 @@ pub struct Kit {
     pub data: PathBuf,
     pub plugins: PluginsState,
     stops: Arc<Mutex<Vec<String>>>,
+    starts: Arc<Mutex<Vec<String>>>,
+}
+
+/// Records each start with whether the plugin was serving at that moment.
+struct RecordStarts(Arc<Mutex<Vec<String>>>);
+
+impl Starter for RecordStarts {
+    fn start(&self, plugins: &PluginsState, id: &str) {
+        let serving = if plugins.is_enabled(id) { "" } else { " (not serving)" };
+        self.0.lock().unwrap().push(format!("{id}{serving}"));
+    }
 }
 
 impl Kit {
@@ -60,11 +71,14 @@ impl Kit {
         plugins.set_stopper(Arc::new(move |id: &str| {
             record.lock().unwrap().push(id.to_string())
         }));
+        let starts = Arc::new(Mutex::new(Vec::new()));
+        plugins.set_starter(Arc::new(RecordStarts(starts.clone())));
         Kit {
             temp,
             data,
             plugins,
             stops,
+            starts,
         }
     }
 
@@ -164,6 +178,11 @@ impl Kit {
 
     pub fn stops(&self) -> Vec<String> {
         self.stops.lock().unwrap().clone()
+    }
+
+    /// Each start as `<id>`, or `<id> (not serving)` when the plugin was out of the serving set.
+    pub fn starts(&self) -> Vec<String> {
+        self.starts.lock().unwrap().clone()
     }
 
     /// The demo plugin's entry as saved on disk.

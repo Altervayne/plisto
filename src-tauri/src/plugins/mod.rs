@@ -25,6 +25,8 @@ pub(crate) mod install;
 pub(crate) mod install_error;
 pub(crate) mod lifecycle;
 pub(crate) mod manifest;
+#[cfg(windows)]
+pub(crate) mod native;
 pub(crate) mod paths;
 pub(crate) mod registry;
 pub(crate) mod revalidate;

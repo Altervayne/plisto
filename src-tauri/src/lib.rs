@@ -239,6 +239,14 @@ pub fn run() {
                 now,
             );
             let frames_enabled = plugins.enabled_set();
+            // Native plugin processes: started on enable, stopped on disable, uninstall, update and exit.
+            #[cfg(windows)]
+            {
+                let native = Arc::new(plugins::native::NativeHost::new(data_dir.clone()));
+                plugins.set_stopper(native.clone());
+                plugins.set_starter(native.clone());
+                app.manage(native);
+            }
 
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -276,6 +284,19 @@ pub fn run() {
                 frames_ready: AtomicBool::new(false),
                 plugins,
             });
+
+            // Enabled native plugins start once state is managed, on their own thread since each
+            // start reads its plugin folder. Safe mode and an unclean last exit start none.
+            #[cfg(windows)]
+            {
+                let handle = app.handle().clone();
+                let _ = std::thread::Builder::new()
+                    .name("plugin-boot".into())
+                    .spawn(move || {
+                        let native = handle.state::<Arc<plugins::native::NativeHost>>();
+                        native.start_at_boot(&handle.state::<AppState>().plugins);
+                    });
+            }
 
             // Feed the cold-launch files into the same buffer the warm forwards push into, now that its
             // state is managed. A lone open plays after the short debounce; a multi-select's sibling
@@ -526,6 +547,11 @@ pub fn run() {
             // and stop the library sync, cutting short any pass it is running.
             if let tauri::RunEvent::Exit = event {
                 smtc::teardown(app);
+                // Every native plugin process is gone before the session marker is.
+                #[cfg(windows)]
+                if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
+                    native.shutdown_all();
+                }
                 // A clean exit removes the session marker; a crash or a kill leaves it behind.
                 if let Ok(dir) = app.path().app_data_dir() {
                     plugins::session::clear(&dir);

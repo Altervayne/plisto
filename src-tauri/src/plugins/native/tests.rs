@@ -1,0 +1,412 @@
+/*
+ * Process tests for the native host. Every child is the test binary itself in one of the behaviors
+ * of `test_child.rs`, started through the real launch path, so each one sits in a job its test owns:
+ * a failing assertion drops the handle and the job kills whatever is left. Waits are generous upper
+ * bounds for slow machines; no sleep stands in for an assertion.
+ */
+
+// -- Library Imports --
+use std::fs;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use serde_json::json;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+
+// -- Local Imports --
+use super::child::{Child, HandshakeError, Inbound, SendError, Stopped, INBOX_CAP, OUTBOX_CAP};
+use super::launch::{stderr_log, LaunchSpec};
+use super::protocol::{ChildMessage, HostMessage, PROTOCOL_VERSION};
+use super::test_child::MODE_FILE;
+use super::{boot_allows_start, NativeHost, StartError, STOP_GRACE};
+use crate::plugins::paths::{data_dir, plugin_dir};
+use crate::plugins::session::{self, BootState};
+use crate::plugins::test_kit::{native, ui, Kit, ID};
+
+// Upper bound for anything that only waits on a process starting or answering.
+const SLOW: Duration = Duration::from_secs(60);
+
+struct Rig {
+    root: PathBuf,
+    spec: LaunchSpec,
+}
+
+impl Rig {
+    fn new(mode: &str) -> Rig {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "plisto-native-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        let plugin_dir = root.join("plugin");
+        let data_dir = root.join("data");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::create_dir_all(&data_dir).unwrap();
+        fs::write(data_dir.join(MODE_FILE), mode).unwrap();
+        let spec = LaunchSpec {
+            exe: std::env::current_exe().unwrap(),
+            plugin_dir,
+            data_dir,
+            tap: None,
+        };
+        Rig { root, spec }
+    }
+
+    fn spawn(&self) -> Child {
+        Child::spawn(ID, &self.spec).unwrap()
+    }
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn hello() -> HostMessage {
+    HostMessage::Hello {
+        protocol: PROTOCOL_VERSION,
+        plisto_version: "2.7.0".into(),
+        id: ID.into(),
+        granted: Vec::new(),
+    }
+}
+
+/// The next message, skipping none; panics on a timeout.
+fn next_message(child: &Child) -> ChildMessage {
+    match child.recv_timeout(SLOW) {
+        Ok(Inbound::Message(m)) => m,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A process handle that only waits; closed on drop.
+struct Watch(HANDLE);
+
+impl Watch {
+    fn new(pid: u32) -> Watch {
+        // Safety: plain arguments; the returned handle is owned by the Watch.
+        Watch(unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.unwrap())
+    }
+
+    fn gone_within(&self, timeout: Duration) -> bool {
+        let ms = timeout.as_millis() as u32;
+        // Safety: the handle is open for as long as the Watch lives.
+        let event = unsafe { WaitForSingleObject(self.0, ms) };
+        event == WAIT_OBJECT_0
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        // Safety: the handle is owned by this Watch and closed exactly once, here.
+        let _ = unsafe { CloseHandle(self.0) };
+    }
+}
+
+/// Polls `check` until it holds or `SLOW` runs out.
+fn eventually(mut check: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + SLOW;
+    while Instant::now() < deadline {
+        if check() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    check()
+}
+
+#[test]
+fn a_well_behaved_child_handshakes_answers_and_exits_on_shutdown() {
+    let rig = Rig::new("echo");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    child.send(&HostMessage::Ping { seq: 7 }).unwrap();
+    assert_eq!(next_message(&child), ChildMessage::Pong { seq: 7 });
+    let args = json!({"text": "round trip", "n": [1, 2]});
+    child
+        .send(&HostMessage::Call {
+            seq: 8,
+            method: "plugin.echo".into(),
+            args: args.clone(),
+        })
+        .unwrap();
+    assert_eq!(
+        next_message(&child),
+        ChildMessage::Result {
+            seq: 8,
+            ok: true,
+            result: Some(args),
+            error: None
+        }
+    );
+    assert_eq!(child.stop(STOP_GRACE), Stopped::Clean);
+    assert!(child.wait_exit(Duration::ZERO));
+    assert_eq!(
+        child.recv_timeout(SLOW),
+        Ok(Inbound::Closed("output ended".into()))
+    );
+}
+
+#[test]
+fn the_child_gets_the_argv_folder_and_environment_it_is_promised() {
+    let rig = Rig::new("echo");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    child.stop(STOP_GRACE);
+    drop(child);
+    let log = fs::read_to_string(stderr_log(&rig.spec.data_dir)).unwrap();
+    let data = rig.spec.data_dir.display().to_string();
+    let expected_args = format!(
+        "{:?}",
+        [
+            "--plisto-protocol",
+            "1",
+            "--plisto-data",
+            &data,
+            "--plisto-tap",
+            "none"
+        ]
+    );
+    assert!(log.contains(&format!("args={expected_args}")), "{log}");
+    assert!(
+        log.contains(&format!("cwd={}", rig.spec.plugin_dir.display())),
+        "{log}"
+    );
+    let webview2 = rig.spec.data_dir.join("webview2");
+    assert!(
+        log.contains(&format!("webview2={}", webview2.display())),
+        "{log}"
+    );
+
+    // The log is truncated at the next launch.
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    child.stop(STOP_GRACE);
+    drop(child);
+    let again = fs::read_to_string(stderr_log(&rig.spec.data_dir)).unwrap();
+    assert_eq!(again.matches("args=").count(), 1);
+}
+
+#[test]
+fn a_child_that_crashes_fails_the_handshake() {
+    let rig = Rig::new("crash");
+    let child = rig.spawn();
+    match child.handshake(&hello(), SLOW) {
+        Err(HandshakeError::Exited(_)) => {}
+        other => panic!("{other:?}"),
+    }
+    assert!(child.wait_exit(SLOW));
+}
+
+#[test]
+fn a_hung_child_times_out_and_is_killed() {
+    let rig = Rig::new("hang");
+    let child = rig.spawn();
+    assert_eq!(
+        child.handshake(&hello(), Duration::from_secs(1)),
+        Err(HandshakeError::Timeout)
+    );
+    assert_eq!(child.stop(STOP_GRACE), Stopped::Killed);
+    assert!(child.wait_exit(Duration::ZERO));
+}
+
+#[test]
+fn a_child_that_ignores_stdin_is_killed_at_the_deadline() {
+    let rig = Rig::new("ignore-stdin");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    let started = Instant::now();
+    assert_eq!(child.stop(STOP_GRACE), Stopped::Killed);
+    assert!(started.elapsed() >= STOP_GRACE);
+    assert!(child.wait_exit(Duration::ZERO));
+}
+
+#[test]
+fn a_grandchild_dies_with_the_job() {
+    let rig = Rig::new("spawn-grandchild");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    let pid = match next_message(&child) {
+        ChildMessage::Status { state, text } if state == "grandchild" => {
+            text.unwrap().parse::<u32>().unwrap()
+        }
+        other => panic!("{other:?}"),
+    };
+    let grandchild = Watch::new(pid);
+    let parent = Watch::new(child.pid());
+    assert!(!grandchild.gone_within(Duration::ZERO));
+    drop(child);
+    assert!(parent.gone_within(SLOW));
+    assert!(grandchild.gone_within(SLOW));
+}
+
+#[test]
+fn dropping_the_handle_kills_the_child() {
+    let rig = Rig::new("echo");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    let watch = Watch::new(child.pid());
+    assert!(!watch.gone_within(Duration::ZERO));
+    drop(child);
+    assert!(watch.gone_within(SLOW));
+}
+
+#[test]
+fn a_flooding_child_is_bounded_and_never_blocks_the_sender() {
+    let rig = Rig::new("flood-stdout");
+    let child = rig.spawn();
+    child.handshake(&hello(), SLOW).unwrap();
+    // The reader fills the inbox and then waits on it instead of growing.
+    assert!(eventually(|| child.inbox_len() == INBOX_CAP));
+    assert!(child.inbox_len() <= INBOX_CAP);
+
+    // The child never reads its input: the pipe and the queue fill, and sends fail without waiting.
+    let big = json!("y".repeat(16 * 1024));
+    let mut full = 0;
+    let started = Instant::now();
+    for seq in 0..(10 * OUTBOX_CAP as u64) {
+        let call = HostMessage::Call {
+            seq,
+            method: "plugin.big".into(),
+            args: big.clone(),
+        };
+        match child.send(&call) {
+            Ok(()) => {}
+            Err(SendError::Full) => full += 1,
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+    assert!(full > 0);
+    assert!(started.elapsed() < SLOW);
+    assert!(child.inbox_len() <= INBOX_CAP);
+    assert_eq!(child.stop(STOP_GRACE), Stopped::Killed);
+}
+
+#[test]
+fn shutdown_all_stops_every_child_within_one_grace_period() {
+    let host = NativeHost::new(std::env::temp_dir());
+    let rigs: Vec<Rig> = (0..3).map(|_| Rig::new("ignore-stdin")).collect();
+    let mut watches = Vec::new();
+    for (n, rig) in rigs.iter().enumerate() {
+        let child = rig.spawn();
+        child.handshake(&hello(), SLOW).unwrap();
+        watches.push(Watch::new(child.pid()));
+        assert!(host.adopt(&format!("com.example.n{n}"), Arc::new(child)));
+    }
+    let started = Instant::now();
+    host.shutdown_all();
+    // Each child ignores shutdown and is killed only at the end of its grace, so stopping even two
+    // of them one after the other takes two full grace periods.
+    assert!(started.elapsed() < 2 * STOP_GRACE);
+    for watch in &watches {
+        assert!(watch.gone_within(Duration::ZERO));
+    }
+    assert!((0..3).all(|n| !host.is_running(&format!("com.example.n{n}"))));
+}
+
+/// Installs the demo native plugin with the test binary as its entry, answering as `mode`.
+fn native_kit(mode: &str) -> Kit {
+    let k = Kit::new();
+    k.install(&native("1.0.0", &[]));
+    let exe = plugin_dir(&k.data, ID).join("bin").join("tool.exe");
+    fs::copy(std::env::current_exe().unwrap(), exe).unwrap();
+    let data = data_dir(&k.data, ID);
+    fs::create_dir_all(&data).unwrap();
+    fs::write(data.join(MODE_FILE), mode).unwrap();
+    k
+}
+
+#[test]
+fn enable_starts_the_plugin_and_disable_stops_it() {
+    let k = native_kit("echo");
+    let host = Arc::new(NativeHost::new(k.data.clone()));
+    k.plugins.set_starter(host.clone());
+    k.plugins.set_stopper(host.clone());
+
+    k.enable(&[]);
+    assert!(host.is_running(ID));
+    let log = stderr_log(&data_dir(&k.data, ID));
+    assert!(eventually(
+        || fs::read_to_string(&log).is_ok_and(|text| text.contains("webview2="))
+    ));
+
+    crate::plugins::lifecycle::disable(&k.data, &k.plugins, ID).unwrap();
+    assert!(!host.is_running(ID));
+    assert!(matches!(
+        host.start(&k.plugins, ID),
+        Err(StartError::NotServing)
+    ));
+
+    crate::plugins::lifecycle::enable(&k.data, &k.plugins, ID, None, false, None).unwrap();
+    assert!(host.is_running(ID));
+    // A second start of a running plugin leaves it alone.
+    host.start(&k.plugins, ID).unwrap();
+    host.shutdown_all();
+    assert!(!host.is_running(ID));
+}
+
+#[test]
+fn start_refuses_a_ui_plugin_and_a_changed_manifest() {
+    let k = native_kit("echo");
+    let host = NativeHost::new(k.data.clone());
+    k.enable(&[]);
+    let manifest = plugin_dir(&k.data, ID).join("plugin.json");
+    let mut edited = native("1.0.0", &[]);
+    edited["name"] = json!("Edited");
+    fs::write(&manifest, edited.to_string()).unwrap();
+    assert!(matches!(
+        host.start(&k.plugins, ID),
+        Err(StartError::Changed)
+    ));
+    assert!(!host.is_running(ID));
+
+    let k = Kit::new();
+    k.install(&ui("1.0.0", &[]));
+    k.enable(&[]);
+    assert!(matches!(
+        host.start(&k.plugins, ID),
+        Err(StartError::NotNative)
+    ));
+}
+
+#[test]
+fn only_a_clean_boot_outside_safe_mode_allows_starts() {
+    let boot = |safe_mode, unclean| BootState { safe_mode, unclean };
+    assert!(boot_allows_start(boot(false, false)));
+    assert!(!boot_allows_start(boot(true, false)));
+    assert!(!boot_allows_start(boot(false, true)));
+    assert!(!boot_allows_start(boot(true, true)));
+}
+
+#[test]
+fn boot_starts_serving_native_plugins_only_when_the_boot_allows_it() {
+    let k = native_kit("echo");
+    k.enable(&[]);
+    let host = NativeHost::new(k.data.clone());
+
+    // The kit's own boot left its marker behind, so this boot reads as an unclean exit.
+    let unclean = k.reboot();
+    assert!(unclean.boot_state().unclean);
+    assert!(!host.start_at_boot(&unclean));
+    assert!(!host.is_running(ID));
+
+    session::clear(&k.data);
+    session::set_safe_mode(&k.data, true).unwrap();
+    let safe = k.reboot();
+    assert!(!host.start_at_boot(&safe));
+    assert!(!host.is_running(ID));
+
+    session::clear(&k.data);
+    session::set_safe_mode(&k.data, false).unwrap();
+    let clean = k.reboot();
+    assert_eq!(clean.boot_state(), BootState::default());
+    assert!(host.start_at_boot(&clean));
+    assert!(host.is_running(ID));
+    host.shutdown_all();
+}
