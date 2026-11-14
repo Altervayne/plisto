@@ -21,6 +21,11 @@ pub enum RateClass {
     Nav,
     /// Clicks on a plugin's sidebar controls. Not a method, so it never spends from `all`.
     Input,
+    LibraryRead,
+    PlaybackRead,
+    /// Player commands and queue changes.
+    Play,
+    Cover,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +53,10 @@ impl RateClass {
             RateClass::Sidebar => (20, 10_000),
             RateClass::Nav => (3, 1_000),
             RateClass::Input => (5, 5_000),
+            RateClass::LibraryRead => (60, 30_000),
+            RateClass::PlaybackRead => (20, 10_000),
+            RateClass::Play => (10, 5_000),
+            RateClass::Cover => (30, 10_000),
         };
         Limit {
             capacity,
@@ -126,6 +135,10 @@ pub struct PluginBuckets {
     sidebar: Bucket,
     nav: Bucket,
     input: Bucket,
+    library_read: Bucket,
+    playback_read: Bucket,
+    play: Bucket,
+    cover: Bucket,
 }
 
 impl PluginBuckets {
@@ -144,6 +157,10 @@ impl PluginBuckets {
             sidebar: full(RateClass::Sidebar),
             nav: full(RateClass::Nav),
             input: full(RateClass::Input),
+            library_read: full(RateClass::LibraryRead),
+            playback_read: full(RateClass::PlaybackRead),
+            play: full(RateClass::Play),
+            cover: full(RateClass::Cover),
         }
     }
 
@@ -159,6 +176,10 @@ impl PluginBuckets {
             RateClass::Sidebar => &mut self.sidebar,
             RateClass::Nav => &mut self.nav,
             RateClass::Input => &mut self.input,
+            RateClass::LibraryRead => &mut self.library_read,
+            RateClass::PlaybackRead => &mut self.playback_read,
+            RateClass::Play => &mut self.play,
+            RateClass::Cover => &mut self.cover,
         }
     }
 
@@ -289,6 +310,10 @@ mod tests {
             (RateClass::Sidebar, 20, 100),
             (RateClass::Nav, 3, 1_000),
             (RateClass::Input, 5, 200),
+            (RateClass::LibraryRead, 60, 34),
+            (RateClass::PlaybackRead, 20, 100),
+            (RateClass::Play, 10, 200),
+            (RateClass::Cover, 30, 100),
         ] {
             let mut b = PluginBuckets::new(t0);
             for _ in 0..capacity {

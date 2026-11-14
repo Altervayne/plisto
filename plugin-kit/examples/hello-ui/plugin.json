@@ -2,11 +2,14 @@
   "manifest_version": 1,
   "id": "dev.plisto.hello-ui",
   "name": "Hello UI",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "tier": "ui",
   "entry": "index.html",
   "capabilities": [
     "storage",
+    "library.read",
+    "playback.read",
+    "playback.control",
     "ui.toast",
     "ui.confirm",
     "ui.chips"

@@ -552,7 +552,7 @@ pub(super) fn prepare_album_cover(
 /// Reads the DB to resolve a playlist's cover at `max_edge`: the bound cover served from its cached
 /// thumbnail by hash, or None. No decode and no fallback - a playlist cover is only ever the bound
 /// one, so this resolves fully here. Sync: touches only the connection and a cache path.
-fn prepare_playlist_cover(
+pub(crate) fn prepare_playlist_cover(
     conn: &Connection,
     covers_dir: &Path,
     playlist_id: i64,
@@ -1015,7 +1015,7 @@ pub fn backfill_full_res(covers_dir: &Path, guard: &InFlightGuard, entries: &[(S
 // ---- Shared helpers ----
 
 /// The requested size mapped to its bounded longest edge in pixels.
-pub(super) fn max_edge(size: CoverSize) -> u32 {
+pub(crate) fn max_edge(size: CoverSize) -> u32 {
     match size {
         CoverSize::Thumb => THUMB_EDGE,
         CoverSize::Grid => GRID_EDGE,

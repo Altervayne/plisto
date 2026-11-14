@@ -275,7 +275,10 @@ where
 /// in) can never survive the export. A single or a loose bag owns no album, so its own resolved album
 /// rides through. The album view's "apply to tracks" pushes the other fields on demand. The export
 /// record fingerprints these same values, so both read them from here.
-fn track_tags<'a>(container: &'a ExportContainer, track: &'a ExportTrack) -> TrackTags<'a> {
+pub(crate) fn track_tags<'a>(
+    container: &'a ExportContainer,
+    track: &'a ExportTrack,
+) -> TrackTags<'a> {
     let album = if matches!(container.kind, ContainerKind::Album) {
         container.title.as_deref()
     } else {

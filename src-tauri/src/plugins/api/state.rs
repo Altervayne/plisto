@@ -10,9 +10,12 @@
 
 // -- Library Imports --
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use rusqlite::{Connection, OpenFlags};
 
 // -- Local Imports --
 use super::error::ApiError;
@@ -44,6 +47,18 @@ struct Shared {
     gates: Mutex<HashMap<String, Arc<PluginGates>>>,
     ui: UiState,
     sidebar: SidebarStore,
+    // The plugins' read-only library connection, opened on first use. Never taken under another lock.
+    reader: Mutex<Option<Connection>>,
+}
+
+fn open_reader(path: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.busy_timeout(Duration::from_millis(5000))?;
+    conn.pragma_update(None, "query_only", true)?;
+    Ok(conn)
 }
 
 /// Cheap to clone; every clone shares the same state.
@@ -137,6 +152,24 @@ impl ApiState {
     /// Chips and sidebar item state.
     pub fn sidebar(&self) -> &SidebarStore {
         &self.0.sidebar
+    }
+
+    /// Runs `f` on a read-only connection to the database file at `path`, opened on first use and kept.
+    /// Plugin reads use it so a long scan never holds the app's own connection. A connection that
+    /// cannot be opened is `unavailable`, with no detail, and the next call tries again.
+    pub fn with_reader<R>(
+        &self,
+        path: &Path,
+        f: impl FnOnce(&Connection) -> Result<R, ApiError>,
+    ) -> Result<R, ApiError> {
+        let mut slot = lock(&self.0.reader);
+        if slot.is_none() {
+            *slot = Some(open_reader(path).map_err(|_| ApiError::unavailable())?);
+        }
+        match slot.as_ref() {
+            Some(conn) => f(conn),
+            None => Err(ApiError::unavailable()),
+        }
     }
 
     /// Drops everything kept for `id` except its gates, and ends its open toasts and prompts. Waits

@@ -30,7 +30,7 @@ use crate::state::AppState;
 /// ids in an arbitrary order, so index them by id and rebuild along the requested sequence. The only
 /// DB work the player does; the engine never sees a connection. Returns an empty queue when the lock
 /// is poisoned.
-fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
+pub(crate) fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
     let resolved: Vec<(i64, String, f32)> = match state.db.lock() {
         Ok(conn) => db::load_queue_tracks(&conn, track_ids).unwrap_or_default(),
         Err(_) => return Vec::new(),

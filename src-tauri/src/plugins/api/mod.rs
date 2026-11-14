@@ -3,22 +3,29 @@
  * in-memory locks and no I/O, whether a call may run; `run` parses its arguments and calls the method's
  * handler, which may touch the plugin's own data folder and so runs off the caller's thread. The
  * plugin id always comes from the caller, never from the arguments, and every refusal is one of the
- * closed error codes. Nothing here reaches the player.
+ * closed error codes. The only player commands sent are the `playback.*` and `queue.*` methods.
  */
 
 pub(crate) mod app;
+mod cover;
+mod cursor;
 pub(crate) mod error;
 pub(crate) mod files;
 pub(crate) mod host_event;
 mod kv_file;
+mod library;
+mod library_rows;
 pub(crate) mod log;
 pub(crate) mod pending;
+mod playback;
 pub(crate) mod rate;
 #[cfg(test)]
 mod sdk_parity;
 pub(crate) mod sidebar;
 pub(crate) mod state;
 mod storage;
+#[cfg(test)]
+mod test_rig;
 mod ui;
 pub(crate) mod ui_state;
 
@@ -38,6 +45,7 @@ use self::state::{ApiState, InFlight};
 use super::manifest::Capability;
 use super::paths::validate_id;
 use super::state::{EnabledSet, Serving};
+use crate::state::AppState;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_ARGS_BYTES: usize = 1_048_576;
@@ -88,6 +96,8 @@ pub trait HostContext: Send + Sync {
     fn emit(&self, event: HostEvent);
     /// Whether the main window is visible and not minimized; `false` when it cannot be read.
     fn main_window_shown(&self) -> bool;
+    /// The app's library, player and cover cache; absent before the app is set up.
+    fn app_state(&self) -> Option<&AppState>;
 }
 
 /// Everything a handler may use. `id` is the admitted caller, never a value from the arguments.
@@ -121,6 +131,9 @@ pub fn table() -> &'static [MethodSpec] {
             log::METHODS,
             ui::METHODS,
             sidebar::METHODS,
+            library::METHODS,
+            cover::METHODS,
+            playback::METHODS,
         ]
         .concat()
     })
@@ -225,8 +238,8 @@ pub fn dispatch(
     run(&admitted, args, app_data, host, api)
 }
 
-/// A host with settings set by the test, a fixed OS theme and window state, and a record of the
-/// events sent.
+/// A host with settings set by the test, a fixed OS theme and window state, a record of the events
+/// sent, and the app state the test gives it.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct FakeHost {
@@ -234,6 +247,7 @@ pub(crate) struct FakeHost {
     pub dark: bool,
     pub events: std::sync::Mutex<Vec<HostEvent>>,
     pub window_hidden: bool,
+    pub app: Option<AppState>,
 }
 
 #[cfg(test)]
@@ -260,6 +274,10 @@ impl HostContext for FakeHost {
 
     fn main_window_shown(&self) -> bool {
         !self.window_hidden
+    }
+
+    fn app_state(&self) -> Option<&AppState> {
+        self.app.as_ref()
     }
 }
 
@@ -609,9 +627,9 @@ mod tests {
         let api = ApiState::default();
         for method in [
             "ui.missing",
-            "library.tracks",
-            "playback.state",
-            "queue.add",
+            "library.missing",
+            "playback.missing",
+            "queue.clear",
             "events.subscribe",
             "plugin.call",
             "app",

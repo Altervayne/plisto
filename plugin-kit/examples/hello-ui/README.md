@@ -1,10 +1,22 @@
 # Hello UI
 
 A page plugin (`dev.plisto.hello-ui`) that shows the SDK working: a counter saved with `storage.set`, the
-`app.info` fields, and a `has("library.tracks")` check (false in this API version). Each counter click
-writes a line with `log.info`. It asks for `storage`, `ui.toast`, `ui.confirm` and `ui.chips`.
+`app.info` fields, and a `has("library.tracks")` check. Each counter click writes a line with `log.info`. It
+asks for `storage`, `library.read`, `playback.read`, `playback.control`, `ui.toast`, `ui.confirm` and
+`ui.chips`.
 
-Each UI surface has buttons. Results appear in the Results list, newest first.
+Results appear in the Results list, newest first.
+
+The Library and playback card reads your library and changes the queue:
+
+- **List five tracks** lists the first five tracks by title, with `library.tracks`.
+- **Show a grid cover** shows the cover of the first album by title at the grid size, with
+  `library.albums` and `library.cover`.
+- **Play an album next** puts that same album after the playing track, with `queue.play_next`. If nothing
+  is playing, Plisto starts it.
+- **Now playing** shows the playing track from `playback.state`.
+
+Each UI surface has buttons too.
 
 - **Toast** shows a plain toast.
 - **Toast with action** shows a toast with a Details button. Pressing it logs that a gesture arrived, then
@@ -31,8 +43,9 @@ Three buttons misbehave on purpose, to test how Plisto treats a page that stops 
 1. In Plisto, open the plugin hub and install from a folder (Settings > Plugins): choose this `hello-ui` folder.
 2. Turn the plugin on. It appears in the sidebar under its own name.
 
-Updating from version 1.0.0 adds capabilities, so Plisto asks for consent again: review the new
-capabilities (`ui.toast`, `ui.confirm`, `ui.chips`) and approve them before the plugin runs.
+Updating from an earlier version adds capabilities, so Plisto asks for consent again: review the new
+capabilities (`ui.toast`, `ui.confirm` and `ui.chips` since 1.1.0; `library.read`, `playback.read` and
+`playback.control` since 1.2.0) and approve them before the plugin runs.
 
 ## Remove
 

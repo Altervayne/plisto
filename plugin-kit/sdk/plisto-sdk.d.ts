@@ -176,6 +176,124 @@ export interface SidebarInput {
   gesture: string;
 }
 
+/** A library track, resolved as Plisto shows it. Tracks missing on disk never appear. */
+export interface PlistoTrack {
+  id: number;
+  title: string | null;
+  artist: string | null;
+  /** A track in an album shows the album's title, album artist and year; otherwise its own. */
+  album: string | null;
+  album_artist: string | null;
+  year: number | null;
+  track_no: number | null;
+  disc_no: number | null;
+  duration_secs: number | null;
+  genres: string[];
+  /** The album or single the track is filed into. */
+  album_id: number | null;
+}
+
+export interface PlistoAlbum {
+  id: number;
+  kind: "album" | "single";
+  title: string | null;
+  album_artist: string | null;
+  year: number | null;
+  /** Members present on disk. */
+  track_count: number;
+}
+
+export interface PlistoPlaylist {
+  id: number;
+  name: string | null;
+  description: string | null;
+  /** Slots whose track is present on disk. */
+  track_count: number;
+}
+
+/** One page of a list. Pass `next_cursor` as `cursor` for the next page; null means this was the last. */
+export interface PlistoPage<T> {
+  items: T[];
+  next_cursor: string | null;
+}
+
+export interface PageArgs<S extends string> {
+  /** The list's first sort when left out. */
+  sort?: S;
+  /** The `next_cursor` of the previous page of the same list, sort and container. */
+  cursor?: string | null;
+  /** 1 to 200; default 50. */
+  limit?: number;
+}
+
+export type LibraryTracksArgs = PageArgs<"id" | "title" | "artist">;
+export interface LibraryTracksByIdArgs {
+  /** At most 200. */
+  ids: number[];
+}
+export interface LibraryTracksByIdResult {
+  items: PlistoTrack[];
+}
+export interface LibraryAlbumsArgs extends PageArgs<"id" | "title" | "artist"> {
+  kind?: "album" | "single" | null;
+}
+export interface LibraryIdArgs {
+  id: number;
+}
+export interface LibraryContainerTracksArgs extends PageArgs<"position"> {
+  id: number;
+}
+export type LibraryPlaylistsArgs = PageArgs<"id" | "name">;
+export interface LibraryCoverArgs {
+  kind: "track" | "album" | "playlist";
+  id: number;
+  /** Longest edge 128, 256 or 512 pixels. */
+  size: "thumb" | "grid" | "detail";
+}
+export interface LibraryCoverResult {
+  /** A `data:image/jpeg;base64,...` URL, or null when there is no cover. */
+  data_url: string | null;
+}
+
+export type PlistoRepeat = "off" | "all" | "one";
+
+export interface PlaybackState {
+  playing: boolean;
+  /** Null when nothing is loaded or the track was opened straight from a file. */
+  track_id: number | null;
+  /** Null as for track_id, and for a track missing on disk. */
+  track: PlistoTrack | null;
+  position_secs: number;
+  duration_secs: number;
+  /** 0 to 1. */
+  volume: number;
+  repeat: PlistoRepeat;
+  shuffle: boolean;
+  queue_index: number;
+  queue_length: number;
+}
+export interface PlaybackQueueResult {
+  /** In play order; null for a track opened straight from a file. */
+  track_ids: (number | null)[];
+  index: number;
+}
+export interface PlaybackSeekArgs {
+  /** At least 0. */
+  secs: number;
+}
+
+/** Exactly one of the three. Tracks missing on disk are left out. */
+export type QueueSource =
+  | { track_ids: number[]; album_id?: null; playlist_id?: null }
+  | { album_id: number; track_ids?: null; playlist_id?: null }
+  | { playlist_id: number; track_ids?: null; album_id?: null };
+/** `start` indexes the source as given; default 0. */
+export type QueuePlayArgs = QueueSource & { start?: number };
+export interface QueueResult {
+  /** How many tracks went to the player; 0 sends nothing. */
+  queued: number;
+}
+
 export interface PlistoMethods {
   "app.info": { args: {}; result: AppInfo };
   "app.methods": { args: {}; result: AppMethodsResult };
@@ -191,6 +309,26 @@ export interface PlistoMethods {
   "ui.open_page": { args: UiOpenPageArgs; result: EmptyResult };
   "ui.chips": { args: UiChipsArgs; result: EmptyResult };
   "ui.sidebar.update": { args: UiSidebarUpdateArgs; result: EmptyResult };
+  "library.tracks": { args: LibraryTracksArgs; result: PlistoPage<PlistoTrack> };
+  "library.tracks_by_id": { args: LibraryTracksByIdArgs; result: LibraryTracksByIdResult };
+  "library.albums": { args: LibraryAlbumsArgs; result: PlistoPage<PlistoAlbum> };
+  "library.album": { args: LibraryIdArgs; result: PlistoAlbum };
+  "library.album_tracks": { args: LibraryContainerTracksArgs; result: PlistoPage<PlistoTrack> };
+  "library.playlists": { args: LibraryPlaylistsArgs; result: PlistoPage<PlistoPlaylist> };
+  "library.playlist": { args: LibraryIdArgs; result: PlistoPlaylist };
+  "library.playlist_tracks": { args: LibraryContainerTracksArgs; result: PlistoPage<PlistoTrack> };
+  "library.cover": { args: LibraryCoverArgs; result: LibraryCoverResult };
+  "playback.state": { args: {}; result: PlaybackState };
+  "playback.queue": { args: {}; result: PlaybackQueueResult };
+  "playback.toggle": { args: {}; result: EmptyResult };
+  "playback.pause": { args: {}; result: EmptyResult };
+  "playback.resume": { args: {}; result: EmptyResult };
+  "playback.next": { args: {}; result: EmptyResult };
+  "playback.prev": { args: {}; result: EmptyResult };
+  "playback.seek": { args: PlaybackSeekArgs; result: EmptyResult };
+  "queue.play": { args: QueuePlayArgs; result: QueueResult };
+  "queue.add": { args: QueueSource; result: QueueResult };
+  "queue.play_next": { args: QueueSource; result: QueueResult };
 }
 
 export interface CallOptions {
@@ -265,6 +403,37 @@ export interface Plisto {
       /** Needs ui.sidebar. */
       update(itemId: string, state: SidebarStateInput): Promise<EmptyResult>;
     };
+  };
+  /** Needs library.read. */
+  readonly library: {
+    tracks(options?: LibraryTracksArgs): Promise<PlistoPage<PlistoTrack>>;
+    /** Resolves the tracks found, in the order asked. */
+    tracksById(ids: number[]): Promise<PlistoTrack[]>;
+    albums(options?: LibraryAlbumsArgs): Promise<PlistoPage<PlistoAlbum>>;
+    album(id: number): Promise<PlistoAlbum>;
+    albumTracks(id: number, options?: PageArgs<"position">): Promise<PlistoPage<PlistoTrack>>;
+    playlists(options?: LibraryPlaylistsArgs): Promise<PlistoPage<PlistoPlaylist>>;
+    playlist(id: number): Promise<PlistoPlaylist>;
+    playlistTracks(id: number, options?: PageArgs<"position">): Promise<PlistoPage<PlistoTrack>>;
+    /** Resolves a data: URL, or null when there is no cover. `size` defaults to "thumb". */
+    cover(kind: LibraryCoverArgs["kind"], id: number, size?: LibraryCoverArgs["size"]): Promise<string | null>;
+  };
+  /** `state` and `queue` need playback.read; the rest need playback.control. */
+  readonly playback: {
+    state(): Promise<PlaybackState>;
+    queue(): Promise<PlaybackQueueResult>;
+    toggle(): Promise<EmptyResult>;
+    pause(): Promise<EmptyResult>;
+    resume(): Promise<EmptyResult>;
+    next(): Promise<EmptyResult>;
+    prev(): Promise<EmptyResult>;
+    seek(secs: number): Promise<EmptyResult>;
+  };
+  /** Needs playback.control. */
+  readonly queue: {
+    play(source: QueueSource, start?: number): Promise<QueueResult>;
+    add(source: QueueSource): Promise<QueueResult>;
+    playNext(source: QueueSource): Promise<QueueResult>;
   };
   readonly log: {
     debug(text: string): Promise<LogWriteResult>;

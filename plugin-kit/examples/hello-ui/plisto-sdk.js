@@ -38,7 +38,7 @@
   var resolveReady = null;
 
   var plisto = {
-    sdkVersion: "1.1.0",
+    sdkVersion: "1.2.0",
     info: null,
     pageOpen: false,
     route: null,
@@ -265,6 +265,96 @@
       update: function (itemId, state) {
         return plisto.call("ui.sidebar.update", { item_id: itemId, state: state });
       },
+    },
+  };
+
+  // Copies the page options a list method takes, leaving out the ones not given.
+  function pageArgs(base, options) {
+    var args = base || {};
+    if (options) {
+      if (options.sort !== undefined) args.sort = options.sort;
+      if (options.cursor !== undefined) args.cursor = options.cursor;
+      if (options.limit !== undefined) args.limit = options.limit;
+      if (options.kind !== undefined) args.kind = options.kind;
+    }
+    return args;
+  }
+
+  plisto.library = {
+    /** A page of tracks; options { sort: "id" | "title" | "artist", cursor, limit }. */
+    tracks: function (options) {
+      return plisto.call("library.tracks", pageArgs({}, options));
+    },
+    /** The present tracks among `ids` (at most 200), in that order. Resolves the array. */
+    tracksById: function (ids) {
+      return plisto.call("library.tracks_by_id", { ids: ids }).then(function (r) {
+        return r.items;
+      });
+    },
+    /** A page of albums; options { sort: "id" | "title" | "artist", kind, cursor, limit }. */
+    albums: function (options) {
+      return plisto.call("library.albums", pageArgs({}, options));
+    },
+    album: function (id) {
+      return plisto.call("library.album", { id: id });
+    },
+    /** A page of an album's tracks in album order; options { cursor, limit }. */
+    albumTracks: function (id, options) {
+      return plisto.call("library.album_tracks", pageArgs({ id: id }, options));
+    },
+    /** A page of playlists; options { sort: "id" | "name", cursor, limit }. */
+    playlists: function (options) {
+      return plisto.call("library.playlists", pageArgs({}, options));
+    },
+    playlist: function (id) {
+      return plisto.call("library.playlist", { id: id });
+    },
+    /** A page of a playlist's tracks in playlist order; options { cursor, limit }. */
+    playlistTracks: function (id, options) {
+      return plisto.call("library.playlist_tracks", pageArgs({ id: id }, options));
+    },
+    /** Resolves a data: URL for an <img>, or null when there is no cover. */
+    cover: function (kind, id, size) {
+      return plisto
+        .call("library.cover", { kind: kind, id: id, size: size || "thumb" })
+        .then(function (r) {
+          return r.data_url;
+        });
+    },
+  };
+
+  function noArgs(method) {
+    return function () {
+      return plisto.call(method, {});
+    };
+  }
+
+  plisto.playback = {
+    state: noArgs("playback.state"),
+    queue: noArgs("playback.queue"),
+    toggle: noArgs("playback.toggle"),
+    pause: noArgs("playback.pause"),
+    resume: noArgs("playback.resume"),
+    next: noArgs("playback.next"),
+    prev: noArgs("playback.prev"),
+    seek: function (secs) {
+      return plisto.call("playback.seek", { secs: secs });
+    },
+  };
+
+  // A source is { track_ids }, { album_id } or { playlist_id }.
+  plisto.queue = {
+    /** Replaces the queue with `source` and plays from `start` (default 0). */
+    play: function (source, start) {
+      var args = Object.assign({}, source);
+      if (start !== undefined) args.start = start;
+      return plisto.call("queue.play", args);
+    },
+    add: function (source) {
+      return plisto.call("queue.add", Object.assign({}, source));
+    },
+    playNext: function (source) {
+      return plisto.call("queue.play_next", Object.assign({}, source));
     },
   };
 

@@ -1,7 +1,7 @@
 /*
- * Hello UI page script: a persisted counter, the app info, one button per UI surface (toasts, prompts,
- * chips, routes) and three buttons that misbehave on purpose to exercise the host's not-responding overlay,
- * crash handling and navigation guard.
+ * Hello UI page script: a persisted counter, the app info, library and playback calls, one button per UI
+ * surface (toasts, prompts, chips, routes) and three buttons that misbehave on purpose to exercise the
+ * host's not-responding overlay, crash handling and navigation guard.
  */
 (function () {
   "use strict";
@@ -170,6 +170,61 @@
       );
     }
   });
+  function trackLine(track) {
+    return (track.title || "(no title)") + " - " + (track.artist || "(no artist)");
+  }
+
+  // The first album of the library by title, or null when it has none.
+  function firstAlbum() {
+    return window.plisto.library.albums({ sort: "title", kind: "album", limit: 1 }).then(function (page) {
+      return page.items.length ? page.items[0] : null;
+    });
+  }
+
+  $("list-tracks").addEventListener("click", function () {
+    window.plisto.library.tracks({ sort: "title", limit: 5 }).then(function (page) {
+      var list = $("tracks");
+      list.textContent = "";
+      page.items.forEach(function (track) {
+        var item = document.createElement("li");
+        item.textContent = trackLine(track);
+        list.appendChild(item);
+      });
+      show("list tracks: " + page.items.length + (page.next_cursor ? ", more follow" : ""));
+    }, refused("list tracks"));
+  });
+  $("grid-cover").addEventListener("click", function () {
+    firstAlbum()
+      .then(function (album) {
+        if (!album) return null;
+        return window.plisto.library.cover("album", album.id, "grid");
+      })
+      .then(function (url) {
+        var img = $("cover");
+        img.hidden = !url;
+        if (url) img.src = url;
+        show("grid cover: " + (url ? url.length + " characters" : "none"));
+      }, refused("grid cover"));
+  });
+  $("album-next").addEventListener("click", function () {
+    firstAlbum()
+      .then(function (album) {
+        if (!album) return { queued: 0 };
+        return window.plisto.queue.playNext({ album_id: album.id });
+      })
+      .then(function (r) {
+        show("album next: queued " + r.queued);
+      }, refused("album next"));
+  });
+  $("now-playing").addEventListener("click", function () {
+    window.plisto.playback.state().then(function (state) {
+      var what = "nothing from the library";
+      if (state.track) what = trackLine(state.track);
+      else if (state.track_id !== null) what = "a track missing on disk";
+      show("now playing: " + what + (state.playing ? "" : " (paused)"));
+    }, refused("now playing"));
+  });
+
   $("go-settings").addEventListener("click", function () {
     window.plisto.ui.openPage("settings").then(function () {
       show("open settings: sent");

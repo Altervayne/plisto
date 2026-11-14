@@ -44,6 +44,10 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | chips | `ui.chips` | 10 | 4 per second |
 | sidebar | `ui.sidebar.update` | 20 | 10 per second |
 | nav | `ui.open_page` | 3 | 1 per second |
+| library read | `library.*` except `library.cover` | 60 | 30 per second |
+| cover | `library.cover` | 30 | 10 per second |
+| playback read | `playback.state`, `playback.queue` | 20 | 10 per second |
+| play | the other `playback.*` methods, `queue.*` | 10 | 5 per second |
 
 ## Methods
 
@@ -262,6 +266,202 @@ the plugin; the call does not say. See [UI surfaces](ui-surfaces.md).
 await plisto.ui.openPage("settings");
 ```
 
+### Library data
+
+The `library.*` methods read the user's library. They never change it. What they return is what Plisto
+shows:
+
+- A track's title and artist are the user's edits where there are some, else the file's tags.
+- A track filed in an album shows the album's title, album artist and year. A track filed as a single, or
+  not filed, shows its own edits over the single's fields or its file's tags.
+- Tracks missing on disk never appear, and do not count in an album's or playlist's `track_count`.
+- No result names a file, a folder or a drive. Tracks, albums and playlists are known by number ids.
+
+A track object:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | number | The track's id. |
+| `title`, `artist` | string or `null` | |
+| `album`, `album_artist` | string or `null` | Resolved as above. |
+| `year` | number or `null` | Resolved as above. |
+| `track_no` | number or `null` | The position in its album, or the file's track number for a track in none. |
+| `disc_no` | number or `null` | |
+| `duration_secs` | number or `null` | |
+| `genres` | string[] | The track's genres in display order. |
+| `album_id` | number or `null` | The album or single the track is filed into. |
+
+An album object: `{ id, kind, title, album_artist, year, track_count }`, where `kind` is `"album"` or
+`"single"`. A playlist object: `{ id, name, description, track_count }`; a track listed twice counts twice.
+
+#### Paging
+
+The list methods return one page at a time: `{ items, next_cursor }`. Pass `next_cursor` back as `cursor`,
+with the same `sort`, to get the next page. `next_cursor` is `null` on the last page.
+
+- `limit` is 1 to 200; the default is 50.
+- Each page continues after the last row of the previous one, in the sort's order. A track added or
+  removed between two calls does not make a page repeat or skip the other rows.
+- Treat a cursor as an opaque string. A cursor is valid only for the same list, sort and container (the
+  album or playlist) it came from. A cursor that is changed, or used anywhere else, is `invalid_args`. A cursor is not tied to the session; a stale one simply starts after the row it
+  names.
+
+```js
+let cursor = null;
+do {
+  const page = await plisto.library.tracks({ sort: "title", cursor, limit: 200 });
+  page.items.forEach(render);
+  cursor = page.next_cursor;
+} while (cursor);
+```
+
+### `library.tracks`
+
+Needs: `library.read`. Class: library read. Helper: `plisto.library.tracks(options?)`.
+
+Arguments: `{ sort?, cursor?, limit? }`. `sort` is `"id"` (the default), `"title"` or `"artist"`; the text
+sorts ignore ASCII case. Result: a page of tracks.
+
+Errors: `invalid_args` (unknown sort, a bad cursor, a limit out of range).
+
+### `library.tracks_by_id`
+
+Needs: `library.read`. Class: library read. Helper: `plisto.library.tracksById(ids)`, which resolves the
+array.
+
+Arguments: `{ ids }`, at most 200 integers. Result: `{ items }`, the tracks found, in the order asked. An id
+that is unknown or missing on disk is left out; this is not an error.
+
+Errors: `invalid_args` (not an array of integers), `too_large` (more than 200 ids).
+
+### `library.albums`
+
+Needs: `library.read`. Class: library read. Helper: `plisto.library.albums(options?)`.
+
+Arguments: `{ sort?, kind?, cursor?, limit? }`. `sort` is `"id"` (the default), `"title"` or `"artist"`
+(the album artist). `kind` is `"album"`, `"single"` or `null` for both. Result: a page of albums.
+
+Errors: `invalid_args`.
+
+### `library.album`, `library.playlist`
+
+Needs: `library.read`. Class: library read. Helpers: `plisto.library.album(id)`,
+`plisto.library.playlist(id)`.
+
+Arguments: `{ id }`. Result: the album or playlist object.
+
+Errors: `invalid_args` (`id` is not an integer), `not_found`.
+
+### `library.album_tracks`, `library.playlist_tracks`
+
+Needs: `library.read`. Class: library read. Helpers: `plisto.library.albumTracks(id, options?)`,
+`plisto.library.playlistTracks(id, options?)`.
+
+Arguments: `{ id, cursor?, limit? }`. Result: a page of tracks in the album's or playlist's own order. The
+only sort is `"position"`. A track listed twice in a playlist appears twice.
+
+Errors: `invalid_args`, `not_found` (no such album or playlist).
+
+### `library.playlists`
+
+Needs: `library.read`. Class: library read. Helper: `plisto.library.playlists(options?)`.
+
+Arguments: `{ sort?, cursor?, limit? }`. `sort` is `"id"` (the default) or `"name"`. Result: a page of
+playlists.
+
+Errors: `invalid_args`.
+
+### `library.cover`
+
+Needs: `library.read`. Class: cover. Helper: `plisto.library.cover(kind, id, size?)`, which resolves the URL.
+
+Arguments: `{ kind, id, size }`. `kind` is `"track"`, `"album"` or `"playlist"`. `size` is `"thumb"`,
+`"grid"` or `"detail"`, an image whose longest edge is 128, 256 or 512 pixels. Result: `{ data_url }`, a
+`data:image/jpeg;base64,...` URL to put in an `<img>`, or `null` when there is no cover. It is the cover
+Plisto shows: a playlist has one only when the user set one.
+
+Errors: `invalid_args`, `not_found` (no such item, or a track missing on disk), `too_large` (the image is
+over 262,144 bytes).
+
+```js
+img.src = (await plisto.library.cover("album", album.id, "grid")) ?? "placeholder.svg";
+```
+
+### Playback
+
+`playback.state` and `playback.queue` read what is playing. The other `playback.*` methods and the
+`queue.*` methods control the player; they act at once, as a click in Plisto would, and resolve as soon as
+the player has the command. A track the user opened straight from a file is not in the library: its id
+reads as `null`.
+
+### `playback.state`
+
+Needs: `playback.read`. Class: playback read. Helper: `plisto.playback.state()`.
+
+Arguments: none. Result:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `playing` | boolean | |
+| `track_id` | number or `null` | The current track, or `null` when there is none or it was opened from a file. |
+| `track` | track or `null` | The current track as `library.tracks` gives it; also `null` when it is missing on disk. |
+| `position_secs`, `duration_secs` | number | |
+| `volume` | number | 0 to 1. |
+| `repeat` | string | `"off"`, `"all"` or `"one"`. |
+| `shuffle` | boolean | |
+| `queue_index` | number | The current track's place in the queue. |
+| `queue_length` | number | |
+
+The position is a snapshot; read it again to follow playback.
+
+### `playback.queue`
+
+Needs: `playback.read`. Class: playback read. Helper: `plisto.playback.queue()`.
+
+Arguments: none. Result: `{ track_ids, index }`: the queue's ids in play order (shuffled when shuffle is
+on), `null` for a track opened from a file, and the current track's index.
+
+### `playback.toggle`, `playback.pause`, `playback.resume`, `playback.next`, `playback.prev`
+
+Needs: `playback.control`. Class: play. Helpers: `plisto.playback.toggle()`, `.pause()`, `.resume()`,
+`.next()`, `.prev()`.
+
+Arguments: none. Result: `{}`. `toggle` plays when paused and pauses when playing.
+
+### `playback.seek`
+
+Needs: `playback.control`. Class: play. Helper: `plisto.playback.seek(secs)`.
+
+Arguments: `{ secs }`, a number of at least 0. Result: `{}`. A position past the end of the current track
+is held to the track's length.
+
+Errors: `invalid_args`.
+
+### `queue.play`, `queue.add`, `queue.play_next`
+
+Needs: `playback.control`. Class: play. Helpers: `plisto.queue.play(source, start?)`,
+`plisto.queue.add(source)`, `plisto.queue.playNext(source)`.
+
+Arguments: exactly one source, `{ track_ids }` (at most 500 integers), `{ album_id }` or
+`{ playlist_id }`, plus `start` for `queue.play`. Result: `{ queued }`, the number of tracks sent to the
+player. When it is 0, nothing changes.
+
+- `queue.play` replaces the queue and plays from `start`, an index into the source as given (default 0).
+  If that track is left out, playback starts at the next one.
+- `queue.add` appends to the end of the queue, and starts playing when nothing is.
+- `queue.play_next` inserts right after the current track, and starts playing when nothing is.
+
+An album plays in album order, a playlist in playlist order. Tracks missing on disk, and ids that are not
+library tracks, are left out.
+
+Errors: `invalid_args` (no source, more than one, or a bad id or start), `too_large` (more than 500
+`track_ids`), `not_found` (no such album or playlist).
+
+```js
+await plisto.queue.playNext({ album_id: 12 });
+await plisto.queue.play({ track_ids: [5, 9, 3] }, 1);
+```
+
 ## Error codes
 
 Every failure rejects with a `PlistoError` whose `code` is one of nine values:
@@ -271,7 +471,7 @@ Every failure rejects with a `PlistoError` whose `code` is one of nine values:
 | `denied` | The plugin does not hold the capability the method needs, or a prompt or page-open call had no open page and no valid gesture (then `reason` is `"no_gesture"`). |
 | `rate_limited` | A budget is empty. `retryAfterMs` says when to retry. |
 | `invalid_args` | The arguments are malformed: wrong type, missing field, a key or text that breaks the rules, an unknown level, a state that does not fit its item, a method name that is not valid. |
-| `too_large` | The arguments, a value, a text or the storage quota is over its limit, or more than 2 chips. |
+| `too_large` | The arguments, a value, a text, a list of ids, a cover image or the storage quota is over its limit, or more than 2 chips. |
 | `not_found` | The target does not exist, for example a sidebar item the manifest does not declare. |
 | `unknown_method` | This version of Plisto does not have the method. |
 | `busy` | Too many calls are waiting, or a prompt or toast slot is taken. |
@@ -305,8 +505,7 @@ if (plisto.has("ui.toast")) { /* safe to call */ }
 `has` says only that the method exists. It does not say that the plugin holds the capability. Check
 `info.granted` for that, or catch `denied`.
 
-Methods for library data, playback and audio are not in this version of the API. They answer
-`unknown_method`.
+Methods for audio are not in this version of the API. They answer `unknown_method`.
 
 ## Events
 
@@ -336,7 +535,7 @@ plisto.on("sidebar", ({ item_id, value, gesture }) => { /* see the sidebar guide
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
-version is `plisto.sdkVersion` (`1.1.0`).
+version is `plisto.sdkVersion` (`1.2.0`).
 
 | Member | Meaning |
 | --- | --- |
@@ -353,6 +552,9 @@ version is `plisto.sdkVersion` (`1.1.0`).
 | `log.debug/info/warn/error` | Helpers for `log.write`. |
 | `ui.toast/confirm/chips/openPage` | Helpers for the UI methods. |
 | `ui.sidebar.update(itemId, state)` | Helper for `ui.sidebar.update`. |
+| `library.tracks/tracksById/albums/album/albumTracks/playlists/playlist/playlistTracks/cover` | Helpers for the `library.*` methods. |
+| `playback.state/queue/toggle/pause/resume/next/prev/seek` | Helpers for the `playback.*` methods. |
+| `queue.play/add/playNext` | Helpers for the `queue.*` methods. |
 | `PlistoError` | The error class. |
 
 Details:

@@ -32,9 +32,9 @@ pub struct AlbumCoverEntry {
     pub cover: Option<CoverRef>,
 }
 
-/// What the DB read decided for one album: a cover settled by hash, or a member track whose art
+/// What the DB read decided for one album or track: a cover settled by hash, or a track whose art
 /// still needs a decode.
-enum Plan {
+pub(crate) enum Plan {
     Settled(Option<CoverRef>),
     Dynamic {
         track_id: i64,
@@ -46,7 +46,7 @@ enum Plan {
 }
 
 /// A decoded embedded-art key to write back against its row's file stamp.
-type KeyWriteback = (i64, (i64, i64), ArtKey);
+pub(crate) type KeyWriteback = (i64, (i64, i64), ArtKey);
 
 /// Resolves the covers of `album_ids` at the requested size, one entry per id in the order given.
 #[tauri::command]
@@ -100,7 +100,7 @@ pub(super) async fn resolve_albums(
 /// Reads the DB to decide every album's cover at `edge`. A bound cover and a folder or track
 /// cover settle here; a member's embedded or adjacent art is left for the blocking stage. An unknown
 /// id plans as no cover. Sync: touches only the connection and cache paths.
-fn plan_albums(
+pub(crate) fn plan_albums(
     conn: &Connection,
     covers_dir: &Path,
     album_ids: &[i64],
@@ -111,34 +111,43 @@ fn plan_albums(
         let plan = match prepare_album_cover(conn, covers_dir, album_id, edge)? {
             AlbumCover::None => Plan::Settled(None),
             AlbumCover::Bound(cover) => Plan::Settled(Some(cover)),
-            AlbumCover::FromTrack(track_id) => {
-                match prepare_resolution(conn, covers_dir, track_id, edge, false)? {
-                    Resolution::None => Plan::Settled(None),
-                    Resolution::Folder(cover) | Resolution::Embedded(cover) => {
-                        Plan::Settled(Some(cover))
-                    }
-                    Resolution::Dynamic {
-                        source_path,
-                        has_embedded,
-                        fallback,
-                        backfill,
-                    } => Plan::Dynamic {
-                        track_id,
-                        source_path,
-                        has_embedded,
-                        fallback,
-                        backfill,
-                    },
-                }
-            }
+            AlbumCover::FromTrack(track_id) => plan_track(conn, covers_dir, track_id, edge, false)?,
         };
         plans.push((album_id, plan));
     }
     Ok(plans)
 }
 
+/// Reads the DB to decide one track's cover at `edge`, with `keep_own` as `read_cover` takes it.
+pub(crate) fn plan_track(
+    conn: &Connection,
+    covers_dir: &Path,
+    track_id: i64,
+    edge: u32,
+    keep_own: bool,
+) -> rusqlite::Result<Plan> {
+    Ok(
+        match prepare_resolution(conn, covers_dir, track_id, edge, keep_own)? {
+            Resolution::None => Plan::Settled(None),
+            Resolution::Folder(cover) | Resolution::Embedded(cover) => Plan::Settled(Some(cover)),
+            Resolution::Dynamic {
+                source_path,
+                has_embedded,
+                fallback,
+                backfill,
+            } => Plan::Dynamic {
+                track_id,
+                source_path,
+                has_embedded,
+                fallback,
+                backfill,
+            },
+        },
+    )
+}
+
 /// Turns one plan into its cover: a settled cover is checked for its file, a dynamic one decodes.
-fn finish(
+pub(crate) fn finish(
     plan: Plan,
     covers_dir: &Path,
     guard: &InFlightGuard,

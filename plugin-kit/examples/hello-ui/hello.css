@@ -55,6 +55,24 @@ button.warn {
 .route span {
   font-family: var(--font-mono);
 }
+.tracks {
+  margin: 10px 0 0;
+  padding-left: 20px;
+}
+.tracks:empty {
+  display: none;
+}
+.cover {
+  display: block;
+  width: 128px;
+  height: 128px;
+  margin-top: 10px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+.cover[hidden] {
+  display: none;
+}
 .results {
   margin: 0;
   padding-left: 20px;

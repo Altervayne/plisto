@@ -23,7 +23,7 @@ use crate::state::AppState;
 const MAIN_LABEL: &str = "main";
 
 /// The app as a plugin method sees it: the settings table, the main window's OS theme and whether it
-/// is shown, and events to it.
+/// is shown, events to it, and the managed state the library and playback methods read.
 struct TauriHost {
     app: AppHandle,
 }
@@ -53,6 +53,10 @@ impl HostContext for TauriHost {
         self.app.get_webview_window(MAIN_LABEL).is_some_and(|main| {
             matches!(main.is_visible(), Ok(true)) && matches!(main.is_minimized(), Ok(false))
         })
+    }
+
+    fn app_state(&self) -> Option<&AppState> {
+        self.app.try_state::<AppState>().map(|state| state.inner())
     }
 }
 
