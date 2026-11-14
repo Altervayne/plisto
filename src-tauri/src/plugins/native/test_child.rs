@@ -13,7 +13,7 @@ use std::process::{self, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 // -- Local Imports --
 use super::protocol::{
@@ -26,8 +26,13 @@ use super::protocol::{
 pub const MODE_FILE: &str = "test-mode";
 /// The file in the data folder where `echo` notes each launch.
 pub const LAUNCHES_FILE: &str = "launches";
-/// The file in the data folder whose presence ends a `stall-until-file` or `read-after-file` stall.
+/// The file in the data folder whose presence ends a `stall-until-file`, `read-after-file` or
+/// `host-calls` stall.
 pub const RESUME_FILE: &str = "resume";
+/// The file in the data folder that lists the `host_call` frames `host-calls` sends, as a JSON array.
+pub const CALLS_FILE: &str = "calls.json";
+/// The text `serve` answers a `fail` call with: longer than a `plugin_error` keeps.
+const FAIL_TEXT_CHARS: usize = 300;
 const CRASH_CODE: i32 = 3;
 const FLOOD_TEXT_BYTES: usize = 60_000;
 const DEFAULT_PAGE_EVENTS_PER_SEC: u64 = 50;
@@ -98,22 +103,55 @@ fn ready() {
     });
 }
 
-/// Answers pings and calls until `shutdown` or the end of input.
+/// Answers pings and calls until `shutdown` or the end of input, and logs what else the host sends.
 fn serve(input: &mut BufReader<io::Stdin>) {
+    serve_with(input, |_| {});
+}
+
+/// `serve`, handing every message to `also` once it is answered or logged.
+fn serve_with(input: &mut BufReader<io::Stdin>, mut also: impl FnMut(&HostMessage)) {
     while let Some(message) = next(input) {
-        match message {
-            HostMessage::Ping { seq } => send(&ChildMessage::Pong { seq }),
-            HostMessage::Call { seq, args, .. } => send(&ChildMessage::Result {
-                seq,
-                ok: true,
-                result: Some(args),
-                error: None,
-            }),
+        match &message {
+            HostMessage::Ping { seq } => send(&ChildMessage::Pong { seq: *seq }),
+            HostMessage::Call { seq, method, args } => answer_call(*seq, method, args),
             HostMessage::HostResult { .. } => log_received("host_result", &message),
             HostMessage::Feed { .. } => log_received("feed", &message),
+            HostMessage::Page { .. } => log_received("page", &message),
+            HostMessage::SidebarInput { .. } => log_received("sidebar_input", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }
+        also(&message);
+    }
+}
+
+/// Answers a page call by its method: `fail` with a long error, `silent` never, `exit` by exiting,
+/// `method` with its own name, and anything else with its arguments.
+fn answer_call(seq: u64, method: &str, args: &Value) {
+    let (ok, result, error) = match method {
+        "silent" => return,
+        "exit" => process::exit(CRASH_CODE),
+        "fail" => (false, None, Some(json!({ "message": "e".repeat(FAIL_TEXT_CHARS) }))),
+        "method" => (true, Some(json!(method)), None),
+        _ => (true, Some(args.clone()), None),
+    };
+    send(&ChildMessage::Result {
+        seq,
+        ok,
+        result,
+        error,
+    });
+}
+
+/// A prompt's arguments, with `gesture` when given.
+fn prompt(gesture: Option<&str>) -> Value {
+    json!({ "title": "Mirror", "body": "Start mirroring?", "confirm_label": "Start", "gesture": gesture })
+}
+
+/// Waits for `resume` to exist.
+fn wait_for(resume: &Path) {
+    while !resume.exists() {
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -281,25 +319,98 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
             ready();
             send(&ChildMessage::HostCall {
                 seq: 1,
-                method: "library.stats".into(),
+                method: "library.tracks".into(),
                 args: json!({}),
             });
             serve(&mut input);
+        }
+        "host-calls" => {
+            next(&mut input);
+            ready();
+            wait_for(&data.join(RESUME_FILE));
+            let calls = fs::read_to_string(data.join(CALLS_FILE)).unwrap_or_default();
+            let calls: Vec<Value> = serde_json::from_str(&calls).unwrap_or_default();
+            for call in calls {
+                send_raw(&call.to_string());
+            }
+            serve(&mut input);
+        }
+        "confirm-on-input" => {
+            // A prompt with no page and no gesture first; then one with the gesture of a click, and
+            // the same gesture again once that prompt is answered.
+            next(&mut input);
+            ready();
+            send(&ChildMessage::HostCall {
+                seq: 1,
+                method: "ui.confirm".into(),
+                args: prompt(None),
+            });
+            let mut gesture = None;
+            serve_with(&mut input, |message| match message {
+                HostMessage::SidebarInput { gesture: given, .. } => {
+                    gesture = Some(given.as_str().to_string());
+                    send(&ChildMessage::HostCall {
+                        seq: 2,
+                        method: "ui.confirm".into(),
+                        args: prompt(gesture.as_deref()),
+                    });
+                }
+                HostMessage::HostResult { seq: 2, .. } => send(&ChildMessage::HostCall {
+                    seq: 3,
+                    method: "ui.confirm".into(),
+                    args: prompt(gesture.as_deref()),
+                }),
+                _ => {}
+            });
         }
         "page-events" => {
             next(&mut input);
             ready();
             let rate = param.unwrap_or(DEFAULT_PAGE_EVENTS_PER_SEC).max(1);
             let gap = Duration::from_millis(1000 / rate);
-            let mut n = 0u64;
-            loop {
+            // The events go out from their own thread while this one serves the input.
+            thread::spawn(move || {
+                let mut n = 0u64;
+                loop {
+                    send(&ChildMessage::PageEvent {
+                        topic: "levels".into(),
+                        data: json!({ "n": n }),
+                    });
+                    thread::sleep(gap);
+                    n += 1;
+                }
+            });
+            serve(&mut input);
+        }
+        "calls-on-shutdown" => {
+            // Asked to shut down, it calls the API once more and keeps running into its grace.
+            next(&mut input);
+            ready();
+            serve(&mut input);
+            send(&ChildMessage::HostCall {
+                seq: 1,
+                method: "ui.toast".into(),
+                args: json!({ "text": "Late" }),
+            });
+            send(&ChildMessage::HostCall {
+                seq: 2,
+                method: "ui.chips".into(),
+                args: json!({ "chips": [{ "text": "Late" }] }),
+            });
+            sleep_forever();
+        }
+        "page-event-sizes" => {
+            // One byte over the page event cap, then exactly at it, then a topic the protocol
+            // refuses, then a small last one.
+            next(&mut input);
+            ready();
+            for (topic, chars) in [("big", 32_764), ("big", 32_763), ("Bad", 1), ("done", 1)] {
                 send(&ChildMessage::PageEvent {
-                    topic: "levels".into(),
-                    data: json!({ "n": n }),
+                    topic: topic.into(),
+                    data: json!("x".repeat(chars)),
                 });
-                thread::sleep(gap);
-                n += 1;
             }
+            serve(&mut input);
         }
         "takeover" => {
             next(&mut input);
@@ -321,10 +432,7 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
             next(&mut input);
             ready();
             // Reads nothing until resumed, so the host's outbox fills.
-            let resume = data.join(RESUME_FILE);
-            while !resume.exists() {
-                thread::sleep(Duration::from_millis(10));
-            }
+            wait_for(&data.join(RESUME_FILE));
             serve(&mut input);
         }
         "exit-leaving-helper" => {

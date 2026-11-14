@@ -1,9 +1,12 @@
 /*
  * The plugin API: the single path every plugin call takes. `admit` decides synchronously, with short
- * in-memory locks and no I/O, whether a call may run; `run` parses its arguments and calls the method's
- * handler, which may touch the plugin's own data folder and so runs off the caller's thread. The
- * plugin id always comes from the caller, never from the arguments, and every refusal is one of the
+ * in-memory locks and no I/O, whether a call may run; `start` parses its arguments and calls the
+ * method's handler, which may touch the plugin's own data folder and so runs off the caller's thread.
+ * The plugin id always comes from the caller, never from the arguments, and every refusal is one of the
  * closed error codes. The only player commands sent are the `playback.*` and `queue.*` methods.
+ * A call comes from a plugin frame, through the main window, or from a native plugin's child, through
+ * its pipe. Both pass the same checks; a frame of a native plugin may also call its own child through
+ * `plugin.*`, and a child reaches neither that namespace nor the network methods.
  */
 
 pub(crate) mod app;
@@ -25,6 +28,7 @@ mod sdk_parity;
 pub(crate) mod sidebar;
 pub(crate) mod state;
 mod storage;
+pub(crate) mod tauri_host;
 #[cfg(test)]
 mod test_rig;
 mod ui;
@@ -33,9 +37,9 @@ pub(crate) mod ui_state;
 // -- Library Imports --
 use std::fmt;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use serde_json::{Map, Value};
@@ -46,7 +50,7 @@ use self::host_event::HostEvent;
 use self::pending::Pending;
 use self::rate::RateClass;
 use self::state::{ApiState, InFlight};
-use super::manifest::Capability;
+use super::manifest::{Capability, Tier};
 use super::paths::validate_id;
 use super::state::{EnabledSet, Serving};
 use crate::state::AppState;
@@ -58,6 +62,18 @@ pub(crate) use self::net::state::{EndReason, Kind, Running};
 pub const API_VERSION: u32 = 1;
 pub const MAX_ARGS_BYTES: usize = 1_048_576;
 pub const MAX_IN_FLIGHT: u32 = 16;
+/// The namespace a native plugin's page calls its own child through.
+pub const RELAY_PREFIX: &str = "plugin.";
+const NAME_MAX_CHARS: usize = 64;
+
+/// Where a call comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Caller {
+    /// A plugin frame, through the main window.
+    Frame,
+    /// A native plugin's child, through its pipe.
+    Child,
+}
 
 /// What a plugin must have been granted to call a method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,11 +141,15 @@ pub trait HostContext: Send + Sync {
     fn main_window_shown(&self) -> bool;
     /// The app's library, player and cover cache; absent before the app is set up.
     fn app_state(&self) -> Option<&AppState>;
+    /// Hands `method`, without its `plugin.` prefix, to plugin `id`'s child and waits for its answer.
+    fn relay_call(&self, id: &str, method: &str, args: Value) -> Result<Value, ApiError>;
 }
 
 /// Everything a handler may use. `id` is the admitted caller, never a value from the arguments.
 pub struct CallCtx<'a> {
     pub id: &'a str,
+    /// The method as called.
+    pub method: &'a str,
     pub serving: &'a Serving,
     /// The serving set, for a handler that must re-check after waiting on a gate.
     pub enabled: &'a EnabledSet,
@@ -141,6 +161,7 @@ pub struct CallCtx<'a> {
 /// A call that passed every check, holding its in-flight slot until dropped.
 pub struct Admitted {
     id: String,
+    method: String,
     serving: Serving,
     enabled: EnabledSet,
     spec: &'static MethodSpec,
@@ -148,6 +169,14 @@ pub struct Admitted {
 }
 
 static TABLE: OnceLock<Vec<MethodSpec>> = OnceLock::new();
+
+/// Every `plugin.*` call of a native plugin's page. Not in the table, so `app.methods` never lists it.
+static RELAY: MethodSpec = MethodSpec {
+    name: "plugin.*",
+    need: Need::Ambient,
+    class: RateClass::Relay,
+    run: relay,
+};
 
 /// Every method this build answers.
 pub fn table() -> &'static [MethodSpec] {
@@ -174,8 +203,16 @@ pub fn method_names() -> Vec<&'static str> {
     names
 }
 
-/// Checks a call in a fixed order, so a flood of refused calls still spends rate tokens. Takes no
-/// lock but the serving set's and the API state's, and does no I/O.
+/// A relayed method name or a page-event topic: 1 to 64 characters of `[a-z0-9_.-]`.
+pub fn name_ok(name: &str) -> bool {
+    (1..=NAME_MAX_CHARS).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-'))
+}
+
+/// Checks a frame's call in a fixed order, so a flood of refused calls still spends rate tokens. Takes
+/// no lock but the serving set's and the API state's, and does no I/O.
 pub fn admit(
     enabled: &EnabledSet,
     api: &ApiState,
@@ -184,7 +221,20 @@ pub fn admit(
     args_len: usize,
     now: Instant,
 ) -> Result<Admitted, ApiError> {
-    admit_in(table(), enabled, api, id, method, args_len, now)
+    admit_as(table(), Caller::Frame, enabled, api, id, method, args_len, now)
+}
+
+/// `admit` for a call from `caller`.
+pub fn admit_from(
+    caller: Caller,
+    enabled: &EnabledSet,
+    api: &ApiState,
+    id: &str,
+    method: &str,
+    args_len: usize,
+    now: Instant,
+) -> Result<Admitted, ApiError> {
+    admit_as(table(), caller, enabled, api, id, method, args_len, now)
 }
 
 /// `admit` against `table` in place of the method table.
@@ -197,13 +247,52 @@ pub(crate) fn admit_in(
     args_len: usize,
     now: Instant,
 ) -> Result<Admitted, ApiError> {
+    admit_as(table, Caller::Frame, enabled, api, id, method, args_len, now)
+}
+
+/// The spec `method` names for `caller`. `plugin.*` belongs to the pages of native plugins, and the
+/// network methods to frames, so a child gets neither.
+fn lookup(
+    table: &'static [MethodSpec],
+    caller: Caller,
+    tier: Tier,
+    method: &str,
+) -> Result<&'static MethodSpec, ApiError> {
+    if let Some(name) = method.strip_prefix(RELAY_PREFIX) {
+        if caller == Caller::Child || tier != Tier::Native {
+            return Err(ApiError::unknown_method());
+        }
+        if !name_ok(name) {
+            return Err(ApiError::invalid_args(
+                "A 'plugin.' method name must be 1 to 64 characters of a-z, 0-9, '_', '.' and '-'.",
+            ));
+        }
+        return Ok(&RELAY);
+    }
+    if caller == Caller::Child && method.starts_with("net.") {
+        return Err(ApiError::unknown_method());
+    }
+    table
+        .iter()
+        .find(|m| m.name == method)
+        .ok_or_else(ApiError::unknown_method)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn admit_as(
+    table: &'static [MethodSpec],
+    caller: Caller,
+    enabled: &EnabledSet,
+    api: &ApiState,
+    id: &str,
+    method: &str,
+    args_len: usize,
+    now: Instant,
+) -> Result<Admitted, ApiError> {
     validate_id(id).map_err(|_| ApiError::not_found())?;
     let serving = enabled.serving(id).ok_or_else(ApiError::unavailable)?;
     api.take_all(id, now)?;
-    let spec = table
-        .iter()
-        .find(|m| m.name == method)
-        .ok_or_else(ApiError::unknown_method)?;
+    let spec = lookup(table, caller, serving.tier, method)?;
     if args_len > MAX_ARGS_BYTES {
         return Err(ApiError::too_large("The arguments are over 1048576 bytes."));
     }
@@ -216,6 +305,7 @@ pub(crate) fn admit_in(
     let in_flight = api.enter(id)?;
     Ok(Admitted {
         id: id.to_string(),
+        method: method.to_string(),
         serving,
         enabled: enabled.clone(),
         spec,
@@ -239,6 +329,7 @@ pub fn start(
     };
     let ctx = CallCtx {
         id: &admitted.id,
+        method: &admitted.method,
         serving: &admitted.serving,
         enabled: &admitted.enabled,
         app_data,
@@ -250,6 +341,37 @@ pub fn start(
         Outcome::Pending(pending) => Started::Done(pending.wait(host, api.ui())),
         Outcome::Later(job) => Started::Later(job),
     }
+}
+
+/// `start` on a blocking thread, then awaits a job it hands back. `admitted` lives until the job
+/// resolves, so the call keeps its in-flight slot that long.
+pub async fn complete(
+    admitted: Admitted,
+    args: String,
+    app_data: PathBuf,
+    host: Arc<dyn HostContext>,
+    api: ApiState,
+) -> Result<Value, ApiError> {
+    let started = tauri::async_runtime::spawn_blocking(move || {
+        let started = start(&admitted, &args, &app_data, &*host, &api);
+        (started, admitted)
+    })
+    .await;
+    match started {
+        Ok((Started::Done(result), _)) => result,
+        Ok((Started::Later(job), admitted)) => {
+            let result = job.await;
+            drop(admitted);
+            result
+        }
+        Err(_) => Err(ApiError::unavailable()),
+    }
+}
+
+/// Hands a `plugin.*` call to the caller's own child; blocks until it answers or the wait ends.
+fn relay(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
+    let method = ctx.method.strip_prefix(RELAY_PREFIX).unwrap_or(ctx.method);
+    Outcome::Done(ctx.host.relay_call(ctx.id, method, Value::Object(args.clone())))
 }
 
 /// `start`, then blocks on a later job, so the call keeps its in-flight slot until it resolves. Never
@@ -284,7 +406,8 @@ pub fn dispatch(
 }
 
 /// A host with settings set by the test, a fixed OS theme and window state, a record of the events
-/// sent, and the app state the test gives it.
+/// sent and the calls relayed, and the app state the test gives it. A relayed call is answered with
+/// `relay_answer`, or `unavailable` when it is unset.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct FakeHost {
@@ -293,6 +416,8 @@ pub(crate) struct FakeHost {
     pub events: std::sync::Mutex<Vec<HostEvent>>,
     pub window_hidden: bool,
     pub app: Option<AppState>,
+    pub relayed: std::sync::Mutex<Vec<(String, String, Value)>>,
+    pub relay_answer: Option<Result<Value, ApiError>>,
 }
 
 #[cfg(test)]
@@ -323,6 +448,14 @@ impl HostContext for FakeHost {
 
     fn app_state(&self) -> Option<&AppState> {
         self.app.as_ref()
+    }
+
+    fn relay_call(&self, id: &str, method: &str, args: Value) -> Result<Value, ApiError> {
+        let call = (id.to_string(), method.to_string(), args);
+        self.relayed.lock().unwrap().push(call);
+        self.relay_answer
+            .clone()
+            .unwrap_or_else(|| Err(ApiError::unavailable()))
     }
 }
 
@@ -379,6 +512,7 @@ impl TestCall<'_> {
     pub fn ctx(&self) -> CallCtx<'_> {
         CallCtx {
             id: "com.example.demo",
+            method: "",
             serving: &self.serving,
             enabled: &self.enabled,
             app_data: self.app_data,
@@ -778,6 +912,109 @@ mod tests {
             let result = admit(&enabled, &api, ID, method, 2, Instant::now());
             assert_eq!(code(result), Some(ApiCode::UnknownMethod), "{method}");
         }
+    }
+
+    fn native_with(granted: Vec<Capability>) -> PluginsState {
+        let mut registry = plugins_with(granted).snapshot();
+        registry.entries[0].tier = Tier::Native;
+        PluginsState::new(registry, Problems::new(), BootState::default())
+    }
+
+    #[test]
+    fn a_native_page_relays_plugin_calls_to_its_own_child() {
+        let plugins = native_with(Vec::new());
+        let host = FakeHost {
+            relay_answer: Some(Ok(json!({ "pong": true }))),
+            ..FakeHost::default()
+        };
+        let call = |method: &str, args: &str| {
+            dispatch(
+                &plugins.enabled_set(),
+                plugins.api(),
+                ID,
+                method,
+                args,
+                Path::new("unused"),
+                &host,
+                Instant::now(),
+            )
+        };
+        assert_eq!(call("plugin.ping", r#"{"a":1}"#), Ok(json!({ "pong": true })));
+        assert_eq!(call("plugin.x.y-z_0", "{}"), Ok(json!({ "pong": true })));
+        assert_eq!(
+            *host.relayed.lock().unwrap(),
+            [
+                (ID.to_string(), "ping".to_string(), json!({ "a": 1 })),
+                (ID.to_string(), "x.y-z_0".to_string(), json!({})),
+            ]
+        );
+        // The arguments are checked as for any method before the child is asked.
+        let refused = call("plugin.ping", "[]").unwrap_err();
+        assert_eq!(refused.code, ApiCode::InvalidArgs);
+        assert_eq!(host.relayed.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_relay_name_is_checked_and_a_ui_plugin_has_no_relay() {
+        let native = native_with(Vec::new());
+        let ui = plugins_with(Vec::new());
+        let api = ApiState::default();
+        let t0 = Instant::now();
+        let admit_on = |plugins: &PluginsState, method: &str| {
+            code(admit(&plugins.enabled_set(), &api, ID, method, 2, t0))
+        };
+        let long = format!("plugin.{}", "a".repeat(65));
+        for bad in ["plugin.", "plugin.Ping", "plugin.a b", "plugin.\u{e9}", long.as_str()] {
+            assert_eq!(admit_on(&native, bad), Some(ApiCode::InvalidArgs), "{bad}");
+        }
+        assert_eq!(admit_on(&native, &format!("plugin.{}", "a".repeat(64))), None);
+        assert_eq!(admit_on(&ui, "plugin.x"), Some(ApiCode::UnknownMethod));
+        assert!(method_names().iter().all(|name| !name.starts_with(RELAY_PREFIX)));
+    }
+
+    #[test]
+    fn the_relay_bucket_holds_40_and_refills_20_per_second() {
+        let plugins = native_with(Vec::new());
+        let enabled = plugins.enabled_set();
+        let api = ApiState::default();
+        let t0 = Instant::now();
+        for _ in 0..40 {
+            assert!(admit(&enabled, &api, ID, "plugin.ping", 2, t0).is_ok());
+        }
+        let limited = admit(&enabled, &api, ID, "plugin.ping", 2, t0).err().unwrap();
+        assert_eq!(limited.code, ApiCode::RateLimited);
+        assert_eq!(limited.retry_after_ms, Some(50));
+        let later = t0 + Duration::from_millis(50);
+        assert!(admit(&enabled, &api, ID, "plugin.ping", 2, later).is_ok());
+    }
+
+    #[test]
+    fn a_child_is_admitted_as_a_frame_is_except_for_the_frame_namespaces() {
+        let plugins = native_with(vec![Capability::Storage]);
+        let enabled = plugins.enabled_set();
+        let api = ApiState::default();
+        let t0 = Instant::now();
+        let child = |method: &str, len: usize| {
+            code(admit_from(Caller::Child, &enabled, &api, ID, method, len, t0))
+        };
+        for method in ["plugin.ping", "net.fetch", "net.socket.open", "net.x"] {
+            assert_eq!(child(method, 2), Some(ApiCode::UnknownMethod), "{method}");
+        }
+        assert_eq!(child("ui.toast", 2), Some(ApiCode::Denied));
+        assert_eq!(child("app.info", MAX_ARGS_BYTES + 1), Some(ApiCode::TooLarge));
+        assert_eq!(child("app.info", 2), None);
+        // A plugin that is not serving is refused, whoever calls.
+        assert_eq!(
+            code(admit_from(Caller::Child, &enabled, &api, "com.example.off", "app.info", 2, t0)),
+            Some(ApiCode::Unavailable)
+        );
+        // Frames and the child share the in-flight slots.
+        let held: Vec<Admitted> = (0..16)
+            .map(|_| admit(&enabled, &api, ID, "log.write", 2, t0).unwrap())
+            .collect();
+        assert_eq!(child("log.write", 2), Some(ApiCode::Busy));
+        drop(held);
+        assert_eq!(child("log.write", 2), None);
     }
 
     #[test]

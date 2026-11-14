@@ -23,7 +23,7 @@ use super::rate::RateClass;
 use super::state::{lock, ApiState};
 use super::ui::{optional_text_arg, text_arg, Field};
 use super::{CallCtx, MethodSpec, Need, Outcome};
-use crate::plugins::manifest::{Capability, Tier};
+use crate::plugins::manifest::Capability;
 use crate::plugins::paths::plugin_dir;
 use crate::plugins::sidebar_decl::{ItemType, Layout, SidebarDecl};
 use crate::plugins::state::EnabledSet;
@@ -492,9 +492,9 @@ fn set_item(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<(), ApiError
 }
 
 /// Decides whether a click on one of `id`'s sidebar controls reaches the plugin. A toggle needs its new
-/// value and an action needs none; any other item, an undeclared one, a plugin that is not a serving
-/// UI plugin, and a click over the `Input` rate are refused. An accepted click mints one gesture bound
-/// to `id`. It spends from the `Input` bucket only, never from `all`.
+/// value and an action needs none; any other item, an undeclared one, a plugin that is not serving,
+/// and a click over the `Input` rate are refused. An accepted click mints one gesture bound to `id`. It
+/// spends from the `Input` bucket only, never from `all`.
 pub fn check_input(
     api: &ApiState,
     enabled: &EnabledSet,
@@ -511,7 +511,7 @@ pub fn check_input(
     let Some(serving) = enabled.serving(id) else {
         return refused;
     };
-    if serving.tier != Tier::Ui || api.take(id, RateClass::Input, now).is_err() {
+    if api.take(id, RateClass::Input, now).is_err() {
         return refused;
     }
     let Ok(decl) = declaration(api, app_data, id, &serving.version) else {
@@ -542,6 +542,7 @@ mod tests {
     use super::*;
     use crate::plugins::api::error::ApiCode;
     use crate::plugins::api::{admit, dispatch, method_names, test_ctx, FakeHost, TestCall};
+    use crate::plugins::manifest::Tier;
     use crate::plugins::paths::plugin_dir;
     use crate::plugins::stage::Temp;
     use crate::plugins::state::Serving;
@@ -607,7 +608,7 @@ mod tests {
             .iter()
             .filter_map(|e| match e {
                 HostEvent::Sidebar(event) => Some(serde_json::to_value(event).unwrap()),
-                HostEvent::Ui(_) => None,
+                _ => None,
             })
             .collect()
     }
@@ -1317,7 +1318,7 @@ mod tests {
     }
 
     #[test]
-    fn a_click_from_a_plugin_that_is_not_a_serving_ui_plugin_is_refused() {
+    fn a_click_from_a_plugin_that_is_not_serving_is_refused_and_a_native_one_is_taken() {
         let (temp, host) = (
             data_with(&manifest(Some(full_sidebar()))),
             FakeHost::default(),
@@ -1325,7 +1326,8 @@ mod tests {
         let mut call = call(&temp, &host);
         let now = Instant::now();
         call.enabled = EnabledSet::only(ID, serving(Tier::Native, Vec::new()));
-        assert!(!input(&call, "go", None, now).accepted);
+        let token = input(&call, "go", None, now).frame.unwrap().gesture;
+        assert!(call.api.ui().consume(ID, &token, now));
         call.enabled = EnabledSet::only(OTHER, serving(Tier::Ui, Vec::new()));
         assert!(!input(&call, "go", None, now).accepted);
         // A manifest that cannot be read refuses too.

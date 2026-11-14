@@ -1,41 +1,67 @@
 /*
  * A child's pump thread: runs the handshake, then drains everything the child sends for as long as its
  * output lasts. It only parses, stores and hands on, so a slow consumer never stalls the child behind a
- * full inbox. A broken frame or the end of the output ends the run as a crash, unless a stop already
- * took it. Unknown and malformed frames are counted and the stream goes on. Once the child is ready
- * the run's feed forwarder starts.
- * Call answers, host calls, page events and takeover requests have no consumer: they are dropped and
- * counted.
+ * full inbox: answers go to the relay that waits for them, host calls run off the pump once admitted,
+ * and page events reach the main window only while the plugin's page is open. A broken frame or the end
+ * of the output ends the run as a crash, unless a stop already took it. Unknown and malformed frames are
+ * counted and the stream goes on. Once the child is ready it hears whether its page is open, and the
+ * run's feed forwarder starts.
+ * Takeover requests have no consumer: they are dropped and counted.
  */
 
 // -- Library Imports --
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::RecvTimeoutError;
+use serde_json::Value;
 
 // -- Local Imports --
 use super::child::{Child, HandshakeError, Inbound, CLOSED_PROTOCOL};
 use super::feed;
 use super::heartbeat::Beat;
-use super::protocol::{ChildMessage, HostMessage, LogLevel};
+use super::host_calls;
+use super::protocol::{name_ok, ChildMessage, HostMessage, LogLevel};
+use super::relay;
 use super::status::{CrashReason, Reported};
 use super::{lock, NativeHost, Run, HANDSHAKE_TIMEOUT};
+use crate::plugins::api::host_event::{HostEvent, PageEvent};
 use crate::plugins::api::log::{append_child, Level};
 use crate::plugins::api::rate::RateClass;
+use crate::plugins::api::HostContext;
 
 /// Protocol errors logged per run; the rest are only counted.
 pub const LOGGED_ERRORS: u32 = 16;
+/// The largest page event passed on, its topic and serialized data together.
+pub const MAX_PAGE_EVENT_BYTES: usize = 32 * 1024;
 // How long one wait on the inbox lasts before it simply waits again.
 const IDLE_WAIT: Duration = Duration::from_secs(60);
 
-/// What one run of a child sent that was not used.
+/// What one run of a child sent or was owed that was not used. Shared by the pump and the threads
+/// that answer host calls.
 #[derive(Debug, Default)]
 pub struct ChildStats {
-    pub protocol_errors: u32,
-    pub logs_dropped: u32,
-    /// Messages with no consumer: answered calls, host calls, page events, takeover requests.
-    pub unhandled: u32,
+    pub protocol_errors: AtomicU32,
+    pub logs_dropped: AtomicU32,
+    /// Takeover requests, which have no consumer.
+    pub unhandled: AtomicU32,
+    /// Page events sent while the page was closed, over the size cap or over the rate.
+    pub page_events_dropped: AtomicU32,
+    /// `host_result` frames the outbox had no room for.
+    pub results_dropped: AtomicU32,
+}
+
+/// Adds one to a counter and returns the new count; it stops at its maximum.
+pub fn bump(counter: &AtomicU32) -> u32 {
+    let mut seen = counter.load(Ordering::Relaxed);
+    loop {
+        let next = seen.saturating_add(1);
+        match counter.compare_exchange_weak(seen, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(actual) => seen = actual,
+        }
+    }
 }
 
 /// Runs a child's handshake and then its inbox until the run ends.
@@ -61,12 +87,14 @@ pub(super) fn run(
     if !host.went_running(id, run) {
         return;
     }
+    // Read after the run counts as ready, so a page shown meanwhile is either read here or sent by
+    // `notify_page`.
     let open = host
         .with_plugins(|plugins| plugins.api().is_page_open(id))
         .unwrap_or(false);
     let _ = child.send(&HostMessage::Page { open });
     feed::forward(&run.feed, host.link.as_ref(), id, child);
-    let mut stats = ChildStats::default();
+    let api_host = host.link.api_host();
     loop {
         let inbound = match child.recv_timeout(IDLE_WAIT) {
             Ok(inbound) => inbound,
@@ -74,15 +102,12 @@ pub(super) fn run(
             Err(RecvTimeoutError::Disconnected) => Inbound::Closed(String::new()),
         };
         match inbound {
-            Inbound::Message(message) => handle(host, id, run, message, &mut stats),
+            Inbound::Message(message) => handle(host, id, run, &api_host, message),
             // The codec keeps only name characters of the type, so it is safe to log.
-            Inbound::Unknown(kind) => protocol_error(
-                host,
-                id,
-                &mut stats,
-                &format!("unknown message type '{kind}'"),
-            ),
-            Inbound::Malformed(_) => protocol_error(host, id, &mut stats, "malformed frame"),
+            Inbound::Unknown(kind) => {
+                protocol_error(host, id, run, &format!("unknown message type '{kind}'"))
+            }
+            Inbound::Malformed(_) => protocol_error(host, id, run, "malformed frame"),
             Inbound::Closed(why) => {
                 let reason = if why == CLOSED_PROTOCOL {
                     CrashReason::Protocol
@@ -100,8 +125,8 @@ fn handle(
     host: &NativeHost,
     id: &str,
     run: &Arc<Run>,
+    api_host: &Arc<dyn HostContext>,
     message: ChildMessage,
-    stats: &mut ChildStats,
 ) {
     match message {
         ChildMessage::Pong { seq } => {
@@ -112,7 +137,7 @@ fn handle(
             match beat {
                 Some(Ok(Beat::Recovered)) => host.recovered(id, run),
                 Some(Ok(_)) => {}
-                Some(Err(())) | None => protocol_error(host, id, stats, "pong out of range"),
+                Some(Err(())) | None => protocol_error(host, id, run, "pong out of range"),
             }
         }
         ChildMessage::Status { state, text } => {
@@ -121,28 +146,74 @@ fn handle(
         }
         ChildMessage::Log { level, text } => {
             if !write_log(host, id, level, &text) {
-                stats.logs_dropped = stats.logs_dropped.saturating_add(1);
+                bump(&run.stats.logs_dropped);
             }
         }
-        ChildMessage::Ready { .. } => protocol_error(host, id, stats, "second ready"),
-        // The host sends no `call`, so every answer has an unknown seq.
-        ChildMessage::Result { .. } => protocol_error(host, id, stats, "result with no open call"),
-        ChildMessage::HostCall { .. }
-        | ChildMessage::PageEvent { .. }
-        | ChildMessage::Takeover { .. } => {
-            stats.unhandled = stats.unhandled.saturating_add(1);
+        ChildMessage::Ready { .. } => protocol_error(host, id, run, "second ready"),
+        ChildMessage::Result {
+            seq,
+            ok,
+            result,
+            error,
+        } => {
+            if !run.relays.resolve(seq, relay::answer(ok, result, error)) {
+                protocol_error(host, id, run, "result with no open call");
+            }
+        }
+        ChildMessage::HostCall { seq, method, args } => {
+            if !host_calls::begin(host, id, run, api_host, seq, &method, args) {
+                protocol_error(host, id, run, "host call seq already open");
+            }
+        }
+        ChildMessage::PageEvent { topic, data } => {
+            if !name_ok(&topic) {
+                protocol_error(host, id, run, "bad page event topic");
+            } else if !page_event(host, id, api_host.as_ref(), topic, data) {
+                bump(&run.stats.page_events_dropped);
+            }
+        }
+        ChildMessage::Takeover { .. } => {
+            bump(&run.stats.unhandled);
         }
     }
 }
 
 /// Counts a protocol error on the plugin's status, and logs the first few of a run. `what` never
 /// quotes the frame.
-fn protocol_error(host: &NativeHost, id: &str, stats: &mut ChildStats, what: &str) {
-    stats.protocol_errors = stats.protocol_errors.saturating_add(1);
-    if stats.protocol_errors <= LOGGED_ERRORS {
+fn protocol_error(host: &NativeHost, id: &str, run: &Run, what: &str) {
+    if bump(&run.stats.protocol_errors) <= LOGGED_ERRORS {
         eprintln!("plugins: {id}: protocol error: {what}");
     }
     host.board.protocol_error(id, host.clock.now());
+}
+
+/// Passes a page event to the main window while the plugin's page is open, within the size cap and
+/// the plugin's page event bucket. False when it was dropped.
+fn page_event(
+    host: &NativeHost,
+    id: &str,
+    api_host: &dyn HostContext,
+    topic: String,
+    data: Value,
+) -> bool {
+    let size = serde_json::to_vec(&data).map_or(usize::MAX, |json| json.len());
+    let fits = size.saturating_add(topic.len()) <= MAX_PAGE_EVENT_BYTES;
+    let allowed = host
+        .with_plugins(|plugins| {
+            let api = plugins.api();
+            api.is_page_open(id)
+                && fits
+                && api.take(id, RateClass::PageEvent, host.clock.now()).is_ok()
+        })
+        .unwrap_or(false);
+    if allowed {
+        api_host.emit(HostEvent::Page(PageEvent {
+            id: id.to_string(),
+            topic,
+            data,
+        }));
+    }
+    allowed
 }
 
 /// Writes a child's `log` line to its plugin log, within the plugin's log bucket. False when dropped.
@@ -164,4 +235,19 @@ fn write_log(host: &NativeHost, id: &str, level: LogLevel, text: &str) -> bool {
         plugins.is_enabled(id) && append_child(&host.app_data, id, level, text).is_ok()
     })
     .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_counter_counts_up_and_stops_at_its_maximum() {
+        let counter = AtomicU32::new(0);
+        assert_eq!(bump(&counter), 1);
+        assert_eq!(bump(&counter), 2);
+        counter.store(u32::MAX, Ordering::Relaxed);
+        assert_eq!(bump(&counter), u32::MAX);
+        assert_eq!(counter.load(Ordering::Relaxed), u32::MAX);
+    }
 }

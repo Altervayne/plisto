@@ -24,7 +24,6 @@ const MAX_LEN_DIGITS: usize = 7;
 // An unknown type name is reported; this keeps a hostile one short.
 const MAX_KIND_CHARS: usize = 32;
 const STATUS_TEXT_MAX_CHARS: usize = 60;
-const NAME_MAX_CHARS: usize = 64;
 
 /// The text of a `sidebar_input` gesture. Its `Debug` output is redacted, so no log path can print it.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -36,7 +35,8 @@ impl Gesture {
         Gesture(text.into())
     }
 
-    #[allow(dead_code)] // The sidebar input path is the first caller.
+    /// Plisto only sends a gesture; the test child reads one back.
+    #[cfg(test)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -232,14 +232,8 @@ fn status_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>,
     }
 }
 
-/// A `page_event` topic or relayed method name: 1 to 64 chars of `[a-z0-9_.-]`.
-#[allow(dead_code)] // The relay and page-event paths are the first callers.
-pub fn name_ok(name: &str) -> bool {
-    (1..=NAME_MAX_CHARS).contains(&name.len())
-        && name
-            .bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-'))
-}
+/// A `page_event` topic or relayed method name: the API's rule, so the wire and admission agree.
+pub use crate::plugins::api::name_ok;
 
 /// Why a stream of frames cannot go on.
 #[derive(Debug, PartialEq, Eq)]

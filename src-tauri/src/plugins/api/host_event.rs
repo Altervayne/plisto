@@ -1,7 +1,8 @@
 /*
  * The events Rust sends the main window about plugin UI surfaces: `plugins:ui` for toasts, prompts,
- * their withdrawal and page requests, `plugins:sidebar` for chips and sidebar item state. They carry
- * plugin text and ids only, never a gesture token.
+ * their withdrawal and page requests, `plugins:sidebar` for chips and sidebar item state, and
+ * `plugins:page_event` for what a native plugin's child pushes to its page. They carry plugin text,
+ * data and ids only, never a gesture token.
  */
 
 // -- Library Imports --
@@ -10,12 +11,14 @@ use serde_json::Value;
 
 pub const EVENT_UI: &str = "plugins:ui";
 pub const EVENT_SIDEBAR: &str = "plugins:sidebar";
+pub const EVENT_PAGE: &str = "plugins:page_event";
 
 /// One event for the main window.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostEvent {
     Ui(UiEvent),
     Sidebar(SidebarEvent),
+    Page(PageEvent),
 }
 
 /// A toast, a prompt, the withdrawal of either, or a page request from plugin `id`.
@@ -61,6 +64,14 @@ pub struct SidebarEvent {
 pub enum SidebarKind {
     Chips { chips: Vec<Value> },
     Item { item_id: String, state: Value },
+}
+
+/// An event a native plugin's child sent to its own page, which the window hands to that page's frame.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PageEvent {
+    pub id: String,
+    pub topic: String,
+    pub data: Value,
 }
 
 impl UiEvent {
@@ -140,6 +151,19 @@ mod tests {
             serde_json::to_value(item).unwrap(),
             json!({ "id": "com.example.demo", "kind": "item", "item_id": "state",
                     "state": { "type": "status" } })
+        );
+    }
+
+    #[test]
+    fn page_events_have_their_wire_shape() {
+        let event = PageEvent {
+            id: "com.example.demo".into(),
+            topic: "levels".into(),
+            data: json!([0.5, 0.25]),
+        };
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({ "id": "com.example.demo", "topic": "levels", "data": [0.5, 0.25] })
         );
     }
 }

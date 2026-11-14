@@ -1,12 +1,14 @@
 /*
  * What the native host needs from the app around it: sending events to the main window, turning a
- * plugin off through the lifecycle, commands to the player, the playback feed, and the plugin state.
+ * plugin off through the lifecycle, commands to the player, the playback feed, the plugin state, and
+ * the app as the plugin API sees it for a child's calls.
  * Behind a trait so the supervisor runs in tests without a Tauri app. Events go to the main window
  * only, never into a plugin frame.
  */
 
 // -- Library Imports --
 use std::io;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -14,6 +16,8 @@ use tauri::{AppHandle, Emitter, Manager};
 // -- Local Imports --
 use super::status::PluginStatus;
 use crate::audio::{self, FeedConsumer, PlayerCmd};
+use crate::plugins::api::tauri_host::TauriHost;
+use crate::plugins::api::HostContext;
 use crate::plugins::lifecycle;
 use crate::plugins::state::{BootView, PluginsState};
 use crate::state::AppState;
@@ -51,6 +55,8 @@ pub trait HostLink: Send + Sync {
     fn detach_feed(&self, consumer: u64);
     /// Runs `f` on the plugin state; not at all when the app has none.
     fn with_plugins(&self, f: &mut dyn FnMut(&PluginsState));
+    /// The app as a plugin method sees it, for the calls a child makes.
+    fn api_host(&self) -> Arc<dyn HostContext>;
 }
 
 pub struct TauriLink {
@@ -110,14 +116,19 @@ impl HostLink for TauriLink {
             f(&state.plugins);
         }
     }
+
+    fn api_host(&self) -> Arc<dyn HostContext> {
+        Arc::new(TauriHost::new(self.app.clone()))
+    }
 }
 
 /// A link for tests: records every event, disable, player command and feed attach and detach, and
 /// reaches a plugin state when given one. Its feed hub is its own, so tests running side by side
-/// never see each other's consumers.
+/// never see each other's consumers. A child's calls see a fake app that records what they emit.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct RecordingLink {
+    api_host: Arc<crate::plugins::api::FakeHost>,
     statuses: std::sync::Mutex<Vec<PluginStatus>>,
     notices: std::sync::Mutex<Vec<Notice>>,
     runtimes: std::sync::Mutex<Vec<BootView>>,
@@ -155,6 +166,11 @@ impl RecordingLink {
 
     pub fn feed_hub(&self) -> &audio::FeedHub {
         &self.feed
+    }
+
+    /// The events a child's calls and page events sent to the main window.
+    pub fn api_events(&self) -> Vec<crate::plugins::api::host_event::HostEvent> {
+        self.api_host.events.lock().unwrap().clone()
     }
 
     pub fn snapshot_requests(&self) -> usize {
@@ -220,5 +236,9 @@ impl HostLink for RecordingLink {
         if let Some((plugins, _)) = self.attached() {
             f(&plugins);
         }
+    }
+
+    fn api_host(&self) -> Arc<dyn HostContext> {
+        self.api_host.clone()
     }
 }

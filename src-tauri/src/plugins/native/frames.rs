@@ -3,7 +3,7 @@
  * frame is supervised like a native child: its crashes go through the crash policy, and a due restart
  * sets it `starting`, which the window takes as the cue to remount it. A page frame is not: a crash
  * leaves it stopped until the user restarts it. Events for an id that is not a serving UI plugin are
- * ignored, native ones included.
+ * ignored, native ones included. Which page is shown also lands here: a native plugin's child hears it.
  */
 
 // -- Local Imports --
@@ -59,6 +59,23 @@ impl NativeHost {
             }
             "detached" => self.board.set_host(id, HostState::Off, now),
             _ => {}
+        }
+    }
+
+    /// The page of a serving plugin was shown or hidden. A native plugin's child is told; a UI
+    /// plugin's page frame that has no status yet reads as starting until it reports live. A
+    /// background frame is left alone: its supervision has its own `starting`.
+    pub fn page_changed(&self, plugins: &PluginsState, id: &str, open: bool) {
+        let Some(serving) = plugins.enabled_set().serving(id) else {
+            return;
+        };
+        if serving.tier == Tier::Native {
+            self.notify_page(id, open);
+            return;
+        }
+        let quiet = matches!(self.board.host(id), None | Some(HostState::Off));
+        if open && quiet && !is_background(&serving.granted) {
+            self.board.set_host(id, HostState::Starting, self.clock.now());
         }
     }
 }

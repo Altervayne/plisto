@@ -9,24 +9,29 @@
  * two are told apart by who takes the run out of `children` first. Status changes tied to a run are
  * made while holding `children`, so a stale run never overwrites a newer one's status; the lock order
  * is `children`, then `supervision` or a run's heartbeat, then the status board.
- * A run's feed consumer is detached on every way the run ends, before its process is killed.
+ * A run's feed consumer is detached on every way the run ends, before its process is killed, and its
+ * open relays are failed as soon as the run is taken out of `children`.
  */
 
 mod child;
 mod feed;
 mod frames;
 mod heartbeat;
+mod host_calls;
 mod job;
 mod launch;
 pub mod link;
 mod protocol;
 mod pump;
+mod relay;
 pub mod status;
 mod supervisor;
 #[cfg(test)]
 mod test_child;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_bridge;
 
 // -- Library Imports --
 use std::collections::HashMap;
@@ -45,9 +50,12 @@ use super::state::{BootView, PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
 use feed::{FeedGrant, FeedSlot};
 use heartbeat::{Beat, Heartbeat};
+use host_calls::HostCalls;
 use launch::{entry_path, LaunchSpec};
 use link::{HostLink, Notice, NoticeKind};
-use protocol::{HostMessage, API_VERSION, PROTOCOL_VERSION};
+use protocol::{Gesture, HostMessage, API_VERSION, PROTOCOL_VERSION};
+use pump::ChildStats;
+use relay::{Relays, RELAY_TIMEOUT};
 use status::{CrashInfo, CrashReason, FailReason, HostState, PluginStatus, StatusBoard};
 use supervisor::{CrashPolicy, Verdict};
 
@@ -105,11 +113,14 @@ impl Clock for SystemClock {
 }
 
 /// One run of a plugin, from the reservation made before its launch to its end. The child is set
-/// once it is launched.
+/// once it is launched; the heartbeat once it is ready.
 struct Run {
     child: OnceLock<Arc<Child>>,
     heartbeat: Mutex<Option<Heartbeat>>,
     feed: Arc<FeedSlot>,
+    relays: Relays,
+    host_calls: HostCalls,
+    stats: ChildStats,
 }
 
 impl Run {
@@ -118,6 +129,9 @@ impl Run {
             child: OnceLock::new(),
             heartbeat: Mutex::new(None),
             feed: Arc::default(),
+            relays: Relays::default(),
+            host_calls: HostCalls::default(),
+            stats: ChildStats::default(),
         }
     }
 }
@@ -145,6 +159,7 @@ pub struct NativeHost {
     clock: Arc<dyn Clock>,
     exiting: Arc<AtomicBool>,
     restore: Arc<RwLock<Option<RestoreHook>>>,
+    relay_timeout: Duration,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -186,6 +201,7 @@ impl NativeHost {
             clock,
             exiting: Arc::default(),
             restore: Arc::default(),
+            relay_timeout: RELAY_TIMEOUT,
         }
     }
 
@@ -274,7 +290,7 @@ impl NativeHost {
                     };
                     self.end_reservation(id, &run, Some(denied));
                 } else if self.end_reservation(id, &run, None) {
-                    plugins.api().forget(id);
+                    plugins.api().forget_run(id);
                     self.run_policy(id, self.crash_info(CrashReason::Launch, None));
                 }
                 return Err(StartError::Launch(e));
@@ -365,7 +381,10 @@ impl NativeHost {
             .ok_or(StartError::NotServing)?;
         self.reset(id);
         if serving.tier == Tier::Native {
+            // After the stop, so nothing the old child asked for during its grace outlives it. The
+            // page frame stays on screen, so its page slot and network work are kept.
             self.stop_plugin(id);
+            plugins.api().forget_run(id);
             return self.start(plugins, id);
         }
         self.board.set_host(id, HostState::Starting, self.clock.now());
@@ -385,6 +404,7 @@ impl NativeHost {
             self.board.stopped(id, self.clock.now());
             return;
         };
+        run.relays.fail_all();
         self.board.set_host(id, HostState::Stopping, self.clock.now());
         run.feed.detach(self.link.as_ref());
         if let Some(child) = run.child.get() {
@@ -396,13 +416,16 @@ impl NativeHost {
     }
 
     /// Stops every child at once, all within one grace period, and returns when every process is
-    /// gone. For app exit and for anything that replaces the running binary.
+    /// gone, with the plugins' open API calls ended. For app exit, safe mode and anything that
+    /// replaces the running binary.
     pub fn shutdown_all(&self) {
         lock(&self.supervision).due.clear();
         let all: Vec<(String, Arc<Run>)> = lock(&self.children).drain().collect();
         for (id, run) in &all {
+            run.relays.fail_all();
             self.board.set_host(id, HostState::Stopping, self.clock.now());
             run.feed.detach(self.link.as_ref());
+            self.with_plugins(|plugins| plugins.api().forget(id));
         }
         thread::scope(|scope| {
             for (_, run) in &all {
@@ -646,6 +669,53 @@ impl NativeHost {
         }
     }
 
+    /// The plugin's current run and its child, once the child is ready.
+    fn ready_run(&self, id: &str) -> Option<(Arc<Run>, Arc<Child>)> {
+        let run = lock(&self.children).get(id)?.clone();
+        let child = run.child.get()?.clone();
+        let ready = lock(&run.heartbeat).is_some();
+        ready.then_some((run, child))
+    }
+
+    /// The child of `run` while it is still the plugin's current run.
+    fn current_child(&self, id: &str, run: &Arc<Run>) -> Option<Arc<Child>> {
+        let children = lock(&self.children);
+        Self::is_current(&children, id, run)
+            .then(|| run.child.get().cloned())
+            .flatten()
+    }
+
+    /// Hands a click on one of the plugin's sidebar controls to its child. False when the child is
+    /// not running or its outbox has no room; the gesture then reaches no one.
+    pub fn deliver_sidebar(
+        &self,
+        id: &str,
+        item_id: &str,
+        value: Option<bool>,
+        gesture: &str,
+    ) -> bool {
+        let Some((_, child)) = self.ready_run(id) else {
+            return false;
+        };
+        if self.board.host(id) != Some(HostState::Running) {
+            return false;
+        }
+        let input = HostMessage::SidebarInput {
+            item_id: item_id.to_string(),
+            value,
+            gesture: Gesture::new(gesture),
+        };
+        child.send(&input).is_ok()
+    }
+
+    /// Tells the plugin's child that its page was shown or hidden. Best effort: a child that is not
+    /// ready yet hears the current value once it is.
+    pub fn notify_page(&self, id: &str, open: bool) {
+        if let Some((_, child)) = self.ready_run(id) {
+            let _ = child.send(&HostMessage::Page { open });
+        }
+    }
+
     fn crash_info(&self, reason: CrashReason, exit_code: Option<u32>) -> CrashInfo {
         CrashInfo {
             reason,
@@ -654,14 +724,16 @@ impl NativeHost {
         }
     }
 
-    /// The child's run ended without a stop: the process tree is killed, its API state dropped, and
-    /// the crash policy decides what follows. The run keeps the id until the tree is dead, so no
-    /// start can launch a second copy beside a child that is still running. Nothing is counted when
-    /// a stop took the run first; of two callers for one run, only the first counts.
+    /// The child's run ended without a stop: its open relays fail, the process tree is killed, its API
+    /// state is dropped, and the crash policy decides what follows. The run keeps the id until the
+    /// tree is dead, so no start can launch a second copy beside a child that is still running.
+    /// Nothing is counted when a stop took the run first; of two callers for one run, only the first
+    /// counts.
     fn end_run(&self, id: &str, run: &Arc<Run>, child: &Child, reason: CrashReason) {
         if !Self::is_current(&lock(&self.children), id, run) {
             return;
         }
+        run.relays.fail_all();
         run.feed.detach(self.link.as_ref());
         let exit_code = if reason == CrashReason::Exited && child.wait_exit(EXIT_SETTLE) {
             child.exit_code()
@@ -676,7 +748,7 @@ impl NativeHost {
             }
             children.remove(id);
         }
-        self.with_plugins(|plugins| plugins.api().forget(id));
+        self.with_plugins(|plugins| plugins.api().forget_run(id));
         eprintln!("plugins: {id}: stopped unexpectedly ({reason:?}, exit code {exit_code:?})");
         self.run_policy(id, self.crash_info(reason, exit_code));
     }

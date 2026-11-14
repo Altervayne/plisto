@@ -35,7 +35,7 @@ use crate::plugins::state::{BootView, PluginsState, Runtime};
 use crate::plugins::test_kit::{native, ui, Kit, ID};
 
 // Upper bound for anything that only waits on a process starting or answering.
-const SLOW: Duration = Duration::from_secs(60);
+pub(super) const SLOW: Duration = Duration::from_secs(60);
 
 struct Rig {
     root: PathBuf,
@@ -94,15 +94,15 @@ fn next_message(child: &Child) -> ChildMessage {
 }
 
 /// A process handle that only waits; closed on drop.
-struct Watch(HANDLE);
+pub(super) struct Watch(HANDLE);
 
 impl Watch {
-    fn new(pid: u32) -> Watch {
+    pub(super) fn new(pid: u32) -> Watch {
         // Safety: plain arguments; the returned handle is owned by the Watch.
         Watch(unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.unwrap())
     }
 
-    fn gone_within(&self, timeout: Duration) -> bool {
+    pub(super) fn gone_within(&self, timeout: Duration) -> bool {
         let ms = timeout.as_millis() as u32;
         // Safety: the handle is open for as long as the Watch lives.
         let event = unsafe { WaitForSingleObject(self.0, ms) };
@@ -118,7 +118,7 @@ impl Drop for Watch {
 }
 
 /// Polls `check` until it holds or `SLOW` runs out.
-fn eventually(mut check: impl FnMut() -> bool) -> bool {
+pub(super) fn eventually(mut check: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + SLOW;
     while Instant::now() < deadline {
         if check() {
@@ -341,7 +341,7 @@ fn a_host_call_is_answered_and_the_child_logs_the_result() {
         next_message(&child),
         ChildMessage::HostCall {
             seq: 1,
-            method: "library.stats".into(),
+            method: "library.tracks".into(),
             args: json!({})
         }
     );
@@ -436,7 +436,7 @@ fn native_kit(mode: &str) -> Kit {
 }
 
 /// `native_kit` with a manifest that asks for `caps`.
-fn native_kit_asking(mode: &str, caps: &[&str]) -> Kit {
+pub(super) fn native_kit_asking(mode: &str, caps: &[&str]) -> Kit {
     let k = Kit::new();
     k.install(&native("1.0.0", caps));
     let exe = plugin_dir(&k.data, ID).join("bin").join("tool.exe");
@@ -537,21 +537,21 @@ fn starting_the_serving_set_starts_nothing_while_held_or_safe() {
 }
 
 /// A native plugin enabled in a state the host starts, stops and disables through, on a fake clock.
-struct Supervised {
-    k: Kit,
-    plugins: Arc<PluginsState>,
-    host: NativeHost,
-    link: Arc<RecordingLink>,
-    clock: Arc<FakeClock>,
+pub(super) struct Supervised {
+    pub(super) k: Kit,
+    pub(super) plugins: Arc<PluginsState>,
+    pub(super) host: NativeHost,
+    pub(super) link: Arc<RecordingLink>,
+    pub(super) clock: Arc<FakeClock>,
 }
 
 impl Supervised {
-    fn new(mode: &str) -> Supervised {
+    pub(super) fn new(mode: &str) -> Supervised {
         Supervised::granted(mode, &[])
     }
 
     /// A plugin that asks for and is granted `caps`.
-    fn granted(mode: &str, caps: &[&str]) -> Supervised {
+    pub(super) fn granted(mode: &str, caps: &[&str]) -> Supervised {
         let k = native_kit_asking(mode, caps);
         k.enable(caps);
         let plugins = Arc::new(k.relaunch());
@@ -570,21 +570,21 @@ impl Supervised {
         }
     }
 
-    fn start(&self) {
+    pub(super) fn start(&self) {
         self.host.start(&self.plugins, ID).unwrap();
     }
 
-    fn state(&self) -> Option<HostState> {
+    pub(super) fn state(&self) -> Option<HostState> {
         self.host.status(ID).map(|s| s.host)
     }
 
     /// Waits until the plugin's host state is `host`.
-    fn reaches(&self, host: HostState) -> bool {
+    pub(super) fn reaches(&self, host: HostState) -> bool {
         eventually(|| self.state() == Some(host))
     }
 
     /// Moves the fake clock on and runs one supervisor step.
-    fn tick_after(&self, by: Duration) {
+    pub(super) fn tick_after(&self, by: Duration) {
         self.clock.advance(by);
         self.host.tick();
     }
@@ -875,13 +875,13 @@ fn feed_state(volume: f32) -> FeedState {
 
 impl Supervised {
     /// The child's stderr log; a read error comes back as text, so a failed assertion shows it.
-    fn stderr(&self) -> String {
+    pub(super) fn stderr(&self) -> String {
         fs::read_to_string(stderr_log(&data_dir(&self.k.data, ID)))
             .unwrap_or_else(|e| format!("<stderr log unreadable: {e}>"))
     }
 
     /// Waits until the stderr log holds `want`.
-    fn logs(&self, want: &str) -> bool {
+    pub(super) fn logs(&self, want: &str) -> bool {
         eventually(|| self.stderr().contains(want))
     }
 

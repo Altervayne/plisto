@@ -185,16 +185,26 @@ impl ApiState {
     pub fn forget(&self, id: &str) {
         {
             let mut inner = lock(&self.0.inner);
-            inner.buckets.remove(id);
-            inner.in_flight.remove(id);
             if inner.open_page.as_deref() == Some(id) {
                 inner.open_page = None;
             }
         }
+        self.0.net.forget(id);
+        self.forget_run(id);
+    }
+
+    /// `forget` for the end of a native plugin's child while the plugin still serves: what belongs to
+    /// the page frame, which outlives the child, is kept. That is the open page slot and the network
+    /// work, which only frames start.
+    pub fn forget_run(&self, id: &str) {
+        {
+            let mut inner = lock(&self.0.inner);
+            inner.buckets.remove(id);
+            inner.in_flight.remove(id);
+        }
         self.0.ui.release(id);
         self.0.ui.drop_gestures(id);
         self.0.sidebar.forget(id);
-        self.0.net.forget(id);
         let gates = lock(&self.0.gates).get(id).cloned();
         if let Some(gates) = gates {
             *lock(&gates.storage) = StorageSlot::default();
@@ -290,6 +300,24 @@ mod tests {
         assert_eq!(api.in_flight(A), 1);
         drop(old);
         assert_eq!(api.in_flight(A), 1);
+    }
+
+    #[test]
+    fn forget_run_keeps_the_page_slot_and_clears_the_rest() {
+        let api = ApiState::default();
+        let now = Instant::now();
+        for _ in 0..10 {
+            api.take(A, RateClass::Ambient, now).unwrap();
+        }
+        let _guard = api.enter(A).unwrap();
+        api.set_page_open(A, true);
+        let token = api.ui().mint(A, now);
+
+        api.forget_run(A);
+        assert!(api.is_page_open(A));
+        assert!(!api.has_buckets(A));
+        assert_eq!(api.in_flight(A), 0);
+        assert!(!api.ui().consume(A, &token, now));
     }
 
     #[test]

@@ -15,9 +15,12 @@ use tauri::{AppHandle, Manager, State, Webview};
 
 // -- Local Imports --
 use crate::plugins::api::host_event::UiEvent;
-use crate::plugins::api::sidebar::{check_input, SidebarInputReply, SidebarSnapshot};
+use crate::plugins::api::sidebar::{
+    check_input, SidebarDelivery, SidebarInputReply, SidebarSnapshot,
+};
 use crate::plugins::api::state::ApiState;
 use crate::plugins::api::ui_state::UiAnswer;
+use crate::plugins::manifest::Tier;
 #[cfg(windows)]
 use crate::plugins::native::NativeHost;
 use crate::plugins::paths::validate_id;
@@ -101,6 +104,30 @@ fn sidebar_input_from(
     check_input(api, enabled, app_data, id, item_id, value, now)
 }
 
+/// Hands an accepted click on a native plugin's control to its child through `deliver`; the reply then
+/// carries no frame. A click the child cannot take is refused and its gesture spent, so no one holds
+/// it. A UI plugin's reply passes through.
+fn deliver_native(
+    reply: SidebarInputReply,
+    tier: Option<Tier>,
+    api: &ApiState,
+    id: &str,
+    deliver: impl FnOnce(&SidebarDelivery) -> bool,
+    now: Instant,
+) -> SidebarInputReply {
+    let Some(frame) = reply.frame.as_ref().filter(|_| tier == Some(Tier::Native)) else {
+        return reply;
+    };
+    let accepted = deliver(frame);
+    if !accepted {
+        api.ui().consume(id, &frame.gesture, now);
+    }
+    SidebarInputReply {
+        accepted,
+        frame: None,
+    }
+}
+
 /// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests and network
 /// work and drop its gestures; a crash also drops its sidebar state. Any other label, kind or id has no
 /// effect.
@@ -164,7 +191,8 @@ pub fn plugin_sidebar_state(webview: Webview, state: State<'_, AppState>) -> Vec
 }
 
 /// Reports a click on a toggle (`value` set) or an action (`value` none). Runs on a blocking thread
-/// because the plugin's manifest may be read.
+/// because the plugin's manifest may be read. A native plugin's click goes to its child from here, so
+/// the reply carries no frame.
 #[tauri::command]
 pub async fn plugin_sidebar_input(
     id: String,
@@ -190,20 +218,29 @@ pub async fn plugin_sidebar_input(
         return refused;
     };
     tauri::async_runtime::spawn_blocking(move || {
-        sidebar_input_from(
-            &label,
-            runtime,
-            &api,
-            &enabled,
-            &app_data,
-            &id,
-            &item_id,
-            value,
-            Instant::now(),
-        )
+        let now = Instant::now();
+        let reply = sidebar_input_from(
+            &label, runtime, &api, &enabled, &app_data, &id, &item_id, value, now,
+        );
+        let tier = enabled.serving(&id).map(|serving| serving.tier);
+        let deliver = |frame: &SidebarDelivery| child_takes(&app, &id, frame);
+        deliver_native(reply, tier, &api, &id, deliver, now)
     })
     .await
     .unwrap_or(refused)
+}
+
+/// Sends a click to plugin `id`'s child. False when it is not running or cannot take it.
+#[cfg(windows)]
+fn child_takes(app: &AppHandle, id: &str, frame: &SidebarDelivery) -> bool {
+    app.try_state::<Arc<NativeHost>>().is_some_and(|native| {
+        native.deliver_sidebar(id, &frame.item_id, frame.value, &frame.gesture)
+    })
+}
+
+#[cfg(not(windows))]
+fn child_takes(_: &AppHandle, _: &str, _: &SidebarDelivery) -> bool {
+    false
 }
 
 /// Feeds a frame report from `label` to the supervisor. Any other label has no effect.
@@ -506,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn a_click_is_refused_for_a_stopped_plugin_while_held_or_safe_and_for_a_native_one() {
+    fn a_click_is_refused_for_a_stopped_plugin_and_while_held_or_safe() {
         let data = data_with_sidebar();
         let ui = plugins_of(Tier::Ui);
         assert!(click(MAIN_LABEL, Runtime::Running, &ui, &data, "go", None).accepted);
@@ -517,10 +554,51 @@ mod tests {
 
         let _withdrawn = ui.withdraw(ID);
         assert!(!click(MAIN_LABEL, Runtime::Running, &ui, &data, "go", None).accepted);
+    }
 
+    #[test]
+    fn a_native_click_goes_to_the_child_and_its_gesture_only_there() {
+        let data = data_with_sidebar();
         let native = plugins_of(Tier::Native);
-        let reply = click(MAIN_LABEL, Runtime::Running, &native, &data, "go", None);
+        let api = native.api();
+        let now = Instant::now();
+        let deliver = |taken: bool| {
+            let reply = click(MAIN_LABEL, Runtime::Running, &native, &data, "tg", Some(true));
+            let mut handed = None;
+            let reply = deliver_native(
+                reply,
+                Some(Tier::Native),
+                api,
+                ID,
+                |frame| {
+                    handed = Some((frame.item_id.clone(), frame.value, frame.gesture.clone()));
+                    taken
+                },
+                now,
+            );
+            (reply, handed.unwrap())
+        };
+
+        // Taken: the frame stays in Rust, and the child's gesture is spendable once.
+        let (reply, (item, value, gesture)) = deliver(true);
+        assert!(reply.accepted && reply.frame.is_none());
+        assert_eq!((item.as_str(), value), ("tg", Some(true)));
+        assert!(api.ui().consume(ID, &gesture, now));
+        assert!(!api.ui().consume(ID, &gesture, now));
+
+        // Not taken: refused, and the gesture is gone.
+        let (reply, (_, _, gesture)) = deliver(false);
         assert!(!reply.accepted && reply.frame.is_none());
+        assert!(!api.ui().consume(ID, &gesture, now));
+
+        // A refused click reaches no child, and a UI plugin's reply passes through.
+        let refused = click(MAIN_LABEL, Runtime::Held, &native, &data, "go", None);
+        let reply = deliver_native(refused, Some(Tier::Native), api, ID, |_| panic!(), now);
+        assert!(!reply.accepted);
+        let ui = plugins_of(Tier::Ui);
+        let reply = click(MAIN_LABEL, Runtime::Running, &ui, &data, "go", None);
+        let reply = deliver_native(reply, Some(Tier::Ui), ui.api(), ID, |_| panic!(), now);
+        assert!(reply.accepted && reply.frame.is_some());
     }
 
     #[test]

@@ -18,8 +18,10 @@ use super::host_event::{HostEvent, UiEvent, UiKind};
 use super::pending::Pending;
 use super::rate::RateClass;
 use super::{CallCtx, MethodSpec, Need, Outcome};
-use crate::plugins::manifest::{text_problem, Capability, TextProblem};
+use crate::plugins::manifest::{text_problem, Capability, TextProblem, Tier};
+use crate::plugins::paths::plugin_dir;
 use crate::plugins::sidebar_decl::route_problem;
+use crate::plugins::summary::read_manifest;
 
 pub const MAX_TOAST_TEXT: usize = 140;
 pub const MAX_TOAST_ACTION: usize = 24;
@@ -232,6 +234,13 @@ fn open_page(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
     Outcome::Done(request_page(ctx, args, Instant::now()))
 }
 
+/// Whether the caller has a page to show: every UI plugin does, a native one only when its manifest
+/// declares one.
+fn has_page(ctx: &CallCtx<'_>) -> bool {
+    ctx.serving.tier == Tier::Ui
+        || read_manifest(&plugin_dir(ctx.app_data, ctx.id)).is_some_and(|m| m.page.is_some())
+}
+
 /// Asks the main window to show the caller's own page. Whether the app mode lets it is the window's
 /// call, so success only means the request was sent.
 fn request_page(
@@ -241,6 +250,9 @@ fn request_page(
 ) -> Result<Value, ApiError> {
     let route = route_arg(args)?;
     let gesture = gesture_arg(args)?;
+    if !has_page(ctx) {
+        return Err(ApiError::unavailable());
+    }
     gate(ctx, gesture, now)?;
     ctx.host.emit(HostEvent::Ui(UiEvent {
         request_id: ctx.api.ui().next_request_id(),
@@ -297,7 +309,7 @@ mod tests {
             .iter()
             .filter_map(|e| match e {
                 HostEvent::Ui(ui) => Some(ui.clone()),
-                HostEvent::Sidebar(_) => None,
+                _ => None,
             })
             .collect()
     }
@@ -872,6 +884,36 @@ mod tests {
             request_page(&ctx, &page(json!(token)), now),
             Err(ApiError::no_gesture())
         );
+        assert_eq!(ui_events(&host).len(), 1);
+    }
+
+    #[test]
+    fn a_native_plugin_asks_for_its_page_only_when_it_declares_one() {
+        use crate::plugins::stage::Temp;
+        let temp = Temp::new("ui-native-page");
+        let dir = plugin_dir(&temp.0, ID);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut manifest = crate::plugins::test_kit::native("1.0.0", &[]);
+        let write = |manifest: &Value| {
+            std::fs::write(dir.join("plugin.json"), manifest.to_string()).unwrap();
+        };
+        write(&manifest);
+        let host = FakeHost::default();
+        let mut call = test_ctx(&temp.0, &host);
+        call.serving.tier = Tier::Native;
+        call.api.set_page_open(ID, true);
+        let now = Instant::now();
+        let token = call.api.ui().mint(ID, now);
+        let page = args(json!({ "gesture": token }));
+        assert_eq!(
+            request_page(&call.ctx(), &page, now),
+            Err(ApiError::unavailable())
+        );
+        // The refusal comes before the gate, so the token is still there.
+        manifest["page"] = json!("page/index.html");
+        write(&manifest);
+        call.api.set_page_open(ID, false);
+        assert_eq!(request_page(&call.ctx(), &page, now), Ok(json!({})));
         assert_eq!(ui_events(&host).len(), 1);
     }
 

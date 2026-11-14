@@ -1,7 +1,8 @@
 /*
  * The closed set of plugin API error codes and the reply envelope every call resolves to. Messages
  * are fixed English text with numbers at most: they reach a plugin page, so they never carry a path,
- * another plugin's id or OS error text.
+ * another plugin's id or OS error text. The one exception is `plugin_error`, which carries a native
+ * plugin's own text back to its own page.
  */
 
 // -- Library Imports --
@@ -25,7 +26,12 @@ pub enum ApiCode {
     Unavailable,
     Network,
     Aborted,
+    /// A native plugin's child answered its page's call with an error.
+    PluginError,
 }
+
+/// The longest message a `plugin_error` carries, in characters.
+pub const PLUGIN_ERROR_MAX_CHARS: usize = 200;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ApiError {
@@ -111,6 +117,17 @@ impl ApiError {
         ApiError {
             reason: Some(reason),
             ..ApiError::new(ApiCode::Network, "The request could not be completed.")
+        }
+    }
+
+    /// The child's own error text, cut to `PLUGIN_ERROR_MAX_CHARS`; a fixed text when it gave none.
+    pub fn plugin_error(message: Option<&str>) -> ApiError {
+        match message.filter(|text| !text.is_empty()) {
+            Some(text) => ApiError {
+                message: text.chars().take(PLUGIN_ERROR_MAX_CHARS).collect(),
+                ..ApiError::new(ApiCode::PluginError, "")
+            },
+            None => ApiError::new(ApiCode::PluginError, "The plugin could not answer this call."),
         }
     }
 }
@@ -202,6 +219,7 @@ mod tests {
             (ApiError::unavailable(), "unavailable"),
             (ApiError::network("dns"), "network"),
             (ApiError::aborted("abort"), "aborted"),
+            (ApiError::plugin_error(None), "plugin_error"),
         ];
         for (error, name) in cases {
             assert_eq!(serde_json::to_value(error.code).unwrap(), name);
@@ -225,6 +243,20 @@ mod tests {
         let json = serde_json::to_value(ApiError::aborted("frame_gone")).unwrap();
         assert_eq!(json["code"], "aborted");
         assert_eq!(json["reason"], "frame_gone");
+    }
+
+    #[test]
+    fn a_plugin_error_carries_the_childs_text_cut_to_200_characters() {
+        // Two bytes per character, so a cut by bytes would keep too few.
+        let long = "\u{e9}".repeat(PLUGIN_ERROR_MAX_CHARS + 50);
+        let error = ApiError::plugin_error(Some(&long));
+        assert_eq!(error.code, ApiCode::PluginError);
+        assert_eq!(error.message.chars().count(), PLUGIN_ERROR_MAX_CHARS);
+        assert_eq!(ApiError::plugin_error(Some("Bad")).message, "Bad");
+        // No text, or an empty one, gets the fixed message.
+        let fixed = ApiError::plugin_error(None).message;
+        assert!(!fixed.is_empty());
+        assert_eq!(ApiError::plugin_error(Some("")).message, fixed);
     }
 
     #[test]

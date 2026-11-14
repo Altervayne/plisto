@@ -32,6 +32,10 @@ pub enum RateClass {
     NetSend,
     /// Stream acknowledgements.
     NetStream,
+    /// Page calls relayed to a native plugin's child.
+    Relay,
+    /// Events a native plugin's child pushes to its page. Not a method, so it never spends from `all`.
+    PageEvent,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +70,8 @@ impl RateClass {
             RateClass::Net => (30, 10_000),
             RateClass::NetSend => (40, 20_000),
             RateClass::NetStream => (40, 20_000),
+            RateClass::Relay => (40, 20_000),
+            RateClass::PageEvent => (20, 20_000),
         };
         Limit {
             capacity,
@@ -151,6 +157,8 @@ pub struct PluginBuckets {
     net: Bucket,
     net_send: Bucket,
     net_stream: Bucket,
+    relay: Bucket,
+    page_event: Bucket,
 }
 
 impl PluginBuckets {
@@ -176,6 +184,8 @@ impl PluginBuckets {
             net: full(RateClass::Net),
             net_send: full(RateClass::NetSend),
             net_stream: full(RateClass::NetStream),
+            relay: full(RateClass::Relay),
+            page_event: full(RateClass::PageEvent),
         }
     }
 
@@ -198,6 +208,8 @@ impl PluginBuckets {
             RateClass::Net => &mut self.net,
             RateClass::NetSend => &mut self.net_send,
             RateClass::NetStream => &mut self.net_stream,
+            RateClass::Relay => &mut self.relay,
+            RateClass::PageEvent => &mut self.page_event,
         }
     }
 
@@ -335,6 +347,8 @@ mod tests {
             (RateClass::Net, 30, 100),
             (RateClass::NetSend, 40, 50),
             (RateClass::NetStream, 40, 50),
+            (RateClass::Relay, 40, 50),
+            (RateClass::PageEvent, 20, 50),
         ] {
             let mut b = PluginBuckets::new(t0);
             for _ in 0..capacity {
