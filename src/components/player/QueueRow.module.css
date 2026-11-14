@@ -17,12 +17,6 @@
   background: var(--veil);
 }
 
-/* Played rows recede: the whole row dims and its ink drops a step, so the cursor's future reads brighter
- * than its past. */
-.row[data-state="played"] {
-  opacity: 0.6;
-}
-
 /* The now-playing row: a quiet neutral fill and full-weight title. Not accent - the seek fill is the one
  * lit mark - so this reads as "here" by material alone, and holds its fill through a hover. */
 .row[data-state="now"],
@@ -51,7 +45,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--ink-3);
+  color: var(--q-sub);
   cursor: grab;
   opacity: 0;
   touch-action: none;
@@ -66,7 +60,7 @@
 }
 
 .handle:hover {
-  color: var(--ink-2);
+  color: var(--q-sub);
   opacity: 1;
 }
 
@@ -110,7 +104,7 @@
 
 .no {
   font-size: 12.5px;
-  color: var(--ink-3);
+  color: var(--q-sub);
   font-variant-numeric: tabular-nums;
   transition: opacity var(--dur-fast) var(--ease-standard);
 }
@@ -160,7 +154,7 @@
 
 /* Played rows carry quieter title ink; the now-playing row keeps full ink and a touch more weight. */
 .row[data-state="played"] .title {
-  color: var(--ink-2);
+  color: var(--q-sub);
 }
 
 .row[data-state="now"] .title {
@@ -170,12 +164,12 @@
 /* An empty-meta title shows the placeholder in a faint tone, so a hole in the snapshot reads as absent
  * rather than a real name. */
 .title[data-untitled] {
-  color: var(--ink-3);
+  color: var(--q-sub);
 }
 
 .artist {
   min-width: 0;
-  color: var(--ink-2);
+  color: var(--q-sub);
   font-size: 11.5px;
   overflow: hidden;
   white-space: nowrap;
@@ -183,11 +177,11 @@
 }
 
 .row[data-state="played"] .artist {
-  color: var(--ink-3);
+  color: var(--q-sub);
 }
 
 .duration {
-  color: var(--ink-3);
+  color: var(--q-sub);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   transition: opacity var(--dur-fast) ease;
@@ -212,7 +206,7 @@
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
-  color: var(--ink-3);
+  color: var(--q-sub);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -227,7 +221,7 @@
 
 .row[data-state="next"]:hover .remove,
 .remove:focus-visible {
-  opacity: 0.75;
+  opacity: 1;
   pointer-events: auto;
 }
 
