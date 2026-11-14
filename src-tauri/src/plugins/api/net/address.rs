@@ -94,6 +94,11 @@ pub fn allowed(ip: IpAddr) -> bool {
 /// Judges one resolver answer. A single refused address refuses the whole answer, so a name cannot
 /// mix a public address with a private one and let the connection pick.
 pub fn check_answer(addrs: &[IpAddr]) -> Result<(), Refusal> {
+    check_answer_with(addrs, allowed)
+}
+
+/// `check_answer` under another address policy, such as the developer loopback one.
+pub fn check_answer_with(addrs: &[IpAddr], allowed: fn(IpAddr) -> bool) -> Result<(), Refusal> {
     if addrs.is_empty() {
         return Err(Refusal::network(DNS));
     }

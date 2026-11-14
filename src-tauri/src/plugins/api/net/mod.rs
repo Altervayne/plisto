@@ -1,15 +1,20 @@
 /*
- * The network guard: pure checks that decide which addresses, URLs, headers, methods, bodies and
- * redirect hops a plugin request may use. Nothing here opens a connection, and every check fails
- * closed: whatever does not parse or match is refused.
+ * Plugin network requests. The guard (`address`, `policy`) is pure: it decides which addresses, URLs,
+ * headers, methods, bodies and redirect hops a request may use, and every check fails closed. The
+ * engine (`resolve`, `client`, `fetch`) makes the requests and asks the guard before each connection.
  */
 
-// The network methods and the HTTP client are the callers; only the tests reach this module.
+// No method calls the engine yet; only the tests reach this module.
 #![allow(dead_code)]
 
 mod address;
+mod client;
+mod fetch;
 mod policy;
+mod resolve;
 pub(crate) mod state;
+#[cfg(test)]
+mod test_server;
 
 // ---- Limits ----
 
@@ -21,6 +26,7 @@ pub const MAX_HEADER_VALUE: usize = 4_096;
 /// Sum of every request header's name and value bytes.
 pub const MAX_HEADERS_TOTAL: usize = 16_384;
 pub const MAX_REQUEST_BODY: usize = 1_048_576;
+pub const MAX_RESPONSE_BODY: usize = 8 * 1_048_576;
 /// Redirects followed for one request; the next one is refused.
 pub const MAX_REDIRECTS: usize = 5;
 
@@ -32,7 +38,12 @@ pub const REDIRECT_NOT_LISTED: &str = "redirect_not_listed";
 pub const BLOCKED_ADDRESS: &str = "blocked_address";
 pub const DEV_ONLY: &str = "dev_only";
 pub const REQUEST_BODY: &str = "request_body";
+pub const RESPONSE_BODY: &str = "response_body";
 pub const DNS: &str = "dns";
+pub const CONNECT: &str = "connect";
+pub const TLS: &str = "tls";
+pub const PROTOCOL: &str = "protocol";
+pub const CLOSED: &str = "closed";
 pub const REDIRECT: &str = "redirect";
 
 /// The plugin API code a refusal maps to.
@@ -83,6 +94,14 @@ impl Refusal {
             code: NetCode::TooLarge,
             reason: Some(REQUEST_BODY),
             message: "The request body is too large.",
+        }
+    }
+
+    pub fn response_body() -> Refusal {
+        Refusal {
+            code: NetCode::TooLarge,
+            reason: Some(RESPONSE_BODY),
+            message: "The response body is too large.",
         }
     }
 

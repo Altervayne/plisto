@@ -81,6 +81,18 @@ dunce = "1"
 # Encodes a plugin icon as a data: URL.
 base64 = "0.22"
 unicode-normalization = "0.1"
+# The HTTP client behind plugin network requests. Shared with the updater, so a feature added here
+# changes its client too: rustls without a bundled crypto provider, as the updater builds it.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# Installs ring as the process crypto provider before the first client is built, as the updater does,
+# and names TLS failures. The same rustls and features the updater already uses.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# WebSocket frame codec over a connection the plugin network client upgrades; no handshake or TLS of its own.
+tokio-tungstenite = { version = "0.30", default-features = false }
+futures-util = "0.3"
+# The client's own HTTP/1.1 layer, named only to tell a connection closed early from malformed bytes.
+hyper = { version = "1", default-features = false }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
 
 # Windows-only: the shell/COM surface for MTP direct-to-device export (1.6.0). cfg-gated so non-Windows
 # builds never pull it. #[implement] (the progress sink, P2) emits windows_core:: paths, so the
@@ -97,6 +109,7 @@ windows = { version = "0.58", features = [
     "Win32_System_Memory",
     "Win32_System_Threading",
     "Win32_Media_Audio",
+    "Win32_Networking_WinHttp",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_System_WindowsProgramming",
@@ -119,3 +132,9 @@ windows62 = { package = "windows", version = "=0.62.2", features = [
     "Win32_UI_Shell",
 ] }
 
+[dev-dependencies]
+# A local TLS test server for the plugin network client: a throwaway CA and certificates, and the
+# server side of the handshake. Both on ring, like the client.
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "io-util"] }
