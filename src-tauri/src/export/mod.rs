@@ -268,31 +268,38 @@ where
     }
 }
 
-/// The tags one exported copy carries. album_artist and year resolve per track: the track's own edit
-/// wins, else it inherits the container's value - two tiers, always defined, so an un-edited track
-/// lands exactly the container value. The album NAME is different: a track that sits in a Plisto album
-/// takes that album's name outright, so a stale per-track album edit (a former tag the file carried
-/// in) can never survive the export. A single or a loose bag owns no album, so its own resolved album
-/// rides through. The album view's "apply to tracks" pushes the other fields on demand. The export
-/// record fingerprints these same values, so both read them from here.
+/// The tags one exported copy carries. A track in a Plisto album takes the album's name, album artist
+/// and year outright, so a stale per-track edit of any of them (a former tag the file carried in) never
+/// survives the export. A single's track and a loose bag's track resolve each of the three per track:
+/// the track's own value wins, else the container's. This mirrors `effective_album_fields`, which
+/// returns owned values and so cannot lend the borrowed tags here. The export record fingerprints
+/// these same values, so both read them from here.
 pub(crate) fn track_tags<'a>(
     container: &'a ExportContainer,
     track: &'a ExportTrack,
 ) -> TrackTags<'a> {
-    let album = if matches!(container.kind, ContainerKind::Album) {
-        container.title.as_deref()
+    let (album, album_artist, year) = if matches!(container.kind, ContainerKind::Album) {
+        (
+            container.title.as_deref(),
+            container.album_artist.as_deref(),
+            container.year,
+        )
     } else {
-        track.album_override.as_deref().or(container.title.as_deref())
+        (
+            track.album_override.as_deref().or(container.title.as_deref()),
+            track
+                .album_artist_override
+                .as_deref()
+                .or(container.album_artist.as_deref()),
+            track.year_override.or(container.year),
+        )
     };
     TrackTags {
         title: track.title.as_deref(),
         artist: track.artist.as_deref(),
         album,
-        album_artist: track
-            .album_artist_override
-            .as_deref()
-            .or(container.album_artist.as_deref()),
-        year: track.year_override.or(container.year),
+        album_artist,
+        year,
         genres: &track.genres,
         track_no: track.track_no,
         disc_no: track.disc_no,
@@ -715,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn album_artist_override_wins_while_a_sibling_inherits_the_album() {
+    fn an_album_members_album_artist_is_the_albums_not_a_stale_track_edit() {
         let sources = TempDir::new("src");
         let dest = TempDir::new("dest");
         let covers = TempDir::new("covers");
@@ -741,7 +748,7 @@ mod tests {
         )
         .unwrap();
 
-        // Only the first member carries an album_artist edit; the second stays pristine.
+        // Only the first member carries a stale album_artist edit; the second stays pristine.
         db::set_track_edit(
             &conn,
             a,
@@ -768,18 +775,81 @@ mod tests {
         );
         assert_eq!(summary.exported, 2);
 
-        // The folder still keys off the container's album artist, not the per-track override.
         let container = dest.path.join("Album AA").join("Rec");
-        assert_eq!(
-            read_album_artist(&container.join("01 - T1.flac")).as_deref(),
-            Some("Solo AA"),
-            "the edited track exports its own album_artist",
+        for file in ["01 - T1.flac", "02 - T2.flac"] {
+            assert_eq!(
+                read_album_artist(&container.join(file)).as_deref(),
+                Some("Album AA"),
+                "{file} exports the album's album_artist",
+            );
+        }
+    }
+
+    // A one-track container of `kind`, carrying its own album fields, over a track with the given
+    // per-track edits.
+    fn tagged_container(
+        kind: plan::ContainerKind,
+        album: (Option<&str>, Option<&str>, Option<i64>),
+        edit: (Option<&str>, Option<i64>),
+    ) -> plan::ExportContainer {
+        let mut track = album_track(1, "Song", "Art", Some(1));
+        track.album_artist_override = edit.0.map(str::to_string);
+        track.year_override = edit.1;
+        plan::ExportContainer {
+            album_id: 1,
+            kind,
+            bucket: plan::Bucket::Root,
+            flat: false,
+            album_artist: album.1.map(str::to_string),
+            title: album.0.map(str::to_string),
+            year: album.2,
+            cover: CoverPlan::None,
+            tracks: vec![track],
+            skipped: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn track_tags_give_an_album_member_the_albums_artist_and_year() {
+        let c = tagged_container(
+            plan::ContainerKind::Album,
+            (Some("Rec"), Some("Band"), Some(2001)),
+            (Some("Guest"), Some(1999)),
         );
-        assert_eq!(
-            read_album_artist(&container.join("02 - T2.flac")).as_deref(),
-            Some("Album AA"),
-            "the untouched sibling inherits the album's album_artist",
+        let tags = track_tags(&c, &c.tracks[0]);
+        assert_eq!(tags.album_artist, Some("Band"));
+        assert_eq!(tags.year, Some(2001));
+    }
+
+    #[test]
+    fn track_tags_leave_an_album_without_artist_or_year_unset_despite_member_edits() {
+        let c = tagged_container(
+            plan::ContainerKind::Album,
+            (Some("Rec"), None, None),
+            (Some("Guest"), Some(1999)),
         );
+        let tags = track_tags(&c, &c.tracks[0]);
+        assert_eq!(tags.album_artist, None);
+        assert_eq!(tags.year, None);
+    }
+
+    #[test]
+    fn track_tags_keep_a_singles_and_a_loose_tracks_edits() {
+        for kind in [plan::ContainerKind::Single, plan::ContainerKind::Unsorted] {
+            let c = tagged_container(
+                kind,
+                (Some("Rec"), Some("Band"), Some(2001)),
+                (Some("Guest"), Some(1999)),
+            );
+            let tags = track_tags(&c, &c.tracks[0]);
+            assert_eq!(tags.album_artist, Some("Guest"));
+            assert_eq!(tags.year, Some(1999));
+
+            let c = tagged_container(kind, (Some("Rec"), Some("Band"), Some(2001)), (None, None));
+            let tags = track_tags(&c, &c.tracks[0]);
+            assert_eq!(tags.album_artist, Some("Band"));
+            assert_eq!(tags.year, Some(2001));
+        }
     }
 
     // The Album (name) tag of an exported file, or None when it carries none.

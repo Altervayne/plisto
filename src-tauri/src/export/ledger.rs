@@ -611,9 +611,9 @@ mod tests {
             ("album", Box::new(|c| c.title = Some("Other".into()))),
             (
                 "album artist",
-                Box::new(|c| c.tracks[0].album_artist_override = Some("X".into())),
+                Box::new(|c| c.album_artist = Some("X".into())),
             ),
-            ("year", Box::new(|c| c.tracks[0].year_override = Some(1999))),
+            ("year", Box::new(|c| c.year = Some(1999))),
             ("genre order", Box::new(|c| c.tracks[0].genres.reverse())),
             ("track no", Box::new(|c| c.tracks[0].track_no = Some(2))),
             ("disc no", Box::new(|c| c.tracks[0].disc_no = None)),
@@ -648,6 +648,31 @@ mod tests {
             before,
             "the destination path moves the fingerprint"
         );
+    }
+
+    #[test]
+    fn the_fingerprint_follows_the_album_artist_and_year_rule() {
+        let base = container(vec![track()]);
+        let before = print(&base);
+
+        // An album member's per-track edits are stale and never count.
+        let mut stale = base.clone();
+        stale.tracks[0].album_artist_override = Some("Guest".into());
+        stale.tracks[0].year_override = Some(1999);
+        assert_eq!(print(&stale), before);
+
+        // A single's member edits and a loose track's edits still count.
+        for kind in [ContainerKind::Single, ContainerKind::Unsorted] {
+            let mut own = base.clone();
+            own.kind = kind;
+            let own_before = print(&own);
+            let mut artist = own.clone();
+            artist.tracks[0].album_artist_override = Some("Guest".into());
+            assert_ne!(print(&artist), own_before);
+            let mut year = own.clone();
+            year.tracks[0].year_override = Some(1999);
+            assert_ne!(print(&year), own_before);
+        }
     }
 
     #[test]

@@ -443,13 +443,11 @@ mod tests {
             .collect()
     }
 
-    /// Parity with the tags export writes: the album title always, and the album artist and year
-    /// wherever no album member carries a stale per-track edit of them.
+    /// Parity with the tags export writes, including album members that carry stale per-track edits.
     #[test]
     fn the_album_fields_match_what_export_writes() {
         let mut conn = db::open_in_memory().unwrap();
         let ids = filed_library(&mut conn);
-        let stale = [ids[1], ids[2]];
         let plan = build_plan(&conn).unwrap();
         let mine = resolved(&conn, &ids);
         let mut checked = 0;
@@ -463,10 +461,8 @@ mod tests {
                 assert_eq!(got.artist.as_deref(), tags.artist, "{id}");
                 assert_eq!(got.track_no, tags.track_no, "{id}");
                 assert_eq!(got.disc_no, tags.disc_no, "{id}");
-                if !stale.contains(&id) {
-                    assert_eq!(got.album_artist.as_deref(), tags.album_artist, "{id}");
-                    assert_eq!(got.year, tags.year, "{id}");
-                }
+                assert_eq!(got.album_artist.as_deref(), tags.album_artist, "{id}");
+                assert_eq!(got.year, tags.year, "{id}");
                 checked += 1;
             }
         }
@@ -475,10 +471,9 @@ mod tests {
         assert_eq!(mine[&ids[5]].year, Some(2010));
     }
 
-    /// A known difference: export lets an album member's stale album artist or year edit win, while
-    /// Plisto, and so this API, shows the album's.
+    /// An album member with stale album artist or year edits shows, and exports, the album's.
     #[test]
-    fn an_album_member_shows_the_album_where_export_keeps_a_stale_edit() {
+    fn an_album_member_shows_and_exports_the_album_not_a_stale_edit() {
         let mut conn = db::open_in_memory().unwrap();
         let ids = filed_library(&mut conn);
         let plan = build_plan(&conn).unwrap();
@@ -494,9 +489,8 @@ mod tests {
                 })
                 .unwrap()
         };
-        assert_eq!(export(ids[1]), (Some("Guest".to_string()), Some(1999)));
-        assert_eq!(export(ids[2]), (Some("Band".to_string()), Some(2003)));
         for id in [ids[1], ids[2]] {
+            assert_eq!(export(id), (Some("Band".to_string()), Some(2001)));
             assert_eq!(mine[&id].album.as_deref(), Some("Record"));
             assert_eq!(mine[&id].album_artist.as_deref(), Some("Band"));
             assert_eq!(mine[&id].year, Some(2001));
