@@ -1,0 +1,20 @@
+[package]
+name = "tap-meter"
+version = "0.1.0"
+edition = "2021"
+description = "Reference native plugin for Plisto: speaks protocol v1 and meters the audio tap."
+publish = false
+
+# Keeps this crate out of any enclosing workspace, so it never joins Plisto's build.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation", "Win32_Security", "Win32_System_Memory"]
+
+[profile.release]
+strip = true

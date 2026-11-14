@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.tapmeter",
+  "name": "Tap meter",
+  "version": "0.1.0",
+  "tier": "native",
+  "entry": "bin/tap-meter.exe",
+  "capabilities": [
+    "audio.tap",
+    "audio.events"
+  ],
+  "min_plisto": "2.7.0",
+  "author": "Plisto",
+  "native_reason": "Reads the raw audio stream in real time through shared memory, which a sandboxed page cannot do."
+}
