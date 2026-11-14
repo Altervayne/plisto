@@ -17,6 +17,10 @@ you give it to someone else. For what Plisto does at each step, see [lifecycle](
 If Plisto refuses the folder, the message says why. The [manifest reference](manifest.md) lists the
 causes.
 
+A native plugin installs the same way. Its review sheet is heavier, and its program starts when you turn
+it on. See the [native guide](native.md), and [`examples/tap-meter`](../examples/tap-meter/README.md) for
+packing, installing and where its logs are.
+
 ## Install from a file
 
 A `.plistoplugin` file is a zip archive of your plugin folder with the extension changed. `plugin.json`
@@ -86,6 +90,9 @@ Check these in the running app.
 `%APPDATA%\com.altervayne.plisto\plugins-data\<plugin id>\`. Open it in any editor. Plisto notes its own
 events about your plugin there with the level `HOST`, for example when it moves a damaged storage file
 aside. The folder appears after the plugin first logs or stores something.
+
+**Native plugins.** The program's standard error goes to `stderr.log` beside `plugin.log`, and is the
+first place to look when a native plugin will not start. See the [native guide](native.md#logging).
 
 **Show errors on the page.** While developing, catch errors from `plisto.call` and print `e.code`,
 `e.reason` and `e.message` on screen or to the log. Codes are listed in the [API reference](api.md).

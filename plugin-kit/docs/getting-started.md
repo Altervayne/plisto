@@ -4,7 +4,7 @@ This page builds a small plugin from an empty folder: a counter that survives re
 plugin installed and visible in the sidebar. The finished idea is the same as
 [`examples/hello-ui`](../examples/hello-ui/), which you can open beside this page.
 
-You need a text editor and Plisto 2.7 or newer. No build tools are required.
+You need a text editor and Plisto 2.7 or newer (or a pre-release build, see step 2). No build tools are required.
 
 ## 1. Make the folder
 
@@ -42,7 +42,10 @@ SDK. Copy `sdk/plisto-sdk.js` from this kit into `my-plugin/`.
 - `capabilities` lists what the plugin may do. `storage` lets it save data. The user sees this list
   before the plugin is turned on.
 - `entry` is the page Plisto opens.
-- `min_plisto` is the oldest Plisto version the plugin works with.
+- `min_plisto` is the oldest Plisto version the plugin works with. Use `"2.7.0"` for a release. While
+  you develop against a pre-release build that still reports 2.6.x, use `"2.6.0"`, because Plisto refuses
+  to turn on a plugin that needs a newer version than the build. See the
+  [manifest reference](manifest.md#version-and-min_plisto).
 
 Every field, limit and rule is in the [manifest reference](manifest.md).
 
@@ -177,5 +180,6 @@ checklist.
 - Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
 - Running in the background: [lifecycle](lifecycle.md).
 - Talking to a web service: [network](network.md).
+- A program that runs beside Plisto, or reading the audio: [native plugins](native.md).
 - Every method with its limits: [API reference](api.md).
 - A larger working example: [`examples/hello-background`](../examples/hello-background/).

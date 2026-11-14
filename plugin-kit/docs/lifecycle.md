@@ -7,6 +7,10 @@ happens on a crash or in safe mode. It also covers logging and API versioning. H
 
 ## Install
 
+This page describes a page plugin. A native plugin follows the same install, review, update and uninstall
+steps, but its program, not a page frame, is what runs: see the [native guide](native.md) for how it
+starts, stops and restarts.
+
 A plugin comes to Plisto as a **folder** or as a **`.plistoplugin` file**, which is a plain zip archive of
 the folder. Plisto never runs or changes the source. It copies the plugin into its own plugins folder.
 

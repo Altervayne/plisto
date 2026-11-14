@@ -74,7 +74,7 @@ Arguments: none. Result:
 | `locale` | string | `"en"` or `"fr"`. |
 | `theme` | string | `"light"` or `"dark"`. |
 | `app_mode` | string | `"player"`, `"organizer"` or `"both"`. |
-| `tier` | string | `"ui"`. |
+| `tier` | string | `"ui"` or `"native"`. |
 | `granted` | string[] | The capabilities the user approved. |
 
 The same object is what `plisto.ready` resolves with. `plisto.info` holds the latest copy.
@@ -492,8 +492,8 @@ try {
 The network methods are `net.fetch`, `net.abort`, `net.stream.ack`, `net.stream.cancel`, `net.socket.open`,
 `net.socket.send` and `net.socket.close`. Use the `plisto.net` helpers rather than calling them with
 `plisto.call`: a fetch carries its body beside the arguments, and streams and sockets deliver their data as
-events the SDK reads for you. The [network guide](network.md) has the arguments, limits and errors. The
-network engine is not available yet: see "Not available yet" at the end of that guide.
+events the SDK reads for you. The [network guide](network.md) has the arguments, limits and errors, and
+lists the few parts that are not reachable from Plisto's interface yet.
 
 ## Error codes
 
@@ -542,7 +542,8 @@ if (plisto.has("ui.toast")) { /* safe to call */ }
 `has` says only that the method exists. It does not say that the plugin holds the capability. Check
 `info.granted` for that, or catch `denied`.
 
-Methods for audio are not in this version of the API. They answer `unknown_method`.
+There are no audio methods. A native plugin reads audio through the tap and the feed (see the
+[native guide](native.md)), not through `plisto.call`.
 
 ## Events
 

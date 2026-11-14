@@ -7,8 +7,8 @@ its limits and errors, buffered and streamed responses, Server-Sent Events, sock
 
 The network methods are part of the plugin system from its first release, Plisto 2.7, and `plisto.net` is in
 SDK 1.3.0 and later. As with any method, `plisto.has("net.fetch")` tells you whether this Plisto has them;
-see [Feature detection](api.md#feature-detection). Plisto's network engine is still being built: see
-[Not available yet](#not-available-yet) at the end of this page.
+see [Feature detection](api.md#feature-detection). A few parts are not reachable from Plisto's interface yet:
+see [Not available yet](#not-available-yet) at the end of this page.
 
 ## What needs consent
 
@@ -335,7 +335,7 @@ for you, not for display.
 | `network` | `stalled` | The page acknowledged no stream data for 60 seconds. Keep reading while a stream is open. |
 | `network` | `proxy` | Windows has a proxy configured and the connection failed. See below. |
 | `not_found` | none | An unknown or foreign socket or stream. It may have already closed. |
-| `unknown_method` | none | This Plisto has no network methods. |
+| `unknown_method` | none | This Plisto is older than the network methods, or the call came from a native plugin's program, which cannot use `net.*`. |
 | `unavailable` | none | The plugin is disabled or updating. |
 
 For `network` with reason `proxy`: Plisto does not send plugin connections through a proxy, and a failed
@@ -346,19 +346,16 @@ offer to retry. Do not retry in a tight loop.
 
 ## What Plisto records
 
-Plisto keeps the last 200 requests of each plugin in memory only, for the user to see in the plugin's log:
-time, kind, method, origin, status or error, bytes each way and duration. It never records paths, queries,
+Plisto keeps the last 200 requests of each plugin in memory only, so the user can see them in the plugin's
+log once a screen for it exists: time, kind, method, origin, status or error, bytes each way and duration. It never records paths, queries,
 headers, bodies or cookies.
 
 ## Not available yet
 
-The SDK (`plisto.net`, version 1.3.0) and this page are final. Plisto's network engine is still being built,
-so a plugin written today cannot rely on any of this running yet:
+Two things described above cannot be used from Plisto's interface yet:
 
-- Until it lands, every `net.*` call answers `unknown_method` and `plisto.has("net.fetch")` is `false`.
-- The `network` capability is accepted in a manifest and shown on the review sheet, but the page still cannot
-  reach any site.
-- The proxy warning, the developer loopback origins and the request log described above arrive with the
-  engine.
-
-Write against this page, and guard with `plisto.has("net.fetch")` so the plugin degrades cleanly until then.
+- There is no switch for developer mode in Settings. Until there is one, the developer loopback origins
+  cannot be turned on from the interface, and a request to one is refused `denied` with reason `dev_only`.
+  Test against a public origin for now.
+- No screen shows the request log. Plisto records it as described above, but the plugin's panel does not
+  display it yet.

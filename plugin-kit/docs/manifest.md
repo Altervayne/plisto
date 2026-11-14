@@ -82,6 +82,9 @@ or turned on. The user sees "needs Plisto X or newer". Set `min_plisto` to the o
 methods you use. The plugin system and the UI surfaces (toast, confirm, chips, sidebar items) first ship in
 Plisto 2.7, so `"2.7.0"` is the right value for a plugin that uses any of them.
 
+While you develop against a pre-release build that still reports 2.6.x, use `"2.6.0"`: Plisto refuses to
+turn on a plugin whose `min_plisto` is newer than the build. Set `"2.7.0"` before you release.
+
 ### `entry`
 
 The page Plisto opens. It must be an `.html` file (the extension check ignores case) and a plain file in
@@ -129,18 +132,21 @@ plugin runs. Plisto grants all of them or none: there is no partial grant.
 | `ui.chips` | Put chips on the plugin's sidebar row. | `ui.chips` |
 | `ui.sidebar` | Declare sidebar entries and update them live. | `sidebar` block, `ui.sidebar.update` |
 | `network` | Exchange data with the sites in the `network` list, through Plisto. | `plisto.net`, see the [network guide](network.md) |
+| `library.read` | Read the library: titles, artists, albums, playlists and covers, never file locations. | `library.*` methods, see the [API reference](api.md#library-data) |
+| `playback.read` | Read what is playing and the queue. | `playback.state`, `playback.queue` |
+| `playback.control` | Play, pause, skip, seek and change the queue. | the other `playback.*` methods, `queue.*` |
+| `audio.tap`, `audio.events`, `audio.device`, `audio.output_takeover` | Read Plisto's audio, follow playback as events, and hold its output. Native plugins only. | the [native guide](native.md) |
 
 `app.info`, `app.methods`, `log.write` and `ui.open_page` need no capability.
 
-The manifest also accepts the names `library.read`, `playback.read` and `playback.control`. `network`
-requires a `network` list of origins in the manifest, and the page can then reach only those sites, through
-`plisto.net` (not available yet: see the network guide). The [network guide](network.md) covers the origin rules and the developer loopback origins. The
-audio capabilities are for native plugins only and a UI plugin
-that lists one is refused. Ask only for what you use: a smaller list is easier for a user to approve.
+`network` requires a `network` list of origins in the manifest, and the page can then reach only those
+sites, through `plisto.net`. The [network guide](network.md) covers the origin rules and the developer
+loopback origins. The audio capabilities are for native plugins only and a UI plugin that lists one is
+refused. Ask only for what you use: a smaller list is easier for a user to approve.
 
 Two further rules:
 
-- `background` is for UI plugins only.
+- `background` is for UI plugins only: a native plugin that lists it is refused.
 - A `sidebar` block needs `ui.sidebar`. Live items (anything but `nav`) depend on the tier. A UI plugin
   needs `background` for them, since a running page is what keeps them live. A native plugin needs no
   `background`: its program handles them. See the [sidebar guide](sidebar.md).
@@ -158,12 +164,13 @@ Plisto checks the manifest when you install, and again every time it starts. Eac
 | `invalid id` | The id breaks the rules above. |
 | `'name' must not be empty`, `is over N characters`, `contains control characters`, `has more than 6 combining marks in a row` | Text rule broken. |
 | `'version' is not a valid version` | Not semantic version. Same for `min_plisto`. |
-| `unknown tier` | Not `ui`. |
+| `unknown tier` | Not `ui` or `native`. |
 | `'entry' ...` | A path rule broken. |
 | `a ui plugin's entry must be a .html file` | Wrong extension. |
 | `'icon' must be a .png or .svg file` | Wrong extension. |
 | `unknown capability`, `capability ... is listed twice` | Check the spelling. Names are lowercase. |
 | `capability ... is not available to ui plugins` | An audio capability. |
+| `capability ... is not available to native plugins` | `background`. |
 | `unknown mode`, `mode ... is listed twice`, `'modes' must list at least one mode` | See `modes`. |
 | `'homepage' ...` | Not a valid `https` address. |
 | `sidebar must have 1 to 6 items` and other `sidebar` lines | See the [sidebar guide](sidebar.md). |
