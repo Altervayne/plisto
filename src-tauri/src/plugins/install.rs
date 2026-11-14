@@ -322,13 +322,14 @@ fn commit_claimed(
                 source_path: Some(staged.source.clone()),
                 sidebar_collapsed: false,
                 ready_enabled: None,
+                consented_network: Vec::new(),
             };
             match &problem {
                 Some(line) => problems.insert(staged.id.clone(), line.clone()),
                 None => problems.remove(&staged.id),
             };
             registry.entries.push(entry.clone());
-            Ok(PluginRow { entry, problem })
+            Ok(PluginRow::new(entry, problem))
         },
         |e| {
             // Back to staging, so no half-removed plugin folder is left for boot to adopt.

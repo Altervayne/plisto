@@ -617,6 +617,8 @@ mod tests {
             tier,
             version: "1.0.0".into(),
             granted,
+            origins: Vec::new().into(),
+            dev_mode: false,
         }
     }
 

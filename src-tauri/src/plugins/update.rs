@@ -228,15 +228,14 @@ fn update_claimed(
             entry.manifest_hash = hash.clone();
             entry.source_path = Some(staged.source.clone());
             entry.ready_enabled = None;
-            if !keep {
+            if keep {
+                entry.bind_network(&manifest.network);
+            } else {
                 reset_consent(entry);
             }
             problems.remove(id);
             Ok(Updated {
-                row: PluginRow {
-                    entry: entry.clone(),
-                    problem: None,
-                },
+                row: PluginRow::new(entry.clone(), None),
                 previous_version,
             })
         },
@@ -305,6 +304,31 @@ mod tests {
         k.install(&ui("1.0.0", caps));
         k.enable(caps);
         k
+    }
+
+    #[test]
+    fn the_same_origin_set_carries_the_new_list_and_a_changed_set_empties_it() {
+        let k = Kit::new();
+        let mut first = ui("1.0.0", &["network"]);
+        first["network"] = json!(["https://a.example.com", "https://b.example.com"]);
+        k.install(&first);
+        k.enable(&["network"]);
+
+        let reordered = ["https://b.example.com", "https://a.example.com"];
+        let mut next = ui("1.1.0", &["network"]);
+        next["network"] = json!(reordered);
+        let done = update(&k.data, &k.plugins, &k.inspect(&next)).unwrap();
+        assert_eq!(done.row.granted_origins, reordered);
+        let serving = k.plugins.enabled_set().serving(ID).unwrap();
+        assert_eq!(&*serving.origins, reordered);
+
+        let mut changed = ui("1.2.0", &["network"]);
+        changed["network"] = json!(["https://c.example.com"]);
+        let done = update(&k.data, &k.plugins, &k.inspect(&changed)).unwrap();
+        assert_eq!(done.row.entry.state, EntryState::NeedsConsent);
+        assert!(done.row.granted_origins.is_empty());
+        assert!(k.plugins.enabled_set().serving(ID).is_none());
+        assert!(k.plugins.snapshot().entries[0].consented_network.is_empty());
     }
 
     #[test]

@@ -77,6 +77,7 @@ impl Rig {
             source_path: None,
             sidebar_collapsed: false,
             ready_enabled: None,
+            consented_network: Vec::new(),
         };
         let registry = Registry {
             entries: vec![entry],

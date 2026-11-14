@@ -101,8 +101,9 @@ fn sidebar_input_from(
     check_input(api, enabled, app_data, id, item_id, value, now)
 }
 
-/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests and drop its
-/// gestures; a crash also drops its sidebar state. Any other label, kind or id has no effect.
+/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests and network
+/// work and drop its gestures; a crash also drops its sidebar state. Any other label, kind or id has no
+/// effect.
 fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
     if label != MAIN_LABEL || validate_id(id).is_err() {
         return;
@@ -111,10 +112,12 @@ fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
         "detached" => {
             api.ui().release(id);
             api.ui().drop_gestures(id);
+            api.net().frame_gone(id);
         }
         "crashed" => {
             api.ui().release(id);
             api.ui().drop_gestures(id);
+            api.net().frame_gone(id);
             api.sidebar().forget(id);
         }
         _ => {}
@@ -248,7 +251,7 @@ pub fn plugin_frame_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugins::api::{dispatch, FakeHost};
+    use crate::plugins::api::{dispatch, EndReason, FakeHost, Kind, Running};
     use crate::plugins::manifest::{Capability, Tier};
     use crate::plugins::paths::plugin_dir;
     use crate::plugins::registry::{Entry, EntryState, Registry};
@@ -281,6 +284,7 @@ mod tests {
             source_path: None,
             sidebar_collapsed: false,
             ready_enabled: None,
+            consented_network: Vec::new(),
         };
         let registry = Registry {
             entries: vec![entry],
@@ -554,6 +558,48 @@ mod tests {
             assert!(!api.ui().consume(ID, &token, Instant::now()), "{kind}");
             let kept = sidebar_state_from(MAIN_LABEL, Runtime::Running, api, &enabled).len();
             assert_eq!(kept, usize::from(kind == "detached"), "{kind}");
+        }
+    }
+
+    /// Opens a running entry of `kind` for `id` and returns the guard with the reasons it ended with.
+    fn open_net(
+        api: &ApiState,
+        id: &str,
+        kind: Kind,
+    ) -> (Running, Arc<std::sync::Mutex<Vec<EndReason>>>) {
+        let fired = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = fired.clone();
+        let running = api
+            .net()
+            .open(id, kind, None, Box::new(move |why| sink.lock().unwrap().push(why)))
+            .unwrap();
+        (running, fired)
+    }
+
+    #[test]
+    fn a_frame_event_ends_the_plugins_network_work_and_nothing_else() {
+        const OTHER: &str = "com.example.other";
+        for kind in ["detached", "crashed"] {
+            let plugins = plugins_of(Tier::Ui);
+            let api = plugins.api();
+            let (_fetch, fetch) = open_net(api, ID, Kind::Fetch);
+            let (_socket, socket) = open_net(api, ID, Kind::Socket);
+            let (_other, other) = open_net(api, OTHER, Kind::Stream);
+
+            frame_event_from(MAIN_LABEL, api, ID, "unmounted");
+            frame_event_from(MAIN_LABEL, api, ID, "");
+            frame_event_from("tray", api, ID, kind);
+            frame_event_from(MAIN_LABEL, api, "com.example.third", kind);
+            assert!(fetch.lock().unwrap().is_empty(), "{kind}");
+            assert_eq!(api.net().running(ID, Kind::Fetch), 1);
+
+            frame_event_from(MAIN_LABEL, api, ID, kind);
+            assert_eq!(*fetch.lock().unwrap(), [EndReason::FrameGone], "{kind}");
+            assert_eq!(*socket.lock().unwrap(), [EndReason::FrameGone], "{kind}");
+            assert_eq!(api.net().running(ID, Kind::Fetch), 0);
+            assert_eq!(api.net().running(ID, Kind::Socket), 0);
+            assert!(other.lock().unwrap().is_empty(), "{kind}");
+            assert_eq!(api.net().running(OTHER, Kind::Stream), 1);
         }
     }
 

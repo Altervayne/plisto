@@ -157,6 +157,7 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
             entry.enabled = false;
             entry.granted.clear();
             entry.ready_enabled = None;
+            entry.consented_network.clear();
             continue;
         }
         entry.granted.retain(|c| parsed.capabilities.contains(c));
@@ -176,6 +177,7 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
                 }
             }
         }
+        entry.bind_network(&parsed.network);
     }
     problems
 }
@@ -188,6 +190,7 @@ pub(super) fn demote(entry: &mut Entry, to: EntryState) {
     }
     entry.state = to;
     entry.enabled = false;
+    entry.consented_network.clear();
 }
 
 /// One entry for every plugin folder whose name is a valid id and which `known` does not list, for
@@ -223,6 +226,7 @@ pub fn adopt_folders(app_data: &Path, now: i64, known: &HashSet<String>) -> (Vec
                     source_path: None,
                     sidebar_collapsed: false,
                     ready_enabled: None,
+                    consented_network: Vec::new(),
                 }
             }
             Err(reason) => {
@@ -239,6 +243,7 @@ pub fn adopt_folders(app_data: &Path, now: i64, known: &HashSet<String>) -> (Vec
                     source_path: None,
                     sidebar_collapsed: false,
                     ready_enabled: None,
+                    consented_network: Vec::new(),
                 }
             }
         };
@@ -302,6 +307,7 @@ mod tests {
             source_path: None,
             sidebar_collapsed: false,
             ready_enabled: None,
+            consented_network: Vec::new(),
         }
     }
 
@@ -579,6 +585,92 @@ mod tests {
         let e = &reg.entries[0];
         assert_eq!(e.state, EntryState::NeedsConsent);
         assert!(!e.enabled && e.granted.is_empty());
+    }
+
+    fn networked_json(origins: &str) -> String {
+        manifest_json(ID, &format!(r#","network":{origins}"#))
+            .replace(r#"["storage"]"#, r#"["storage","network"]"#)
+    }
+
+    fn networked(hash: &str) -> Entry {
+        Entry {
+            granted: vec![Capability::Storage, Capability::Network],
+            ..ready(ID, hash)
+        }
+    }
+
+    #[test]
+    fn a_matched_hash_binds_the_manifest_origins() {
+        let d = AppData::new();
+        let json = networked_json(r#"["https://a.example.com","https://b.example.com:8443"]"#);
+        d.install(ID, &json);
+        let mut reg = registry(vec![networked(&hash_of(&json))]);
+        revalidate(&d.0, &mut reg);
+        assert_eq!(
+            reg.entries[0].consented_network,
+            ["https://a.example.com", "https://b.example.com:8443"]
+        );
+
+        // Without the grant, nothing is held.
+        let mut reg = registry(vec![ready(ID, &hash_of(&json))]);
+        revalidate(&d.0, &mut reg);
+        assert!(reg.entries[0].consented_network.is_empty());
+    }
+
+    #[test]
+    fn an_edit_or_a_demotion_empties_the_origins() {
+        let d = AppData::new();
+        let json = networked_json(r#"["https://a.example.com"]"#);
+        d.install(ID, &json.replace("\"Demo\"", "\"Demo, edited\""));
+        let mut entry = networked(&hash_of(&json));
+        entry.consented_network = vec!["https://a.example.com".into()];
+        let mut reg = registry(vec![entry.clone()]);
+        revalidate(&d.0, &mut reg);
+        assert_eq!(reg.entries[0].state, EntryState::NeedsConsent);
+        assert!(reg.entries[0].consented_network.is_empty());
+
+        let mut demoted = entry;
+        demote(&mut demoted, EntryState::Broken);
+        assert!(demoted.consented_network.is_empty());
+    }
+
+    #[test]
+    fn a_recovery_to_ready_binds_the_origins_again() {
+        let d = AppData::new();
+        let json = networked_json(r#"["https://a.example.com"]"#);
+        d.install(ID, &json);
+        for from in [EntryState::Broken, EntryState::Incompatible] {
+            let mut entry = networked(&hash_of(&json));
+            entry.state = from;
+            entry.enabled = false;
+            entry.ready_enabled = Some(true);
+            let mut reg = registry(vec![entry]);
+            revalidate(&d.0, &mut reg);
+            let e = &reg.entries[0];
+            assert_eq!(e.state, EntryState::Ready, "{from:?}");
+            assert_eq!(e.consented_network, ["https://a.example.com"], "{from:?}");
+        }
+    }
+
+    #[test]
+    fn a_boot_that_breaks_or_outdates_the_manifest_empties_the_origins() {
+        let d = AppData::new();
+        let json = networked_json(r#"["https://a.example.com"]"#);
+        let outdated = json.replace("\"1.0.0\",\"author\"", "\"999.0.0\",\"author\"");
+        for (on_disk, recorded, state) in [
+            ("{ not json".to_string(), hash_of(&json), EntryState::Broken),
+            (outdated.clone(), hash_of(&outdated), EntryState::Incompatible),
+        ] {
+            d.install(ID, &on_disk);
+            let mut entry = networked(&recorded);
+            entry.consented_network = vec!["https://a.example.com".into()];
+            let mut reg = registry(vec![entry]);
+            revalidate(&d.0, &mut reg);
+            let e = &reg.entries[0];
+            assert_eq!(e.state, state);
+            assert!(e.consented_network.is_empty(), "{state:?}");
+            assert!(reg.serving().is_empty());
+        }
     }
 
     #[test]

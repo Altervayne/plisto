@@ -61,10 +61,7 @@ fn entry_mut<'a>(registry: &'a mut Registry, id: &str) -> Result<&'a mut Entry, 
 }
 
 fn row(entry: &Entry, problems: &Problems) -> PluginRow {
-    PluginRow {
-        entry: entry.clone(),
-        problem: problems.get(&entry.id).cloned(),
-    }
+    PluginRow::new(entry.clone(), problems.get(&entry.id).cloned())
 }
 
 fn refused(code: ErrorCode, detail: impl Into<String>) -> Outcome {
@@ -77,6 +74,7 @@ pub(super) fn reset_consent(entry: &mut Entry) {
     entry.enabled = false;
     entry.granted.clear();
     entry.ready_enabled = None;
+    entry.consented_network.clear();
 }
 
 /// Whether `grants` names exactly the declared capabilities: the same set, no repeats, no unknown name.
@@ -255,6 +253,7 @@ fn apply_enable(
         entry.state = EntryState::Ready;
         entry.granted = manifest.capabilities;
     }
+    entry.bind_network(&manifest.network);
     if turn_on {
         entry.enabled = true;
     }
@@ -1086,6 +1085,149 @@ mod tests {
         let plugins = k.reboot();
         let err = approval(&plugins, &k.data, Some(&["storage"]), false).unwrap_err();
         assert_eq!(err.code, ErrorCode::RegistryUnavailable);
+    }
+
+    fn networked(origins: &[&str]) -> serde_json::Value {
+        let mut manifest = ui("1.0.0", &["network"]);
+        manifest["network"] = json!(origins);
+        manifest
+    }
+
+    /// The origins the demo plugin is served with, or None when it is not serving.
+    fn served_origins(plugins: &PluginsState) -> Option<Vec<String>> {
+        plugins
+            .enabled_set()
+            .serving(ID)
+            .map(|s| s.origins.to_vec())
+    }
+
+    #[test]
+    fn enabling_serves_the_reviewed_origins_and_a_boot_rebuilds_them() {
+        let k = Kit::new();
+        let list = ["https://a.example.com", "https://b.example.com:8443"];
+        k.install(&networked(&list));
+        assert!(k.plugins.rows()[0].granted_origins.is_empty());
+        k.enable(&["network"]);
+        assert_eq!(served_origins(&k.plugins).unwrap(), list);
+
+        let row = &k.plugins.rows()[0];
+        assert_eq!(row.granted_origins, list);
+        let json = serde_json::to_value(row).unwrap();
+        assert_eq!(json["granted_origins"], json!(list));
+        assert!(json.get("consented_network").is_none());
+        let text = fs::read_to_string(registry_file(&k.data)).unwrap();
+        assert!(!text.contains("example.com"), "{text}");
+
+        let booted = k.relaunch();
+        assert_eq!(served_origins(&booted).unwrap(), list);
+        assert!(!booted.enabled_set().serving(ID).unwrap().dev_mode);
+
+        // The serving set follows the developer switch.
+        k.plugins
+            .mutate(
+                &k.data,
+                Withdraw::No,
+                |registry, _| {
+                    registry.dev_mode = true;
+                    Ok(())
+                },
+                save_failed,
+            )
+            .unwrap();
+        assert!(k.plugins.enabled_set().serving(ID).unwrap().dev_mode);
+        assert_eq!(served_origins(&k.plugins).unwrap(), list);
+    }
+
+    #[test]
+    fn approve_holds_the_origins_and_serves_none_until_enabled() {
+        let k = Kit::new();
+        k.install(&networked(&["https://a.example.com"]));
+        let row = approval(&k.plugins, &k.data, Some(&["network"]), false).unwrap();
+        assert_eq!(row.granted_origins, ["https://a.example.com"]);
+        assert_eq!(served_origins(&k.plugins), None);
+        enable(&k.data, &k.plugins, ID, None, false, None).unwrap();
+        assert_eq!(served_origins(&k.plugins).unwrap(), ["https://a.example.com"]);
+    }
+
+    #[test]
+    fn a_manifest_rewritten_mid_run_changes_nothing_until_the_next_enable_or_boot() {
+        let k = Kit::new();
+        k.install(&networked(&["https://a.example.com"]));
+        k.enable(&["network"]);
+        let rewritten = networked(&["https://evil.example.com"]).to_string();
+        fs::write(plugin_dir(&k.data, ID).join("plugin.json"), &rewritten).unwrap();
+        assert_eq!(served_origins(&k.plugins).unwrap(), ["https://a.example.com"]);
+        assert_eq!(k.plugins.rows()[0].granted_origins, ["https://a.example.com"]);
+
+        let booted = k.relaunch();
+        assert_eq!(served_origins(&booted), None);
+        assert!(booted.rows()[0].granted_origins.is_empty());
+
+        let err = enable(&k.data, &k.plugins, ID, None, false, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ManifestChanged);
+        assert_eq!(served_origins(&k.plugins), None);
+        let e = k.plugins.snapshot().entries[0].clone();
+        assert_eq!(e.state, EntryState::NeedsConsent);
+        assert!(e.consented_network.is_empty());
+
+        // Consent to the rewritten manifest holds its own list.
+        let hash = manifest_hash(rewritten.as_bytes());
+        let caps = grants(&["network"]);
+        enable(&k.data, &k.plugins, ID, Some(&caps), false, Some(&hash)).unwrap();
+        assert_eq!(served_origins(&k.plugins).unwrap(), ["https://evil.example.com"]);
+    }
+
+    #[test]
+    fn disable_withdraws_the_origins_and_reset_consent_empties_them() {
+        let k = Kit::new();
+        k.install(&networked(&["https://a.example.com"]));
+        k.enable(&["network"]);
+        disable(&k.data, &k.plugins, ID).unwrap();
+        assert_eq!(served_origins(&k.plugins), None);
+        enable(&k.data, &k.plugins, ID, None, false, None).unwrap();
+        assert_eq!(served_origins(&k.plugins).unwrap(), ["https://a.example.com"]);
+
+        let mut e = k.plugins.snapshot().entries[0].clone();
+        reset_consent(&mut e);
+        assert!(e.consented_network.is_empty() && e.granted.is_empty());
+    }
+
+    #[test]
+    fn an_enable_that_finds_the_folder_broken_or_outdated_empties_the_origins() {
+        for (code, state) in [
+            (ErrorCode::Broken, EntryState::Broken),
+            (ErrorCode::Incompatible, EntryState::Incompatible),
+        ] {
+            let k = Kit::new();
+            k.install(&networked(&["https://a.example.com"]));
+            k.enable(&["network"]);
+            let dir = plugin_dir(&k.data, ID);
+            if state == EntryState::Broken {
+                fs::remove_file(dir.join("index.html")).unwrap();
+            } else {
+                let mut outdated = networked(&["https://a.example.com"]);
+                outdated["min_plisto"] = json!("999.0.0");
+                fs::write(dir.join("plugin.json"), outdated.to_string()).unwrap();
+            }
+            let err = enable(&k.data, &k.plugins, ID, None, false, None).unwrap_err();
+            assert_eq!(err.code, code);
+            let e = k.plugins.snapshot().entries[0].clone();
+            assert_eq!(e.state, state);
+            assert!(e.consented_network.is_empty(), "{state:?}");
+            assert!(k.plugins.rows()[0].granted_origins.is_empty());
+            assert_eq!(served_origins(&k.plugins), None);
+        }
+    }
+
+    #[test]
+    fn an_entry_claiming_network_with_no_list_serves_no_origin() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        k.enable(&["storage"]);
+        k.set_entry(|e| e.granted.push(Capability::Network));
+        let serving = k.plugins.enabled_set().serving(ID).unwrap();
+        assert!(serving.granted.contains(&Capability::Network));
+        assert!(serving.origins.is_empty());
     }
 
     #[test]

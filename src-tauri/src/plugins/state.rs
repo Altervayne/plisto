@@ -59,6 +59,10 @@ pub struct Serving {
     pub tier: Tier,
     pub version: String,
     pub granted: Vec<Capability>,
+    /// The origins the user consented to; empty without a `network` grant.
+    pub origins: Arc<[String]>,
+    /// Whether developer loopback origins are honored.
+    pub dev_mode: bool,
 }
 
 /// The enabled, ready plugins. Cheap to clone; every clone sees the same set.
@@ -218,6 +222,18 @@ pub struct PluginRow {
     #[serde(flatten)]
     pub entry: Entry,
     pub problem: Option<String>,
+    /// The origins held for the entry, which its own serialization leaves out.
+    pub granted_origins: Vec<String>,
+}
+
+impl PluginRow {
+    pub fn new(entry: Entry, problem: Option<String>) -> PluginRow {
+        PluginRow {
+            granted_origins: entry.consented_network.clone(),
+            entry,
+            problem,
+        }
+    }
 }
 
 pub struct PluginsState {
@@ -381,10 +397,7 @@ impl PluginsState {
             .registry
             .entries
             .iter()
-            .map(|entry| PluginRow {
-                entry: entry.clone(),
-                problem: inner.problems.get(&entry.id).cloned(),
-            })
+            .map(|entry| PluginRow::new(entry.clone(), inner.problems.get(&entry.id).cloned()))
             .collect()
     }
 
@@ -599,7 +612,7 @@ fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
     loaded.entries.extend(adopted);
     problems.extend(adopted_problems);
     loaded.normalize();
-    if may_save && (must_save || loaded != as_read) {
+    if may_save && (must_save || !loaded.same_file(&as_read)) {
         if let Err(e) = registry::save(app_data, &loaded) {
             eprintln!("plugins: cannot save the registry: {e}");
         }
@@ -675,6 +688,7 @@ mod tests {
             source_path: None,
             sidebar_collapsed: false,
             ready_enabled: None,
+            consented_network: Vec::new(),
         }
     }
 
@@ -1214,6 +1228,39 @@ mod tests {
         }));
         assert!(!handle.contains(ID));
         assert_eq!(state.runtime(), Runtime::Safe);
+    }
+
+    #[test]
+    fn a_steady_boot_with_held_origins_leaves_the_file_alone() {
+        let d = AppData::new();
+        let json = format!(
+            r#"{{"manifest_version":1,"id":"{ID}","name":"Demo","version":"1.0.0","tier":"ui",
+            "entry":"index.html","capabilities":["network"],"network":["https://a.example.com"],
+            "min_plisto":"1.0.0","author":"A"}}"#
+        );
+        let dir = plugin_dir(&d.0, ID);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("plugin.json"), &json).unwrap();
+        fs::write(dir.join("index.html"), "<p></p>").unwrap();
+        let hash = crate::plugins::revalidate::manifest_hash(json.as_bytes());
+        save(
+            &d,
+            vec![Entry {
+                granted: vec![Capability::Network],
+                ..entry(ID, &hash, true)
+            }],
+        );
+        let bytes = fs::read(registry_file(&d.0)).unwrap();
+        let modified = fs::metadata(registry_file(&d.0)).unwrap().modified().unwrap();
+        for _ in 0..2 {
+            session::clear(&d.0);
+            let state = d.boot();
+            let serving = state.enabled_set().serving(ID).unwrap();
+            assert_eq!(&*serving.origins, ["https://a.example.com"]);
+            assert_eq!(fs::read(registry_file(&d.0)).unwrap(), bytes);
+            let now = fs::metadata(registry_file(&d.0)).unwrap().modified().unwrap();
+            assert_eq!(now, modified, "the file was rewritten");
+        }
     }
 
     #[test]

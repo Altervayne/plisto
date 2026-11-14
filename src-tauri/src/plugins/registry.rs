@@ -82,6 +82,10 @@ pub struct Entry {
     /// recovery can restore it. Anything else recovers to needs-consent. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_enabled: Option<bool>,
+    /// The origins the user consented to, copied from the manifest whose hash was just matched. Memory
+    /// only: never read from or written to the file, so an edit on disk cannot widen it.
+    #[serde(skip)]
+    pub consented_network: Vec<String>,
 }
 
 fn needs_consent() -> EntryState {
@@ -111,6 +115,23 @@ impl Entry {
         if matches!(self.state, EntryState::NeedsConsent | EntryState::Ready) {
             self.ready_enabled = None;
         }
+        if !self.network_consented() {
+            self.consented_network.clear();
+        }
+    }
+
+    fn network_consented(&self) -> bool {
+        self.state == EntryState::Ready && self.granted.contains(&Capability::Network)
+    }
+
+    /// Holds `origins`, the list of the manifest whose hash was just matched, when the entry is ready
+    /// with `network` granted; clears it otherwise.
+    pub fn bind_network(&mut self, origins: &[String]) {
+        self.consented_network = if self.network_consented() {
+            origins.to_vec()
+        } else {
+            Vec::new()
+        };
     }
 
     /// Whether the frame host may serve this plugin.
@@ -156,6 +177,18 @@ impl Registry {
         self.entries.iter().find(|e| e.id == id)
     }
 
+    /// Whether saving either would write the same file, which the consented origins never reach.
+    pub fn same_file(&self, other: &Registry) -> bool {
+        let bare = |registry: &Registry| {
+            let mut registry = registry.clone();
+            for entry in &mut registry.entries {
+                entry.consented_network.clear();
+            }
+            registry
+        };
+        bare(self) == bare(other)
+    }
+
     /// The ids the frame host may serve.
     pub fn serving_ids(&self) -> HashSet<String> {
         self.entries
@@ -175,6 +208,8 @@ impl Registry {
                     tier: e.tier,
                     version: e.version.clone(),
                     granted: e.granted.clone(),
+                    origins: e.consented_network.as_slice().into(),
+                    dev_mode: self.dev_mode,
                 };
                 (e.id.clone(), serving)
             })
@@ -404,6 +439,7 @@ mod tests {
             source_path: Some("C:/dev/plugin".into()),
             sidebar_collapsed: true,
             ready_enabled: None,
+            consented_network: Vec::new(),
         }
     }
 
@@ -737,5 +773,107 @@ mod tests {
         let d = AppData::new();
         save(&d.0, &Registry::default()).unwrap();
         assert!(!plugins_dir(&d.0).exists());
+    }
+
+    fn networked(id: &str) -> Entry {
+        Entry {
+            granted: vec![Capability::Network],
+            consented_network: vec!["https://api.example.com".into()],
+            ..entry(id)
+        }
+    }
+
+    #[test]
+    fn the_consented_origins_never_reach_the_file() {
+        let d = AppData::new();
+        let registry = Registry {
+            entries: vec![networked("com.example.one")],
+            ..Registry::default()
+        };
+        save(&d.0, &registry).unwrap();
+        let text = fs::read_to_string(registry_file(&d.0)).unwrap();
+        assert!(!text.contains("consented_network"), "{text}");
+        assert!(!text.contains("api.example.com"), "{text}");
+        let FileRead::Parsed(read) = read_file(&d.0) else {
+            panic!("registry did not load");
+        };
+        assert!(read.entries[0].consented_network.is_empty());
+        assert_ne!(read, registry);
+        assert!(read.same_file(&registry));
+        // A hand-written key is not read either.
+        let planted = br#"{"entries":[{"id":"com.example.one","tier":"ui","state":"ready",
+            "enabled":true,"granted":["network"],"consented_network":["https://evil.example.com"]}]}"#;
+        assert!(parse(planted).unwrap().entries[0].consented_network.is_empty());
+    }
+
+    #[test]
+    fn normalize_clears_the_origins_unless_ready_with_network_granted() {
+        let mut registry = Registry {
+            entries: vec![
+                networked("com.example.kept"),
+                Entry {
+                    state: EntryState::Broken,
+                    ..networked("com.example.broken")
+                },
+                Entry {
+                    state: EntryState::NeedsConsent,
+                    ..networked("com.example.fresh")
+                },
+                Entry {
+                    granted: vec![Capability::Storage],
+                    ..networked("com.example.ungranted")
+                },
+            ],
+            ..Registry::default()
+        };
+        registry.normalize();
+        let origins: Vec<usize> = registry
+            .entries
+            .iter()
+            .map(|e| e.consented_network.len())
+            .collect();
+        assert_eq!(origins, [1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn serving_carries_the_origins_and_the_dev_mode() {
+        let mut registry = Registry {
+            entries: vec![
+                networked("com.example.one"),
+                // Claims `network` with no list held: no origin at all, never any.
+                Entry {
+                    consented_network: Vec::new(),
+                    ..networked("com.example.bare")
+                },
+            ],
+            ..Registry::default()
+        };
+        for dev_mode in [false, true] {
+            registry.dev_mode = dev_mode;
+            let serving = registry.serving();
+            let one = &serving["com.example.one"];
+            assert_eq!(&*one.origins, ["https://api.example.com".to_string()]);
+            assert_eq!(one.dev_mode, dev_mode);
+            let bare = &serving["com.example.bare"];
+            assert!(bare.origins.is_empty());
+            assert_eq!(bare.dev_mode, dev_mode);
+        }
+    }
+
+    #[test]
+    fn bind_network_holds_the_list_only_for_a_ready_network_grant() {
+        let list = vec!["https://a.example.com".to_string()];
+        let mut e = networked("com.example.one");
+        e.bind_network(&list);
+        assert_eq!(e.consented_network, list);
+        e.granted = vec![Capability::Storage];
+        e.bind_network(&list);
+        assert!(e.consented_network.is_empty());
+        let mut e = Entry {
+            state: EntryState::NeedsConsent,
+            ..networked("com.example.one")
+        };
+        e.bind_network(&list);
+        assert!(e.consented_network.is_empty());
     }
 }

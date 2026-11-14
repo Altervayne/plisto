@@ -319,6 +319,7 @@ mod tests {
                     source_path: None,
                     sidebar_collapsed: false,
                     ready_enabled: None,
+                    consented_network: Vec::new(),
                 })
                 .collect();
             let registry = Registry {

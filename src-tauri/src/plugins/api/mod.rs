@@ -51,6 +51,10 @@ use super::paths::validate_id;
 use super::state::{EnabledSet, Serving};
 use crate::state::AppState;
 
+// Lets command tests hold and inspect network entries without opening the module crate-wide.
+#[cfg(test)]
+pub(crate) use self::net::state::{EndReason, Kind, Running};
+
 pub const API_VERSION: u32 = 1;
 pub const MAX_ARGS_BYTES: usize = 1_048_576;
 pub const MAX_IN_FLIGHT: u32 = 16;
@@ -390,6 +394,8 @@ pub(crate) fn test_ctx<'a>(app_data: &'a Path, host: &'a FakeHost) -> TestCall<'
         tier: super::manifest::Tier::Ui,
         version: "1.0.0".into(),
         granted: Vec::new(),
+        origins: Vec::new().into(),
+        dev_mode: false,
     };
     TestCall {
         app_data,
@@ -427,6 +433,7 @@ mod tests {
             source_path: None,
             sidebar_collapsed: false,
             ready_enabled: None,
+            consented_network: Vec::new(),
         };
         let registry = Registry {
             entries: vec![entry],
