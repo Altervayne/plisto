@@ -8,12 +8,17 @@
  * AtomicU32 slots, which have the layout of a u32 and compile to plain stores. The writer publishes a
  * monotonic cursor and never reads reader state, so a slow or dead reader can never stall playback; a
  * reader detects that it fell behind from the cursor gap.
+ *
+ * The engine's slot starts with no region and gains one once, the first time a reader asks for it, so
+ * a session that never reads the tap holds no ring. The region is installed before `active` is set and
+ * is never replaced or freed while the slot lives, so the audio thread reaches it through a lock-free
+ * once-cell load and never holds a region that goes away under it.
  */
 
 // -- Library Imports --
 use std::mem::{offset_of, size_of};
 use std::sync::atomic::{fence, AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 // -- Local Imports --
 use super::AudioSpec;
@@ -45,8 +50,10 @@ const HEADER_RESERVED: usize = TAP_SAMPLES_OFFSET - 32 - TAP_SEGMENTS * size_of:
 #[repr(C)]
 pub struct SegmentRecord {
     pub start_cursor: AtomicU64,
-    // Bumped on every cold start (play, seek, load): a record with a new epoch follows a
-    // discontinuity, so a reader flushes. A gapless boundary or a format change keeps the epoch.
+    // Within one epoch the samples are the continuous output of one unbroken chain of sources. A new
+    // epoch opens on a cold start (play, seek, load), when a writer resumes after it stopped writing,
+    // and when a gapless successor follows a source that was not writing; a reader flushes on it. A
+    // gapless boundary or a format change inside the chain keeps the epoch.
     pub epoch: AtomicU32,
     pub rate: AtomicU32,
     pub channels: AtomicU32,
@@ -89,7 +96,7 @@ const _: () = {
 };
 
 impl TapHeader {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             magic: TAP_MAGIC,
             layout_version: TAP_LAYOUT_VERSION,
@@ -150,51 +157,98 @@ impl TapRegion for HeapRegion {
 
 /// The engine's one tap: the region, whether anything is reading it, and the current epoch. Inactive
 /// by default, which leaves the region untouched.
-pub struct TapSlot<R: TapRegion = HeapRegion> {
+pub struct TapSlot {
     active: AtomicBool,
     epoch: AtomicU32,
-    region: R,
+    // Whether the last refill of the last writer wrote, and the epoch it wrote in. A gapless
+    // successor continues that epoch only when it did. Both are touched only by refills, which all
+    // run on the audio thread in play order, so the last refill is the predecessor's.
+    writing: AtomicBool,
+    written: AtomicU32,
+    region: OnceLock<Box<dyn TapRegion>>,
 }
 
-impl<R: TapRegion> TapSlot<R> {
-    pub fn new(region: R) -> Self {
+impl TapSlot {
+    /// A slot over `region`, ready to write once active.
+    pub fn new(region: impl TapRegion + 'static) -> Self {
+        let slot = Self::empty();
+        let _ = slot.install(Box::new(region));
+        slot
+    }
+
+    /// A slot with no region yet. It writes nothing until one is installed and it is active.
+    pub fn empty() -> Self {
         Self {
             active: AtomicBool::new(false),
             epoch: AtomicU32::new(0),
-            region,
+            writing: AtomicBool::new(false),
+            written: AtomicU32::new(0),
+            region: OnceLock::new(),
         }
     }
 
-    pub fn region(&self) -> &R {
-        &self.region
+    /// Gives the slot its region. Only the first call takes; a later one gets its region back.
+    pub fn install(&self, region: Box<dyn TapRegion>) -> Result<(), Box<dyn TapRegion>> {
+        self.region.set(region)
     }
 
-    /// Turns writing on or off. Sources pick the change up at their next packet.
+    pub fn region(&self) -> Option<&dyn TapRegion> {
+        self.region.get().map(|r| r.as_ref())
+    }
+
+    /// Turns writing on or off. Sources pick the change up at their next packet. An empty slot
+    /// stays silent whatever this says.
     pub fn set_active(&self, on: bool) {
         self.active.store(on, Ordering::Relaxed);
     }
 
-    /// A writer for a source started cold, after a clear: it opens a new epoch. Engine thread only.
-    pub fn cold(self: &Arc<Self>) -> TapWriter<R> {
-        let epoch = self.epoch.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
-        TapWriter::new(Arc::clone(self), epoch)
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
     }
 
-    /// A writer for a source queued gapless behind the playing one: it continues the epoch.
-    pub fn warm(self: &Arc<Self>) -> TapWriter<R> {
-        TapWriter::new(Arc::clone(self), self.epoch.load(Ordering::Relaxed))
+    /// The latest epoch opened and not given back.
+    pub fn epoch(&self) -> u32 {
+        self.epoch.load(Ordering::Relaxed)
+    }
+
+    /// The published write cursor, 0 with no region.
+    pub fn write_cursor(&self) -> u64 {
+        self.region()
+            .map_or(0, |r| r.header().write_cursor.load(Ordering::Acquire))
+    }
+
+    /// A writer for a source started cold, after a clear: it opens a new epoch. Engine thread only.
+    pub fn cold(self: &Arc<Self>) -> TapWriter {
+        TapWriter::new(Arc::clone(self), self.next_epoch(), true)
+    }
+
+    /// A writer for a source queued gapless behind the playing one: at its first sample it continues
+    /// the epoch the source it follows last wrote in, when that one was writing. A cold start opened
+    /// meanwhile does not move it: the successor still plays right after its predecessor.
+    pub fn warm(self: &Arc<Self>) -> TapWriter {
+        TapWriter::new(Arc::clone(self), 0, false)
+    }
+
+    fn next_epoch(&self) -> u32 {
+        self.epoch.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
     }
 }
 
 /// One source's write side of the tap, owned by the source and run on the audio thread. The slot's
 /// `active` flag and the region cursor are read only at a packet refill; between refills the cursor
 /// lives here, and each sample is one store.
-pub struct TapWriter<R: TapRegion = HeapRegion> {
-    slot: Arc<TapSlot<R>>,
+pub struct TapWriter {
+    slot: Arc<TapSlot>,
     epoch: u32,
+    // The epoch has no record yet. A writer that starts writing again after a gap opens a new epoch
+    // rather than resume one a reader already saw.
+    fresh: bool,
     started: bool,
     active: bool,
     cursor: u64,
+    // The region's sample ring, taken at each refill that writes so a sample costs an index and a
+    // store. Null until then. The slot never drops its region and this writer holds the slot.
+    samples: *const AtomicU32,
     // Samples until the next publish, and the publish period for the current layout.
     publish_in: usize,
     publish_every: usize,
@@ -202,14 +256,20 @@ pub struct TapWriter<R: TapRegion = HeapRegion> {
     recorded: Option<AudioSpec>,
 }
 
-impl<R: TapRegion> TapWriter<R> {
-    fn new(slot: Arc<TapSlot<R>>, epoch: u32) -> Self {
+// SAFETY: `samples` points into the region the held slot keeps for its whole life, and the ring is
+// only touched through atomics, so the writer may move to the audio thread.
+unsafe impl Send for TapWriter {}
+
+impl TapWriter {
+    fn new(slot: Arc<TapSlot>, epoch: u32, fresh: bool) -> Self {
         Self {
             slot,
             epoch,
+            fresh,
             started: false,
             active: false,
             cursor: 0,
+            samples: std::ptr::null(),
             publish_in: 1,
             publish_every: 1,
             recorded: None,
@@ -226,16 +286,32 @@ impl<R: TapRegion> TapWriter<R> {
     /// re-reads `active`, and records a segment when writing starts or the layout changed. Returns
     /// whether the coming samples are written.
     pub fn refill(&mut self, spec: AudioSpec) -> bool {
+        let first = !self.started;
         self.started = true;
         if self.active {
             self.publish();
         }
-        self.active = self.slot.active.load(Ordering::Relaxed);
-        if !self.active {
+        let was_active = self.active;
+        let region = self.slot.region.get().filter(|r| {
+            r.samples().len() >= TAP_CAPACITY && self.slot.active.load(Ordering::Relaxed)
+        });
+        let predecessor_wrote = self.slot.writing.load(Ordering::Relaxed);
+        self.active = region.is_some();
+        self.slot.writing.store(self.active, Ordering::Relaxed);
+        let Some(region) = region else {
             self.recorded = None;
             return false;
+        };
+        if !was_active && !self.fresh {
+            self.epoch = if first && predecessor_wrote {
+                self.slot.written.load(Ordering::Relaxed)
+            } else {
+                self.slot.next_epoch()
+            };
         }
-        let header = self.slot.region.header();
+        self.slot.written.store(self.epoch, Ordering::Relaxed);
+        self.samples = region.samples().as_ptr();
+        let header = region.header();
         // This writer is the only one, so the published cursor is where the last source stopped.
         self.cursor = header.write_cursor.load(Ordering::Relaxed);
         self.publish_every = (PUBLISH_FRAMES * spec.channels as usize).clamp(1, TAP_GUARD);
@@ -249,9 +325,14 @@ impl<R: TapRegion> TapWriter<R> {
     /// Stores one sample. Only called while `refill` last returned true.
     #[inline]
     pub fn push(&mut self, s: f32) {
-        let slot = (self.cursor as usize) & (TAP_CAPACITY - 1);
-        self.slot.region.samples()[slot].store(s.to_bits(), Ordering::Relaxed);
-        self.cursor += 1;
+        if self.samples.is_null() {
+            return;
+        }
+        let i = (self.cursor as usize) & (TAP_CAPACITY - 1);
+        // SAFETY: `i` is below TAP_CAPACITY, which `refill` checked against the ring's length, and
+        // the ring outlives this writer.
+        unsafe { (*self.samples.add(i)).store(s.to_bits(), Ordering::Relaxed) };
+        self.cursor = self.cursor.wrapping_add(1);
         self.publish_in -= 1;
         if self.publish_in == 0 {
             self.publish();
@@ -262,18 +343,23 @@ impl<R: TapRegion> TapWriter<R> {
     /// Publishes the samples written so far. Run when the source drains, so the next source picks up
     /// at the exact boundary.
     pub fn publish(&self) {
-        if !self.active {
+        let Some(region) = self.slot.region.get().filter(|_| self.active) else {
             return;
-        }
-        let header = self.slot.region.header();
-        header.write_cursor.store(self.cursor, Ordering::Release);
+        };
+        region
+            .header()
+            .write_cursor
+            .store(self.cursor, Ordering::Release);
         // Orders the publish before the next stores, so a reader that sees an overwritten slot also
         // sees a cursor that tells it so.
         fence(Ordering::Release);
     }
 
     fn record(&mut self, spec: AudioSpec) {
-        let header = self.slot.region.header();
+        let Some(region) = self.slot.region.get() else {
+            return;
+        };
+        let header = region.header();
         let n = header.segment_cursor.load(Ordering::Relaxed);
         fence(Ordering::Release);
         let rec = &header.segments[(n as usize) & (TAP_SEGMENTS - 1)];
@@ -281,8 +367,26 @@ impl<R: TapRegion> TapWriter<R> {
         rec.epoch.store(self.epoch, Ordering::Relaxed);
         rec.rate.store(spec.sample_rate, Ordering::Relaxed);
         rec.channels.store(spec.channels as u32, Ordering::Relaxed);
-        header.segment_cursor.store(n + 1, Ordering::Release);
+        header
+            .segment_cursor
+            .store(n.wrapping_add(1), Ordering::Release);
         self.recorded = Some(spec);
+        self.fresh = false;
+    }
+}
+
+impl Drop for TapWriter {
+    /// A cold writer that never wrote gives its epoch back, so the slot's epoch stays the last one a
+    /// reader can see. Only while it is still the latest: a later epoch already opened keeps its number.
+    fn drop(&mut self) {
+        if self.fresh {
+            let _ = self.slot.epoch.compare_exchange(
+                self.epoch,
+                self.epoch.wrapping_sub(1),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+        }
     }
 }
 
@@ -308,7 +412,7 @@ pub struct TapReader {
 
 impl TapReader {
     /// A reader at the region's live position, with the record governing it next in line.
-    pub fn live(region: &impl TapRegion) -> Self {
+    pub fn live(region: &(impl TapRegion + ?Sized)) -> Self {
         let mut r = Self {
             cursor: 0,
             segment: 0,
@@ -327,7 +431,7 @@ impl TapReader {
     }
 
     /// Jumps to the live position after an overrun.
-    pub fn resync(&mut self, region: &impl TapRegion) {
+    pub fn resync(&mut self, region: &(impl TapRegion + ?Sized)) {
         let header = region.header();
         self.cursor = header.write_cursor.load(Ordering::Acquire);
         self.segment = header
@@ -338,7 +442,11 @@ impl TapReader {
 
     /// Copies up to `out.len()` published samples from the reader's cursor without moving it. The
     /// copy is only good once `commit` accepts it.
-    pub fn copy(&self, region: &impl TapRegion, out: &mut [f32]) -> Result<usize, Overrun> {
+    pub fn copy(
+        &self,
+        region: &(impl TapRegion + ?Sized),
+        out: &mut [f32],
+    ) -> Result<usize, Overrun> {
         let written = region.header().write_cursor.load(Ordering::Acquire);
         let lag = written.saturating_sub(self.cursor);
         if lag > READ_SPAN {
@@ -355,7 +463,7 @@ impl TapReader {
 
     /// Re-checks the write cursor after a `copy` of `n` samples and moves past them. Overrun means
     /// the writer overwrote part of the copy while it ran.
-    pub fn commit(&mut self, region: &impl TapRegion, n: usize) -> Result<(), Overrun> {
+    pub fn commit(&mut self, region: &(impl TapRegion + ?Sized), n: usize) -> Result<(), Overrun> {
         fence(Ordering::Acquire);
         let written = region.header().write_cursor.load(Ordering::Relaxed);
         if written.saturating_sub(self.cursor) > READ_SPAN {
@@ -366,14 +474,21 @@ impl TapReader {
     }
 
     /// `copy` then `commit`.
-    pub fn read(&mut self, region: &impl TapRegion, out: &mut [f32]) -> Result<usize, Overrun> {
+    pub fn read(
+        &mut self,
+        region: &(impl TapRegion + ?Sized),
+        out: &mut [f32],
+    ) -> Result<usize, Overrun> {
         let n = self.copy(region, out)?;
         self.commit(region, n)?;
         Ok(n)
     }
 
     /// The next segment record, or None when the reader has seen them all.
-    pub fn next_segment(&mut self, region: &impl TapRegion) -> Result<Option<Segment>, Overrun> {
+    pub fn next_segment(
+        &mut self,
+        region: &(impl TapRegion + ?Sized),
+    ) -> Result<Option<Segment>, Overrun> {
         let header = region.header();
         let written = header.segment_cursor.load(Ordering::Acquire);
         if self.segment >= written {
@@ -400,7 +515,7 @@ impl TapReader {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::audio::decode;
     use crate::audio::dsp::{DspShared, DspStage};
@@ -408,25 +523,31 @@ mod tests {
     use crate::audio::source::{open_source, DecoderSource};
     use std::path::Path;
 
-    const STEREO: AudioSpec = AudioSpec {
+    pub(in crate::audio) const STEREO: AudioSpec = AudioSpec {
         sample_rate: 44_100,
         channels: 2,
     };
 
-    fn slot(active: bool) -> Arc<TapSlot> {
-        let slot = Arc::new(TapSlot::new(HeapRegion::new()));
-        slot.set_active(active);
-        slot
+    fn heap_slot() -> Arc<TapSlot> {
+        Arc::new(TapSlot::new(HeapRegion::new()))
+    }
+
+    pub(in crate::audio) fn region(slot: &TapSlot) -> &dyn TapRegion {
+        slot.region().expect("the slot has a region")
     }
 
     // A source over `path` with an identity stage, built the way the engine builds one.
-    fn source(path: &Path, start_secs: Option<f64>, tap: Option<TapWriter>) -> DecoderSource {
+    pub(in crate::audio) fn source(
+        path: &Path,
+        start_secs: Option<f64>,
+        tap: Option<TapWriter>,
+    ) -> DecoderSource {
         open_source(path, start_secs, 0.0, &Arc::new(DspShared::default()), tap)
             .expect("primes the first packet")
     }
 
-    fn cursors(slot: &TapSlot) -> (u64, u64) {
-        let header = slot.region().header();
+    pub(in crate::audio) fn cursors(slot: &TapSlot) -> (u64, u64) {
+        let header = region(slot).header();
         (
             header.write_cursor.load(Ordering::Relaxed),
             header.segment_cursor.load(Ordering::Relaxed),
@@ -434,25 +555,25 @@ mod tests {
     }
 
     // Every published sample, read from the start of the ring.
-    fn tapped(slot: &TapSlot) -> Vec<f32> {
+    pub(in crate::audio) fn tapped(slot: &TapSlot) -> Vec<f32> {
         let mut out = vec![0.0; cursors(slot).0 as usize];
         let n = TapReader::at(0, 0)
-            .read(slot.region(), &mut out)
+            .read(region(slot), &mut out)
             .expect("the reader keeps up");
         assert_eq!(n, out.len());
         out
     }
 
-    fn segments(slot: &TapSlot) -> Vec<Segment> {
+    pub(in crate::audio) fn segments(slot: &TapSlot) -> Vec<Segment> {
         let mut reader = TapReader::at(0, 0);
         let mut out = Vec::new();
-        while let Some(seg) = reader.next_segment(slot.region()).expect("no record lost") {
+        while let Some(seg) = reader.next_segment(region(slot)).expect("no record lost") {
             out.push(seg);
         }
         out
     }
 
-    fn segment(start_cursor: u64, epoch: u32, spec: AudioSpec) -> Segment {
+    pub(in crate::audio) fn segment(start_cursor: u64, epoch: u32, spec: AudioSpec) -> Segment {
         Segment {
             start_cursor,
             epoch,
@@ -468,33 +589,15 @@ mod tests {
         w
     }
 
-    #[test]
-    fn the_header_layout_is_fixed() {
-        assert_eq!(size_of::<TapHeader>(), 4096);
-        assert_eq!(offset_of!(TapHeader, write_cursor), 16);
-        assert_eq!(offset_of!(TapHeader, segment_cursor), 24);
-        assert_eq!(offset_of!(TapHeader, segments), 32);
-        assert_eq!(size_of::<SegmentRecord>(), 24);
-        assert_eq!(offset_of!(SegmentRecord, epoch), 8);
-        assert_eq!(TAP_MAGIC.to_le_bytes(), *b"PTAP");
+    // -- Checks every region passes, each on a new inactive slot --
 
-        let region = HeapRegion::new();
-        let header = region.header();
-        assert_eq!(header.magic, TAP_MAGIC);
-        assert_eq!(header.layout_version, 1);
-        assert_eq!(header.capacity, 1 << 20);
-        assert_eq!(header.segment_count, 64);
-        assert_eq!(region.samples().len(), 1 << 20);
-    }
-
-    #[test]
-    fn the_tap_is_the_source_output_bit_for_bit() {
+    pub(in crate::audio) fn check_output_bit_for_bit(slot: Arc<TapSlot>) {
         let dir = TempDir::new("tap_output");
         let path = dir.path.join("tone.wav");
         write_wav(&path, 44_100, 2, 3_000);
 
         // A non-identity stage, so the tap is shown to sit after the DSP.
-        let slot = slot(true);
+        slot.set_active(true);
         let dec = decode::Decoder::open(&path).expect("opens the WAV");
         let src = DecoderSource::new(dec, 0.0, DspStage::with_preamp(-6.0), Some(slot.cold()))
             .expect("primes");
@@ -504,45 +607,28 @@ mod tests {
         assert_eq!(segments(&slot), vec![segment(0, 1, STEREO)]);
     }
 
-    #[test]
-    fn an_inactive_slot_writes_nothing() {
+    pub(in crate::audio) fn check_inactive_writes_nothing(slot: Arc<TapSlot>) {
         let dir = TempDir::new("tap_inactive");
         let path = dir.path.join("tone.wav");
         write_wav(&path, 44_100, 2, 3_000);
 
-        let slot = slot(false);
         let out: Vec<f32> = source(&path, None, Some(slot.cold())).collect();
         assert_eq!(bits(&out), bits(&raw_samples(&path)));
         assert_eq!(cursors(&slot), (0, 0));
-        assert!(slot
-            .region()
+        assert!(region(&slot)
             .samples()
             .iter()
             .all(|s| s.load(Ordering::Relaxed) == 0));
     }
 
-    #[test]
-    fn a_preview_writes_nothing() {
-        let dir = TempDir::new("tap_preview");
-        let path = dir.path.join("tone.wav");
-        write_wav(&path, 44_100, 2, 3_000);
-
-        // A preview opens its source with no writer, so even an active slot stays empty.
-        let slot = slot(true);
-        let out: Vec<f32> = source(&path, Some(0.01), None).collect();
-        assert!(!out.is_empty());
-        assert_eq!(cursors(&slot), (0, 0));
-    }
-
-    #[test]
-    fn a_gapless_pair_records_the_boundary_cursor() {
+    pub(in crate::audio) fn check_gapless_boundary(slot: Arc<TapSlot>) {
         let dir = TempDir::new("tap_gapless");
         let (a, b) = (dir.path.join("a.wav"), dir.path.join("b.wav"));
         write_wav(&a, 44_100, 2, 5_123);
         write_wav(&b, 44_100, 2, 7_077);
 
         // Queued back to back, as the engine appends a preload behind the playing source.
-        let slot = slot(true);
+        slot.set_active(true);
         let (input, output) = rodio::queue::queue::<f32>(false);
         input.append(source(&a, None, Some(slot.cold())));
         input.append(source(&b, None, Some(slot.warm())));
@@ -562,14 +648,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_seek_starts_a_new_epoch() {
+    pub(in crate::audio) fn check_seek_epoch(slot: Arc<TapSlot>) {
         let dir = TempDir::new("tap_seek");
         let path = dir.path.join("tone.wav");
         write_wav(&path, 44_100, 2, 20_000);
 
         // The playing source is cut mid-stream, so only what it published counts.
-        let slot = slot(true);
+        slot.set_active(true);
         let mut playing = source(&path, None, Some(slot.cold()));
         let heard: Vec<f32> = playing.by_ref().take(1_000).collect();
         drop(playing);
@@ -586,51 +671,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_spec_change_records_a_segment() {
-        let mono = AudioSpec {
-            sample_rate: 48_000,
-            channels: 1,
-        };
-        let slot = slot(true);
-        let mut w = writing(&slot, STEREO);
-        for _ in 0..10 {
-            w.push(0.5);
-        }
-        // Same layout: no record.
-        assert!(w.refill(STEREO));
-        for _ in 0..6 {
-            w.push(0.5);
-        }
-        assert!(w.refill(mono));
-        w.push(0.25);
-        // Writing that stops and starts again records the layout anew.
-        slot.set_active(false);
-        assert!(!w.refill(mono));
+    pub(in crate::audio) fn check_overrun(slot: Arc<TapSlot>) {
         slot.set_active(true);
-        assert!(w.refill(mono));
-        w.publish();
-
-        assert_eq!(cursors(&slot).0, 17);
-        assert_eq!(
-            segments(&slot),
-            vec![
-                segment(0, 1, STEREO),
-                segment(16, 1, mono),
-                segment(17, 1, mono)
-            ]
-        );
-    }
-
-    #[test]
-    fn a_lagging_reader_detects_overrun() {
-        let slot = slot(true);
         let mut w = writing(&slot, STEREO);
         for i in 0..TAP_CAPACITY + 10 {
             w.push(i as f32);
         }
         w.publish();
-        let region = slot.region();
+        let region = region(&slot);
         let mut out = vec![0.0; 100];
 
         assert_eq!(TapReader::at(0, 0).read(region, &mut out), Err(Overrun));
@@ -655,15 +703,14 @@ mod tests {
         assert_eq!(TapReader::at(0, 0).next_segment(region), Err(Overrun));
     }
 
-    #[test]
-    fn a_torn_read_is_detected() {
-        let slot = slot(true);
+    pub(in crate::audio) fn check_torn_read(slot: Arc<TapSlot>) {
+        slot.set_active(true);
         let mut w = writing(&slot, STEREO);
         for _ in 0..1_000 {
             w.push(0.5);
         }
         w.publish();
-        let region = slot.region();
+        let region = region(&slot);
         let mut out = vec![0.0; 1_000];
 
         // The writer moves on a little between the copy and the re-check: the copy stands.
@@ -685,5 +732,266 @@ mod tests {
         w.publish();
         assert_eq!(reader.commit(region, 1_000), Err(Overrun));
         assert_eq!(reader.cursor(), 0);
+    }
+
+    #[test]
+    fn the_header_layout_is_fixed() {
+        assert_eq!(size_of::<TapHeader>(), 4096);
+        assert_eq!(offset_of!(TapHeader, write_cursor), 16);
+        assert_eq!(offset_of!(TapHeader, segment_cursor), 24);
+        assert_eq!(offset_of!(TapHeader, segments), 32);
+        assert_eq!(size_of::<SegmentRecord>(), 24);
+        assert_eq!(offset_of!(SegmentRecord, epoch), 8);
+        assert_eq!(TAP_MAGIC.to_le_bytes(), *b"PTAP");
+
+        let region = HeapRegion::new();
+        let header = region.header();
+        assert_eq!(header.magic, TAP_MAGIC);
+        assert_eq!(header.layout_version, 1);
+        assert_eq!(header.capacity, 1 << 20);
+        assert_eq!(header.segment_count, 64);
+        assert_eq!(region.samples().len(), 1 << 20);
+    }
+
+    #[test]
+    fn the_tap_is_the_source_output_bit_for_bit() {
+        check_output_bit_for_bit(heap_slot());
+    }
+
+    #[test]
+    fn an_inactive_slot_writes_nothing() {
+        check_inactive_writes_nothing(heap_slot());
+    }
+
+    #[test]
+    fn an_empty_slot_writes_nothing_even_when_active() {
+        let dir = TempDir::new("tap_empty");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 3_000);
+
+        let slot = Arc::new(TapSlot::empty());
+        slot.set_active(true);
+        let out: Vec<f32> = source(&path, None, Some(slot.cold())).collect();
+        assert_eq!(bits(&out), bits(&raw_samples(&path)));
+        assert!(slot.region().is_none());
+        assert_eq!(slot.write_cursor(), 0);
+    }
+
+    #[test]
+    fn a_preview_writes_nothing() {
+        let dir = TempDir::new("tap_preview");
+        let path = dir.path.join("tone.wav");
+        write_wav(&path, 44_100, 2, 3_000);
+
+        // A preview opens its source with no writer, so even an active slot stays empty.
+        let slot = heap_slot();
+        slot.set_active(true);
+        let out: Vec<f32> = source(&path, Some(0.01), None).collect();
+        assert!(!out.is_empty());
+        assert_eq!(cursors(&slot), (0, 0));
+    }
+
+    #[test]
+    fn a_gapless_pair_records_the_boundary_cursor() {
+        check_gapless_boundary(heap_slot());
+    }
+
+    #[test]
+    fn a_seek_starts_a_new_epoch() {
+        check_seek_epoch(heap_slot());
+    }
+
+    #[test]
+    fn a_spec_change_records_a_segment() {
+        let mono = AudioSpec {
+            sample_rate: 48_000,
+            channels: 1,
+        };
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut w = writing(&slot, STEREO);
+        for _ in 0..10 {
+            w.push(0.5);
+        }
+        // Same layout: no record.
+        assert!(w.refill(STEREO));
+        for _ in 0..6 {
+            w.push(0.5);
+        }
+        assert!(w.refill(mono));
+        w.push(0.25);
+        // Writing that stops and starts again records the layout anew, in a new epoch.
+        slot.set_active(false);
+        assert!(!w.refill(mono));
+        slot.set_active(true);
+        assert!(w.refill(mono));
+        w.publish();
+
+        assert_eq!(cursors(&slot).0, 17);
+        assert_eq!(
+            segments(&slot),
+            vec![
+                segment(0, 1, STEREO),
+                segment(16, 1, mono),
+                segment(17, 2, mono)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_gapless_successor_after_a_gap_opens_a_new_epoch() {
+        let slot = heap_slot();
+        let mut a = slot.cold();
+        assert!(!a.refill(STEREO));
+        let mut b = slot.warm();
+        slot.set_active(true);
+        assert!(b.refill(STEREO));
+        b.push(0.5);
+        b.publish();
+        // The predecessor wrote nothing, so the successor does not continue its epoch.
+        assert_eq!(segments(&slot), vec![segment(0, 2, STEREO)]);
+    }
+
+    // The (start cursor, epoch) of every record.
+    fn records(slot: &TapSlot) -> Vec<(u64, u32)> {
+        segments(slot)
+            .iter()
+            .map(|s| (s.start_cursor, s.epoch))
+            .collect()
+    }
+
+    // Runs one packet of `n` samples through `w`, then publishes as a draining source does.
+    fn play(w: &mut TapWriter, n: usize) {
+        if w.refill(STEREO) {
+            for _ in 0..n {
+                w.push(0.5);
+            }
+        }
+        w.publish();
+    }
+
+    #[test]
+    fn a_cold_start_opened_during_a_gapless_handover_keeps_its_own_epoch() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        let mut b = slot.warm();
+        // A seek opens its writer before the sink is cleared, and the preload crosses over meanwhile.
+        let mut c = slot.cold();
+        play(&mut b, 128);
+        play(&mut c, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 1), (256, 2)]);
+    }
+
+    #[test]
+    fn a_cold_start_that_never_plays_does_not_split_a_gapless_pair() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        let b = slot.warm();
+        // A seek whose file fails to open drops its writer unused.
+        drop(slot.cold());
+        let mut b = b;
+        play(&mut b, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 1)]);
+    }
+
+    #[test]
+    fn a_successor_continues_the_epoch_its_predecessor_resumed_in() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        slot.set_active(false);
+        play(&mut a, 128);
+        slot.set_active(true);
+        play(&mut a, 128);
+        let mut b = slot.warm();
+        play(&mut b, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 2), (256, 2)]);
+    }
+
+    #[test]
+    fn a_successor_that_starts_writing_late_opens_a_new_epoch() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        let mut b = slot.warm();
+        slot.set_active(false);
+        play(&mut b, 128);
+        slot.set_active(true);
+        play(&mut b, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 2)]);
+    }
+
+    #[test]
+    fn a_cold_writer_that_starts_late_writes_its_own_epoch() {
+        let slot = heap_slot();
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        let mut c = slot.cold();
+        slot.set_active(true);
+        play(&mut a, 128);
+        play(&mut c, 128);
+        // Each cold writer keeps the epoch it opened, so the two runs never share one.
+        assert_eq!(records(&slot), vec![(0, 1), (128, 2)]);
+    }
+
+    #[test]
+    fn a_cold_writer_dropped_before_writing_gives_its_epoch_back() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        // A seek whose file fails to open.
+        drop(slot.cold());
+        assert_eq!(slot.epoch(), 1);
+        let mut c = slot.cold();
+        play(&mut c, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 2)]);
+        assert_eq!(slot.epoch(), 2);
+    }
+
+    #[test]
+    fn a_cold_writer_dropped_after_a_later_one_opened_keeps_the_epoch() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let a = slot.cold();
+        let mut b = slot.cold();
+        drop(a);
+        assert_eq!(slot.epoch(), 2);
+        play(&mut b, 128);
+        let c = slot.cold();
+        drop(b);
+        assert_eq!(slot.epoch(), 3);
+        drop(c);
+        assert_eq!(slot.epoch(), 2);
+        assert_eq!(records(&slot), vec![(0, 2)]);
+    }
+
+    #[test]
+    fn a_warm_writer_dropped_before_writing_gives_nothing_back() {
+        let slot = heap_slot();
+        slot.set_active(true);
+        let mut a = slot.cold();
+        play(&mut a, 128);
+        drop(slot.warm());
+        assert_eq!(slot.epoch(), 1);
+        let mut c = slot.cold();
+        play(&mut c, 128);
+        assert_eq!(records(&slot), vec![(0, 1), (128, 2)]);
+    }
+
+    #[test]
+    fn a_lagging_reader_detects_overrun() {
+        check_overrun(heap_slot());
+    }
+
+    #[test]
+    fn a_torn_read_is_detected() {
+        check_torn_read(heap_slot());
     }
 }

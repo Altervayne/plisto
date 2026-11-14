@@ -19,6 +19,7 @@ use tauri::Emitter;
 
 // -- Local Imports --
 use super::dsp::{DspParams, DspShared};
+use super::feed::{self, DeviceReport, FeedCause, FeedHub, FeedState, Transport};
 use super::queue::{
     advance_index, clamp_index, enqueue_tracks, insert_after_current, move_queue_item, on_track_end, pending_slot,
     preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
@@ -28,9 +29,10 @@ use super::source::{
     self, Cut, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
     SPECTRUM_WINDOW,
 };
-use super::tap::{HeapRegion, TapSlot, TapWriter};
+use super::tap::{TapSlot, TapWriter};
 use super::{
-    spectrum, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack, RepeatMode,
+    feed_hub, spectrum, AudioSpec, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack,
+    RepeatMode,
 };
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
@@ -105,6 +107,11 @@ struct Engine {
     dsp: Arc<DspShared>,
     // The audio tap every library source writes while it is active. Previews never feed it.
     tap: Arc<TapSlot>,
+    // Where transport snapshots go, and the hub that owns `tap`.
+    feed: &'static FeedHub,
+    // The bound device's identity and period, read once per device and only while a feed consumer
+    // is attached.
+    device_report: Option<DeviceReport>,
     cur_rate: u32,
     cur_channels: u16,
     cur_duration: f64,
@@ -206,6 +213,54 @@ impl Engine {
         self.playing && !self.paused
     }
 
+    /// Whether a library track is seated, playing or paused. A preview is not one.
+    fn has_library_track(&self) -> bool {
+        self.playing && self.cur_track_id.is_some()
+    }
+
+    /// The volume every `sink.set_volume` takes. The one place output volume is decided.
+    fn output_volume(&self) -> f32 {
+        self.volume
+    }
+
+    /// Sends a transport snapshot to the feed consumers. With none attached it returns after one
+    /// load, so playback without a consumer is unchanged. Only a library track feeds the tap, so
+    /// with none current (stopped, or a preview playing) the snapshot says stopped, and a pause or a
+    /// resume there sends nothing.
+    fn feed(&mut self, cause: FeedCause) {
+        if !self.feed.wanted() {
+            return;
+        }
+        let library = self.has_library_track();
+        if !library && matches!(cause, FeedCause::Pause | FeedCause::Resume) {
+            return;
+        }
+        let device = self.bound_device.clone();
+        let follows_default = self.device_pref.is_none();
+        let report = self
+            .device_report
+            .get_or_insert_with(|| feed::device_report(device.as_deref(), follows_default))
+            .clone();
+        let transport = if !library {
+            Transport::Stopped
+        } else if self.paused {
+            Transport::Paused
+        } else {
+            Transport::Playing
+        };
+        let state = FeedState {
+            transport,
+            sample_rate: if library { self.cur_rate } else { 0 },
+            channels: if library { self.cur_channels } else { 0 },
+            position_secs: if library { self.position_secs() } else { 0.0 },
+            volume: self.volume,
+            device,
+            device_id: report.endpoint_id,
+            latency_ms: report.latency_ms,
+        };
+        self.feed.publish(cause, state);
+    }
+
     /// Analyzes the trailing window of played audio and emits it as `player:spectrum`, with its level
     /// and flux as `player:level`, plus `player:spectrum_fine` from the same transform while it is
     /// asked for. Gated on active output, so all are silent while paused or stopped.
@@ -297,6 +352,7 @@ impl Engine {
             match self.open_source(&self.queue[i].path, None, self.queue[i].gain_db, tap) {
                 Some(src) => {
                     self.start_source(i, src);
+                    self.feed(FeedCause::Start);
                     self.emit(true);
                     // A dead opened file was skipped before this one played: report it once so the
                     // user learns the failed file did not just vanish.
@@ -324,7 +380,7 @@ impl Engine {
         if let Some(sink) = &self.sink {
             sink.clear();
             source::append_cold(sink, src, cut.as_ref());
-            sink.set_volume(self.volume);
+            sink.set_volume(self.output_volume());
             sink.play();
         }
         self.paused = false;
@@ -428,11 +484,17 @@ impl Engine {
                 Some(s) => s,
                 None => return,
             };
-        if src.spec.sample_rate != self.cur_rate || src.spec.channels != self.cur_channels {
-            return;
-        }
         let handles = SourceHandles::of(&src);
         let cancel = Arc::clone(&src.cancel);
+        // Read again after the open: a track that ended meanwhile has the sink playing silence. The
+        // dropped writer never wrote, so the cold end starts the next track in a new epoch.
+        let drained = self
+            .cur_ended
+            .as_ref()
+            .is_some_and(|e| e.load(Ordering::Relaxed));
+        if !joins_gapless(src.spec, self.cur_rate, self.cur_channels, drained) {
+            return;
+        }
         // Appended bare: the queue is busy with the current source, so no primer is needed.
         if let Some(sink) = &self.sink {
             sink.append(src);
@@ -465,12 +527,14 @@ impl Engine {
         self.preload_tried = None;
         self.begin_listen(p.slot, p.id);
         self.seat(p.handles);
+        self.feed(FeedCause::Gapless);
         self.emit(true);
     }
 
     /// Stops playback and clears the current-track state. The sink is emptied so the next play
     /// starts clean.
     fn stop_playback(&mut self) {
+        let was_library = self.has_library_track();
         self.clear_pending();
         if let Some(sink) = &self.sink {
             sink.clear();
@@ -487,6 +551,9 @@ impl Engine {
         self.stop_at_frame = None;
         // Settle the bars to rest on the edge into stopped, so a visualizer needs no self-decay.
         self.emit_spectrum_rest();
+        if was_library {
+            self.feed(FeedCause::Stop);
+        }
     }
 
     /// The single choke point for a counted listen. Both guards ride here: it fires at most once per
@@ -532,6 +599,7 @@ impl Engine {
             None => return,
         };
         let rate = src.spec.sample_rate;
+        let was_library = self.has_library_track();
         let cut = self.outgoing();
         self.clear_pending();
         self.seat(SourceHandles::of(&src));
@@ -544,11 +612,15 @@ impl Engine {
         if let Some(sink) = &self.sink {
             sink.clear();
             source::append_cold(sink, src, cut.as_ref());
-            sink.set_volume(self.volume);
+            sink.set_volume(self.output_volume());
             sink.play();
         }
         self.paused = false;
         self.playing = true;
+        // The library source is gone; the preview itself never reaches the feed.
+        if was_library {
+            self.feed(FeedCause::Stop);
+        }
         self.emit(true);
     }
 
@@ -576,6 +648,8 @@ impl Engine {
             self.paused = true;
             self.emit_spectrum_rest();
         }
+        // One snapshot, taken once the paused state is settled.
+        self.feed(FeedCause::Start);
         self.emit(true);
     }
 
@@ -609,11 +683,12 @@ impl Engine {
             sink.clear();
             sink.pause();
             source::append_cold(sink, src, cut.as_ref());
-            sink.set_volume(self.volume);
+            sink.set_volume(self.output_volume());
         }
         self.paused = true;
         self.playing = true;
         self.emit_spectrum_rest();
+        self.feed(FeedCause::Start);
         self.emit(true);
     }
 
@@ -636,13 +711,14 @@ impl Engine {
         if let Some(sink) = &self.sink {
             sink.clear();
             source::append_cold(sink, src, cut.as_ref());
-            sink.set_volume(self.volume);
+            sink.set_volume(self.output_volume());
             if self.paused {
                 sink.pause();
             } else {
                 sink.play();
             }
         }
+        self.feed(FeedCause::Seek);
         self.emit(true);
     }
 
@@ -682,7 +758,7 @@ impl Engine {
         let built = match stream_res {
             Ok((stream, handle)) => match Sink::try_new(&handle) {
                 Ok(sink) => {
-                    sink.set_volume(self.volume);
+                    sink.set_volume(self.output_volume());
                     Some((stream, sink))
                 }
                 Err(_) => None,
@@ -690,6 +766,7 @@ impl Engine {
             Err(_) => None,
         };
 
+        self.device_report = None;
         let (stream, sink) = match built {
             Some(pair) => pair,
             None => {
@@ -697,6 +774,7 @@ impl Engine {
                 self._stream = None;
                 self.sink = None;
                 self.bound_device = None;
+                self.feed(FeedCause::Device);
                 return;
             }
         };
@@ -715,7 +793,9 @@ impl Engine {
             // seek reopens the current file, seeks, and appends to the now-new sink, preserving the
             // paused state and emitting its own forced status.
             self.seek(resume_secs);
+            self.feed(FeedCause::Device);
         } else {
+            self.feed(FeedCause::Device);
             self.emit(true);
         }
     }
@@ -779,6 +859,9 @@ impl Engine {
                 self.paused = !self.paused;
                 if self.paused {
                     self.emit_spectrum_rest();
+                    self.feed(FeedCause::Pause);
+                } else {
+                    self.feed(FeedCause::Resume);
                 }
                 self.emit(true);
             }
@@ -788,6 +871,7 @@ impl Engine {
                 }
                 self.paused = true;
                 self.emit_spectrum_rest();
+                self.feed(FeedCause::Pause);
                 self.emit(true);
             }
             PlayerCmd::Resume => {
@@ -795,6 +879,7 @@ impl Engine {
                     sink.play();
                 }
                 self.paused = false;
+                self.feed(FeedCause::Resume);
                 self.emit(true);
             }
             PlayerCmd::Stop => {
@@ -918,8 +1003,9 @@ impl Engine {
             PlayerCmd::SetVolume(v) => {
                 self.volume = v.clamp(0.0, 1.0);
                 if let Some(sink) = &self.sink {
-                    sink.set_volume(self.volume);
+                    sink.set_volume(self.output_volume());
                 }
+                self.feed(FeedCause::Volume);
                 self.emit(true);
             }
             PlayerCmd::SetRepeat(m) => {
@@ -1077,7 +1163,9 @@ fn run(
         prev_bands: [0.0; BAND_COUNT],
         fine_spectrum: false,
         dsp: Arc::new(DspShared::default()),
-        tap: Arc::new(TapSlot::new(HeapRegion::new())),
+        tap: Arc::clone(feed_hub().slot()),
+        feed: feed_hub(),
+        device_report: None,
         cur_rate: 0,
         cur_channels: 0,
         cur_duration: 0.0,
@@ -1131,10 +1219,42 @@ fn find_output_device(name: &str) -> Option<cpal::Device> {
         .find(|dev| dev.name().ok().as_deref() == Some(name))
 }
 
+/// Whether a preload of layout `spec` is appended behind the current source. A layout change or a
+/// current source that already drained leaves the next track to the cold end.
+fn joins_gapless(spec: AudioSpec, cur_rate: u32, cur_channels: u16, drained: bool) -> bool {
+    !drained && spec.sample_rate == cur_rate && spec.channels == cur_channels
+}
+
 /// Wall-clock milliseconds since the Unix epoch, the clock the emit throttle measures against.
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const STEREO: AudioSpec = AudioSpec {
+        sample_rate: 44_100,
+        channels: 2,
+    };
+
+    #[test]
+    fn a_preload_of_the_same_layout_joins_gapless() {
+        assert!(joins_gapless(STEREO, 44_100, 2, false));
+    }
+
+    #[test]
+    fn a_preload_of_another_layout_is_left_to_the_cold_end() {
+        assert!(!joins_gapless(STEREO, 48_000, 2, false));
+        assert!(!joins_gapless(STEREO, 44_100, 1, false));
+    }
+
+    #[test]
+    fn a_preload_opened_after_the_current_source_drained_is_left_to_the_cold_end() {
+        assert!(!joins_gapless(STEREO, 44_100, 2, true));
+    }
 }

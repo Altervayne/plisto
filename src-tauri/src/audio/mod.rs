@@ -10,7 +10,9 @@
 #![allow(dead_code, unused_imports)]
 
 // -- Library Imports --
+use std::io;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +22,7 @@ use crate::sound_settings::SoundSettings;
 pub mod decode;
 mod dsp;
 pub mod engine;
+pub mod feed;
 pub mod flac_frames;
 pub mod peaks;
 mod queue;
@@ -27,13 +30,42 @@ pub mod silence;
 mod source;
 pub mod spectrum;
 mod tap;
+mod tap_map;
 
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};
 pub use dsp::gain::{track_gain_db, GainInputs};
+pub use feed::{FeedCause, FeedConsumer, FeedEvent, FeedHub, FeedState, Transport};
 pub use peaks::{compute_peaks, Peak, PeakAccumulator};
 pub(crate) use queue::index_of_id;
 pub use silence::{find_silence, SilenceDetector, SilenceSpan};
+
+// ---- Audio feed for out-of-process readers ----
+
+static FEED: LazyLock<FeedHub> = LazyLock::new(FeedHub::new);
+
+/// The process's one feed hub. The engine takes its tap slot at spawn and publishes through it.
+pub(crate) fn feed_hub() -> &'static FeedHub {
+    &FEED
+}
+
+/// Attaches a feed consumer: a receiver of playback snapshots and, with `tap`, the name of the tap
+/// mapping to open. Any thread but the audio thread; the first tap attach creates the mapping. While
+/// at least one tap consumer is attached the engine writes the tap.
+pub fn attach_feed_consumer(tap: bool) -> io::Result<FeedConsumer> {
+    FEED.attach(tap)
+}
+
+/// Detaches a consumer by its id. Any thread but the audio thread. Detaching the last tap consumer
+/// stops the tap writes at the next packet; the mapping is kept for the next attach.
+pub fn detach_feed_consumer(id: u64) {
+    FEED.detach(id);
+}
+
+/// Snapshots dropped on full consumer channels since launch. Any thread.
+pub fn feed_dropped() -> u64 {
+    FEED.dropped()
+}
 
 // The player's shared vocabulary: the command layer speaks these, the engine thread consumes them,
 // and the frontend reads the status snapshot back. Defined here beside the audio core so both the
