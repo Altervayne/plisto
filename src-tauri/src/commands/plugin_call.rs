@@ -243,7 +243,7 @@ mod tests {
         let plugins = serving_one();
         let enabled = plugins.enabled_set();
         page_state_from(MAIN_LABEL, &enabled, plugins.api(), ID, true);
-        plugins.withdraw(ID);
+        let _withdrawn = plugins.withdraw(ID);
         page_state_from(MAIN_LABEL, &enabled, plugins.api(), ID, false);
         assert_eq!(plugins.api().open_page(), None);
     }

@@ -658,7 +658,7 @@ mod tests {
         let api = rig.plugins.api();
         let admitted = admit(&enabled, api, ID, "storage.get", 11, rig.now()).unwrap();
         // The plugin is uninstalled between admission and the gate.
-        rig.plugins.withdraw(ID);
+        let _withdrawn = rig.plugins.withdraw(ID);
         api.forget(ID);
         let args = r#"{"key":"a"}"#;
         let late = run(&admitted, args, &t.0, &rig.host, api).unwrap_err();

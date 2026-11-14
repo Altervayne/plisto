@@ -1,7 +1,7 @@
 /*
- * The IPC commands for plugins: the registry listing, what the previous run left behind, the base
- * URL a plugin's sandboxed frames load from, install from a folder or archive, and the lifecycle after
- * it. The frame URL stays None until the main webview's frame handler is installed, so nothing mounts a
+ * The IPC commands for plugins: the registry listing, the runtime and the answer to a held boot, the
+ * base URL a plugin's sandboxed frames load from, install from a folder or archive, and the lifecycle
+ * after it. The frame URL stays None until the main webview's frame handler is installed, so nothing mounts a
  * frame that no one would answer. Install and lifecycle work touches the disk, so it runs on a blocking
  * thread, never on the main one. Any call that changed the registry tells the main window with
  * `plugins:changed`; the event carries nothing, the window reads the list again. Every row handed back
@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Webview};
 
 // -- Local Imports --
 use super::now_unix;
@@ -22,9 +22,9 @@ use crate::plugins::icon_url;
 use crate::plugins::install::{self, InboxItem, Inspection};
 use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::lifecycle::{self, Uninstalled};
-use crate::plugins::session::BootState;
+use crate::plugins::manifest::Tier;
 use crate::plugins::stage::Limits;
-use crate::plugins::state::PluginsState;
+use crate::plugins::state::{BootView, PluginsState, Runtime};
 use crate::plugins::summary::{self, RowView, UpdatedView};
 use crate::plugins::update;
 use crate::state::AppState;
@@ -56,10 +56,51 @@ pub async fn plugins_list(app: AppHandle) -> Result<Vec<RowView>, InstallError> 
     .map_err(|_| InstallError::new(ErrorCode::Io, "the plugin list task failed to run"))
 }
 
-/// Whether safe mode is on and whether the previous run ended uncleanly.
+const MAIN_LABEL: &str = "main";
+
+/// Whether plugins run this session, with what the previous run left behind.
 #[tauri::command]
-pub fn plugins_boot_state(state: State<'_, AppState>) -> BootState {
-    state.plugins.boot_state()
+pub fn plugins_boot_state(state: State<'_, AppState>) -> BootView {
+    state.plugins.boot_view()
+}
+
+/// Answers a held boot from webview `label`. None when the label is not the main window or the
+/// runtime was not held.
+fn resolve_from(label: &str, plugins: &PluginsState, safe: bool) -> Option<BootView> {
+    if label != MAIN_LABEL {
+        return None;
+    }
+    plugins.resolve_held(safe)
+}
+
+/// Answers the held boot: `safe` keeps every plugin off for this session, otherwise they run. Any
+/// other window, or a runtime that is not held, gets the current view and changes nothing.
+#[tauri::command]
+pub async fn plugins_resolve_boot(safe: bool, webview: Webview, app: AppHandle) -> BootView {
+    let state = app.state::<AppState>();
+    let Some(view) = resolve_from(webview.label(), &state.plugins, safe) else {
+        return state.plugins.boot_view();
+    };
+    let _ = app.emit_to(MAIN_LABEL, "plugins:runtime", view);
+    if view.runtime == Runtime::Running {
+        let _ = app.emit_to(MAIN_LABEL, "plugins:changed", ());
+        start_serving_native(app.clone());
+    }
+    view
+}
+
+/// Starts every serving native plugin on a thread of its own, since each start reads its folder.
+fn start_serving_native(app: AppHandle) {
+    let _ = std::thread::Builder::new()
+        .name("plugin-boot".into())
+        .spawn(move || {
+            let state = app.state::<AppState>();
+            for (id, serving) in state.plugins.snapshot().serving() {
+                if serving.tier == Tier::Native {
+                    state.plugins.start(&id);
+                }
+            }
+        });
 }
 
 /// Runs an install step on a blocking thread with the app data dir and the plugin state.
@@ -256,4 +297,70 @@ pub async fn plugin_inbox_path(app: AppHandle) -> Result<String, InstallError> {
 #[tauri::command]
 pub async fn plugin_data_size(id: String, app: AppHandle) -> Result<u64, InstallError> {
     run_blocking(app, move |app_data, _| data_size::data_size(&app_data, &id)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::registry::{Entry, EntryState, Registry};
+    use crate::plugins::revalidate::Problems;
+    use crate::plugins::session::BootState;
+
+    const ID: &str = "com.example.demo";
+
+    /// An enabled native plugin after an unclean exit: the runtime is held.
+    fn held() -> PluginsState {
+        let entry = Entry {
+            id: ID.to_string(),
+            version: "1.0.0".into(),
+            tier: Tier::Native,
+            enabled: true,
+            granted: Vec::new(),
+            installed_at: 1,
+            manifest_hash: "h".into(),
+            state: EntryState::Ready,
+            source_path: None,
+            sidebar_collapsed: false,
+            ready_enabled: None,
+        };
+        let registry = Registry {
+            entries: vec![entry],
+            ..Registry::default()
+        };
+        let boot = BootState {
+            safe_mode: false,
+            unclean: true,
+        };
+        PluginsState::new(registry, Problems::new(), boot)
+    }
+
+    #[test]
+    fn only_the_main_window_may_resolve_the_boot() {
+        let plugins = held();
+        for label in ["tray", "nowplaying", "Main", "main ", ""] {
+            for safe in [false, true] {
+                assert_eq!(resolve_from(label, &plugins, safe), None, "{label:?}");
+            }
+        }
+        assert_eq!(plugins.runtime(), Runtime::Held);
+        assert!(!plugins.is_enabled(ID));
+
+        let view = resolve_from(MAIN_LABEL, &plugins, false).unwrap();
+        assert_eq!(view.runtime, Runtime::Running);
+        assert!(view.unclean && !view.safe_flag);
+        assert!(plugins.is_enabled(ID));
+        // Answered once: the main window gets nothing to act on either.
+        assert_eq!(resolve_from(MAIN_LABEL, &plugins, true), None);
+        assert_eq!(plugins.runtime(), Runtime::Running);
+    }
+
+    #[test]
+    fn the_main_window_can_choose_safe_mode() {
+        let plugins = held();
+        let view = resolve_from(MAIN_LABEL, &plugins, true).unwrap();
+        assert_eq!(view.runtime, Runtime::Safe);
+        assert!(!plugins.is_enabled(ID));
+        assert_eq!(resolve_from(MAIN_LABEL, &plugins, false), None);
+        assert!(!plugins.is_enabled(ID));
+    }
 }

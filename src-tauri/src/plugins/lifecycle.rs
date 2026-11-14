@@ -369,7 +369,8 @@ pub fn uninstall(
             }
         }
     };
-    plugins.withdraw(id);
+    // Held until the folders are dealt with, so an enable meanwhile cannot start the plugin.
+    let withdrawn = plugins.withdraw(id);
     plugins.stop(id);
     let removed = plugins.mutate(
         app_data,
@@ -399,6 +400,7 @@ pub fn uninstall(
         // Only removes the holder when nothing was left in it.
         let _ = fs::remove_dir(&holder);
         // The plugin is still installed and was stopped above; it runs again if still serving.
+        drop(withdrawn);
         plugins.start(id);
         return Err(e);
     }
@@ -452,7 +454,7 @@ mod tests {
         assert!(k.plugins.is_enabled(ID));
         assert_eq!(k.plugins.generation(), before + 1);
         // Saved: a reboot keeps it ready and served.
-        assert!(k.reboot().is_enabled(ID));
+        assert!(k.relaunch().is_enabled(ID));
     }
 
     #[test]
@@ -608,6 +610,26 @@ mod tests {
         assert_eq!(k.stops(), [ID]);
         assert_eq!(k.starts(), [ID, ID]);
         assert!(k.plugins.is_enabled(ID));
+    }
+
+    #[test]
+    fn an_enable_during_an_uninstall_starts_nothing() {
+        let k = Kit::new();
+        k.install(&native("1.0.0", &[]));
+        k.enable(&[]);
+        let plugins = std::sync::Arc::new(k.relaunch());
+        k.record(&plugins);
+        let weak = std::sync::Arc::downgrade(&plugins);
+        let data = k.data.clone();
+        plugins.set_stopper(std::sync::Arc::new(move |id: &str| {
+            let p = weak.upgrade().unwrap();
+            enable(&data, &p, id, None, false, None).unwrap();
+        }));
+        uninstall(&k.data, &plugins, ID, false).unwrap();
+        let refused = format!("{ID} (not serving)");
+        assert_eq!(k.starts(), [ID, refused.as_str()]);
+        assert!(plugins.rows().is_empty());
+        assert!(!plugins.is_enabled(ID));
     }
 
     #[test]

@@ -17,6 +17,7 @@ use super::install::{inspect, install, Inspection};
 use super::lifecycle::{enable, save_failed};
 use super::paths::state_dir;
 use super::registry::{self, Entry, FileRead};
+use super::session;
 use super::stage::{Limits, Temp};
 use super::state::{PluginRow, PluginsState, Starter, Withdraw};
 
@@ -66,25 +67,36 @@ impl Kit {
         let data = temp.0.join("appdata");
         fs::create_dir_all(&data).unwrap();
         let plugins = PluginsState::boot(&data, VERSION, 1, 50);
-        let stops = Arc::new(Mutex::new(Vec::new()));
-        let record = stops.clone();
-        plugins.set_stopper(Arc::new(move |id: &str| {
-            record.lock().unwrap().push(id.to_string())
-        }));
-        let starts = Arc::new(Mutex::new(Vec::new()));
-        plugins.set_starter(Arc::new(RecordStarts(starts.clone())));
-        Kit {
+        let kit = Kit {
             temp,
             data,
             plugins,
-            stops,
-            starts,
-        }
+            stops: Arc::default(),
+            starts: Arc::default(),
+        };
+        kit.record(&kit.plugins);
+        kit
     }
 
-    /// A second state booted from the same folder, as the next launch would see it.
+    /// Records the stops and starts of `plugins` into this kit's lists.
+    pub fn record(&self, plugins: &PluginsState) {
+        let stops = self.stops.clone();
+        plugins.set_stopper(Arc::new(move |id: &str| {
+            stops.lock().unwrap().push(id.to_string())
+        }));
+        plugins.set_starter(Arc::new(RecordStarts(self.starts.clone())));
+    }
+
+    /// A second state booted from the same folder, as the next launch would see it. This kit's own
+    /// boot never exited, so it reads as an unclean exit.
     pub fn reboot(&self) -> PluginsState {
         PluginsState::boot(&self.data, VERSION, 1, 60)
+    }
+
+    /// `reboot` after a clean exit.
+    pub fn relaunch(&self) -> PluginsState {
+        session::clear(&self.data);
+        self.reboot()
     }
 
     /// Writes a source folder for `manifest` and inspects it. Returns the token.

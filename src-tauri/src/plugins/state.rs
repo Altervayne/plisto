@@ -3,7 +3,9 @@
  * then, and the set of ids the frame host may serve. The frame host answers on a COM callback for every
  * request, so its set is a separate lock-guarded copy that never waits on the registry or the disk.
  * Boot reads the registry once and never fails: every bad file, folder or manifest ends as a marked
- * entry or an empty list, not an error.
+ * entry or an empty list, not an error. The runtime is the one switch for every plugin path: the
+ * serving set stays empty unless it is running, so nothing that reads the set can serve or start a
+ * plugin while it is held or safe.
  */
 
 // -- Library Imports --
@@ -88,6 +90,58 @@ impl EnabledSet {
     }
 }
 
+/// Whether plugins may run this session. Decided at boot; only a held runtime changes, once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Runtime {
+    /// The last run ended uncleanly with plugins serving: nothing runs until the user chooses.
+    Held,
+    Running,
+    /// No plugin runs this session.
+    Safe,
+}
+
+/// The runtime with what the previous run left behind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct BootView {
+    pub runtime: Runtime,
+    pub unclean: bool,
+    pub safe_flag: bool,
+}
+
+/// Keeps one plugin out of the serving set until it drops, whatever changes meanwhile. Holds on one
+/// id stack; the id serves again once the last one drops and the registry still serves it.
+#[must_use = "the plugin serves again as soon as the guard drops"]
+pub struct Withdrawn<'a> {
+    state: &'a PluginsState,
+    id: String,
+}
+
+impl Drop for Withdrawn<'_> {
+    fn drop(&mut self) {
+        let mut inner = self.state.inner();
+        if let Some(holds) = inner.withdrawn.get_mut(&self.id) {
+            *holds -= 1;
+            if *holds == 0 {
+                inner.withdrawn.remove(&self.id);
+            }
+        }
+        self.state.enabled.replace(inner.serving());
+    }
+}
+
+/// Empties the serving set when dropped during a panic. The panic poisons the state lock, which
+/// `inner()` then reads as a safe runtime; this closes the set at once instead of at the next lock.
+struct EmptyOnPanic<'a>(&'a EnabledSet);
+
+impl Drop for EmptyOnPanic<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.replace(HashMap::new());
+        }
+    }
+}
+
 /// A plugin copied into staging and inspected, waiting for install or discard. Memory only.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StagedPlugin {
@@ -105,13 +159,31 @@ struct Inner {
     // Ids kept out of the serving set whatever the registry says: a demotion of them could not be
     // saved. Cleared by the next saved change of that id.
     held_out: HashSet<String>,
+    // Open `Withdrawn` guards per id.
+    withdrawn: HashMap<String, u32>,
+    runtime: Runtime,
 }
 
 impl Inner {
+    /// What the frame host may serve. Every write of the serving set takes it from here.
     fn serving(&self) -> HashMap<String, Serving> {
+        if self.runtime != Runtime::Running {
+            return HashMap::new();
+        }
         let mut serving = self.registry.serving();
-        serving.retain(|id, _| !self.held_out.contains(id));
+        serving.retain(|id, _| !self.held_out.contains(id) && !self.withdrawn.contains_key(id));
         serving
+    }
+}
+
+/// Safe mode wins; an unclean exit holds only when a plugin would serve.
+fn boot_runtime(boot: BootState, registry: &Registry) -> Runtime {
+    if boot.safe_mode {
+        Runtime::Safe
+    } else if boot.unclean && registry.entries.iter().any(Entry::is_serving) {
+        Runtime::Held
+    } else {
+        Runtime::Running
     }
 }
 
@@ -159,15 +231,18 @@ pub struct PluginsState {
 
 impl PluginsState {
     pub fn new(registry: Registry, problems: Problems, boot: BootState) -> PluginsState {
+        let inner = Inner {
+            runtime: boot_runtime(boot, &registry),
+            registry,
+            problems,
+            staged: VecDeque::new(),
+            held_out: HashSet::new(),
+            withdrawn: HashMap::new(),
+        };
         let enabled = EnabledSet::default();
-        enabled.replace(registry.serving());
+        enabled.replace(inner.serving());
         PluginsState {
-            inner: Mutex::new(Inner {
-                registry,
-                problems,
-                staged: VecDeque::new(),
-                held_out: HashSet::new(),
-            }),
+            inner: Mutex::new(inner),
             enabled,
             boot,
             registry_writable: true,
@@ -200,12 +275,53 @@ impl PluginsState {
         }
     }
 
+    /// A lock poisoned by a panic ends plugins for the session: the runtime turns safe and the serving
+    /// set empties, so nothing runs on state the panic may have left half changed.
     fn inner(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+        self.inner.lock().unwrap_or_else(|poisoned| {
+            let mut inner = poisoned.into_inner();
+            inner.runtime = Runtime::Safe;
+            self.enabled.replace(HashMap::new());
+            inner
+        })
     }
 
+    /// What the previous run left behind. Whether plugins may run is `runtime`.
     pub fn boot_state(&self) -> BootState {
         self.boot
+    }
+
+    pub fn runtime(&self) -> Runtime {
+        self.inner().runtime
+    }
+
+    pub fn boot_view(&self) -> BootView {
+        self.view(self.runtime())
+    }
+
+    fn view(&self, runtime: Runtime) -> BootView {
+        BootView {
+            runtime,
+            unclean: self.boot.unclean,
+            safe_flag: self.boot.safe_mode,
+        }
+    }
+
+    /// Answers a held runtime: `safe` keeps every plugin off for this session and writes no file;
+    /// otherwise plugins run and the serving set fills. Changes nothing unless the runtime is held.
+    pub fn resolve_boot(&self, safe: bool) -> BootView {
+        self.resolve_held(safe).unwrap_or_else(|| self.boot_view())
+    }
+
+    /// `resolve_boot`, returning None when the runtime was not held and nothing changed.
+    pub fn resolve_held(&self, safe: bool) -> Option<BootView> {
+        let mut inner = self.inner();
+        if inner.runtime != Runtime::Held {
+            return None;
+        }
+        inner.runtime = if safe { Runtime::Safe } else { Runtime::Running };
+        self.enabled.replace(inner.serving());
+        Some(self.view(inner.runtime))
     }
 
     pub fn registry_writable(&self) -> bool {
@@ -242,17 +358,22 @@ impl PluginsState {
     /// never disagree.
     pub fn replace(&self, registry: Registry, problems: Problems) {
         let mut inner = self.inner();
-        self.enabled.replace(registry.serving());
         inner.registry = registry;
         inner.problems = problems;
         inner.held_out.clear();
+        self.enabled.replace(inner.serving());
     }
 
-    /// Takes `id` out of the serving set until the next change puts the set back in line with the
-    /// registry. Taken under the lock, so no change running now can put it back.
-    pub fn withdraw(&self, id: &str) {
-        let _inner = self.inner();
+    /// Takes `id` out of the serving set until the guard drops. Taken under the lock, so no change
+    /// running now or later can put it back meanwhile.
+    pub fn withdraw(&self, id: &str) -> Withdrawn<'_> {
+        let mut inner = self.inner();
+        *inner.withdrawn.entry(id.to_string()).or_insert(0) += 1;
         self.enabled.remove(id);
+        Withdrawn {
+            state: self,
+            id: id.to_string(),
+        }
     }
 
     pub fn set_stopper(&self, stopper: Arc<dyn Stopper>) {
@@ -311,6 +432,7 @@ impl PluginsState {
         undo: impl FnOnce(io::Error) -> InstallError,
     ) -> Result<T, InstallError> {
         let mut inner = self.inner();
+        let _on_panic = EmptyOnPanic(&self.enabled);
         if let Some(id) = withdraw.id() {
             self.enabled.remove(id);
         }
@@ -451,7 +573,9 @@ fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
 mod tests {
     use super::*;
     use crate::plugins::manifest::Tier;
-    use crate::plugins::paths::{plugin_dir, registry_bad_file, registry_file, state_dir};
+    use crate::plugins::paths::{
+        plugin_dir, registry_bad_file, registry_file, safe_mode_file, state_dir,
+    };
     use crate::plugins::registry::EntryState;
     use std::fs;
     use std::path::PathBuf;
@@ -784,6 +908,230 @@ mod tests {
         assert!(second.boot_state().unclean);
         session::clear(&d.0);
         assert!(!d.boot().boot_state().unclean);
+    }
+
+    /// The demo plugin installed, ready and, when `on`, enabled.
+    fn demo(d: &AppData, on: bool) {
+        let hash = d.install(ID);
+        save(d, vec![entry(ID, &hash, on)]);
+    }
+
+    /// A change that saves nothing.
+    fn touch(state: &PluginsState, d: &AppData, withdraw: Withdraw<'_>) {
+        state
+            .mutate(
+                &d.0,
+                withdraw,
+                |_, _| Ok(()),
+                |e| InstallError::io("save", e),
+            )
+            .unwrap();
+    }
+
+    /// A boot after a run that never exited, with the demo plugin enabled.
+    fn held(d: &AppData) -> PluginsState {
+        demo(d, true);
+        d.boot();
+        d.boot()
+    }
+
+    fn view(runtime: Runtime, unclean: bool, safe_flag: bool) -> BootView {
+        BootView {
+            runtime,
+            unclean,
+            safe_flag,
+        }
+    }
+
+    #[test]
+    fn a_clean_boot_runs() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        assert_eq!(state.boot_view(), view(Runtime::Running, false, false));
+        assert!(state.is_enabled(ID));
+    }
+
+    #[test]
+    fn an_unclean_boot_with_a_plugin_serving_is_held() {
+        let d = AppData::new();
+        let state = held(&d);
+        assert_eq!(state.boot_view(), view(Runtime::Held, true, false));
+        assert!(!state.is_enabled(ID));
+        // The registry still says enabled.
+        assert!(state.snapshot().entries[0].enabled);
+    }
+
+    #[test]
+    fn an_unclean_boot_with_nothing_serving_runs() {
+        let d = AppData::new();
+        demo(&d, false);
+        d.boot();
+        assert_eq!(d.boot().boot_view(), view(Runtime::Running, true, false));
+    }
+
+    #[test]
+    fn the_safe_mode_flag_wins() {
+        let d = AppData::new();
+        demo(&d, true);
+        session::set_safe_mode(&d.0, true).unwrap();
+        assert_eq!(d.boot().boot_view(), view(Runtime::Safe, false, true));
+        let unclean = d.boot();
+        assert_eq!(unclean.boot_view(), view(Runtime::Safe, true, true));
+        assert!(!unclean.is_enabled(ID));
+    }
+
+    #[test]
+    fn the_boot_view_serializes_snake_case() {
+        let json = serde_json::to_value(view(Runtime::Held, true, false)).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "runtime": "held", "unclean": true, "safe_flag": false })
+        );
+        for (runtime, name) in [(Runtime::Running, "running"), (Runtime::Safe, "safe")] {
+            assert_eq!(serde_json::to_value(runtime).unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn nothing_serves_while_held_or_safe_whatever_changes() {
+        for safe in [false, true] {
+            let d = AppData::new();
+            demo(&d, true);
+            d.boot();
+            session::set_safe_mode(&d.0, safe).unwrap();
+            let state = d.boot();
+            assert_ne!(state.runtime(), Runtime::Running);
+            let handle = state.enabled_set();
+            touch(&state, &d, Withdraw::No);
+            assert!(!handle.contains(ID), "mutate, safe {safe}");
+            touch(&state, &d, Withdraw::While(ID));
+            assert!(!handle.contains(ID), "mutate while, safe {safe}");
+            state.replace(state.snapshot(), Problems::new());
+            assert!(!handle.contains(ID), "replace, safe {safe}");
+            drop(state.withdraw(ID));
+            assert!(!handle.contains(ID), "withdraw, safe {safe}");
+        }
+    }
+
+    #[test]
+    fn resolving_a_held_boot_to_run_fills_the_serving_set_once() {
+        let d = AppData::new();
+        let state = held(&d);
+        let handle = state.enabled_set();
+        assert_eq!(state.resolve_boot(false), view(Runtime::Running, true, false));
+        assert!(handle.contains(ID));
+        // Resolved: a second answer of either kind changes nothing.
+        assert_eq!(state.resolve_held(false), None);
+        assert_eq!(state.resolve_held(true), None);
+        assert_eq!(state.resolve_boot(true).runtime, Runtime::Running);
+        assert!(handle.contains(ID));
+    }
+
+    #[test]
+    fn resolving_a_held_boot_to_safe_keeps_plugins_off_and_writes_no_file() {
+        let d = AppData::new();
+        let state = held(&d);
+        assert_eq!(state.resolve_boot(true), view(Runtime::Safe, true, false));
+        assert!(!state.is_enabled(ID));
+        assert!(!safe_mode_file(&d.0).exists());
+        assert_eq!(state.resolve_boot(false).runtime, Runtime::Safe);
+        assert!(!state.is_enabled(ID));
+        // The next launch after a clean exit runs.
+        session::clear(&d.0);
+        assert_eq!(d.boot().runtime(), Runtime::Running);
+    }
+
+    #[test]
+    fn resolve_changes_nothing_unless_the_boot_is_held() {
+        let d = AppData::new();
+        demo(&d, true);
+        let running = d.boot();
+        assert_eq!(running.resolve_held(true), None);
+        assert_eq!(running.resolve_boot(true).runtime, Runtime::Running);
+        assert!(running.is_enabled(ID));
+
+        session::clear(&d.0);
+        session::set_safe_mode(&d.0, true).unwrap();
+        let safe = d.boot();
+        assert_eq!(safe.resolve_held(false), None);
+        assert_eq!(safe.resolve_boot(false).runtime, Runtime::Safe);
+        assert!(!safe.is_enabled(ID));
+    }
+
+    #[test]
+    fn a_withdrawn_plugin_stays_out_through_any_change_until_its_guard_drops() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let guard = state.withdraw(ID);
+        assert!(!state.is_enabled(ID));
+        touch(&state, &d, Withdraw::No);
+        touch(&state, &d, Withdraw::While(ID));
+        state.replace(state.snapshot(), Problems::new());
+        assert!(!state.is_enabled(ID));
+        drop(guard);
+        assert!(state.is_enabled(ID));
+    }
+
+    #[test]
+    fn overlapping_guards_on_one_id_restore_only_when_both_drop() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let first = state.withdraw(ID);
+        let second = state.withdraw(ID);
+        drop(first);
+        assert!(!state.is_enabled(ID));
+        drop(second);
+        assert!(state.is_enabled(ID));
+    }
+
+    #[test]
+    fn a_guard_dropped_after_a_disable_leaves_the_plugin_out() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let guard = state.withdraw(ID);
+        let mut registry = state.snapshot();
+        registry.entries[0].enabled = false;
+        state.replace(registry, Problems::new());
+        drop(guard);
+        assert!(!state.is_enabled(ID));
+    }
+
+    #[test]
+    fn a_poisoned_lock_ends_plugins_for_the_session() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _inner = state.inner.lock().unwrap();
+            panic!("poisons the state lock");
+        }));
+        assert_eq!(state.runtime(), Runtime::Safe);
+        assert!(!state.is_enabled(ID));
+        assert_eq!(state.resolve_held(false), None);
+        touch(&state, &d, Withdraw::No);
+        assert!(!state.is_enabled(ID));
+    }
+
+    #[test]
+    fn a_change_that_panics_empties_the_serving_set_at_once() {
+        let d = AppData::new();
+        demo(&d, true);
+        let state = d.boot();
+        let handle = state.enabled_set();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.mutate(
+                &d.0,
+                Withdraw::No,
+                |_, _| -> Result<(), InstallError> { panic!("fails inside a change") },
+                |e| InstallError::io("save", e),
+            )
+        }));
+        assert!(!handle.contains(ID));
+        assert_eq!(state.runtime(), Runtime::Safe);
     }
 
     #[test]

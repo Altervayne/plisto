@@ -17,7 +17,7 @@ use crate::plugins::api::sidebar::{check_input, SidebarInputReply, SidebarSnapsh
 use crate::plugins::api::state::ApiState;
 use crate::plugins::api::ui_state::UiAnswer;
 use crate::plugins::paths::validate_id;
-use crate::plugins::state::EnabledSet;
+use crate::plugins::state::{EnabledSet, Runtime};
 use crate::state::AppState;
 
 const MAIN_LABEL: &str = "main";
@@ -49,34 +49,35 @@ fn answer_from(
     api.ui().answer(request_id, answer, serving, now)
 }
 
-/// The open toasts and prompts as seen from `label`; empty outside the main window and in safe mode.
-fn pending_from(label: &str, safe_mode: bool, api: &ApiState) -> Vec<UiEvent> {
-    if label != MAIN_LABEL || safe_mode {
+/// The open toasts and prompts as seen from `label`; empty outside the main window and while plugins
+/// do not run.
+fn pending_from(label: &str, runtime: Runtime, api: &ApiState) -> Vec<UiEvent> {
+    if label != MAIN_LABEL || runtime != Runtime::Running {
         return Vec::new();
     }
     api.ui().pending_events()
 }
 
 /// The live sidebar state of every serving plugin as seen from `label`; empty outside the main window
-/// and in safe mode.
+/// and while plugins do not run.
 fn sidebar_state_from(
     label: &str,
-    safe_mode: bool,
+    runtime: Runtime,
     api: &ApiState,
     enabled: &EnabledSet,
 ) -> Vec<SidebarSnapshot> {
-    if label != MAIN_LABEL || safe_mode {
+    if label != MAIN_LABEL || runtime != Runtime::Running {
         return Vec::new();
     }
     api.sidebar().snapshot(enabled)
 }
 
-/// Decides a click reported from `label`. Refused outside the main window and in safe mode; the rest is
-/// `check_input`.
+/// Decides a click reported from `label`. Refused outside the main window and while plugins do not
+/// run; the rest is `check_input`.
 #[allow(clippy::too_many_arguments)]
 fn sidebar_input_from(
     label: &str,
-    safe_mode: bool,
+    runtime: Runtime,
     api: &ApiState,
     enabled: &EnabledSet,
     app_data: &Path,
@@ -85,7 +86,7 @@ fn sidebar_input_from(
     value: Option<bool>,
     now: Instant,
 ) -> SidebarInputReply {
-    if label != MAIN_LABEL || safe_mode {
+    if label != MAIN_LABEL || runtime != Runtime::Running {
         return SidebarInputReply {
             accepted: false,
             frame: None,
@@ -137,7 +138,7 @@ pub fn plugin_ui_answer(
 pub fn plugin_ui_pending(webview: Webview, state: State<'_, AppState>) -> Vec<UiEvent> {
     pending_from(
         webview.label(),
-        state.plugins.boot_state().safe_mode,
+        state.plugins.runtime(),
         state.plugins.api(),
     )
 }
@@ -147,7 +148,7 @@ pub fn plugin_ui_pending(webview: Webview, state: State<'_, AppState>) -> Vec<Ui
 pub fn plugin_sidebar_state(webview: Webview, state: State<'_, AppState>) -> Vec<SidebarSnapshot> {
     sidebar_state_from(
         webview.label(),
-        state.plugins.boot_state().safe_mode,
+        state.plugins.runtime(),
         state.plugins.api(),
         &state.plugins.enabled_set(),
     )
@@ -168,10 +169,10 @@ pub async fn plugin_sidebar_input(
         frame: None,
     };
     let label = webview.label().to_string();
-    let (safe_mode, enabled, api) = {
+    let (runtime, enabled, api) = {
         let state = app.state::<AppState>();
         (
-            state.plugins.boot_state().safe_mode,
+            state.plugins.runtime(),
             state.plugins.enabled_set(),
             state.plugins.api().clone(),
         )
@@ -182,7 +183,7 @@ pub async fn plugin_sidebar_input(
     tauri::async_runtime::spawn_blocking(move || {
         sidebar_input_from(
             &label,
-            safe_mode,
+            runtime,
             &api,
             &enabled,
             &app_data,
@@ -301,7 +302,7 @@ mod tests {
 
     fn click(
         label: &str,
-        safe_mode: bool,
+        runtime: Runtime,
         plugins: &PluginsState,
         data: &Temp,
         item: &str,
@@ -309,7 +310,7 @@ mod tests {
     ) -> SidebarInputReply {
         sidebar_input_from(
             label,
-            safe_mode,
+            runtime,
             plugins.api(),
             &plugins.enabled_set(),
             &data.0,
@@ -355,16 +356,16 @@ mod tests {
                 answer,
                 Instant::now()
             ));
-            assert!(pending_from(label, false, api).is_empty(), "{label:?}");
-            assert!(sidebar_state_from(label, false, api, &enabled).is_empty());
-            let reply = click(label, false, &plugins, &data, "go", None);
+            assert!(pending_from(label, Runtime::Running, api).is_empty(), "{label:?}");
+            assert!(sidebar_state_from(label, Runtime::Running, api, &enabled).is_empty());
+            let reply = click(label, Runtime::Running, &plugins, &data, "go", None);
             assert!(!reply.accepted && reply.frame.is_none());
             frame_event_from(label, api, ID, "crashed");
         }
         // Nothing above changed anything.
         assert_eq!(api.ui().pending_events().len(), 1);
         assert_eq!(
-            sidebar_state_from(MAIN_LABEL, false, api, &enabled).len(),
+            sidebar_state_from(MAIN_LABEL, Runtime::Running, api, &enabled).len(),
             1
         );
         assert!(api.ui().consume(ID, &token, Instant::now()));
@@ -442,7 +443,7 @@ mod tests {
         let host = Arc::new(FakeHost::default());
         let waiting = open_toast(&plugins, &host, r#"{"text":"Saved","action":"Undo"}"#);
         let request = open_request(&plugins);
-        plugins.withdraw(ID);
+        let _withdrawn = plugins.withdraw(ID);
         let answer = UiAnswer::Toast { action: true };
         assert!(answer_from(
             MAIN_LABEL,
@@ -459,18 +460,20 @@ mod tests {
     }
 
     #[test]
-    fn a_click_is_refused_for_a_stopped_plugin_in_safe_mode_and_for_a_native_one() {
+    fn a_click_is_refused_for_a_stopped_plugin_while_held_or_safe_and_for_a_native_one() {
         let data = data_with_sidebar();
         let ui = plugins_of(Tier::Ui);
-        assert!(click(MAIN_LABEL, false, &ui, &data, "go", None).accepted);
+        assert!(click(MAIN_LABEL, Runtime::Running, &ui, &data, "go", None).accepted);
 
-        assert!(!click(MAIN_LABEL, true, &ui, &data, "go", None).accepted);
+        for runtime in [Runtime::Held, Runtime::Safe] {
+            assert!(!click(MAIN_LABEL, runtime, &ui, &data, "go", None).accepted);
+        }
 
-        ui.withdraw(ID);
-        assert!(!click(MAIN_LABEL, false, &ui, &data, "go", None).accepted);
+        let _withdrawn = ui.withdraw(ID);
+        assert!(!click(MAIN_LABEL, Runtime::Running, &ui, &data, "go", None).accepted);
 
         let native = plugins_of(Tier::Native);
-        let reply = click(MAIN_LABEL, false, &native, &data, "go", None);
+        let reply = click(MAIN_LABEL, Runtime::Running, &native, &data, "go", None);
         assert!(!reply.accepted && reply.frame.is_none());
     }
 
@@ -478,7 +481,7 @@ mod tests {
     fn an_accepted_click_carries_a_gesture_the_plugin_can_spend_once() {
         let data = data_with_sidebar();
         let plugins = plugins_of(Tier::Ui);
-        let reply = click(MAIN_LABEL, false, &plugins, &data, "tg", Some(true));
+        let reply = click(MAIN_LABEL, Runtime::Running, &plugins, &data, "tg", Some(true));
         let frame = reply.frame.unwrap();
         assert_eq!((frame.item_id.as_str(), frame.value), ("tg", Some(true)));
         let api = plugins.api();
@@ -507,7 +510,7 @@ mod tests {
             assert!(api.ui().pending_events().is_empty());
             // Detached drops the gestures too; only the sidebar state tells the kinds apart.
             assert!(!api.ui().consume(ID, &token, Instant::now()), "{kind}");
-            let kept = sidebar_state_from(MAIN_LABEL, false, api, &enabled).len();
+            let kept = sidebar_state_from(MAIN_LABEL, Runtime::Running, api, &enabled).len();
             assert_eq!(kept, usize::from(kind == "detached"), "{kind}");
         }
     }
@@ -529,7 +532,7 @@ mod tests {
 
         assert_eq!(api.ui().pending_events().len(), 1);
         assert_eq!(
-            sidebar_state_from(MAIN_LABEL, false, api, &enabled).len(),
+            sidebar_state_from(MAIN_LABEL, Runtime::Running, api, &enabled).len(),
             1
         );
         assert!(api.ui().consume(ID, &token, Instant::now()));
@@ -538,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_and_sidebar_state_are_empty_in_safe_mode() {
+    fn pending_and_sidebar_state_are_empty_while_held_or_safe() {
         let data = data_with_sidebar();
         let plugins = plugins_of(Tier::Ui);
         let host = Arc::new(FakeHost::default());
@@ -546,14 +549,38 @@ mod tests {
         set_chip(&plugins, &data);
         let (api, enabled) = (plugins.api(), plugins.enabled_set());
 
-        assert!(pending_from(MAIN_LABEL, true, api).is_empty());
-        assert!(sidebar_state_from(MAIN_LABEL, true, api, &enabled).is_empty());
-        assert_eq!(pending_from(MAIN_LABEL, false, api).len(), 1);
+        for runtime in [Runtime::Held, Runtime::Safe] {
+            assert!(pending_from(MAIN_LABEL, runtime, api).is_empty(), "{runtime:?}");
+            assert!(sidebar_state_from(MAIN_LABEL, runtime, api, &enabled).is_empty());
+        }
+        assert_eq!(pending_from(MAIN_LABEL, Runtime::Running, api).len(), 1);
         assert_eq!(
-            sidebar_state_from(MAIN_LABEL, false, api, &enabled).len(),
+            sidebar_state_from(MAIN_LABEL, Runtime::Running, api, &enabled).len(),
             1
         );
         api.ui().release(ID);
         waiting.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_held_boot_reads_as_held_and_serves_no_click() {
+        let data = data_with_sidebar();
+        let registry = plugins_of(Tier::Ui).snapshot();
+        let boot = BootState {
+            safe_mode: false,
+            unclean: true,
+        };
+        let held = PluginsState::new(registry, Problems::new(), boot);
+        assert_eq!(held.runtime(), Runtime::Held);
+        let reply = click(MAIN_LABEL, held.runtime(), &held, &data, "go", None);
+        assert!(!reply.accepted && reply.frame.is_none());
+        // The serving set is empty too, so a caller that skipped the runtime check is still refused.
+        let reply = click(MAIN_LABEL, Runtime::Running, &held, &data, "go", None);
+        assert!(!reply.accepted);
+        let enabled = held.enabled_set();
+        assert!(sidebar_state_from(MAIN_LABEL, held.runtime(), held.api(), &enabled).is_empty());
+
+        held.resolve_boot(false);
+        assert!(click(MAIN_LABEL, held.runtime(), &held, &data, "go", None).accepted);
     }
 }

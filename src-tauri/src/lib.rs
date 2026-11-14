@@ -286,9 +286,11 @@ pub fn run() {
             });
 
             // Enabled native plugins start once state is managed, on their own thread since each
-            // start reads its plugin folder. Safe mode and an unclean last exit start none.
+            // start reads its plugin folder. Only a running runtime starts them here; a held one
+            // starts them when the boot is resolved. Read before any command can resolve it, so the
+            // two never both start the same plugins.
             #[cfg(windows)]
-            {
+            if app.state::<AppState>().plugins.runtime() == plugins::state::Runtime::Running {
                 let handle = app.handle().clone();
                 let _ = std::thread::Builder::new()
                     .name("plugin-boot".into())
@@ -517,6 +519,7 @@ pub fn run() {
             commands::plugins::plugin_frame_url,
             commands::plugins::plugins_list,
             commands::plugins::plugins_boot_state,
+            commands::plugins::plugins_resolve_boot,
             commands::plugins::plugin_inspect,
             commands::plugins::plugin_install,
             commands::plugins::plugin_discard,

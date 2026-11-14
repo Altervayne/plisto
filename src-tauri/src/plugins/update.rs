@@ -153,7 +153,8 @@ pub fn update(
     require_writable(plugins)?;
     let staged = claim(plugins, token)?;
     let result = update_claimed(app_data, plugins, &staged, &|| {});
-    // The update stopped the plugin; whatever the outcome, it runs again if it is still serving.
+    // The update stopped the plugin and its hold is gone; whatever the outcome, it runs again if it
+    // is still serving.
     plugins.start(&staged.id);
     if result.is_err() {
         restage(plugins, staged);
@@ -161,7 +162,8 @@ pub fn update(
     result
 }
 
-/// `after_swap` runs between the swap and the save.
+/// `after_swap` runs between the swap and the save. The plugin stays out of the serving set from its
+/// stop until the folder work is done, so nothing can start the old binary halfway.
 fn update_claimed(
     app_data: &Path,
     plugins: &PluginsState,
@@ -189,7 +191,7 @@ fn update_claimed(
     let old = old_dir(app_data, id);
     // Read before taking the lock; the entry is checked again under it.
     let keep = consent_kept(&installed, &live, &manifest);
-    plugins.withdraw(id);
+    let _withdrawn = plugins.withdraw(id);
     plugins.stop(id);
 
     let had_old = Cell::new(false);
@@ -612,7 +614,7 @@ mod tests {
     #[test]
     fn the_stopper_runs_unlocked_after_the_plugin_left_the_serving_set() {
         let k = running(&["storage"]);
-        let plugins = Arc::new(k.reboot());
+        let plugins = Arc::new(k.relaunch());
         let seen = Arc::new(Mutex::new(Vec::new()));
         let weak = Arc::downgrade(&plugins);
         let log = seen.clone();
@@ -627,6 +629,26 @@ mod tests {
         enable(&k.data, &plugins, ID, None, false, None).unwrap();
         uninstall(&k.data, &plugins, ID, false).unwrap();
         assert_eq!(*seen.lock().unwrap(), [(false, 1), (false, 1), (false, 1)]);
+    }
+
+    #[test]
+    fn an_enable_between_the_stop_and_the_swap_starts_nothing() {
+        let k = running(&["storage"]);
+        let plugins = Arc::new(k.relaunch());
+        k.record(&plugins);
+        let weak = Arc::downgrade(&plugins);
+        let data = k.data.clone();
+        // The stop is the moment the old binary is down and the swap has not happened yet.
+        plugins.set_stopper(Arc::new(move |id: &str| {
+            let p = weak.upgrade().unwrap();
+            enable(&data, &p, id, None, false, None).unwrap();
+            assert!(!p.is_enabled(id));
+        }));
+        let token = k.inspect_into(&plugins, &ui("1.1.0", &["storage"]));
+        update(&k.data, &plugins, &token).unwrap();
+        let refused = format!("{ID} (not serving)");
+        assert_eq!(k.starts(), [ID, refused.as_str(), ID]);
+        assert!(plugins.is_enabled(ID));
     }
 
     #[test]
@@ -649,7 +671,7 @@ mod tests {
         let k = running(&["storage"]);
         let live = plugin_dir(&k.data, ID);
         fs::rename(&live, old_dir(&k.data, ID)).unwrap();
-        let plugins = k.reboot();
+        let plugins = k.relaunch();
         assert!(live.join("plugin.json").is_file());
         assert!(!old_dir(&k.data, ID).exists());
         assert!(plugins.is_enabled(ID));
@@ -661,7 +683,7 @@ mod tests {
         let old = old_dir(&k.data, ID);
         fs::create_dir_all(old.join("ui")).unwrap();
         fs::write(old.join("plugin.json"), b"{}").unwrap();
-        let plugins = k.reboot();
+        let plugins = k.relaunch();
         assert!(!old.exists());
         assert!(plugin_dir(&k.data, ID).join("plugin.json").is_file());
         assert!(plugins.is_enabled(ID));
