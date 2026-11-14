@@ -7,6 +7,7 @@ import { SoundMenu } from "../sound/SoundMenu";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { PopOutButton } from "./PopOutButton";
 import { StopButton } from "./StopButton";
+import { StreamElapsed } from "./StreamElapsed";
 import { Transport } from "./Transport";
 
 // -- Hook Imports --
@@ -15,11 +16,8 @@ import { useTrackDisplay } from "./useTrackDisplay";
 
 // -- State Imports --
 import { useTrack } from "../../state/store";
-import { useCurrentTrackId, usePlayerStore, useSeatedStream } from "../../state/player/store";
+import { useCurrentTrackId, useSeatedStream } from "../../state/player/store";
 import { waitingPhase } from "../../state/player/streamView";
-
-// -- Format Imports --
-import { formatDuration } from "../../lib/format";
 
 // -- Local Imports --
 import { waitWord } from "./streamWords";
@@ -97,7 +95,7 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
               {stream ? (
                 <span className={styles.pluginLine}>
                   <span className={styles.pluginName}>{stream.plugin_name}</span>
-                  <StreamElapsed />
+                  <StreamElapsed className={styles.pluginTag} />
                   {stream.state === "paused" ? (
                     <span className={styles.pluginTag}>{t((d) => d.player.stream.paused)}</span>
                   ) : null}
@@ -125,17 +123,4 @@ function MiniPlayerBar({ trackId, onExpand }: { trackId: number; onExpand: () =>
       </div>
     </div>
   );
-}
-
-/**
- * The elapsed time of a stream item with a known length, as its own subscriber so the bar above never
- * re-renders on a tick. The selector returns a whole second, or -1 with no known length, which renders
- * nothing.
- */
-function StreamElapsed() {
-  const secs = usePlayerStore((s) =>
-    s.status.duration_secs > 0 ? Math.floor(s.status.position_secs) : -1,
-  );
-  if (secs < 0) return null;
-  return <span className={`${styles.pluginTag} tabular`}>{formatDuration(secs)}</span>;
 }

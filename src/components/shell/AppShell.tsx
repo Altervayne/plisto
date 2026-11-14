@@ -84,6 +84,7 @@ import { useSandboxCheck } from "../../state/plugins/sandboxStore";
 import { usePluginStatusSync } from "../../state/plugins/usePluginStatus";
 import { usePluginNet } from "../../state/plugins/usePluginNet";
 import { usePluginPageEvents } from "../../state/plugins/usePluginPageEvents";
+import { usePluginStreamEvents } from "../../state/plugins/usePluginStreamEvents";
 import { usePluginUi } from "../../state/plugins/usePluginUi";
 import {
   useHistoryLens,
@@ -190,6 +191,8 @@ export function AppShell({
   usePluginNet();
   // A native plugin's page events, relayed to its open page.
   usePluginPageEvents();
+  // The seated stream's events, relayed to the plugin that owns it.
+  usePluginStreamEvents();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
   // already has the right rows.
   const appMode = useAppMode();

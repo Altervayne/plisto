@@ -3,7 +3,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
 // -- Icon Imports --
-import { GripVertical, Play, X } from "lucide-react";
+import { GripVertical, Pause, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { NowPlayingBars } from "./NowPlayingBars";
@@ -25,10 +25,14 @@ import styles from "./QueueRow.module.css";
  *
  * An up-next row reveals a grip and a remove on hover, both stopping the click from reaching the jump;
  * neither shows on the played or now-playing rows. The central column jumps the engine to this row.
+ *
+ * Under a plugin stream the cursor row is `parked`: a static pause glyph stands where the equalizer would,
+ * and `dim` quiets the title to the played-row ink for every row of the parked queue.
  */
 export function QueueRow({
   id,
   state,
+  dim = false,
   displayNo,
   title,
   artist,
@@ -41,6 +45,7 @@ export function QueueRow({
 }: {
   id: string;
   state: QueueRowState;
+  dim?: boolean;
   displayNo: number;
   title: string;
   artist: string | null;
@@ -68,6 +73,7 @@ export function QueueRow({
       style={style}
       className={styles.row}
       data-state={state}
+      data-dim={dim ? "" : undefined}
       data-dragging={isDragging ? "" : undefined}
     >
       {draggable ? (
@@ -89,6 +95,10 @@ export function QueueRow({
         <span className={styles.numCell}>
           {state === "now" ? (
             <NowPlayingBars />
+          ) : state === "parked" ? (
+            <span className={styles.no} aria-hidden="true">
+              <Pause size={12} strokeWidth={2} fill="currentColor" />
+            </span>
           ) : (
             <span className={styles.no}>{displayNo}</span>
           )}

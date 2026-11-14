@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { streamSelectors, usePlayerStore } from "./store";
 import { streamNowFixture, streamStatusFixture } from "./streamFixtures";
 
+import { added, playsAfter } from "./queueToast";
+
 // -- IPC Imports --
 import * as ipc from "../../lib/ipc";
 
@@ -32,7 +34,7 @@ vi.mock("../../lib/ipc", () => ({
   playerToggle: vi.fn(),
 }));
 
-vi.mock("./queueToast", () => ({ added: vi.fn() }));
+vi.mock("./queueToast", () => ({ added: vi.fn(), playsAfter: vi.fn() }));
 
 const mocked = vi.mocked(ipc);
 const source = { kind: "files" } as const;
@@ -57,6 +59,34 @@ describe("playNext", () => {
     usePlayerStore.getState().actions.playNext([1, 2], source);
     expect(mocked.playerPlayNext).not.toHaveBeenCalled();
     expect(mocked.playerPlayTracks).toHaveBeenCalled();
+  });
+
+  describe("with a stream seated", () => {
+    const seat = (parked: { track_id: number; secs: number } | null) =>
+      usePlayerStore.setState({
+        status: {
+          ...usePlayerStore.getState().status,
+          track_id: -41,
+          stream: streamStatusFixture({ parked }),
+        },
+        queueMeta: { 7: { title: "Harbor Lights", artist: null, durationSecs: null } },
+      });
+
+    it("inserts without starting anything and says where the tracks sit", () => {
+      seat({ track_id: 7, secs: 3 });
+      usePlayerStore.getState().actions.playNext([1], source);
+      expect(mocked.playerPlayNext).toHaveBeenCalledWith([1]);
+      expect(mocked.playerPlayTracks).not.toHaveBeenCalled();
+      expect(playsAfter).toHaveBeenCalledWith("Harbor Lights");
+      expect(added).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the count line when no track is parked", () => {
+      seat(null);
+      usePlayerStore.getState().actions.playNext([1, 2], source);
+      expect(playsAfter).not.toHaveBeenCalled();
+      expect(added).toHaveBeenCalledWith(2);
+    });
   });
 });
 
@@ -135,6 +165,24 @@ describe("clearParked", () => {
 
 describe("stream end", () => {
   const notice = { plugin_id: "night-radio", plugin_name: "Night Radio", reason: "network", detail: "closed" } as const;
+
+  it("keeps a showing toast when a silent end arrives for another plugin", () => {
+    usePlayerStore.getState().setStreamEnd(notice);
+    usePlayerStore.getState().setStreamEnd({ ...notice, plugin_id: "other", reason: "replaced", detail: null });
+    expect(usePlayerStore.getState().streamEnd).toEqual(notice);
+    usePlayerStore.getState().setStreamEnd(null);
+  });
+
+  it("lets a silent end replace the toast of the same plugin, or fill an empty slot", () => {
+    usePlayerStore.getState().setStreamEnd(notice);
+    const silent = { ...notice, reason: "user", detail: null } as const;
+    usePlayerStore.getState().setStreamEnd(silent);
+    expect(usePlayerStore.getState().streamEnd).toEqual(silent);
+    usePlayerStore.getState().setStreamEnd(null);
+    usePlayerStore.getState().setStreamEnd(silent);
+    expect(usePlayerStore.getState().streamEnd).toEqual(silent);
+    usePlayerStore.getState().setStreamEnd(null);
+  });
 
   it("holds the notice for the toast until it is cleared", () => {
     usePlayerStore.getState().setStreamEnd(notice);

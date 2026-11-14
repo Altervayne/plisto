@@ -23,7 +23,8 @@ const readsPlisto = (subject: ReviewSubject): boolean =>
 /**
  * What the plugin asks for, in Plisto's own words: one line per capability, never the plugin's text.
  * A capability or network origin the approved version lacked carries a New badge. The network line
- * lists the declared origins beneath it as plain text. A capability value this Plisto has no label for
+ * lists the declared origins beneath it as plain text, and says the plugin can play audio from them when it
+ * also holds the stream capability. A capability value this Plisto has no label for
  * is not drawn (it is still granted unchanged).
  */
 export function CapabilityList({ subject, heading }: { subject: ReviewSubject; heading: string }) {
@@ -56,6 +57,9 @@ export function CapabilityList({ subject, heading }: { subject: ReviewSubject; h
                     </li>
                   ))}
                 </ul>
+              ) : null}
+              {cap === "network" && caps.includes("playback.stream") ? (
+                <p className={styles.netNote}>{t((d) => d.plugins.sheet.streamNetwork)}</p>
               ) : null}
               {cap === "network" ? (
                 <p className={styles.netNote}>{t((d) => d.plugins.sheet.networkHow)}</p>

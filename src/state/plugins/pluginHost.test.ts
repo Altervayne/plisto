@@ -11,6 +11,7 @@ import {
   sendInit,
   hasLiveFrame,
   sendPing,
+  sendPlaybackStreamEvent,
   sendPluginEvent,
   sendRoute,
   sendSidebar,
@@ -565,6 +566,53 @@ describe("plugin events", () => {
     const { calls } = setup();
     const other = await liveFrame(calls, "k-b", "plug-b");
     expect(sendPluginEvent("plug-a", "level", 1)).toBe(false);
+    expect(other.types()).toEqual(["plisto:init"]);
+  });
+});
+
+describe("playback stream events", () => {
+  const ENDED = { item: -41, kind: "ended", reason: "network", detail: "closed" } as const;
+
+  it("reach only the owner's newest live, initialised frame", async () => {
+    const { calls } = setup();
+    const older = await liveFrame(calls, "k-a1", "plug-a");
+    const newer = await liveFrame(calls, "k-a2", "plug-a");
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    const loading = new FakeWindow();
+    attachFrame("k-a3", "plug-a", loading);
+    frameLoaded("k-a3");
+
+    expect(sendPlaybackStreamEvent("plug-a", ENDED)).toBe(true);
+    expect(newer.posted[newer.posted.length - 1]).toEqual({
+      msg: { plisto: 1, type: "plisto:plugin-event", topic: "stream", data: ENDED },
+      origin: "*",
+    });
+    expect(older.types()).toEqual(["plisto:init"]);
+    expect(other.types()).toEqual(["plisto:init"]);
+    expect(loading.posted).toEqual([]);
+  });
+
+  it("post nothing to the frame of a plugin that was disabled and detached", async () => {
+    const { calls } = setup();
+    const a = await liveFrame(calls, "k-a", "plug-a");
+    detachFrame("k-a");
+    expect(sendPlaybackStreamEvent("plug-a", ENDED)).toBe(false);
+    expect(a.types()).toEqual(["plisto:init"]);
+  });
+
+  it("post nothing to a frame that never finished init, as after a crash", () => {
+    setup();
+    const crashed = new FakeWindow();
+    attachFrame("k-a", "plug-a", crashed);
+    frameLoaded("k-a");
+    expect(sendPlaybackStreamEvent("plug-a", ENDED)).toBe(false);
+    expect(crashed.posted).toEqual([]);
+  });
+
+  it("are dropped when the owner has no live frame, never falling back to another plugin", async () => {
+    const { calls } = setup();
+    const other = await liveFrame(calls, "k-b", "plug-b");
+    expect(sendPlaybackStreamEvent("plug-a", ENDED)).toBe(false);
     expect(other.types()).toEqual(["plisto:init"]);
   });
 });

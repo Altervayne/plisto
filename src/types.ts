@@ -876,6 +876,19 @@ export interface StreamEndNotice {
   detail: string | null;
 }
 
+/** An event for the plugin that owns the seated stream. Mirrors StreamEvent in plugins/api/stream/mod.rs. */
+export type PluginStreamEvent =
+  | { item: number; kind: "state"; state: StreamNowState }
+  | { item: number; kind: "skip"; direction: "next" | "prev" }
+  | { item: number; kind: "room"; room: number }
+  | { item: number; kind: "ended"; reason: StreamEndReason; detail: string | null };
+
+/** The `plugins:stream` payload: the owner's plugin id and the event for its frame. */
+export interface PluginStreamPayload {
+  id: string;
+  event: PluginStreamEvent;
+}
+
 /**
  * Where the current queue was launched from, captured on the frontend when play fires - the engine is
  * source-agnostic, so the store records the origin the "playing from" line reads. An album or playlist

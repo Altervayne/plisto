@@ -25,6 +25,18 @@ describe("queueRowState", () => {
   });
 });
 
+describe("queueRowState under a stream", () => {
+  it("marks the cursor row parked, never now", () => {
+    expect(queueRowState(2, 2, { parked: true })).toBe("parked");
+    expect(queueRowState(1, 2, { parked: true })).toBe("played");
+    expect(queueRowState(3, 2, { parked: true })).toBe("next");
+  });
+
+  it("reads the cursor row as next when nothing is parked", () => {
+    expect(queueRowState(2, 2, { parked: false })).toBe("next");
+  });
+});
+
 describe("upNextCount", () => {
   it("counts the rows ahead of the cursor", () => {
     expect(upNextCount(5, 0)).toBe(4);

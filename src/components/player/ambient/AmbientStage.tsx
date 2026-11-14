@@ -29,13 +29,15 @@ import { useLoadingCue } from "../visualizers/useLoadingCue";
 import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 
 // -- State Imports --
-import { usePlayerActions, usePlayerStatus } from "../../../state/player/store";
+import { usePlayerActions, usePlayerStatus, useSeatedStream } from "../../../state/player/store";
+import { showsScrubber, waitingPhase } from "../../../state/player/streamView";
 import { nextVisualizerKind, type VisualizerKind } from "../../../state/player/visualizerKind";
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
 
 // -- Local Imports --
 import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
 import { useIsWarm } from "../visualizers/gl/warmState";
+import { waitWord } from "../streamWords";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -58,7 +60,9 @@ const TOAST_MS = 1500;
  * it in its paused look. The app beneath goes inert while the stage is up, so focus never wanders under it.
  */
 export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () => void }) {
-  const { cover, coverFor, loading } = useTrackCover(trackId);
+  const stream = useSeatedStream();
+  const wait = stream ? waitingPhase(stream.state) : null;
+  const { cover, coverFor, loading } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
   const artStatus = coverStatus(trackId, coverFor, loading, cover != null);
   const coverSrc = cover?.src ?? null;
   // The stage carries the dip's opacity for the visualizer and the cover crossfade.
@@ -195,10 +199,16 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
 
       <div className={styles.chrome} data-faded={fade}>
         <div ref={seekRef} className={styles.seek}>
-          <SeekBar position={status.position_secs} duration={status.duration_secs} onSeek={actions.seek} />
+          <SeekBar
+            position={status.position_secs}
+            duration={status.duration_secs}
+            onSeek={actions.seek}
+            listenedOnly={stream != null && !showsScrubber(stream, status.duration_secs)}
+            note={wait ? waitWord(t, wait) : null}
+          />
         </div>
         <div className={styles.row}>
-          <UpNextGlance active={status.track_id != null} />
+          <UpNextGlance active={status.track_id != null && stream == null} />
           <AmbientTransport />
           <div className={styles.right}>
             <IconButton

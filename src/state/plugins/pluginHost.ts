@@ -39,6 +39,7 @@ import type {
   PluginFrameCrashReason,
   PluginFrameEventKind,
   PluginSidebarDelivery,
+  PluginStreamEvent,
 } from "../../types";
 
 export type FrameTheme = "light" | "dark";
@@ -485,6 +486,17 @@ export function sendSidebar(pluginId: string, delivery: PluginSidebarDelivery): 
  */
 export function sendPluginEvent(pluginId: string, topic: string, data: unknown): boolean {
   return active?.sendPluginEvent(pluginId, topic, data) ?? false;
+}
+
+/** The topic a plugin's playback-stream events arrive on in its frame. */
+export const PLAYBACK_STREAM_TOPIC = "stream";
+
+/**
+ * Posts a playback-stream event to the owning plugin's newest live, initialised frame and to no other.
+ * Returns false when it has none; the event is dropped, never held for a later frame.
+ */
+export function sendPlaybackStreamEvent(pluginId: string, event: PluginStreamEvent): boolean {
+  return sendPluginEvent(pluginId, PLAYBACK_STREAM_TOPIC, event);
 }
 
 /**

@@ -5,7 +5,8 @@ import type { RefObject } from "react";
 import { useTrackDisplay } from "../useTrackDisplay";
 
 // -- State Imports --
-import { usePlayingFrom } from "../../../state/player/store";
+import { usePlayingFrom, useSeatedStream } from "../../../state/player/store";
+import { streamLines } from "../../../state/player/streamView";
 import { useAlbum } from "../../../state/organize/store";
 
 // -- i18n Imports --
@@ -28,7 +29,8 @@ export function AmbientText({
   faded: boolean;
   textRef?: RefObject<HTMLDivElement | null>;
 }) {
-  const { title, artist } = useTrackDisplay(trackId);
+  const stream = useSeatedStream();
+  const { title, artist } = useTrackDisplay(stream ? null : trackId);
   const source = usePlayingFrom();
   const album = useAlbum(source?.kind === "album" ? source.id : -1);
   const t = useT();
@@ -41,6 +43,20 @@ export function AmbientText({
   } else if (source?.kind === "playlist") {
     kind = `${t((d) => d.player.playingFrom)} ${t((d) => d.player.sourcePlaylist)}`;
     line = source.label;
+  }
+
+  if (stream) {
+    const lines = streamLines(stream);
+    // The plugin's name never fades with the chrome: it stays on screen in every state.
+    return (
+      <div ref={textRef} className={styles.text}>
+        <h1 className={styles.title}>{lines.first}</h1>
+        <p className={styles.artist}>{lines.second ?? " "}</p>
+        <span className={styles.albumLine}>
+          {t((d) => d.player.stream.streamingFrom)} {stream.plugin_name}
+        </span>
+      </div>
+    );
   }
 
   return (

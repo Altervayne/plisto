@@ -17,6 +17,7 @@ import { Volume } from "./Volume";
 
 // -- Local Imports --
 import { nextRepeat } from "./sequenceState";
+import { waitWord } from "./streamWords";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
@@ -29,7 +30,9 @@ import {
   usePlayerActions,
   usePlayerStatus,
   usePlayerSync,
+  useSeatedStream,
 } from "../../state/player/store";
+import { showsScrubber, streamLines, waitingPhase } from "../../state/player/streamView";
 import { useSpectrumSync } from "../../state/player/spectrum";
 
 // -- IPC Imports --
@@ -128,11 +131,16 @@ function CardShell({ coverSrc, children }: { coverSrc: string | null; children: 
  * run with a null id. The seek bar drives off the live snapshot and commits on release.
  */
 function WidgetBody({ trackId }: { trackId: number }) {
-  const { cover } = useTrackCover(trackId);
-  const { title, artist } = useTrackDisplay(trackId);
+  const stream = useSeatedStream();
+  const { cover } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
+  const { title, artist } = useTrackDisplay(stream ? null : trackId);
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const t = useT();
+
+  const lines = stream ? streamLines(stream) : null;
+  const wait = stream ? waitingPhase(stream.state) : null;
+  const scrubbable = stream ? showsScrubber(stream, status.duration_secs) : true;
 
   return (
     <CardShell coverSrc={cover?.src ?? null}>
@@ -141,18 +149,27 @@ function WidgetBody({ trackId }: { trackId: number }) {
       </span>
       <div className={styles.main}>
         <div className={styles.text}>
-          <span className={styles.title}>{title ?? t((d) => d.albums.untitled)}</span>
-          <span className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</span>
+          <span className={styles.title}>
+            {lines ? lines.first : (title ?? t((d) => d.albums.untitled))}
+          </span>
+          <span className={styles.artist}>
+            {stream
+              ? [lines?.second, stream.plugin_name].filter(Boolean).join(" \u00B7 ")
+              : (artist ?? t((d) => d.albums.unknownArtist))}
+          </span>
         </div>
         <SeekBar
           position={status.position_secs}
           duration={status.duration_secs}
           onSeek={actions.seek}
+          listenedOnly={!scrubbable}
+          note={wait ? waitWord(t, wait) : null}
         />
         <div className={styles.controls}>
           <div className={styles.seq}>
             <IconToggle
               size="sm"
+              disabled={stream != null}
               pressed={status.repeat !== "off"}
               aria-label={t((d) => d.player.repeat)}
               onClick={() => actions.setRepeat(nextRepeat(status.repeat))}

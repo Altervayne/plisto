@@ -49,6 +49,17 @@
   color: var(--ink-3);
 }
 
+/* The quiet "playing from" line of a seated plugin stream, under the header and above any takeover block. */
+.stream {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0 2px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
 /* The switch is the small size of the segmented control. */
 .onoff button {
   padding: 4px 9px;

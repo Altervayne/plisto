@@ -1,5 +1,6 @@
 // -- Framework Imports --
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { HTMLAttributes, ReactElement } from "react";
 
 // -- Library Imports --
 import {
@@ -24,7 +25,9 @@ import { Waves } from "lucide-react";
 import { IconToggle } from "../common/IconToggle";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
 import { QueueRow } from "./QueueRow";
+import { QueueStreamCard } from "./QueueStreamCard";
 import { SequenceMenu } from "./SequenceMenu";
 
 // -- State Imports --
@@ -33,7 +36,10 @@ import {
   usePlayerQueue,
   usePlayerQueueIndex,
   usePlayerQueueMeta,
+  useHasParked,
+  useSeatedStream,
 } from "../../state/player/store";
+import { cleared } from "../../state/player/queueToast";
 
 import { useAddTracksToPlaylist, useCreatePlaylist } from "../../state/playlists/store";
 import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/queuePlaylist";
@@ -59,6 +65,12 @@ const SAVED_MS = 2000;
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
  * The header counts the tracks still ahead and holds the save-as-playlist action, the button that opens
  * the visualizer sheet, and the sequencing control; the footer clears the queue by stopping the engine.
+ *
+ * While a plugin stream holds the seat the column shows the stream's card, then the parked queue under a
+ * sentence naming the plugin. Its rows read as paused (none is marked playing; the cursor row shows the
+ * pause glyph only when the engine holds a parked track), Save as playlist saves the
+ * parked queue, and Clear queue empties only that queue: it never stops the stream, so it moves into the
+ * header beside Save and the footer goes.
  * `frosted` lays a glass backing under the column while the shown visualizer runs beneath it; the backing
  * fades with the stage's dip.
  */
@@ -67,6 +79,8 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
   const meta = usePlayerQueueMeta();
   const queueIndex = usePlayerQueueIndex();
   const actions = usePlayerActions();
+  const stream = useSeatedStream();
+  const hasParked = useHasParked();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
@@ -113,6 +127,32 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
     }
   };
 
+  const onClear = () => {
+    if (!stream) return;
+    actions.clearParked();
+    cleared(stream.plugin_name);
+  };
+
+  const saveButton = (
+    <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
+      {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
+    </QuietButton>
+  );
+  const iconButtons = (
+    <>
+      <IconToggle
+        pressed={sheetOpen}
+        aria-label={t((d) => d.player.visualizer)}
+        aria-haspopup="menu"
+        aria-expanded={sheetOpen}
+        onClick={(event) => useVisualizerSheet.getState().toggle(event.currentTarget)}
+      >
+        <Waves size={18} strokeWidth={1.8} />
+      </IconToggle>
+      <SequenceMenu />
+    </>
+  );
+
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || over.id === active.id) return;
     const from = items.indexOf(String(active.id));
@@ -125,27 +165,37 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
 
   return (
     <div className={styles.queue} data-frosted={frosted ? "" : undefined}>
-      <div className={styles.header}>
-        <div className={styles.heading}>
-          <span className={styles.label}>{t((d) => d.player.upNext)}</span>
-          <span className={styles.count}>{formatCount(ahead)}</span>
+      {stream ? <QueueStreamCard stream={stream} /> : null}
+      {stream ? (
+        <div className={styles.headerParked}>
+          <div className={styles.parkRow}>
+            <p className={styles.park}>
+              {t((d) => d.player.stream.parkedHeader, { name: stream.plugin_name })}
+            </p>
+            <div className={styles.parkIcons}>{iconButtons}</div>
+          </div>
+          <div className={styles.parkActions}>
+            {withHint(t((d) => d.player.stream.saveParkedHint), saveButton)}
+            {withHint(
+              t((d) => d.player.stream.clearParkedHint),
+              <QuietButton disabled={queue.length === 0} onClick={onClear}>
+                {t((d) => d.player.clearQueue)}
+              </QuietButton>,
+            )}
+          </div>
         </div>
-        <div className={styles.actions}>
-          <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
-            {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
-          </QuietButton>
-          <IconToggle
-            pressed={sheetOpen}
-            aria-label={t((d) => d.player.visualizer)}
-            aria-haspopup="menu"
-            aria-expanded={sheetOpen}
-            onClick={(event) => useVisualizerSheet.getState().toggle(event.currentTarget)}
-          >
-            <Waves size={18} strokeWidth={1.8} />
-          </IconToggle>
-          <SequenceMenu />
+      ) : (
+        <div className={styles.header}>
+          <div className={styles.heading}>
+            <span className={styles.label}>{t((d) => d.player.upNext)}</span>
+            <span className={styles.count}>{formatCount(ahead)}</span>
+          </div>
+          <div className={styles.actions}>
+            {saveButton}
+            {iconButtons}
+          </div>
         </div>
-      </div>
+      )}
 
       <ScrollArea className={styles.scroll}>
         <DndContext
@@ -157,13 +207,17 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
         >
           <SortableContext items={items} strategy={verticalListSortingStrategy}>
             <div className={styles.rows}>
+              {stream && queue.length === 0 ? (
+                <p className={styles.empty}>{t((d) => d.player.stream.parkedEmpty)}</p>
+              ) : null}
               {queue.map((id, i) => {
                 const m = meta[id];
                 return (
                   <QueueRow
                     key={items[i]}
                     id={items[i]}
-                    state={queueRowState(i, queueIndex)}
+                    state={queueRowState(i, queueIndex, stream ? { parked: hasParked } : null)}
+                    dim={stream != null}
                     displayNo={i + 1}
                     title={m?.title ?? ""}
                     artist={m?.artist ?? null}
@@ -181,9 +235,16 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
         </DndContext>
       </ScrollArea>
 
-      <div className={styles.footer}>
-        <QuietButton onClick={() => actions.stop()}>{t((d) => d.player.clearQueue)}</QuietButton>
-      </div>
+      {stream ? null : (
+        <div className={styles.footer}>
+          <QuietButton onClick={() => actions.stop()}>{t((d) => d.player.clearQueue)}</QuietButton>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Wraps a header action in its tooltip when it has a hint; a bare button otherwise. */
+function withHint(label: string | null, button: ReactElement<HTMLAttributes<HTMLElement>>) {
+  return label ? <Tooltip label={label}>{button}</Tooltip> : button;
 }

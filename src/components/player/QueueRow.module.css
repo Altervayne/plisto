@@ -24,6 +24,12 @@
   background: var(--veil-2);
 }
 
+/* The parked row under a plugin stream keeps the same quiet fill as the now-playing row. */
+.row[data-state="parked"],
+.row[data-state="parked"]:hover {
+  background: var(--veil-2);
+}
+
 /* The picked-up row rides above its siblings, veiled onto the surface so overlapping text stays legible. */
 .row[data-dragging] {
   z-index: 1;
@@ -157,8 +163,15 @@
   color: var(--q-sub);
 }
 
-.row[data-state="now"] .title {
+.row[data-state="now"] .title,
+.row[data-state="parked"] .title {
   font-weight: 600;
+}
+
+/* A parked queue reads at the played-row level: quieter ink, never an opacity dim, so every line stays
+ * on the contrast floor. */
+.row[data-dim] .title {
+  color: var(--q-sub);
 }
 
 /* An empty-meta title shows the placeholder in a faint tone, so a hole in the snapshot reads as absent

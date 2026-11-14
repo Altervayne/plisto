@@ -47,7 +47,8 @@ import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store
 
 // -- Local Imports --
 import { snapshotQueueMeta } from "./queueMeta";
-import { added } from "./queueToast";
+import { added, playsAfter } from "./queueToast";
+import { nextStreamEnd } from "./streamEnd";
 import { resolveStream } from "./streamView";
 
 // -- Type Imports --
@@ -141,6 +142,13 @@ export interface PlayerStore {
   actions: PlayerActions;
 }
 
+/** The title of the parked track while a stream is seated, or null with no stream or no known title. */
+function parkedTrackTitle(s: PlayerStore): string | null {
+  const parked = s.status.stream?.parked;
+  if (!parked) return null;
+  return s.queueMeta[parked.track_id]?.title || null;
+}
+
 /**
  * Fills the display snapshot for the queue's ad-hoc rows - negative ids the play-time library snapshot
  * cannot cover. Resolves each missing negative id over IPC (get_track_display is sentinel-aware and
@@ -196,7 +204,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   },
   setError: (error) => set({ error }),
   setStreamNow: (streamNow) => set({ streamNow }),
-  setStreamEnd: (streamEnd) => set({ streamEnd }),
+  setStreamEnd: (incoming) => set((s) => ({ streamEnd: nextStreamEnd(s.streamEnd, incoming) })),
   bumpPlaysVersion: () => set((s) => ({ playsVersion: s.playsVersion + 1 })),
   actions: {
     // Play records the frontend-only bits the engine cannot know: the source and a metadata snapshot of
@@ -235,7 +243,10 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         get().actions.play(trackIds, 0, source);
       } else {
         void playerPlayNext(trackIds).catch(() => {});
-        added(trackIds.length);
+        // With a stream seated nothing starts: say where the tracks sit, when a parked track is named.
+        const parkedTitle = parkedTrackTitle(get());
+        if (parkedTitle) playsAfter(parkedTitle);
+        else added(trackIds.length);
       }
     },
     // Reorder locally first so the drop does not snap back for a frame; the `player:queue` echo
@@ -271,11 +282,14 @@ export const usePlayerActions = (): PlayerActions => usePlayerStore((s) => s.act
 /**
  * The stream selectors as plain functions, so a test can pin that a position tick leaves each result
  * unchanged. `now` is the hub's object, replaced only on a hub emit; `isStream` is a bare boolean off the
- * engine's status; `artRev` is the seated stream's artwork revision (0 with none).
+ * engine's status; `pluginName` is a bare string; `artRev` is the seated stream's artwork revision (0 with none).
  */
 export const streamSelectors = {
   now: (s: PlayerStore): StreamNow | null => s.streamNow,
   isStream: (s: PlayerStore): boolean => s.status.stream != null,
+  hasParked: (s: PlayerStore): boolean => s.status.stream?.parked != null,
+  pluginName: (s: PlayerStore): string | null =>
+    s.status.stream ? (s.streamNow?.plugin_name ?? "") : null,
   artRev: (s: PlayerStore): number => (s.status.stream ? (s.streamNow?.art_rev ?? 0) : 0),
 };
 
@@ -288,6 +302,10 @@ export const useSeatedStream = (): StreamNow | null => {
   const item = usePlayerStore((s) => s.status.track_id);
   return useMemo(() => resolveStream(seated, now, item), [seated, now, item]);
 };
+/** Whether the engine holds a parked track under the seated stream. */
+export const useHasParked = (): boolean => usePlayerStore(streamSelectors.hasParked);
+/** The seated stream's plugin name (empty before the hub's first state), or null with no stream seated. */
+export const useStreamPluginName = (): string | null => usePlayerStore(streamSelectors.pluginName);
 // The artwork revision feeds the id-keyed cover hooks.
 export const useStreamArtRev = (): number => usePlayerStore(streamSelectors.artRev);
 export const useStreamEnd = (): StreamEndNotice | null => usePlayerStore((s) => s.streamEnd);

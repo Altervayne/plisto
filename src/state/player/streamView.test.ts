@@ -73,20 +73,58 @@ describe("streamLines", () => {
 });
 
 describe("stream strings", () => {
-  const keys = ["streamingFrom", "listened", "paused", "connecting", "buffering", "reconnecting", "noSkip"] as const;
+  const keys = [
+    "streamingFrom",
+    "listened",
+    "paused",
+    "connecting",
+    "buffering",
+    "reconnecting",
+    "noSkip",
+    "parkedHeader",
+    "parkedEmpty",
+    "saveParkedHint",
+    "clearParkedHint",
+    "cleared",
+    "clearedPlain",
+    "playsAfter",
+    "popoverLine",
+  ] as const;
+  const endKeys = [
+    "network",
+    "denied",
+    "unsupported",
+    "playlist",
+    "noAudio",
+    "stalled",
+    "producerGone",
+    "pluginOff",
+    "consent",
+    "safeMode",
+  ] as const;
 
   it.each([
     ["en", en],
     ["fr", fr],
   ] as const)("exist in %s", (_name, dict) => {
     for (const key of keys) expect(dict.player.stream[key], key).toBeTruthy();
-    expect(Object.keys(dict.player.stream).sort()).toEqual([...keys].sort());
+    for (const key of endKeys) expect(dict.player.stream.end[key], key).toBeTruthy();
+    expect(Object.keys(dict.player.stream).sort()).toEqual([...keys, "end"].sort());
+    expect(Object.keys(dict.player.stream.end).sort()).toEqual([...endKeys].sort());
+  });
+
+  it("carry the stream-end name slot in both locales", () => {
+    for (const dict of [en, fr]) {
+      for (const key of endKeys) expect(dict.player.stream.end[key], key).toContain("{name}");
+    }
   });
 
   it("carry no Live label in any locale", () => {
     for (const dict of [en, fr]) {
+      const { end, ...rest } = dict.player.stream;
+      const lines = [...Object.values(rest), ...Object.values(end)];
       expect(Object.keys(dict.player.stream).some((k) => /live/i.test(k))).toBe(false);
-      expect(Object.values(dict.player.stream).some((v) => /\blive\b/i.test(v))).toBe(false);
+      expect(lines.some((v) => /\blive\b/i.test(v))).toBe(false);
     }
   });
 

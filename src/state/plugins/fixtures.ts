@@ -58,6 +58,30 @@ export const inspection = (over: Partial<PluginInspection> = {}): PluginInspecti
   ...over,
 });
 
+/** A UI plugin that holds the stream capability and the network origin it plays from. */
+export const streamInspection = (over: Partial<PluginInspection> = {}): PluginInspection =>
+  inspection({
+    id: "night-radio",
+    name: "Night Radio",
+    capabilities: ["playback.stream", "network"],
+    origins: ["streams.nightradio.example"],
+    ...over,
+  });
+
+/** The installed row of the same plugin, granted the stream capability. */
+export const streamRow = (over: Partial<PluginRow> = {}): PluginRow =>
+  row({
+    id: "night-radio",
+    granted: ["playback.stream", "network"],
+    granted_origins: ["streams.nightradio.example"],
+    manifest: manifest({
+      name: "Night Radio",
+      capabilities: ["playback.stream", "network"],
+      origins: ["streams.nightradio.example"],
+    }),
+    ...over,
+  });
+
 export const status = (over: Partial<PluginStatus> = {}): PluginStatus =>
   ({
     id: "lyrics",

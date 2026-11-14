@@ -50,6 +50,57 @@
   padding: 0 6px 8px 10px;
 }
 
+/* Under a plugin stream the header has two rows: the sentence with the icon buttons trailing it, where they
+ * sit with no stream, then the two text actions on the trailing edge. */
+.headerParked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 6px 8px 10px;
+}
+
+.parkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* The icon buttons never shrink or wrap, so they hold their place as the sentence reflows. */
+.parkIcons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The labels never wrap; whole buttons drop to a second line only for a very long translation. */
+.parkActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.parkActions button {
+  white-space: nowrap;
+}
+
+.park {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--q-sub);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--q-sub);
+  font-size: 13px;
+}
+
 /* The heading pair keeps its own baseline so the count sits on the label's baseline. */
 .heading {
   display: flex;

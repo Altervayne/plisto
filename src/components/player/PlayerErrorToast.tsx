@@ -5,7 +5,13 @@ import { useEffect, useRef } from "react";
 import { Toast } from "../common/Toast/Toast";
 
 // -- State Imports --
-import { usePlayerError, useSetPlayerError } from "../../state/player/store";
+import {
+  usePlayerError,
+  useSetPlayerError,
+  useSetStreamEnd,
+  useStreamEnd,
+} from "../../state/player/store";
+import { streamEndKey } from "../../state/player/streamEnd";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -19,13 +25,18 @@ const VISIBLE_MS = 4000;
 /**
  * The playback-notice nudge: the same foot-of-the-window pill as the queue toast, so a failure reads as
  * one quiet line. It shows when the player store holds a notice - a file that would not play, a lost
- * output, or a device fallback - mapping the kind to its localized line, then clears the notice as it
- * dismisses. Mount once beside the queue toast. The message survives the exit fade through a ref.
+ * output, or a device fallback - or when a plugin's stream ended for a reason worth telling, mapping the
+ * kind to its localized line, then clears the notice as it dismisses. A silent stream end is cleared at
+ * once. Mount once beside the queue toast. The message survives the exit fade through a ref.
  */
 export function PlayerErrorToast() {
   const error = usePlayerError();
   const setError = useSetPlayerError();
+  const end = useStreamEnd();
+  const setEnd = useSetStreamEnd();
   const t = useT();
+
+  const endKey = end ? streamEndKey(end) : null;
 
   // Clear the error as the visible window ends; the fade rides the flip to null.
   useEffect(() => {
@@ -34,22 +45,36 @@ export function PlayerErrorToast() {
     return () => window.clearTimeout(timer);
   }, [error, setError]);
 
-  // Each notice kind picks its own line; all three share the one pill.
-  const message = t((d) => {
-    switch (error) {
-      case "output":
-        return d.player.noAudioOutput;
-      case "device_fallback":
-        return d.player.deviceFallback;
-      default:
-        return d.player.cantPlayFile;
+  useEffect(() => {
+    if (end == null) return;
+    if (endKey == null) {
+      setEnd(null);
+      return;
     }
-  });
+    const timer = window.setTimeout(() => setEnd(null), VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [end, endKey, setEnd]);
+
+  // A stream end names its plugin; otherwise each notice kind picks its own line, all on the one pill.
+  const message =
+    end && endKey
+      ? t((d) => d.player.stream.end[endKey], { name: end.plugin_name })
+      : t((d) => {
+          switch (error) {
+            case "output":
+              return d.player.noAudioOutput;
+            case "device_fallback":
+              return d.player.deviceFallback;
+            default:
+              return d.player.cantPlayFile;
+          }
+        });
+  const shown = error != null || endKey != null;
   const lastMessage = useRef(message);
-  if (error != null) lastMessage.current = message;
+  if (shown) lastMessage.current = message;
 
   return (
-    <Toast visible={error != null}>
+    <Toast visible={shown}>
       <span className={styles.text}>{lastMessage.current}</span>
     </Toast>
   );

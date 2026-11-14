@@ -1,0 +1,57 @@
+/* The stream card above the parked queue: the full width of the queue column, inset to line up with the
+ * rows beneath. A quiet veil fill marks it as the item playing; secondary text takes the queue's own tone. */
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 16px 14px 4px;
+  padding: 10px 6px 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--veil-2);
+}
+
+.cover {
+  flex: none;
+  width: 40px;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.line {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The plugin's name yields room to the elapsed time and the paused word before it truncates. */
+.plugin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--q-sub);
+  font-size: 11.5px;
+}
+
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tag {
+  flex: none;
+  white-space: nowrap;
+}

@@ -1,5 +1,5 @@
 // -- Icon Imports --
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, Radio, RotateCcw } from "lucide-react";
 
 // -- Framework Imports --
 import { useMemo } from "react";
@@ -14,7 +14,7 @@ import { TakeoverNotice } from "./TakeoverNotice";
 // -- State Imports --
 import { usePluginStatusStore } from "../../state/plugins/pluginStatus";
 import { usePlugins } from "../../state/plugins/store";
-import { useCurrentTrackId, usePlayerStore } from "../../state/player/store";
+import { useCurrentTrackId, usePlayerStore, useStreamPluginName } from "../../state/player/store";
 import { useOpenSettings } from "../../state/shell/store";
 import { useSoundActions, useSoundSettings } from "../../state/sound/useSoundSettings";
 
@@ -37,8 +37,9 @@ const SCROLL_DELAY_MS = 80;
 /**
  * The Sound card: the EQ switch, the preset row, a compact draggable curve, the preamp readout with Reset,
  * and a link to the full controls in Settings. Sound is a setting, so it stays editable with nothing
- * playing; the curve then says it applies once something plays. While a plugin holds the output a block
- * at the top says so and offers the way back; the EQ below stays live.
+ * playing; the curve then says it applies once something plays. While a plugin stream is seated one quiet
+ * line under the header names it. While a plugin holds the output a block after that says so and offers the
+ * way back; the EQ below stays live.
  */
 export function SoundPopover({ onClose }: { onClose: () => void }) {
   const settings = useSoundSettings();
@@ -47,6 +48,7 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
   const openSettings = useOpenSettings();
   const t = useT();
   const taken = usePlayerStore((s) => s.status.output_taken_over);
+  const streamName = useStreamPluginName();
   const statuses = usePluginStatusStore((s) => s.statuses);
   const rows = usePlugins();
   const view = useMemo(() => takeoverView(taken, statuses, rows), [taken, statuses, rows]);
@@ -76,6 +78,13 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
           />
         </span>
       </div>
+
+      {streamName != null && (
+        <div className={styles.stream}>
+          <Radio size={14} strokeWidth={1.8} aria-hidden="true" />
+          <span>{t((d) => d.player.stream.popoverLine, { name: streamName })}</span>
+        </div>
+      )}
 
       {view && (
         <TakeoverNotice

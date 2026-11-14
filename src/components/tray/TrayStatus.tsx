@@ -7,6 +7,7 @@ import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { StaffSpinner } from "../scan/StaffSpinner";
 import { PopOutButton } from "../player/PopOutButton";
+import { waitWord } from "../player/streamWords";
 import { Transport } from "../player/Transport";
 
 // -- Hook Imports --
@@ -15,7 +16,8 @@ import { useTrackDisplay } from "../player/useTrackDisplay";
 
 // -- State Imports --
 import { useLoadPreferences } from "../../state/preferences/store";
-import { useCurrentTrackId, usePlayerSync } from "../../state/player/store";
+import { useCurrentTrackId, usePlayerSync, useSeatedStream } from "../../state/player/store";
+import { waitingPhase } from "../../state/player/streamView";
 
 // -- Theme Imports --
 import { useApplyTheme } from "../../theme";
@@ -129,9 +131,11 @@ export function TrayStatus() {
  * title/artist through the by-id display command.
  */
 function TrayNowPlaying({ trackId }: { trackId: number }) {
-  const { cover } = useTrackCover(trackId);
-  const { title, artist } = useTrackDisplay(trackId);
+  const stream = useSeatedStream();
+  const { cover } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
+  const { title, artist } = useTrackDisplay(stream ? null : trackId);
   const t = useT();
+  const wait = stream ? waitingPhase(stream.state) : null;
 
   return (
     <div className={styles.nowBlock}>
@@ -140,8 +144,16 @@ function TrayNowPlaying({ trackId }: { trackId: number }) {
           <Cover src={cover?.src ?? null} alt="" />
         </span>
         <span className={styles.text}>
-          <span className={styles.title}>{title ?? t((d) => d.albums.untitled)}</span>
-          <span className={styles.artist}>{artist ?? t((d) => d.albums.unknownArtist)}</span>
+          <span className={styles.title}>
+            {stream
+              ? wait
+                ? waitWord(t, wait)
+                : (stream.now ?? stream.title)
+              : (title ?? t((d) => d.albums.untitled))}
+          </span>
+          <span className={styles.artist}>
+            {stream ? stream.plugin_name : (artist ?? t((d) => d.albums.unknownArtist))}
+          </span>
         </span>
         <span className={styles.summon}>
           <PopOutButton />

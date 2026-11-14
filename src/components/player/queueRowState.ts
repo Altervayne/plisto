@@ -5,13 +5,27 @@
  * split lives here so it is testable apart from the DOM.
  */
 
-/** A queue row's standing against the play cursor. */
-export type QueueRowState = "played" | "now" | "next";
+/**
+ * A queue row's standing against the play cursor. `parked` is the cursor row while a plugin stream holds
+ * the seat: the track is paused under the stream, so nothing marks it as playing.
+ */
+export type QueueRowState = "played" | "now" | "next" | "parked";
 
-/** Classifies one row's index against the play cursor. */
-export function queueRowState(index: number, queueIndex: number): QueueRowState {
+/**
+ * Classifies one row's index against the play cursor. `stream` is set while a plugin stream holds the
+ * seat: the cursor row is then `parked` when a track is parked under it, and plain `next` when none is
+ * (nothing is paused, so nothing marks the row).
+ */
+export function queueRowState(
+  index: number,
+  queueIndex: number,
+  stream: { parked: boolean } | null = null,
+): QueueRowState {
   if (index < queueIndex) return "played";
-  if (index === queueIndex) return "now";
+  if (index === queueIndex) {
+    if (!stream) return "now";
+    return stream.parked ? "parked" : "next";
+  }
   return "next";
 }
 

@@ -44,6 +44,19 @@ describe("review sheet network lines", () => {
     expect(sheet({ capabilities: caps("network", "library.read"), tier: "native" })).not.toContain(reads);
   });
 
+  it("says a stream plugin can play from its listed sites, only with both capabilities", () => {
+    const line = en.plugins.sheet.streamNetwork;
+    expect(sheet({ capabilities: caps("network", "playback.stream") })).toContain(line);
+    expect(sheet({ capabilities: caps("network") })).not.toContain(line);
+    expect(sheet({ capabilities: caps("playback.stream"), tier: "native", origins: [] })).not.toContain(line);
+  });
+
+  it("lists the stream capability line in Plisto's own words, never Live", () => {
+    const html = sheet({ capabilities: caps("playback.stream") });
+    expect(html).toContain("at any time, pausing your music");
+    expect(html).not.toMatch(/\blive\b/i);
+  });
+
   it("tags a dev origin and no other", () => {
     const html = sheet({ capabilities: caps("network"), origins: ["http://127.0.0.1:8080", "api.example.com"] });
     expect(html.split(en.plugins.sheet.devOrigin)).toHaveLength(2);
@@ -72,6 +85,8 @@ describe("network copy keys", () => {
   ] as const)("has every key in %s", (_name, dict) => {
     expect(dict.plugins.capability.network).toBeTruthy();
     expect(dict.plugins.sheet.networkHow).toBeTruthy();
+    expect(dict.plugins.sheet.streamNetwork).toBeTruthy();
+    expect(dict.plugins.capability["playback.stream"]).toBeTruthy();
     expect(dict.plugins.sheet.networkReadsNote).toBeTruthy();
     expect(dict.plugins.sheet.devOrigin).toBeTruthy();
     expect(dict.plugins.devMode.loopbackNote).toBeTruthy();
