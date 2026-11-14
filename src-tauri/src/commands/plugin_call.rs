@@ -2,13 +2,16 @@
  * The IPC commands behind the plugin API. Only the main window's host shim calls them, with the id it
  * took from its own frame map; a frame never reaches IPC itself. `plugin_call` always resolves to a
  * reply, so a rejected invoke can only mean the transport failed. Admission runs on the command's
- * thread with no I/O; the method itself may touch the plugin's data folder and runs on a blocking one.
+ * thread with no I/O; the method itself may touch the plugin's data folder and runs on a blocking one,
+ * and a job it hands back, such as a network request, is awaited on the async runtime.
  */
 
 // -- Library Imports --
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State, Theme, Webview};
 
 // -- Local Imports --
@@ -16,7 +19,7 @@ use crate::db;
 use crate::plugins::api::error::{ApiError, CallReply};
 use crate::plugins::api::host_event::{HostEvent, EVENT_SIDEBAR, EVENT_UI};
 use crate::plugins::api::state::ApiState;
-use crate::plugins::api::{self, Admitted, HostContext};
+use crate::plugins::api::{self, Admitted, HostContext, Started};
 use crate::plugins::state::EnabledSet;
 use crate::state::AppState;
 
@@ -114,12 +117,32 @@ pub async fn plugin_call(
         return CallReply::from(Err(ApiError::unavailable()));
     };
     let host = TauriHost { app };
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
-        api::run(&admitted, &args, &app_data, &host, &api)
+    CallReply::from(complete(admitted, args, app_data, host, api).await)
+}
+
+/// Runs an admitted call's handler on a blocking thread, then awaits a job it hands back. `admitted`
+/// lives until the job resolves, so the call keeps its in-flight slot that long.
+async fn complete<H: HostContext + 'static>(
+    admitted: Admitted,
+    args: String,
+    app_data: PathBuf,
+    host: H,
+    api: ApiState,
+) -> Result<Value, ApiError> {
+    let started = tauri::async_runtime::spawn_blocking(move || {
+        let started = api::start(&admitted, &args, &app_data, &host, &api);
+        (started, admitted)
     })
-    .await
-    .unwrap_or_else(|_| Err(ApiError::unavailable()));
-    CallReply::from(outcome)
+    .await;
+    match started {
+        Ok((Started::Done(result), _)) => result,
+        Ok((Started::Later(job), admitted)) => {
+            let result = job.await;
+            drop(admitted);
+            result
+        }
+        Err(_) => Err(ApiError::unavailable()),
+    }
 }
 
 /// Records the page shown from webview `label`. A page opens only for a serving plugin and closes
@@ -217,6 +240,45 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(code(MAIN_LABEL, true, &plugins), None);
         }
+    }
+
+    #[test]
+    fn a_later_job_resolves_on_the_async_runtime_holding_its_slot() {
+        let plugins = serving_one();
+        let api = plugins.api().clone();
+        let admitted = api::admit_in(
+            api::LATER_TABLE,
+            &plugins.enabled_set(),
+            &api,
+            ID,
+            "test.later",
+            2,
+            Instant::now(),
+        )
+        .unwrap();
+        let result = tauri::async_runtime::block_on(complete(
+            admitted,
+            "{}".into(),
+            PathBuf::from("unused"),
+            api::FakeHost::default(),
+            api.clone(),
+        ));
+        assert_eq!(result, Ok(serde_json::json!({ "id": ID, "in_flight": 1 })));
+        // The slot was given back once the job resolved: 16 more calls fit.
+        let held: Vec<Admitted> = (0..16)
+            .map(|_| {
+                api::admit(
+                    &plugins.enabled_set(),
+                    &api,
+                    ID,
+                    "log.write",
+                    2,
+                    Instant::now(),
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(held.len(), 16);
     }
 
     #[test]

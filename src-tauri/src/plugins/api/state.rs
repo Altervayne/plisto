@@ -1,11 +1,11 @@
 /*
  * The plugin API's memory per plugin: rate buckets, the count of calls in flight, the one open page
- * slot, open toasts and prompts with gesture tokens, chips and sidebar item state, and the gates that
- * serialize a plugin's own file work. The map locks are held only for in-memory work, never across
- * disk I/O; `forget` takes them one after the other. The one nesting is the sidebar store's lock, then
- * the serving set's (see `sidebar.rs`). A plugin's
- * gates are the one place a lock is held across disk work; they are kept for the life of the process,
- * so a call made after a re-enable never runs beside an older call under a different gate.
+ * slot, open toasts and prompts with gesture tokens, chips and sidebar item state, running network
+ * requests with their log, and the gates that serialize a plugin's own file work. The map locks are
+ * held only for in-memory work, never across disk I/O; `forget` takes them one after the other. The
+ * one nesting is the sidebar store's lock, then the serving set's (see `sidebar.rs`). A plugin's gates
+ * are the one place a lock is held across disk work; they are kept for the life of the process, so a
+ * call made after a re-enable never runs beside an older call under a different gate.
  */
 
 // -- Library Imports --
@@ -19,6 +19,7 @@ use rusqlite::{Connection, OpenFlags};
 
 // -- Local Imports --
 use super::error::ApiError;
+use super::net::state::NetState;
 use super::rate::{PluginBuckets, RateClass};
 use super::sidebar::SidebarStore;
 use super::storage::StorageSlot;
@@ -47,6 +48,7 @@ struct Shared {
     gates: Mutex<HashMap<String, Arc<PluginGates>>>,
     ui: UiState,
     sidebar: SidebarStore,
+    net: NetState,
     // The plugins' read-only library connection, opened on first use. Never taken under another lock.
     reader: Mutex<Option<Connection>>,
 }
@@ -154,6 +156,11 @@ impl ApiState {
         &self.0.sidebar
     }
 
+    /// Running fetches, streams and sockets, and the network log.
+    pub fn net(&self) -> &NetState {
+        &self.0.net
+    }
+
     /// Runs `f` on a read-only connection to the database file at `path`, opened on first use and kept.
     /// Plugin reads use it so a long scan never holds the app's own connection. A connection that
     /// cannot be opened is `unavailable`, with no detail, and the next call tries again.
@@ -172,8 +179,9 @@ impl ApiState {
         }
     }
 
-    /// Drops everything kept for `id` except its gates, and ends its open toasts and prompts. Waits
-    /// for a storage call of `id` that is running to finish, so none outlives this.
+    /// Drops everything kept for `id` except its gates and network log, ends its open toasts and
+    /// prompts, and cancels its network requests with `stopped`. Waits for a storage call of `id` that
+    /// is running to finish, so none outlives this.
     pub fn forget(&self, id: &str) {
         {
             let mut inner = lock(&self.0.inner);
@@ -186,6 +194,7 @@ impl ApiState {
         self.0.ui.release(id);
         self.0.ui.drop_gestures(id);
         self.0.sidebar.forget(id);
+        self.0.net.forget(id);
         let gates = lock(&self.0.gates).get(id).cloned();
         if let Some(gates) = gates {
             *lock(&gates.storage) = StorageSlot::default();

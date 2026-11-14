@@ -8,6 +8,9 @@
 use serde::Serialize;
 use serde_json::Value;
 
+// -- Local Imports --
+use super::net::{NetCode, Refusal};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiCode {
@@ -20,6 +23,8 @@ pub enum ApiCode {
     Busy,
     Timeout,
     Unavailable,
+    Network,
+    Aborted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -93,6 +98,36 @@ impl ApiError {
     pub fn unavailable() -> ApiError {
         ApiError::new(ApiCode::Unavailable, "Plisto cannot answer this call now.")
     }
+
+    /// A request ended before it finished: `abort`, `frame_gone` or `stopped`.
+    pub fn aborted(reason: &'static str) -> ApiError {
+        ApiError {
+            reason: Some(reason),
+            ..ApiError::new(ApiCode::Aborted, "The request was cancelled.")
+        }
+    }
+
+    pub fn network(reason: &'static str) -> ApiError {
+        ApiError {
+            reason: Some(reason),
+            ..ApiError::new(ApiCode::Network, "The request could not be completed.")
+        }
+    }
+}
+
+impl From<Refusal> for ApiError {
+    fn from(refusal: Refusal) -> ApiError {
+        let code = match refusal.code {
+            NetCode::InvalidArgs => ApiCode::InvalidArgs,
+            NetCode::Denied => ApiCode::Denied,
+            NetCode::TooLarge => ApiCode::TooLarge,
+            NetCode::Network => ApiCode::Network,
+        };
+        ApiError {
+            reason: refusal.reason,
+            ..ApiError::new(code, refusal.message)
+        }
+    }
 }
 
 /// The answer to one plugin call: a result or an error, never both.
@@ -165,6 +200,8 @@ mod tests {
             (ApiError::busy(), "busy"),
             (ApiError::timeout(), "timeout"),
             (ApiError::unavailable(), "unavailable"),
+            (ApiError::network("dns"), "network"),
+            (ApiError::aborted("abort"), "aborted"),
         ];
         for (error, name) in cases {
             assert_eq!(serde_json::to_value(error.code).unwrap(), name);
@@ -185,5 +222,26 @@ mod tests {
         );
         let json = serde_json::to_value(ApiError::denied()).unwrap();
         assert!(json.get("reason").is_none());
+        let json = serde_json::to_value(ApiError::aborted("frame_gone")).unwrap();
+        assert_eq!(json["code"], "aborted");
+        assert_eq!(json["reason"], "frame_gone");
+    }
+
+    #[test]
+    fn a_guard_refusal_keeps_its_code_reason_and_message() {
+        let cases = [
+            (Refusal::forbidden_header(), ApiCode::InvalidArgs),
+            (Refusal::invalid_args("Bad URL."), ApiCode::InvalidArgs),
+            (Refusal::denied("origin_not_listed"), ApiCode::Denied),
+            (Refusal::request_body(), ApiCode::TooLarge),
+            (Refusal::network("redirect"), ApiCode::Network),
+        ];
+        for (refusal, code) in cases {
+            let error = ApiError::from(refusal);
+            assert_eq!(error.code, code);
+            assert_eq!(error.reason, refusal.reason);
+            assert_eq!(error.message, refusal.message);
+            assert_eq!(error.retry_after_ms, None);
+        }
     }
 }

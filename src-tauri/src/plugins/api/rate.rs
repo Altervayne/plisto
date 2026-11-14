@@ -26,6 +26,12 @@ pub enum RateClass {
     /// Player commands and queue changes.
     Play,
     Cover,
+    /// Fetches and socket opens.
+    Net,
+    /// Socket sends and closes, aborts and stream cancels.
+    NetSend,
+    /// Stream acknowledgements.
+    NetStream,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +63,9 @@ impl RateClass {
             RateClass::PlaybackRead => (20, 10_000),
             RateClass::Play => (10, 5_000),
             RateClass::Cover => (30, 10_000),
+            RateClass::Net => (30, 10_000),
+            RateClass::NetSend => (40, 20_000),
+            RateClass::NetStream => (40, 20_000),
         };
         Limit {
             capacity,
@@ -139,6 +148,9 @@ pub struct PluginBuckets {
     playback_read: Bucket,
     play: Bucket,
     cover: Bucket,
+    net: Bucket,
+    net_send: Bucket,
+    net_stream: Bucket,
 }
 
 impl PluginBuckets {
@@ -161,6 +173,9 @@ impl PluginBuckets {
             playback_read: full(RateClass::PlaybackRead),
             play: full(RateClass::Play),
             cover: full(RateClass::Cover),
+            net: full(RateClass::Net),
+            net_send: full(RateClass::NetSend),
+            net_stream: full(RateClass::NetStream),
         }
     }
 
@@ -180,6 +195,9 @@ impl PluginBuckets {
             RateClass::PlaybackRead => &mut self.playback_read,
             RateClass::Play => &mut self.play,
             RateClass::Cover => &mut self.cover,
+            RateClass::Net => &mut self.net,
+            RateClass::NetSend => &mut self.net_send,
+            RateClass::NetStream => &mut self.net_stream,
         }
     }
 
@@ -314,6 +332,9 @@ mod tests {
             (RateClass::PlaybackRead, 20, 100),
             (RateClass::Play, 10, 200),
             (RateClass::Cover, 30, 100),
+            (RateClass::Net, 30, 100),
+            (RateClass::NetSend, 40, 50),
+            (RateClass::NetStream, 40, 50),
         ] {
             let mut b = PluginBuckets::new(t0);
             for _ in 0..capacity {

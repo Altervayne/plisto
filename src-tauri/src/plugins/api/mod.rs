@@ -31,7 +31,10 @@ mod ui;
 pub(crate) mod ui_state;
 
 // -- Library Imports --
+use std::fmt;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -62,12 +65,25 @@ pub enum Need {
 
 pub type Handler = fn(&CallCtx<'_>, &Map<String, Value>) -> Outcome;
 
-/// What a handler produces: a result, or a request that stays open until the user or its deadline
-/// ends it.
-#[derive(Debug)]
+/// Work that finishes on the async runtime, such as a network request.
+pub type NetJob = Pin<Box<dyn Future<Output = Result<Value, ApiError>> + Send>>;
+
+/// What a handler produces: a result, a request that stays open until the user or its deadline ends
+/// it, or a job to await.
 pub enum Outcome {
     Done(Result<Value, ApiError>),
     Pending(Pending),
+    Later(NetJob),
+}
+
+impl fmt::Debug for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Outcome::Done(result) => f.debug_tuple("Done").field(result).finish(),
+            Outcome::Pending(pending) => f.debug_tuple("Pending").field(pending).finish(),
+            Outcome::Later(_) => f.write_str("Later"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -75,9 +91,15 @@ impl Outcome {
     fn done(self) -> Result<Value, ApiError> {
         match self {
             Outcome::Done(result) => result,
-            Outcome::Pending(pending) => panic!("expected a result, got {pending:?}"),
+            other => panic!("expected a result, got {other:?}"),
         }
     }
+}
+
+/// How `start` leaves a call: answered, or a job the caller awaits while it keeps the call admitted.
+pub enum Started {
+    Done(Result<Value, ApiError>),
+    Later(NetJob),
 }
 
 #[derive(Clone, Copy)]
@@ -161,7 +183,8 @@ pub fn admit(
     admit_in(table(), enabled, api, id, method, args_len, now)
 }
 
-fn admit_in(
+/// `admit` against `table` in place of the method table.
+pub(crate) fn admit_in(
     table: &'static [MethodSpec],
     enabled: &EnabledSet,
     api: &ApiState,
@@ -196,18 +219,19 @@ fn admit_in(
     })
 }
 
-/// Parses the arguments of an admitted call and runs its handler. A pending outcome is waited on
-/// here, so the call keeps its in-flight slot until it resolves.
-pub fn run(
+/// Parses the arguments of an admitted call and runs its handler on the calling thread. A pending
+/// outcome is waited on here; a later one is handed back, and the caller keeps `admitted`, with its
+/// in-flight slot, until the job resolves.
+pub fn start(
     admitted: &Admitted,
     args: &str,
     app_data: &Path,
     host: &dyn HostContext,
     api: &ApiState,
-) -> Result<Value, ApiError> {
+) -> Started {
     let not_object = || ApiError::invalid_args("The arguments must be a JSON object.");
     let Ok(Value::Object(args)) = serde_json::from_str::<Value>(args) else {
-        return Err(not_object());
+        return Started::Done(Err(not_object()));
     };
     let ctx = CallCtx {
         id: &admitted.id,
@@ -218,8 +242,24 @@ pub fn run(
         api,
     };
     match (admitted.spec.run)(&ctx, &args) {
-        Outcome::Done(result) => result,
-        Outcome::Pending(pending) => pending.wait(host, api.ui()),
+        Outcome::Done(result) => Started::Done(result),
+        Outcome::Pending(pending) => Started::Done(pending.wait(host, api.ui())),
+        Outcome::Later(job) => Started::Later(job),
+    }
+}
+
+/// `start`, then blocks on a later job, so the call keeps its in-flight slot until it resolves. Never
+/// called from an async task: blocking on the runtime from inside it panics.
+pub fn run(
+    admitted: &Admitted,
+    args: &str,
+    app_data: &Path,
+    host: &dyn HostContext,
+    api: &ApiState,
+) -> Result<Value, ApiError> {
+    match start(admitted, args, app_data, host, api) {
+        Started::Done(result) => result,
+        Started::Later(job) => tauri::async_runtime::block_on(job),
     }
 }
 
@@ -281,6 +321,43 @@ impl HostContext for FakeHost {
         self.app.as_ref()
     }
 }
+
+/// A future that suspends once before it completes, so awaiting it yields to the runtime.
+#[cfg(test)]
+struct YieldOnce(bool);
+
+#[cfg(test)]
+impl Future for YieldOnce {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        if self.0 {
+            return std::task::Poll::Ready(());
+        }
+        self.0 = true;
+        cx.waker().wake_by_ref();
+        std::task::Poll::Pending
+    }
+}
+
+/// Answers `{ id, in_flight }` from the async runtime, reading the caller's in-flight count there.
+#[cfg(test)]
+fn later(ctx: &CallCtx<'_>, _: &Map<String, Value>) -> Outcome {
+    let (id, api) = (ctx.id.to_string(), ctx.api.clone());
+    Outcome::Later(Box::pin(async move {
+        YieldOnce(false).await;
+        Ok(serde_json::json!({ "id": id, "in_flight": api.in_flight(&id) }))
+    }))
+}
+
+/// One method that resolves later.
+#[cfg(test)]
+pub(crate) const LATER_TABLE: &[MethodSpec] = &[MethodSpec {
+    name: "test.later",
+    need: Need::Ambient,
+    class: RateClass::StorageRead,
+    run: later,
+}];
 
 /// The parts of a `CallCtx` for calling a handler directly, as `com.example.demo` 1.0.0, with no
 /// grants.
@@ -462,6 +539,61 @@ mod tests {
         assert_eq!(api.in_flight(ID), 12);
         drop(held);
         assert_eq!(api.in_flight(ID), 0);
+    }
+
+    #[test]
+    fn a_later_job_resolves_through_run_and_holds_its_slot_until_then() {
+        let plugins = plugins_with(Vec::new());
+        let api = plugins.api();
+        let admitted = admit_in(
+            LATER_TABLE,
+            &plugins.enabled_set(),
+            api,
+            ID,
+            "test.later",
+            2,
+            Instant::now(),
+        )
+        .unwrap();
+        let result = run(
+            &admitted,
+            "{}",
+            Path::new("unused"),
+            &FakeHost::default(),
+            api,
+        );
+        assert_eq!(result, Ok(json!({ "id": ID, "in_flight": 1 })));
+        drop(admitted);
+        assert_eq!(api.in_flight(ID), 0);
+    }
+
+    #[test]
+    fn start_hands_back_a_later_job_and_answers_the_rest() {
+        let plugins = plugins_with(Vec::new());
+        let enabled = plugins.enabled_set();
+        let api = plugins.api();
+        let host = FakeHost::default();
+        let t0 = Instant::now();
+        let admitted = admit_in(LATER_TABLE, &enabled, api, ID, "test.later", 2, t0).unwrap();
+        let Started::Later(job) = start(&admitted, "{}", Path::new("unused"), &host, api) else {
+            panic!("expected a later job");
+        };
+        assert_eq!(api.in_flight(ID), 1);
+        let result = tauri::async_runtime::block_on(job);
+        assert_eq!(result, Ok(json!({ "id": ID, "in_flight": 1 })));
+        drop(admitted);
+        assert_eq!(api.in_flight(ID), 0);
+
+        // Bad arguments never reach the handler.
+        let admitted = admit_in(LATER_TABLE, &enabled, api, ID, "test.later", 2, t0).unwrap();
+        let Started::Done(Err(error)) = start(&admitted, "[]", Path::new("unused"), &host, api)
+        else {
+            panic!("expected an answer");
+        };
+        assert_eq!(error.code, ApiCode::InvalidArgs);
+        let admitted = admit(&enabled, api, ID, "app.info", 2, t0).unwrap();
+        let started = start(&admitted, "{}", Path::new("unused"), &host, api);
+        assert!(matches!(started, Started::Done(Ok(_))));
     }
 
     #[test]
