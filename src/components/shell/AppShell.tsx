@@ -37,6 +37,7 @@ import { PluginToast } from "../plugins/PluginToast";
 import { PluginConfirmHost } from "../plugins/PluginConfirmHost";
 import { PluginNoticeHost } from "../plugins/PluginNoticeHost";
 import { SafeModeOffer } from "../plugins/SafeModeOffer";
+import { SafeModeBanner } from "../plugins/SafeModeBanner";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -497,6 +498,7 @@ export function AppShell({
         search={finder.pill}
       />
       <main className={styles.main}>
+        <SafeModeBanner />
         {mode === "home" ? (
           // Home needs a library; an empty one keeps the add-a-folder onboarding, as the walls do.
           count === 0 ? emptyLibrary : <HomeView onNavigate={navigate} />

@@ -22,6 +22,7 @@ use crate::plugins::icon_url;
 use crate::plugins::install::{self, InboxItem, Inspection};
 use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::lifecycle::{self, Uninstalled};
+use crate::plugins::session;
 use crate::plugins::stage::Limits;
 use crate::plugins::state::{BootView, PluginsState, Runtime};
 use crate::plugins::summary::{self, RowView, UpdatedView};
@@ -88,6 +89,73 @@ pub async fn plugins_resolve_boot(safe: bool, webview: Webview, app: AppHandle) 
         start_serving(app.clone());
     }
     view
+}
+
+/// The one relaunch path. Writes the safe-mode flag first, so a refused write leaves the app running
+/// as it was, then runs `teardown`, removes the session marker here (the teardown leaves it) so the
+/// next launch reads a clean exit, and calls `restart`.
+fn relaunch(
+    app_data: &std::path::Path,
+    safe: bool,
+    teardown: impl FnOnce(),
+    restart: impl FnOnce(),
+) -> Result<(), InstallError> {
+    session::set_safe_mode(app_data, safe)
+        .map_err(|e| InstallError::new(ErrorCode::Io, format!("cannot write the safe-mode flag: {e}")))?;
+    teardown();
+    session::clear(app_data);
+    restart();
+    Ok(())
+}
+
+/// Restarts Plisto: with no plugins for the next session when `safe`, normally otherwise. Every
+/// plugin process is stopped first. Main window only.
+#[tauri::command]
+pub async fn plugins_restart(safe: bool, webview: Webview, app: AppHandle) -> Result<(), InstallError> {
+    if webview.label() != MAIN_LABEL {
+        return Ok(());
+    }
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| InstallError::new(ErrorCode::Io, format!("no app data folder: {e}")))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        relaunch(
+            &app_data,
+            safe,
+            || crate::tear_down(&app),
+            || app.restart(),
+        )
+    })
+    .await
+    .map_err(|_| InstallError::new(ErrorCode::Io, "the restart task failed to run"))?
+}
+
+/// Stops every plugin process before an update replaces the binary. Main window only.
+#[tauri::command]
+pub async fn plugins_shutdown_for_update(webview: Webview, app: AppHandle) -> Result<(), InstallError> {
+    if webview.label() != MAIN_LABEL {
+        return Ok(());
+    }
+    tauri::async_runtime::spawn_blocking(move || crate::stop_plugins(&app, false))
+        .await
+        .map_err(|_| InstallError::new(ErrorCode::Io, "the plugin shutdown task failed to run"))
+}
+
+/// Lets plugins start again after an update that did not install, and starts them when plugins run
+/// this session. Main window only.
+#[tauri::command]
+pub fn plugins_resume_after_update(webview: Webview, app: AppHandle) {
+    if webview.label() != MAIN_LABEL {
+        return;
+    }
+    #[cfg(windows)]
+    app.state::<std::sync::Arc<crate::plugins::native::NativeHost>>()
+        .release_starts();
+    if app.state::<AppState>().plugins.runtime() == Runtime::Running {
+        #[cfg(windows)]
+        start_serving(app.clone());
+    }
 }
 
 /// Starts every serving plugin on a thread of its own, as the boot does, since each native start
@@ -363,5 +431,53 @@ mod tests {
         assert!(!plugins.is_enabled(ID));
         assert_eq!(resolve_from(MAIN_LABEL, &plugins, false), None);
         assert!(!plugins.is_enabled(ID));
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("plisto-relaunch-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn a_safe_relaunch_writes_the_flag_and_removes_the_marker() {
+        let dir = scratch("safe");
+        session::stamp(&dir, "2.7.0", 1).unwrap();
+        let order = std::cell::RefCell::new(Vec::new());
+        relaunch(
+            &dir,
+            true,
+            || order.borrow_mut().push("teardown"),
+            || order.borrow_mut().push("restart"),
+        )
+        .unwrap();
+        assert_eq!(*order.borrow(), ["teardown", "restart"]);
+        let boot = session::boot_state(&dir, "2.7.0");
+        assert!(boot.safe_mode && !boot.unclean);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_normal_relaunch_clears_the_flag_and_removes_the_marker() {
+        let dir = scratch("normal");
+        session::set_safe_mode(&dir, true).unwrap();
+        session::stamp(&dir, "2.7.0", 1).unwrap();
+        let mut restarted = false;
+        relaunch(&dir, false, || {}, || restarted = true).unwrap();
+        assert!(restarted);
+        assert_eq!(session::boot_state(&dir, "2.7.0"), BootState::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_relaunch_that_cannot_write_the_flag_stops_nothing() {
+        let dir = scratch("refused");
+        // A file where the state folder belongs.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(crate::plugins::paths::state_dir(&dir), b"x").unwrap();
+        let ran = std::cell::Cell::new(false);
+        assert!(relaunch(&dir, true, || ran.set(true), || ran.set(true)).is_err());
+        assert!(!ran.get());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -291,10 +291,18 @@ impl PluginsState {
         if let Err(e) = session::stamp(app_data, app_version, pid) {
             eprintln!("plugins: cannot write the session marker: {e}");
         }
-        PluginsState {
+        let state = PluginsState {
             registry_writable,
             ..PluginsState::new(registry, problems, boot)
+        };
+        // The flag asked for this session only, and the runtime is decided: the next launch starts
+        // plugins again.
+        if boot.safe_mode {
+            if let Err(e) = session::set_safe_mode(app_data, false) {
+                eprintln!("plugins: cannot clear the safe-mode flag: {e}");
+            }
         }
+        state
     }
 
     /// A lock poisoned by a panic ends plugins for the session: the runtime turns safe and the serving
@@ -1028,9 +1036,27 @@ mod tests {
         demo(&d, true);
         session::set_safe_mode(&d.0, true).unwrap();
         assert_eq!(d.boot().boot_view(), view(Runtime::Safe, false, true));
+        session::set_safe_mode(&d.0, true).unwrap();
         let unclean = d.boot();
         assert_eq!(unclean.boot_view(), view(Runtime::Safe, true, true));
         assert!(!unclean.is_enabled(ID));
+    }
+
+    #[test]
+    fn the_safe_mode_flag_lasts_one_boot() {
+        let d = AppData::new();
+        demo(&d, true);
+        session::set_safe_mode(&d.0, true).unwrap();
+        let safe = d.boot();
+        assert_eq!(safe.runtime(), Runtime::Safe);
+        assert!(!safe.is_enabled(ID));
+        assert!(!crate::plugins::paths::safe_mode_file(&d.0).exists());
+        // The session that read it still reports it; the next launch does not.
+        assert!(safe.boot_view().safe_flag);
+        session::clear(&d.0);
+        let next = d.boot();
+        assert_eq!(next.boot_view(), view(Runtime::Running, false, false));
+        assert!(next.is_enabled(ID));
     }
 
     #[test]

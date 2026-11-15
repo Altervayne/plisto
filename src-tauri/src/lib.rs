@@ -552,6 +552,9 @@ pub fn run() {
             commands::plugins::plugins_list,
             commands::plugins::plugins_boot_state,
             commands::plugins::plugins_resolve_boot,
+            commands::plugins::plugins_restart,
+            commands::plugins::plugins_shutdown_for_update,
+            commands::plugins::plugins_resume_after_update,
             commands::plugins::plugin_inspect,
             commands::plugins::plugin_install,
             commands::plugins::plugin_discard,
@@ -592,24 +595,41 @@ pub fn run() {
             // controls down here so the now-playing overlay does not ghost after the process ends,
             // and stop the library sync, cutting short any pass it is running.
             if let tauri::RunEvent::Exit = event {
-                smtc::teardown(app);
-                // Every native plugin process is gone before the session marker is. Restarts end
-                // first, so nothing starts again while the rest stop, and Plisto's own output is
-                // restored before any child is stopped.
-                #[cfg(windows)]
-                if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
-                    native.begin_exit();
-                    native.release_takeover(plugins::native::TakeoverReason::Stopped);
-                    native.shutdown_all();
-                }
+                tear_down(app);
                 // A clean exit removes the session marker; a crash or a kill leaves it behind.
                 if let Ok(dir) = app.path().app_data_dir() {
                     plugins::session::clear(&dir);
                 }
-                if let Some(state) = app.try_state::<AppState>() {
-                    state.bg_cancel.store(true, Ordering::SeqCst);
-                    let _ = state.library_sync.send(SyncCmd::Shutdown);
-                }
             }
         });
+}
+
+/// Stops every native plugin process. Plisto's own output is restored before any child is stopped.
+/// `leaving` ends restarts and new starts for good, so nothing starts again while the rest stop.
+/// Without it starts are only held, and `NativeHost::release_starts` lets the plugins run again.
+pub(crate) fn stop_plugins(app: &tauri::AppHandle, leaving: bool) {
+    #[cfg(windows)]
+    if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
+        if leaving {
+            native.begin_exit();
+        } else {
+            native.hold_starts();
+        }
+        native.release_takeover(plugins::native::TakeoverReason::Stopped);
+        native.shutdown_all();
+    }
+    #[cfg(not(windows))]
+    let _ = (app, leaving);
+}
+
+/// Everything the app ends before it goes: the OS media controls, so the now-playing overlay does not
+/// ghost, every plugin process, and the library sync, cutting short any pass. Runs on exit and before
+/// a relaunch; the session marker is left to the caller.
+pub(crate) fn tear_down(app: &tauri::AppHandle) {
+    smtc::teardown(app);
+    stop_plugins(app, true);
+    if let Some(state) = app.try_state::<AppState>() {
+        state.bg_cancel.store(true, Ordering::SeqCst);
+        let _ = state.library_sync.send(SyncCmd::Shutdown);
+    }
 }

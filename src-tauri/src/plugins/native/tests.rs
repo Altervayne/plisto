@@ -536,6 +536,78 @@ fn starting_the_serving_set_starts_nothing_while_held_or_safe() {
     host.shutdown_all();
 }
 
+#[test]
+fn plugins_stopped_for_an_update_start_again_when_it_fails() {
+    let k = native_kit("echo");
+    k.enable(&[]);
+    session::clear(&k.data);
+    let plugins = k.reboot();
+    assert_eq!(plugins.runtime(), Runtime::Running);
+    let host = NativeHost::new(k.data.clone(), Arc::new(RecordingLink::default()));
+    host.start_serving(&plugins);
+    assert!(host.is_running(ID));
+
+    // The stop without the exit step, which cannot be undone.
+    host.shutdown_all();
+    assert!(!host.is_running(ID));
+
+    host.start_serving(&plugins);
+    assert!(host.is_running(ID));
+    host.shutdown_all();
+}
+
+/// A running native plugin on a host, with its state.
+fn running_host() -> (Kit, NativeHost, PluginsState) {
+    let k = native_kit("echo");
+    k.enable(&[]);
+    session::clear(&k.data);
+    let plugins = k.reboot();
+    let host = NativeHost::new(k.data.clone(), Arc::new(RecordingLink::default()));
+    host.start_serving(&plugins);
+    assert!(host.is_running(ID));
+    (k, host, plugins)
+}
+
+#[test]
+fn a_start_during_the_update_hold_launches_nothing() {
+    let (_k, host, plugins) = running_host();
+    host.hold_starts();
+    host.shutdown_all();
+    assert!(matches!(host.start(&plugins, ID), Err(StartError::Held)));
+    assert!(matches!(host.restart(&plugins, ID), Err(StartError::Held)));
+    host.start_serving(&plugins);
+    assert!(!host.is_running(ID));
+    // A refusal leaves no failure behind: the host is not marked failed or restarting.
+    assert!(!matches!(
+        host.board.host(ID),
+        Some(HostState::Failed { .. } | HostState::Restarting { .. })
+    ));
+}
+
+#[test]
+fn releasing_the_hold_lets_the_enabled_plugins_start() {
+    let (_k, host, plugins) = running_host();
+    host.hold_starts();
+    host.shutdown_all();
+    host.start_serving(&plugins);
+    host.release_starts();
+    host.start_serving(&plugins);
+    assert!(host.is_running(ID));
+    host.shutdown_all();
+}
+
+#[test]
+fn a_hold_then_an_exit_tears_down_cleanly() {
+    let (_k, host, plugins) = running_host();
+    host.hold_starts();
+    host.shutdown_all();
+    host.begin_exit();
+    host.release_starts();
+    assert!(matches!(host.start(&plugins, ID), Err(StartError::Exiting)));
+    assert!(!host.is_running(ID));
+    host.shutdown_all();
+}
+
 /// A native plugin enabled in a state the host starts, stops and disables through, on a fake clock.
 pub(super) struct Supervised {
     pub(super) k: Kit,

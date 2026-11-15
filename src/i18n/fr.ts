@@ -820,6 +820,7 @@ export const fr: Dict = {
     installFile: ["plugin", "ajouter"],
     installFolder: ["plugin", "ajouter"],
     openFolder: ["plugin"],
+    safeMode: ["plugins désactivés", "désactiver les plugins", "plantage", "récupération", "redémarrer"],
     checkForUpdates: ["version", "nouvelle version"],
     autoCheck: ["version", "mise à niveau"],
   },
@@ -1513,6 +1514,20 @@ export const fr: Dict = {
       startNormally: "Démarrer normalement",
       startSafe: "Démarrer sans les plugins",
     },
+    safeBanner: {
+      line: "Les plugins sont désactivés pour cette session",
+      restart: "Redémarrer normalement",
+    },
+    safeEntry: {
+      label: "Mode sans échec",
+      restartSafe: "Redémarrer sans les plugins",
+      restartNormal: "Redémarrer normalement",
+      helperRunning:
+        "Redémarre Plisto avec tous les plugins désactivés. Vos plugins et leurs données restent tels quels.",
+      helperSafe:
+        "Les plugins restent désactivés jusqu'à un redémarrage normal. Vous pouvez toujours les désactiver ou les désinstaller ici.",
+    },
+    statusSafe: "Désactivé pour cette session",
     actionFailed: "{name} : {message}",
     sandboxLeak:
       "La vérification du bac à sable des plugins a échoué sur ce système : une page de plugin pourrait accéder au réseau sans autorisation. Les plugins sont marqués « Sans bac à sable » tant que ce n'est pas corrigé.",

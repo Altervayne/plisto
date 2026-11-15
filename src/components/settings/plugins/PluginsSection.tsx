@@ -8,6 +8,7 @@ import { FileArchive, FolderOpen, FolderSearch } from "lucide-react";
 import { QuietButton } from "../../common/QuietButton";
 import { InboxList } from "./InboxList";
 import { PluginRow } from "./PluginRow";
+import { SafeModeEntry } from "./SafeModeEntry";
 import { UninstallDialog } from "./UninstallDialog";
 import { ReviewSheet } from "./ReviewSheet/ReviewSheet";
 import { SettingRow } from "../SettingRow";
@@ -152,6 +153,8 @@ export function PluginsSection() {
           </QuietButton>
         </SettingRow>
       </div>
+
+      <SafeModeEntry />
 
       {actions.message ? (
         <p className={styles.message} role="status">

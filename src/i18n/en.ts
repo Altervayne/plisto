@@ -815,6 +815,7 @@ export const en = {
     installFile: ["plugin", "add"],
     installFolder: ["plugin", "add"],
     openFolder: ["plugin"],
+    safeMode: ["plugins off", "disable plugins", "crash", "recovery", "restart"],
     checkForUpdates: ["version", "upgrade", "new version"],
     autoCheck: ["version", "upgrade"],
   },
@@ -1498,6 +1499,18 @@ export const en = {
       startNormally: "Start normally",
       startSafe: "Start without plugins",
     },
+    safeBanner: {
+      line: "Plugins are off for this session",
+      restart: "Restart normally",
+    },
+    safeEntry: {
+      label: "Safe mode",
+      restartSafe: "Restart without plugins",
+      restartNormal: "Restart normally",
+      helperRunning: "Restarts Plisto with every plugin off. Your plugins and their data stay as they are.",
+      helperSafe: "Plugins are off until you restart normally. You can still turn them off or uninstall them here.",
+    },
+    statusSafe: "Off for this session",
     actionFailed: "{name}: {message}",
     sandboxLeak:
       "Plisto's check of the plugin sandbox failed on this system: a plugin page could reach the network without permission. Plugins are marked Unsandboxed until this is fixed.",

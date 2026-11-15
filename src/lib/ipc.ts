@@ -1393,6 +1393,21 @@ export function pluginsResolveBoot(safe: boolean): Promise<PluginBootState> {
   return invoke<PluginBootState>("plugins_resolve_boot", { safe });
 }
 
+/** Restarts Plisto, with every plugin off for the next session when `safe`. Resolves only if it did not restart. */
+export function pluginsRestart(safe: boolean): Promise<void> {
+  return invoke<void>("plugins_restart", { safe });
+}
+
+/** Stops every plugin process before an update replaces the app. */
+export function pluginsShutdownForUpdate(): Promise<void> {
+  return invoke<void>("plugins_shutdown_for_update");
+}
+
+/** Starts the plugins again after an update that did not install. */
+export function pluginsResumeAfterUpdate(): Promise<void> {
+  return invoke<void>("plugins_resume_after_update");
+}
+
 /** The status of every serving plugin; empty while the runtime is not running. */
 export function pluginStatuses(): Promise<PluginStatus[]> {
   return invoke<PluginStatus[]>("plugin_statuses");

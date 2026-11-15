@@ -92,6 +92,8 @@ pub enum StartError {
     Launch(io::Error),
     /// Plisto is quitting.
     Exiting,
+    /// Starts are held while an update installs.
+    Held,
 }
 
 impl std::fmt::Display for StartError {
@@ -103,6 +105,7 @@ impl std::fmt::Display for StartError {
             StartError::Changed => f.write_str("plugin.json changed since consent"),
             StartError::Launch(e) => write!(f, "cannot launch: {e}"),
             StartError::Exiting => f.write_str("Plisto is quitting"),
+            StartError::Held => f.write_str("plugins are stopped for an update"),
         }
     }
 }
@@ -173,6 +176,8 @@ pub struct NativeHost {
     link: Arc<dyn HostLink>,
     clock: Arc<dyn Clock>,
     exiting: Arc<AtomicBool>,
+    // Refuses every start while an update installs; unlike `exiting`, it can be released.
+    held: Arc<AtomicBool>,
     restore: Arc<RwLock<Option<RestoreHook>>>,
     relay_timeout: Duration,
     takeover: Arc<TakeoverHub>,
@@ -217,6 +222,7 @@ impl NativeHost {
             link,
             clock,
             exiting: Arc::default(),
+            held: Arc::default(),
             restore: Arc::default(),
             relay_timeout: RELAY_TIMEOUT,
         }
@@ -272,6 +278,9 @@ impl NativeHost {
         if self.exiting.load(Ordering::SeqCst) {
             return Err(StartError::Exiting);
         }
+        if self.held.load(Ordering::SeqCst) {
+            return Err(StartError::Held);
+        }
         let serving = plugins
             .enabled_set()
             .serving(id)
@@ -284,6 +293,9 @@ impl NativeHost {
         let Some(run) = self.reserve(id) else {
             if self.exiting.load(Ordering::SeqCst) {
                 return Err(StartError::Exiting);
+            }
+            if self.held.load(Ordering::SeqCst) {
+                return Err(StartError::Held);
             }
             return Ok(());
         };
@@ -476,6 +488,22 @@ impl NativeHost {
         }
     }
 
+    /// Refuses every start and restart until `release_starts`. Set before the children stop, under the
+    /// children lock, so a reservation is either made before it and stopped with the rest, or refused.
+    /// A refused start leaves no status behind, so the plugin starts normally once released.
+    pub fn hold_starts(&self) {
+        {
+            let _children = lock(&self.children);
+            self.held.store(true, Ordering::SeqCst);
+        }
+        lock(&self.supervision).due.clear();
+    }
+
+    /// Allows starts again after `hold_starts`.
+    pub fn release_starts(&self) {
+        self.held.store(false, Ordering::SeqCst);
+    }
+
     /// No restart and no new start from now on. The first step of app exit.
     pub fn begin_exit(&self) {
         // Under the children lock, so a reservation is either made before it, and stopped with the
@@ -598,7 +626,7 @@ impl NativeHost {
         let result = self.with_plugins(|plugins| self.start(plugins, id));
         match result {
             Some(Ok(())) => {}
-            None | Some(Err(StartError::NotServing | StartError::Exiting)) => {
+            None | Some(Err(StartError::NotServing | StartError::Exiting | StartError::Held)) => {
                 self.board.stopped(id, self.clock.now());
             }
             Some(Err(e)) => eprintln!("plugins: {id}: not restarted: {e}"),
@@ -608,7 +636,10 @@ impl NativeHost {
     /// Takes the id for a new run. None when a run already holds it or Plisto is quitting.
     fn reserve(&self, id: &str) -> Option<Arc<Run>> {
         let mut children = lock(&self.children);
-        if children.contains_key(id) || self.exiting.load(Ordering::SeqCst) {
+        if children.contains_key(id)
+            || self.exiting.load(Ordering::SeqCst)
+            || self.held.load(Ordering::SeqCst)
+        {
             return None;
         }
         let run = Arc::new(Run::new());

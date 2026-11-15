@@ -7,6 +7,9 @@
 // -- Library Imports --
 import { isTauri } from "@tauri-apps/api/core";
 
+// -- IPC Imports --
+import { pluginsResumeAfterUpdate, pluginsShutdownForUpdate } from "./ipc";
+
 // -- Type Imports --
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater";
 
@@ -18,14 +21,24 @@ export async function checkForUpdate(): Promise<Update | null> {
 }
 
 /**
- * Downloads and installs `update`, streaming each download event to `onEvent`. On Windows the installer
- * takes over and the app exits before this resolves.
+ * Downloads and installs `update`, streaming each download event to `onEvent`. Plugin processes are
+ * stopped once the download is done, since the installer replaces the files they run from, and started
+ * again when the install fails. On Windows the installer takes over and the app exits before this
+ * resolves.
  */
 export async function installUpdate(
   update: Update,
   onEvent: (event: DownloadEvent) => void,
 ): Promise<void> {
-  await update.downloadAndInstall(onEvent);
+  await update.download(onEvent);
+  // A refused shutdown does not block the update; the installer ends the processes with the app.
+  await pluginsShutdownForUpdate().catch((e: unknown) => console.warn("plugin shutdown failed", e));
+  try {
+    await update.install();
+  } catch (e) {
+    await pluginsResumeAfterUpdate().catch((err: unknown) => console.warn("plugin resume failed", err));
+    throw e;
+  }
 }
 
 /** Releases an update the user did not install. Best-effort. */

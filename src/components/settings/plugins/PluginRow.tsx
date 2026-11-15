@@ -14,6 +14,7 @@ import { PluginRowPanel } from "./PluginRowPanel";
 // -- State Imports --
 import { useClearPluginHubFocus, usePluginHubFocus } from "../../../state/shell/store";
 import { useProbe } from "../../../state/plugins/sandboxStore";
+import { usePluginRuntime } from "../../../state/plugins/store";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 
 // -- Utils Imports --
@@ -89,6 +90,8 @@ export function PluginRow({
   const view = rowView(row, probe);
   const hub = usePluginStatusView(row).hub;
   const hubWarn = hub != null && hub.kind !== "reported" && hub.kind !== "starting";
+  // Nothing runs this session, so an enabled row never reads as On.
+  const sessionOff = usePluginRuntime() === "safe" && row.state === "ready" && row.enabled;
 
   useEffect(() => {
     if (focus !== row.id) return;
@@ -110,7 +113,11 @@ export function PluginRow({
             {view.version ? <span className={styles.version}>{view.version}</span> : null}
           </div>
           <div className={`${styles.status} ${view.warn || hubWarn ? styles.warn : ""}`}>
-            {row.state === "ready" && hub ? hubLabel(hub, t) : statusText(view.status, t, currentVersion)}
+            {sessionOff
+              ? t((d) => d.plugins.statusSafe)
+              : row.state === "ready" && hub
+                ? hubLabel(hub, t)
+                : statusText(view.status, t, currentVersion)}
           </div>
         </div>
         <div className={styles.acts}>

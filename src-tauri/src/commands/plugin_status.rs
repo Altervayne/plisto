@@ -63,7 +63,10 @@ fn start_error(id: &str, e: StartError) -> InstallError {
         StartError::Invalid(_) => ErrorCode::Broken,
         StartError::Changed => ErrorCode::ManifestChanged,
         StartError::Launch(_) => ErrorCode::Io,
-        StartError::NotServing | StartError::NotNative | StartError::Exiting => ErrorCode::NotFound,
+        StartError::NotServing
+        | StartError::NotNative
+        | StartError::Exiting
+        | StartError::Held => ErrorCode::NotFound,
     };
     InstallError::new(code, format!("{id}: {e}"))
 }
