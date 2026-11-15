@@ -86,6 +86,8 @@ import { usePluginStatusSync } from "../../state/plugins/usePluginStatus";
 import { usePluginNet } from "../../state/plugins/usePluginNet";
 import { usePluginPageEvents } from "../../state/plugins/usePluginPageEvents";
 import { usePluginStreamEvents } from "../../state/plugins/usePluginStreamEvents";
+import { usePluginEvents } from "../../state/plugins/usePluginEvents";
+import { useLibraryWatch } from "../../state/plugins/useLibraryWatch";
 import { usePluginUi } from "../../state/plugins/usePluginUi";
 import {
   useHistoryLens,
@@ -192,6 +194,9 @@ export function AppShell({
   usePluginNet();
   // A native plugin's page events, relayed to its open page.
   usePluginPageEvents();
+  // App event topics, relayed to the frames that subscribed; library edits reported to Rust.
+  usePluginEvents();
+  useLibraryWatch();
   // The seated stream's events, relayed to the plugin that owns it.
   usePluginStreamEvents();
   // The working identity that shapes the sidebar nav. Read from the pref cache, so the first paint
@@ -515,7 +520,10 @@ export function AppShell({
             <PlayerView onNavigate={onNavigate} />
           )
         ) : mode === "settings" ? (
-          <SettingsView onReviewGone={() => navigate({ segment: "tracks" })} />
+          <SettingsView
+            onReviewGone={() => navigate({ segment: "tracks" })}
+            onSearchSettings={finder.enabled ? (door) => finder.openScoped(door, "settings") : undefined}
+          />
         ) : pluginId != null ? (
           pluginLive ? <PluginPage id={pluginId} /> : null
         ) : mode === "editor" ? (
