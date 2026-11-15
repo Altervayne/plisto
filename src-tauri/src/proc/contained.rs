@@ -41,6 +41,9 @@ use windows::Win32::System::Threading::{
     STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 
+#[cfg(debug_assertions)]
+use windows::Win32::System::Threading::{STARTF_TITLEISAPPID, STARTUPINFOW};
+
 // -- Local Imports --
 use super::job::Job;
 use super::spawn::spawn_lock;
@@ -209,6 +212,70 @@ pub fn spawn(
         let _ = unsafe { TerminateProcess(HANDLE(process.as_raw_handle()), NOT_STARTED_EXIT_CODE) };
         return Err(error);
     }
+    Ok(Contained {
+        process,
+        pid: info.dwProcessId,
+        stdin: Some(File::from(main_in)),
+        stdout: Some(File::from(main_out)),
+    })
+}
+
+/// Starts `exe` with no job and no container, naming `app_id` as the process's AppUserModelID through
+/// the startup title. Only for the debug probe that compares how Task Manager groups processes.
+#[cfg(debug_assertions)]
+pub fn spawn_titled(exe: &Path, args: &[&OsStr], app_id: &OsStr) -> io::Result<Contained> {
+    let (child_in, main_in) = pipe()?;
+    let (main_out, child_out) = pipe()?;
+    let application = wide(exe.as_os_str());
+    let mut command_line = command_line(exe.as_os_str(), args);
+    let mut title = wide(app_id);
+    let startup = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        dwFlags: STARTF_USESTDHANDLES | STARTF_TITLEISAPPID,
+        lpTitle: PWSTR(title.as_mut_ptr()),
+        hStdInput: raw(&child_in),
+        hStdOutput: raw(&child_out),
+        hStdError: HANDLE::default(),
+        ..Default::default()
+    };
+
+    let mut info = PROCESS_INFORMATION::default();
+    let created = {
+        let _lock = spawn_lock();
+        let created = inheritable(&child_in)
+            .and_then(|()| inheritable(&child_out))
+            .and_then(|()| {
+                // SAFETY: every string is NUL-terminated and outlives the call, the command line is
+                // writable, and the startup info holds two open handles.
+                unsafe {
+                    CreateProcessW(
+                        PCWSTR(application.as_ptr()),
+                        PWSTR(command_line.as_mut_ptr()),
+                        None,
+                        None,
+                        true,
+                        CREATE_NO_WINDOW,
+                        None,
+                        PCWSTR::null(),
+                        &startup,
+                        &mut info,
+                    )
+                }
+                .map_err(io::Error::from)
+            });
+        // Closed before the lock is released, so the inheritable ends never outlive it.
+        drop((child_in, child_out));
+        created
+    };
+    created?;
+    // SAFETY: CreateProcessW succeeded, so both handles are open and owned by this call alone.
+    let (process, thread) = unsafe {
+        (
+            OwnedHandle::from_raw_handle(info.hProcess.0),
+            OwnedHandle::from_raw_handle(info.hThread.0),
+        )
+    };
+    drop(thread);
     Ok(Contained {
         process,
         pid: info.dwProcessId,

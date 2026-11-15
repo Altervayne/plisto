@@ -5,7 +5,5 @@ fn main() {
     if let Some(mode) = plisto_lib::helper_mode() {
         std::process::exit(plisto_lib::run_helper_mode(mode));
     }
-    #[cfg(debug_assertions)]
-    plisto_lib::start_decode_helper_probe();
     plisto_lib::run()
 }

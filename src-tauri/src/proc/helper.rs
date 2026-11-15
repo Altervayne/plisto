@@ -50,6 +50,10 @@ pub fn mode_from_args(args: impl IntoIterator<Item = OsString>) -> Option<Helper
 pub fn run(mode: HelperMode) -> i32 {
     match mode {
         HelperMode::Echo => {
+            #[cfg(debug_assertions)]
+            if let Some(id) = super::probe::app_id_from_args(std::env::args_os()) {
+                let _ = super::probe::set_app_id(&id);
+            }
             // A pipe that breaks is the main process going away; there is no one to report to.
             let _ = echo(&mut io::stdin().lock(), &mut io::stdout().lock());
             EXIT_OK
