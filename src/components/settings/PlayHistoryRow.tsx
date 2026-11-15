@@ -4,6 +4,7 @@ import { useState } from "react";
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
 import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
+import { SettingRow } from "./SettingRow";
 
 // -- IPC Imports --
 import { resetPlayHistory } from "../../lib/ipc";
@@ -34,7 +35,7 @@ export function PlayHistoryRow() {
   };
 
   return (
-    <div className={styles.pref}>
+    <SettingRow id="playHistory" className={styles.pref}>
       <div className={styles.row}>
         <span className={styles.rowLabel}>{t((d) => d.settings.playHistory)}</span>
         <span className={`${styles.control} ${styles.controlQuiet}`}>
@@ -64,6 +65,6 @@ export function PlayHistoryRow() {
         onClose={() => setConfirming(false)}
         destructive
       />
-    </div>
+    </SettingRow>
   );
 }

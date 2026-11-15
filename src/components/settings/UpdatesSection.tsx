@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
 import { SegmentedControl } from "../common/SegmentedControl";
+import { SettingRow } from "./SettingRow";
+import { sectionAttr } from "./settingsSections";
 
 // -- State Imports --
 import { useSetUpdaterAutoCheck, useUpdaterAutoCheck } from "../../state/preferences/store";
@@ -61,19 +63,21 @@ export function UpdatesSection() {
   const busy = state.kind === "checking" || state.kind === "downloading" || state.kind === "ready";
 
   return (
-    <section className={styles.section}>
+    <section className={styles.section} {...sectionAttr("updates")}>
       <h2 className={styles.label}>{t((d) => d.updater.section)}</h2>
       <div className={styles.pref}>
-        <div className={styles.row}>
-          <span className={`${styles.rowLabel} tabular`}>
-            {version ? t((d) => d.updater.currentVersion, { version }) : "Plisto"}
-          </span>
-          <span className={`${styles.control} ${styles.controlQuiet}`}>
-            <QuietButton onClick={() => void check("manual")} disabled={busy}>
-              {t((d) => d.updater.check)}
-            </QuietButton>
-          </span>
-        </div>
+        <SettingRow id="checkForUpdates">
+          <div className={styles.row}>
+            <span className={`${styles.rowLabel} tabular`}>
+              {version ? t((d) => d.updater.currentVersion, { version }) : "Plisto"}
+            </span>
+            <span className={`${styles.control} ${styles.controlQuiet}`}>
+              <QuietButton onClick={() => void check("manual")} disabled={busy}>
+                {t((d) => d.updater.check)}
+              </QuietButton>
+            </span>
+          </div>
+        </SettingRow>
         {state.kind === "checking" ? (
           <p className={styles.helper}>{t((d) => d.updater.checking)}</p>
         ) : state.kind === "upToDate" ? (
@@ -108,17 +112,19 @@ export function UpdatesSection() {
             ) : null}
           </p>
         ) : null}
-        <div className={styles.row}>
-          <span className={styles.rowLabel}>{t((d) => d.updater.autoCheck)}</span>
-          <span className={styles.control}>
-            <SegmentedControl
-              segments={autoSegments}
-              value={autoCheck ? "on" : "off"}
-              onChange={(value) => setAutoCheck(value === "on")}
-              label={t((d) => d.updater.autoCheck)}
-            />
-          </span>
-        </div>
+        <SettingRow id="autoCheck">
+          <div className={styles.row}>
+            <span className={styles.rowLabel}>{t((d) => d.updater.autoCheck)}</span>
+            <span className={styles.control}>
+              <SegmentedControl
+                segments={autoSegments}
+                value={autoCheck ? "on" : "off"}
+                onChange={(value) => setAutoCheck(value === "on")}
+                label={t((d) => d.updater.autoCheck)}
+              />
+            </span>
+          </div>
+        </SettingRow>
         <p className={styles.helper}>{t((d) => d.updater.autoCheckHint)}</p>
       </div>
     </section>

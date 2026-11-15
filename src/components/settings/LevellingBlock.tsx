@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { SegmentedControl } from "../common/SegmentedControl";
+import { SettingRow } from "./SettingRow";
 
 // -- State Imports --
 import { useAppStore } from "../../state/store";
@@ -33,7 +34,7 @@ export function LevellingBlock() {
 
   return (
     <>
-      <div className={styles.pref}>
+      <SettingRow id="levelLoudness" className={styles.pref}>
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.levelLoudness)}</span>
           <span className={styles.control}>
@@ -49,7 +50,7 @@ export function LevellingBlock() {
           </span>
         </div>
         <p className={styles.helper}>{t((d) => d.sound.levellingHelper)}</p>
-      </div>
+      </SettingRow>
 
       {text.status && <p className={styles.helper}>{text.status}</p>}
       {text.progress && (

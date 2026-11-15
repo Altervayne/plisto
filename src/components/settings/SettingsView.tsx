@@ -11,12 +11,15 @@ import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 import { PlayHistoryRow } from "./PlayHistoryRow";
+import { SettingRow } from "./SettingRow";
 import { PluginsSection } from "./plugins/PluginsSection";
 import { SoundSection } from "./SoundSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { ProgressLine } from "../scan/ProgressLine";
 import { ScanIssuesRow, issuesRowState } from "./ScanIssuesRow";
+import { isWindowsPlatform } from "./settingsRegistry";
+import { sectionAttr } from "./settingsSections";
 
 // -- State Imports --
 import {
@@ -148,7 +151,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
 
   // The make-default row is a Windows-only affordance - only Windows has the Default apps page it
   // opens - so it stays hidden elsewhere rather than offering a control that does nothing.
-  const isWindows = navigator.userAgent.includes("Windows");
+  const isWindows = isWindowsPlatform();
 
   return (
     <div className={styles.view}>
@@ -158,7 +161,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
       </div>
 
       <ScrollArea className={styles.scroll} contentClassName={styles.sections}>
-        <section className={styles.section}>
+        <section className={styles.section} {...sectionAttr("folders")}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionFolders)}</h2>
           <div className={styles.list}>
             {roots.length > 0 ? (
@@ -168,12 +171,16 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
             )}
           </div>
           <div className={styles.foot}>
-            <PrimaryButton onClick={() => void addRoot()} disabled={blocking}>
-              {t((d) => d.settings.addFolder)}
-            </PrimaryButton>
-            <QuietButton onClick={() => void rescanQuiet()} disabled={blocking}>
-              {t((d) => d.settings.rescanAll)}
-            </QuietButton>
+            <SettingRow id="addFolder" className={styles.control}>
+              <PrimaryButton onClick={() => void addRoot()} disabled={blocking}>
+                {t((d) => d.settings.addFolder)}
+              </PrimaryButton>
+            </SettingRow>
+            <SettingRow id="rescanAll" className={styles.control}>
+              <QuietButton onClick={() => void rescanQuiet()} disabled={blocking}>
+                {t((d) => d.settings.rescanAll)}
+              </QuietButton>
+            </SettingRow>
           </div>
           {scanning && quiet ? (
             <div className={styles.scanRow}>
@@ -202,7 +209,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               ) : null}
             </>
           )}
-          <div className={`${styles.pref} ${styles.keepPref}`}>
+          <SettingRow id="keepUpToDate" className={`${styles.pref} ${styles.keepPref}`}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
               <span className={styles.control}>
@@ -215,10 +222,10 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               </span>
             </div>
             <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
-          </div>
+          </SettingRow>
         </section>
 
-        <section className={styles.section}>
+        <section className={styles.section} {...sectionAttr("genres")}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionGenres)}</h2>
           <div className={styles.list}>
             {genres.length > 0 ? (
@@ -230,35 +237,35 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
             )}
           </div>
           <div className={styles.foot}>
-            <div className={styles.genreAdd}>
+            <SettingRow id="addGenre" className={styles.genreAdd}>
               <GenreAdder
                 genres={genres}
                 onPick={() => {}}
                 onCreate={onCreateGenre}
                 placeholder={t((d) => d.settings.addGenre)}
               />
-            </div>
+            </SettingRow>
           </div>
         </section>
 
-        <section className={styles.section}>
+        <section className={styles.section} {...sectionAttr("playback")}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionPlayback)}</h2>
-          <div className={styles.pref}>
+          <SettingRow id="outputDevice" className={styles.pref}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
               <span className={`${styles.control} ${styles.controlSelect}`}>
                 <PlaybackDeviceRow />
               </span>
             </div>
-          </div>
+          </SettingRow>
           <PlayHistoryRow />
         </section>
 
         <SoundSection />
 
-        <section className={styles.section}>
+        <section className={styles.section} {...sectionAttr("appearance")}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>
-          <div className={styles.pref}>
+          <SettingRow id="theme" className={styles.pref}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.settings.theme)}</span>
               <span className={styles.control}>
@@ -270,8 +277,8 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
                 />
               </span>
             </div>
-          </div>
-          <div className={styles.pref}>
+          </SettingRow>
+          <SettingRow id="language" className={styles.pref}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.settings.language)}</span>
               <span className={styles.control}>
@@ -283,12 +290,12 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
                 />
               </span>
             </div>
-          </div>
+          </SettingRow>
         </section>
 
-        <section className={styles.section}>
+        <section className={styles.section} {...sectionAttr("system")}>
           <h2 className={styles.label}>{t((d) => d.settings.sectionSystem)}</h2>
-          <div className={styles.pref}>
+          <SettingRow id="closeBehavior" className={styles.pref}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
               <span className={styles.control}>
@@ -301,9 +308,9 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
               </span>
             </div>
             <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
-          </div>
+          </SettingRow>
           {isWindows ? (
-            <div className={styles.pref}>
+            <SettingRow id="defaultApp" className={styles.pref}>
               <div className={styles.row}>
                 <span className={styles.rowLabel}>{t((d) => d.settings.defaultApp)}</span>
                 <span className={`${styles.control} ${styles.controlQuiet}`}>
@@ -313,9 +320,9 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
                 </span>
               </div>
               <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
-            </div>
+            </SettingRow>
           ) : null}
-          <div className={styles.pref}>
+          <SettingRow id="shortcuts" className={styles.pref}>
             <div className={styles.row}>
               <span className={styles.rowLabel}>{t((d) => d.shortcuts.title)}</span>
               <span className={`${styles.control} ${styles.controlQuiet}`}>
@@ -324,7 +331,7 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
                 </QuietButton>
               </span>
             </div>
-          </div>
+          </SettingRow>
         </section>
 
         <PluginsSection />

@@ -791,6 +791,30 @@ export const en = {
     },
   },
 
+  // Alternate words that find a Settings row, one list per registered row.
+  settingsIndex: {
+    addFolder: ["music folder", "scan", "library"],
+    rescanAll: ["refresh", "scan", "update"],
+    keepUpToDate: ["watch", "automatic", "rescan"],
+    addGenre: ["tag", "category"],
+    outputDevice: ["speakers", "headphones", "audio"],
+    playHistory: ["reset", "listening", "clear"],
+    equalizer: ["eq", "bass", "treble"],
+    preset: ["flat", "bass", "vocal"],
+    preamp: ["gain", "headroom", "boost"],
+    levelLoudness: ["replaygain", "volume", "normalise"],
+    theme: ["dark mode", "light mode", "colour", "appearance"],
+    language: ["english", "french", "locale"],
+    closeBehavior: ["tray", "quit", "minimize", "exit"],
+    defaultApp: ["file types", "associate", "open with"],
+    shortcuts: ["keys", "hotkeys"],
+    installFile: ["plugin", "add"],
+    installFolder: ["plugin", "add"],
+    openFolder: ["plugin"],
+    checkForUpdates: ["version", "upgrade", "new version"],
+    autoCheck: ["version", "upgrade"],
+  },
+
   relink: {
     title: "This looks like {name}, moved",
     body: "{folder} has {{n}} of {{total}} checked tracks from {name}. Relink to keep its albums, playlists and plays.",

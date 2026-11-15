@@ -10,6 +10,9 @@ import { InboxList } from "./InboxList";
 import { PluginRow } from "./PluginRow";
 import { UninstallDialog } from "./UninstallDialog";
 import { ReviewSheet } from "./ReviewSheet/ReviewSheet";
+import { SettingRow } from "../SettingRow";
+import { hubSettingId } from "../settingsRegistry";
+import { sectionAttr } from "../settingsSections";
 
 // -- Hook Imports --
 import { useInbox } from "./useInbox";
@@ -86,7 +89,7 @@ export function PluginsSection() {
   };
 
   return (
-    <section className={settingsStyles.section}>
+    <section className={settingsStyles.section} {...sectionAttr("plugins")}>
       <h2 className={settingsStyles.label}>{t((d) => d.plugins.section)}</h2>
       <p className={settingsStyles.helper}>{t((d) => d.plugins.intro)}</p>
 
@@ -96,15 +99,16 @@ export function PluginsSection() {
         <span className={styles.sub}>{t((d) => d.plugins.installedLabel)}</span>
         <div className={settingsStyles.list}>
           {rows.map((row) => (
-            <PluginRow
-              key={row.id}
-              row={row}
-              busy={busy}
-              currentVersion={current}
-              onToggle={(r, on) => void actions.setEnabled(r, on)}
-              onReview={(r) => flow.openReview(r)}
-              onUninstall={setUninstalling}
-            />
+            <SettingRow key={row.id} id={hubSettingId(row.id)}>
+              <PluginRow
+                row={row}
+                busy={busy}
+                currentVersion={current}
+                onToggle={(r, on) => void actions.setEnabled(r, on)}
+                onReview={(r) => flow.openReview(r)}
+                onUninstall={setUninstalling}
+              />
+            </SettingRow>
           ))}
           {rows.length === 0 && (status === "idle" || status === "loading") ? (
             <p className={settingsStyles.empty}>{t((d) => d.plugins.loading)}</p>
@@ -129,18 +133,24 @@ export function PluginsSection() {
       />
 
       <div className={styles.foot}>
-        <QuietButton onClick={() => void installFrom(pickPluginFile)} disabled={busy}>
-          <FileArchive size={15} strokeWidth={1.8} />
-          {t((d) => d.plugins.installFile)}
-        </QuietButton>
-        <QuietButton onClick={() => void installFrom(pickFolder)} disabled={busy}>
-          <FolderOpen size={15} strokeWidth={1.8} />
-          {t((d) => d.plugins.installFolder)}
-        </QuietButton>
-        <QuietButton onClick={openInbox}>
-          <FolderSearch size={15} strokeWidth={1.8} />
-          {t((d) => d.plugins.openFolder)}
-        </QuietButton>
+        <SettingRow id="installFile" className={settingsStyles.control}>
+          <QuietButton onClick={() => void installFrom(pickPluginFile)} disabled={busy}>
+            <FileArchive size={15} strokeWidth={1.8} />
+            {t((d) => d.plugins.installFile)}
+          </QuietButton>
+        </SettingRow>
+        <SettingRow id="installFolder" className={settingsStyles.control}>
+          <QuietButton onClick={() => void installFrom(pickFolder)} disabled={busy}>
+            <FolderOpen size={15} strokeWidth={1.8} />
+            {t((d) => d.plugins.installFolder)}
+          </QuietButton>
+        </SettingRow>
+        <SettingRow id="openFolder" className={settingsStyles.control}>
+          <QuietButton onClick={openInbox}>
+            <FolderSearch size={15} strokeWidth={1.8} />
+            {t((d) => d.plugins.openFolder)}
+          </QuietButton>
+        </SettingRow>
       </div>
 
       {actions.message ? (

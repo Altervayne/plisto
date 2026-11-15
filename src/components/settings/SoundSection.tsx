@@ -8,6 +8,8 @@ import { LevellingBlock } from "./LevellingBlock";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { EqCurve } from "../sound/EqCurve";
 import { PresetRow } from "../sound/PresetRow";
+import { SettingRow } from "./SettingRow";
+import { sectionAttr } from "./settingsSections";
 
 // -- State Imports --
 import { useCurrentTrackId } from "../../state/player/store";
@@ -43,10 +45,10 @@ export function SoundSection() {
   const nudge = (delta: number) => actions.setPreamp(settings.preampDb + delta);
 
   return (
-    <section className={styles.section} id={SOUND_SECTION_ID}>
+    <section className={styles.section} id={SOUND_SECTION_ID} {...sectionAttr("sound")}>
       <h2 className={styles.label}>{t((d) => d.settings.sectionSound)}</h2>
 
-      <div className={styles.pref}>
+      <SettingRow id="equalizer" className={styles.pref}>
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.equalizer)}</span>
           <span className={styles.control}>
@@ -61,14 +63,14 @@ export function SoundSection() {
             />
           </span>
         </div>
-      </div>
+      </SettingRow>
 
-      <div className={styles.pref}>
+      <SettingRow id="preset" className={styles.pref}>
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.preset)}</span>
         </div>
         <PresetRow />
-      </div>
+      </SettingRow>
 
       <EqCurve
         gains={settings.eq.gains}
@@ -79,7 +81,7 @@ export function SoundSection() {
         idleNote={nothingPlaying ? t((d) => d.sound.idle) : null}
       />
 
-      <div className={styles.pref}>
+      <SettingRow id="preamp" className={styles.pref}>
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.preamp)}</span>
           <span className={soundStyles.preamp}>
@@ -114,7 +116,7 @@ export function SoundSection() {
               })
             : t((d) => d.sound.headroomNone)}
         </p>
-      </div>
+      </SettingRow>
 
       <LevellingBlock />
     </section>

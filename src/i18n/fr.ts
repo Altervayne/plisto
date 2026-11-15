@@ -796,6 +796,30 @@ export const fr: Dict = {
     },
   },
 
+  // Mots alternatifs qui retrouvent une ligne des Paramètres, une liste par ligne enregistrée.
+  settingsIndex: {
+    addFolder: ["dossier", "scanner", "audiothèque"],
+    rescanAll: ["actualiser", "scanner", "mettre à jour"],
+    keepUpToDate: ["surveiller", "automatique", "re-scanner"],
+    addGenre: ["catégorie", "étiquette"],
+    outputDevice: ["haut-parleurs", "casque", "audio"],
+    playHistory: ["réinitialiser", "écoutes", "effacer"],
+    equalizer: ["eq", "basses", "aigus"],
+    preset: ["neutre", "basses", "voix"],
+    preamp: ["gain", "amplification", "marge"],
+    levelLoudness: ["replaygain", "volume", "normalisation"],
+    theme: ["mode sombre", "mode clair", "couleur", "apparence"],
+    language: ["anglais", "français", "traduction"],
+    closeBehavior: ["zone de notification", "quitter", "réduire"],
+    defaultApp: ["types de fichier", "associer", "ouvrir avec"],
+    shortcuts: ["touches", "raccourcis"],
+    installFile: ["plugin", "ajouter"],
+    installFolder: ["plugin", "ajouter"],
+    openFolder: ["plugin"],
+    checkForUpdates: ["version", "nouvelle version"],
+    autoCheck: ["version", "mise à niveau"],
+  },
+
   relink: {
     title: "Cela ressemble à {name}, déplacé",
     body: "{folder} contient {{n}} des {{total}} pistes vérifiées de {name}. Reliez-le pour conserver ses albums, playlists et écoutes.",
