@@ -12,8 +12,8 @@
   --surface-2: #fafafc;
   --sunken: #eaeaf0;
   --ink: #17171c;
-  --ink-2: #63636f;
-  --ink-3: #9a9aa6;
+  --ink-2: #4c4c57;
+  --ink-3: #62626e;
   --hairline: #e4e4ec;
 
   /* -- Accent: cyan, the only chromatic UI color. No gradients on it. -- */
@@ -22,15 +22,21 @@
   --accent-weak: rgba(30, 156, 192, 0.12);
   /* Solid-button fill + its ink: deliberately theme-invariant (deep cyan, white text), so a
    * primary never reads like a highlighter tag on the brighter dark-theme --accent. --accent
-   * still drives thin strokes, the nav indicator, focus rings, chips and the play glyph. */
-  --accent-solid: #1e9cc0;
+   * still drives thin strokes, the nav indicator, focus rings and the play glyph. */
+  --accent-solid: #19809d;
   --on-solid: #ffffff;
+  /* Text on a ground: the deeper cyan that clears 4.5:1 in light; --accent itself already does in dark. */
+  --accent-text: #1c6d87;
 
   /* -- Semantic (never used as the accent) -- */
   --warn: #b4780f;
   --danger: #cf3b30;
   --danger-weak: rgba(207, 59, 48, 0.12);
   --good: #2f855a;
+  /* Text counterparts: dots, fills and icons keep the base colours above. */
+  --warn-text: #86590f;
+  --danger-text: #b7362d;
+  --good-text: #2b714f;
 
   /* -- Surfaces and depth (near-threshold materials) -- */
   --veil: rgba(28, 26, 64, 0.045);
@@ -122,20 +128,24 @@
     --surface-2: #1c1c24;
     --sunken: #101015;
     --ink: #f1f1f6;
-    --ink-2: #9c9caa;
-    --ink-3: #6b6b78;
+    --ink-2: #b4b4c2;
+    --ink-3: #9696a3;
     --hairline: #2a2a34;
 
     --accent: #4fb8d4;
     --accent-ink: #08222b;
     --accent-weak: rgba(79, 184, 212, 0.16);
-    --accent-solid: #1e9cc0;
+    --accent-solid: #19809d;
     --on-solid: #ffffff;
+    --accent-text: var(--accent);
 
     --warn: #e0a83a;
     --danger: #f2685f;
     --danger-weak: rgba(242, 104, 95, 0.16);
     --good: #5fbb8b;
+    --warn-text: var(--warn);
+    --danger-text: var(--danger);
+    --good-text: var(--good);
 
     --veil: rgba(255, 255, 255, 0.05);
     --veil-2: rgba(255, 255, 255, 0.09);
@@ -205,20 +215,24 @@
   --surface-2: #1c1c24;
   --sunken: #101015;
   --ink: #f1f1f6;
-  --ink-2: #9c9caa;
-  --ink-3: #6b6b78;
+  --ink-2: #b4b4c2;
+  --ink-3: #9696a3;
   --hairline: #2a2a34;
 
   --accent: #4fb8d4;
   --accent-ink: #08222b;
   --accent-weak: rgba(79, 184, 212, 0.16);
-  --accent-solid: #1e9cc0;
+  --accent-solid: #19809d;
   --on-solid: #ffffff;
+  --accent-text: var(--accent);
 
   --warn: #e0a83a;
   --danger: #f2685f;
   --danger-weak: rgba(242, 104, 95, 0.16);
   --good: #5fbb8b;
+  --warn-text: var(--warn);
+  --danger-text: var(--danger);
+  --good-text: var(--good);
 
   --veil: rgba(255, 255, 255, 0.05);
   --veil-2: rgba(255, 255, 255, 0.09);
