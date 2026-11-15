@@ -21,6 +21,9 @@ import { usePluginsBoot } from "./store";
 // -- IPC Imports --
 import { pluginCall } from "../../lib/ipc";
 
+// -- Utils Imports --
+import { withRetry } from "../../lib/withRetry";
+
 // -- Type Imports --
 import type { SocketDelivery, StreamDelivery } from "./bridge";
 
@@ -126,14 +129,14 @@ export function createNetSync(deps: NetSyncDeps): () => void {
     else if (typeof payload.socket === "string") onSocket(payload.id, payload.socket, payload);
   };
 
-  deps
-    .listen(EVENT_NET, (event) => receive(event.payload))
+  // A rejected listen retries: an early rejection must not leave the pages deaf for the session.
+  withRetry(() => deps.listen(EVENT_NET, (event) => receive(event.payload)))
     .then((off) => {
       if (alive) unlisten = off;
       else off();
     })
     .catch(() => {
-      // Without Tauri there is nothing to hear.
+      // Still rejected after every retry: there is nothing to hear.
     });
 
   return () => {

@@ -12,7 +12,8 @@ import { useCallback, useEffect, useRef } from "react";
 // -- State Imports --
 import { useFrameHealthStore } from "./frameHealth";
 import { PING_MS, hide, pong, show, start, tick, wait } from "./heartbeat";
-import { isFrameLoaded, onPong, reportFrame, sendPing } from "./pluginHost";
+import { reportFrame } from "./hostBrowser";
+import { isFrameLoaded, onPong, sendPing } from "./pluginHost";
 
 // -- Type Imports --
 import type { Heartbeat, HeartbeatPhase } from "./heartbeat";

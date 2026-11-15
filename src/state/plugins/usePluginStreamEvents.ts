@@ -10,6 +10,9 @@ import { useEffect } from "react";
 // -- Library Imports --
 import { listen } from "@tauri-apps/api/event";
 
+// -- Utils Imports --
+import { withRetry } from "../../lib/withRetry";
+
 // -- State Imports --
 import { pluginRuntimeReady } from "./frameModel";
 import { sendPlaybackStreamEvent } from "./pluginHost";
@@ -40,16 +43,18 @@ export function createStreamEventSync(deps: StreamEventDeps): () => void {
   let alive = true;
   let unlisten: (() => void) | null = null;
 
-  deps
-    .listen(EVENT_PLAYBACK_STREAM, (event) => {
+  // A rejected listen retries: an early rejection must not leave the owner deaf for the session.
+  withRetry(() =>
+    deps.listen(EVENT_PLAYBACK_STREAM, (event) => {
       if (alive && isStreamPayload(event.payload)) deps.send(event.payload.id, event.payload.event);
-    })
+    }),
+  )
     .then((off) => {
       if (alive) unlisten = off;
       else off();
     })
     .catch(() => {
-      // Without Tauri there is nothing to hear.
+      // Still rejected after every retry: there is nothing to hear.
     });
 
   return () => {

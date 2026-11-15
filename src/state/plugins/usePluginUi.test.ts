@@ -186,4 +186,25 @@ describe("routing", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(log).toEqual([["snapshot", [], []]]);
   });
+
+  it("retries a rejected listen", async () => {
+    const listen = vi
+      .fn<UiSyncDeps["listen"]>()
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockResolvedValue(() => {});
+    setup({ listen });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(listen).toHaveBeenCalledTimes(3);
+  });
+
+  it("removes a listener that resolves after teardown", async () => {
+    const off = vi.fn();
+    let resolve: (fn: () => void) => void = () => {};
+    setup({ listen: () => new Promise<() => void>((r) => (resolve = r)) });
+    stop?.();
+    stop = null;
+    resolve(off);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(off).toHaveBeenCalledTimes(1);
+  });
 });

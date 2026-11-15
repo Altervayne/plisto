@@ -20,6 +20,7 @@ import { matchStemPairs } from "./matchCovers";
 
 // -- State Imports --
 import { useMarkFolderCovered } from "../../state/covers/store";
+import { useOrganizeStore } from "../../state/organize/store";
 
 // -- IPC Imports --
 import { importFolderCoverByPath, setAlbumCover } from "../../lib/ipc";
@@ -107,7 +108,11 @@ export const FolderCoverRow = memo(function FolderCoverRow({ group }: { group: I
       if (albumId == null) return;
       try {
         await setAlbumCover(albumId, path);
-        reportLibraryChange({ track_ids: null, albums: true, playlists: false });
+        const members = useOrganizeStore
+          .getState()
+          .org.membership.filter((r) => r.album_id === albumId)
+          .map((r) => r.track_id);
+        reportLibraryChange({ track_ids: members.length ? members : null, albums: true, playlists: false });
         invalidateAlbumCover(albumId);
         setAlbumNonce((n) => n + 1);
       } catch {

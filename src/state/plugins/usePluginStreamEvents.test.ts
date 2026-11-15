@@ -48,4 +48,33 @@ describe("createStreamEventSync", () => {
     emit({ id: "night-radio", event: EVENT });
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("retries a rejected listen", async () => {
+    const off = vi.fn();
+    let handler: Handler = () => {};
+    const listen = vi
+      .fn<(n: string, h: Handler) => Promise<() => void>>()
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockImplementation((_n, h) => {
+        handler = h;
+        return Promise.resolve(off);
+      });
+    const send = vi.fn(() => true);
+    createStreamEventSync({ listen, send });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(listen).toHaveBeenCalledTimes(2);
+    handler({ payload: { id: "night-radio", event: EVENT } });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes a listener that resolves after teardown", async () => {
+    const off = vi.fn();
+    let resolve: (fn: () => void) => void = () => {};
+    const listen = vi.fn(() => new Promise<() => void>((r) => (resolve = r)));
+    const stop = createStreamEventSync({ listen, send: vi.fn(() => true) });
+    stop();
+    resolve(off);
+    await flush();
+    expect(off).toHaveBeenCalledTimes(1);
+  });
 });

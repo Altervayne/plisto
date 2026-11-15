@@ -23,24 +23,16 @@ import {
   themeMsg,
   visibilityMsg,
 } from "./bridge";
-import { useFrameHealthStore } from "./frameHealth";
+import { browserHostDeps } from "./hostBrowser";
+import { hostCall } from "./hostCall";
 import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
-import { useSidebarState } from "./sidebarState";
 import { SUBSCRIBE_METHOD, createTopicRouter } from "./topicRouter";
-
-// -- IPC Imports --
-import { pluginCall, pluginFetch, pluginFrameEvent } from "../../lib/ipc";
-
-// -- Utils Imports --
-import { isDarkTheme, subscribeTheme } from "../../theme";
 
 // -- Type Imports --
 import type { TopicRouter } from "./topicRouter";
 import type { AppInfo, FrameRecord, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
 import type {
   PluginCallReply,
-  PluginFrameCrashReason,
-  PluginFrameEventKind,
   PluginSidebarDelivery,
   PluginStreamEvent,
 } from "../../types";
@@ -73,13 +65,6 @@ export interface HostDeps {
   /** Called once a plugin's last mapped frame is detached. */
   frameGone?: (pluginId: string) => void;
 }
-
-const HOST_CALL_ATTEMPTS = 5;
-const RETRY_DEFAULT_MS = 500;
-const RETRY_MIN_MS = 50;
-const RETRY_MAX_MS = 2000;
-
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export type LoadKind = "first" | "again";
 
@@ -202,28 +187,9 @@ function createHost(deps: HostDeps): Host {
     for (const event of held) post(rec, eventMsg(event.topic, event.data));
   };
 
-  /**
-   * One of the host's own calls at init. Null on any refusal or failure. A rate limit is retried after
-   * the reply's hint, up to a fixed number of attempts, and only while the record is live.
-   */
-  const hostCall = async (rec: FrameRecord<FrameWindow>, method: string): Promise<unknown> => {
-    const sleep = deps.sleep ?? defaultSleep;
-    for (let attempt = 1; attempt <= HOST_CALL_ATTEMPTS; attempt += 1) {
-      let reply: PluginCallReply;
-      try {
-        reply = await deps.invoke(rec.pluginId, method, "{}");
-      } catch {
-        return null;
-      }
-      if (reply?.ok) return reply.result;
-      if (reply?.error?.code !== "rate_limited" || attempt === HOST_CALL_ATTEMPTS) return null;
-      const hint = reply.error.retry_after_ms;
-      const wait = typeof hint === "number" ? Math.min(RETRY_MAX_MS, Math.max(RETRY_MIN_MS, hint)) : RETRY_DEFAULT_MS;
-      await sleep(wait);
-      if (!isLive(rec)) return null;
-    }
-    return null;
-  };
+  /** One of the host's own calls at init, retried only while the record is live. */
+  const initCall = (rec: FrameRecord<FrameWindow>, method: string) =>
+    hostCall(deps, rec.pluginId, method, () => isLive(rec));
 
   const onMessage = (event: HostMessage) => {
     const action = route(map, {
@@ -305,7 +271,7 @@ function createHost(deps: HostDeps): Host {
       const { rec, extra } = found;
       extra.init = "pending";
       extra.route = routePath;
-      const [info, methods] = await Promise.all([hostCall(rec, "app.info"), hostCall(rec, "app.methods")]);
+      const [info, methods] = await Promise.all([initCall(rec, "app.info"), initCall(rec, "app.methods")]);
       const names = (methods as { methods?: unknown } | null)?.methods;
       if (!info || !Array.isArray(names) || !isLive(rec)) return false;
       const appInfo = info as AppInfo;
@@ -388,36 +354,6 @@ function createHost(deps: HostDeps): Host {
       removeListener();
       unsubscribeTheme();
       for (const rec of map.live()) detach(rec.mountKey);
-    },
-  };
-}
-
-/**
- * Tells Rust how a plugin's frame stands. Best-effort: Rust's own deadlines still free what a lost
- * report would have released, and the next report overwrites a stale one.
- */
-export function reportFrame(pluginId: string, kind: PluginFrameEventKind, reason?: PluginFrameCrashReason): void {
-  pluginFrameEvent(pluginId, kind, reason).catch(() => {});
-}
-
-/** The production dependencies: the real window, the `plugin_call` and `plugin_fetch` commands and the theme runtime. */
-export function browserHostDeps(): HostDeps {
-  return {
-    addListener: (onMessage) => {
-      const handler = (event: MessageEvent) => onMessage(event);
-      window.addEventListener("message", handler);
-      return () => window.removeEventListener("message", handler);
-    },
-    invoke: pluginCall,
-    fetch: pluginFetch,
-    theme: () => (isDarkTheme() ? "dark" : "light"),
-    subscribeTheme,
-    sleep: defaultSleep,
-    frameGone: (pluginId) => {
-      const health = useFrameHealthStore.getState().health[pluginId];
-      const crashed = health?.phase === "crashed";
-      reportFrame(pluginId, crashed ? "crashed" : "detached", crashed ? health.reason : undefined);
-      if (crashed) useSidebarState.getState().drop(pluginId);
     },
   };
 }

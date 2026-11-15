@@ -87,14 +87,13 @@ export function createUiSync(deps: UiSyncDeps): () => void {
   };
 
   const subscribe = (name: string, wrap: (payload: unknown) => Arrival) =>
-    deps
-      .listen(name, (event) => receive(wrap(event.payload)))
+    withRetry(() => deps.listen(name, (event) => receive(wrap(event.payload))))
       .then((unlisten) => {
         if (alive) unlistens.push(unlisten);
         else unlisten();
       })
       .catch(() => {
-        // Without Tauri there is nothing to hear; the reads below fail the same way.
+        // Still rejected after every retry: there is nothing to hear.
       });
 
   const readPending = async () => {

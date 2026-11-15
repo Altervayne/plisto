@@ -69,16 +69,16 @@ export function startPluginsSync(): () => void {
     }
   };
 
-  // Listening first, so a change during the first read is not lost. Without Tauri this rejects and the
-  // read below fails into the failed status.
+  // Listening first, so a change during the first read is not lost. A rejected listen retries; one that
+  // keeps rejecting is dropped, and the read below fails into the failed status.
   const track = (fn: () => void) => {
     if (alive) unlisten.push(fn);
     else fn();
   };
-  listen(PLUGINS_CHANGED, () => void load())
+  withRetry(() => listen(PLUGINS_CHANGED, () => void load()))
     .then(track)
     .catch(() => {});
-  listen<PluginBootState>(PLUGINS_RUNTIME, (event) => store().applyBoot(event.payload))
+  withRetry(() => listen<PluginBootState>(PLUGINS_RUNTIME, (event) => store().applyBoot(event.payload)))
     .then(track)
     .catch(() => {});
   void load();

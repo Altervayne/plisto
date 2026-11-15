@@ -10,6 +10,9 @@ import { useEffect } from "react";
 // -- Library Imports --
 import { listen } from "@tauri-apps/api/event";
 
+// -- Utils Imports --
+import { withRetry } from "../../lib/withRetry";
+
 // -- State Imports --
 import { pluginRuntimeReady } from "./frameModel";
 import { sendPluginEvent } from "./pluginHost";
@@ -40,16 +43,18 @@ export function createPageEventSync(deps: PageEventDeps): () => void {
   let alive = true;
   let unlisten: (() => void) | null = null;
 
-  deps
-    .listen(EVENT_PAGE, (event) => {
+  // A rejected listen retries: an early rejection must not leave the page deaf for the session.
+  withRetry(() =>
+    deps.listen(EVENT_PAGE, (event) => {
       if (alive && isPageEvent(event.payload)) deps.send(event.payload.id, event.payload.topic, event.payload.data);
-    })
+    }),
+  )
     .then((off) => {
       if (alive) unlisten = off;
       else off();
     })
     .catch(() => {
-      // Without Tauri there is nothing to hear.
+      // Still rejected after every retry: there is nothing to hear.
     });
 
   return () => {

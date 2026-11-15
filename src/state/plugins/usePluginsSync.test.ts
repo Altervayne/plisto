@@ -156,6 +156,26 @@ describe("plugins sync", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(state().rows).toEqual([]);
   });
+
+  it("retries a rejected listen", async () => {
+    pluginsList.mockResolvedValue([]);
+    listen.mockReset().mockRejectedValueOnce(new Error("not ready")).mockResolvedValue(unlisten);
+    start();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(listen).toHaveBeenCalledTimes(3);
+  });
+
+  it("removes a listener that resolves after teardown", async () => {
+    pluginsList.mockResolvedValue([]);
+    let resolve: (fn: () => void) => void = () => {};
+    listen.mockReset().mockImplementation(() => new Promise<() => void>((r) => (resolve = r)));
+    start();
+    stop?.();
+    stop = null;
+    resolve(unlisten as unknown as () => void);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(unlisten).toHaveBeenCalled();
+  });
 });
 
 describe("plugins store", () => {

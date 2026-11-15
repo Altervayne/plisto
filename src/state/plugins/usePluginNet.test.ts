@@ -7,6 +7,7 @@ import { pluginRuntimeReady } from "./frameModel";
 
 // -- Type Imports --
 import type { SocketDelivery, StreamDelivery } from "./bridge";
+import type { NetSyncDeps } from "./usePluginNet";
 
 type Handler = (event: { payload: unknown }) => void;
 
@@ -260,16 +261,32 @@ describe("createNetSync: shape and lifetime", () => {
     expect(off).toHaveBeenCalledTimes(1);
   });
 
-  it("survives a listen that rejects", async () => {
-    const stop = createNetSync({
-      listen: () => Promise.reject(new Error("no tauri")),
-      sendStream: vi.fn(),
-      sendSocket: vi.fn(),
-      cancelStream: vi.fn(),
-      closeSocket: vi.fn(),
-    });
+  const netDeps = (listen: NetSyncDeps["listen"]): NetSyncDeps => ({
+    listen,
+    sendStream: vi.fn(),
+    sendSocket: vi.fn(),
+    cancelStream: vi.fn(),
+    closeSocket: vi.fn(),
+  });
+
+  it("retries a rejected listen", async () => {
+    const listen = vi
+      .fn<NetSyncDeps["listen"]>()
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockResolvedValue(() => {});
+    createNetSync(netDeps(listen));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(listen).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes a listener that resolves after teardown", async () => {
+    const off = vi.fn();
+    let resolve: (fn: () => void) => void = () => {};
+    const stop = createNetSync(netDeps(() => new Promise<() => void>((r) => (resolve = r))));
+    stop();
+    resolve(off);
     await flush();
-    expect(() => stop()).not.toThrow();
+    expect(off).toHaveBeenCalledTimes(1);
   });
 });
 
