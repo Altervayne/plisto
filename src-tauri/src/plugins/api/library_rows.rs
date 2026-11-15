@@ -79,6 +79,13 @@ const TRACK_JOINS: &str = "LEFT JOIN track_edits te ON te.track_id = t.id \
      LEFT JOIN albums a ON a.id = at.album_id";
 const PRESENT: &str = "t.missing_at IS NULL";
 
+/// An album member's place in the album: disc, then track number, as one integer. The disc follows the
+/// edit over the raw tag with an unset disc reading as disc 1; an unset track number reads as 0 and
+/// leads its disc. Disc clamps to 0..=99999 and track to 0..=999999, so each pair maps to its own key
+/// and the key orders like the pair. Needs the `te` and `at` joins.
+pub const ALBUM_MEMBER_KEY: &str = "(MIN(MAX(COALESCE(te.disc_no, t.raw_disc_no, 1), 0), 99999) \
+     * 1000000 + MIN(MAX(COALESCE(at.track_no, 0), 0), 999999))";
+
 const ALBUM_COLUMNS: &str = "a.id, a.kind, a.title, a.album_artist, a.year, \
      (SELECT COUNT(*) FROM album_tracks m JOIN tracks mt ON mt.id = m.track_id \
       WHERE m.album_id = a.id AND mt.missing_at IS NULL)";
@@ -345,7 +352,8 @@ pub fn album_track_ids(conn: &Connection, id: i64) -> rusqlite::Result<Option<Ve
     }
     let sql = format!(
         "SELECT t.id FROM album_tracks at JOIN tracks t ON t.id = at.track_id \
-         WHERE at.album_id = ?1 AND {PRESENT} ORDER BY at.track_no, t.id"
+         LEFT JOIN track_edits te ON te.track_id = t.id \
+         WHERE at.album_id = ?1 AND {PRESENT} ORDER BY {ALBUM_MEMBER_KEY}, t.id"
     );
     ids_of(conn, &sql, id).map(Some)
 }

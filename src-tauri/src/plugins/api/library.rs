@@ -13,6 +13,7 @@ use super::cursor::{page_args, KeyKind, Sort, MAX_LIMIT};
 use super::error::ApiError;
 use super::library_rows::{
     album, album_page, playlist, playlist_page, track_page, tracks_by_id, TrackSource,
+    ALBUM_MEMBER_KEY,
 };
 use super::rate::RateClass;
 use super::{CallCtx, MethodSpec, Need, Outcome};
@@ -120,7 +121,7 @@ const PLAYLIST_SORTS: &[Sort] = &[
 const ALBUM_ORDER: &[Sort] = &[Sort {
     name: "position",
     kind: KeyKind::Int,
-    key_sql: "COALESCE(at.track_no, 0)",
+    key_sql: ALBUM_MEMBER_KEY,
     id_sql: "t.id",
 }];
 
@@ -698,6 +699,145 @@ mod tests {
             .unwrap();
         assert_eq!(lists["items"][0]["name"], "Mix");
         assert_eq!(lists["items"][0]["track_count"], 3);
+    }
+
+    fn set_disc(rig: &Rig, id: i64, disc: Option<i64>) {
+        rig.conn()
+            .execute(
+                "UPDATE tracks SET raw_disc_no = ?2 WHERE id = ?1",
+                rusqlite::params![id, disc],
+            )
+            .unwrap();
+    }
+
+    fn set_member_no(rig: &Rig, id: i64, no: Option<i64>) {
+        rig.conn()
+            .execute(
+                "UPDATE album_tracks SET track_no = ?2 WHERE track_id = ?1",
+                rusqlite::params![id, no],
+            )
+            .unwrap();
+    }
+
+    /// An album of `count` tracks filed in id order.
+    fn album_of(rig: &Rig, count: usize) -> (Vec<i64>, i64) {
+        let ids: Vec<i64> = (0..count)
+            .map(|i| insert_track(&rig.conn(), &format!("{ROOT}\\{i}.flac"), "T", "A"))
+            .collect();
+        let album = db::create_album(
+            &mut rig.conn(),
+            Some("Record".into()),
+            None,
+            None,
+            None,
+            None,
+            &ids,
+            "album",
+            1,
+        )
+        .unwrap()
+        .id;
+        (ids, album)
+    }
+
+    /// The album's track ids read page by page, with no id seen twice.
+    fn paged_ids(rig: &Rig, album: i64, limit: usize) -> Vec<i64> {
+        let mut seen: Vec<i64> = Vec::new();
+        let mut cursor = Value::Null;
+        loop {
+            let args = json!({ "id": album, "limit": limit, "cursor": cursor });
+            let page = rig.call("library.album_tracks", args).unwrap();
+            for track in page["items"].as_array().unwrap() {
+                let id = track["id"].as_i64().unwrap();
+                assert!(!seen.contains(&id), "{id} repeated");
+                seen.push(id);
+            }
+            cursor = page["next_cursor"].clone();
+            if cursor.is_null() {
+                return seen;
+            }
+        }
+    }
+
+    #[test]
+    fn a_two_disc_album_lists_disc_one_before_disc_two() {
+        let rig = rig();
+        let (ids, album) = album_of(&rig, 4);
+        let (a, b, c, d) = (ids[0], ids[1], ids[2], ids[3]);
+        for (id, disc) in [(a, 2), (b, 1), (c, 2), (d, 1)] {
+            set_disc(&rig, id, Some(disc));
+        }
+        // Each disc numbers 1..k on its own, the way the album writers store it.
+        for (id, no) in [(a, 1), (b, 1), (c, 2), (d, 2)] {
+            set_member_no(&rig, id, Some(no));
+        }
+        let expected = vec![b, d, a, c];
+        let listed = rig
+            .call("library.album_tracks", json!({ "id": album }))
+            .unwrap();
+        let got: Vec<i64> = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(got, expected);
+        assert_eq!(
+            crate::plugins::api::library_rows::album_track_ids(&rig.conn(), album).unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn missing_discs_and_track_numbers_sort_the_way_the_app_sorts_them() {
+        let rig = rig();
+        let (ids, album) = album_of(&rig, 6);
+        let [x, y, z, w, v, u] = [ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]];
+        // x: no disc, track 2. y: disc 1, no track. z: no disc, track 1. w: disc 2, no track.
+        // v: raw disc 1 but edited to disc 2, track 1. u: no disc, no track, the highest id.
+        for (id, disc) in [(x, None), (y, Some(1)), (z, None), (w, Some(2)), (v, Some(1))] {
+            set_disc(&rig, id, disc);
+        }
+        set_disc(&rig, u, None);
+        db::set_track_edit(&rig.conn(), v, None, None, None, None, None, Some(2)).unwrap();
+        for (id, no) in [
+            (x, Some(2)),
+            (y, None),
+            (z, Some(1)),
+            (w, None),
+            (v, Some(1)),
+            (u, None),
+        ] {
+            set_member_no(&rig, id, no);
+        }
+        // Disc 1 (unset reads as 1): the unnumbered y and u lead, by id, then z, then x. Disc 2: w, v.
+        let expected = vec![y, u, z, x, w, v];
+        for limit in [1, 2, 4, 200] {
+            assert_eq!(paged_ids(&rig, album, limit), expected, "limit {limit}");
+        }
+        assert_eq!(
+            crate::plugins::api::library_rows::album_track_ids(&rig.conn(), album).unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn paging_a_multi_disc_album_skips_and_repeats_nothing() {
+        let rig = rig();
+        let (ids, album) = album_of(&rig, 7);
+        for (i, id) in ids.iter().enumerate() {
+            set_disc(&rig, *id, Some(3 - (i as i64 % 3)));
+            set_member_no(&rig, *id, Some(i as i64 / 3 + 1));
+        }
+        let whole = paged_ids(&rig, album, 200);
+        assert_eq!(whole.len(), 7);
+        for limit in [1, 2, 3] {
+            assert_eq!(paged_ids(&rig, album, limit), whole, "limit {limit}");
+        }
+        assert_eq!(
+            crate::plugins::api::library_rows::album_track_ids(&rig.conn(), album).unwrap(),
+            Some(whole)
+        );
     }
 
     #[test]

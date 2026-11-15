@@ -25,6 +25,9 @@ import {
   setPlaylistOrder as ipcSetPlaylistOrder,
 } from "../../lib/ipc";
 
+// -- Utils Imports --
+import { withRetry } from "../../lib/withRetry";
+
 // -- State Imports --
 import { reportLibraryChange } from "../plugins/libraryWatch";
 
@@ -53,10 +56,12 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
 
   load: async () => {
     try {
-      const snapshot = await ipcLoadPlaylists();
+      // Retried: an early boot read can reject before managed state is ready. A read that still fails
+      // keeps the rows already held; an error never reads as "no playlists".
+      const snapshot = await withRetry(ipcLoadPlaylists);
       set({ playlists: snapshot.playlists, tracks: snapshot.tracks });
-    } catch {
-      set({ playlists: [], tracks: [] });
+    } catch (error) {
+      console.warn("Playlists failed to load; keeping the current rows.", error);
     }
   },
 

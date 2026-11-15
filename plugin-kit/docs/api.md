@@ -360,8 +360,8 @@ Errors: `invalid_args` (`id` is not an integer), `not_found`.
 Needs: `library.read`. Class: library read. Helpers: `plisto.library.albumTracks(id, options?)`,
 `plisto.library.playlistTracks(id, options?)`.
 
-Arguments: `{ id, cursor?, limit? }`. Result: a page of tracks in the album's or playlist's own order. The
-only sort is `"position"`. A track listed twice in a playlist appears twice.
+Arguments: `{ id, cursor?, limit? }`. Result: a page of tracks in the album's or playlist's own order (an
+album: disc, then track number). The only sort is `"position"`. A track listed twice in a playlist appears twice.
 
 Errors: `invalid_args`, `not_found` (no such album or playlist).
 
