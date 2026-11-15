@@ -83,6 +83,7 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
         <TakeoverNotice
           view={view}
           busy={busy}
+          stream={streamName != null}
           onReturn={() => giveBack(view.kind === "held" ? view.id : null)}
         />
       )}

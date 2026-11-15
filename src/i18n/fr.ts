@@ -1255,6 +1255,10 @@ export const fr: Dict = {
     takeoverHeld: "{name} diffuse votre musique ailleurs. La sortie de Plisto est coupée pendant ce temps.",
     takeoverHeldUnknown:
       "Un plugin diffuse votre musique ailleurs. La sortie de Plisto est coupée pendant ce temps.",
+    takeoverHeldStream:
+      "{name} diffuse le son de Plisto ailleurs. La sortie de Plisto est coupée pendant ce temps.",
+    takeoverHeldStreamUnknown:
+      "Un plugin diffuse le son de Plisto ailleurs. La sortie de Plisto est coupée pendant ce temps.",
     takeoverReturn: "Revenir aux haut-parleurs de Plisto",
     takeoverNotResponding: "{name} ne répond pas. Les haut-parleurs de Plisto rejouent le son.",
     idle: "S'applique quand vous lancez un morceau",

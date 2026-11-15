@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   createPlaylist: vi.fn(async () => 5),
   addTracks: vi.fn(async () => {}),
   cleared: vi.fn(),
+  clearSaved: vi.fn(),
 }));
 
 vi.mock("../../state/player/store", () => ({
@@ -31,6 +32,7 @@ vi.mock("../../state/player/store", () => ({
   useSeatedStream: () => h.stream,
   useHasParked: () => h.hasParked,
 }));
+vi.mock("../../state/player/useResumeWriter", () => ({ clearSavedResume: h.clearSaved }));
 vi.mock("../../state/player/queueToast", () => ({ cleared: h.cleared }));
 vi.mock("../../state/playlists/store", () => ({
   useCreatePlaylist: () => h.createPlaylist,
@@ -149,6 +151,14 @@ describe("QueueList with no stream", () => {
     expect(h.rows.some((r) => r.dim)).toBe(false);
     button("Clear queue")?.onClick?.();
     expect(h.actions.stop).toHaveBeenCalledTimes(1);
+    expect(h.clearSaved).toHaveBeenCalledTimes(1);
     expect(h.actions.clearParked).not.toHaveBeenCalled();
+  });
+
+  it("with a stream seated, Clear queue leaves the saved blob to the parked-cleared write", () => {
+    h.stream = streamNowFixture();
+    render();
+    button("Clear queue")?.onClick?.();
+    expect(h.clearSaved).not.toHaveBeenCalled();
   });
 });

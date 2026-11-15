@@ -27,7 +27,9 @@ vi.mock("../../state/sound/useSoundSettings", () => ({
 vi.mock("../../state/sound/presets", () => ({ canReset: () => false }));
 vi.mock("./takeoverModel", () => ({ takeoverView: () => h.view }));
 vi.mock("./useReturnOutput", () => ({ useReturnOutput: () => ({ busy: false, giveBack: () => {} }) }));
-vi.mock("./TakeoverNotice", () => ({ TakeoverNotice: () => <div data-takeover="" /> }));
+vi.mock("./TakeoverNotice", () => ({
+  TakeoverNotice: ({ stream }: { stream?: boolean }) => <div data-takeover="" data-stream={String(stream)} />,
+}));
 vi.mock("./EqCurve", () => ({ EqCurve: () => null }));
 vi.mock("./PresetRow", () => ({ PresetRow: () => null }));
 
@@ -44,6 +46,12 @@ describe("SoundPopover stream line", () => {
     const line = html.indexOf("Playing from Night Radio");
     expect(line).toBeGreaterThan(-1);
     expect(line).toBeLessThan(html.indexOf("data-takeover"));
+  });
+
+  it("tells the takeover block whether the sound is a stream", () => {
+    expect(render()).toContain('data-stream="true"');
+    h.name = null;
+    expect(render()).toContain('data-stream="false"');
   });
 
   it("shows alone when nothing holds the output", () => {

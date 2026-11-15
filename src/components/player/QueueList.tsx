@@ -35,6 +35,7 @@ import {
   useSeatedStream,
 } from "../../state/player/store";
 import { cleared } from "../../state/player/queueToast";
+import { clearSavedResume } from "../../state/player/useResumeWriter";
 
 import { useAddTracksToPlaylist, useCreatePlaylist } from "../../state/playlists/store";
 import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/queuePlaylist";
@@ -117,6 +118,12 @@ export function QueueList() {
       savingRef.current = false;
       setSaving(false);
     }
+  };
+
+  // With no stream the queue is the saved session: stopping alone would bring it back at the next launch.
+  const onClearQueue = () => {
+    clearSavedResume();
+    actions.stop();
   };
 
   const onClear = () => {
@@ -209,7 +216,7 @@ export function QueueList() {
 
       {stream ? null : (
         <div className={styles.footer}>
-          <QuietButton onClick={() => actions.stop()}>{t((d) => d.player.clearQueue)}</QuietButton>
+          <QuietButton onClick={onClearQueue}>{t((d) => d.player.clearQueue)}</QuietButton>
         </div>
       )}
     </div>

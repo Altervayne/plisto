@@ -1249,6 +1249,8 @@ export const en = {
     moreInSettings: "More in Settings",
     takeoverHeld: "{name} is playing your music elsewhere. Plisto's own output is muted while it does.",
     takeoverHeldUnknown: "A plugin is playing your music elsewhere. Plisto's own output is muted while it does.",
+    takeoverHeldStream: "{name} is playing Plisto's sound elsewhere. Plisto's own output is muted while it does.",
+    takeoverHeldStreamUnknown: "A plugin is playing Plisto's sound elsewhere. Plisto's own output is muted while it does.",
     takeoverReturn: "Return to Plisto's speakers",
     takeoverNotResponding: "{name} is not responding. Plisto's own speakers are playing again.",
     idle: "Applies when you play something",

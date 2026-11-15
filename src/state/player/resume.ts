@@ -63,6 +63,11 @@ export function normalizeResume(raw: string | null | undefined): ResumeState | n
   };
 }
 
+/** The blob that reads as nothing to restore, carrying the current volume and repeat. */
+export function emptyResumeBlob(status: PlayerStatus): ResumeBlob {
+  return { v: 1, ids: [], current_id: 0, secs: 0, volume: status.volume, repeat: status.repeat };
+}
+
 /**
  * The blob to persist for the current playback, or null while it must not be written: nothing loaded,
  * an ad-hoc track, or a queue mirror that does not yet hold the current track.
@@ -74,18 +79,19 @@ export function normalizeResume(raw: string | null | undefined): ResumeState | n
 export function buildResumeBlob(status: PlayerStatus, queue: number[]): ResumeBlob | null {
   const stream = status.stream;
   if (stream) {
-    const common = { v: 1 as const, volume: status.volume, repeat: status.repeat };
     if (stream.parked) {
       const parked = stream.parked.track_id;
       if (parked <= 0 || !queue.includes(parked)) return null;
       return {
-        ...common,
+        v: 1,
         ids: queue.filter((q) => q > 0),
         current_id: parked,
         secs: stream.parked.secs,
+        volume: status.volume,
+        repeat: status.repeat,
       };
     }
-    return stream.parked_cleared ? { ...common, ids: [], current_id: 0, secs: 0 } : null;
+    return stream.parked_cleared ? emptyResumeBlob(status) : null;
   }
 
   const id = status.track_id;

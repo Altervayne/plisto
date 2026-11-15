@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { startResumeWriter } from "./useResumeWriter";
+import { clearSavedResume, startResumeWriter } from "./useResumeWriter";
 import { usePlayerStore } from "./store";
 import { streamStatusFixture } from "./streamFixtures";
 
@@ -81,5 +81,39 @@ describe("resume writer with a stream seated", () => {
       expect(blob.current_id).toBe(5);
       expect(blob.ids).not.toContain(-41);
     }
+  });
+});
+
+describe("clearSavedResume", () => {
+  const playing = (id: number, position = 0) => ({
+    ...usePlayerStore.getState().status,
+    track_id: id,
+    playing: true,
+    position_secs: position,
+  });
+
+  it("writes an empty blob at once", () => {
+    usePlayerStore.setState({ status: playing(5, 12) });
+    clearSavedResume();
+    expect(written()[written().length - 1]).toEqual(expect.objectContaining({ ids: [], current_id: 0 }));
+  });
+
+  it("drops the pending delayed write and holds off writes until the stop lands", () => {
+    usePlayerStore.setState({ status: playing(5, 12) });
+    usePlayerStore.setState({ status: playing(5, 13) });
+    clearSavedResume();
+    const calls = mocked.setSetting.mock.calls.length;
+    usePlayerStore.setState({ status: playing(5, 14) });
+    vi.advanceTimersByTime(5000);
+    expect(mocked.setSetting).toHaveBeenCalledTimes(calls);
+    expect(written()[written().length - 1]).toEqual(expect.objectContaining({ ids: [] }));
+  });
+
+  it("writes again once a new track plays", () => {
+    usePlayerStore.setState({ status: playing(5, 12) });
+    clearSavedResume();
+    usePlayerStore.setState({ status: { ...playing(5), track_id: null, playing: false } });
+    usePlayerStore.setState({ status: playing(8, 0) });
+    expect(written()[written().length - 1]).toEqual(expect.objectContaining({ current_id: 8 }));
   });
 });

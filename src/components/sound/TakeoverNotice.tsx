@@ -21,17 +21,20 @@ export function TakeoverNotice({
   view,
   busy,
   onReturn,
+  stream = false,
 }: {
   view: TakeoverView;
   busy: boolean;
   onReturn: () => void;
+  /** A plugin's stream is the sound playing: the sentence names Plisto's sound rather than the user's music. */
+  stream?: boolean;
 }) {
   const t = useT();
   const held = view.kind === "held";
   const line = held
     ? view.name == null
-      ? t((d) => d.sound.takeoverHeldUnknown)
-      : t((d) => d.sound.takeoverHeld, { name: view.name })
+      ? t((d) => (stream ? d.sound.takeoverHeldStreamUnknown : d.sound.takeoverHeldUnknown))
+      : t((d) => (stream ? d.sound.takeoverHeldStream : d.sound.takeoverHeld), { name: view.name })
     : t((d) => d.sound.takeoverNotResponding, { name: view.name });
 
   return (

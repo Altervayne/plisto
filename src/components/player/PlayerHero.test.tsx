@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   duration: 0,
   requestPage: vi.fn(),
   stop: vi.fn(),
+  folded: false,
 }));
 
 type Found = { type: unknown; props: Record<string, unknown> };
@@ -59,6 +60,10 @@ vi.mock("./Volume", () => ({ Volume: () => null }));
 vi.mock("./Transport", () => ({ Transport: () => <i data-transport="" /> }));
 vi.mock("./SequenceToggle", () => ({ SequenceToggle: ({ kind }: { kind: string }) => <i data-seq={kind} /> }));
 vi.mock("./VisualizerButton", () => ({ VisualizerButton: () => <i data-viz="" /> }));
+vi.mock("./useFoldedRow", async (orig) => ({
+  ...(await orig<typeof import("./useFoldedRow")>()),
+  useFoldedRow: () => [{ current: null }, h.folded],
+}));
 vi.mock("../common/Tooltip", () => ({ Tooltip: ({ children }: { children: unknown }) => children as never }));
 
 const render = () => renderToStaticMarkup(<PlayerHero trackId={-41} onNavigate={() => {}} />);
@@ -68,6 +73,7 @@ beforeEach(() => {
   h.now = streamNowFixture();
   h.position = 2538;
   h.duration = 0;
+  h.folded = false;
 });
 
 describe("PlayerHero with a stream seated", () => {
@@ -214,5 +220,19 @@ describe("PlayerHero with no stream", () => {
     expect(html).toContain("Harbor Lights");
     expect(html).toContain("Ines Varga");
     expect(html).toContain('role="slider"');
+  });
+});
+
+describe("PlayerHero transport row order", () => {
+  it("keeps Sound and Visualizer before the transport at normal width", () => {
+    const html = render();
+    expect(html.indexOf("data-viz")).toBeLessThan(html.indexOf("data-transport"));
+  });
+
+  it("puts the transport before Sound and Visualizer when the row is folded", () => {
+    h.folded = true;
+    const html = render();
+    expect(html.indexOf("data-transport")).toBeLessThan(html.indexOf("data-viz"));
+    expect(html.indexOf("data-viz")).toBeLessThan(html.indexOf('aria-label="Stop"'));
   });
 });

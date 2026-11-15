@@ -12,8 +12,8 @@ import { fr } from "../../i18n/fr";
 
 vi.mock("../../lib/ipc", () => ({ pluginTakeoverRelease: vi.fn() }));
 
-const render = (view: Parameters<typeof TakeoverNotice>[0]["view"], busy = false) =>
-  renderToStaticMarkup(<TakeoverNotice view={view} busy={busy} onReturn={() => {}} />);
+const render = (view: Parameters<typeof TakeoverNotice>[0]["view"], busy = false, stream = false) =>
+  renderToStaticMarkup(<TakeoverNotice view={view} busy={busy} onReturn={() => {}} stream={stream} />);
 
 describe("TakeoverNotice", () => {
   it("held: Plisto's sentence, the plugin's report beneath it, and the Return button", () => {
@@ -37,6 +37,15 @@ describe("TakeoverNotice", () => {
     expect(html).toContain("Return to Plisto");
   });
 
+  it("names Plisto's sound while the audio is a plugin's stream", () => {
+    const html = render({ kind: "held", id: "t", name: "Tandem", text: null }, false, true);
+    expect(html).toContain("Tandem is playing Plisto&#x27;s sound elsewhere. Plisto&#x27;s own output is muted while it does.");
+    expect(html).not.toContain("your music");
+    expect(render({ kind: "held", id: "t", name: null, text: null }, false, true)).toContain(
+      "A plugin is playing Plisto&#x27;s sound elsewhere.",
+    );
+  });
+
   it("disables the button while a release is in flight", () => {
     expect(render({ kind: "held", id: "t", name: "Tandem", text: null }, true)).toContain("disabled");
   });
@@ -57,10 +66,17 @@ describe("TakeoverNotice", () => {
 describe("takeover strings", () => {
   it("exist in both locales", () => {
     const keys = Object.keys(en.sound).filter((k) => k.startsWith("takeover"));
-    expect(keys.length).toBe(4);
+    expect(keys.length).toBe(6);
     for (const key of keys) {
       expect((fr.sound as unknown as Record<string, string>)[key]).toBeTruthy();
     }
+  });
+
+  it("French stream line keeps the register", () => {
+    const t = createT("fr");
+    expect(t((d) => d.sound.takeoverHeldStream, { name: "Tandem" })).toBe(
+      "Tandem diffuse le son de Plisto ailleurs. La sortie de Plisto est coupée pendant ce temps.",
+    );
   });
 
   it("French main line matches the owner's wording", () => {

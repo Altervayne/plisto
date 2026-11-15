@@ -15,6 +15,7 @@ import { Square } from "lucide-react";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
+import { transportOrder, useFoldedRow } from "./useFoldedRow";
 import { useTrackDisplay } from "./useTrackDisplay";
 
 // -- State Imports --
@@ -44,8 +45,9 @@ import styles from "./PlayerHero.module.css";
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
  * transport row: the Sound and visualizer buttons leading, shuffle and repeat flanking the previous, play
  * and next cluster, and Stop (stream only), the ambient entry and the volume rail trailing. Below a narrow
- * controls width the row folds to two lines, the cluster over the leading and trailing groups. Mounts
- * only with a real track id, so its id-typed hooks never run empty. The seek fill is the one lit accent
+ * controls width the row folds to two lines, the cluster over the leading and trailing groups, and the
+ * DOM order follows the lines so Tab does too. Mounts only with a real track id, so its id-typed hooks
+ * never run empty. The seek fill is the one lit accent
  * of the view; every other control reads by weight and material. Under the Liquid and Dot cover
  * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow, and
  * the real cover crossfades with it through the stage's dip.
@@ -99,6 +101,35 @@ export function PlayerHero({
   // One static word for every waiting phase: between the times of a scrubbable item, in the listened slot
   // of any other.
   const note = wait ? waitWord(t, wait) : null;
+  const [controlsRef, folded] = useFoldedRow();
+  const slots = {
+    sound: (
+      <div key="sound" className={styles.soundSlot}>
+        <SoundMenu />
+        <VisualizerButton />
+      </div>
+    ),
+    cluster: (
+      <div key="cluster" className={styles.cluster}>
+        <SequenceToggle kind="shuffle" />
+        <Transport size="lg" shortcutHints />
+        <SequenceToggle kind="repeat" />
+      </div>
+    ),
+    volume: (
+      <div key="volume" className={styles.volumeSlot}>
+        {stream ? (
+          <Tooltip label={t((d) => d.player.stop)}>
+            <IconButton aria-label={t((d) => d.player.stop)} onClick={() => actions.stop()}>
+              <Square size={18} strokeWidth={1.8} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+        {onEnterAmbient ? <AmbientButton ref={ambientRef} onEnter={onEnterAmbient} /> : null}
+        <Volume volume={status.volume} shortcutHints />
+      </div>
+    ),
+  };
 
   return (
     <div ref={heroRef} className={styles.hero}>
@@ -130,7 +161,7 @@ export function PlayerHero({
         </div>
 
         {/* The seek bar and transport sit at the foot of the column. */}
-        <div className={styles.controls}>
+        <div ref={controlsRef} className={styles.controls}>
           <div ref={seekRef} className={styles.seekWrap}>
             <SeekBar
               position={status.position_secs}
@@ -141,28 +172,8 @@ export function PlayerHero({
             />
           </div>
 
-          <div className={styles.transport}>
-            <div className={styles.soundSlot}>
-              <SoundMenu />
-              <VisualizerButton />
-            </div>
-            <div className={styles.cluster}>
-              <SequenceToggle kind="shuffle" />
-              <Transport size="lg" shortcutHints />
-              <SequenceToggle kind="repeat" />
-            </div>
-            <div className={styles.volumeSlot}>
-              {stream ? (
-                <Tooltip label={t((d) => d.player.stop)}>
-                  <IconButton aria-label={t((d) => d.player.stop)} onClick={() => actions.stop()}>
-                    <Square size={18} strokeWidth={1.8} />
-                  </IconButton>
-                </Tooltip>
-              ) : null}
-              {onEnterAmbient ? <AmbientButton ref={ambientRef} onEnter={onEnterAmbient} /> : null}
-              <Volume volume={status.volume} shortcutHints />
-            </div>
-          </div>
+          {/* DOM order follows the drawn lines, so Tab reads the first line, then the second. */}
+          <div className={styles.transport}>{transportOrder(folded).map((slot) => slots[slot])}</div>
         </div>
       </div>
     </div>
