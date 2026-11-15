@@ -16,6 +16,8 @@ pub mod helper;
 pub mod helper_launch;
 pub mod job;
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
+pub mod pipe;
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub mod session;
 pub mod spawn;
 #[cfg(test)]

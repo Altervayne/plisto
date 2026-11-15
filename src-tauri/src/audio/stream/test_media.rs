@@ -126,12 +126,88 @@ pub fn flac_bytes(blocks: usize, block_size: usize) -> Vec<u8> {
     v
 }
 
+/// `flac_bytes` with a seek table before its frames: one point per block, at its true offset.
+pub fn flac_with_seektable(blocks: usize, block_size: usize) -> Vec<u8> {
+    let plain = flac_bytes(blocks, block_size);
+    let (head, frames) = plain.split_at(42);
+    let mut v = head.to_vec();
+    // STREAMINFO is no longer the last block.
+    v[4] = 0x00;
+    let table_len = (blocks * 18) as u32;
+    v.push(0x80 | 3);
+    v.extend_from_slice(&table_len.to_be_bytes()[1..]);
+    // Each frame is its header, a 1-byte subframe header, the samples and a 2-byte CRC.
+    let mut offset = 0u64;
+    for block in 0..blocks {
+        v.extend_from_slice(&((block * block_size) as u64).to_be_bytes());
+        v.extend_from_slice(&offset.to_be_bytes());
+        v.extend_from_slice(&(block_size as u16).to_be_bytes());
+        let mut number = Vec::new();
+        frame_number(block, &mut number);
+        offset += (4 + number.len() + 2 + 1 + 1 + 2 * block_size + 2) as u64;
+    }
+    v.extend_from_slice(frames);
+    v
+}
+
+/// A 16-bit FLAC of silence at `rate` with `channels`, `blocks` blocks of `block_size` frames, every
+/// subframe constant: a few bytes of FLAC decode to a whole block of PCM.
+pub fn flac_silence(rate: u32, channels: u16, blocks: usize, block_size: usize) -> Vec<u8> {
+    let total = (blocks * block_size) as u64;
+    let mut v = b"fLaC".to_vec();
+    v.extend_from_slice(&[0x80, 0x00, 0x00, 0x22]);
+    v.extend_from_slice(&(block_size as u16).to_be_bytes());
+    v.extend_from_slice(&(block_size as u16).to_be_bytes());
+    v.extend_from_slice(&[0; 6]);
+    let packed = (u64::from(rate) << 44) | (u64::from(channels - 1) << 41) | (15u64 << 36) | total;
+    v.extend_from_slice(&packed.to_be_bytes());
+    v.extend_from_slice(&[0; 16]);
+
+    for block in 0..blocks {
+        let mut frame = vec![
+            0xFF,
+            0xF8,
+            // Block size from a 16-bit field; sample rate from a 16-bit field in tens of Hz.
+            0x7E,
+            // Independent channels; 16 bits per sample.
+            ((channels - 1) as u8) << 4 | 0x08,
+        ];
+        frame_number(block, &mut frame);
+        frame.extend_from_slice(&((block_size - 1) as u16).to_be_bytes());
+        frame.extend_from_slice(&((rate / 10) as u16).to_be_bytes());
+        frame.push(crc8(&frame));
+        for _ in 0..channels {
+            // A constant subframe holding 0.
+            frame.extend_from_slice(&[0x00, 0x00, 0x00]);
+        }
+        let crc = crc16(&frame);
+        frame.extend_from_slice(&crc.to_be_bytes());
+        v.extend(frame);
+    }
+    v
+}
+
 /// Opus frames per packet of `ogg_opus_bytes`: 20 ms at 48 kHz.
 pub const OPUS_FRAME: usize = 960;
 
 /// One Ogg Opus physical stream on `serial`: `packets` packets of a 440 Hz tone behind an OpusHead
 /// carrying `pre_skip`.
 pub fn ogg_opus_bytes(serial: u32, channels: usize, packets: usize, pre_skip: u16) -> Vec<u8> {
+    let mut tags = b"OpusTags".to_vec();
+    tags.extend_from_slice(&4u32.to_le_bytes());
+    tags.extend_from_slice(b"test");
+    tags.extend_from_slice(&0u32.to_le_bytes());
+    ogg_opus_tagged(serial, channels, packets, pre_skip, tags)
+}
+
+/// `ogg_opus_bytes` with `tags` as its OpusTags packet, over as many pages as it takes.
+pub fn ogg_opus_tagged(
+    serial: u32,
+    channels: usize,
+    packets: usize,
+    pre_skip: u16,
+    tags: Vec<u8>,
+) -> Vec<u8> {
     use opus_rs::{Application, OpusEncoder};
 
     let mut head = b"OpusHead".to_vec();
@@ -141,10 +217,6 @@ pub fn ogg_opus_bytes(serial: u32, channels: usize, packets: usize, pre_skip: u1
     head.extend_from_slice(&48_000u32.to_le_bytes());
     head.extend_from_slice(&0u16.to_le_bytes());
     head.push(0);
-    let mut tags = b"OpusTags".to_vec();
-    tags.extend_from_slice(&4u32.to_le_bytes());
-    tags.extend_from_slice(b"test");
-    tags.extend_from_slice(&0u32.to_le_bytes());
 
     let mut enc =
         OpusEncoder::new(48_000, channels, Application::Audio).expect("builds the encoder");

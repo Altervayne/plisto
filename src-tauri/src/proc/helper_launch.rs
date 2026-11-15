@@ -9,7 +9,6 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
-use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,6 +18,7 @@ use super::contained::{self, Contained, Isolation};
 use super::container::{AppContainer, Cancelled, SetupError, SetupStep};
 use super::helper::READY;
 use super::job::Job;
+use super::pipe;
 
 /// The CPU one helper may use, in percent of one core.
 const HELPER_CPU_PERCENT: u32 = 100;
@@ -66,34 +66,21 @@ pub fn launch(
 }
 
 /// Waits up to `timeout` for `Ready` on the helper's stdout, and hands the pipe back after it. The
-/// read runs on its own thread, so a helper that never answers costs the timeout and no more; that
-/// thread ends when the pipe breaks. `cancelled` is checked every `CANCEL_POLL`, and ends the wait
-/// with `Interrupted`.
+/// pipe is read only once bytes wait in it, so the wait never outlasts the timeout, a cancel or the
+/// helper's exit, and leaves no thread behind. `cancelled` is checked every `CANCEL_POLL`, and ends
+/// the wait with `Interrupted`.
 ///
-/// Tell that a helper ended from `Contained::wait_timeout`, never from its stdout closing: a
-/// concurrent std spawn elsewhere in Plisto can inherit the pipe ends and hold them open.
+/// That the helper ended is read from `process`, never from its stdout closing alone: a concurrent
+/// std spawn elsewhere in Plisto can inherit the pipe ends and hold them open.
 pub fn await_ready(
-    stdout: File,
+    mut stdout: File,
+    process: &Contained,
     timeout: Duration,
     cancelled: Cancelled,
 ) -> io::Result<File> {
-    let (sent, received) = mpsc::channel();
-    thread::spawn(move || {
-        let mut stdout = stdout;
-        let mut first = [0u8; READY.len()];
-        let read = stdout.read_exact(&mut first).and_then(|()| {
-            if first == READY {
-                Ok(())
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "the helper's first frame is not Ready",
-                ))
-            }
-        });
-        let _ = sent.send(read.map(|()| stdout));
-    });
     let deadline = Instant::now() + timeout;
+    let mut first = [0u8; READY.len()];
+    let mut got = 0;
     loop {
         if cancelled() {
             return Err(io::Error::new(
@@ -101,16 +88,41 @@ pub fn await_ready(
                 "the launch was cancelled",
             ));
         }
-        let left = deadline.saturating_duration_since(Instant::now());
-        match received.recv_timeout(left.min(CANCEL_POLL)) {
-            Ok(read) => return read,
-            Err(RecvTimeoutError::Timeout) if !left.is_zero() => {}
-            Err(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "the helper sent no Ready in time",
-                ))
+        // Read before the pipe: an exit seen here means the pipe holds all the helper wrote.
+        let exited = matches!(process.wait_timeout(Duration::ZERO), Ok(Some(_)));
+        match pipe::waiting(&stdout) {
+            Some(0) if exited => return Err(ended()),
+            Some(0) => {}
+            Some(waiting) => {
+                let len = (waiting as usize).min(READY.len() - got);
+                got += stdout.read(&mut first[got..got + len])?;
+                if got == READY.len() {
+                    return if first == READY {
+                        Ok(stdout)
+                    } else {
+                        Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "the helper's first frame is not Ready",
+                        ))
+                    };
+                }
+                continue;
             }
+            None => return Err(ended()),
         }
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the helper sent no Ready in time",
+            ));
+        }
+        thread::sleep(CANCEL_POLL);
     }
+}
+
+fn ended() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::BrokenPipe,
+        "the helper ended before its Ready",
+    )
 }

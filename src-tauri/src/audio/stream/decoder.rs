@@ -408,6 +408,18 @@ fn starts_as_mp4<S: Read + Seek>(src: &mut S) -> bool {
 
 // ---- Decode loops ----
 
+/// Set only in a test decode helper started with its guards off, so the helper's own wall is what
+/// hostile bytes meet.
+#[cfg(test)]
+pub(super) static GUARDS_OFF: AtomicBool = AtomicBool::new(false);
+
+fn guards_on() -> bool {
+    #[cfg(test)]
+    return !GUARDS_OFF.load(Ordering::Acquire);
+    #[cfg(not(test))]
+    true
+}
+
 // Opens the container: skips leading ID3 tags, puts the header guard and the opening bound in
 // front of symphonia, and picks the reader.
 fn open_container(
@@ -417,6 +429,7 @@ fn open_container(
     watch: &Arc<Watch>,
 ) -> Result<Box<dyn FormatReader>, DecodeEnd> {
     let seekable = source.is_seekable();
+    let guarded = guards_on();
     let mut watched = Watched {
         inner: source,
         watch: Arc::clone(watch),
@@ -425,11 +438,13 @@ fn open_container(
     let format_error = || stopped(queue, watch, DecodeEnd::Failed(Unsupported::Format));
     // Too many tags, or a source that broke or ended inside one: the stop reason tells which.
     let (base, head) = skip_id3(&mut watched, seekable).map_err(|_| format_error())?;
-    watch
-        .limit
-        .store(watched.read + OPEN_READ_MAX, Ordering::Release);
+    if guarded {
+        watch
+            .limit
+            .store(watched.read + OPEN_READ_MAX, Ordering::Release);
+    }
     let mut trimmed = Trimmed::new(watched, base, head);
-    if seekable && starts_as_mp4(&mut trimmed) {
+    if guarded && seekable && starts_as_mp4(&mut trimmed) {
         let len = trimmed.byte_len().unwrap_or(0);
         if check_mp4(&mut trimmed, len).is_err() {
             watch.refused.store(true, Ordering::Release);
@@ -439,8 +454,12 @@ fn open_container(
         let read = trimmed.inner().read;
         watch.limit.store(read + OPEN_READ_MAX, Ordering::Release);
     }
-    let source = Guarded::new(trimmed, Arc::clone(&watch.refused));
-    let mss = MediaSourceStream::new(Box::new(source), Default::default());
+    let source: Box<dyn MediaSource> = if guarded {
+        Box::new(Guarded::new(trimmed, Arc::clone(&watch.refused)))
+    } else {
+        Box::new(trimmed)
+    };
+    let mss = MediaSourceStream::new(source, Default::default());
     let format = open_reader(mss, hint).map_err(|_| format_error())?;
     watch.limit.store(u64::MAX, Ordering::Release);
     Ok(format)

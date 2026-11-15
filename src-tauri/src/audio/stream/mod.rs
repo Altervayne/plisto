@@ -90,7 +90,8 @@ pub const IDLE_MS: u64 = 30_000;
 /// From accept, or from a reconnect, to the first decoded chunk.
 pub const NO_AUDIO_MS: u64 = 20_000;
 
-/// Continuous buffering with no way left to recover.
+/// How long an item may make no progress before it ends `stalled`: continuous buffering with no way
+/// left to recover, or a decode helper owing main audio for this long.
 pub const STALL_MS: u64 = 30_000;
 
 /// The waits before each reconnect of a live pull item; their count is the most in a row.
@@ -123,8 +124,29 @@ pub const PCM_RATES: RangeInclusive<u32> = 8_000..=192_000;
 /// `EXIT_MEMORY`.
 pub const HELPER_MEMORY_MAX: usize = 256 << 20;
 
-/// The helper CPU time with no progress frame after which the helper is killed as spinning.
+/// The helper's CPU credit, and where it starts: CPU it may spend beyond what it has earned before
+/// it is killed as spinning.
+#[cfg(not(debug_assertions))]
 pub const SPIN_CPU_MS: u64 = 2_000;
+/// `SPIN_CPU_MS` in an unoptimized build, whose decoder spends about 2 s of CPU opening a legitimate
+/// Ogg with a near-cap cover where the optimized one spends about 0.1 s.
+#[cfg(debug_assertions)]
+pub const SPIN_CPU_MS: u64 = 8_000;
+
+/// The helper CPU per second of wall time it earns whatever it does: a helper that only waits, with
+/// its queue full or a read outstanding, polls well under it.
+pub const SPIN_IDLE_MS_PER_SEC: u64 = 30;
+
+/// The helper CPU per second of audio main accepts that it earns.
+#[cfg(not(debug_assertions))]
+pub const SPIN_AUDIO_MS_PER_SEC: u64 = 1_000;
+/// `SPIN_AUDIO_MS_PER_SEC` in an unoptimized build, whose decoder is several times slower.
+#[cfg(debug_assertions)]
+pub const SPIN_AUDIO_MS_PER_SEC: u64 = 4_000;
+
+/// Seconds a helper's stall debt shrinks by per second of audio main accepts: a helper that delivers
+/// at least a tenth of real time is never hung.
+pub const STALL_AUDIO_PAYBACK: u32 = 10;
 
 /// Which helper decodes an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

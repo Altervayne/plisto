@@ -88,6 +88,21 @@ pub struct Contained {
     pub stdin: Option<File>,
     /// The read end of the child's stdout.
     pub stdout: Option<File>,
+    /// Duplicates of the child's own pipe ends, kept when the spawning thread asked to leak them.
+    #[cfg(test)]
+    pub leaked: Vec<OwnedHandle>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static LEAK_PIPES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes every later spawn on this thread keep duplicates of the child's pipe ends in
+/// `Contained::leaked`, as a std spawn that inherited them would hold them.
+#[cfg(test)]
+pub fn leak_pipes_on_this_thread() {
+    LEAK_PIPES.set(true);
 }
 
 impl Contained {
@@ -129,6 +144,12 @@ pub fn spawn(
 ) -> io::Result<Contained> {
     let (child_in, main_in) = pipe()?;
     let (main_out, child_out) = pipe()?;
+    #[cfg(test)]
+    let leaked = if LEAK_PIPES.get() {
+        vec![child_in.try_clone()?, child_out.try_clone()?]
+    } else {
+        Vec::new()
+    };
     let application = wide(exe.as_os_str());
     let mut command_line = command_line(exe.as_os_str(), args);
     let environment = environment_block();
@@ -217,6 +238,8 @@ pub fn spawn(
         pid: info.dwProcessId,
         stdin: Some(File::from(main_in)),
         stdout: Some(File::from(main_out)),
+        #[cfg(test)]
+        leaked,
     })
 }
 

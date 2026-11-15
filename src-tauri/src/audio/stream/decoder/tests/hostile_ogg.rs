@@ -34,7 +34,7 @@ fn assert_refused(bytes: &[u8], hint: &'static str, what: &str) {
 }
 
 // A Vorbis comment packet: the given comments, then the framing bit.
-fn vorbis_comment(comments: &[&[u8]]) -> Vec<u8> {
+pub(super) fn vorbis_comment(comments: &[&[u8]]) -> Vec<u8> {
     let mut v = b"\x03vorbis".to_vec();
     v.extend(comment_with(comments));
     v.push(1);
@@ -42,7 +42,7 @@ fn vorbis_comment(comments: &[&[u8]]) -> Vec<u8> {
 }
 
 // A comment packet whose one comment claims `EVIL` bytes.
-fn evil_comment() -> Vec<u8> {
+pub(super) fn evil_comment() -> Vec<u8> {
     let mut v = b"\x03vorbis".to_vec();
     v.extend_from_slice(&0u32.to_le_bytes());
     v.extend_from_slice(&1u32.to_le_bytes());
@@ -234,7 +234,7 @@ fn a_comment_cut_across_the_stream_end_search_is_refused() {
 }
 
 // An MP4 whose esds payload is `esds`.
-fn mp4_with_esds(esds: Vec<u8>) -> Vec<u8> {
+pub(super) fn mp4_with_esds(esds: Vec<u8>) -> Vec<u8> {
     m4a(&M4a::default(), &|k, p| {
         if k == b"esds" {
             esds.clone()
@@ -371,9 +371,14 @@ fn foreign_streams_never_make_the_guard_forget_the_real_one() {
 // A comment cut at the page that ends the opening, carried on by a small continuation page inside
 // the first read-ahead, and completed by a page past it. symphonia's stream-end search seeks back
 // to the end of the cut page, a boundary the chain no longer records once it has moved on.
-fn chain_moved_on() -> Vec<u8> {
+pub(super) fn chain_moved_on() -> Vec<u8> {
+    chain_moved_on_after(&[&vorbis_comment(&[])])
+}
+
+// `chain_moved_on` with `headers` on the page after the identification header.
+pub(super) fn chain_moved_on_after(headers: &[&[u8]]) -> Vec<u8> {
     let mut f = ogg_page(S, 0, FIRST, &[&vorbis_ident()], false);
-    f.extend(ogg_page(S, 1, 0, &[&vorbis_comment(&[])], false));
+    f.extend(ogg_page(S, 1, 0, headers, false));
     let mut cut = evil_comment();
     cut.resize(255, b'x');
     f.extend(ogg_page(S, 2, 0, &[&[0u8; 10], &cut], true));
@@ -395,6 +400,8 @@ fn chain_moved_on() -> Vec<u8> {
     f
 }
 
+// The same input goes through a decode helper, guard on, in
+// `wall::the_known_ogg_guard_gap_ends_the_item_in_the_helper`.
 #[test]
 #[ignore = "known gap of the first-layer Ogg guard: a chain moved on past the boundary a seek \
             returns to; decode isolation covers it"]

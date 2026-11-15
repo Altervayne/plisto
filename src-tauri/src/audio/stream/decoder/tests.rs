@@ -14,6 +14,7 @@ mod hostile_containers;
 mod hostile_ogg;
 mod isolated;
 mod seek;
+mod wall;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 

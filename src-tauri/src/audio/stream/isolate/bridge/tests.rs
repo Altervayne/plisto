@@ -3,13 +3,22 @@
  * and end to end against real helpers in their container that misbehave on purpose.
  */
 
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+use std::io::{Read, SeekFrom};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
+
+use crossbeam_channel::Receiver;
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
 
+use super::byte_server::read_ok;
+use super::pump::{ReadRequest, Report};
+use super::supervise::{exit_end, Outcome};
 use super::*;
+use crate::audio::stream::isolate::alloc::EXIT_MEMORY;
 use crate::audio::stream::isolate::test_faults::TestFault;
-use crate::audio::stream::isolate::wire::UncheckedSeam;
-use crate::audio::stream::pcm::{pcm_queue, PcmReader, Segment};
+use crate::audio::stream::isolate::wire::{HelperFrame, ReadSource, UncheckedSeam, READ_MAX};
+use crate::audio::stream::pcm::{pcm_queue, PcmReader, Seam, Segment};
 use crate::audio::stream::test_media::wav_bytes;
 use crate::audio::stream::{byte_ring, growing_buffer, WriteError};
 use crate::audio::{AudioSpec, PcmChunk};
@@ -49,6 +58,7 @@ fn rig(seekable: bool) -> Rig {
         seekable,
         end_queued: false,
         gate: Arc::clone(&gate),
+        activity: Arc::default(),
         pause_in_take: Duration::ZERO,
     };
     Rig {
@@ -85,11 +95,19 @@ fn deciding_the_end_waits_for_a_take_in_progress() {
     // The take holds the end lock while it acts; deciding the end and closing seeks, as the
     // bridge thread does before `on_end`, must come after it.
     let mut r = rig(true);
-    r.pump.pause_in_take = Duration::from_millis(200);
+    r.pump.pause_in_take = Duration::from_secs(1);
     let control = Arc::clone(&r.control);
     let mut pump = r.pump;
     let taking = thread::spawn(move || pump.take_gated(HelperFrame::SeeksOpen));
-    thread::sleep(Duration::from_millis(50));
+    // Decide only once the take holds the lock.
+    let deadline = Instant::now() + WAIT;
+    while r.gate.ended.try_lock().is_ok() {
+        assert!(
+            Instant::now() < deadline,
+            "the take never held the end lock"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
     r.gate.decide();
     control.close_seeks();
     assert_eq!(taking.join().unwrap(), None);
@@ -296,301 +314,12 @@ fn a_pump_that_panics_still_reports_an_outcome() {
     assert_eq!(outcomes.try_recv(), Ok(Outcome::Protocol));
 }
 
-// ---- Faulty helpers ----
-
-/// A stream item decoded by a helper that misbehaves on purpose.
-struct Faulty {
-    control: Arc<StreamControl>,
-    reader: PcmReader,
-    ended: std::sync::mpsc::Receiver<DecodeEnd>,
-    pid: std::sync::mpsc::Receiver<u32>,
-}
-
-/// A faulty helper over a whole WAV body.
-fn faulty(fault: TestFault) -> Faulty {
-    let control = Arc::new(StreamControl::new());
-    let bytes = wav_bytes(8_000, 1, 80_000);
-    let (writer, body) = growing_buffer(bytes.len() as u64, Arc::clone(&control));
-    writer.write(&bytes).unwrap();
-    writer.finish();
-    faulty_over(fault, control, Box::new(body))
-}
-
-fn faulty_over(
-    fault: TestFault,
-    control: Arc<StreamControl>,
-    source: Box<dyn MediaSource>,
-) -> Faulty {
-    let (queue, reader) = pcm_queue(Arc::clone(&control));
-    let (end_tx, ended) = std::sync::mpsc::channel();
-    let (pid_tx, pid) = std::sync::mpsc::channel();
-    let launch = Launch {
-        args: fault.args(),
-        pid: Some(pid_tx),
-        ..Launch::default()
-    };
-    let input = StreamInput::Media {
-        source,
-        hint: Some("wav"),
-    };
-    spawn_in(&DECODE_HELPER, launch, input, queue, move |end| {
-        let _ = end_tx.send(end);
-    })
-    .unwrap();
-    Faulty {
-        control,
-        reader,
-        ended,
-        pid,
-    }
-}
-
-/// A process to wait on, closed when dropped.
-struct Process(HANDLE);
-
-impl Process {
-    fn open(pid: u32) -> Process {
-        // SAFETY: plain arguments; the handle is closed when dropped.
-        Process(unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.unwrap())
-    }
-
-    fn gone_within(&self, wait: Duration) -> bool {
-        // SAFETY: the handle is open while self lives.
-        unsafe { WaitForSingleObject(self.0, wait.as_millis() as u32) == WAIT_OBJECT_0 }
-    }
-}
-
-impl Drop for Process {
-    fn drop(&mut self) {
-        // SAFETY: the handle was opened in `open` and is closed once.
-        let _ = unsafe { CloseHandle(self.0) };
-    }
-}
-
-#[test]
-fn a_helper_that_stops_reading_is_killed_when_a_seek_cannot_reach_it() {
-    let f = faulty(TestFault::Deaf);
-    let helper = Process::open(f.pid.recv_timeout(WAIT).unwrap());
-    // Seeks pile up behind the read answer the helper never takes, until one waits too long.
-    let mut first = None;
-    let end = loop {
-        if f.control.request_seek(1.0).is_some() {
-            first.get_or_insert_with(Instant::now);
-        }
-        if let Ok(end) = f.ended.try_recv() {
-            break end;
-        }
-        assert!(
-            first.is_none_or(|first| first.elapsed() < HELPER_SEND + WAIT),
-            "the item never ended"
-        );
-        thread::sleep(Duration::from_millis(2));
-    };
-    assert_eq!(end, DecodeEnd::Isolated(Fault::Protocol));
-    let first = first.expect("seeks never opened");
-    assert!(
-        first.elapsed() < HELPER_SEND + Duration::from_secs(2),
-        "ended {:?} after the first seek",
-        first.elapsed()
-    );
-    assert!(helper.gone_within(WAIT), "the helper outlived its item");
-    assert_eq!(f.control.request_seek(1.0), None);
-}
-
-#[test]
-fn a_cancel_ends_an_item_whose_helper_stopped_reading() {
-    let f = faulty(TestFault::Deaf);
-    let helper = Process::open(f.pid.recv_timeout(WAIT).unwrap());
-    let fill = Instant::now() + Duration::from_millis(300);
-    while Instant::now() < fill {
-        f.control.request_seek(1.0);
-        thread::sleep(Duration::from_millis(2));
-    }
-    let cancelled = Instant::now();
-    f.control.cancel();
-    assert_eq!(
-        f.ended.recv_timeout(Duration::from_secs(1)),
-        Ok(DecodeEnd::Cancelled)
-    );
-    assert!(cancelled.elapsed() < Duration::from_secs(1));
-    assert!(helper.gone_within(WAIT), "the helper outlived its item");
-}
-
-#[test]
-fn nothing_from_the_helper_reaches_the_item_after_its_end() {
-    // The helper asks for a byte past the body, then sends more audio than the queue holds and
-    // opens seeks again. The pump is blocked on the full queue when the end is decided, with the
-    // rest still in the pipe: draining the queue after the end must not let any of it through.
-    let f = faulty(TestFault::Flood);
-    let helper = Process::open(f.pid.recv_timeout(WAIT).unwrap());
-    assert_eq!(
-        f.ended.recv_timeout(WAIT),
-        Ok(DecodeEnd::Isolated(Fault::Protocol))
-    );
-    assert!(helper.gone_within(WAIT), "the helper outlived its item");
-    while f.reader.try_next().is_some() {}
-    thread::sleep(Duration::from_millis(200));
-    assert!(f.reader.try_next().is_none(), "audio queued after the end");
-    assert_eq!(
-        f.control.request_seek(1.0),
-        None,
-        "seeks reopened after the end"
-    );
-    assert!(f.control.is_producer_done());
-}
-
-#[test]
-fn the_source_is_released_when_the_item_ends() {
-    // The helper's read waits on an empty ring whose writer stays open; then it breaks the
-    // protocol. Ending the item must wake that read and drop the ring, closing the writer.
-    let control = Arc::new(StreamControl::new());
-    let (writer, ring) = byte_ring(1_024, Arc::clone(&control));
-    let f = faulty_over(TestFault::Stuck, Arc::clone(&control), Box::new(ring));
-    assert_eq!(
-        f.ended.recv_timeout(WAIT),
-        Ok(DecodeEnd::Isolated(Fault::Protocol))
-    );
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while writer.try_write(&[0]) != Err(WriteError::Closed) {
-        assert!(
-            Instant::now() < deadline,
-            "the ring is still read after the end"
-        );
-        thread::sleep(Duration::from_millis(2));
-    }
-    assert!(!control.is_cancelled());
-}
-
-/// A byte source whose read cancels the stream and then fails, as a cancelled ring does.
-struct CancelOnRead(Arc<StreamControl>);
-
-impl Read for CancelOnRead {
-    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        self.0.cancel();
-        Err(io::Error::new(
-            io::ErrorKind::ConnectionAborted,
-            "stream cancelled",
-        ))
-    }
-}
-
-impl std::io::Seek for CancelOnRead {
-    fn seek(&mut self, _pos: SeekFrom) -> io::Result<u64> {
-        Err(io::ErrorKind::Unsupported.into())
-    }
-}
-
-impl MediaSource for CancelOnRead {
-    fn is_seekable(&self) -> bool {
-        false
-    }
-
-    fn byte_len(&self) -> Option<u64> {
-        None
-    }
-}
-
-#[test]
-fn a_cancelled_item_ends_cancelled_whatever_the_helper_reports() {
-    // The helper's end, a broken source, is sent only after the cancel is set.
-    let control = Arc::new(StreamControl::new());
-    let source = Box::new(CancelOnRead(Arc::clone(&control)));
-    let f = faulty_over(TestFault::LateEnd, control, source);
-    assert_eq!(f.ended.recv_timeout(WAIT), Ok(DecodeEnd::Cancelled));
-    // The same weighing, whatever path decided the end.
-    let cancelled = StreamControl::new();
-    cancelled.cancel();
-    for end in [
-        DecodeEnd::SourceBroken,
-        DecodeEnd::Finished,
-        DecodeEnd::Isolated(Fault::Protocol),
-        DecodeEnd::Panicked,
-    ] {
-        assert_eq!(cancel_first(end, &cancelled), DecodeEnd::Cancelled);
-        assert_eq!(cancel_first(end, &StreamControl::new()), end);
-    }
-}
-
-#[test]
-fn a_cancel_during_the_launch_ends_at_once() {
-    // The helper never sends `Ready`, so the launch waits until the cancel.
-    let f = faulty(TestFault::Mute);
-    thread::sleep(Duration::from_millis(200));
-    let cancelled = Instant::now();
-    f.control.cancel();
-    assert_eq!(
-        f.ended.recv_timeout(Duration::from_secs(1)),
-        Ok(DecodeEnd::Cancelled)
-    );
-    assert!(cancelled.elapsed() < READY_WAIT);
-    assert!(f.pid.try_recv().is_err(), "the launch completed");
-}
-
-#[test]
-fn a_panic_in_the_helper_is_panicked() {
-    let f = faulty(TestFault::Panic);
-    assert_eq!(f.ended.recv_timeout(WAIT), Ok(DecodeEnd::Panicked));
-    assert!(f.control.is_producer_done());
-    assert!(f.ended.recv_timeout(Duration::from_millis(100)).is_err());
-}
-
-#[test]
-fn a_helper_that_stops_taking_frames_is_a_fault_not_a_cancel() {
-    // The helper closes its stdin, asks for bytes, then closes seeks: main's answer finds the
-    // writer gone.
-    let f = faulty(TestFault::Hangup);
-    assert_eq!(
-        f.ended.recv_timeout(WAIT),
-        Ok(DecodeEnd::Isolated(Fault::Protocol))
-    );
-    assert!(!f.control.is_cancelled());
-}
-
-// A session of its own, so stalled launches never touch the one the other tests share.
-static RETRYING: Session = Session::new(crate::proc::helper::HELPER_PROFILE);
-
-// Decodes a short WAV through `RETRYING`, each launch attempt waiting `ready_wait` for Ready.
-fn decode_retrying(ready_wait: Duration) -> DecodeEnd {
-    let control = Arc::new(StreamControl::new());
-    let bytes = wav_bytes(8_000, 1, 4_000);
-    let (writer, body) = growing_buffer(bytes.len() as u64, Arc::clone(&control));
-    writer.write(&bytes).unwrap();
-    writer.finish();
-    let (queue, reader) = pcm_queue(control);
-    let (end_tx, ended) = std::sync::mpsc::channel();
-    let launch = Launch {
-        ready_wait,
-        ..Launch::default()
-    };
-    let input = StreamInput::Media {
-        source: Box::new(body),
-        hint: Some("wav"),
-    };
-    spawn_in(&RETRYING, launch, input, queue, move |end| {
-        let _ = end_tx.send(end);
-    })
-    .unwrap();
-    let deadline = Instant::now() + WAIT * 3;
-    loop {
-        while reader.try_next().is_some() {}
-        if let Ok(end) = ended.try_recv() {
-            return end;
-        }
-        assert!(Instant::now() < deadline, "the item never ended");
-        thread::sleep(Duration::from_millis(2));
-    }
-}
-
-#[test]
-fn a_launch_that_misses_ready_is_tried_once_more() {
-    // The first launch settles the session; a settled session has no fallback left.
-    assert_eq!(decode_retrying(TEST_READY_WAIT), DecodeEnd::Finished);
-    let short = Duration::from_secs(3);
-    RETRYING.stall_next(1);
-    assert_eq!(decode_retrying(short), DecodeEnd::Finished);
-    assert_eq!(RETRYING.stalls_left(), 0);
-    // Two misses in one launch fail the item.
-    RETRYING.stall_next(2);
-    assert_eq!(decode_retrying(short), DecodeEnd::Isolated(Fault::Spawn));
-    assert_eq!(RETRYING.stalls_left(), 0);
-}
+mod budget;
+mod cancel;
+mod earning;
+mod faulty;
+mod memory;
+mod progress;
+mod rates;
+mod seeking;
+mod wall;

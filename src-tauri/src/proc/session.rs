@@ -298,7 +298,7 @@ impl Session {
             .stdout
             .take()
             .expect("a new helper has its stdout");
-        match await_ready(stdout, ready_wait, cancelled) {
+        match await_ready(stdout, &helper.process, ready_wait, cancelled) {
             Ok(stdout) => Ok((Outcome::Ready, Ok((helper, stdout)))),
             Err(e) => {
                 // A broken pipe means the helper ended; only a wait that ran out with the helper

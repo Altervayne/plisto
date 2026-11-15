@@ -119,7 +119,7 @@ fn probe(f: &Fixture, name: &str, argument: Option<&OsStr>) -> i32 {
 fn ready_echo(f: &Fixture) -> (Helper, fs::File) {
     let mut helper = start(f, &[OsStr::new(ECHO)]);
     let stdout = helper.process.stdout.take().unwrap();
-    let stdout = await_ready(stdout, WAIT, &|| false).unwrap();
+    let stdout = await_ready(stdout, &helper.process, WAIT, &|| false).unwrap();
     (helper, stdout)
 }
 

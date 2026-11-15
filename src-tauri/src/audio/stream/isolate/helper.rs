@@ -60,6 +60,10 @@ pub fn run() -> i32 {
     if let Some(fault) = super::test_faults::from_args() {
         return super::test_faults::run(fault);
     }
+    #[cfg(test)]
+    if super::test_faults::guards_off() {
+        crate::audio::stream::decoder::GUARDS_OFF.store(true, Ordering::Release);
+    }
     serve(io::stdin(), io::stdout())
 }
 
