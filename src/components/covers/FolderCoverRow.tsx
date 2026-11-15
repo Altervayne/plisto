@@ -23,6 +23,7 @@ import { useMarkFolderCovered } from "../../state/covers/store";
 
 // -- IPC Imports --
 import { importFolderCoverByPath, setAlbumCover } from "../../lib/ipc";
+import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 
 // -- Utils Imports --
 import { pickImageFile } from "../../lib/dialog";
@@ -91,13 +92,14 @@ export const FolderCoverRow = memo(function FolderCoverRow({ group }: { group: I
     async (path: string) => {
       try {
         await importFolderCoverByPath(group.folder_path, path);
+        reportLibraryChange({ track_ids: folderTracks.length ? folderTracks.map((t) => t.id) : null, albums: true, playlists: false });
         setBoundPath(path);
         markFolderCovered(group.folder_path);
       } catch {
         // A failed bind stays quiet: the folder simply keeps its state, nothing to undo.
       }
     },
-    [group.folder_path, markFolderCovered],
+    [group.folder_path, markFolderCovered, folderTracks],
   );
 
   const onSetAlbumCover = useCallback(
@@ -105,6 +107,7 @@ export const FolderCoverRow = memo(function FolderCoverRow({ group }: { group: I
       if (albumId == null) return;
       try {
         await setAlbumCover(albumId, path);
+        reportLibraryChange({ track_ids: null, albums: true, playlists: false });
         invalidateAlbumCover(albumId);
         setAlbumNonce((n) => n + 1);
       } catch {

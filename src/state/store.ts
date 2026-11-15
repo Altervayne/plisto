@@ -30,6 +30,7 @@ import { pickFolder } from "../lib/dialog";
 import { withRetry } from "../lib/withRetry";
 import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } from "./librarySync";
 import type { LibrarySummary, PendingDelta } from "./librarySync";
+import { reportLibraryChange } from "./plugins/libraryWatch";
 import { bestCandidate, needsRelinkCheck } from "./relocate";
 import type { RelinkOffer, RelocateResult } from "./relocate";
 
@@ -578,6 +579,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       useOrganizeStore.getState().reprojectTrackFromApp(trackId);
       try {
         await setTrackEditCmd(trackId, fields);
+        reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
       } catch {
         await get().loadTracks();
       }
@@ -590,6 +592,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       useOrganizeStore.getState().reprojectTrackFromApp(trackId);
       try {
         await setTrackGenresCmd(trackId, genreIds);
+        reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
       } catch {
         await get().loadTracks();
       }

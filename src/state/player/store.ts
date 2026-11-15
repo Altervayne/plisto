@@ -76,6 +76,8 @@ const STOPPED: PlayerStatus = {
   output_device: null,
   output_taken_over: false,
   stream: null,
+  start_seq: 0,
+  seek_seq: 0,
 };
 
 /** The transport actions, poking the engine and letting its event drive `status` back. */

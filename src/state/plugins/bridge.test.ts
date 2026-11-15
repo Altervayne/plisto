@@ -199,6 +199,11 @@ describe("route: host-to-frame only types", () => {
     const { send } = setup();
     expect(send({ plisto: 1, type: "plisto:plugin-event", topic: "level", data: 1 })).toEqual({ kind: "drop" });
   });
+
+  it("drops an app event topic sent by a frame", () => {
+    const { send } = setup();
+    expect(send({ plisto: 1, type: "plisto:event", topic: "theme", data: 1 })).toEqual({ kind: "drop" });
+  });
 });
 
 describe("route: call", () => {

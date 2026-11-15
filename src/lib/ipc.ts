@@ -47,6 +47,7 @@ import type {
   PluginBootState,
   PluginCallReply,
   PluginFrameCrashReason,
+  LibraryChange,
   PluginFrameEventKind,
   PluginInboxItem,
   PluginInspection,
@@ -1376,6 +1377,15 @@ export function pluginFrameEvent(
   reason?: PluginFrameCrashReason,
 ): Promise<void> {
   return invoke<void>("plugin_frame_event", { id, kind, reason: reason ?? null });
+}
+
+/** Reports a library change to the plugin event hub. A rejection means it never reached Rust. */
+export function pluginLibraryChanged(change: LibraryChange): Promise<void> {
+  return invoke<void>("plugin_library_changed", {
+    trackIds: change.track_ids,
+    albums: change.albums,
+    playlists: change.playlists,
+  });
 }
 
 /** Answers the held runtime: `safe` starts the session without plugins. Returns the resulting boot view. */

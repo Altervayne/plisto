@@ -26,6 +26,8 @@ const status = (over: Partial<PlayerStatus> = {}): PlayerStatus => ({
   output_device: null,
   output_taken_over: false,
   stream: null,
+  start_seq: 0,
+  seek_seq: 0,
   ...over,
 });
 

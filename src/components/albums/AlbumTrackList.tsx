@@ -52,6 +52,7 @@ import { useMountTransition } from "../../hooks/useMountTransition";
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 import { revealFile } from "../../lib/opener";
 import { importTrackCover } from "../../lib/ipc";
+import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 import { pickImageFile } from "../../lib/dialog";
 import { sourceForContainer } from "./playbackSource";
 import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
@@ -245,6 +246,7 @@ export function AlbumTrackList({
     const path = await pickImageFile();
     if (!path) return;
     await importTrackCover(ids, path);
+    reportLibraryChange({ track_ids: ids, albums: false, playlists: false });
     clearSelection();
   };
 

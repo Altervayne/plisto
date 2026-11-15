@@ -803,6 +803,10 @@ export interface PlayerStatus {
   output_taken_over: boolean;
   /** The seated plugin stream, or null. While set, `track_id` is the stream's ad-hoc id. */
   stream: StreamStatus | null;
+  /** Bumps when an item starts cold or gaplessly or is loaded. Compared, never interpreted. */
+  start_seq: number;
+  /** Bumps on a user seek that took effect. Compared, never interpreted. */
+  seek_seq: number;
 }
 
 /** The engine's phase for a seated stream. `playing` is the only phase that counts as `PlayerStatus.playing`. */
@@ -1247,6 +1251,20 @@ export interface PluginPageEvent {
   id: string;
   topic: string;
   data: unknown;
+}
+
+/** An app event topic for one plugin, pushed on "plugins:event". Mirrors TopicEvent in plugins/api/host_event.rs. */
+export interface PluginTopicEvent {
+  id: string;
+  topic: string;
+  data: unknown;
+}
+
+/** What a library change reports to Rust: the changed ids (null when many or unknown) and the scopes touched. */
+export interface LibraryChange {
+  track_ids: number[] | null;
+  albums: boolean;
+  playlists: boolean;
 }
 
 /**

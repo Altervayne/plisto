@@ -18,6 +18,7 @@ import { invalidateTrackThumb } from "./useTrackThumb";
 
 // -- IPC Imports --
 import { importTrackCover } from "../../lib/ipc";
+import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 
 // -- Type Imports --
 import type { CoverMatch } from "./matchCovers";
@@ -49,17 +50,18 @@ export function CoverMatchPreview({
 
   const apply = async () => {
     setApplying(true);
-    let applied = 0;
+    const written: number[] = [];
     for (const match of matches) {
       try {
         await importTrackCover([match.trackId], match.imagePath);
         invalidateTrackThumb(match.trackId);
-        applied += 1;
+        written.push(match.trackId);
       } catch {
         // A single failed bind is skipped: the track keeps its state and the rest still apply.
       }
     }
-    onApplied(applied);
+    if (written.length > 0) reportLibraryChange({ track_ids: written, albums: false, playlists: false });
+    onApplied(written.length);
   };
 
   const empty = matches.length === 0;

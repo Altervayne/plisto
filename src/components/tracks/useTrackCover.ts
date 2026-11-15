@@ -13,6 +13,7 @@ import {
   saveTrackCover,
   trackCoverExt,
 } from "../../lib/ipc";
+import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 import { pickCoverSavePath, pickImageFile } from "../../lib/dialog";
 
 // -- Type Imports --
@@ -148,6 +149,7 @@ export function useTrackCover(trackId: number, keepOwn = false, rev = 0): TrackC
     setAssigning(true);
     try {
       applyBound(trackId, await importTrackCover([trackId], path));
+      reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
     } catch (e) {
       if (trackId === latestTrackId.current) setError(String(e));
     } finally {
@@ -160,6 +162,7 @@ export function useTrackCover(trackId: number, keepOwn = false, rev = 0): TrackC
       setAssigning(true);
       try {
         applyBound(trackId, await importTrackCover([trackId], path));
+        reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
       } catch (e) {
         if (trackId === latestTrackId.current) setError(String(e));
       } finally {
@@ -176,6 +179,7 @@ export function useTrackCover(trackId: number, keepOwn = false, rev = 0): TrackC
       setAssigning(true);
       try {
         applyBound(trackId, await importTrackCover([trackId], candidate.originPath));
+        reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
       } catch (e) {
         if (trackId === latestTrackId.current) setError(String(e));
       } finally {
@@ -189,6 +193,7 @@ export function useTrackCover(trackId: number, keepOwn = false, rev = 0): TrackC
     setAssigning(true);
     try {
       await removeTrackCover([trackId]);
+      reportLibraryChange({ track_ids: [trackId], albums: false, playlists: false });
       if (trackId !== latestTrackId.current) return;
       // Re-resolve the fallback (folder / keep-own / embedded) now the assigned cover is gone.
       const ref = await readCover(trackId, "detail", keepOwn);

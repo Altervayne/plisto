@@ -25,6 +25,9 @@ import {
   setPlaylistOrder as ipcSetPlaylistOrder,
 } from "../../lib/ipc";
 
+// -- State Imports --
+import { reportLibraryChange } from "../plugins/libraryWatch";
+
 // -- Type Imports --
 import type { PlaylistRow, PlaylistTrackRow } from "../../types";
 
@@ -111,9 +114,12 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
           : slot,
       ),
     }));
-    void ipcSetPlaylistOrder(playlistId, orderedSlotIds).catch(() => {
-      void get().load();
-    });
+    ipcSetPlaylistOrder(playlistId, orderedSlotIds).then(
+      () => reportLibraryChange({ track_ids: [], albums: false, playlists: true }),
+      () => {
+        void get().load();
+      },
+    );
   },
 }));
 

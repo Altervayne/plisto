@@ -12,6 +12,7 @@ import {
   errorMsg,
   initMsg,
   pingMsg,
+  eventMsg,
   pluginEventMsg,
   resultMsg,
   route,
@@ -25,6 +26,7 @@ import {
 import { useFrameHealthStore } from "./frameHealth";
 import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
 import { useSidebarState } from "./sidebarState";
+import { SUBSCRIBE_METHOD, createTopicRouter } from "./topicRouter";
 
 // -- IPC Imports --
 import { pluginCall, pluginFetch, pluginFrameEvent } from "../../lib/ipc";
@@ -33,6 +35,7 @@ import { pluginCall, pluginFetch, pluginFrameEvent } from "../../lib/ipc";
 import { isDarkTheme, subscribeTheme } from "../../theme";
 
 // -- Type Imports --
+import type { TopicRouter } from "./topicRouter";
 import type { AppInfo, FrameRecord, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
 import type {
   PluginCallReply,
@@ -92,6 +95,8 @@ interface FrameExtra {
   theme: FrameTheme | null;
   /** The route the frame last received, or before init the one its init will carry. */
   route: string | null;
+  /** The frame's own event subscription; a new frame starts with none. */
+  router: TopicRouter;
 }
 
 const UNREACHABLE: PluginCallReply = {
@@ -110,6 +115,7 @@ interface Host {
   sendRoute: (mountKey: string, routePath: string | null) => void;
   sendSidebar: (pluginId: string, delivery: PluginSidebarDelivery) => boolean;
   sendPluginEvent: (pluginId: string, topic: string, data: unknown) => boolean;
+  sendTopicEvent: (pluginId: string, topic: string, data: unknown) => boolean;
   sendStream: (pluginId: string, delivery: StreamDelivery) => boolean;
   sendSocket: (pluginId: string, delivery: SocketDelivery) => boolean;
   hasLiveFrame: (pluginId: string) => boolean;
@@ -174,6 +180,7 @@ function createHost(deps: HostDeps): Host {
     }
     extra.calls.add(callId);
     rec.pending += 1;
+    const seq = method === SUBSCRIBE_METHOD ? extra.router.begin(args) : 0;
     let reply: PluginCallReply;
     let transfer: ArrayBuffer[] | undefined;
     if (method === FETCH_METHOD) {
@@ -189,7 +196,10 @@ function createHost(deps: HostDeps): Host {
     }
     rec.pending -= 1;
     extra.calls.delete(callId);
+    // Applied before the reply is posted; events held meanwhile follow the reply.
+    const held = method === SUBSCRIBE_METHOD ? extra.router.settle(seq, reply ?? UNREACHABLE) : [];
     post(rec, resultMsg(callId, reply ?? UNREACHABLE), transfer);
+    for (const event of held) post(rec, eventMsg(event.topic, event.data));
   };
 
   /**
@@ -267,7 +277,7 @@ function createHost(deps: HostDeps): Host {
       if (holder) unmap(holder.mountKey);
       const rec: FrameRecord<FrameWindow> = { mountKey, pluginId, source, loads: 0, pending: 0, dead: false };
       map.attach(source, rec);
-      extras.set(rec, { calls: new Set(), pageOpen: false, init: "none", theme: null, route: null });
+      extras.set(rec, { calls: new Set(), pageOpen: false, init: "none", theme: null, route: null, router: createTopicRouter() });
     },
 
     detach,
@@ -346,6 +356,14 @@ function createHost(deps: HostDeps): Host {
       if (!rec) return false;
       post(rec, pluginEventMsg(topic, data));
       return true;
+    },
+
+    sendTopicEvent(pluginId, topic, data) {
+      const rec = initialised(pluginId);
+      const router = rec && extras.get(rec)?.router;
+      const offer = router ? router.offer(topic, data) : "drop";
+      if (rec && offer === "send") post(rec, eventMsg(topic, data));
+      return offer !== "drop";
     },
 
     sendStream(pluginId, delivery) {
@@ -486,6 +504,15 @@ export function sendSidebar(pluginId: string, delivery: PluginSidebarDelivery): 
  */
 export function sendPluginEvent(pluginId: string, topic: string, data: unknown): boolean {
   return active?.sendPluginEvent(pluginId, topic, data) ?? false;
+}
+
+/**
+ * Posts an app event topic to the plugin's newest live, initialised frame, and only when that frame's own
+ * subscribe reply accepted the topic. An event for a topic a subscribe in flight asked for is held until
+ * its reply and posted after it. Returns false when the event is dropped.
+ */
+export function sendTopicEvent(pluginId: string, topic: string, data: unknown): boolean {
+  return active?.sendTopicEvent(pluginId, topic, data) ?? false;
 }
 
 /** The topic a plugin's playback-stream events arrive on in its frame. */

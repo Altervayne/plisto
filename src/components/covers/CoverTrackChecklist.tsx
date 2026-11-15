@@ -14,6 +14,7 @@ import { useTrackThumb, invalidateTrackThumb } from "./useTrackThumb";
 
 // -- IPC Imports --
 import { importTrackCover } from "../../lib/ipc";
+import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 
 // -- Type Imports --
 import type { TrackRow } from "../../types";
@@ -65,6 +66,7 @@ export function CoverTrackChecklist({
     const ids = [...selected];
     if (ids.length === 0) return;
     await importTrackCover(ids, imagePath);
+    reportLibraryChange({ track_ids: ids, albums: false, playlists: false });
     ids.forEach(invalidateTrackThumb);
     onClose();
   };

@@ -18,6 +18,7 @@ import { useShallow } from "zustand/react/shallow";
 // -- State Imports --
 import { useAppStore } from "../store";
 import { refreshAfterMerge } from "../duplicates/store";
+import { diffOrg, hasLibrarySink, reportLibraryChange } from "../plugins/libraryWatch";
 
 // -- Engine Imports --
 import { applyCommand, commandToIpc, invertCommand, replayDuplicateMerge } from "./orgCommands";
@@ -128,6 +129,12 @@ const emptyOrg: OrgState = { albums: [], membership: [] };
 
 const SAVE_ERROR = "A change could not be saved. Reloaded from the library.";
 
+/** Tells plugins which tracks carry a renamed genre: their DTO genre names changed with no row replaced. */
+function reportGenreRenamed(genreId: number): void {
+  const ids = useAppStore.getState().tracks.filter((t) => t.genre_ids.includes(genreId)).map((t) => t.id);
+  reportLibraryChange({ track_ids: ids, albums: false, playlists: false });
+}
+
 export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // Resyncs from the DB when a write fails: the optimistic projection is now ahead of it, so a reload
   // is the correct recovery. The undo stack is left intact - a reload is not itself an undo boundary.
@@ -186,16 +193,37 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   };
 
   // Fires a command's write, and on a failed persist resyncs from the DB and surfaces a quiet error.
-  const persist = (cmd: Command): void => {
-    void commandToIpc(cmd).catch(reloadOnFailure);
+  const persist = (cmd: Command, before: OrgState): void => {
+    const write = commandToIpc(cmd);
+    void write.catch(reloadOnFailure);
+    reportWhenWritten(before, write);
+  };
+
+  // The projection changed before its write landed, so a plugin that re-read on the first report could
+  // see the old rows. Reports the same change again once the write has succeeded; a failure reports
+  // nothing beyond what its reload does. The diff runs after the write, off the interaction path, and
+  // not at all while no watch is listening.
+  const reportWhenWritten = (before: OrgState, write: Promise<unknown>): void => {
+    if (!hasLibrarySink()) return;
+    const after = get().org;
+    write.then(
+      () => {
+        const change = diffOrg(before, after);
+        if (change) reportLibraryChange(change);
+      },
+      () => {},
+    );
   };
 
   // Fires a genre-assignment write off a projection already patched to `membership`. Genre is a
   // distinct edit that never lands on the undo stack, so this stays off the command engine: patch
   // optimistically, write, and on failure fall back to the same reload recovery.
   const mutateGenres = (membership: AlbumTrackRow[], ipcCall: () => Promise<void>): void => {
+    const before = get().org;
     set((s) => ({ org: { ...s.org, membership }, error: null }));
-    void ipcCall().catch(reloadOnFailure);
+    const write = ipcCall();
+    void write.catch(reloadOnFailure);
+    reportWhenWritten(before, write);
   };
 
   // Applies a committed edit: optimistic projection, push onto the undo stack, drop the redo branch,
@@ -203,6 +231,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // projection, mirroring the backend's touch so the "updated since" filter reflects it before the next
   // reload.
   const commit = (cmd: Command): void => {
+    const before = get().org;
     set((s) => {
       const org = applyCommand(s.org, cmd);
       const touched = touchedAlbumId(cmd);
@@ -217,7 +246,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
             };
       return { org: nextOrg, past: [...s.past, cmd], future: [], error: null };
     });
-    persist(cmd);
+    persist(cmd, before);
   };
 
   return {
@@ -357,6 +386,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       if (past.length === 0 || replaying) return;
       const cmd = past[past.length - 1];
       const inverse = invertCommand(cmd);
+      const before = get().org;
       set((s) => ({
         org: applyCommand(s.org, inverse),
         past: s.past.slice(0, -1),
@@ -373,13 +403,14 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         void replayMerge(inverse, cmd, putBack);
         return;
       }
-      persist(inverse);
+      persist(inverse, before);
     },
 
     redo: () => {
       const { future } = get();
       if (future.length === 0 || replaying) return;
       const cmd = future[future.length - 1];
+      const before = get().org;
       set((s) => ({
         org: applyCommand(s.org, cmd),
         future: s.future.slice(0, -1),
@@ -396,7 +427,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
         void replayMerge(cmd, cmd, putBack);
         return;
       }
-      persist(cmd);
+      persist(cmd, before);
     },
 
     // The selection is filed in play order, the same order the tag grouping files a proposal in.
@@ -500,6 +531,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     renameGenre: async (id, name) => {
       try {
         await ipcRenameGenre(id, name);
+        reportGenreRenamed(id);
       } catch {
         // A rename onto another genre's folded key is rejected: surface it and reload to drop the
         // optimistic name the field showed.

@@ -66,7 +66,8 @@ export type SocketDelivery =
 
 /**
  * Every message the host sends a frame. `plisto:plugin-event` carries a native plugin's page event and
- * exists in this direction only: the router never accepts it from a frame.
+ * the owner-only stream channel; `plisto:event` carries the app event topics a frame subscribed to. Both
+ * exist in this direction only: the router never accepts either from a frame.
  */
 export type HostToFrame =
   | ({ plisto: 1; type: "plisto:stream" } & StreamDelivery)
@@ -86,7 +87,8 @@ export type HostToFrame =
   | { plisto: 1; type: "plisto:theme"; theme: "light" | "dark" }
   | { plisto: 1; type: "plisto:sidebar"; item_id: string; value: boolean | null; gesture: string }
   | { plisto: 1; type: "plisto:route"; route: string | null }
-  | { plisto: 1; type: "plisto:plugin-event"; topic: string; data: unknown };
+  | { plisto: 1; type: "plisto:plugin-event"; topic: string; data: unknown }
+  | { plisto: 1; type: "plisto:event"; topic: string; data: unknown };
 
 /** One mounted frame as the host tracks it. */
 export interface FrameRecord<S> {
@@ -310,6 +312,11 @@ export function routeMsg(routePath: string | null): HostToFrame {
 /** A page event from the plugin's native process. */
 export function pluginEventMsg(topic: string, data: unknown): HostToFrame {
   return { plisto: PROTOCOL, type: "plisto:plugin-event", topic, data };
+}
+
+/** An app event topic the frame subscribed to. */
+export function eventMsg(topic: string, data: unknown): HostToFrame {
+  return { plisto: PROTOCOL, type: "plisto:event", topic, data };
 }
 
 export function streamMsg(delivery: StreamDelivery): HostToFrame {
