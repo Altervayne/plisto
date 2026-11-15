@@ -21,7 +21,6 @@ mod feed;
 mod frames;
 mod heartbeat;
 mod host_calls;
-mod job;
 mod launch;
 pub mod link;
 mod protocol;

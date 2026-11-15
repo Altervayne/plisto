@@ -20,12 +20,12 @@ use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
 
 // -- Local Imports --
-use super::job::Job;
 use super::launch::{launch, LaunchSpec};
 use super::protocol::{
     decode, encode, read_frame, ChildMessage, Decoded, FrameError, HostMessage, CHILD_KINDS,
     PROTOCOL_VERSION,
 };
+use crate::proc::job::Job;
 
 /// Frames waiting to be written to the child.
 pub const OUTBOX_CAP: usize = 64;
