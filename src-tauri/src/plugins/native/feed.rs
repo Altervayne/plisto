@@ -197,7 +197,7 @@ impl Lost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::{FeedCause, FeedState, Transport};
+    use crate::audio::{FeedCause, FeedSource, FeedState, Transport};
 
     fn event() -> FeedEvent {
         FeedEvent {
@@ -214,6 +214,8 @@ mod tests {
                 device: Some("John's AirPods".into()),
                 device_id: Some("{0.0.0.00000000}.{airpods}".into()),
                 latency_ms: 10.0,
+                source: FeedSource::Track,
+                live: false,
             },
         }
     }

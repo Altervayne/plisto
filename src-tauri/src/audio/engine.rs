@@ -19,14 +19,14 @@ use tauri::Emitter;
 
 // -- Local Imports --
 use super::dsp::{DspParams, DspShared};
-use super::feed::{self, DeviceReport, FeedCause, FeedHub, FeedState, Transport};
+use super::feed::{self, DeviceReport, FeedCause, FeedHub, FeedSource, FeedState, Transport};
 use super::queue::{
     advance_index, clamp_index, enqueue_tracks, insert_after_current, move_queue_item, on_track_end, pending_slot,
     preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
     Xorshift,
 };
 use super::source::{
-    self, Cut, DecoderSource, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
+    self, Cut, DecoderSource, Packets, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
     SPECTRUM_WINDOW,
 };
 use super::tap::{TapSlot, TapWriter};
@@ -36,6 +36,12 @@ use super::{
 };
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
+
+// -- Module Declarations --
+mod events;
+mod seat;
+
+use events::AppEvents;
 
 // How close to its end the current track gets before the next one is opened and queued behind it.
 const PRELOAD_SECS: f64 = 10.0;
@@ -54,7 +60,7 @@ struct SourceHandles {
 }
 
 impl SourceHandles {
-    fn of(src: &DecoderSource) -> Self {
+    fn of<P: Packets>(src: &DecoderSource<P>) -> Self {
         Self {
             frames: Arc::clone(&src.frames),
             spectrum: Arc::clone(&src.spectrum),
@@ -143,7 +149,7 @@ struct Engine {
     // never on the tick. Mirrors `status` but stays off the frequent snapshot since the id list can
     // run long.
     queue_ids: Arc<Mutex<Vec<i64>>>,
-    app: tauri::AppHandle,
+    app: AppEvents,
     throttle: ProgressThrottle,
     // The user's output choice: None follows the system default, Some(name) pins that device.
     device_pref: Option<String>,
@@ -154,6 +160,8 @@ struct Engine {
     last_default_name: Option<String>,
     // Wall-clock ms of the last follow-default poll, throttling it to about once a second.
     last_device_poll: u64,
+    // The seated plugin stream and the queue parked under it.
+    seating: seat::Seating,
 }
 
 impl Engine {
@@ -161,7 +169,7 @@ impl Engine {
     /// frame counter over the source's sample rate, so it advances without polling the sink.
     fn snapshot(&self) -> PlayerStatus {
         let position_secs = self.position_secs();
-        PlayerStatus {
+        let mut status = PlayerStatus {
             // `playing` here means actively producing sound, so a paused track reports false. Whether
             // a track session is loaded is `track_id`. Internally `self.playing` is the session flag,
             // `self.paused` the pause within it.
@@ -176,7 +184,10 @@ impl Engine {
             shuffle: self.shuffle,
             output_device: self.bound_device.clone(),
             output_taken_over: self.taken_over,
-        }
+            stream: None,
+        };
+        self.stream_snapshot(&mut status);
+        status
     }
 
     /// The play head in seconds, from the current source's frame counter over its rate.
@@ -229,9 +240,9 @@ impl Engine {
     }
 
     /// Sends a transport snapshot to the feed consumers. With none attached it returns after one
-    /// load, so playback without a consumer is unchanged. Only a library track feeds the tap, so
-    /// with none current (stopped, or a preview playing) the snapshot says stopped, and a pause or a
-    /// resume there sends nothing.
+    /// load, so playback without a consumer is unchanged. Only a library track or a seated stream
+    /// feeds the tap, so with none current (stopped, or a preview playing) the snapshot says
+    /// stopped, and a pause or a resume there sends nothing.
     fn feed(&mut self, cause: FeedCause) {
         if !self.feed.wanted() {
             return;
@@ -246,8 +257,11 @@ impl Engine {
             .device_report
             .get_or_insert_with(|| feed::device_report(device.as_deref(), follows_default))
             .clone();
+        let (source, live, waiting) = self.stream_feed();
         let transport = if !library {
             Transport::Stopped
+        } else if waiting {
+            Transport::Buffering
         } else if self.paused {
             Transport::Paused
         } else {
@@ -262,6 +276,8 @@ impl Engine {
             device,
             device_id: report.endpoint_id,
             latency_ms: report.latency_ms,
+            source: if library { source } else { FeedSource::Track },
+            live: library && live,
         };
         self.feed.publish(cause, state);
     }
@@ -395,6 +411,7 @@ impl Engine {
     /// Starts a new listen on queue slot `i` holding track `id`: neither the half mark nor the record
     /// has fired for it yet, and a real track supersedes any preview boundary.
     fn begin_listen(&mut self, i: usize, id: i64) {
+        self.seating.forget_library();
         self.index = i;
         self.cur_track_id = Some(id);
         self.stop_at_frame = None;
@@ -467,6 +484,7 @@ impl Engine {
             || !self.playing
             || self.cur_track_id.is_none()
             || self.stop_at_frame.is_some()
+            || self.seating.is_seated()
             || drained
         {
             return;
@@ -794,7 +812,9 @@ impl Engine {
         self.device_pref = pref;
         self.last_device_poll = now_ms();
 
-        if was_playing {
+        if self.seating.is_seated() {
+            self.stream_rebound();
+        } else if was_playing {
             // seek reopens the current file, seeks, and appends to the now-new sink, preserving the
             // paused state and emitting its own forced status.
             self.seek(resume_secs);
@@ -824,9 +844,10 @@ impl Engine {
     }
 
     /// Re-seats the play cursor onto the currently playing track after a queue mutation, so advance/
-    /// prev/on_track_end keep stepping from the right slot without touching the sink.
+    /// prev/on_track_end keep stepping from the right slot without touching the sink. Under a stream
+    /// it follows the parked track.
     fn reseat_cursor(&mut self) {
-        self.index = reseat_index(&self.queue, self.cur_track_id, self.index);
+        self.index = reseat_index(&self.queue, self.queue_anchor(), self.index);
     }
 
     /// Applies one transport command, then emits a forced status since every command changes state.
@@ -834,6 +855,9 @@ impl Engine {
         // A boundary crossed since the last tick is promoted first, so the command acts on the track
         // actually playing.
         self.promote();
+        let Some(cmd) = self.seated(cmd) else {
+            return;
+        };
         match cmd {
             PlayerCmd::Play { queue, index } => {
                 // The outgoing listen ends by hand: count it if it passed half, before the queue is
@@ -1050,6 +1074,10 @@ impl Engine {
                 }
                 self.emit(true);
             }
+            PlayerCmd::StreamStart(item) => self.stream_start(item),
+            PlayerCmd::StreamEnd { id, reason } => self.stream_end(id, reason),
+            PlayerCmd::StreamPause { id, pause } => self.stream_owner_pause(id, pause),
+            PlayerCmd::ClearParked => self.clear_parked(),
         }
     }
 
@@ -1073,6 +1101,7 @@ impl Engine {
             }
         }
         self.promote();
+        self.sweep_retired();
         // Latch the half-play mark while audio genuinely advances through the source, so a manual end
         // past it counts and a seek alone never does. The latch only sets; record_play gates the id.
         if self.is_audible()
@@ -1092,8 +1121,11 @@ impl Engine {
             let ended = self.sink.as_ref().is_some_and(|s| s.empty());
             if self.playing && !self.paused && (reached || ended) {
                 self.stop_playback();
+                self.preview_ended();
                 self.emit(true);
             }
+        } else if self.seating.is_seated() {
+            self.stream_tick();
         } else if self.playing && !self.paused && self.sink.as_ref().is_some_and(|s| s.empty()) {
             // A track that drained on its own is a completed play, recorded unconditionally (a full
             // play counts even where the half latch never ran, e.g. a zero-duration file), before the
@@ -1193,12 +1225,13 @@ fn run(
         stop_at_frame: None,
         status,
         queue_ids,
-        app,
+        app: AppEvents::of(app),
         throttle: ProgressThrottle::new(200),
         device_pref: None,
         bound_device,
         last_default_name,
         last_device_poll: now_ms(),
+        seating: seat::Seating::default(),
     };
 
     loop {

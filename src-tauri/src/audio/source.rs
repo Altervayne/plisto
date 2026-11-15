@@ -2,8 +2,12 @@
  * The decoded-audio source the engine feeds rodio: a pull-based decoder adapted into a `Source`, its
  * DSP stage, the lock-free spectrum tap it writes while it plays, and its writer on the audio tap
  * (`tap.rs`) when it has one. All run on rodio's mixer thread and are read back on the engine thread
- * through shared atomics. `open_source` is the one way a source is built, so every path gets the
+ * through shared atomics. `open_source` is the one way a file source is built, so every path gets the
  * same stage and the same start seed.
+ *
+ * The source pulls from a `Packets` producer: a file decoder, which always has the next packet or is
+ * done, or a stream's PCM queue, which can also be starved. A starved source plays silence that
+ * nothing counts, taps or analyzes, so listened time and the tap only ever carry real audio.
  */
 
 // -- Library Imports --
@@ -18,7 +22,13 @@ use rodio::{Sink, Source};
 // -- Local Imports --
 use super::dsp::{DspShared, DspStage};
 use super::tap::TapWriter;
-use super::{decode, AudioSpec};
+use super::{decode, AudioSpec, PcmChunk};
+
+// -- Module Declarations --
+mod stream;
+
+// -- Re-exports --
+pub(super) use stream::{Edge, EdgeCell, StreamPackets};
 
 // The ring of recent mono samples the spectrum reader taps. A power of two so the write index masks
 // cheaply; the reader grabs the trailing SPECTRUM_WINDOW for one FFT.
@@ -48,12 +58,63 @@ impl SpectrumTap {
     }
 }
 
-/// Adapts a pull-based `decode::Decoder` into a rodio `Source`: rodio pulls one interleaved f32
-/// sample at a time, and this refills from the decoder a packet at a time as it drains. Each sample
-/// runs through the DSP stage before anything else sees it. A shared frame counter ticks once per
-/// full frame so the engine can read the play position without locking or querying the sink.
-pub(super) struct DecoderSource {
-    decoder: decode::Decoder,
+/// What a producer hands the source on a refill.
+pub(super) enum Pulled {
+    Chunk(PcmChunk),
+    /// Nothing is ready yet; more may come.
+    Starved,
+    /// Nothing more for this source.
+    Done,
+}
+
+/// A producer of decoded packets, pulled on rodio's mixer thread. It must never block.
+pub(super) trait Packets {
+    fn next(&mut self) -> Pulled;
+
+    /// The full length, when the producer knows it.
+    fn duration_secs(&self) -> Option<f64> {
+        None
+    }
+
+    /// Whether the source refills as soon as a packet is played out rather than on the next pull,
+    /// so a new spec is reported before its first sample is read. Its frame counter then stays on
+    /// the current rate's scale across a rate change.
+    fn eager(&self) -> bool {
+        false
+    }
+}
+
+/// A spec packed into one word for a lock-free read: the rate above the channel count.
+pub(super) fn pack_spec(spec: AudioSpec) -> u64 {
+    (u64::from(spec.sample_rate) << 16) | u64::from(spec.channels)
+}
+
+pub(super) fn unpack_spec(word: u64) -> AudioSpec {
+    AudioSpec {
+        sample_rate: (word >> 16) as u32,
+        channels: (word & 0xffff) as u16,
+    }
+}
+
+impl Packets for decode::Decoder {
+    fn next(&mut self) -> Pulled {
+        match self.next_packet() {
+            Some(chunk) => Pulled::Chunk(chunk),
+            None => Pulled::Done,
+        }
+    }
+
+    fn duration_secs(&self) -> Option<f64> {
+        decode::Decoder::duration_secs(self)
+    }
+}
+
+/// Adapts a pull-based producer into a rodio `Source`: rodio pulls one interleaved f32 sample at a
+/// time, and this refills from the producer a packet at a time as it drains. Each sample runs
+/// through the DSP stage before anything else sees it. A shared frame counter ticks once per full
+/// frame so the engine can read the play position without locking or querying the sink.
+pub(super) struct DecoderSource<P = decode::Decoder> {
+    decoder: P,
     buffer: Vec<f32>,
     pos: usize,
     pub(super) spec: AudioSpec,
@@ -80,19 +141,31 @@ pub(super) struct DecoderSource {
     // Whether the next sample goes to the tap: set until the first sample, then the writer's answer
     // at each refill. The only tap check on the per-sample path.
     tap_live: bool,
+    // Silent samples left in the block played while the producer is starved.
+    silence: usize,
+    // `Packets::eager`, read once.
+    eager: bool,
+    // An eager source's producer is done; the source ends at its next pull.
+    done: bool,
+    // The current spec, packed, for the engine to follow a change mid-source.
+    pub(super) live_spec: Arc<AtomicU64>,
 }
 
-impl DecoderSource {
+impl<P: Packets> DecoderSource<P> {
     /// Primes the first packet so `channels()`/`sample_rate()` report the real layout immediately,
     /// never zero, and seeds the frame counter at `start_secs` (the resume point after a seek) on the
-    /// primed rate. Returns None when the stream yields no first packet - an empty or unreadable file.
+    /// primed rate. Returns None when the producer has no first packet ready - an empty or unreadable
+    /// file, or a stream with nothing queued.
     pub(super) fn new(
-        mut decoder: decode::Decoder,
+        mut decoder: P,
         start_secs: f64,
         mut stage: DspStage,
         tap: Option<TapWriter>,
     ) -> Option<Self> {
-        let first = decoder.next_packet()?;
+        let first = match decoder.next() {
+            Pulled::Chunk(chunk) => chunk,
+            Pulled::Starved | Pulled::Done => return None,
+        };
         // Tuned to the primed layout, the stage lands on its target before the first sample.
         stage.refresh(first.spec);
         let duration = decoder
@@ -110,7 +183,6 @@ impl DecoderSource {
             buffer: first.samples,
             pos: 0,
             stage,
-            decoder,
             frames: Arc::new(AtomicU64::new(start_frame)),
             spectrum: Arc::new(SpectrumTap::new()),
             frame_sum: 0.0,
@@ -124,7 +196,58 @@ impl DecoderSource {
             )),
             tap_live: tap.is_some(),
             tap,
+            silence: 0,
+            eager: decoder.eager(),
+            done: false,
+            live_spec: Arc::new(AtomicU64::new(pack_spec(first.spec))),
+            decoder,
         })
+    }
+
+    /// Takes the next packet from the producer: a chunk becomes the buffer, starvation a block of
+    /// silence, the end marks the source done. False only at the end.
+    fn refill(&mut self) -> bool {
+        match self.decoder.next() {
+            Pulled::Chunk(chunk) => {
+                if self.eager && chunk.spec.sample_rate != self.spec.sample_rate {
+                    let old = u128::from(self.spec.sample_rate.max(1));
+                    let frames = u128::from(self.frames.load(Ordering::Relaxed));
+                    let scaled = frames * u128::from(chunk.spec.sample_rate) / old;
+                    self.frames.store(scaled as u64, Ordering::Relaxed);
+                }
+                self.buffer = chunk.samples;
+                self.pos = 0;
+                self.spec = chunk.spec;
+                self.stage.refresh(self.spec);
+                let spec = self.spec;
+                self.tap_live = self.tap.as_mut().is_some_and(|t| t.refill(spec));
+                if self.eager {
+                    self.live_spec.store(pack_spec(spec), Ordering::Relaxed);
+                }
+                true
+            }
+            Pulled::Starved => {
+                // One block, the length the queue reads after a source reports no frame left, in
+                // whole frames of the current layout. The producer is asked again after it.
+                let channels = self.spec.channels.max(1) as usize;
+                self.silence = PRIMER_SAMPLES.div_ceil(channels) * channels;
+                true
+            }
+            Pulled::Done => {
+                self.done = true;
+                false
+            }
+        }
+    }
+
+    /// One sample of starved silence, which bypasses the stage, the taps and the frame counter. An
+    /// eager source asks the producer again as the block ends.
+    fn silent(&mut self) -> f32 {
+        self.silence -= 1;
+        if self.silence == 0 && self.eager {
+            self.refill();
+        }
+        0.0
     }
 
     /// Sets `ended` and publishes the tap, so a gapless successor writes from this source's last
@@ -186,7 +309,7 @@ pub(super) struct Cut {
 }
 
 impl Cut {
-    pub(super) fn of(src: &DecoderSource) -> Self {
+    pub(super) fn of<P>(src: &DecoderSource<P>) -> Self {
         Self {
             spec: src.spec,
             seed: src.frames.load(Ordering::Relaxed),
@@ -214,7 +337,11 @@ impl Cut {
 /// in its own layout. The primer covers both the rest of a cut block in another layout and the
 /// queue's stale first block, so `src` starts on a same-layout boundary, which joins sample-exact.
 /// A preload queued behind a playing source is appended bare: the queue is not idle there.
-pub(super) fn append_cold(sink: &Sink, src: DecoderSource, cut: Option<&Cut>) {
+pub(super) fn append_cold<P: Packets + Send + 'static>(
+    sink: &Sink,
+    src: DecoderSource<P>,
+    cut: Option<&Cut>,
+) {
     let channels = src.spec.channels.max(1) as usize;
     let stale = cut.map_or(0, |c| c.stale_samples(src.spec));
     let lead = stale.max(PRIMER_SAMPLES).div_ceil(channels) * channels;
@@ -227,27 +354,23 @@ pub(super) fn append_cold(sink: &Sink, src: DecoderSource, cut: Option<&Cut>) {
     sink.append(src);
 }
 
-impl Iterator for DecoderSource {
+impl<P: Packets> Iterator for DecoderSource<P> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
         if self.cancel.load(Ordering::Relaxed) {
             return None;
         }
+        if self.silence > 0 {
+            return Some(self.silent());
+        }
         if self.pos >= self.buffer.len() {
-            match self.decoder.next_packet() {
-                Some(chunk) => {
-                    self.buffer = chunk.samples;
-                    self.pos = 0;
-                    self.spec = chunk.spec;
-                    self.stage.refresh(self.spec);
-                    let spec = self.spec;
-                    self.tap_live = self.tap.as_mut().is_some_and(|t| t.refill(spec));
-                }
-                None => {
-                    self.finish();
-                    return None;
-                }
+            if self.done || !self.refill() {
+                self.finish();
+                return None;
+            }
+            if self.silence > 0 {
+                return Some(self.silent());
             }
         }
         // A refilled packet is never empty in practice, but guard the index so a degenerate empty
@@ -275,18 +398,25 @@ impl Iterator for DecoderSource {
             self.spectrum.written.fetch_add(1, Ordering::Relaxed);
             self.frame_sum = 0.0;
             self.frames.fetch_add(1, Ordering::Relaxed);
+            if self.eager && self.pos >= self.buffer.len() {
+                self.refill();
+            }
         }
         Some(s)
     }
 }
 
-impl Source for DecoderSource {
+impl<P: Packets> Source for DecoderSource<P> {
     fn current_frame_len(&self) -> Option<usize> {
         // The samples left in the current buffer, or None (never Some(0)) at a packet boundary.
         // rodio's queue does not re-read the spec on None: a source whose layout differs from the
         // one before it has its first block misread, which is why spec-changing boundaries stay
         // cold (see the boundary tests below).
-        let rem = self.buffer.len().saturating_sub(self.pos);
+        let rem = if self.silence > 0 {
+            self.silence
+        } else {
+            self.buffer.len().saturating_sub(self.pos)
+        };
         // Only the converter asks, once per block, and on None the queue falls back to its own
         // block length, so this records the block it is about to read.
         let block = if rem == 0 { PRIMER_SAMPLES } else { rem };

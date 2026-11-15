@@ -44,6 +44,10 @@ pub enum FeedCause {
     Device,
     /// A consumer asked for the current state. Nothing changed and the tap epoch carries on.
     Snapshot,
+    /// A stream is waiting for audio: seated and not started yet, or starved while playing.
+    Buffering,
+    /// A starved stream has enough audio again and plays on in the same epoch.
+    Buffered,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -52,6 +56,16 @@ pub enum Transport {
     Playing,
     Paused,
     Stopped,
+    /// A stream waits for audio. Nothing reaches the tap meanwhile.
+    Buffering,
+}
+
+/// What is playing: a library or opened file, or a plugin stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedSource {
+    Track,
+    Stream,
 }
 
 /// The engine state a snapshot carries, read on the engine thread.
@@ -71,6 +85,9 @@ pub struct FeedState {
     pub device_id: Option<String>,
     // The device's default period in ms, the estimate of its output buffer.
     pub latency_ms: f64,
+    pub source: FeedSource,
+    // A stream with no end and no seek. False for a track.
+    pub live: bool,
 }
 
 /// One snapshot as a consumer receives it.
@@ -383,6 +400,8 @@ mod tests {
             device: Some("Speakers".into()),
             device_id: Some("{0.0.0.00000000}.{speakers}".into()),
             latency_ms: FALLBACK_LATENCY_MS,
+            source: FeedSource::Track,
+            live: false,
         }
     }
 
@@ -512,6 +531,31 @@ mod tests {
         let json = serde_json::to_value(FeedCause::Snapshot).expect("serializes");
         assert_eq!(json, "snapshot");
     }
+
+    #[test]
+    fn a_stream_snapshot_serializes_its_source_live_and_buffering() {
+        let event = FeedEvent {
+            seq: 1,
+            cause: FeedCause::Buffered,
+            tap_epoch: 1,
+            tap_cursor: 0,
+            state: FeedState {
+                transport: Transport::Buffering,
+                source: FeedSource::Stream,
+                live: true,
+                ..state(Transport::Playing)
+            },
+        };
+        let json = serde_json::to_value(&event).expect("serializes");
+        assert_eq!(json["cause"], "buffered");
+        assert_eq!(json["transport"], "buffering");
+        assert_eq!(json["source"], "stream");
+        assert_eq!(json["live"], true);
+        assert_eq!(
+            serde_json::to_value(FeedCause::Buffering).expect("serializes"),
+            "buffering"
+        );
+    }
 }
 
 #[cfg(all(test, windows))]
@@ -536,6 +580,8 @@ mod tap_tests {
             device: Some("Speakers".into()),
             device_id: Some("{0.0.0.00000000}.{speakers}".into()),
             latency_ms: 10.0,
+            source: FeedSource::Track,
+            live: false,
         }
     }
 

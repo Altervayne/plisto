@@ -12,7 +12,8 @@
 // -- Library Imports --
 use std::io;
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +37,7 @@ mod tap_map;
 // -- Re-exports --
 pub use decode::{DecodeError, Decoder};
 pub use dsp::gain::{track_gain_db, GainInputs};
-pub use feed::{FeedCause, FeedConsumer, FeedEvent, FeedHub, FeedState, Transport};
+pub use feed::{FeedCause, FeedConsumer, FeedEvent, FeedHub, FeedSource, FeedState, Transport};
 pub use peaks::{compute_peaks, Peak, PeakAccumulator};
 pub(crate) use queue::index_of_id;
 pub use silence::{find_silence, SilenceDetector, SilenceSpan};
@@ -168,6 +169,129 @@ pub enum PlayerCmd {
     // The sink keeps playing at volume 0, so position, the tap and the spectrum carry on, and the
     // user's volume is kept for the restore. A preview stays audible.
     SetOutputTakeover(bool),
+    // Seats a stream over the local queue, which is parked as it is: the library track playing (or
+    // the one under a preview) is remembered with its position, and nothing in the queue changes. A
+    // stream already seated is dropped and the parked slot it kept is kept. Plays once enough is
+    // queued.
+    StreamStart(StreamItem),
+    // Ends the seated stream when `id` is still the one seated, then re-seats the parked track
+    // paused. Sends no `Ended` signal: the sender already knows.
+    StreamEnd {
+        id: i64,
+        reason: StreamEndReason,
+    },
+    // The stream owner's own pause (true) or resume (false). Ignored for any other id.
+    StreamPause {
+        id: i64,
+        pause: bool,
+    },
+    // Empties the parked queue while a stream is seated; the stream plays on. Ignored with no stream.
+    ClearParked,
+}
+
+/// A stream ready to seat: a fresh ad-hoc id, the consumer half of its PCM queue and the controls
+/// it shares with its producer. The engine never starts or stops a producer; it cancels `control`
+/// when the item ends.
+pub struct StreamItem {
+    pub id: i64,
+    pub live: bool,
+    pub seekable: bool,
+    pub duration_secs: Option<f64>,
+    pub pcm: stream::PcmReader,
+    pub control: Arc<stream::StreamControl>,
+    // Which skips the owner takes, changed by the owner at any time.
+    pub skip: Arc<SkipFlags>,
+    // The engine only ever `try_send`s here, so it never blocks: the channel must be unbounded, or a
+    // full one loses signals, `Ended` among them.
+    pub signals: crossbeam_channel::Sender<StreamSignal>,
+}
+
+/// The skips a stream's owner accepts. Next and Previous do nothing without them.
+#[derive(Debug, Default)]
+pub struct SkipFlags {
+    next: AtomicBool,
+    prev: AtomicBool,
+}
+
+impl SkipFlags {
+    pub fn new(next: bool, prev: bool) -> Self {
+        let flags = Self::default();
+        flags.set(next, prev);
+        flags
+    }
+
+    pub fn set(&self, next: bool, prev: bool) {
+        self.next.store(next, Ordering::Relaxed);
+        self.prev.store(prev, Ordering::Relaxed);
+    }
+
+    pub fn accepts(&self, dir: SkipDir) -> bool {
+        match dir {
+            SkipDir::Next => self.next.load(Ordering::Relaxed),
+            SkipDir::Prev => self.prev.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// What the engine tells a stream's owner, keyed by item id.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum StreamSignal {
+    Phase(i64, StreamPhase),
+    Skip(i64, SkipDir),
+    // The engine ended the item on its own: a user action, a local play, or the end of its audio.
+    Ended(i64, StreamEndReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkipDir {
+    Next,
+    Prev,
+}
+
+/// The engine's phase for a seated stream. Only `Playing` produces sound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamPhase {
+    Connecting,
+    Buffering,
+    Playing,
+    Paused,
+}
+
+/// Why a stream item ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamEndReason {
+    User,
+    Replaced,
+    Stopped,
+    Finished,
+    PluginGone,
+    ProducerGone,
+    Network,
+    Denied,
+    Unsupported,
+    NoAudio,
+    Stalled,
+}
+
+/// The library track a stream's end returns to, and where in it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct ParkedStatus {
+    pub track_id: i64,
+    pub secs: f64,
+}
+
+/// The seated stream as the status reports it. `parked_cleared` is true from a Clear queue until
+/// the parked queue gains a track.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct StreamStatus {
+    pub live: bool,
+    pub seekable: bool,
+    pub phase: StreamPhase,
+    pub parked: Option<ParkedStatus>,
+    pub parked_cleared: bool,
 }
 
 /// One selectable output device, for the settings picker. `is_default` marks the current OS default
@@ -211,6 +335,9 @@ pub struct PlayerStatus {
     pub output_device: Option<String>,
     // Whether Plisto's own output is muted for another player. `volume` stays the user's value.
     pub output_taken_over: bool,
+    // The seated stream. While set, `track_id` is its id, the position its listened time or play
+    // head, and the queue fields describe the parked queue.
+    pub stream: Option<StreamStatus>,
 }
 
 impl Default for PlayerStatus {
@@ -227,6 +354,7 @@ impl Default for PlayerStatus {
             shuffle: false,
             output_device: None,
             output_taken_over: false,
+            stream: None,
         }
     }
 }

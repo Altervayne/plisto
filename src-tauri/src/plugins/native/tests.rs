@@ -28,7 +28,7 @@ use super::protocol::{
 use super::status::{CrashReason, HostState};
 use super::test_child::{LAUNCHES_FILE, MODE_FILE, RESUME_FILE};
 use super::{Clock, FakeClock, NativeHost, StartError, STOP_GRACE};
-use crate::audio::{FeedCause, FeedState, Transport};
+use crate::audio::{FeedCause, FeedSource, FeedState, Transport};
 use crate::plugins::paths::{data_dir, plugin_dir};
 use crate::plugins::session::{self, BootState};
 use crate::plugins::state::{BootView, PluginsState, Runtime};
@@ -883,6 +883,8 @@ fn feed_state(volume: f32) -> FeedState {
         device: Some("John's AirPods".into()),
         device_id: Some("{0.0.0.00000000}.{airpods}".into()),
         latency_ms: 10.0,
+        source: FeedSource::Track,
+        live: false,
     }
 }
 
