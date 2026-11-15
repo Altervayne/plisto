@@ -152,7 +152,7 @@ export function LibraryStatus({ label }: { label: LibraryLabel }) {
   return (
     <div className={styles.workspace}>
       <Tooltip label={labelTip}>
-        <button type="button" className={styles.label} onClick={openSettings}>
+        <button type="button" className={styles.label} onClick={() => openSettings()}>
           <span
             className={styles.dot}
             data-warn={reasons.length > 0 ? "" : undefined}

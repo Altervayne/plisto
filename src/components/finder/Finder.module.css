@@ -23,20 +23,33 @@
   background: rgba(8, 8, 12, 0.55);
 }
 
-.overlay[data-state="enter"] .backdrop {
+/* The card's own entrance and exit. A flight from the sidebar pill is drawn frame by frame from script
+ * instead, so none of these keyframes run under data-motion="morph". */
+.overlay[data-motion="card"][data-state="enter"] .backdrop {
   animation: scrim-in var(--dur-slow) var(--ease-cover) both;
 }
 
-.overlay[data-state="exit"] .backdrop {
+.overlay[data-motion="card"][data-state="exit"] .backdrop {
   animation: scrim-out var(--dur-soft) var(--ease-exit) both;
 }
 
-.overlay[data-state="enter"] .panel {
+.overlay[data-motion="card"][data-state="enter"] .panel {
   animation: card-in var(--dur-slow) var(--ease-cover) both;
 }
 
-.overlay[data-state="exit"] .panel {
+.overlay[data-motion="card"][data-state="exit"] .panel {
   animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+/* One plain fade of the whole overlay, no movement: the reduced-motion entrance and exit, and the exit of
+ * a pick made mid-flight, which fades the frame on screen. The overlay carries data-reduced-fade, which the
+ * global reduced-motion rule leaves alone. */
+.overlay[data-motion="fade"][data-state="enter"] {
+  animation: scrim-in var(--dur-fast) var(--ease-standard) both;
+}
+
+.overlay[data-motion="fade"][data-state="exit"] {
+  animation: scrim-out var(--dur-fast) var(--ease-standard) both;
 }
 
 @keyframes scrim-in {
@@ -87,20 +100,59 @@
   gap: 10px;
   width: min(560px, 94vw);
   padding: 12px;
+}
+
+/* The card's surface, a layer under the field and the results so it can unfold on its own. */
+.card {
+  position: absolute;
+  inset: 0;
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
 }
 
+/* The results and the legend, revealed together as the unfolding surface passes them. */
+.body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
 /* -- Search input -- */
 
 .field {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
   border-radius: var(--r-md);
   background: var(--veil);
+}
+
+/* The pill's label and shortcut hint, riding in the field while it flies. Hidden at rest; the flight
+ * places them each frame, the label from the left edge and the hint from the right. */
+.pillLabel,
+.pillHint {
+  position: absolute;
+  top: 50%;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.pillLabel {
+  left: 0;
+}
+
+.pillHint {
+  right: 0;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
 }
 
 .fieldIcon {

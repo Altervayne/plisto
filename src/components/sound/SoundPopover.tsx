@@ -21,7 +21,6 @@ import { useSoundActions, useSoundSettings } from "../../state/sound/useSoundSet
 // -- Utils Imports --
 import { canReset } from "../../state/sound/presets";
 import { formatDb } from "./formatDb";
-import { SOUND_SECTION_ID } from "./soundSectionId";
 import { takeoverView } from "./takeoverModel";
 import { useReturnOutput } from "./useReturnOutput";
 
@@ -30,9 +29,6 @@ import { useT } from "../../i18n";
 
 // -- Style Imports --
 import styles from "./SoundPopover.module.css";
-
-/** Settles after the Settings view mounts, so the Sound section exists to scroll to. */
-const SCROLL_DELAY_MS = 80;
 
 /**
  * The Sound card: the EQ switch, the preset row, a compact draggable curve, the preamp readout with Reset,
@@ -56,10 +52,7 @@ export function SoundPopover({ onClose }: { onClose: () => void }) {
 
   const goToSettings = () => {
     onClose();
-    openSettings();
-    window.setTimeout(() => {
-      document.getElementById(SOUND_SECTION_ID)?.scrollIntoView({ block: "start" });
-    }, SCROLL_DELAY_MS);
+    openSettings({ target: "sound" });
   };
 
   return (

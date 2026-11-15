@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -12,6 +12,7 @@ import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 import { PlayHistoryRow } from "./PlayHistoryRow";
 import { SettingRow } from "./SettingRow";
+import { SectionsMenu, SettingsRail } from "./SettingsRail";
 import { PluginsSection } from "./plugins/PluginsSection";
 import { SoundSection } from "./SoundSection";
 import { UpdatesSection } from "./UpdatesSection";
@@ -20,6 +21,7 @@ import { ProgressLine } from "../scan/ProgressLine";
 import { ScanIssuesRow, issuesRowState } from "./ScanIssuesRow";
 import { isWindowsPlatform } from "./settingsRegistry";
 import { sectionAttr } from "./settingsSections";
+import { useSettingsNav } from "./useSettingsNav";
 
 // -- State Imports --
 import {
@@ -66,6 +68,8 @@ import styles from "./SettingsView.module.css";
  * The settings screen: quiet labelled sections in one capped reading column, flush left under the
  * title - no frames, no cards, parted only by space and a dimmed micro-label. Each preference groups
  * its row with its helper; a control sits trailing and wraps under its label when the column narrows.
+ * A section rail sits beside the column when the window is wide enough and folds into a Sections
+ * button in the head when it is not; a target another surface asked for is landed on and marked here.
  * Folders holds the library roots and their actions. Rescans run quiet, as does the background sync:
  * while a quiet scan runs its progress and a Cancel sit under the buttons, which stay live since a
  * request joins it and adding a folder preempts it. A failed check leaves a warn line there. Otherwise
@@ -103,6 +107,8 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   const refreshIssueCount = useScanIssuesStore((s) => s.refreshCount);
   const openIssues = useOpenScanIssues();
   const t = useT();
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const { active: activeSection, jumpTo } = useSettingsNav(viewportRef);
 
   // Settings can open before Organize ever loads, so pull the vocabulary in on mount.
   useEffect(() => {
@@ -156,188 +162,200 @@ export function SettingsView({ onReviewGone }: { onReviewGone?: () => void }) {
   return (
     <div className={styles.view}>
       <div className={styles.head}>
-        <h1 className={styles.title}>{t((d) => d.settings.title)}</h1>
-        <p className={styles.sub}>{t((d) => d.settings.sub)}</p>
+        <div className={styles.headText}>
+          <h1 className={styles.title}>{t((d) => d.settings.title)}</h1>
+          <p className={styles.sub}>{t((d) => d.settings.sub)}</p>
+        </div>
+        <div className={styles.headActs}>
+          <SectionsMenu active={activeSection} onPick={jumpTo} />
+        </div>
       </div>
 
-      <ScrollArea className={styles.scroll} contentClassName={styles.sections}>
-        <section className={styles.section} {...sectionAttr("folders")}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionFolders)}</h2>
-          <div className={styles.list}>
-            {roots.length > 0 ? (
-              roots.map((root) => <FolderRow key={root.id} root={root} />)
+      <div className={styles.body}>
+        <SettingsRail active={activeSection} onPick={jumpTo} />
+        <ScrollArea
+          className={styles.scroll}
+          contentClassName={styles.sections}
+          viewportRef={viewportRef}
+        >
+          <section className={styles.section} {...sectionAttr("folders")}>
+            <h2 className={styles.label}>{t((d) => d.settings.sectionFolders)}</h2>
+            <div className={styles.list}>
+              {roots.length > 0 ? (
+                roots.map((root) => <FolderRow key={root.id} root={root} />)
+              ) : (
+                <p className={styles.empty}>{t((d) => d.settings.empty)}</p>
+              )}
+            </div>
+            <div className={styles.foot}>
+              <SettingRow id="addFolder" className={styles.control}>
+                <PrimaryButton onClick={() => void addRoot()} disabled={blocking}>
+                  {t((d) => d.settings.addFolder)}
+                </PrimaryButton>
+              </SettingRow>
+              <SettingRow id="rescanAll" className={styles.control}>
+                <QuietButton onClick={() => void rescanQuiet()} disabled={blocking}>
+                  {t((d) => d.settings.rescanAll)}
+                </QuietButton>
+              </SettingRow>
+            </div>
+            {scanning && quiet ? (
+              <div className={styles.scanRow}>
+                <ProgressLine
+                  value={progress && progress.total > 0 ? progress.scanned / progress.total : null}
+                />
+                <QuietButton onClick={() => void cancelScan()}>{t((d) => d.common.cancel)}</QuietButton>
+              </div>
             ) : (
-              <p className={styles.empty}>{t((d) => d.settings.empty)}</p>
+              <>
+                {checkFailed ? (
+                  <p className={styles.scanFailed}>{t((d) => d.window.checkFailed)}</p>
+                ) : null}
+                {scanSummary || issuesRowState(issueCount, issueStatus) !== "hidden" ? (
+                  <div className={styles.pref}>
+                    {scanSummary ? (
+                      <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
+                    ) : null}
+                    <ScanIssuesRow
+                      count={issueCount}
+                      status={issueStatus}
+                      onReview={openIssues}
+                      onRetry={() => void refreshIssueCount()}
+                    />
+                  </div>
+                ) : null}
+              </>
             )}
-          </div>
-          <div className={styles.foot}>
-            <SettingRow id="addFolder" className={styles.control}>
-              <PrimaryButton onClick={() => void addRoot()} disabled={blocking}>
-                {t((d) => d.settings.addFolder)}
-              </PrimaryButton>
-            </SettingRow>
-            <SettingRow id="rescanAll" className={styles.control}>
-              <QuietButton onClick={() => void rescanQuiet()} disabled={blocking}>
-                {t((d) => d.settings.rescanAll)}
-              </QuietButton>
-            </SettingRow>
-          </div>
-          {scanning && quiet ? (
-            <div className={styles.scanRow}>
-              <ProgressLine
-                value={progress && progress.total > 0 ? progress.scanned / progress.total : null}
-              />
-              <QuietButton onClick={() => void cancelScan()}>{t((d) => d.common.cancel)}</QuietButton>
-            </div>
-          ) : (
-            <>
-              {checkFailed ? (
-                <p className={styles.scanFailed}>{t((d) => d.window.checkFailed)}</p>
-              ) : null}
-              {scanSummary || issuesRowState(issueCount, issueStatus) !== "hidden" ? (
-                <div className={styles.pref}>
-                  {scanSummary ? (
-                    <ScanSummaryLine summary={scanSummary} onReview={onReviewGoneTracks} />
-                  ) : null}
-                  <ScanIssuesRow
-                    count={issueCount}
-                    status={issueStatus}
-                    onReview={openIssues}
-                    onRetry={() => void refreshIssueCount()}
-                  />
-                </div>
-              ) : null}
-            </>
-          )}
-          <SettingRow id="keepUpToDate" className={`${styles.pref} ${styles.keepPref}`}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
-              <span className={styles.control}>
-                <SegmentedControl
-                  segments={keepSegments}
-                  value={keepUpToDate ? "on" : "off"}
-                  onChange={(value) => setKeepUpToDate(value === "on")}
-                  label={t((d) => d.settings.keepUpToDate)}
-                />
-              </span>
-            </div>
-            <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
-          </SettingRow>
-        </section>
-
-        <section className={styles.section} {...sectionAttr("genres")}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionGenres)}</h2>
-          <div className={styles.list}>
-            {genres.length > 0 ? (
-              genres.map((genre) => (
-                <GenreSettingRow key={genre.id} genre={genre} genres={genres} />
-              ))
-            ) : (
-              <p className={styles.empty}>{t((d) => d.settings.genresEmpty)}</p>
-            )}
-          </div>
-          <div className={styles.foot}>
-            <SettingRow id="addGenre" className={styles.genreAdd}>
-              <GenreAdder
-                genres={genres}
-                onPick={() => {}}
-                onCreate={onCreateGenre}
-                placeholder={t((d) => d.settings.addGenre)}
-              />
-            </SettingRow>
-          </div>
-        </section>
-
-        <section className={styles.section} {...sectionAttr("playback")}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionPlayback)}</h2>
-          <SettingRow id="outputDevice" className={styles.pref}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
-              <span className={`${styles.control} ${styles.controlSelect}`}>
-                <PlaybackDeviceRow />
-              </span>
-            </div>
-          </SettingRow>
-          <PlayHistoryRow />
-        </section>
-
-        <SoundSection />
-
-        <section className={styles.section} {...sectionAttr("appearance")}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>
-          <SettingRow id="theme" className={styles.pref}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.settings.theme)}</span>
-              <span className={styles.control}>
-                <SegmentedControl
-                  segments={themeSegments}
-                  value={theme}
-                  onChange={setTheme}
-                  label={t((d) => d.settings.theme)}
-                />
-              </span>
-            </div>
-          </SettingRow>
-          <SettingRow id="language" className={styles.pref}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.settings.language)}</span>
-              <span className={styles.control}>
-                <SegmentedControl
-                  segments={localeSegments}
-                  value={locale}
-                  onChange={setLocale}
-                  label={t((d) => d.settings.language)}
-                />
-              </span>
-            </div>
-          </SettingRow>
-        </section>
-
-        <section className={styles.section} {...sectionAttr("system")}>
-          <h2 className={styles.label}>{t((d) => d.settings.sectionSystem)}</h2>
-          <SettingRow id="closeBehavior" className={styles.pref}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
-              <span className={styles.control}>
-                <SegmentedControl
-                  segments={closeSegments}
-                  value={closeToTray ? "tray" : "quit"}
-                  onChange={(value) => setCloseToTray(value === "tray")}
-                  label={t((d) => d.settings.closeBehavior)}
-                />
-              </span>
-            </div>
-            <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
-          </SettingRow>
-          {isWindows ? (
-            <SettingRow id="defaultApp" className={styles.pref}>
+            <SettingRow id="keepUpToDate" className={`${styles.pref} ${styles.keepPref}`}>
               <div className={styles.row}>
-                <span className={styles.rowLabel}>{t((d) => d.settings.defaultApp)}</span>
+                <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
+                <span className={styles.control}>
+                  <SegmentedControl
+                    segments={keepSegments}
+                    value={keepUpToDate ? "on" : "off"}
+                    onChange={(value) => setKeepUpToDate(value === "on")}
+                    label={t((d) => d.settings.keepUpToDate)}
+                  />
+                </span>
+              </div>
+              <p className={styles.helper}>{t((d) => d.settings.keepUpToDateHelper)}</p>
+            </SettingRow>
+          </section>
+
+          <section className={styles.section} {...sectionAttr("genres")}>
+            <h2 className={styles.label}>{t((d) => d.settings.sectionGenres)}</h2>
+            <div className={styles.list}>
+              {genres.length > 0 ? (
+                genres.map((genre) => (
+                  <GenreSettingRow key={genre.id} genre={genre} genres={genres} />
+                ))
+              ) : (
+                <p className={styles.empty}>{t((d) => d.settings.genresEmpty)}</p>
+              )}
+            </div>
+            <div className={styles.foot}>
+              <SettingRow id="addGenre" className={styles.genreAdd}>
+                <GenreAdder
+                  genres={genres}
+                  onPick={() => {}}
+                  onCreate={onCreateGenre}
+                  placeholder={t((d) => d.settings.addGenre)}
+                />
+              </SettingRow>
+            </div>
+          </section>
+
+          <section className={styles.section} {...sectionAttr("playback")}>
+            <h2 className={styles.label}>{t((d) => d.settings.sectionPlayback)}</h2>
+            <SettingRow id="outputDevice" className={styles.pref}>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.settings.outputDevice)}</span>
+                <span className={`${styles.control} ${styles.controlSelect}`}>
+                  <PlaybackDeviceRow />
+                </span>
+              </div>
+            </SettingRow>
+            <PlayHistoryRow />
+          </section>
+
+          <SoundSection />
+
+          <section className={styles.section} {...sectionAttr("appearance")}>
+            <h2 className={styles.label}>{t((d) => d.settings.sectionAppearance)}</h2>
+            <SettingRow id="theme" className={styles.pref}>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.settings.theme)}</span>
+                <span className={styles.control}>
+                  <SegmentedControl
+                    segments={themeSegments}
+                    value={theme}
+                    onChange={setTheme}
+                    label={t((d) => d.settings.theme)}
+                  />
+                </span>
+              </div>
+            </SettingRow>
+            <SettingRow id="language" className={styles.pref}>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.settings.language)}</span>
+                <span className={styles.control}>
+                  <SegmentedControl
+                    segments={localeSegments}
+                    value={locale}
+                    onChange={setLocale}
+                    label={t((d) => d.settings.language)}
+                  />
+                </span>
+              </div>
+            </SettingRow>
+          </section>
+
+          <section className={styles.section} {...sectionAttr("system")}>
+            <h2 className={styles.label}>{t((d) => d.settings.sectionSystem)}</h2>
+            <SettingRow id="closeBehavior" className={styles.pref}>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.settings.closeBehavior)}</span>
+                <span className={styles.control}>
+                  <SegmentedControl
+                    segments={closeSegments}
+                    value={closeToTray ? "tray" : "quit"}
+                    onChange={(value) => setCloseToTray(value === "tray")}
+                    label={t((d) => d.settings.closeBehavior)}
+                  />
+                </span>
+              </div>
+              <p className={styles.helper}>{t((d) => d.settings.closeHelper)}</p>
+            </SettingRow>
+            {isWindows ? (
+              <SettingRow id="defaultApp" className={styles.pref}>
+                <div className={styles.row}>
+                  <span className={styles.rowLabel}>{t((d) => d.settings.defaultApp)}</span>
+                  <span className={`${styles.control} ${styles.controlQuiet}`}>
+                    <QuietButton onClick={() => void openDefaultAppsSettings().catch(() => {})}>
+                      {t((d) => d.settings.makeDefault)}
+                    </QuietButton>
+                  </span>
+                </div>
+                <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
+              </SettingRow>
+            ) : null}
+            <SettingRow id="shortcuts" className={styles.pref}>
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>{t((d) => d.shortcuts.title)}</span>
                 <span className={`${styles.control} ${styles.controlQuiet}`}>
-                  <QuietButton onClick={() => void openDefaultAppsSettings().catch(() => {})}>
-                    {t((d) => d.settings.makeDefault)}
+                  <QuietButton onClick={() => setShortcutsOpen(true)}>
+                    {t((d) => d.shortcuts.show)}
                   </QuietButton>
                 </span>
               </div>
-              <p className={styles.helper}>{t((d) => d.settings.makeDefaultHelper)}</p>
             </SettingRow>
-          ) : null}
-          <SettingRow id="shortcuts" className={styles.pref}>
-            <div className={styles.row}>
-              <span className={styles.rowLabel}>{t((d) => d.shortcuts.title)}</span>
-              <span className={`${styles.control} ${styles.controlQuiet}`}>
-                <QuietButton onClick={() => setShortcutsOpen(true)}>
-                  {t((d) => d.shortcuts.show)}
-                </QuietButton>
-              </span>
-            </div>
-          </SettingRow>
-        </section>
+          </section>
 
-        <PluginsSection />
+          <PluginsSection />
 
-        <UpdatesSection />
-      </ScrollArea>
+          <UpdatesSection />
+        </ScrollArea>
+      </div>
     </div>
   );
 }

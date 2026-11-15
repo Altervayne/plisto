@@ -45,6 +45,7 @@ import { useShellShortcuts } from "./useShellShortcuts";
 import { useCollectionSegment } from "../collection/useCollectionSegment";
 import { useWarmCurrentVisualizer } from "../player/visualizers/useWarmVisualizers";
 import { usePluginZone } from "../plugins/sidebar/usePluginZone";
+import { useFinderLaunch } from "./useFinderLaunch";
 
 // -- State Imports --
 import { useAddRoot, useBoot, useBooted, useRoots, useTracks } from "../../state/store";
@@ -215,7 +216,6 @@ export function AppShell({
   const fullAlbumId = useCollectionFullAlbumId();
   const closeFull = useCloseCollectionFull();
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
-  const [finderOpen, setFinderOpen] = useState(false);
   const { width, containerRef, resizer } = useDrawerResize();
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.
@@ -423,9 +423,7 @@ export function AppShell({
     setMode(firstVisibleDestination(appMode));
   }, [appMode, mode, openTool, standalone, pluginId, pluginLive]);
 
-  // The quick finder searches the library, so it opens only over one: never on the player-only
-  // standalone surface, nor before a library holds any track.
-  const finderEnabled = count > 0 && (!standalone || sidebarExpanded);
+  const finder = useFinderLaunch({ tracks: count, standalone, sidebarExpanded });
 
   // The app-wide keys. Escape backs out of the full pane showing on its own destination. The album grid
   // stays mounted under its pane, so its select-all is off while the pane covers it.
@@ -437,8 +435,8 @@ export function AppShell({
       ? () => setOpenPlaylistId(null)
       : null;
   useShellShortcuts({
-    finderEnabled,
-    openFinder: () => setFinderOpen(true),
+    finderEnabled: finder.enabled,
+    openFinder: finder.openFromKeys,
     undo,
     redo,
     onBack: paneBack,
@@ -460,7 +458,6 @@ export function AppShell({
     },
     openPlugin,
   };
-  const closeFinder = useCallback(() => setFinderOpen(false), []);
 
   // A scanned library with no audio is onboarding to add a folder. On the normal path this is the shell's
   // terminal state. Standalone never takes this early return - it keeps the player painting and shows the
@@ -492,6 +489,7 @@ export function AppShell({
         coversCount={coversNeeded}
         collapsed={collapsed}
         bare={noLibrary && sidebarExpanded}
+        search={finder.pill}
       />
       <main className={styles.main}>
         {mode === "home" ? (
@@ -658,7 +656,7 @@ export function AppShell({
             file notice never doubles - and leaving it mounted would clear the notice and unlatch the body. */}
         {playbackErrored ? null : <PlayerErrorToast />}
 
-        {finderOpen ? <Finder nav={finderNav} onClose={closeFinder} /> : null}
+        {finder.finder ? <Finder nav={finderNav} {...finder.finder} /> : null}
         <DuplicatesHost />
         <ScanIssuesHost />
         <PluginConfirmHost />

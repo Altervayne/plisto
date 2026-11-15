@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { NavItem } from "./NavItem";
+import { SearchPill } from "./SearchPill";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
@@ -7,6 +8,7 @@ import { PluginSidebarZone } from "../plugins/sidebar/PluginSidebarZone";
 
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
+import type { Ref } from "react";
 
 // -- Icon Imports --
 import { Home, LayoutGrid, Inbox, Library, ListMusic, Radio, History, Images, AudioLines, Download, Settings } from "lucide-react";
@@ -39,6 +41,9 @@ import styles from "./Sidebar.module.css";
  *
  * Enabled plugins add a zone between Library and Utilities, scrolling with the sections. A plugin
  * opens through `onOpenPlugin`, which lands on its page with the route a nav row named.
+ *
+ * The search pill heads the rail above Home whenever the quick finder can open; `search` is null where
+ * it cannot, and a bare rail never shows it.
  */
 export function Sidebar({
   mode,
@@ -50,6 +55,7 @@ export function Sidebar({
   coversCount,
   collapsed = false,
   bare = false,
+  search = null,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -60,6 +66,7 @@ export function Sidebar({
   coversCount: number;
   collapsed?: boolean;
   bare?: boolean;
+  search?: { open: boolean; onOpen: () => void; pillRef: Ref<HTMLButtonElement> } | null;
 }) {
   const t = useT();
   const appMode = useAppMode();
@@ -82,13 +89,17 @@ export function Sidebar({
       {bare ? null : (
         <>
           {/* Home tops the rail above the sections: the landing every mode shares, so it stands apart
-              from the mode-shaped groups below and carries no count. */}
-          <NavItem
-            icon={<Home size={17} strokeWidth={1.8} />}
-            label={t((d) => d.nav.home)}
-            active={mode === "home"}
-            onClick={() => onModeChange("home")}
-          />
+              from the mode-shaped groups below and carries no count. The search pill sits just above
+              it, close enough that the two read as one pinned head. */}
+          <div className={styles.head}>
+            {search ? <SearchPill open={search.open} onOpen={search.onOpen} pillRef={search.pillRef} /> : null}
+            <NavItem
+              icon={<Home size={17} strokeWidth={1.8} />}
+              label={t((d) => d.nav.home)}
+              active={mode === "home"}
+              onClick={() => onModeChange("home")}
+            />
+          </div>
 
           <ScrollArea
             className={styles.scroll}

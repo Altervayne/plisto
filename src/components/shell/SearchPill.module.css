@@ -1,0 +1,53 @@
+/* The search pill: the search field's veil recess, as a button. Hover and open deepen the veil and lift
+ * the label to full ink; the focus ring comes from the global rule. */
+.pill {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.pill:hover {
+  background: var(--veil-2);
+}
+
+/* While the finder is open its input row stands in for the pill, so the pill gives up its look but keeps
+ * its slot, and the nav below never moves. Hidden, it also drops out of the tab order. */
+.pill[aria-expanded="true"] {
+  visibility: hidden;
+}
+
+.icon {
+  flex: none;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+
+.pill:hover .label {
+  color: var(--ink);
+}
+
+.hint {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
+}

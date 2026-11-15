@@ -8,6 +8,12 @@
 // -- Library Imports --
 import { create } from "zustand";
 
+// -- Utils Imports --
+import { hubSettingId } from "../../components/settings/settingsRegistry";
+
+// -- Type Imports --
+import type { SettingsTarget } from "../../components/settings/settingsTarget";
+
 /** The open tool session: which verb the workbench runs, over which track. */
 export interface ToolSession {
   verb: "split" | "trim";
@@ -29,7 +35,12 @@ interface ShellStore {
   // Bumped by a surface outside the shell (the title bar) to land on Settings. A counter, not a flag,
   // so a second request after navigating away still fires.
   settingsRequest: number;
-  openSettings: () => void;
+  // Opens Settings, optionally on a row or section. A plain open drops any target still waiting.
+  openSettings: (opts?: OpenSettingsOptions) => void;
+  // The target waiting for Settings to land on it, held until Settings takes it. `seq` is the request
+  // that set it, so asking for the same target again while Settings shows still lands again.
+  settingsTarget: PendingSettingsTarget | null;
+  takeSettingsTarget: () => SettingsTarget | null;
   // The possible-duplicates sheet, mounted once in the shell and opened from any entry point.
   duplicatesOpen: boolean;
   openDuplicates: () => void;
@@ -51,6 +62,16 @@ interface ShellStore {
   clearPluginHubFocus: () => void;
 }
 
+export interface OpenSettingsOptions {
+  target?: SettingsTarget;
+}
+
+/** A Settings target held until consumed. */
+export interface PendingSettingsTarget {
+  target: SettingsTarget;
+  seq: number;
+}
+
 /** One request to open a plugin's page; `seq` grows with every request. */
 export interface PluginPageRequest {
   id: string;
@@ -58,13 +79,23 @@ export interface PluginPageRequest {
   seq: number;
 }
 
-const useShellStore = create<ShellStore>((set) => ({
+const useShellStore = create<ShellStore>((set, get) => ({
   openTool: null,
   setOpenTool: (openTool) => set({ openTool }),
   historyLens: "recent",
   setHistoryLens: (historyLens) => set({ historyLens }),
   settingsRequest: 0,
-  openSettings: () => set((s) => ({ settingsRequest: s.settingsRequest + 1 })),
+  openSettings: (opts) =>
+    set((s) => ({
+      settingsRequest: s.settingsRequest + 1,
+      settingsTarget: opts?.target ? { target: opts.target, seq: s.settingsRequest + 1 } : null,
+    })),
+  settingsTarget: null,
+  takeSettingsTarget: () => {
+    const pending = get().settingsTarget;
+    if (pending) set({ settingsTarget: null });
+    return pending?.target ?? null;
+  },
   duplicatesOpen: false,
   openDuplicates: () => set({ duplicatesOpen: true }),
   closeDuplicates: () => set({ duplicatesOpen: false }),
@@ -76,13 +107,28 @@ const useShellStore = create<ShellStore>((set) => ({
   requestPluginPage: (id, route) =>
     set((s) => ({ pluginPageRequest: { id, route, seq: (s.pluginPageRequest?.seq ?? 0) + 1 } })),
   pluginHubFocus: null,
-  openPluginHub: (id) => set((s) => ({ pluginHubFocus: id, settingsRequest: s.settingsRequest + 1 })),
+  openPluginHub: (id) =>
+    set((s) => ({
+      pluginHubFocus: id,
+      settingsRequest: s.settingsRequest + 1,
+      settingsTarget: { target: hubSettingId(id), seq: s.settingsRequest + 1 },
+    })),
   clearPluginHubFocus: () => set({ pluginHubFocus: null }),
 }));
 
 /** Opens Settings on a plugin's hub row, from outside React. */
 export function openPluginHub(id: string): void {
   useShellStore.getState().openPluginHub(id);
+}
+
+/** Opens Settings, optionally on a target, from outside React. */
+export function openSettings(opts?: OpenSettingsOptions): void {
+  useShellStore.getState().openSettings(opts);
+}
+
+/** Hands the waiting Settings target to its one consumer and clears it. */
+export function takeSettingsTarget(): SettingsTarget | null {
+  return useShellStore.getState().takeSettingsTarget();
 }
 
 /** Asks the shell to show a plugin's page, from outside React. */
@@ -101,7 +147,10 @@ export const useSetHistoryLens = (): ((lens: HistoryLens) => void) =>
   useShellStore((s) => s.setHistoryLens);
 
 export const useSettingsRequest = (): number => useShellStore((s) => s.settingsRequest);
-export const useOpenSettings = (): (() => void) => useShellStore((s) => s.openSettings);
+export const useOpenSettings = (): ((opts?: OpenSettingsOptions) => void) =>
+  useShellStore((s) => s.openSettings);
+export const usePendingSettingsTarget = (): PendingSettingsTarget | null =>
+  useShellStore((s) => s.settingsTarget);
 
 export const useDuplicatesOpen = (): boolean => useShellStore((s) => s.duplicatesOpen);
 export const useOpenDuplicates = (): (() => void) => useShellStore((s) => s.openDuplicates);

@@ -23,6 +23,8 @@ export const en = {
     player: "Player",
     history: "History",
     export: "Export",
+    search: "Search",
+    searchHint: "Ctrl+K",
   },
 
   home: {
@@ -680,6 +682,8 @@ export const en = {
     nav: "Settings",
     title: "Settings",
     sub: "Your library, playback, and how Plisto looks and behaves.",
+    sections: "Sections",
+    sectionsCurrent: "Sections, {name}",
     sectionFolders: "Folders",
     sectionPlayback: "Playback",
     sectionSound: "Sound",
@@ -1280,7 +1284,7 @@ export const en = {
   },
 
   finder: {
-    label: "Quick finder",
+    label: "Search",
     placeholder: "Search albums, artists, playlists, tracks",
     recent: "Recent",
     recentEmpty: "Search the library, or jump anywhere.",

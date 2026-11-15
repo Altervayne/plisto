@@ -24,6 +24,8 @@ export const fr: Dict = {
     player: "Lecteur",
     history: "Historique",
     export: "Exporter",
+    search: "Rechercher",
+    searchHint: "Ctrl+K",
   },
 
   home: {
@@ -682,6 +684,8 @@ export const fr: Dict = {
     nav: "Paramètres",
     title: "Paramètres",
     sub: "Votre audiothèque, la lecture, et l'apparence et le comportement de Plisto.",
+    sections: "Sections",
+    sectionsCurrent: "Sections, {name}",
     sectionFolders: "Répertoires",
     sectionPlayback: "Lecture",
     sectionSound: "Son",
@@ -1293,7 +1297,7 @@ export const fr: Dict = {
   },
 
   finder: {
-    label: "Recherche rapide",
+    label: "Rechercher",
     placeholder: "Rechercher albums, artistes, playlists, pistes",
     recent: "Récents",
     recentEmpty: "Cherchez dans l'audiothèque, ou allez n'importe où.",

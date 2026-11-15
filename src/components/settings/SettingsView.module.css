@@ -11,12 +11,41 @@
   flex-direction: column;
   gap: 14px;
   padding: 4px 30px 24px;
+  /* The rail and the Sections button choose between themselves by this container's width. */
+  container: settingsview / inline-size;
 }
 
+/* Title block and head controls; the controls wrap under the title when the column is too narrow. */
 .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 12px;
+  max-width: 854px;
+}
+
+.headText {
+  flex: 1 1 260px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.headActs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The rail beside the scrolling column. */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 32px;
 }
 
 .title {
@@ -36,7 +65,10 @@
 /* The sections bound themselves against the header so their overflow scrolls rather than growing. */
 .scroll {
   flex: 1;
+  min-width: 0;
   min-height: 0;
+  /* Gives the left 8px back so a focus ring or the landing wash is not clipped at the viewport edge. */
+  margin-left: -8px;
 }
 
 /* A 640px column plus the scrollbar clearance, border-box. The right margin keeps the focus ring of a
@@ -45,10 +77,34 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
-  max-width: 654px;
+  max-width: 662px;
   margin-right: 3px;
+  /* The 8px the scroller gave back, so the column keeps its place. */
+  padding-left: 8px;
   /* Clear of the scrollbar overlay on the right edge. */
   padding-right: 14px;
+}
+
+/* The row Settings landed on: a wash behind it, held and then faded once. The row only becomes a
+ * stacking context while marked, so a menu inside an unmarked row is never trapped under its sibling. */
+.sections [data-landed] {
+  position: relative;
+  isolation: isolate;
+}
+
+.sections [data-landed]::before {
+  content: "";
+  position: absolute;
+  inset: -4px -8px;
+  z-index: -1;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  pointer-events: none;
+}
+
+.sections [data-landed="fade"]::before {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease-standard);
 }
 
 .section {

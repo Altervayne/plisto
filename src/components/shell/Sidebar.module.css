@@ -19,6 +19,15 @@
   pointer-events: none;
 }
 
+/* The pinned head: the search pill and Home, tighter than the rail's own gap. Never shrinks, so a short
+ * window clips the scrolling sections below it instead. */
+.head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .navgroup {
   display: flex;
   flex-direction: column;

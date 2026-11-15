@@ -56,8 +56,9 @@ body {
   display: none;
 }
 
+/* An element marked data-reduced-fade keeps its own short opacity fade, a change with no movement. */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:where(:not([data-reduced-fade])),
   *::before,
   *::after {
     animation-duration: 0.001ms !important;

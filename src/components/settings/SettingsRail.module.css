@@ -1,0 +1,100 @@
+/*
+ * The Settings section rail and its folded form. The rail needs the 854px content box of the settings
+ * view (168 rail + 32 gap + 654 column); narrower than that it hides and the Sections button shows.
+ */
+.rail {
+  display: none;
+  flex: none;
+  width: 168px;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
+}
+
+.fold {
+  position: relative;
+  display: inline-flex;
+}
+
+@container settingsview (min-width: 854px) {
+  .rail {
+    display: flex;
+  }
+
+  .fold {
+    display: none;
+  }
+}
+
+/* A list entry, in the rail and in the folded menu; the active one reads in ink. */
+.item {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.item:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.item[aria-current="true"] {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.button:hover,
+.button[aria-expanded="true"] {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.menu {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 5px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.menuItem {
+  padding: 8px 12px;
+}

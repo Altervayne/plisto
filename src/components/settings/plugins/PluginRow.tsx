@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // -- Library Imports --
 import { ChevronRight } from "lucide-react";
@@ -85,7 +85,6 @@ export function PluginRow({
   const focus = usePluginHubFocus();
   const clearFocus = useClearPluginHubFocus();
   const [open, setOpen] = useState(focus === row.id);
-  const wrap = useRef<HTMLDivElement>(null);
   const probe = useProbe();
   const view = rowView(row, probe);
   const hub = usePluginStatusView(row).hub;
@@ -94,12 +93,11 @@ export function PluginRow({
   useEffect(() => {
     if (focus !== row.id) return;
     setOpen(true);
-    wrap.current?.scrollIntoView?.({ block: "nearest" });
     clearFocus();
   }, [focus, row.id, clearFocus]);
 
   return (
-    <div ref={wrap} className={`${styles.wrap} ${open ? styles.open : ""}`}>
+    <div className={`${styles.wrap} ${open ? styles.open : ""}`}>
       <div className={`${styles.row} ${view.grey ? styles.grey : ""}`}>
         <PluginIcon
           source={row.manifest ? { kind: "installed", id: row.id, hash: row.manifest_hash } : null}
