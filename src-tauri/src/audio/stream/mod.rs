@@ -7,11 +7,16 @@
  * One `StreamControl` is shared by every party of one stream: the byte buffers, the decode thread,
  * the queue and the engine. Cancel is a flag every blocking wait re-checks at least every
  * `WAIT_SLICE`, so a cancel ends every wait without anyone having to know who is waiting.
+ *
+ * Container bytes are decoded in a helper process (`isolate`) so a decoder fault on hostile bytes
+ * ends one item instead of the app. The engine sees the same queue and control in both modes.
  */
 
 // -- Library Imports --
+use std::io;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 // -- Module Declarations --
@@ -20,15 +25,13 @@ mod comment_check;
 pub mod decoder;
 mod guard;
 pub mod icy;
-mod isolate;
+pub(crate) mod isolate;
 mod mp4_guard;
 mod ogg_guard;
 mod open;
 pub mod pcm;
 mod vorbis_setup;
 
-#[cfg(test)]
-mod test_alloc;
 #[cfg(test)]
 mod test_containers;
 #[cfg(test)]
@@ -39,9 +42,10 @@ pub use bytes::{
     byte_ring, growing_buffer, ByteRing, GrowingBuffer, GrowingWriter, RingWriter, WriteError,
 };
 pub use decoder::{
-    hint_for_content_type, hint_for_push, spawn_decoder, DecodeEnd, PushFormat, StreamInput,
-    Unsupported, SPEC_FLIPS_MAX,
+    hint_for_content_type, hint_for_push, spawn_decoder, DecodeEnd, Fault, PushFormat,
+    StreamInput, Unsupported, SPEC_FLIPS_MAX,
 };
+pub use isolate::bridge::spawn_isolated;
 pub use guard::{FLAC_SEEKTABLE_MAX, WAV_BLOCK_ALIGN_MAX, WAV_INFO_MAX};
 pub use icy::{IcyStripper, ICY_METAINT_MAX};
 pub use mp4_guard::{
@@ -113,6 +117,45 @@ pub const PCM_MAX_CHANNELS: u16 = 2;
 /// Sample rates a plugin may declare for pushed `pcm_s16le`.
 pub const PCM_RATES: RangeInclusive<u32> = 8_000..=192_000;
 
+// ---- Decode helper ----
+
+/// The memory a stream item's decode helper may commit. An allocation past it ends the helper with
+/// `EXIT_MEMORY`.
+pub const HELPER_MEMORY_MAX: usize = 256 << 20;
+
+/// The helper CPU time with no progress frame after which the helper is killed as spinning.
+pub const SPIN_CPU_MS: u64 = 2_000;
+
+/// Which helper decodes an item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperKind {
+    /// A plugin stream item, behind the header guards.
+    Stream,
+}
+
+/// Where an item's container bytes are decoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecodeMode {
+    Isolated(HelperKind),
+    InProcess,
+}
+
+/// Starts decoding `input` into `queue`, as `spawn_decoder` does. Container bytes go to a helper
+/// process when `mode` is `Isolated`; `pcm_s16le` has no container and always converts in-process.
+pub fn start_decode(
+    input: StreamInput,
+    queue: PcmQueue,
+    on_end: impl FnOnce(DecodeEnd) + Send + 'static,
+    mode: DecodeMode,
+) -> io::Result<JoinHandle<()>> {
+    match (mode, input) {
+        (DecodeMode::Isolated(HelperKind::Stream), StreamInput::Media { source, hint }) => {
+            spawn_isolated(StreamInput::Media { source, hint }, queue, on_end)
+        }
+        (_, input) => spawn_decoder(input, queue, on_end),
+    }
+}
+
 // ---- Shared control ----
 
 /// The longest any blocking wait of a stream sleeps before it re-checks cancel.
@@ -144,6 +187,8 @@ pub struct StreamControl {
     buffered_us: AtomicU64,
     // `Break` and `End` segments queued and not yet taken.
     boundaries: AtomicU32,
+    // The item's end is decided: the byte buffers' reads stop as if cancelled.
+    source_closed: AtomicBool,
 }
 
 impl Default for StreamControl {
@@ -157,6 +202,7 @@ impl Default for StreamControl {
             seek_answered: AtomicU64::new(0),
             buffered_us: AtomicU64::new(0),
             boundaries: AtomicU32::new(0),
+            source_closed: AtomicBool::new(false),
         }
     }
 }
@@ -174,6 +220,18 @@ impl StreamControl {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Acquire)
+    }
+
+    /// Ends every blocked byte buffer read, as a cancel does, without cancelling the stream: the
+    /// decoding has ended and nothing reads the source again. Never undone, so a control whose
+    /// source is closed cannot serve a second decode.
+    pub(crate) fn close_source(&self) {
+        self.source_closed.store(true, Ordering::Release);
+    }
+
+    /// Whether a byte buffer read stops: the stream is cancelled or its source closed.
+    pub(crate) fn reads_stopped(&self) -> bool {
+        self.is_cancelled() || self.source_closed.load(Ordering::Acquire)
     }
 
     /// Set by the audio thread when it found the queue empty, cleared when it plays again.
@@ -278,5 +336,32 @@ impl StreamControl {
 
     pub(crate) fn answer_seek(&self, generation: u64) {
         self.seek_answered.store(generation, Ordering::Release);
+    }
+
+    /// Takes a seek requested on another control under that control's generation, whether seeks
+    /// are open here or not. A generation no newer than the newest taken is ignored, so a seek
+    /// that arrives twice is answered once. Callers serialize their calls, so an older seek never
+    /// overwrites a newer one's target.
+    pub(crate) fn mirror_seek(&self, secs: f64, generation: u64) -> bool {
+        if generation & SEEKS_OPEN != 0 || generation <= self.requested() {
+            return false;
+        }
+        self.seek_to
+            .store(secs.max(0.0).to_bits(), Ordering::Release);
+        let mut word = self.seek_word.load(Ordering::Acquire);
+        loop {
+            if generation <= word & !SEEKS_OPEN {
+                return false;
+            }
+            match self.seek_word.compare_exchange_weak(
+                word,
+                (word & SEEKS_OPEN) | generation,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(now) => word = now,
+            }
+        }
     }
 }

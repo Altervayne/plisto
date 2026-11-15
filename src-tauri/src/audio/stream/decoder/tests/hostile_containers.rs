@@ -289,3 +289,53 @@ fn an_m4a_with_cover_art_plays_from_either_end() {
 fn spec_of(rate: u32, channels: u16) -> AudioSpec {
     spec(rate, channels)
 }
+
+// The refusals above, with the decoding in a decode helper: the guards run there too.
+mod isolated {
+    use super::super::isolated;
+
+    #[test]
+    fn an_ogg_comment_claiming_gigabytes_is_refused_in_every_mapping() {
+        isolated(super::an_ogg_comment_claiming_gigabytes_is_refused_in_every_mapping);
+    }
+
+    #[test]
+    fn a_vorbis_codebook_of_2_24_entries_by_2_16_dimensions_is_refused() {
+        isolated(super::a_vorbis_codebook_of_2_24_entries_by_2_16_dimensions_is_refused);
+    }
+
+    #[test]
+    fn an_endless_ogg_packet_stops_at_the_cap() {
+        isolated(super::an_endless_ogg_packet_stops_at_the_cap);
+    }
+
+    #[test]
+    fn a_hostile_second_link_in_a_chain_is_refused_mid_stream() {
+        isolated(super::a_hostile_second_link_in_a_chain_is_refused_mid_stream);
+    }
+
+    #[test]
+    fn mp4_counted_tables_claiming_billions_are_refused() {
+        isolated(super::mp4_counted_tables_claiming_billions_are_refused);
+    }
+
+    #[test]
+    fn mp4_boxes_read_whole_are_refused_past_their_bounds() {
+        isolated(super::mp4_boxes_read_whole_are_refused_past_their_bounds);
+    }
+
+    #[test]
+    fn a_hostile_moov_at_the_end_is_refused() {
+        isolated(super::a_hostile_moov_at_the_end_is_refused);
+    }
+
+    #[test]
+    fn mp4_on_a_ring_is_refused() {
+        isolated(super::mp4_on_a_ring_is_refused);
+    }
+
+    #[test]
+    fn an_m4a_with_cover_art_plays_from_either_end() {
+        isolated(super::an_m4a_with_cover_art_plays_from_either_end);
+    }
+}

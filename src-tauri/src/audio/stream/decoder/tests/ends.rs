@@ -125,3 +125,34 @@ fn a_dropped_reader_ends_a_parked_thread() {
     // The thread's ring reader is gone, so the feeder's writes close and it ends too.
     feed.feeder.join().unwrap();
 }
+
+// The ends above, with the decoding in a decode helper. A panic on the bytes is the helper's to
+// catch; that path is not driven from here.
+mod isolated {
+    use super::super::isolated;
+
+    #[test]
+    fn a_writer_gone_mid_stream_is_a_broken_source() {
+        isolated(super::a_writer_gone_mid_stream_is_a_broken_source);
+    }
+
+    #[test]
+    fn a_writer_gone_during_the_probe_is_a_broken_source() {
+        isolated(super::a_writer_gone_during_the_probe_is_a_broken_source);
+    }
+
+    #[test]
+    fn bytes_that_stop_decoding_mid_stream_are_corrupt() {
+        isolated(super::bytes_that_stop_decoding_mid_stream_are_corrupt);
+    }
+
+    #[test]
+    fn cancel_ends_a_thread_waiting_for_bytes() {
+        isolated(super::cancel_ends_a_thread_waiting_for_bytes);
+    }
+
+    #[test]
+    fn a_dropped_reader_ends_a_parked_thread() {
+        isolated(super::a_dropped_reader_ends_a_parked_thread);
+    }
+}

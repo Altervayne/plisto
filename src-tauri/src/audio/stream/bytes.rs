@@ -9,7 +9,8 @@
  * `GrowingBuffer` keeps a finite body whole as it arrives, up to `FINITE_MAX`, so it is seekable
  * with a known length; a read or a seek past what has arrived waits for it.
  *
- * Only the reader blocks, in `WAIT_SLICE` steps re-checking cancel. A writer dropped before
+ * Only the reader blocks, in `WAIT_SLICE` steps re-checking cancel and a closed source (a decode
+ * helper's item that has ended). A writer dropped before
  * `finish` reads as a broken pipe; a reader dropped closes the writer.
  */
 
@@ -155,7 +156,7 @@ impl Read for ByteRing {
         }
         let mut ring = lock(&self.shared.ring);
         loop {
-            if self.shared.control.is_cancelled() {
+            if self.shared.control.reads_stopped() {
                 return Err(cancelled());
             }
             if !ring.bytes.is_empty() {
@@ -344,7 +345,7 @@ impl GrowingBuffer {
     fn wait_for(&self, end: u64) -> io::Result<(MutexGuard<'_, Body>, bool)> {
         let mut body = lock(&self.shared.body);
         loop {
-            if self.shared.control.is_cancelled() {
+            if self.shared.control.reads_stopped() {
                 return Err(cancelled());
             }
             if body.filled >= end {

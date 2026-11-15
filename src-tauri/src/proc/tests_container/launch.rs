@@ -5,7 +5,9 @@
 
 // -- Library Imports --
 use std::ffi::OsStr;
-use std::io::Write;
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use windows::core::PCWSTR;
@@ -20,6 +22,7 @@ use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcess};
 
 // -- Local Imports --
 use super::*;
+use crate::proc::container::setup_lock;
 use crate::proc::session::{after_launch, Fallback, Next, Outcome, Session};
 
 // What "quickly" means for a helper reaching Ready.
@@ -146,11 +149,11 @@ fn the_helper_inherits_no_handle_but_its_pipes() {
 #[test]
 fn profile_create_is_idempotent() {
     let f = fixture();
-    let again = AppContainer::open(TEST_PROFILE).unwrap();
+    let again = AppContainer::open(TEST_PROFILE, NEVER).unwrap();
     // SAFETY: both SIDs live until the end of the test.
     assert!(unsafe { EqualSid(f.container.sid(), again.sid()) }.is_ok());
     container::delete(TEST_PROFILE).unwrap();
-    let recreated = AppContainer::open(TEST_PROFILE).unwrap();
+    let recreated = AppContainer::open(TEST_PROFILE, NEVER).unwrap();
     // SAFETY: as above.
     assert!(unsafe { EqualSid(f.container.sid(), recreated.sid()) }.is_ok());
 }
@@ -169,14 +172,99 @@ fn a_launch_fails_once_its_profile_is_deleted() {
 fn a_session_heals_a_profile_deleted_under_it() {
     let f = fixture();
     let session = Session::new(TEST_PROFILE);
-    let echo = [OsStr::new(DECODE_HELPER_FLAG)];
-    let first = session.launch(&f.exe, &echo, HELPER_MEMORY_MAX, WAIT);
+    let decode = [OsStr::new(DECODE_HELPER_FLAG)];
+    let first = session.launch(&f.exe, &decode, HELPER_MEMORY_MAX, WAIT, &|| false);
     drop(first.unwrap());
     assert_eq!(session.settled(), Some(Isolation::LessPrivileged));
     container::delete(TEST_PROFILE).unwrap();
-    let second = session.launch(&f.exe, &echo, HELPER_MEMORY_MAX, WAIT);
+    let second = session.launch(&f.exe, &decode, HELPER_MEMORY_MAX, WAIT, &|| false);
     assert!(second.is_ok(), "{:?}", second.err());
     assert_eq!(session.settled(), Some(Isolation::LessPrivileged));
+}
+
+#[test]
+fn a_session_grants_again_after_its_grant_is_removed() {
+    let f = fixture();
+    let session = Session::new(TEST_PROFILE);
+    let echo = [OsStr::new(DECODE_HELPER_FLAG), OsStr::new(ECHO)];
+    drop(session.launch(&f.exe, &echo, HELPER_MEMORY_MAX, WAIT, &|| false).unwrap());
+    // Another process's DACL edit can drop the grant under a running session.
+    set_entry(&f.exe, f.container.sid(), REVOKE_ACCESS).unwrap();
+    // The start itself fails without the grant, and the launch sets the profile up again.
+    let again = session.launch(&f.exe, &echo, HELPER_MEMORY_MAX, WAIT, &|| false);
+    assert!(again.is_ok(), "{:?}", again.err());
+}
+
+#[test]
+fn a_helper_that_ends_before_ready_is_granted_again_once() {
+    let f = fixture();
+    let session = Session::new(TEST_PROFILE);
+    // A probe with no name exits at once, before any Ready.
+    let ends = [
+        OsStr::new(DECODE_HELPER_FLAG),
+        OsStr::new(PROBE),
+        OsStr::new("none"),
+    ];
+    let launched = session.launch(&f.exe, &ends, HELPER_MEMORY_MAX, WAIT, &|| false);
+    assert!(launched.is_err());
+    assert_eq!(session.grants_renewed(), 1);
+}
+
+#[test]
+fn a_stall_with_the_grant_in_place_is_not_granted_again() {
+    let f = fixture();
+    let session = Session::new(TEST_PROFILE);
+    let holds = [
+        OsStr::new(DECODE_HELPER_FLAG),
+        OsStr::new(PROBE),
+        OsStr::new("hold"),
+    ];
+    let ready_wait = Duration::from_millis(200);
+    let launched = session.launch(&f.exe, &holds, HELPER_MEMORY_MAX, ready_wait, &|| false);
+    assert!(launched.is_err());
+    // The timeout goes straight to the plain fallback.
+    assert_eq!(session.grants_renewed(), 0);
+}
+
+#[test]
+fn a_cancel_ends_a_launch_waiting_on_the_setup_lock() {
+    let f = fixture();
+    let held = setup_lock(NEVER).unwrap();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let seen = Arc::clone(&cancel);
+    let exe = f.exe.clone();
+    let launching = thread::spawn(move || {
+        // A fresh session sets its profile up first, behind the held lock.
+        let session = Session::new(TEST_PROFILE);
+        let echo = [OsStr::new(DECODE_HELPER_FLAG), OsStr::new(ECHO)];
+        let cancelled = || seen.load(Ordering::Acquire);
+        session
+            .launch(&exe, &echo, HELPER_MEMORY_MAX, WAIT, &cancelled)
+            .map(drop)
+    });
+    thread::sleep(Duration::from_millis(100));
+    let cancelled = Instant::now();
+    cancel.store(true, Ordering::Release);
+    let ended = launching.join().unwrap();
+    assert!(cancelled.elapsed() < Duration::from_secs(1));
+    assert_eq!(ended.unwrap_err().error.kind(), io::ErrorKind::Interrupted);
+    drop(held);
+}
+
+#[test]
+fn the_setup_lock_waits_for_its_holder() {
+    let held = setup_lock(NEVER).unwrap();
+    let (taken, waiter) = mpsc::channel();
+    let other = thread::spawn(move || {
+        // A named mutex: the same object another Plisto process takes.
+        let lock = setup_lock(NEVER);
+        let _ = taken.send(());
+        lock.map(drop)
+    });
+    assert!(waiter.recv_timeout(Duration::from_millis(200)).is_err());
+    drop(held);
+    waiter.recv_timeout(WAIT).unwrap();
+    other.join().unwrap().unwrap();
 }
 
 #[test]

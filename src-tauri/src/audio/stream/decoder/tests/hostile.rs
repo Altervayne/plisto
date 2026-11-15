@@ -1,6 +1,6 @@
 use super::*;
 use crate::audio::stream::bytes::RingWriter;
-use crate::audio::stream::test_alloc::{new_record, watch_this_thread};
+use crate::audio::stream::isolate::alloc::{new_record, watch_this_thread};
 use crate::audio::stream::{ID3_SKIP_MAX, ID3_TAGS_MAX, OPEN_READ_MAX};
 use std::sync::atomic::AtomicUsize;
 
@@ -66,6 +66,12 @@ pub(super) fn measure(
     hint: Option<&'static str>,
     control: &Arc<StreamControl>,
 ) -> (DecodeEnd, usize) {
+    // In a helper the decode thread is in another process, under its job's memory cap: only the
+    // end is compared, and no allocation is recorded.
+    if ISOLATED.get() {
+        let (_, end) = start(media(source, hint), control).finish();
+        return (end, 0);
+    }
     let record = new_record();
     let source = Measured {
         inner: source,
@@ -299,4 +305,59 @@ fn a_spec_change_on_every_packet_is_refused() {
     let (_, end) = start(media(feed.ring, Some("ogg")), &control).finish();
     feed.feeder.join().unwrap();
     assert_eq!(end, DecodeEnd::Failed(Unsupported::Format));
+}
+
+// The refusals above, with the decoding in a decode helper: the guards run there too.
+mod isolated {
+    use super::super::isolated;
+
+    #[test]
+    fn an_id3_frame_claiming_a_gigabyte_is_never_read() {
+        isolated(super::an_id3_frame_claiming_a_gigabyte_is_never_read);
+    }
+
+    #[test]
+    fn back_to_back_empty_id3_tags_are_refused() {
+        isolated(super::back_to_back_empty_id3_tags_are_refused);
+    }
+
+    #[test]
+    fn an_mp3_behind_a_large_cover_tag_plays_and_a_tag_past_the_bound_is_refused() {
+        isolated(super::an_mp3_behind_a_large_cover_tag_plays_and_a_tag_past_the_bound_is_refused);
+    }
+
+    #[test]
+    fn a_wav_info_list_claiming_gigabytes_is_refused() {
+        isolated(super::a_wav_info_list_claiming_gigabytes_is_refused);
+    }
+
+    #[test]
+    fn a_wav_block_align_sizing_huge_packets_is_refused() {
+        isolated(super::a_wav_block_align_sizing_huge_packets_is_refused);
+    }
+
+    #[test]
+    fn a_flac_comment_claiming_gigabytes_is_refused() {
+        isolated(super::a_flac_comment_claiming_gigabytes_is_refused);
+    }
+
+    #[test]
+    fn a_flac_picture_claiming_gigabytes_is_refused() {
+        isolated(super::a_flac_picture_claiming_gigabytes_is_refused);
+    }
+
+    #[test]
+    fn adts_and_mp3_frames_allocate_only_what_their_headers_allow() {
+        isolated(super::adts_and_mp3_frames_allocate_only_what_their_headers_allow);
+    }
+
+    #[test]
+    fn a_body_that_never_reaches_audio_stops_at_the_opening_bound() {
+        isolated(super::a_body_that_never_reaches_audio_stops_at_the_opening_bound);
+    }
+
+    #[test]
+    fn a_spec_change_on_every_packet_is_refused() {
+        isolated(super::a_spec_change_on_every_packet_is_refused);
+    }
 }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::audio::stream::test_alloc::{new_record, watch_this_thread};
+use crate::audio::stream::isolate::alloc::{new_record, watch_this_thread};
 use crate::audio::stream::test_containers::{vorbis_ident, vorbis_setup};
 use std::sync::atomic::Ordering;
 use symphonia::core::codecs::{CodecParameters, DecoderOptions, CODEC_TYPE_VORBIS};

@@ -151,7 +151,7 @@ impl HelperFrame {
                             Unsupported::Seek => 4,
                         },
                     ]),
-                    DecodeEnd::Cancelled | DecodeEnd::ReaderGone => {
+                    DecodeEnd::Cancelled | DecodeEnd::ReaderGone | DecodeEnd::Isolated(_) => {
                         return Err(WireError::NotOnWire(*end))
                     }
                 }

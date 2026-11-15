@@ -31,8 +31,8 @@ fn access_grant_is_idempotent_and_on_the_file_alone() {
     let (folder, file) = scratch_file("own");
     let sid = f.container.sid();
     assert_eq!(explicit_grants(&file, sid).unwrap(), 0);
-    ensure_container_access(&file, sid).unwrap();
-    ensure_container_access(&file, sid).unwrap();
+    ensure_container_access(&file, sid, NEVER).unwrap();
+    ensure_container_access(&file, sid, NEVER).unwrap();
     assert_eq!(explicit_grants(&file, sid).unwrap(), 1);
     assert_eq!(explicit_grants(&folder.0, sid).unwrap(), 0);
 }
@@ -69,7 +69,7 @@ fn every_app_package_with_every_restricted_one_covers_both_kinds() {
         )
         .unwrap();
     }
-    ensure_container_access(&file, f.container.sid()).unwrap();
+    ensure_container_access(&file, f.container.sid(), NEVER).unwrap();
     assert_eq!(explicit_grants(&file, f.container.sid()).unwrap(), 0);
 }
 
@@ -79,6 +79,6 @@ fn every_app_package_alone_does_not_cover_the_less_privileged_kind() {
     let (_folder, file) = scratch_file("any");
     let any = StringSid::parse(ALL_APPLICATION_PACKAGES).unwrap();
     set_entry(&file, any.sid(), GRANT_ACCESS).unwrap();
-    ensure_container_access(&file, f.container.sid()).unwrap();
+    ensure_container_access(&file, f.container.sid(), NEVER).unwrap();
     assert_eq!(explicit_grants(&file, f.container.sid()).unwrap(), 1);
 }

@@ -20,8 +20,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 // -- Local Imports --
+use super::acl::has_container_access;
 use super::contained::Isolation;
-use super::container::{AppContainer, SetupError, SetupStep};
+use super::container::{AppContainer, Cancelled, SetupError, SetupStep};
 use super::helper::HELPER_PROFILE;
 use super::helper_launch::{await_ready, launch, prepare, Helper};
 
@@ -98,6 +99,12 @@ struct State {
     settled: Option<Isolation>,
     timeouts: u32,
     warned: bool,
+    // Times a launch granted the file again after a failure before Ready.
+    #[cfg(test)]
+    grants_renewed: u32,
+    // Attempts still to start as a helper that never sends Ready.
+    #[cfg(test)]
+    stalls: u32,
 }
 
 pub struct Session {
@@ -114,7 +121,50 @@ impl Session {
                 settled: None,
                 timeouts: 0,
                 warned: false,
+                #[cfg(test)]
+                grants_renewed: 0,
+                #[cfg(test)]
+                stalls: 0,
             }),
+        }
+    }
+
+    /// Makes the next `count` attempts start a helper that never sends Ready.
+    #[cfg(test)]
+    pub fn stall_next(&self, count: u32) {
+        self.state().stalls = count;
+    }
+
+    /// How many attempts set by `stall_next` have not run yet.
+    #[cfg(test)]
+    pub fn stalls_left(&self) -> u32 {
+        self.state().stalls
+    }
+
+    #[cfg(test)]
+    fn take_stall(&self) -> bool {
+        let mut state = self.state();
+        let stall = state.stalls > 0;
+        state.stalls = state.stalls.saturating_sub(1);
+        stall
+    }
+
+    /// How many launches granted the file again after a failure before Ready.
+    #[cfg(test)]
+    pub fn grants_renewed(&self) -> u32 {
+        self.state().grants_renewed
+    }
+
+    // Whether a launch that did not reach Ready may have failed for a lost grant: it ended before
+    // Ready, which a loader refused access does, or it stalled and the grant is gone.
+    fn grant_lost(&self, exe: &Path, outcome: Outcome) -> bool {
+        match outcome {
+            Outcome::Ready => false,
+            Outcome::Ended => true,
+            Outcome::TimedOut => {
+                let container = self.state().container.clone();
+                container.is_some_and(|c| !has_container_access(exe, c.sid()).unwrap_or(false))
+            }
         }
     }
 
@@ -124,34 +174,40 @@ impl Session {
     }
 
     /// The session's container, with `exe` granted to it. Set up at the first call that succeeds.
-    pub fn container(&self, exe: &Path) -> Result<Arc<AppContainer>, SetupError> {
+    pub fn container(
+        &self,
+        exe: &Path,
+        cancelled: Cancelled,
+    ) -> Result<Arc<AppContainer>, SetupError> {
         if let Some(container) = &self.state().container {
             return Ok(container.clone());
         }
-        self.renew(exe)
+        self.renew(exe, cancelled)
     }
 
     /// Sets the container up again and keeps it for the session.
-    fn renew(&self, exe: &Path) -> Result<Arc<AppContainer>, SetupError> {
-        let container = Arc::new(prepare(self.profile, exe)?);
+    fn renew(&self, exe: &Path, cancelled: Cancelled) -> Result<Arc<AppContainer>, SetupError> {
+        let container = Arc::new(prepare(self.profile, exe, cancelled)?);
         self.state().container = Some(container.clone());
         Ok(container)
     }
 
     /// The isolation the session has settled on, if any.
-    #[cfg(any(test, debug_assertions))]
+    #[cfg(test)]
     pub fn settled(&self) -> Option<Isolation> {
         self.state().settled
     }
 
     /// Starts `exe` with `args` as a helper and waits up to `ready_wait` for its Ready, returning
-    /// the helper and its stdout after the Ready.
+    /// the helper and its stdout after the Ready. Once `cancelled` returns true the launch stops at
+    /// the Ready wait's next check, and the helper it started is ended with its job.
     pub fn launch(
         &self,
         exe: &Path,
         args: &[&OsStr],
         memory: usize,
         ready_wait: Duration,
+        cancelled: Cancelled,
     ) -> Launched {
         let (settled, timeouts) = {
             let state = self.state();
@@ -160,8 +216,27 @@ impl Session {
         let mut tried = settled.unwrap_or(Isolation::LessPrivileged);
         let mut plain_settles = false;
         let mut answered_timeout = false;
+        let mut granted_again = false;
+        let mut missed_ready = 0;
         loop {
-            let (outcome, launched) = self.attempt(exe, tried, args, memory, ready_wait)?;
+            let (outcome, launched) =
+                self.attempt(exe, tried, args, memory, ready_wait, cancelled)?;
+            if cancelled() {
+                return launched;
+            }
+            missed_ready += u32::from(outcome == Outcome::TimedOut);
+            // A helper that fails to load, or stalls with its grant gone, may have lost the grant
+            // to an edit of the file's DACL elsewhere: grant it again and retry once. A stall with
+            // the grant in place goes to the fallback decision.
+            if !granted_again && self.grant_lost(exe, outcome) {
+                granted_again = true;
+                #[cfg(test)]
+                {
+                    self.state().grants_renewed += 1;
+                }
+                self.renew(exe, cancelled)?;
+                continue;
+            }
             match after_launch(tried, outcome, settled, timeouts, plain_settles) {
                 Next::Settle(isolation) => {
                     let mut state = self.state();
@@ -173,6 +248,9 @@ impl Session {
                     self.state().timeouts += u32::from(answered_timeout);
                     return launched;
                 }
+                // A cold or busy machine can miss one Ready: the helper is gone, try once more.
+                // Two misses in one launch fail it.
+                Next::Fail if outcome == Outcome::TimedOut && missed_ready == 1 => {}
                 Next::Fail => return launched,
                 Next::RetryPlain { settle, reason } => {
                     self.warn_once(reason, &launched);
@@ -193,12 +271,23 @@ impl Session {
         args: &[&OsStr],
         memory: usize,
         ready_wait: Duration,
+        cancelled: Cancelled,
     ) -> Result<(Outcome, Launched), SetupError> {
-        let container = self.container(exe)?;
+        #[cfg(test)]
+        let stalling: Vec<&OsStr>;
+        #[cfg(test)]
+        let args = if self.take_stall() {
+            let hold = [super::test_helper::PROBE, "hold"].map(OsStr::new);
+            stalling = args.iter().copied().chain(hold).collect();
+            &stalling[..]
+        } else {
+            args
+        };
+        let container = self.container(exe, cancelled)?;
         let started = match launch(&container, isolation, exe, args, memory) {
             Ok(helper) => Ok(helper),
             // A deleted profile fails the launch: create it again and retry once.
-            Err(_) => launch(&*self.renew(exe)?, isolation, exe, args, memory),
+            Err(_) => launch(&*self.renew(exe, cancelled)?, isolation, exe, args, memory),
         };
         let mut helper = match started {
             Ok(helper) => helper,
@@ -209,7 +298,7 @@ impl Session {
             .stdout
             .take()
             .expect("a new helper has its stdout");
-        match await_ready(stdout, ready_wait) {
+        match await_ready(stdout, ready_wait, cancelled) {
             Ok(stdout) => Ok((Outcome::Ready, Ok((helper, stdout)))),
             Err(e) => {
                 // A broken pipe means the helper ended; only a wait that ran out with the helper

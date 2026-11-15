@@ -9,7 +9,7 @@ use std::ops::RangeInclusive;
 
 // -- Local Imports --
 use super::*;
-use crate::audio::stream::{MIN_CHUNK_FRAMES, SPEC_FLIPS_MAX};
+use crate::audio::stream::decoder::SpecFlips;
 use crate::audio::AudioSpec;
 
 /// Reads the helper's frames in the main process. After any error every later call returns the
@@ -68,32 +68,6 @@ impl<R: Read> MainReader<R> {
             self.failed = Some(e);
         }
         read
-    }
-}
-
-// Counts spec changes that come with less than `MIN_CHUNK_FRAMES` of audio between them, as the
-// decode thread does inside the helper.
-#[derive(Default)]
-struct SpecFlips {
-    spec: Option<AudioSpec>,
-    frames: usize,
-    flips: usize,
-}
-
-impl SpecFlips {
-    // False once more than `SPEC_FLIPS_MAX` short runs have come in a row.
-    fn take(&mut self, spec: AudioSpec, frames: usize) -> bool {
-        if self.spec.is_some_and(|s| s != spec) {
-            if self.frames < MIN_CHUNK_FRAMES {
-                self.flips += 1;
-            } else {
-                self.flips = 0;
-            }
-            self.frames = 0;
-        }
-        self.spec = Some(spec);
-        self.frames += frames;
-        self.flips <= SPEC_FLIPS_MAX
     }
 }
 

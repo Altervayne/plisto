@@ -1,7 +1,7 @@
 use super::decode::{read_helper, read_main};
 use super::encode::frame;
 use super::*;
-use crate::audio::stream::test_alloc::{new_record, watch_this_thread};
+use crate::audio::stream::isolate::alloc::{new_record, watch_this_thread};
 use crate::audio::AudioSpec;
 use std::io::{self, Cursor, Read};
 use std::sync::atomic::Ordering;

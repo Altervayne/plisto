@@ -292,3 +292,89 @@ fn a_seek_past_the_end_lands_on_the_end() {
     seek_past_the_end(wav_bytes(RATE, 1, SECS * RATE as usize), "wav");
     seek_past_the_end(flac_bytes(200, FLAC_BLOCK), "flac");
 }
+
+#[test]
+fn seek_requested_at_the_end_is_served_not_lost() {
+    // Seeks back to the start, one after another while the short body decodes and ends, so some
+    // land as the thread closes seeks. The last one taken is answered, and the item still ends.
+    let frames = RATE as usize / 2;
+    let control = Arc::new(StreamControl::new());
+    let bytes = wav_bytes(RATE, 1, frames);
+    let (writer, body) = growing_buffer(bytes.len() as u64, Arc::clone(&control));
+    writer.write(&bytes).unwrap();
+    writer.finish();
+    let running = start(media(body, Some("wav")), &control);
+    let stop = Instant::now() + Duration::from_secs(1);
+    let mut last = None;
+    while Instant::now() < stop {
+        match control.request_seek(0.0) {
+            Some(generation) => last = Some(generation),
+            // Refused as the thread closes seeks, or after it ended: stop asking.
+            None if last.is_some() || control.is_producer_done() => break,
+            // Not opened yet.
+            None => {}
+        }
+        thread::sleep(Duration::from_micros(100));
+    }
+    let (segments, end) = running.finish();
+    assert_eq!(end, DecodeEnd::Finished);
+    let events = summarize(segments);
+    match last {
+        Some(generation) => assert_eq!(
+            events,
+            vec![
+                Ev::Break(Seam::Seek(generation)),
+                Ev::Frames(spec(RATE, 1), frames),
+                Ev::End
+            ]
+        ),
+        None => assert_eq!(events.last(), Some(&Ev::End)),
+    }
+    assert_eq!(control.request_seek(0.0), None);
+    assert!(!control.seek_pending());
+}
+
+// The seeks above, with the decoding in a decode helper.
+mod isolated {
+    use super::super::isolated;
+
+    #[test]
+    fn seek_requested_at_the_end_is_served_not_lost() {
+        isolated(super::seek_requested_at_the_end_is_served_not_lost);
+    }
+
+    #[test]
+    fn seek_flushes_and_pushes_a_break() {
+        isolated(super::seek_flushes_and_pushes_a_break);
+    }
+
+    #[test]
+    fn a_seek_while_waiting_for_bytes_hides_the_stale_audio() {
+        isolated(super::a_seek_while_waiting_for_bytes_hides_the_stale_audio);
+    }
+
+    #[test]
+    fn two_quick_seeks_settle_on_the_last() {
+        isolated(super::two_quick_seeks_settle_on_the_last);
+    }
+
+    #[test]
+    fn a_seek_on_an_unseekable_source_is_ignored() {
+        isolated(super::a_seek_on_an_unseekable_source_is_ignored);
+    }
+
+    #[test]
+    fn a_chain_reset_during_a_pending_seek_is_not_its_answer() {
+        isolated(super::a_chain_reset_during_a_pending_seek_is_not_its_answer);
+    }
+
+    #[test]
+    fn a_seek_while_the_end_waits_for_room_is_answered_first() {
+        isolated(super::a_seek_while_the_end_waits_for_room_is_answered_first);
+    }
+
+    #[test]
+    fn a_seek_past_the_end_lands_on_the_end() {
+        isolated(super::a_seek_past_the_end_lands_on_the_end);
+    }
+}

@@ -211,7 +211,8 @@ pub enum WireError {
     },
     /// More than `SPEC_FLIPS_MAX` spec changes in a row, each after a short run.
     SpecFlips,
-    /// `Cancelled` and `ReaderGone` are decided by the main process; the helper never sends them.
+    /// `Cancelled`, `ReaderGone` and `Isolated` are decided by the main process; the helper never
+    /// sends them.
     NotOnWire(DecodeEnd),
 }
 

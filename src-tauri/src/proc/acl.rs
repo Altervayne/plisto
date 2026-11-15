@@ -28,6 +28,9 @@ use windows::Win32::Storage::FileSystem::{
     FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
 };
 
+// -- Local Imports --
+use super::container::{setup_lock, Cancelled};
+
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 const READ_EXECUTE: u32 = FILE_GENERIC_READ.0 | FILE_GENERIC_EXECUTE.0;
 /// Every app package. A less privileged container is not in it.
@@ -44,16 +47,28 @@ const FILE_MAPPING: GENERIC_MAPPING = GENERIC_MAPPING {
 
 /// Makes `file` readable and executable by the container `sid`, in either container kind. Does
 /// nothing when it already is.
-pub fn ensure_container_access(file: &Path, sid: PSID) -> io::Result<()> {
-    if Descriptor::read(&wide(file))?.grants(sid)? {
+pub fn ensure_container_access(file: &Path, sid: PSID, cancelled: Cancelled) -> io::Result<()> {
+    if has_container_access(file, sid)? {
         return Ok(());
     }
-    set_entry(file, sid, GRANT_ACCESS)
+    edit_entry(file, sid, GRANT_ACCESS, cancelled)
+}
+
+/// Whether `file` is readable and executable by the container `sid`, in either container kind.
+pub fn has_container_access(file: &Path, sid: PSID) -> io::Result<bool> {
+    Descriptor::read(&wide(file))?.grants(sid)
 }
 
 /// Adds an allow ACE for `sid` on `file` alone, read and execute, or with `mode` another change for
 /// that SID.
+#[cfg(test)]
 pub(super) fn set_entry(file: &Path, sid: PSID, mode: ACCESS_MODE) -> io::Result<()> {
+    edit_entry(file, sid, mode, super::container::NEVER)
+}
+
+fn edit_entry(file: &Path, sid: PSID, mode: ACCESS_MODE, cancelled: Cancelled) -> io::Result<()> {
+    // A change reads, merges and writes the whole DACL: two at once on one file would lose one.
+    let _setup = setup_lock(cancelled)?;
     let path = wide(file);
     let current = Descriptor::read(&path)?;
     let entry = EXPLICIT_ACCESS_W {

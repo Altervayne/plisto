@@ -75,16 +75,18 @@ pub fn helper_mode() -> Option<HelperMode> {
 /// Runs a helper mode to its end and returns the exit code. No window, tray, database,
 /// single-instance lock or plugin is ever started.
 pub fn run_helper_mode(mode: HelperMode) -> i32 {
-    proc::helper::run(mode)
+    match mode {
+        HelperMode::Decode => audio::stream::isolate::helper::run(),
+        #[cfg(test)]
+        HelperMode::Echo => proc::helper::run_echo(),
+        HelperMode::RemoveContainer => proc::helper::remove_container(),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut context = tauri::generate_context!();
     webview_guard::apply(context.config_mut());
-    // Starts the decode helper probe when its environment variable is set.
-    #[cfg(debug_assertions)]
-    proc::probe::start_probe(&context.config().identifier);
     tauri::Builder::default()
         // Registered first, as the plugin requires. A second launch (the OS opening a file while
         // Plisto already runs) routes here instead of starting a new process: surface the main window

@@ -22,10 +22,11 @@ use windows::Win32::System::Threading::OpenProcessToken;
 // -- Local Imports --
 use super::acl::set_entry;
 use super::contained::Isolation;
-use super::container::{self, AppContainer};
-use super::helper::DECODE_HELPER_FLAG;
-use super::helper_launch::{await_ready, launch, prepare, Helper, HELPER_MEMORY_MAX};
+use super::container::{self, AppContainer, NEVER};
+use super::helper::{DECODE_HELPER_FLAG, ECHO};
+use super::helper_launch::{await_ready, launch, prepare, Helper};
 use super::test_helper::PROBE;
+use crate::audio::stream::HELPER_MEMORY_MAX;
 
 // -- Module Declarations --
 mod access;
@@ -65,7 +66,7 @@ fn fixture_in(isolation: Isolation) -> Fixture {
         .unwrap_or_else(PoisonError::into_inner);
     let exe = std::env::current_exe().unwrap();
     target_dir(&exe);
-    let container = prepare(TEST_PROFILE, &exe).unwrap();
+    let container = prepare(TEST_PROFILE, &exe, NEVER).unwrap();
     Fixture {
         container,
         isolation,
@@ -116,9 +117,9 @@ fn probe(f: &Fixture, name: &str, argument: Option<&OsStr>) -> i32 {
 
 /// Starts the echo helper and waits for its Ready.
 fn ready_echo(f: &Fixture) -> (Helper, fs::File) {
-    let mut helper = start(f, &[]);
+    let mut helper = start(f, &[OsStr::new(ECHO)]);
     let stdout = helper.process.stdout.take().unwrap();
-    let stdout = await_ready(stdout, WAIT).unwrap();
+    let stdout = await_ready(stdout, WAIT, &|| false).unwrap();
     (helper, stdout)
 }
 

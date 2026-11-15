@@ -184,7 +184,7 @@ fn pull_through_guard(bytes: Vec<u8>, seekable: bool) -> (bool, usize) {
         record: &'static std::sync::atomic::AtomicUsize,
     ) {
         // Watched from here: the test's own buffer of the body is not the reader's allocation.
-        crate::audio::stream::test_alloc::watch_this_thread(record);
+        crate::audio::stream::isolate::alloc::watch_this_thread(record);
         let mss = MediaSourceStream::new(Box::new(Guarded::new(source, flag)), Default::default());
         if let Ok(mut reader) = OggReader::try_new(mss, &FormatOptions::default()) {
             for _ in 0..10_000 {
@@ -195,7 +195,7 @@ fn pull_through_guard(bytes: Vec<u8>, seekable: bool) -> (bool, usize) {
         }
     }
 
-    let record = crate::audio::stream::test_alloc::new_record();
+    let record = crate::audio::stream::isolate::alloc::new_record();
     let refused = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&refused);
     std::thread::spawn(move || {
@@ -406,5 +406,31 @@ fn a_chain_moved_on_past_a_seek_back_boundary_is_missed() {
             largest < ALLOC_BOUND,
             "seekable {seekable}: allocated {largest} bytes"
         );
+    }
+}
+
+// The refusals above that run a decode thread, with the decoding in a decode helper. The tests
+// that drive the guard reader alone have no decode thread to move.
+mod isolated {
+    use super::super::isolated;
+
+    #[test]
+    fn a_first_page_flag_hides_no_header_packet() {
+        isolated(super::a_first_page_flag_hides_no_header_packet);
+    }
+
+    #[test]
+    fn a_picture_comment_is_refused_in_every_mapping_and_in_native_flac() {
+        isolated(super::a_picture_comment_is_refused_in_every_mapping_and_in_native_flac);
+    }
+
+    #[test]
+    fn a_sound_picture_comment_still_plays() {
+        isolated(super::a_sound_picture_comment_still_plays);
+    }
+
+    #[test]
+    fn esds_descriptors_are_walked_as_symphonia_walks_them() {
+        isolated(super::esds_descriptors_are_walked_as_symphonia_walks_them);
     }
 }

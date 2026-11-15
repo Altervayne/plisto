@@ -2,7 +2,8 @@ use super::*;
 use crate::audio::stream::bytes::{byte_ring, growing_buffer, ByteRing, WriteError};
 use crate::audio::stream::pcm::{pcm_queue, PcmReader, Seam, Segment};
 use crate::audio::stream::test_media::*;
-use crate::audio::stream::{StreamControl, START_MS};
+use crate::audio::stream::{spawn_isolated, StreamControl, START_MS};
+use std::cell::Cell;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use symphonia::core::probe::Hint;
@@ -11,9 +12,22 @@ mod ends;
 mod hostile;
 mod hostile_containers;
 mod hostile_ogg;
+mod isolated;
 mod seek;
 
 const DEADLINE: Duration = Duration::from_secs(10);
+
+thread_local! {
+    // Whether `start` on this test's thread decodes in a decode helper process.
+    static ISOLATED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs `test` with its decoding in a decode helper: the same input must queue the same segments
+/// and end the same way as in-process.
+fn isolated(test: fn()) {
+    ISOLATED.set(true);
+    test();
+}
 
 // What the queue delivered, with consecutive chunks of one spec merged into a frame count.
 #[derive(Debug, PartialEq)]
@@ -58,9 +72,14 @@ struct Running {
 fn start(input: StreamInput, control: &Arc<StreamControl>) -> Running {
     let (queue, reader) = pcm_queue(Arc::clone(control));
     let (tx, ended) = mpsc::channel();
-    let handle = spawn_decoder(input, queue, move |end| {
+    let on_end = move |end| {
         let _ = tx.send(end);
-    })
+    };
+    let handle = if ISOLATED.get() {
+        spawn_isolated(input, queue, on_end)
+    } else {
+        spawn_decoder(input, queue, on_end)
+    }
     .unwrap();
     Running {
         reader,
@@ -73,7 +92,10 @@ impl Running {
     // Drains the queue the way the audio thread will until the thread reports its end, then takes
     // what is left. Returns every segment and how the thread ended.
     fn finish(self) -> (Vec<Segment>, DecodeEnd) {
-        let deadline = Instant::now() + DEADLINE;
+        // A helper decodes below normal priority under a one-core cap: on a loaded machine it
+        // takes longer than the decode thread would.
+        let allowed = if ISOLATED.get() { DEADLINE * 3 } else { DEADLINE };
+        let deadline = Instant::now() + allowed;
         let mut segments = Vec::new();
         loop {
             assert!(Instant::now() < deadline, "the decode thread never ended");
@@ -324,13 +346,11 @@ fn decodes_mp3_unseekable() {
     );
 }
 
-// A real MP3 through a ring in small writes. Runs only when PLISTO_TEST_MP3 points at an MP3; a
-// plain `cargo test` skips it.
+// A real MP3 through a ring in small writes, from the file PLISTO_TEST_MP3 names.
 #[test]
+#[ignore = "needs PLISTO_TEST_MP3 set to a local MP3"]
 fn decodes_a_local_mp3_through_a_ring() {
-    let Ok(path) = std::env::var("PLISTO_TEST_MP3") else {
-        return;
-    };
+    let path = std::env::var("PLISTO_TEST_MP3").expect("PLISTO_TEST_MP3 names an MP3");
     let bytes = std::fs::read(path).expect("reads the MP3");
     let control = Arc::new(StreamControl::new());
     let feed = fed_ring(bytes, 1_399, 64 * 1_024, &control);

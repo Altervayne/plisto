@@ -5,7 +5,7 @@
  * a mode file in a data folder would be unreadable from inside the container.
  *
  * `--plisto-decode-helper probe <name> [argument]` runs one probe instead, which tries one thing the
- * container must refuse and reports the outcome through its exit code. A panic is caught and
+ * container or its job must refuse and reports the outcome through its exit code. A panic is caught and
  * reported too: one cannot unwind out of a CRT initializer, and uncaught it would abort the process.
  */
 
@@ -44,6 +44,8 @@ pub const NO_EXE: i32 = 15;
 /// The Winsock version std asks for.
 const WINSOCK_2_2: u16 = 0x202;
 const CONNECT_WAIT: Duration = Duration::from_secs(3);
+/// An allocation over any helper's memory cap.
+const OVER_THE_CAP: usize = 1 << 30;
 
 #[used]
 #[link_section = ".CRT$XCU"]
@@ -58,7 +60,7 @@ extern "C" fn helper_hook() {
         let name = args.get(3).and_then(|a| a.to_str()).unwrap_or_default();
         std::panic::catch_unwind(|| probe(name, args.get(4))).unwrap_or(PANICKED)
     } else {
-        helper::mode_from_args(args).map_or(FAILED, helper::run)
+        helper::mode_from_args(args).map_or(FAILED, crate::run_helper_mode)
     };
     process::exit(code);
 }
@@ -126,6 +128,18 @@ fn probe(name: &str, argument: Option<&OsString>) -> i32 {
                 Err(e) if e.raw_os_error() == Some(ERROR_NOT_ENOUGH_QUOTA.0 as i32) => DENIED,
                 Err(_) => FAILED,
             }
+        }
+        // Never sends Ready; its job ends it.
+        "hold" => {
+            std::thread::sleep(Duration::from_secs(60));
+            ALLOWED
+        }
+        "allocate" => {
+            crate::audio::stream::isolate::alloc::arm();
+            // The armed allocator ends the process inside this call when the job refuses it.
+            let block = vec![0u8; OVER_THE_CAP];
+            std::hint::black_box(&block);
+            ALLOWED
         }
         _ => FAILED,
     }

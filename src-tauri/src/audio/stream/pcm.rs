@@ -17,7 +17,7 @@
  */
 
 // -- Library Imports --
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::thread;
 
@@ -81,6 +81,7 @@ pub fn pcm_queue(control: Arc<StreamControl>) -> (PcmQueue, PcmReader) {
         readers: Arc::downgrade(&token),
         control: Arc::clone(&control),
         pending: None,
+        halt: None,
     };
     let reader = PcmReader {
         rx,
@@ -98,11 +99,18 @@ pub struct PcmQueue {
     control: Arc<StreamControl>,
     // Decoded audio not yet queued, gathering up to `MIN_CHUNK_FRAMES`.
     pending: Option<PcmChunk>,
+    // Once set, every push stops as if cancelled, without cancelling the stream.
+    halt: Option<Arc<AtomicBool>>,
 }
 
 impl PcmQueue {
     pub fn control(&self) -> &Arc<StreamControl> {
         &self.control
+    }
+
+    /// Makes every push, a blocked one included, stop as cancelled once `flag` is set.
+    pub(crate) fn halt_on(&mut self, flag: Arc<AtomicBool>) {
+        self.halt = Some(flag);
     }
 
     pub fn buffered_ms(&self) -> u64 {
@@ -180,7 +188,11 @@ impl PcmQueue {
 
     /// Why this producer should stop, if it should: cancel, or every consumer dropped.
     pub fn stopped(&self) -> Option<PushError> {
-        if self.control.is_cancelled() {
+        let halted = self
+            .halt
+            .as_ref()
+            .is_some_and(|h| h.load(Ordering::Acquire));
+        if halted || self.control.is_cancelled() {
             return Some(PushError::Cancelled);
         }
         if self.readers.strong_count() == 0 {

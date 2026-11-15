@@ -28,7 +28,7 @@ use super::guard::Guarded;
 use super::mp4_guard::check_mp4;
 use super::open::{open_reader, skip_id3, Trimmed, OPEN_READ_MAX};
 use super::pcm::{PcmQueue, PushError, Seam, MIN_CHUNK_FRAMES};
-use super::{MAX_CHANNELS, PCM_MAX_CHANNELS, PCM_RATES, RATES};
+use super::{StreamControl, MAX_CHANNELS, PCM_MAX_CHANNELS, PCM_RATES, RATES};
 use crate::audio::decode::{self, Decoder, Pull};
 use crate::audio::{AudioSpec, PcmChunk};
 
@@ -146,6 +146,52 @@ pub enum DecodeEnd {
     Panicked,
     /// The stream cannot be played; nothing more is queued.
     Failed(Unsupported),
+    /// The decode helper process failed; nothing more is queued.
+    Isolated(Fault),
+}
+
+/// How a decode helper failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// The helper could not be set up or started.
+    Spawn,
+    /// The helper reached its memory cap.
+    Memory,
+    /// The helper ended some other way without reporting its end.
+    Crashed,
+    /// The helper used CPU without making progress.
+    Spun,
+    /// The helper stopped making progress without using CPU.
+    Hung,
+    /// The helper broke the wire protocol, or exited cleanly without reporting its end.
+    Protocol,
+}
+
+/// Where the decode thread opens and closes seeks. In-process it is the stream's own control. In
+/// the decode helper the close is a round trip that closes seeks on the main process's control, so
+/// a seek requested there is still answered or refused, never lost.
+pub(super) trait SeekGate: Send + 'static {
+    /// Starts taking seek requests.
+    fn open_seeks(&self);
+    /// Stops taking seek requests once the stream's `End` is queued. True when one got in before
+    /// the close and is still unanswered: the `End` is stale and the seek is served first.
+    fn close_at_end(&self) -> bool;
+    /// Stops taking seek requests as the thread ends, on any path.
+    fn close_on_exit(&self);
+}
+
+impl SeekGate for Arc<StreamControl> {
+    fn open_seeks(&self) {
+        StreamControl::open_seeks(self);
+    }
+
+    fn close_at_end(&self) -> bool {
+        self.close_seeks()
+    }
+
+    fn close_on_exit(&self) {
+        self.close_seeks();
+    }
 }
 
 /// Starts the `plisto-stream-decode` thread. It runs until the input ends, the stream is cancelled,
@@ -154,7 +200,18 @@ pub enum DecodeEnd {
 /// called.
 pub fn spawn_decoder(
     input: StreamInput,
+    queue: PcmQueue,
+    on_end: impl FnOnce(DecodeEnd) + Send + 'static,
+) -> io::Result<JoinHandle<()>> {
+    let gate = Arc::clone(queue.control());
+    spawn_gated(input, queue, gate, on_end)
+}
+
+/// `spawn_decoder` with seeks opened and closed through `gate`.
+pub(super) fn spawn_gated(
+    input: StreamInput,
     mut queue: PcmQueue,
+    gate: impl SeekGate,
     on_end: impl FnOnce(DecodeEnd) + Send + 'static,
 ) -> io::Result<JoinHandle<()>> {
     thread::Builder::new()
@@ -162,11 +219,11 @@ pub fn spawn_decoder(
         .spawn(move || {
             let control = Arc::clone(queue.control());
             let end = panic::catch_unwind(AssertUnwindSafe(|| match input {
-                StreamInput::Media { source, hint } => run_media(source, hint, &mut queue),
+                StreamInput::Media { source, hint } => run_media(source, hint, &mut queue, &gate),
                 StreamInput::PcmS16le { source, spec } => run_pcm(source, spec, &mut queue),
             }))
             .unwrap_or(DecodeEnd::Panicked);
-            control.close_seeks();
+            gate.close_on_exit();
             control.set_producer_done();
             on_end(end);
         })
@@ -273,7 +330,7 @@ enum Ending {
 
 // Queues the end of a media stream and closes seeks in one step with it: a seek that got in first
 // is served before the stream ends, and every later one is refused.
-fn finish_media(queue: &mut PcmQueue) -> Ending {
+fn finish_media(queue: &mut PcmQueue, gate: &dyn SeekGate) -> Ending {
     if let Some(err) = queue.stopped() {
         return Ending::Done(from_push(err));
     }
@@ -282,10 +339,9 @@ fn finish_media(queue: &mut PcmQueue) -> Ending {
         Err(PushError::SeekPending) => return Ending::SeekFirst,
         Err(err) => return Ending::Done(from_push(err)),
     }
-    let control = queue.control();
-    if control.close_seeks() {
+    if gate.close_at_end() {
         // The queued `End` is stale now; the seek's flush drops it.
-        control.open_seeks();
+        gate.open_seeks();
         return Ending::SeekFirst;
     }
     Ending::Done(DecodeEnd::Finished)
@@ -316,16 +372,18 @@ fn chunk_ok(spec: AudioSpec) -> bool {
     spec.channels >= 1 && spec.channels <= MAX_CHANNELS && RATES.contains(&spec.sample_rate)
 }
 
-// Counts spec changes that come with less than `MIN_CHUNK_FRAMES` of audio between them.
-struct SpecFlips {
+/// Counts spec changes that come with less than `MIN_CHUNK_FRAMES` of audio between them. The main
+/// process counts them again on the chunks a decode helper sends.
+#[derive(Default)]
+pub(super) struct SpecFlips {
     spec: Option<AudioSpec>,
     frames: usize,
     flips: usize,
 }
 
 impl SpecFlips {
-    // False once more than `SPEC_FLIPS_MAX` short runs have come in a row.
-    fn take(&mut self, spec: AudioSpec, frames: usize) -> bool {
+    /// False once more than `SPEC_FLIPS_MAX` short runs have come in a row.
+    pub(super) fn take(&mut self, spec: AudioSpec, frames: usize) -> bool {
         if self.spec.is_some_and(|s| s != spec) {
             if self.frames < MIN_CHUNK_FRAMES {
                 self.flips += 1;
@@ -392,10 +450,11 @@ fn run_media(
     source: Box<dyn MediaSource>,
     hint: Option<&'static str>,
     queue: &mut PcmQueue,
+    gate: &dyn SeekGate,
 ) -> DecodeEnd {
     let control = Arc::clone(queue.control());
     if source.is_seekable() {
-        control.open_seeks();
+        gate.open_seeks();
     }
     let watch = Arc::new(Watch {
         last: AtomicU8::new(READ_OK),
@@ -413,11 +472,7 @@ fn run_media(
         Ok(d) => d,
         Err(_) => return stopped(queue, &watch, DecodeEnd::Failed(Unsupported::Codec)),
     };
-    let mut flips = SpecFlips {
-        spec: None,
-        frames: 0,
-        flips: 0,
-    };
+    let mut flips = SpecFlips::default();
 
     loop {
         if let Some((secs, generation)) = control.take_seek() {
@@ -432,7 +487,7 @@ fn run_media(
             control.answer_seek(generation);
             // A target past the end lands on the end.
             if !in_range {
-                match finish_media(queue) {
+                match finish_media(queue, gate) {
                     Ending::Done(end) => return end,
                     Ending::SeekFirst => continue,
                 }
@@ -477,7 +532,7 @@ fn run_media(
                 if !clean {
                     return DecodeEnd::Corrupt;
                 }
-                match finish_media(queue) {
+                match finish_media(queue, gate) {
                     Ending::Done(end) => return end,
                     Ending::SeekFirst => continue,
                 }
