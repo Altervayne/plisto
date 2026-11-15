@@ -15,8 +15,8 @@ describe("SettingsRail", () => {
   it("lists every section and marks only the active one", () => {
     const html = renderToStaticMarkup(<SettingsRail active="sound" onPick={noop} />);
     expect(html.match(/<button/g)).toHaveLength(SETTINGS_SECTIONS.length);
-    expect(html.match(/aria-current="true"/g)).toHaveLength(1);
-    expect(html).toMatch(new RegExp(`aria-current="true"[^>]*>${en.settings.sectionSound}<`));
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+    expect(html).toMatch(new RegExp(`aria-current="page"[^>]*>${en.settings.sectionSound}<`));
   });
 });
 

@@ -10,8 +10,10 @@ import { create } from "zustand";
 
 // -- Utils Imports --
 import { hubSettingId } from "../../components/settings/settingsRegistry";
+import { sectionForTarget } from "../../components/settings/settingsTarget";
 
 // -- Type Imports --
+import type { SettingsSectionId } from "../../components/settings/settingsSections";
 import type { SettingsTarget } from "../../components/settings/settingsTarget";
 
 /** The open tool session: which verb the workbench runs, over which track. */
@@ -35,6 +37,10 @@ interface ShellStore {
   // Bumped by a surface outside the shell (the title bar) to land on Settings. A counter, not a flag,
   // so a second request after navigating away still fires.
   settingsRequest: number;
+  // The Settings section on show. Kept for the session so Settings reopens where it was left; a target
+  // changes it, nothing else does.
+  settingsSection: SettingsSectionId;
+  setSettingsSection: (id: SettingsSectionId) => void;
   // Opens Settings, optionally on a row or section. A plain open drops any target still waiting.
   openSettings: (opts?: OpenSettingsOptions) => void;
   // The target waiting for Settings to land on it, held until Settings takes it. `seq` is the request
@@ -85,10 +91,13 @@ const useShellStore = create<ShellStore>((set, get) => ({
   historyLens: "recent",
   setHistoryLens: (historyLens) => set({ historyLens }),
   settingsRequest: 0,
+  settingsSection: "folders",
+  setSettingsSection: (settingsSection) => set({ settingsSection }),
   openSettings: (opts) =>
     set((s) => ({
       settingsRequest: s.settingsRequest + 1,
       settingsTarget: opts?.target ? { target: opts.target, seq: s.settingsRequest + 1 } : null,
+      settingsSection: (opts?.target && sectionForTarget(opts.target)) || s.settingsSection,
     })),
   settingsTarget: null,
   takeSettingsTarget: () => {
@@ -112,6 +121,7 @@ const useShellStore = create<ShellStore>((set, get) => ({
       pluginHubFocus: id,
       settingsRequest: s.settingsRequest + 1,
       settingsTarget: { target: hubSettingId(id), seq: s.settingsRequest + 1 },
+      settingsSection: "plugins",
     })),
   clearPluginHubFocus: () => set({ pluginHubFocus: null }),
 }));
@@ -151,6 +161,14 @@ export const useOpenSettings = (): ((opts?: OpenSettingsOptions) => void) =>
   useShellStore((s) => s.openSettings);
 export const usePendingSettingsTarget = (): PendingSettingsTarget | null =>
   useShellStore((s) => s.settingsTarget);
+export const useSettingsSection = (): SettingsSectionId => useShellStore((s) => s.settingsSection);
+export const useSetSettingsSection = (): ((id: SettingsSectionId) => void) =>
+  useShellStore((s) => s.setSettingsSection);
+
+/** The Settings section last shown, from outside React. */
+export function settingsSection(): SettingsSectionId {
+  return useShellStore.getState().settingsSection;
+}
 
 export const useDuplicatesOpen = (): boolean => useShellStore((s) => s.duplicatesOpen);
 export const useOpenDuplicates = (): (() => void) => useShellStore((s) => s.openDuplicates);

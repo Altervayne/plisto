@@ -19,7 +19,6 @@ import { useSoundActions, useSoundSettings } from "../../state/sound/useSoundSet
 import { canReset } from "../../state/sound/presets";
 import { PREAMP_MAX_DB, PREAMP_MIN_DB } from "../../state/sound/settings";
 import { formatDb } from "../sound/formatDb";
-import { SOUND_SECTION_ID } from "../sound/soundSectionId";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -45,7 +44,7 @@ export function SoundSection() {
   const nudge = (delta: number) => actions.setPreamp(settings.preampDb + delta);
 
   return (
-    <section className={styles.section} id={SOUND_SECTION_ID} {...sectionAttr("sound")}>
+    <section className={styles.section} {...sectionAttr("sound")}>
       <h2 className={styles.label}>{t((d) => d.settings.sectionSound)}</h2>
 
       <SettingRow id="equalizer" className={styles.pref}>

@@ -12,7 +12,7 @@ import { matchesTokens, searchTokens } from "../../lib/tokenMatch";
 import type { FinderEntry, FinderKind } from "./finderIndex";
 
 /** The result groups, in their fallback order. Albums holds singles too. */
-export type FinderGroupKey = "artists" | "albums" | "playlists" | "genres" | "tracks" | "destinations";
+export type FinderGroupKey = "artists" | "albums" | "playlists" | "genres" | "tracks" | "destinations" | "settings";
 
 const GROUP_ORDER: FinderGroupKey[] = [
   "artists",
@@ -21,6 +21,7 @@ const GROUP_ORDER: FinderGroupKey[] = [
   "genres",
   "tracks",
   "destinations",
+  "settings",
 ];
 
 const GROUP_OF: Record<FinderKind, FinderGroupKey> = {
@@ -32,6 +33,7 @@ const GROUP_OF: Record<FinderKind, FinderGroupKey> = {
   track: "tracks",
   destination: "destinations",
   plugin: "destinations",
+  setting: "settings",
 };
 
 /** How many hits each group shows, and the most rows the whole result renders. */
@@ -42,6 +44,7 @@ export const GROUP_CAP: Record<FinderGroupKey, number> = {
   genres: 5,
   tracks: 10,
   destinations: 5,
+  settings: 3,
 };
 export const TOTAL_CAP = 30;
 
@@ -95,10 +98,10 @@ export function scoreEntry(fields: string[], tokens: string[]): number {
   return total;
 }
 
-/** Containers rank ahead of tracks on a tie; destinations and plugin pages come last. */
+/** Containers rank ahead of tracks on a tie; destinations, plugin pages and settings come last. */
 function kindRank(kind: FinderKind): number {
   if (kind === "track") return 1;
-  if (kind === "destination" || kind === "plugin") return 2;
+  if (kind === "destination" || kind === "plugin" || kind === "setting") return 2;
   return 0;
 }
 
@@ -133,8 +136,8 @@ export function compareHits(a: FinderHit, b: FinderHit): number {
 
 // Groups order by their best hit; a tie puts container groups first, then the fallback order.
 function compareGroups(a: FinderGroup, b: FinderGroup): number {
-  const containerA = a.key === "tracks" || a.key === "destinations" ? 1 : 0;
-  const containerB = b.key === "tracks" || b.key === "destinations" ? 1 : 0;
+  const containerA = a.key === "tracks" || a.key === "destinations" || a.key === "settings" ? 1 : 0;
+  const containerB = b.key === "tracks" || b.key === "destinations" || b.key === "settings" ? 1 : 0;
   return (
     b.hits[0].score - a.hits[0].score ||
     containerA - containerB ||
@@ -183,6 +186,9 @@ export function searchFinder(
   const ordered = [...byGroup]
     .map(([key, list]) => ({ key, hits: list }))
     .sort(compareGroups);
+  // Settings always close the list, so a setting never pushes a library hit down.
+  const settings = ordered.findIndex((group) => group.key === "settings");
+  if (settings > -1) ordered.push(...ordered.splice(settings, 1));
 
   // The total cap trims from the end, so the weakest groups give way first.
   const groups: FinderGroup[] = [];

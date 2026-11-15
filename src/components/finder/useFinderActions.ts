@@ -7,16 +7,17 @@ import {
   useSetLibrarySearch,
 } from "../../state/store";
 import { usePlayerActions } from "../../state/player/store";
-import { useOpenDuplicates } from "../../state/shell/store";
+import { openPluginHub, useOpenDuplicates, useOpenSettings } from "../../state/shell/store";
 
 // -- Utils Imports --
 import { sourceForContainer } from "../albums/playbackSource";
 import { destinationTarget } from "./finderDestinations";
 
 // -- Type Imports --
-import type { FinderEntry } from "./finderIndex";
+import type { FinderEntry, SettingFinderEntry } from "./finderIndex";
 import type { NavTarget } from "../shell/navVisibility";
 import type { GridFacet } from "../tracks/trackFacets";
+import type { SettingsTarget } from "../settings/settingsTarget";
 import type { PlaybackSource } from "../../types";
 
 // -- i18n Imports --
@@ -29,6 +30,15 @@ export interface FinderNav {
   openSingle: (albumId: number) => void;
   openPlaylist: (playlistId: number) => void;
   openPlugin: (pluginId: string, route: string | null) => void;
+}
+
+/** Where a Settings result goes: a hub row opens its plugin's panel too, anything else lands on its target. */
+export function openSetting(
+  entry: SettingFinderEntry,
+  go: { openSettings: (opts: { target: SettingsTarget }) => void; openPluginHub: (id: string) => void },
+): void {
+  if (entry.variant === "hub" && entry.pluginId) go.openPluginHub(entry.pluginId);
+  else go.openSettings({ target: entry.id as SettingsTarget });
 }
 
 /** What the finder can do with an entry: go to it, play it, or queue it. */
@@ -62,6 +72,7 @@ export function useFinderActions(nav: FinderNav): FinderActions {
   const reveal = useRevealLibraryTrack();
   const { play, addToQueue, playNext } = usePlayerActions();
   const openDuplicates = useOpenDuplicates();
+  const openSettings = useOpenSettings();
   const t = useT();
 
   const allTracks = (facets: GridFacet[], search = "") => {
@@ -125,6 +136,9 @@ export function useFinderActions(nav: FinderNav): FinderActions {
         break;
       case "plugin":
         nav.openPlugin(entry.pluginId, entry.route);
+        break;
+      case "setting":
+        openSetting(entry, { openSettings, openPluginHub });
         break;
     }
   };

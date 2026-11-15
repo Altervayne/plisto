@@ -4,6 +4,8 @@ import { useMemo } from "react";
 // -- State Imports --
 import { useAppStore } from "../../state/store";
 import { useProbe } from "../../state/plugins/sandboxStore";
+import { usePlugins } from "../../state/plugins/store";
+import { tagKind } from "../../state/plugins/trust";
 import { useOrganizeStore } from "../../state/organize/store";
 import { usePlaylistsStore } from "../../state/playlists/store";
 import { useAppMode } from "../../state/player/store";
@@ -16,15 +18,25 @@ import {
   pluginEntries,
 } from "./finderIndex";
 import { DESTINATION_LABEL } from "./finderDestinations";
+import { settingEntries } from "./finderSettingsEntries";
+import { settingsContext } from "../settings/settingsRegistry";
 
 // -- Hook Imports --
 import { usePluginZone } from "../plugins/sidebar/usePluginZone";
 
 // -- Type Imports --
-import type { DestinationEntry, FinderIndex, FinderSource, PluginEntry } from "./finderIndex";
+import type {
+  DestinationEntry,
+  FinderIndex,
+  FinderSource,
+  PluginEntry,
+  SettingFinderEntry,
+} from "./finderIndex";
 
 // -- i18n Imports --
 import { createT, useLocale } from "../../i18n";
+import { en } from "../../i18n/en";
+import { fr } from "../../i18n/fr";
 
 // The last build and the rows it came from. The finder mounts on each open, so a component memo would
 // rebuild every time; this survives the unmount and rebuilds only when a source row list changes.
@@ -43,12 +55,13 @@ function indexFor(source: FinderSource): FinderIndex {
 
 /**
  * The library index over the live store rows, plus the destinations the current mode can reach and the
- * plugin rows for the plugins the rail draws.
+ * plugin rows for the plugins the rail draws, and the Settings rows the registry says exist.
  */
 export function useFinderIndex(): {
   index: FinderIndex;
   destinations: DestinationEntry[];
   plugins: PluginEntry[];
+  settings: SettingFinderEntry[];
 } {
   const tracks = useAppStore((s) => s.tracks);
   const albums = useOrganizeStore((s) => s.org.albums);
@@ -100,5 +113,24 @@ export function useFinderIndex(): {
     [zone, t, probe],
   );
 
-  return { index, destinations, plugins };
+  const installed = usePlugins();
+  const settings = useMemo(
+    () =>
+      settingEntries(
+        locale === "fr" ? fr : en,
+        settingsContext(),
+        installed.map((row) => ({
+          id: row.id,
+          name: row.manifest?.name ?? row.id,
+          tag: tagKind(row.tier, probe),
+        })),
+        {
+          group: t((d) => d.settings.nav),
+          path: (section) => t((d) => d.finder.settingsPath, { section }),
+        },
+      ),
+    [locale, t, installed, probe],
+  );
+
+  return { index, destinations, plugins, settings };
 }

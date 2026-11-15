@@ -1301,6 +1301,15 @@ export const en = {
     keyNext: "Alt+Enter play next",
     keyQueue: "Shift+Enter add to queue",
     keyClose: "Esc close",
+    settings: "Settings",
+    sections: "Sections",
+    settingsPath: "Settings > {section}",
+    showAllSettings: "Show all {{n}} settings",
+    scopePlaceholder: "Search settings",
+    scopeNoMatch: 'No settings match "{q}"',
+    searchEverything: "Search everything",
+    scopedLabel: "Search, {scope}",
+    keyScope: "Backspace removes {scope}",
   },
 
   shortcuts: {

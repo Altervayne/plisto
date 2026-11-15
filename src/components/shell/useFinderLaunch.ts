@@ -13,10 +13,35 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { originOnScreen } from "../finder/useFinderMotion";
 import { focusAfterClose } from "../finder/finderMorph";
 import type { CloseReason } from "../finder/finderMorph";
+import type { FinderScope } from "../finder/useFinderModel";
 
-interface Opening {
+export interface Opening {
   origin: HTMLElement | null;
   returnFocus: HTMLElement | null;
+  scope: FinderScope | null;
+}
+
+/** What an open knows about its surroundings. `door` is the control that asked for a scoped open. */
+export interface OpenContext {
+  pill: HTMLElement | null;
+  // The element holding focus before the open, when it is a real control.
+  held: HTMLElement | null;
+  fromPill: boolean;
+  door?: HTMLElement | null;
+  scope?: FinderScope | null;
+}
+
+/**
+ * The opening for one open. The origin is the pill when it is wholly on screen. A dismissal returns
+ * focus to the door that asked, else the pill, else whatever held focus before Ctrl+K.
+ */
+export function openingFor(ctx: OpenContext, onScreen: (el: HTMLElement) => boolean = originOnScreen): Opening {
+  const { pill, held, fromPill, door = null, scope = null } = ctx;
+  return {
+    origin: pill != null && onScreen(pill) ? pill : null,
+    returnFocus: door ?? (fromPill ? pill : held),
+    scope,
+  };
 }
 
 export function useFinderLaunch({ tracks, standalone, sidebarExpanded }: { tracks: number; standalone: boolean; sidebarExpanded: boolean }) {
@@ -25,13 +50,10 @@ export function useFinderLaunch({ tracks, standalone, sidebarExpanded }: { track
   const pillRef = useRef<HTMLButtonElement | null>(null);
   const pendingFocus = useRef<HTMLElement | null>(null);
 
-  const open = useCallback((fromPill: boolean) => {
-    const pill = pillRef.current;
+  const open = useCallback((fromPill: boolean, door?: HTMLElement | null, scope?: FinderScope) => {
     const active = document.activeElement;
-    const next = {
-      origin: pill != null && originOnScreen(pill) ? pill : null,
-      returnFocus: fromPill ? pill : active instanceof HTMLElement && active !== document.body ? active : null,
-    };
+    const held = active instanceof HTMLElement && active !== document.body ? active : null;
+    const next = openingFor({ pill: pillRef.current, held, fromPill, door, scope });
     setOpening((current) => current ?? next);
   }, []);
 
@@ -53,7 +75,8 @@ export function useFinderLaunch({ tracks, standalone, sidebarExpanded }: { track
   return {
     enabled,
     openFromKeys: () => open(false),
+    openScoped: (door: HTMLElement | null, scope: FinderScope) => open(false, door, scope),
     pill: enabled ? { open: opening != null, onOpen: () => open(true), pillRef } : null,
-    finder: opening ? { origin: opening.origin, onClose } : null,
+    finder: opening ? { origin: opening.origin, onClose, initialScope: opening.scope } : null,
   };
 }

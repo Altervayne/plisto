@@ -18,6 +18,7 @@ function sublabelOf(entry: FinderEntry, t: Translate): string | null {
     case "album":
     case "track":
     case "plugin":
+    case "setting":
       return entry.sublabel ?? null;
     case "single": {
       const marker = t((d) => d.singles.marker);
@@ -67,7 +68,7 @@ export function FinderRow({
     >
       <FinderThumb entry={entry} />
       <span className={styles.text}>
-        {entry.kind === "plugin" && entry.tag ? (
+        {(entry.kind === "plugin" || entry.kind === "setting") && entry.tag ? (
           <span className={styles.labelLine}>
             <span className={styles.label}>{entry.label}</span>
             <PluginTag kind={entry.tag} />

@@ -28,6 +28,17 @@ function isSectionId(id: string): id is SettingsSectionId {
 }
 
 /**
+ * The section a target lives in: a section is itself, a row is in its registry section, a hub row in
+ * Plugins. Null for an id that names nothing, which leaves the shown section alone.
+ */
+export function sectionForTarget(target: string): SettingsSectionId | null {
+  if (isSectionId(target)) return target;
+  const entry = settingEntry(target);
+  if (entry) return entry.section;
+  return target.startsWith("hub-") ? "plugins" : null;
+}
+
+/**
  * The anchor a target lands on. A row that is not on the page (a Windows-only row elsewhere, a plugin
  * not loaded yet) lands on its section; a hub id with no row lands on Plugins. Null for an unknown id.
  */

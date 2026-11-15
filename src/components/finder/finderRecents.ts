@@ -28,6 +28,7 @@ const KINDS: readonly string[] = [
   "track",
   "destination",
   "plugin",
+  "setting",
 ];
 
 function isRecentRef(value: unknown): value is RecentRef {

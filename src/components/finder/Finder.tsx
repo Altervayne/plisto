@@ -12,6 +12,7 @@ import { FinderResults } from "./FinderResults";
 // -- Hook Imports --
 import { useFinderActions, isPlayable } from "./useFinderActions";
 import { useFinderModel } from "./useFinderModel";
+import { dropsScope } from "./finderSettingsEntries";
 import { useFinderMotion } from "./useFinderMotion";
 
 // -- State Imports --
@@ -21,6 +22,7 @@ import { usePlayerEnabled } from "../../state/player/store";
 // -- Type Imports --
 import type { FinderNav } from "./useFinderActions";
 import type { CloseReason } from "./finderMorph";
+import type { FinderScope } from "./useFinderModel";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -34,6 +36,9 @@ import styles from "./Finder.module.css";
  * there, and with the player on, Ctrl+Enter plays, Alt+Enter plays next and Shift+Enter queues. Any
  * action closes it. The search runs on every keystroke over a prebuilt index. Portals to the body.
  *
+ * `initialScope` opens it already narrowed to one part of the app (a chip in the field); Backspace on an
+ * empty field removes it.
+ *
  * `origin` is the sidebar search pill when it shows on screen: the input row then flies out of it and a
  * dismissal flies back. `onClose` gets the reason once the exit has played, so the opener can decide
  * where focus goes.
@@ -42,20 +47,25 @@ export function Finder({
   nav,
   onClose,
   origin = null,
+  initialScope = null,
 }: {
   nav: FinderNav;
   onClose: (reason: CloseReason) => void;
   origin?: HTMLElement | null;
+  initialScope?: FinderScope | null;
 }) {
   const t = useT();
   const playerEnabled = usePlayerEnabled();
   const loadGenres = useLoadGenres();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  const model = useFinderModel(query);
+  const [scope, setScope] = useState<FinderScope | null>(initialScope);
+  const model = useFinderModel(query, scope);
   const actions = useFinderActions(nav);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
+  const scopeHintId = `${listId}-scope`;
+  const scopeName = t((d) => d.finder.settings);
   const rowId = (index: number) => `${listId}-${index}`;
   const count = model.items.length;
   const active = Math.min(cursor, count - 1);
@@ -89,6 +99,12 @@ export function Finder({
   const activate = (index: number) => {
     const item = model.items[index];
     if (motion.closing || !item) return;
+    if (item.type === "everything" || (item.type === "showAll" && item.target)) {
+      // These stay in the palette: they only change the scope, keeping what was typed.
+      setScope(item.type === "everything" ? null : item.target ?? null);
+      setCursor(0);
+      return;
+    }
     if (item.type === "showAll") {
       actions.showAllTracks(query.trim());
     } else {
@@ -134,6 +150,13 @@ export function Finder({
         else if (event.shiftKey) playAt(active, "enqueue");
         else activate(active);
         break;
+      case "Backspace":
+        if (dropsScope(scope, query, event.repeat)) {
+          event.preventDefault();
+          setScope(null);
+          setCursor(0);
+        }
+        break;
       // Held here so a peek or drawer listening on the document underneath stays open.
       case "Escape":
         event.preventDefault();
@@ -147,7 +170,11 @@ export function Finder({
 
   const legend = [
     t((d) => d.finder.keyOpen),
-    ...(playerEnabled ? [t((d) => d.finder.keyPlay), t((d) => d.finder.keyNext), t((d) => d.finder.keyQueue)] : []),
+    ...(scope
+      ? [t((d) => d.finder.keyScope, { scope: scopeName })]
+      : playerEnabled
+        ? [t((d) => d.finder.keyPlay), t((d) => d.finder.keyNext), t((d) => d.finder.keyQueue)]
+        : []),
     t((d) => d.finder.keyClose),
   ];
 
@@ -184,6 +211,16 @@ export function Finder({
             </>
           ) : null}
           <Search size={17} strokeWidth={1.8} className={styles.fieldIcon} aria-hidden="true" />
+          {scope ? (
+            <span className={styles.chip} aria-hidden="true">
+              {scopeName}
+            </span>
+          ) : null}
+          {scope ? (
+            <span id={scopeHintId} className={styles.srOnly}>
+              {t((d) => d.finder.keyScope, { scope: scopeName })}
+            </span>
+          ) : null}
           <input
             className={styles.input}
             type="text"
@@ -195,7 +232,9 @@ export function Finder({
             aria-autocomplete="list"
             aria-controls={count > 0 ? listId : undefined}
             aria-activedescendant={count > 0 ? rowId(active) : undefined}
-            placeholder={t((d) => d.finder.placeholder)}
+            aria-label={scope ? t((d) => d.finder.scopedLabel, { scope: scopeName }) : undefined}
+            aria-describedby={scope ? scopeHintId : undefined}
+            placeholder={scope ? t((d) => d.finder.scopePlaceholder) : t((d) => d.finder.placeholder)}
             value={query}
             onChange={(event) => {
               land();
@@ -210,6 +249,7 @@ export function Finder({
           <FinderResults
             model={model}
             query={query}
+            scope={scope}
             listId={listId}
             rowId={rowId}
             active={active}

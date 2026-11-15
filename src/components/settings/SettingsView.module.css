@@ -76,7 +76,6 @@
 .sections {
   display: flex;
   flex-direction: column;
-  gap: 32px;
   max-width: 662px;
   margin-right: 3px;
   /* The 8px the scroller gave back, so the column keeps its place. */
@@ -211,5 +210,41 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
+  color: var(--ink-3);
+}
+
+/* The head door into the finder, scoped to Settings: a quiet text button, not a second search field. */
+.door {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 250px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.door span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.door:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.door svg {
+  flex: none;
   color: var(--ink-3);
 }

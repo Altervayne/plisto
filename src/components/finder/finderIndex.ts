@@ -19,6 +19,7 @@ import type { BuiltInMode, PluginZoneModel, ZonePlugin } from "../shell/navVisib
 import type { PluginTagKind, ProbeOutcome } from "../../state/plugins/trust";
 import type { FinderDestination, SegmentDestination } from "./finderDestinations";
 import type { AppMode } from "../../state/player/store";
+import type { SettingsSectionId } from "../settings/settingsSections";
 import type {
   AlbumRow,
   AlbumTrackRow,
@@ -37,7 +38,8 @@ export type FinderKind =
   | "genre"
   | "track"
   | "destination"
-  | "plugin";
+  | "plugin"
+  | "setting";
 
 /** Where an artist name appears: on tracks, as an album artist, or both. */
 export type ArtistRole = "track" | "album" | "both";
@@ -89,12 +91,29 @@ export interface PluginEntry extends EntryBase {
   tag: PluginTagKind | null;
 }
 
+/**
+ * A Settings row, a Settings section (a jump to its top), or an installed plugin's hub row. `id` is
+ * the target Settings lands on. Field 0 is the label; fields 1..n hold the folded `synonyms` in order, so
+ * the one that matched can be named. The sublabel is the section path.
+ */
+export interface SettingFinderEntry extends EntryBase {
+  kind: "setting";
+  id: string;
+  variant: "setting" | "section" | "hub";
+  section: SettingsSectionId;
+  synonyms: string[];
+  // The plugin behind a hub row.
+  pluginId?: string;
+  tag: PluginTagKind | null;
+}
+
 export type FinderEntry =
   | ArtistEntry
   | ContainerEntry
   | TrackEntry
   | DestinationEntry
-  | PluginEntry;
+  | PluginEntry
+  | SettingFinderEntry;
 
 /** The library rows the index derives from, plus the labels an untitled row falls back to. */
 export interface FinderSource {

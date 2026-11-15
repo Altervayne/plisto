@@ -24,20 +24,35 @@ interface NavProps {
 }
 
 /**
- * The section list beside the column, outside the scroller so it stays put. The active section reads
- * in ink; a click jumps to it. Below the width that fits it the stylesheet hides the rail and the
+ * The section list beside the column, outside the scroller so it stays put. The shown section reads
+ * in ink; a click shows another. Below the width that fits it the stylesheet hides the rail and the
  * Sections control takes over, so the page holds both and CSS picks one.
  */
 export function SettingsRail({ active, onPick }: NavProps) {
   const t = useT();
+  const items = useRef<Array<HTMLButtonElement | null>>([]);
+
+  // Arrows, Home and End move focus between entries; Tab order is untouched.
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const focused = items.current.findIndex((el) => el === document.activeElement);
+    const next = menuKeyTarget(e.key, focused < 0 ? 0 : focused, SETTINGS_SECTIONS.length);
+    if (next == null || focused < 0) return;
+    e.preventDefault();
+    items.current[next]?.focus();
+  };
+
   return (
-    <nav className={styles.rail} aria-label={t((d) => d.settings.sections)}>
-      {SETTINGS_SECTIONS.map((section) => (
+    <nav className={styles.rail} aria-label={t((d) => d.settings.sections)} onKeyDown={onKeyDown}>
+      {SETTINGS_SECTIONS.map((section, i) => (
         <button
           key={section.id}
+          ref={(el) => {
+            items.current[i] = el;
+          }}
           type="button"
           className={styles.item}
-          aria-current={section.id === active ? "true" : undefined}
+          data-nav-focus={section.id === active ? "" : undefined}
+          aria-current={section.id === active ? "page" : undefined}
           onClick={() => onPick(section.id)}
         >
           {t(section.label)}
@@ -121,6 +136,7 @@ export function SectionsMenu({ active, onPick }: NavProps) {
       <button
         ref={trigger}
         type="button"
+        data-nav-focus=""
         className={styles.button}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -149,7 +165,7 @@ export function SectionsMenu({ active, onPick }: NavProps) {
               role="menuitem"
               tabIndex={-1}
               className={`${styles.item} ${styles.menuItem}`}
-              aria-current={section.id === active ? "true" : undefined}
+              aria-current={section.id === active ? "page" : undefined}
               onClick={() => {
                 closeToTrigger();
                 onPick(section.id);

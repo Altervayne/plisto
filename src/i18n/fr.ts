@@ -1314,6 +1314,15 @@ export const fr: Dict = {
     keyNext: "Alt+Entrée lire ensuite",
     keyQueue: "Maj+Entrée ajouter à la file",
     keyClose: "Échap fermer",
+    settings: "Paramètres",
+    sections: "Sections",
+    settingsPath: "Paramètres > {section}",
+    showAllSettings: "Afficher les {{n}} paramètres",
+    scopePlaceholder: "Rechercher dans les paramètres",
+    scopeNoMatch: "Aucun paramètre ne correspond à « {q} »",
+    searchEverything: "Tout rechercher",
+    scopedLabel: "Rechercher, {scope}",
+    keyScope: "Retour arrière retire {scope}",
   },
 
   shortcuts: {

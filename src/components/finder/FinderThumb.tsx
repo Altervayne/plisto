@@ -1,5 +1,5 @@
 // -- Icon Imports --
-import { Tag, UserRound } from "lucide-react";
+import { Puzzle, Settings, Tag, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // -- Component Imports --
@@ -57,6 +57,8 @@ function lead(entry: FinderEntry) {
       return <Glyph icon={Tag} />;
     case "destination":
       return <Glyph icon={DESTINATION_ICON[entry.id]} />;
+    case "setting":
+      return <Glyph icon={entry.variant === "hub" ? Puzzle : Settings} />;
     case "plugin":
       return (
         <PluginIcon source={{ kind: "installed", id: entry.pluginId, hash: entry.manifestHash }} size={34} />

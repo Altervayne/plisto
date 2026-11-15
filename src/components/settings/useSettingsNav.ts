@@ -1,72 +1,50 @@
 /*
- * Section tracking and landing for the Settings scroller: the active section for the rail, a jump to a
- * section, and landing on a target another surface asked for.
+ * Section paging for the Settings scroller: the section on show, a pick from the rail, and landing on a
+ * target another surface asked for. The shown section lives in the shell store, so a target opens on its
+ * own section before the first paint and Settings reopens where it was left.
  */
 
 // -- Framework Imports --
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 // -- Utils Imports --
-import { createSectionTracker } from "./sectionTracker";
-import { SECTION_LAND_OFFSET } from "./settingsTarget";
-import { SETTINGS_SECTIONS } from "./settingsSections";
-import {
-  consumeTarget,
-  createLandingHold,
-  reducedMotion,
-  scrollTopFor,
-  sectionEl,
-} from "./settingsLanding";
+import { consumeTarget, createLandingHold, rescueFocus } from "./settingsLanding";
+import type { LandingHold } from "./settingsLanding";
 
 // -- State Imports --
-import { usePendingSettingsTarget } from "../../state/shell/store";
+import {
+  useSetSettingsSection,
+  useSettingsSection,
+  usePendingSettingsTarget,
+} from "../../state/shell/store";
 
-// -- Type Imports --
-import type { SettingsSectionId } from "./settingsSections";
-
-/** Wires the active section and the rail's jump to the scroller held in `viewportRef`. */
+/** The shown section, a pick that swaps it, and landing on a waiting target. */
 export function useSettingsNav(viewportRef: RefObject<HTMLDivElement | null>) {
-  const [active, setActive] = useState<SettingsSectionId>(SETTINGS_SECTIONS[0].id);
-  const held = useRef<SettingsSectionId | null>(null);
+  const section = useSettingsSection();
+  const pick = useSetSettingsSection();
 
-  const lock = useCallback((id: SettingsSectionId) => {
-    held.current = id;
-    setActive(id);
-  }, []);
+  const [hold] = useState(createLandingHold);
+  const shown = useRef(section);
 
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    return createSectionTracker(viewport, setActive, held).dispose;
-  }, [viewportRef]);
+  // A swap shows the new page from its top, ends a landing aimed at the old page, and keeps focus off
+  // the body when the page that held it is now hidden. A landing that focuses a row takes focus after.
+  useLayoutEffect(() => {
+    if (viewportRef.current) viewportRef.current.scrollTop = 0;
+    if (shown.current === section) return;
+    shown.current = section;
+    hold.stop();
+    rescueFocus();
+  }, [section, viewportRef, hold]);
 
-  const jumpTo = useCallback(
-    (id: SettingsSectionId) => {
-      const viewport = viewportRef.current;
-      const el = viewport ? sectionEl(viewport, id) : null;
-      if (!viewport || !el) return;
-      lock(id);
-      viewport.scrollTo({
-        top: scrollTopFor(viewport, el, SECTION_LAND_OFFSET),
-        behavior: reducedMotion() ? "instant" : "smooth",
-      });
-    },
-    [viewportRef, lock],
-  );
+  useSettingsLanding(viewportRef, hold);
 
-  useSettingsLanding(viewportRef, lock);
-
-  return { active, jumpTo };
+  return { section, pick };
 }
 
 /** Lands on the shell's waiting target on mount and whenever a new one arrives. */
-export function useSettingsLanding(
-  viewportRef: RefObject<HTMLDivElement | null>,
-  lock: (id: SettingsSectionId) => void,
-) {
+function useSettingsLanding(viewportRef: RefObject<HTMLDivElement | null>, hold: LandingHold) {
   const pending = usePendingSettingsTarget();
-  const [hold] = useState(createLandingHold);
 
   // The effect runs twice in development; the hold keeps the first landing alive across that.
   useEffect(() => {
@@ -76,7 +54,7 @@ export function useSettingsLanding(
 
   useEffect(() => {
     if (!pending) return;
-    const landing = consumeTarget(viewportRef.current, lock);
+    const landing = consumeTarget(viewportRef.current);
     if (landing) hold.start(landing);
-  }, [pending, viewportRef, lock, hold]);
+  }, [pending, viewportRef, hold]);
 }

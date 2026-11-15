@@ -1,7 +1,7 @@
 /*
- * Landing on a Settings target: scroll the row (or section) into place, mark and focus a row once, and
- * keep it pinned while rows above it are still loading. A row that is not rendered yet lands on its
- * section first and upgrades to the row when it appears. The landing owns the scroll for its target.
+ * Landing on a Settings target, once its section is on show: place the row in the pane, mark and focus
+ * it once, and keep it pinned while rows above it are still loading. A row that is not rendered yet
+ * lands on the section top first and upgrades to the row when it appears.
  */
 
 // -- State Imports --
@@ -49,11 +49,7 @@ export function scrollTopFor(viewport: HTMLElement, el: HTMLElement, offset: num
 }
 
 /** Lands on `target`, or returns null when nothing on the page answers to it. */
-export function land(
-  viewport: HTMLElement,
-  target: string,
-  lock: (id: SettingsSectionId) => void,
-): Landing | null {
+export function land(viewport: HTMLElement, target: string): Landing | null {
   const rowExists = (domId: string) => viewport.contains(document.getElementById(domId));
   const surface = viewport.parentElement ?? viewport;
   const cleanups: Array<() => void> = [];
@@ -85,14 +81,9 @@ export function land(
     const isRow = anchor.kind === "row";
     const el = isRow ? document.getElementById(anchor.domId) : sectionEl(viewport, anchor.section);
     if (!el) return false;
-    const section = isRow
-      ? (el.closest<HTMLElement>("[data-settings-section]")?.dataset.settingsSection as
-          | SettingsSectionId
-          | undefined)
-      : anchor.section;
-    if (section) lock(section);
+    // The browser clamps at the end, so a section shorter than the pane stays at its top.
     viewport.scrollTo({
-      top: scrollTopFor(viewport, el, isRow ? ROW_LAND_OFFSET : SECTION_LAND_OFFSET),
+      top: Math.max(0, scrollTopFor(viewport, el, isRow ? ROW_LAND_OFFSET : SECTION_LAND_OFFSET)),
       behavior: "instant",
     });
     if (isRow && !marked) startMark(el);
@@ -131,14 +122,29 @@ export function land(
   };
 }
 
-/** Takes the waiting target and lands on it; null when none waits, so a target lands once. */
-export function consumeTarget(
-  viewport: HTMLElement | null,
-  lock: (id: SettingsSectionId) => void,
-): Landing | null {
-  const target = takeSettingsTarget();
-  return target && viewport ? land(viewport, target, lock) : null;
+/**
+ * After a section change: when focus was lost with the hidden page (it sits on the body, or inside a
+ * `hidden` ancestor), puts it on the visible navigation entry, the rail's current one or the folded
+ * trigger. Blurring first closes anything anchored to the old control, a tooltip included.
+ */
+export function rescueFocus(doc: Document = document): void {
+  const active = doc.activeElement as HTMLElement | null;
+  const lost = !active || active === doc.body || active.closest("[hidden]") != null;
+  if (!lost) return;
+  active?.blur?.();
+  const nav = Array.from(doc.querySelectorAll<HTMLElement>("[data-nav-focus]")).find(
+    (el) => el.offsetParent !== null,
+  );
+  nav?.focus();
 }
+
+/** Takes the waiting target and lands on it; null when none waits, so a target lands once. */
+export function consumeTarget(viewport: HTMLElement | null): Landing | null {
+  const target = takeSettingsTarget();
+  return target && viewport ? land(viewport, target) : null;
+}
+
+export type LandingHold = ReturnType<typeof createLandingHold>;
 
 /**
  * Keeps the running landing across a dev-mode effect double-run: a release stops it on the next tick
@@ -160,6 +166,12 @@ export function createLandingHold() {
       current = landing;
     },
     retain: cancel,
+    /** Ends the running landing now, for a section change that moves the page under it. */
+    stop() {
+      cancel();
+      current?.stop();
+      current = null;
+    },
     release() {
       cancel();
       timer = setTimeout(() => {
