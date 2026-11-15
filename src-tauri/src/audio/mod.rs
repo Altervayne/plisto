@@ -338,6 +338,11 @@ pub struct PlayerStatus {
     // The seated stream. While set, `track_id` is its id, the position its listened time or play
     // head, and the queue fields describe the parked queue.
     pub stream: Option<StreamStatus>,
+    // Counters a consumer compares between snapshots, never interprets. `start_seq` moves when an item
+    // starts cold or gaplessly or is loaded; `seek_seq` only when a user seek took effect. Both start
+    // at 0 per process.
+    pub start_seq: u64,
+    pub seek_seq: u64,
 }
 
 impl Default for PlayerStatus {
@@ -355,6 +360,8 @@ impl Default for PlayerStatus {
             output_device: None,
             output_taken_over: false,
             stream: None,
+            start_seq: 0,
+            seek_seq: 0,
         }
     }
 }

@@ -113,6 +113,7 @@ impl Engine {
         }
         match seat.control.request_seek(secs) {
             Some(generation) => {
+                self.seek_seq += 1;
                 seat.awaiting = Some(generation);
                 seat.last_seek = Some(generation);
                 seat.carried = secs.max(0.0);

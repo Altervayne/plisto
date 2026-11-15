@@ -164,6 +164,8 @@ fn rig() -> Rig {
         last_default_name: None,
         last_device_poll: 0,
         seating: Seating::default(),
+        start_seq: 0,
+        seek_seq: 0,
     };
     Rig {
         engine,
@@ -1863,4 +1865,212 @@ fn the_seat_and_stream_source_files_stay_under_the_line_cap() {
             "{name} has {lines} lines, over {LINE_CAP}"
         );
     }
+}
+
+// ---- Status counters ----
+
+#[test]
+fn start_seq_bumps_on_start_gapless_and_load() {
+    let mut r = rig();
+    assert_eq!(r.status().start_seq, 0);
+
+    let queue = r.library(2);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    assert_eq!(r.status().start_seq, 1);
+
+    // The preload takes over at the boundary.
+    gapless_boundary(&mut r);
+    assert_eq!(r.status().track_id, Some(2));
+    assert_eq!(r.status().start_seq, 2);
+
+    let queue = r.library(2);
+    r.handle(PlayerCmd::Load {
+        queue,
+        index: 1,
+        secs: 1.0,
+    });
+    assert_eq!(r.status().start_seq, 3);
+
+    // Pause, resume, volume and a tick start nothing.
+    r.handle(PlayerCmd::Resume);
+    r.handle(PlayerCmd::SetVolume(0.5));
+    r.handle(PlayerCmd::Pause);
+    r.tick();
+    let status = r.status();
+    assert_eq!(status.start_seq, 3);
+    assert_eq!(status.seek_seq, 1, "only the boundary setup seek counts");
+}
+
+#[test]
+fn seek_seq_bumps_on_a_user_seek_only() {
+    let mut r = rig();
+    let queue = r.library(1);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    let started = r.status().start_seq;
+
+    r.handle(PlayerCmd::Seek(2.0));
+    assert_eq!(r.status().seek_seq, 1);
+    r.handle(PlayerCmd::Seek(3.0));
+    assert_eq!(r.status().seek_seq, 2);
+    assert_eq!(r.status().start_seq, started, "a seek is not a start");
+    // The forced status a seek emits already carries the counter.
+    let mirrored = r.engine.status.lock().unwrap().seek_seq;
+    assert_eq!(mirrored, 2);
+
+    // A seekable stream counts when the request reaches the producer.
+    let (item, mut p) = finite(60.0);
+    p.control.open_seeks();
+    r.start(item, &mut p);
+    r.handle(PlayerCmd::Seek(30.0));
+    assert_eq!(r.status().seek_seq, 3);
+}
+
+#[test]
+fn rebind_bumps_no_seek_seq() {
+    let mut r = rig();
+    let queue = r.library(1);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    let before = r.status();
+
+    // The library branch of a rebind re-seeks through `seek`, not the command.
+    let secs = r.engine.position_secs();
+    assert!(r.call(|e| e.seek(secs, false)));
+    assert_eq!(r.status().seek_seq, before.seek_seq);
+
+    let (item, mut p) = live();
+    r.start(item, &mut p);
+    let before = r.status();
+    r.call(|e| e.stream_rebound());
+    let after = r.status();
+    assert_eq!(after.seek_seq, before.seek_seq);
+    assert_eq!(after.start_seq, before.start_seq);
+}
+
+#[test]
+fn a_failed_seek_bumps_nothing() {
+    let mut r = rig();
+    // Nothing seated.
+    r.handle(PlayerCmd::Seek(1.0));
+    assert_eq!(r.status().seek_seq, 0);
+
+    let queue = r.library(1);
+    let path = queue[0].path.clone();
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    std::fs::remove_file(path).expect("the track file goes");
+    r.handle(PlayerCmd::Seek(1.0));
+    assert_eq!(r.status().seek_seq, 0);
+}
+
+#[test]
+fn a_live_stream_seek_bumps_nothing() {
+    let mut r = rig();
+    let (item, mut p) = live();
+    r.start(item, &mut p);
+    r.handle(PlayerCmd::Seek(10.0));
+    assert_eq!(r.status().seek_seq, 0);
+}
+
+// Seeks the playing first track near its end, arms the preload and plays the boundary out. The
+// next tick promotes the preload.
+fn gapless_boundary(r: &mut Rig) {
+    r.handle(PlayerCmd::Seek(9.5));
+    r.tick();
+    assert!(r.engine.pending.is_some(), "the preload is armed");
+    for _ in 0..1_000 {
+        r.pull(500);
+        let ended = r.engine.cur_ended.as_ref().is_some_and(|e| e.load(Ordering::Relaxed));
+        if ended {
+            r.tick();
+            return;
+        }
+    }
+    panic!("the first track never ended");
+}
+
+fn start_seq(r: &Rig) -> u64 {
+    r.status().start_seq
+}
+
+#[test]
+fn repeat_one_replay_bumps_start_seq_once() {
+    let mut r = rig();
+    let queue = r.library(1);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    r.handle(PlayerCmd::SetRepeat(RepeatMode::One));
+    r.handle(PlayerCmd::Seek(9.5));
+    let before = start_seq(&r);
+    r.pull_until_drained();
+    r.tick();
+    assert_eq!(start_seq(&r), before + 1);
+    assert_eq!(r.status().track_id, Some(1));
+}
+
+#[test]
+fn a_restore_after_a_preview_bumps_start_seq_once() {
+    let mut r = rig();
+    let queue = r.library(1);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    let before = start_seq(&r);
+    r.preview();
+    assert_eq!(start_seq(&r), before, "a preview start is no item start");
+    r.handle(PlayerCmd::Stop);
+    r.handle(PlayerCmd::RestoreLibrary {
+        secs: 0.25,
+        playing: true,
+    });
+    assert_eq!(start_seq(&r), before + 1);
+}
+
+#[test]
+fn reseating_the_parked_track_bumps_start_seq_once() {
+    let mut r = rig();
+    play_second_track(&mut r);
+    let (item, mut p) = live();
+    r.start(item, &mut p);
+    let before = start_seq(&r);
+    r.pull_until_starved(&p.control);
+    r.tick();
+    p.push(REBUFFER_CHUNKS);
+    p.queue.push_end().expect("queues the end");
+    r.tick();
+    r.pull_until_drained();
+    r.tick();
+    assert_eq!(r.status().track_id, Some(2));
+    assert_eq!(start_seq(&r), before + 1);
+}
+
+#[test]
+fn a_stream_cold_start_bumps_start_seq_once() {
+    let mut r = rig();
+    let (item, mut p) = live();
+    r.start(item, &mut p);
+    assert_eq!(start_seq(&r), 1);
+
+    // A preview over the item and its release restart the run cold.
+    p.push(REBUFFER_CHUNKS);
+    r.preview();
+    assert_eq!(start_seq(&r), 1);
+    r.handle(PlayerCmd::Stop);
+    assert!(r.attached());
+    assert_eq!(start_seq(&r), 2);
+}
+
+#[test]
+fn a_stream_seek_reattach_leaves_start_seq_flat() {
+    let mut r = rig();
+    let (item, mut p) = finite(60.0);
+    p.control.open_seeks();
+    r.start(item, &mut p);
+    let before = start_seq(&r);
+    let generation = seek_to_30(&mut r, &mut p);
+    p.queue.flush();
+    p.queue
+        .push_break(Seam::Seek(generation))
+        .expect("queues the answer");
+    p.control.answer_seek(generation);
+    p.push(REBUFFER_CHUNKS);
+    r.tick();
+    assert!(r.attached());
+    assert_eq!(start_seq(&r), before);
+    assert_eq!(r.status().seek_seq, 1);
 }

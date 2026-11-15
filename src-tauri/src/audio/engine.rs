@@ -162,6 +162,9 @@ struct Engine {
     last_device_poll: u64,
     // The seated plugin stream and the queue parked under it.
     seating: seat::Seating,
+    // The status counters: bumped where an item starts (`feed`) and where a user seek took effect.
+    start_seq: u64,
+    seek_seq: u64,
 }
 
 impl Engine {
@@ -185,6 +188,8 @@ impl Engine {
             output_device: self.bound_device.clone(),
             output_taken_over: self.taken_over,
             stream: None,
+            start_seq: self.start_seq,
+            seek_seq: self.seek_seq,
         };
         self.stream_snapshot(&mut status);
         status
@@ -244,6 +249,10 @@ impl Engine {
     /// feeds the tap, so with none current (stopped, or a preview playing) the snapshot says
     /// stopped, and a pause or a resume there sends nothing.
     fn feed(&mut self, cause: FeedCause) {
+        // Counted before the consumer check: the status carries it with no feed attached.
+        if matches!(cause, FeedCause::Start | FeedCause::Gapless) {
+            self.start_seq += 1;
+        }
         if !self.feed.wanted() {
             return;
         }
@@ -716,16 +725,19 @@ impl Engine {
     }
 
     /// Reopens the current file, seeks to `secs`, and restarts the source there while preserving the
-    /// paused state. A missing file or a seek failure leaves playback untouched.
-    fn seek(&mut self, secs: f64) {
+    /// paused state. A missing file or a seek failure leaves playback untouched. Returns whether a
+    /// source was seated.
+    /// `user` marks a seek the user asked for, which counts in `seek_seq`; a device rebind re-seeks
+    /// with it false.
+    fn seek(&mut self, secs: f64, user: bool) -> bool {
         let (path, gain_db) = match self.queue.get(self.index) {
             Some(t) if self.cur_track_id.is_some() => (t.path.clone(), t.gain_db),
-            _ => return,
+            _ => return false,
         };
         let tap = Some(self.tap.cold());
         let src = match self.open_source(&path, Some(secs), gain_db, tap) {
             Some(s) => s,
-            None => return,
+            None => return false,
         };
         let cut = self.outgoing();
         // Inside the window the next tick re-arms the preload this drops.
@@ -741,8 +753,12 @@ impl Engine {
                 sink.play();
             }
         }
+        if user {
+            self.seek_seq += 1;
+        }
         self.feed(FeedCause::Seek);
         self.emit(true);
+        true
     }
 
     /// Rebuilds the output stream onto `pref` (None follows the system default, Some pins a device),
@@ -817,7 +833,7 @@ impl Engine {
         } else if was_playing {
             // seek reopens the current file, seeks, and appends to the now-new sink, preserving the
             // paused state and emitting its own forced status.
-            self.seek(resume_secs);
+            self.seek(resume_secs, false);
             self.feed(FeedCause::Device);
         } else {
             self.feed(FeedCause::Device);
@@ -1028,7 +1044,9 @@ impl Engine {
                     self.emit(true);
                 }
             }
-            PlayerCmd::Seek(secs) => self.seek(secs),
+            PlayerCmd::Seek(secs) => {
+                self.seek(secs, true);
+            }
             PlayerCmd::SetVolume(v) => {
                 self.volume = v.clamp(0.0, 1.0);
                 if let Some(sink) = &self.sink {
@@ -1232,6 +1250,8 @@ fn run(
         last_default_name,
         last_device_poll: now_ms(),
         seating: seat::Seating::default(),
+        start_seq: 0,
+        seek_seq: 0,
     };
 
     loop {
