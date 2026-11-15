@@ -21,11 +21,13 @@ use super::outbox::{Outbox, Sent};
 use super::supervise::{wire_secs, Outcome};
 use super::watchdog::Activity;
 use super::{lock, POLL_FIRST};
+use crate::audio::stream::isolate::file::{FileInfo, FileState};
 use crate::audio::stream::isolate::wire::{
     HelperFrame, HelperReader, MainFrame, ReadSource, WireError,
 };
 use crate::audio::stream::pcm::{PcmQueue, PushError, Seam};
 use crate::audio::stream::{DecodeEnd, StreamControl, WAIT_SLICE};
+use crate::audio::AudioSpec;
 use crate::proc::pipe;
 
 /// The helper's stdout, read only once bytes wait in it, so a read never outlasts the end being
@@ -106,6 +108,8 @@ pub(super) struct Pump<R> {
     pub(super) end_queued: bool,
     pub(super) gate: Arc<EndGate>,
     pub(super) activity: Arc<Activity>,
+    // An opened file's report, which takes its one `Opened`. None for a stream item.
+    pub(super) file: Option<Arc<FileState>>,
     // How long a take holds the end lock before acting, so a test can decide the end meanwhile.
     #[cfg(test)]
     pub(super) pause_in_take: Duration,
@@ -191,6 +195,23 @@ impl<R: Read> Pump<R> {
                     if let Err(err) = self.pushing(|queue| queue.push_break(seam)) {
                         return Some(Outcome::Stopped(err));
                     }
+                }
+            }
+            HelperFrame::Opened {
+                rate,
+                channels,
+                duration_secs,
+            } => {
+                let info = FileInfo {
+                    spec: AudioSpec {
+                        sample_rate: rate,
+                        channels,
+                    },
+                    duration_secs,
+                };
+                // Only an opened file's helper reports its media, and only once.
+                if !self.file.as_ref().is_some_and(|file| file.open(info)) {
+                    return Some(Outcome::Protocol);
                 }
             }
             HelperFrame::SeeksOpen if self.seekable => self.control.open_seeks(),

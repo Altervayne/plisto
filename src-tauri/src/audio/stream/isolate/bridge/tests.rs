@@ -59,6 +59,7 @@ fn rig(seekable: bool) -> Rig {
         end_queued: false,
         gate: Arc::clone(&gate),
         activity: Arc::default(),
+        file: None,
         pause_in_take: Duration::ZERO,
     };
     Rig {

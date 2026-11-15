@@ -26,8 +26,8 @@ use super::queue::{
     Xorshift,
 };
 use super::source::{
-    self, Cut, DecoderSource, Packets, SpectrumTap, BAND_COUNT, FINE_BAND_COUNT, SPECTRUM_RING,
-    SPECTRUM_WINDOW,
+    self, Arrival, Cut, DecoderSource, Entry, Packets, SpectrumTap, TrackSource, BAND_COUNT,
+    FINE_BAND_COUNT, SPECTRUM_RING, SPECTRUM_WINDOW,
 };
 use super::tap::{TapSlot, TapWriter};
 use super::{
@@ -39,9 +39,11 @@ use crate::scan::progress::ProgressThrottle;
 
 // -- Module Declarations --
 mod events;
+mod opened;
 mod seat;
 
 use events::AppEvents;
+use opened::OpenedSource;
 
 // How close to its end the current track gets before the next one is opened and queued behind it.
 const PRELOAD_SECS: f64 = 10.0;
@@ -57,6 +59,7 @@ struct SourceHandles {
     rate: u32,
     channels: u16,
     duration: f64,
+    opened: Option<OpenedSource>,
 }
 
 impl SourceHandles {
@@ -69,6 +72,7 @@ impl SourceHandles {
             rate: src.spec.sample_rate,
             channels: src.spec.channels,
             duration: src.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0),
+            opened: OpenedSource::of(src),
         }
     }
 }
@@ -162,6 +166,8 @@ struct Engine {
     last_device_poll: u64,
     // The seated plugin stream and the queue parked under it.
     seating: seat::Seating,
+    // The decode helper of the current source, when it is an opened file decoded in one.
+    opened: Option<OpenedSource>,
     // The status counters: bumped where an item starts (`feed`) and where a user seek took effect.
     start_seq: u64,
     seek_seq: u64,
@@ -359,11 +365,14 @@ impl Engine {
     /// plays or the queue exhausts and playback stops. Emits a forced status either way, plus one
     /// `player:error` File notice: on exhaustion when something was asked to play but nothing did, or
     /// on success when an opened ad-hoc file was skipped before this one played. A skipped library
-    /// track mid-queue stays silent.
-    fn play_at(&mut self, start: usize) {
+    /// track mid-queue stays silent. `arrival` is how the queue came to `start`; every later slot is
+    /// reached by the queue. An opened file that ends before any audio, or that faulted earlier and
+    /// is reached by the queue, is passed over silently and counts as no failure.
+    fn play_at(&mut self, start: usize, arrival: Arrival) {
         // Set when a skipped track was an opened file (an ad-hoc id), so a partial multi-open still
         // reports the dead one once another plays. A skipped library track leaves it false.
         let mut skipped_opened_file = false;
+        let mut failed = false;
         let mut i = start;
         loop {
             if i >= self.queue.len() {
@@ -372,16 +381,17 @@ impl Engine {
                 // Something was asked to play but nothing did: a lone opened file that will not
                 // decode, or a play where every candidate was dead. A Next off the end has
                 // start == len, so it stays silent - a natural stop, not a failure.
-                if start < self.queue.len() {
+                if start < self.queue.len() && failed {
                     let _ = self.app.emit("player:error", PlayerNotice::File);
                 }
                 return;
             }
             let opened_file = is_ad_hoc(self.queue[i].id);
             let tap = Some(self.tap.cold());
-            match self.open_source(&self.queue[i].path, None, self.queue[i].gain_db, tap) {
-                Some(src) => {
-                    self.start_source(i, src);
+            let arrival = if i == start { arrival } else { Arrival::Queue };
+            match self.open_entry(&self.queue[i], None, tap, arrival) {
+                Entry::Ready(src) => {
+                    self.start_source(i, *src);
                     self.feed(FeedCause::Start);
                     self.emit(true);
                     // A dead opened file was skipped before this one played: report it once so the
@@ -391,10 +401,12 @@ impl Engine {
                     }
                     return;
                 }
-                None => {
+                Entry::Failed => {
+                    failed = true;
                     skipped_opened_file |= opened_file;
                     i += 1;
                 }
+                Entry::Ended | Entry::Faulted => i += 1,
             }
         }
     }
@@ -402,7 +414,7 @@ impl Engine {
     /// Reseats engine state onto `src` and hands it to the sink. Reads the source's handles before it
     /// is moved into the sink; with no device the state still updates so the snapshot is coherent,
     /// only the append is skipped.
-    fn start_source(&mut self, i: usize, src: DecoderSource) {
+    fn start_source(&mut self, i: usize, src: TrackSource) {
         let cut = self.outgoing();
         self.clear_pending();
         self.begin_listen(i, self.queue[i].id);
@@ -437,6 +449,7 @@ impl Engine {
         self.cur_rate = h.rate;
         self.cur_channels = h.channels;
         self.cur_duration = h.duration;
+        self.seat_opened(h.opened);
     }
 
     /// The source a clear now would cut: the preload once the sink has crossed into it ahead of the
@@ -458,6 +471,9 @@ impl Engine {
     fn clear_pending(&mut self) {
         if let Some(p) = self.pending.take() {
             p.cancel.store(true, Ordering::Relaxed);
+            if let Some(opened) = &p.handles.opened {
+                opened.decode.cancel();
+            }
         }
         self.preload_tried = None;
     }
@@ -511,11 +527,10 @@ impl Engine {
         }
         self.preload_tried = Some((slot, id));
         let tap = Some(self.tap.warm());
-        let src =
-            match self.open_source(&self.queue[slot].path, None, self.queue[slot].gain_db, tap) {
-                Some(s) => s,
-                None => return,
-            };
+        let src = match self.open_track(&self.queue[slot], None, tap) {
+            Some(s) => s,
+            None => return,
+        };
         let handles = SourceHandles::of(&src);
         let cancel = Arc::clone(&src.cancel);
         // Read again after the open: a track that ended meanwhile has the sink playing silence. The
@@ -555,6 +570,7 @@ impl Engine {
             Some(p) => p,
             None => return,
         };
+        self.notice_failed_file();
         self.record_play(true);
         self.preload_tried = None;
         self.begin_listen(p.slot, p.id);
@@ -568,6 +584,7 @@ impl Engine {
     fn stop_playback(&mut self) {
         let was_library = self.has_library_track();
         self.clear_pending();
+        self.drop_opened();
         if let Some(sink) = &self.sink {
             sink.clear();
         }
@@ -661,12 +678,12 @@ impl Engine {
     /// paused state from `playing`. A no-op with an empty queue; a missing file or a seek failure
     /// leaves playback untouched.
     fn restore_library(&mut self, secs: f64, playing: bool) {
-        let (path, gain_db) = match self.queue.get(self.index) {
-            Some(t) => (t.path.clone(), t.gain_db),
+        let track = match self.queue.get(self.index) {
+            Some(t) => t.clone(),
             None => return,
         };
         let tap = Some(self.tap.cold());
-        let src = match self.open_source(&path, Some(secs.max(0.0)), gain_db, tap) {
+        let src = match self.open_track(&track, Some(secs.max(0.0)), tap) {
             Some(s) => s,
             None => return,
         };
@@ -694,9 +711,8 @@ impl Engine {
         }
         let i = clamp_index(index, queue.len());
         let start = if secs > 0.0 { Some(secs) } else { None };
-        let tap = Some(self.tap.cold());
-        let src = match self.open_source(&queue[i].path, start, queue[i].gain_db, tap) {
-            Some(s) => s,
+        let (i, src) = match self.open_onward(&queue, i, start) {
+            Some(opened) => opened,
             None => {
                 let _ = self.app.emit("player:error", PlayerNotice::File);
                 return;
@@ -725,17 +741,18 @@ impl Engine {
     }
 
     /// Reopens the current file, seeks to `secs`, and restarts the source there while preserving the
-    /// paused state. A missing file or a seek failure leaves playback untouched. Returns whether a
+    /// paused state; an opened file's helper seeks in place. A missing file or a seek failure leaves
+    /// playback untouched, except that a helper that fails the seek ends its file. Returns whether a
     /// source was seated.
     /// `user` marks a seek the user asked for, which counts in `seek_seq`; a device rebind re-seeks
     /// with it false.
     fn seek(&mut self, secs: f64, user: bool) -> bool {
-        let (path, gain_db) = match self.queue.get(self.index) {
-            Some(t) if self.cur_track_id.is_some() => (t.path.clone(), t.gain_db),
+        let track = match self.queue.get(self.index) {
+            Some(t) if self.cur_track_id.is_some() => t.clone(),
             _ => return false,
         };
         let tap = Some(self.tap.cold());
-        let src = match self.open_source(&path, Some(secs), gain_db, tap) {
+        let src = match self.reopen_current(&track, secs, tap) {
             Some(s) => s,
             None => return false,
         };
@@ -890,7 +907,7 @@ impl Engine {
                 }
                 self.emit_queue();
                 // play_at emits its own forced status on success or exhaustion.
-                self.play_at(start);
+                self.play_at(start, Arrival::User);
             }
             PlayerCmd::Load { queue, index, secs } => self.load(queue, index, secs),
             PlayerCmd::TogglePlay => {
@@ -935,7 +952,7 @@ impl Engine {
             PlayerCmd::Next => {
                 self.record_manual_end();
                 match advance_index(self.index, self.queue.len(), self.repeat) {
-                    Some(i) => self.play_at(i),
+                    Some(i) => self.play_at(i, Arrival::User),
                     None => {
                         self.stop_playback();
                         self.emit(true);
@@ -945,7 +962,7 @@ impl Engine {
             PlayerCmd::Prev => {
                 self.record_manual_end();
                 match prev_index(self.index, self.queue.len()) {
-                    Some(i) => self.play_at(i),
+                    Some(i) => self.play_at(i, Arrival::User),
                     None => {
                         self.stop_playback();
                         self.emit(true);
@@ -957,7 +974,7 @@ impl Engine {
                 // play_at clamps an empty queue (stops and emits) and skips forward over a dead
                 // track, so a jump lands on the next playable slot, exactly like Next.
                 let i = clamp_index(i, self.queue.len());
-                self.play_at(i);
+                self.play_at(i, Arrival::User);
             }
             PlayerCmd::Enqueue(tracks) => {
                 if tracks.is_empty() {
@@ -969,7 +986,7 @@ impl Engine {
                     // Cold-start safety net: an Enqueue onto a stopped engine starts playing the new
                     // tracks rather than leaving a silent queue. The frontend routes cold-start
                     // through Play, so this is the defensive path.
-                    self.play_at(first_new);
+                    self.play_at(first_new, Arrival::User);
                 } else {
                     // The sink is untouched: a playing track plays on, a paused track stays paused.
                     self.revalidate_pending();
@@ -990,7 +1007,7 @@ impl Engine {
                 );
                 self.emit_queue();
                 if self.cur_track_id.is_none() {
-                    self.play_at(first_new);
+                    self.play_at(first_new, Arrival::User);
                 } else {
                     // The sink is untouched; a preload armed for the old next track is dropped so
                     // the inserted one plays.
@@ -1034,7 +1051,7 @@ impl Engine {
                         self.stop_playback();
                         self.emit(true);
                     } else {
-                        self.play_at(clamp_index(index, self.queue.len()));
+                        self.play_at(clamp_index(index, self.queue.len()), Arrival::Queue);
                     }
                 } else {
                     // Removing an up-next or played track: the sink plays on, only the cursor moves.
@@ -1148,10 +1165,11 @@ impl Engine {
             // A track that drained on its own is a completed play, recorded unconditionally (a full
             // play counts even where the half latch never ran, e.g. a zero-duration file), before the
             // queue moves onto the next source and start_source resets the guards.
+            self.notice_failed_file();
             self.record_play(true);
             match on_track_end(self.index, self.queue.len(), self.repeat) {
-                EndAction::Replay => self.play_at(self.index),
-                EndAction::Advance(i) => self.play_at(i),
+                EndAction::Replay => self.play_at(self.index, Arrival::Queue),
+                EndAction::Advance(i) => self.play_at(i, Arrival::Queue),
                 EndAction::Stop => self.stop_playback(),
             }
         }
@@ -1250,6 +1268,7 @@ fn run(
         last_default_name,
         last_device_poll: now_ms(),
         seating: seat::Seating::default(),
+        opened: None,
         start_seq: 0,
         seek_seq: 0,
     };

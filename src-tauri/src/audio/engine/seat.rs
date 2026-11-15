@@ -446,6 +446,7 @@ impl Engine {
 
     /// Points the engine state at the seated stream, with no source yet.
     fn enter_seat(&mut self) {
+        self.drop_opened();
         let Some(seat) = &self.seating.seat else {
             return;
         };

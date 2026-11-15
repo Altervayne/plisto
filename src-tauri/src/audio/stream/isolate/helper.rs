@@ -1,8 +1,10 @@
 /*
  * The decode helper: `plisto.exe --plisto-decode-helper`, run inside its AppContainer and job. It
  * reads the `Open` frame, runs the stream decode thread unchanged on a control and queue of its own,
- * and sends what lands in that queue to the main process. Its bytes come from main a read at a time
- * through `RemoteSource`, so it holds no byte buffer and opens no file.
+ * and sends what lands in that queue to the main process. A guarded `Open` is a stream item; an
+ * unguarded one is a local file the user opened, probed as library playback opens a file, and main
+ * is told its spec and length in an `Opened` frame before its first chunk. Its bytes come from main
+ * a read at a time through `RemoteSource`, so it holds no byte buffer and opens no file.
  *
  * Three threads. The demux owns the one reader of main's frames for the helper's whole life and
  * routes each frame. The decode thread closes seeks through `Gate`, a round trip to main's control.
@@ -30,10 +32,13 @@ use super::wire::{HelperFrame, MainFrame, MainReader, UncheckedSeam, WireError, 
 use crate::audio::stream::decoder::{spawn_gated, SeekGate};
 use crate::audio::stream::pcm::{pcm_queue, PcmReader, Segment};
 use crate::audio::stream::{DecodeEnd, StreamControl, StreamInput, WAIT_SLICE};
-use crate::audio::PcmChunk;
+use crate::audio::{AudioSpec, PcmChunk};
 
-/// The probe hints a stream item's `Open` can name. Any other is dropped and the probe decides.
-const HINTS: [&str; 6] = ["mp3", "aac", "ogg", "flac", "wav", "m4a"];
+/// The probe hints an `Open` can name: a stream item's formats and the extensions of the files
+/// Plisto opens. Any other is dropped and the probe decides.
+const HINTS: [&str; 9] = [
+    "mp3", "aac", "ogg", "flac", "wav", "m4a", "m4b", "oga", "opus",
+];
 
 const EXIT_OK: i32 = 0;
 /// The helper's own exit when main's pipe broke or named nothing it decodes.
@@ -83,16 +88,19 @@ pub(super) fn serve_with(
         return EXIT_FAILED;
     }
     let mut reader = MainReader::new(BufReader::new(input));
-    // Only guarded stream items are decoded here.
     let Ok(Some(MainFrame::Open {
         hint,
         seekable,
-        guarded: true,
+        guarded,
         len,
     })) = reader.read_frame()
     else {
         return EXIT_FAILED;
     };
+    // Unguarded media is a local file the user opened, served whole by position.
+    if !guarded && !(seekable && len.is_some()) {
+        return EXIT_FAILED;
+    }
 
     let control = Arc::new(StreamControl::new());
     let (queue, local) = pcm_queue(Arc::clone(&control));
@@ -116,10 +124,13 @@ pub(super) fn serve_with(
         control: Arc::clone(&control),
         closed,
         mirror,
+        file: !guarded,
     };
-    let input = StreamInput::Media {
-        source: wrap(source),
-        hint: known_hint(hint),
+    let (source, hint) = (wrap(source), known_hint(hint));
+    let input = if guarded {
+        StreamInput::Media { source, hint }
+    } else {
+        StreamInput::File { source, hint }
     };
     let (end_tx, ended) = crossbeam_channel::bounded(1);
     let decode = spawn_gated(input, queue, gate, move |end| {
@@ -187,9 +198,24 @@ struct Gate {
     control: Arc<StreamControl>,
     closed: Receiver<Option<(f64, u64)>>,
     mirror: Arc<Mirror>,
+    // A local file: main is told its spec and length before its first chunk.
+    file: bool,
 }
 
 impl SeekGate for Gate {
+    fn opened(&self, spec: AudioSpec, duration_secs: Option<f64>) {
+        if !self.file {
+            return;
+        }
+        let opened = HelperFrame::Opened {
+            rate: spec.sample_rate,
+            channels: spec.channels,
+            duration_secs: duration_secs.filter(|d| d.is_finite() && *d >= 0.0),
+        };
+        // A broken pipe ends the helper at the forwarder's next send.
+        let _ = send(&self.out, &opened);
+    }
+
     fn open_seeks(&self) {
         self.control.open_seeks();
         let _ = send(&self.out, &HelperFrame::SeeksOpen);

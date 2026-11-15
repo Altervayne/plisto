@@ -23,14 +23,13 @@ impl Engine {
                 None => return false,
             },
         };
-        let (path, gain_db) = (self.queue[i].path.clone(), self.queue[i].gain_db);
         let start = (parked.secs > 0.0).then_some(parked.secs);
-        let tap = Some(self.tap.cold());
-        let Some(src) = self.open_source(&path, start, gain_db, tap) else {
+        // A file that ends before its parked spot moves the queue on, as at its end.
+        let Some((i, src)) = self.open_onward(&self.queue, i, start) else {
             return false;
         };
         let cut = self.outgoing();
-        self.begin_listen(i, parked.track_id);
+        self.begin_listen(i, self.queue[i].id);
         self.seat(SourceHandles::of(&src));
         if let Some(sink) = &self.sink {
             sink.clear();

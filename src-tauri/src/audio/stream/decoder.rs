@@ -3,8 +3,9 @@
  * It runs on its own thread because every read may wait on the network; the audio thread only ever
  * takes chunks that are already decoded.
  *
- * Containers are opened by the stream path's own opening (`open`, behind the header guard), then
- * decoded by the shared `Decoder` (symphonia, opus-rs for Opus). Raw `pcm_s16le` pushed by a plugin
+ * Containers are opened by the stream path's own opening (`open`, behind the header guard), or for
+ * a local file the user opened by symphonia's probe as library playback does, then decoded by the
+ * shared `Decoder` (symphonia, opus-rs for Opus). Raw `pcm_s16le` pushed by a plugin
  * skips symphonia: it has no container. A chained Ogg stream rebuilds the backend in place and
  * marks the seam with a `Break`, as a seek does.
  *
@@ -22,6 +23,7 @@ use std::thread::{self, JoinHandle};
 
 use symphonia::core::formats::FormatReader;
 use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::probe::Hint;
 
 // -- Local Imports --
 use super::guard::Guarded;
@@ -122,6 +124,12 @@ pub enum StreamInput {
         source: Box<dyn MediaSource>,
         hint: Option<&'static str>,
     },
+    /// A local file the user opened, probed as library playback opens a file, with no stream guard
+    /// and no opening bound. The channel and rate limits still apply. Decoded only in a helper.
+    File {
+        source: Box<dyn MediaSource>,
+        hint: Option<&'static str>,
+    },
     /// Interleaved little-endian i16 frames in the declared spec.
     PcmS16le {
         source: Box<dyn Read + Send>,
@@ -167,10 +175,13 @@ pub enum Fault {
     Protocol,
 }
 
-/// Where the decode thread opens and closes seeks. In-process it is the stream's own control. In
-/// the decode helper the close is a round trip that closes seeks on the main process's control, so
-/// a seek requested there is still answered or refused, never lost.
+/// Where the decode thread opens and closes seeks, and reports the media it opened. In-process it
+/// is the stream's own control. In the decode helper the close is a round trip that closes seeks on
+/// the main process's control, so a seek requested there is still answered or refused, never lost.
 pub(super) trait SeekGate: Send + 'static {
+    /// The media decodes: the spec of its first chunk, and its length when the container states it.
+    /// Called once, before that chunk is queued.
+    fn opened(&self, _spec: AudioSpec, _duration_secs: Option<f64>) {}
     /// Starts taking seek requests.
     fn open_seeks(&self);
     /// Stops taking seek requests once the stream's `End` is queued. True when one got in before
@@ -197,12 +208,18 @@ impl SeekGate for Arc<StreamControl> {
 /// Starts the `plisto-stream-decode` thread. It runs until the input ends, the stream is cancelled,
 /// every queue reader is dropped, or the input fails, then marks the producer done and hands the
 /// reason to `on_end`, once, on every path. When the thread cannot be started, `on_end` is never
-/// called.
+/// called. A `File` input is refused: it decodes only in a helper.
 pub fn spawn_decoder(
     input: StreamInput,
     queue: PcmQueue,
     on_end: impl FnOnce(DecodeEnd) + Send + 'static,
 ) -> io::Result<JoinHandle<()>> {
+    if matches!(input, StreamInput::File { .. }) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "an opened file decodes only in a helper",
+        ));
+    }
     let gate = Arc::clone(queue.control());
     spawn_gated(input, queue, gate, on_end)
 }
@@ -219,7 +236,12 @@ pub(super) fn spawn_gated(
         .spawn(move || {
             let control = Arc::clone(queue.control());
             let end = panic::catch_unwind(AssertUnwindSafe(|| match input {
-                StreamInput::Media { source, hint } => run_media(source, hint, &mut queue, &gate),
+                StreamInput::Media { source, hint } => {
+                    run_media(source, hint, Opening::Stream, &mut queue, &gate)
+                }
+                StreamInput::File { source, hint } => {
+                    run_media(source, hint, Opening::Library, &mut queue, &gate)
+                }
                 StreamInput::PcmS16le { source, spec } => run_pcm(source, spec, &mut queue),
             }))
             .unwrap_or(DecodeEnd::Panicked);
@@ -465,9 +487,39 @@ fn open_container(
     Ok(format)
 }
 
+/// How a media input's container is opened.
+#[derive(Clone, Copy)]
+enum Opening {
+    /// The stream path's own opening, behind the header guard.
+    Stream,
+    /// symphonia's probe, as library playback opens a file.
+    Library,
+}
+
+// Opens the container with symphonia's probe, seeded by the hint, watching the byte source.
+fn open_library(
+    source: Box<dyn MediaSource>,
+    hint: Option<&'static str>,
+    queue: &PcmQueue,
+    watch: &Arc<Watch>,
+) -> Result<Box<dyn FormatReader>, DecodeEnd> {
+    let watched = Watched {
+        inner: source,
+        watch: Arc::clone(watch),
+        read: 0,
+    };
+    let mut probe_hint = Hint::new();
+    if let Some(ext) = hint {
+        probe_hint.with_extension(ext);
+    }
+    decode::probe_media(Box::new(watched), &probe_hint)
+        .map_err(|_| stopped(queue, watch, DecodeEnd::Failed(Unsupported::Format)))
+}
+
 fn run_media(
     source: Box<dyn MediaSource>,
     hint: Option<&'static str>,
+    opening: Opening,
     queue: &mut PcmQueue,
     gate: &dyn SeekGate,
 ) -> DecodeEnd {
@@ -480,7 +532,11 @@ fn run_media(
         refused: Arc::new(AtomicBool::new(false)),
         limit: AtomicU64::new(u64::MAX),
     });
-    let format = match open_container(source, hint, queue, &watch) {
+    let opened = match opening {
+        Opening::Stream => open_container(source, hint, queue, &watch),
+        Opening::Library => open_library(source, hint, queue, &watch),
+    };
+    let format = match opened {
         Ok(f) => f,
         Err(end) => return end,
     };
@@ -492,6 +548,7 @@ fn run_media(
         Err(_) => return stopped(queue, &watch, DecodeEnd::Failed(Unsupported::Codec)),
     };
     let mut flips = SpecFlips::default();
+    let mut reported = false;
 
     loop {
         if let Some((secs, generation)) = control.take_seek() {
@@ -516,6 +573,10 @@ fn run_media(
             Pull::Chunk(chunk) => {
                 if !chunk_ok(chunk.spec) || !flips.take(chunk.spec, chunk.frames()) {
                     return DecodeEnd::Failed(Unsupported::Format);
+                }
+                if !reported {
+                    reported = true;
+                    gate.opened(chunk.spec, decoder.duration_secs());
                 }
                 // A chunk dropped for a pending seek is stale: the seek runs next.
                 match queue.push_chunk(chunk) {

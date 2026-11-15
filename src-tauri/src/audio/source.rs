@@ -2,12 +2,13 @@
  * The decoded-audio source the engine feeds rodio: a pull-based decoder adapted into a `Source`, its
  * DSP stage, the lock-free spectrum tap it writes while it plays, and its writer on the audio tap
  * (`tap.rs`) when it has one. All run on rodio's mixer thread and are read back on the engine thread
- * through shared atomics. `open_source` is the one way a file source is built, so every path gets the
- * same stage and the same start seed.
+ * through shared atomics. `open_source` and `open_track` are the ways a file source is built, so
+ * every path gets the same stage and the same start seed.
  *
  * The source pulls from a `Packets` producer: a file decoder, which always has the next packet or is
- * done, or a stream's PCM queue, which can also be starved. A starved source plays silence that
- * nothing counts, taps or analyzes, so listened time and the tap only ever carry real audio.
+ * done, or the PCM queue of a stream or of an opened file's decode helper, which can also be
+ * starved. A starved source plays silence that nothing counts, taps or analyzes, so listened time
+ * and the tap only ever carry real audio.
  */
 
 // -- Library Imports --
@@ -21,14 +22,18 @@ use rodio::{Sink, Source};
 
 // -- Local Imports --
 use super::dsp::{DspShared, DspStage};
+use super::stream::isolate::file::FileDecode;
 use super::tap::TapWriter;
 use super::{decode, AudioSpec, PcmChunk};
 
 // -- Module Declarations --
+mod opened;
 mod stream;
+mod track;
 
 // -- Re-exports --
 pub(super) use stream::{Edge, EdgeCell, StreamPackets};
+pub(super) use track::{open_entry, open_track, opened_at, Arrival, Entry, TrackSource};
 
 // The ring of recent mono samples the spectrum reader taps. A power of two so the write index masks
 // cheaply; the reader grabs the trailing SPECTRUM_WINDOW for one FFT.
@@ -81,6 +86,11 @@ pub(super) trait Packets {
     /// the current rate's scale across a rate change.
     fn eager(&self) -> bool {
         false
+    }
+
+    /// The helper decoding an opened file, for a producer that reads from one.
+    fn file_decode(&self) -> Option<&Arc<FileDecode>> {
+        None
     }
 }
 
@@ -204,6 +214,11 @@ impl<P: Packets> DecoderSource<P> {
         })
     }
 
+    /// The helper this source's producer reads from, when it is an opened file's.
+    pub(super) fn file_decode(&self) -> Option<&Arc<FileDecode>> {
+        self.decoder.file_decode()
+    }
+
     /// Takes the next packet from the producer: a chunk becomes the buffer, starvation a block of
     /// silence, the end marks the source done. False only at the end.
     fn refill(&mut self) -> bool {
@@ -284,12 +299,18 @@ pub(super) fn open_source(
     dsp: &Arc<DspShared>,
     tap: Option<TapWriter>,
 ) -> Option<DecoderSource> {
+    let decoder = open_decoder(path, start_secs)?;
+    let stage = DspStage::new(Arc::clone(dsp), gain_db);
+    DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage, tap)
+}
+
+/// Opens `path` in-process, seeked to `start_secs` when one is given.
+fn open_decoder(path: &Path, start_secs: Option<f64>) -> Option<decode::Decoder> {
     let mut decoder = decode::Decoder::open(path).ok()?;
     if let Some(secs) = start_secs {
         decoder.seek(secs).ok()?;
     }
-    let stage = DspStage::new(Arc::clone(dsp), gain_db);
-    DecoderSource::new(decoder, start_secs.unwrap_or(0.0), stage, tap)
+    Some(decoder)
 }
 
 // rodio's queue reports the layout of the source it just finished until it pulls the next one, so

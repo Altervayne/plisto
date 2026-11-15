@@ -1,7 +1,8 @@
 /*
  * The main process's side of one decode helper. `spawn_isolated` has `spawn_decoder`'s contract: the
  * same queue fills, the same control answers seeks and cancel, and `on_end` gets one end on every
- * path. Only the decoding happens in another process.
+ * path. Only the decoding happens in another process. `spawn_file` does the same for a local file
+ * the user opened, under the file cap, and reports the helper's launch and `Opened` to its opener.
  *
  * Four threads per helper. The bridge thread launches the helper, forwards new seeks, watches for
  * cancel, for the helper's exit through its process handle and for a helper that spins or hangs, and
@@ -23,6 +24,7 @@
 
 // -- Library Imports --
 use std::ffi::OsStr;
+use std::fs::File;
 use std::io::{self, BufReader};
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::AtomicBool;
@@ -33,6 +35,7 @@ use std::time::Duration;
 use symphonia::core::io::MediaSource;
 
 // -- Local Imports --
+use super::file::{FileState, FILE_HELPER_MEMORY_MAX};
 use super::wire::{HelperReader, MainFrame};
 use crate::audio::stream::pcm::PcmQueue;
 use crate::audio::stream::{
@@ -94,6 +97,34 @@ pub fn spawn_isolated(
     spawn_in(&DECODE_HELPER, Launch::default(), input, queue, on_end)
 }
 
+/// Starts decoding a local file the user opened in a decode helper, under the file cap, reporting
+/// the helper's launch and its `Opened` to `state`.
+pub(super) fn spawn_file(
+    file: File,
+    hint: Option<&'static str>,
+    queue: PcmQueue,
+    on_end: impl FnOnce(DecodeEnd) + Send + 'static,
+    state: Arc<FileState>,
+) -> io::Result<JoinHandle<()>> {
+    let launch = Launch {
+        file: Some(Arc::clone(&state)),
+        ..Launch::default()
+    };
+    #[cfg(test)]
+    let launch = {
+        let mut launch = launch;
+        let mut test = lock(&state.test);
+        launch.exe = test.exe.take();
+        launch.probe.peak = test.peak.take();
+        launch
+    };
+    let input = StreamInput::File {
+        source: Box::new(file),
+        hint,
+    };
+    spawn_in(&DECODE_HELPER, launch, input, queue, on_end)
+}
+
 /// `spawn_isolated`, with the stream opening's guards off in the helper.
 #[cfg(test)]
 pub fn spawn_unguarded(
@@ -119,10 +150,15 @@ struct Launch {
     idle_per_sec: Duration,
     per_audio_sec: Duration,
     cpu_tick: Duration,
+    // Where an opened file's helper reports its launch and its `Opened`. None for a stream item.
+    file: Option<Arc<FileState>>,
     #[cfg(test)]
     pid: Option<std::sync::mpsc::Sender<u32>>,
     #[cfg(test)]
     probe: probe::Probe,
+    // Launched in place of `plisto.exe`.
+    #[cfg(test)]
+    exe: Option<std::path::PathBuf>,
 }
 
 impl Default for Launch {
@@ -140,10 +176,13 @@ impl Default for Launch {
             idle_per_sec: Duration::from_millis(SPIN_IDLE_MS_PER_SEC),
             per_audio_sec: Duration::from_millis(SPIN_AUDIO_MS_PER_SEC),
             cpu_tick: CPU_TICK,
+            file: None,
             #[cfg(test)]
             pid: None,
             #[cfg(test)]
             probe: probe::Probe::default(),
+            #[cfg(test)]
+            exe: None,
         }
     }
 }
@@ -155,16 +194,23 @@ fn spawn_in(
     queue: PcmQueue,
     on_end: impl FnOnce(DecodeEnd) + Send + 'static,
 ) -> io::Result<JoinHandle<()>> {
-    let StreamInput::Media { source, hint } = input else {
-        return spawn_decoder(input, queue, on_end);
+    let (source, hint, guarded) = match input {
+        StreamInput::Media { source, hint } => (source, hint, true),
+        StreamInput::File { source, hint } => (source, hint, false),
+        input => return spawn_decoder(input, queue, on_end),
     };
     thread::Builder::new()
         .name("plisto-stream-bridge".into())
         .spawn(move || {
             let control = Arc::clone(queue.control());
             let mut writer = None;
+            let media = Media {
+                source,
+                hint,
+                guarded,
+            };
             let end = panic::catch_unwind(AssertUnwindSafe(|| {
-                run(session, launch, source, hint, queue, &mut writer)
+                run(session, launch, media, queue, &mut writer)
             }))
             .unwrap_or(DecodeEnd::Panicked);
             let end = cancel_first(end, &control);
@@ -190,43 +236,65 @@ fn cancel_first(end: DecodeEnd, control: &StreamControl) -> DecodeEnd {
     }
 }
 
+/// The media one helper decodes. Unguarded media is a local file the user opened.
+struct Media {
+    source: Box<dyn MediaSource>,
+    hint: Option<&'static str>,
+    guarded: bool,
+}
+
 // Launches the helper, starts the threads that serve it, and supervises it to its end. The writer is
 // left in `writer` for the caller to reap once the end is reported.
 fn run(
     session: &Session,
     launch: Launch,
-    source: Box<dyn MediaSource>,
-    hint: Option<&'static str>,
+    media: Media,
     mut queue: PcmQueue,
     writer: &mut Option<Writer>,
 ) -> DecodeEnd {
+    let Media {
+        source,
+        hint,
+        guarded,
+    } = media;
     let control = Arc::clone(queue.control());
     let cancelled = || control.is_cancelled();
     let mut args = vec![OsStr::new(DECODE_HELPER_FLAG)];
     args.extend(launch.args.iter().map(OsStr::new));
+    let memory = if guarded {
+        HELPER_MEMORY_MAX
+    } else {
+        FILE_HELPER_MEMORY_MAX
+    };
     #[cfg(test)]
     launch.probe.enter();
-    let launched = std::env::current_exe()
-        .map_err(|e| e.to_string())
-        .and_then(|exe| {
-            session
-                .launch(
-                    &exe,
-                    &args,
-                    HELPER_MEMORY_MAX,
-                    launch.ready_wait,
-                    &cancelled,
-                )
-                .map_err(|e| e.to_string())
-        });
+    let exe = std::env::current_exe();
+    #[cfg(test)]
+    let exe = match &launch.exe {
+        Some(exe) => Ok(exe.clone()),
+        None => exe,
+    };
+    let launched = exe.map_err(|e| e.to_string()).and_then(|exe| {
+        session
+            .launch(&exe, &args, memory, launch.ready_wait, &cancelled)
+            .map_err(|e| e.to_string())
+    });
     let (mut helper, stdout) = match launched {
         Ok(launched) => launched,
         Err(_) if cancelled() => return DecodeEnd::Cancelled,
         Err(e) => {
-            eprintln!("warn: decode isolation: {e}; the stream item cannot be decoded");
+            match &launch.file {
+                Some(file) => file.setup_failed(e),
+                None => eprintln!("warn: decode isolation: {e}; the stream item cannot be decoded"),
+            }
             return DecodeEnd::Isolated(Fault::Spawn);
         }
     };
+    if let Some(file) = &launch.file {
+        #[cfg(test)]
+        let _ = file.pid.set(helper.process.id());
+        file.launched();
+    }
     #[cfg(test)]
     if let Some(pid) = &launch.pid {
         let _ = pid.send(helper.process.id());
@@ -260,7 +328,7 @@ fn run(
     outbox.send(MainFrame::Open {
         hint: hint.map(str::to_owned),
         seekable,
-        guarded: true,
+        guarded,
         len,
     });
     queue.halt_on(Arc::clone(&gate.halt));
@@ -300,6 +368,7 @@ fn run(
         end_queued: false,
         gate: Arc::clone(&gate),
         activity: Arc::clone(&activity),
+        file: launch.file.clone(),
         #[cfg(test)]
         pause_in_take: Duration::ZERO,
     };

@@ -164,6 +164,7 @@ fn rig() -> Rig {
         last_default_name: None,
         last_device_poll: 0,
         seating: Seating::default(),
+        opened: None,
         start_seq: 0,
         seek_seq: 0,
     };
@@ -2074,3 +2075,6 @@ fn a_stream_seek_reattach_leaves_start_seq_flat() {
     assert_eq!(start_seq(&r), before);
     assert_eq!(r.status().seek_seq, 1);
 }
+
+// Opened files decoded in helpers, on the same rig.
+mod opened_files;
