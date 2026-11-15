@@ -1,0 +1,65 @@
+/*
+ * The developer-mode log: a soft recess holding the plugin tabs and the log lines in the mono face,
+ * timestamp, level and text in three columns, warnings and errors in the warn tone.
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+}
+
+.sub {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.lines {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 96px 62px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.time {
+  color: var(--ink-3);
+}
+
+.text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A line with no timestamp spans every column. */
+.whole {
+  grid-column: 1 / -1;
+}
+
+.warn {
+  color: var(--warn-text);
+}

@@ -17,6 +17,8 @@ interface PluginsStore {
   rows: PluginRow[];
   /** The runtime gate and boot record. Null until read once; the runtime event keeps it current. */
   boot: PluginBootState | null;
+  /** Developer mode, as last read. A failed read leaves it as it was. */
+  devMode: boolean;
   status: PluginsLoadStatus;
   /** Bumped by every local row change, so a listing that began before one can be told apart. */
   epoch: number;
@@ -24,6 +26,7 @@ interface PluginsStore {
   /** Applies a fresh listing, keeping the rows and the array that did not change. */
   applyRows: (rows: PluginRow[]) => void;
   applyBoot: (boot: PluginBootState) => void;
+  applyDevMode: (on: boolean) => void;
   /** Puts one row in place, appending it when its id is new. The next listing settles the order. */
   upsertRow: (row: PluginRow) => void;
   removeRow: (id: string) => void;
@@ -45,6 +48,7 @@ function reuse(prev: PluginRow[], next: PluginRow[]): PluginRow[] {
 export const usePluginsStore = create<PluginsStore>((set) => ({
   rows: [],
   boot: null,
+  devMode: false,
   status: "idle",
   epoch: 0,
   setStatus: (status) => set({ status }),
@@ -71,6 +75,7 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
         ? s
         : { boot },
     ),
+  applyDevMode: (devMode) => set({ devMode }),
 }));
 
 // The enabled slice is derived once per rows array, so a selector returns the same array until rows change.
@@ -93,4 +98,5 @@ export const usePlugin = (id: string): PluginRow | undefined =>
 export const useEnabledPlugins = (): PluginRow[] => usePluginsStore((s) => enabledOf(s.rows));
 export const usePluginsStatus = (): PluginsLoadStatus => usePluginsStore((s) => s.status);
 export const usePluginsBoot = (): PluginBootState | null => usePluginsStore((s) => s.boot);
+export const useDevMode = (): boolean => usePluginsStore((s) => s.devMode);
 export const usePluginRuntime = (): PluginRuntime | null => usePluginsStore((s) => s.boot?.runtime ?? null);

@@ -56,7 +56,7 @@ pub async fn plugins_list(app: AppHandle) -> Result<Vec<RowView>, InstallError> 
     .map_err(|_| InstallError::new(ErrorCode::Io, "the plugin list task failed to run"))
 }
 
-const MAIN_LABEL: &str = "main";
+pub(super) const MAIN_LABEL: &str = "main";
 
 /// Whether plugins run this session, with what the previous run left behind.
 #[tauri::command]
@@ -171,7 +171,7 @@ fn start_serving(app: AppHandle) {
 }
 
 /// Runs an install step on a blocking thread with the app data dir and the plugin state.
-async fn run_blocking<T: Send + 'static>(
+pub(super) async fn run_blocking<T: Send + 'static>(
     app: AppHandle,
     job: impl FnOnce(PathBuf, &PluginsState) -> Result<T, InstallError> + Send + 'static,
 ) -> Result<T, InstallError> {
@@ -186,7 +186,7 @@ async fn run_blocking<T: Send + 'static>(
 
 /// `run_blocking` for a step that may change the registry. A refusal can change it too (a plugin
 /// found broken is saved as broken), so the event follows the change, not the result.
-async fn run_changing<T: Send + 'static>(
+pub(super) async fn run_changing<T: Send + 'static>(
     app: AppHandle,
     job: impl FnOnce(PathBuf, &PluginsState) -> Result<T, InstallError> + Send + 'static,
 ) -> Result<T, InstallError> {

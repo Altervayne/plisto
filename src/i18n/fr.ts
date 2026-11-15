@@ -821,6 +821,7 @@ export const fr: Dict = {
     installFolder: ["plugin", "ajouter"],
     openFolder: ["plugin"],
     safeMode: ["plugins désactivés", "désactiver les plugins", "plantage", "récupération", "redémarrer"],
+    developerMode: ["développeur", "auteur de plugin", "recharger", "journal", "débogage", "bac à sable"],
     checkForUpdates: ["version", "nouvelle version"],
     autoCheck: ["version", "mise à niveau"],
   },
@@ -1625,8 +1626,23 @@ export const fr: Dict = {
       keepLine: "Votre bibliothèque et vos dossiers sources ne sont pas touchés.",
     },
     devMode: {
+      label: "Mode développeur",
+      helper:
+        "Pour les personnes qui écrivent des plugins. Ajoute des outils de rechargement et de journal à chaque plugin. À laisser désactivé sinon.",
       loopbackNote:
         "Tant que le mode développeur est actif, les plugins qui indiquent une adresse de cet ordinateur peuvent s'y connecter.",
+      sandboxPassed: "Vérification du bac à sable : réussie.",
+      sandboxPassedBody: "Les plugins en bac à sable s'exécutent isolés et ne sont pas marqués « Sans bac à sable ».",
+      sandboxNotPassed: "Vérification du bac à sable : non réussie.",
+      sandboxNotPassedBody:
+        "Tant qu'elle n'est pas réussie, les plugins en bac à sable sont marqués « Sans bac à sable » et utilisent la fiche d'installation renforcée.",
+      reload: "Recharger depuis la source",
+      openLog: "Ouvrir le journal",
+      logLabel: "Journal du plugin",
+      logStderr: "Erreurs du processus",
+      logEmpty: "Rien n'a encore été journalisé.",
+      logLoading: "Lecture du journal...",
+      logFailed: "Le journal n'a pas pu être lu.",
     },
     net: {
       proxyWarning:

@@ -355,10 +355,8 @@ headers, bodies or cookies.
 
 ## Not available yet
 
-Two things described above cannot be used from Plisto's interface yet:
+One thing described above cannot be used from Plisto's interface yet: no screen shows the request log.
+Plisto records it as described above, but the plugin's panel does not display it yet.
 
-- There is no switch for developer mode in Settings. Until there is one, the developer loopback origins
-  cannot be turned on from the interface, and a request to one is refused `denied` with reason `dev_only`.
-  Test against a public origin for now.
-- No screen shows the request log. Plisto records it as described above, but the plugin's panel does not
-  display it yet.
+The developer mode switch is in Settings > Plugins, under Safe mode. See
+[install and test](install-and-test.md#developer-mode).

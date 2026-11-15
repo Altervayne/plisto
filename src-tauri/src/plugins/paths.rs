@@ -13,6 +13,7 @@ const PLUGIN_KV: &str = "kv.json";
 const PLUGIN_KV_BAD: &str = "kv.json.bad";
 const PLUGIN_LOG: &str = "plugin.log";
 const PLUGIN_LOG_OLD: &str = "plugin.log.1";
+const PLUGIN_STDERR: &str = "stderr.log";
 // Plisto's own plugin bookkeeping. Kept apart from `plugins/` so no file name there can read as an id.
 const STATE: &str = "plugins-state";
 const REGISTRY: &str = "registry.json";
@@ -67,6 +68,11 @@ pub fn log_file(app_data: &Path, id: &str) -> PathBuf {
 /// The one rotated log kept beside `log_file`.
 pub fn log_old_file(app_data: &Path, id: &str) -> PathBuf {
     data_dir(app_data, id).join(PLUGIN_LOG_OLD)
+}
+
+/// Where a native plugin's standard error goes, in its data folder.
+pub fn stderr_log_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(PLUGIN_STDERR)
 }
 
 /// Where the user drops `.plistoplugin` files and folders to install.
@@ -201,6 +207,7 @@ mod tests {
         assert_eq!(kv_bad_file(root, "com.a.b"), data.join("kv.json.bad"));
         assert_eq!(log_file(root, "com.a.b"), data.join("plugin.log"));
         assert_eq!(log_old_file(root, "com.a.b"), data.join("plugin.log.1"));
+        assert_eq!(stderr_log_path(&data), data.join("stderr.log"));
         assert_eq!(inbox_dir(root), root.join("plugins").join("inbox"));
         assert_eq!(staging_dir(root), root.join("plugins").join(".staging"));
         let state = root.join("plugins-state");

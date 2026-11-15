@@ -1425,6 +1425,12 @@ export interface PluginUpdated {
   previous_version: string;
 }
 
+/** The end of a plugin's logs. Mirrors LogTail in log_tail.rs; `stderr` is null for a UI plugin. */
+export interface PluginLogTail {
+  plugin: string[];
+  stderr: string[] | null;
+}
+
 /** The result of an uninstall. Mirrors Uninstalled in lifecycle.rs. */
 export interface PluginUninstalled {
   id: string;

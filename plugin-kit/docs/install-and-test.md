@@ -42,6 +42,38 @@ data, or call `plisto.storage.clear()` from a debug button.
 Do not edit the installed copy in place. A changed `plugin.json` turns the plugin off until it is
 reviewed again.
 
+## Developer mode
+
+Developer mode is a switch at the foot of Settings > Plugins, under Safe mode. It is off by default and
+stays as you leave it across restarts. It changes nothing about how a plugin is installed: the same
+manifest checks, size limits and capability approval apply. While it is on:
+
+- Plugins that list `http://127.0.0.1:<port>` or `http://localhost:<port>` can connect to that address.
+  See the [network guide](network.md#developer-loopback-origins).
+- Each plugin row shows two small buttons under its status line.
+- A line under the switch tells you whether Plisto's sandbox check passed, and a log panel appears.
+
+**Reload from source.** A plugin installed from a folder or a `.plistoplugin` file remembers where it came
+from. Reload from source reads that folder or file again, runs every install check on it, and replaces the
+installed copy the way an update does. Plisto never runs the plugin from your source folder: it reads the
+copy it made. You do not need to raise `version` to reload.
+
+- If `capabilities`, the `network` origins or the native reason changed, the plugin turns off and Plisto
+  opens the review, as for an update. Approve it to turn the plugin back on.
+- If the source is missing, fails a check, holds a different plugin `id`, or changes the `tier`, Plisto
+  shows the same message as an install would and leaves the installed plugin as it was.
+- A plugin that was added by copying files into the plugins folder has no remembered source, and its row
+  has no Reload button. Install it once from a folder or a file.
+- In safe mode the reload still copies the files, and the plugin stays off.
+
+**Open log.** Opens the log panel on that plugin. The panel has one tab per installed plugin and shows
+the last 200 lines of its `plugin.log` (time, level and text), and for a native plugin the last 200 lines
+of its `stderr.log` below that. Plisto reads at most the last 64 KiB of each file, so a very long line
+is cut at its start. The panel refreshes every couple of seconds while it is open.
+
+**Sandbox check.** The line under the switch says "passed" or "not passed". Plisto runs the check at
+every start. Until it passes, sandboxed plugins carry the Unsandboxed tag and use the heavier install sheet.
+
 ## Remove a plugin
 
 Open Settings > Plugins, expand the plugin's row and press Uninstall. Tick "Also delete its saved data"

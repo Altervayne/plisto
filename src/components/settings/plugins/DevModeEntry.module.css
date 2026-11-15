@@ -1,0 +1,13 @@
+/* The sandbox check line and the log panel under the developer-mode switch. */
+.check {
+  padding-top: 6px;
+}
+
+.lead {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.log {
+  margin-top: 6px;
+}

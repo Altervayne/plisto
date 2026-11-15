@@ -52,6 +52,7 @@ import type {
   PluginInboxItem,
   PluginInspection,
   PluginNetEnvironment,
+  PluginLogTail,
   PluginNetLogEntry,
   PluginRow,
   PluginSidebarInputReply,
@@ -1303,6 +1304,26 @@ export function pluginInboxPath(): Promise<string> {
 /** Bytes of saved data a plugin holds; 0 when it has saved nothing. */
 export function pluginDataSize(id: string): Promise<number> {
   return invoke<number>("plugin_data_size", { id });
+}
+
+/** Whether developer mode is on. */
+export function pluginsDevMode(): Promise<boolean> {
+  return invoke<boolean>("plugins_dev_mode");
+}
+
+/** Turns developer mode on or off. Resolves the saved value. */
+export function pluginSetDevMode(on: boolean): Promise<boolean> {
+  return invoke<boolean>("plugin_set_dev_mode", { on });
+}
+
+/** Re-installs a plugin from the source it was installed from, as an update. */
+export function pluginReload(id: string): Promise<PluginUpdated> {
+  return invoke<PluginUpdated>("plugin_reload", { id });
+}
+
+/** The last lines of a plugin's log and, for a native plugin, of its stderr log. */
+export function pluginLogTail(id: string): Promise<PluginLogTail> {
+  return invoke<PluginLogTail>("plugin_log_tail", { id });
 }
 
 /** Runs one plugin API call. Always resolves a reply; a rejection means the call never reached Rust. */

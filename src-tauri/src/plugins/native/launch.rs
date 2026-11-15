@@ -14,10 +14,10 @@ use std::process::{self, Command, Stdio};
 
 // -- Local Imports --
 use super::protocol::PROTOCOL_VERSION;
+use crate::plugins::paths::stderr_log_path;
 use crate::proc::job::Job;
 use crate::proc::spawn::spawn_in_job;
 
-const STDERR_LOG: &str = "stderr.log";
 const WEBVIEW2_DIR: &str = "webview2";
 // WebView2 otherwise puts its profile beside the executable, inside the plugin's code folder, which an
 // update replaces.
@@ -41,7 +41,7 @@ pub fn entry_path(plugin_dir: &Path, entry: &str) -> PathBuf {
 }
 
 pub fn stderr_log(data_dir: &Path) -> PathBuf {
-    data_dir.join(STDERR_LOG)
+    stderr_log_path(data_dir)
 }
 
 /// `--plisto-protocol 1 --plisto-data <dir> --plisto-tap <name|none>`.

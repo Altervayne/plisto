@@ -8,12 +8,13 @@ import { enabledOf, usePluginsStore } from "./store";
 // -- Type Imports --
 import type { PluginBootState, PluginRow } from "../../types";
 
-const { pluginsList, pluginsBootState, listen } = vi.hoisted(() => ({
+const { pluginsList, pluginsBootState, pluginsDevMode, listen } = vi.hoisted(() => ({
   pluginsList: vi.fn(),
   pluginsBootState: vi.fn(),
+  pluginsDevMode: vi.fn(),
   listen: vi.fn(),
 }));
-vi.mock("../../lib/ipc", () => ({ pluginsList, pluginsBootState }));
+vi.mock("../../lib/ipc", () => ({ pluginsList, pluginsBootState, pluginsDevMode }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
 const row = (id: string, enabled = false): PluginRow => ({
@@ -48,6 +49,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   pluginsList.mockReset();
   pluginsBootState.mockReset().mockResolvedValue(BOOT);
+  pluginsDevMode.mockReset().mockResolvedValue(false);
   unlisten = vi.fn();
   listen.mockReset().mockImplementation(async (name: string, cb: unknown) => {
     if (name === PLUGINS_CHANGED) fire = cb as () => void;
@@ -55,7 +57,7 @@ beforeEach(() => {
     else throw new Error(`unexpected event ${name}`);
     return unlisten;
   });
-  usePluginsStore.setState({ rows: [], boot: null, status: "idle" });
+  usePluginsStore.setState({ rows: [], boot: null, devMode: false, status: "idle" });
   stop = null;
 });
 
@@ -93,6 +95,30 @@ describe("plugins sync", () => {
     expect(state().rows).toEqual([row("a")]);
     expect(state().boot).toEqual(BOOT);
     expect(state().status).toBe("ready");
+  });
+
+  it("reads developer mode with the list and rereads it on a change", async () => {
+    pluginsList.mockResolvedValue([]);
+    pluginsDevMode.mockResolvedValueOnce(true);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().devMode).toBe(true);
+    pluginsDevMode.mockResolvedValue(false);
+    fire();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state().devMode).toBe(false);
+  });
+
+  it("never reads a failed developer-mode read as off", async () => {
+    pluginsList.mockResolvedValue([]);
+    pluginsDevMode.mockResolvedValueOnce(true);
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    pluginsDevMode.mockRejectedValue(new Error("gone"));
+    fire();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(state().status).toBe("failed");
+    expect(state().devMode).toBe(true);
   });
 
   it("retries a rejected boot read, then succeeds", async () => {

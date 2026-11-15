@@ -816,6 +816,7 @@ export const en = {
     installFolder: ["plugin", "add"],
     openFolder: ["plugin"],
     safeMode: ["plugins off", "disable plugins", "crash", "recovery", "restart"],
+    developerMode: ["developer", "plugin author", "reload", "log", "debug", "sandbox check"],
     checkForUpdates: ["version", "upgrade", "new version"],
     autoCheck: ["version", "upgrade"],
   },
@@ -1602,8 +1603,22 @@ export const en = {
       keepLine: "Your library and source folders are not touched.",
     },
     devMode: {
+      label: "Developer mode",
+      helper: "For people who write plugins. Adds reload and log tools to each plugin. Leave it off otherwise.",
       loopbackNote:
         "While developer mode is on, plugins that list an address on this computer can connect to it.",
+      sandboxPassed: "Sandbox check: passed.",
+      sandboxPassedBody: "Sandboxed plugins run contained and are not tagged Unsandboxed.",
+      sandboxNotPassed: "Sandbox check: not passed.",
+      sandboxNotPassedBody:
+        "Until it passes, sandboxed plugins are tagged Unsandboxed and use the heavier install sheet.",
+      reload: "Reload from source",
+      openLog: "Open log",
+      logLabel: "Plugin log",
+      logStderr: "Process errors",
+      logEmpty: "Nothing logged yet.",
+      logLoading: "Reading the log...",
+      logFailed: "The log could not be read.",
     },
     net: {
       proxyWarning:

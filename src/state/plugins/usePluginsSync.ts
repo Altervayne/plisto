@@ -1,9 +1,10 @@
 /*
  * The frontend end of the plugin registry: reads the list and the boot view through the boot retry, then
  * reloads the list whenever the backend says it changed and takes the runtime gate from its event. A
- * rejected read never reads as "no plugins": the status becomes failed and the earlier rows stay. Only the
- * latest reload may apply, so a slow earlier one cannot overwrite a newer answer, and a read that began
- * before a local row change is discarded and run once more so it cannot undo that change.
+ * rejected read never reads as "no plugins" or "developer mode off": the status becomes failed and the
+ * earlier rows and switch stay. Only the latest reload may apply, so a slow earlier one cannot overwrite
+ * a newer answer, and a read that began before a local row change is discarded and run once more so it
+ * cannot undo that change.
  */
 
 // -- Framework Imports --
@@ -19,7 +20,7 @@ import { usePluginsStore } from "./store";
 import type { PluginBootState } from "../../types";
 
 // -- IPC Imports --
-import { pluginsBootState, pluginsList } from "../../lib/ipc";
+import { pluginsBootState, pluginsDevMode, pluginsList } from "../../lib/ipc";
 
 // -- Utils Imports --
 import { withRetry } from "../../lib/withRetry";
@@ -52,15 +53,17 @@ export function startPluginsSync(): () => void {
     if (store().status !== "ready") store().setStatus("loading");
     try {
       // The runtime event keeps the boot view current, so it is read only until one has been seen.
-      const [rows, boot] = await Promise.all([
+      const [rows, boot, devMode] = await Promise.all([
         withRetry(pluginsList),
         store().boot ? Promise.resolve(null) : withRetry(pluginsBootState),
+        withRetry(pluginsDevMode),
       ]);
       if (!alive || mine !== latest) return true;
       if (store().epoch !== epoch && rerun) return load(false);
       // A runtime event that landed during the read is newer than the read.
       if (boot && !store().boot) store().applyBoot(boot);
       store().applyRows(rows);
+      store().applyDevMode(devMode);
       store().setStatus("ready");
       return true;
     } catch {

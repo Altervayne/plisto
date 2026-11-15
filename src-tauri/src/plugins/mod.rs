@@ -12,6 +12,7 @@
 pub(crate) mod api;
 pub(crate) mod copy_in;
 pub(crate) mod data_size;
+pub(crate) mod dev_mode;
 pub(crate) mod extract;
 pub(crate) mod frame_host;
 pub(crate) mod frame_host_files;
@@ -24,6 +25,7 @@ pub(crate) mod icon_url;
 pub(crate) mod install;
 pub(crate) mod install_error;
 pub(crate) mod lifecycle;
+pub(crate) mod log_tail;
 pub(crate) mod manifest;
 #[cfg(windows)]
 pub(crate) mod native;

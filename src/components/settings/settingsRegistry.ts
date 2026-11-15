@@ -29,6 +29,7 @@ export type SettingId =
   | "installFolder"
   | "openFolder"
   | "safeMode"
+  | "developerMode"
   | "checkForUpdates"
   | "autoCheck";
 
@@ -184,6 +185,13 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     label: (d) => d.plugins.safeEntry.label,
     sublabel: (d) => d.plugins.safeEntry.helperRunning,
     synonyms: (d) => d.settingsIndex.safeMode,
+  },
+  {
+    id: "developerMode",
+    section: "plugins",
+    label: (d) => d.plugins.devMode.label,
+    sublabel: (d) => d.plugins.devMode.helper,
+    synonyms: (d) => d.settingsIndex.developerMode,
   },
   {
     id: "checkForUpdates",

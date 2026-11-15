@@ -9,6 +9,7 @@ import { IconButton } from "../../common/IconButton";
 import { QuietButton } from "../../common/QuietButton";
 import { PluginIcon } from "../../plugins/PluginIcon";
 import { PluginTag } from "../../plugins/PluginTag";
+import { DevRowTools } from "./DevRowTools";
 import { PluginRowPanel } from "./PluginRowPanel";
 
 // -- State Imports --
@@ -64,7 +65,7 @@ function statusText(status: RowStatus, t: Translate, current: string | null): st
  * action its state allows - the enable switch, Review, or Uninstall. A row that can be opened shows its
  * details panel under it. A ready row's supervised status, when it has one, replaces the plain status
  * line. A row the shell asked to land on opens itself. A row whose manifest cannot be read is named by
- * its id, in the mono face.
+ * its id, in the mono face. In developer mode the row also carries its reload and log tools.
  */
 export function PluginRow({
   row,
@@ -73,6 +74,7 @@ export function PluginRow({
   onReview,
   onUninstall,
   currentVersion,
+  dev,
 }: {
   row: RowData;
   busy: boolean;
@@ -81,6 +83,8 @@ export function PluginRow({
   onToggle: (row: RowData, on: boolean) => void;
   onReview: (row: RowData) => void;
   onUninstall: (row: RowData) => void;
+  /** The developer-mode tools; absent while developer mode is off. */
+  dev?: { onReload: (row: RowData) => void; onOpenLog: (row: RowData) => void };
 }) {
   const t = useT();
   const focus = usePluginHubFocus();
@@ -119,6 +123,14 @@ export function PluginRow({
                 ? hubLabel(hub, t)
                 : statusText(view.status, t, currentVersion)}
           </div>
+          {dev ? (
+            <DevRowTools
+              canReload={row.source_path !== null}
+              busy={busy}
+              onReload={() => dev.onReload(row)}
+              onOpenLog={() => dev.onOpenLog(row)}
+            />
+          ) : null}
         </div>
         <div className={styles.acts}>
           {view.action === "switch" ? (
