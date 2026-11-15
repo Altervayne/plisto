@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe("Transport with no stream", () => {
   it("is the plain cluster: Play when stopped, no Stop, nothing dimmed", () => {
-    const html = render({ withStop: true });
+    const html = render();
     expect(html).toContain('aria-label="Play"');
     expect(html).not.toContain('aria-label="Stop"');
     expect(html).not.toContain("aria-disabled");
@@ -102,16 +102,14 @@ describe("Transport with a stream seated", () => {
     expect(button(html, "Previous")).toContain('aria-disabled="true"');
   });
 
-  it("adds Stop after Next when asked, and not otherwise", () => {
+  it("holds no Stop: that sits in the Player's trailing group", () => {
     seat();
-    const html = render({ withStop: true });
-    expect(html.indexOf('aria-label="Next"')).toBeLessThan(html.indexOf('aria-label="Stop"'));
     expect(render()).not.toContain('aria-label="Stop"');
   });
 
   it("renders no Live text for a live item", () => {
     seat({ live: true });
-    expect(render({ withStop: true, shortcutHints: true })).not.toMatch(/live/i);
+    expect(render({ shortcutHints: true })).not.toMatch(/live/i);
   });
 });
 

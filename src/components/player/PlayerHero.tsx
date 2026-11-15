@@ -1,10 +1,17 @@
 // -- Component Imports --
 import { AmbientButton } from "./ambient/AmbientButton";
 import { Cover } from "../common/Cover/Cover";
+import { IconButton } from "../common/IconButton";
+import { Tooltip } from "../common/Tooltip";
 import { SoundMenu } from "../sound/SoundMenu";
 import { SeekBar } from "./SeekBar";
+import { SequenceToggle } from "./SequenceToggle";
 import { Transport } from "./Transport";
+import { VisualizerButton } from "./VisualizerButton";
 import { Volume } from "./Volume";
+
+// -- Icon Imports --
+import { Square } from "lucide-react";
 
 // -- Hook Imports --
 import { useTrackCover } from "../tracks/useTrackCover";
@@ -35,7 +42,9 @@ import styles from "./PlayerHero.module.css";
 
 /**
  * The now-playing column: the source line, the cover, the title and artist, the seek bar, and the
- * transport with the Sound button leading it and the ambient entry and volume rail trailing it. Mounts
+ * transport row: the Sound and visualizer buttons leading, shuffle and repeat flanking the previous, play
+ * and next cluster, and Stop (stream only), the ambient entry and the volume rail trailing. Below a narrow
+ * controls width the row folds to two lines, the cluster over the leading and trailing groups. Mounts
  * only with a real track id, so its id-typed hooks never run empty. The seek fill is the one lit accent
  * of the view; every other control reads by weight and material. Under the Liquid and Dot cover
  * visualizers the art is drawn by the visualizer beneath a clear tile that keeps the cover's shadow, and
@@ -43,7 +52,8 @@ import styles from "./PlayerHero.module.css";
  *
  * A seated plugin stream swaps the content, not the layout: the source line names the plugin (linking to
  * its page), the plugin's now line or title leads, a scrubber shows only for an item that is seekable
- * with a known length (else the listened time stands in its place), and Stop joins the transport.
+ * with a known length (else the listened time stands in its place), Stop leads the trailing group, and the
+ * shuffle and repeat toggles dim.
  */
 export function PlayerHero({
   trackId,
@@ -134,11 +144,21 @@ export function PlayerHero({
           <div className={styles.transport}>
             <div className={styles.soundSlot}>
               <SoundMenu />
+              <VisualizerButton />
             </div>
             <div className={styles.cluster}>
-              <Transport size="lg" shortcutHints withStop />
+              <SequenceToggle kind="shuffle" />
+              <Transport size="lg" shortcutHints />
+              <SequenceToggle kind="repeat" />
             </div>
             <div className={styles.volumeSlot}>
+              {stream ? (
+                <Tooltip label={t((d) => d.player.stop)}>
+                  <IconButton aria-label={t((d) => d.player.stop)} onClick={() => actions.stop()}>
+                    <Square size={18} strokeWidth={1.8} />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
               {onEnterAmbient ? <AmbientButton ref={ambientRef} onEnter={onEnterAmbient} /> : null}
               <Volume volume={status.volume} shortcutHints />
             </div>

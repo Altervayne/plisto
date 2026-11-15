@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   position: 2538,
   duration: 0,
   requestPage: vi.fn(),
+  stop: vi.fn(),
 }));
 
 type Found = { type: unknown; props: Record<string, unknown> };
@@ -36,7 +37,7 @@ function findElement(node: unknown, match: (el: Found) => boolean): Found | null
 
 vi.mock("../../state/player/store", () => ({
   useSeatedStream: () => (h.seated ? h.now : null),
-  usePlayerActions: () => ({ seek: () => {} }),
+  usePlayerActions: () => ({ seek: () => {}, stop: h.stop }),
   usePlayerStatus: () =>
     ({ position_secs: h.position, duration_secs: h.duration, volume: 1 }) as PlayerStatus,
   usePlayingFrom: () => ({ kind: "album", id: 1, label: "Salt Flats at Dusk" }),
@@ -55,9 +56,10 @@ vi.mock("../common/Cover/Cover", () => ({ Cover: () => <i data-cover="" /> }));
 vi.mock("../sound/SoundMenu", () => ({ SoundMenu: () => null }));
 vi.mock("./ambient/AmbientButton", () => ({ AmbientButton: () => null }));
 vi.mock("./Volume", () => ({ Volume: () => null }));
-vi.mock("./Transport", () => ({
-  Transport: ({ withStop }: { withStop?: boolean }) => <i data-transport={withStop ? "stop" : "plain"} />,
-}));
+vi.mock("./Transport", () => ({ Transport: () => <i data-transport="" /> }));
+vi.mock("./SequenceToggle", () => ({ SequenceToggle: ({ kind }: { kind: string }) => <i data-seq={kind} /> }));
+vi.mock("./VisualizerButton", () => ({ VisualizerButton: () => <i data-viz="" /> }));
+vi.mock("../common/Tooltip", () => ({ Tooltip: ({ children }: { children: unknown }) => children as never }));
 
 const render = () => renderToStaticMarkup(<PlayerHero trackId={-41} onNavigate={() => {}} />);
 
@@ -163,8 +165,13 @@ describe("PlayerHero with a stream seated", () => {
     expect(html.indexOf("Buffering")).toBeLessThan(html.indexOf("48:20"));
   });
 
-  it("asks the transport for Stop", () => {
-    expect(render()).toContain('data-transport="stop"');
+  it("leads the trailing group with Stop, which stops the stream", () => {
+    const html = render();
+    expect(html.indexOf('data-transport=""')).toBeLessThan(html.indexOf('aria-label="Stop"'));
+    const tree = PlayerHero({ trackId: -41, onNavigate: () => {} });
+    const stop = findElement(tree, (el) => el.props?.["aria-label"] === "Stop");
+    (stop?.props.onClick as () => void)();
+    expect(h.stop).toHaveBeenCalledTimes(1);
   });
 
   it("renders no Live text for a live item", () => {
@@ -175,6 +182,23 @@ describe("PlayerHero with a stream seated", () => {
   it("puts no animation class on the phase word", () => {
     h.now = streamNowFixture({ state: "reconnecting" });
     expect(render()).not.toMatch(/class="[^"]*(anim|pulse|blink|fade|spin|shimmer|flash)/i);
+  });
+});
+
+describe("PlayerHero transport row", () => {
+  it.each([true, false])("flanks the cluster with shuffle then repeat and leads with the visualizer (stream %s)", (seated) => {
+    h.seated = seated;
+    h.now = seated ? streamNowFixture() : null;
+    const html = render();
+    const order = [html.indexOf("data-viz"), html.indexOf('data-seq="shuffle"'), html.indexOf("data-transport"), html.indexOf('data-seq="repeat"')];
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("has no Stop outside a stream", () => {
+    h.seated = false;
+    h.now = null;
+    expect(render()).not.toContain('aria-label="Stop"');
   });
 });
 

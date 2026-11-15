@@ -18,17 +18,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
-// -- Icon Imports --
-import { Waves } from "lucide-react";
-
 // -- Component Imports --
-import { IconToggle } from "../common/IconToggle";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip";
 import { QueueRow } from "./QueueRow";
 import { QueueStreamCard } from "./QueueStreamCard";
-import { SequenceMenu } from "./SequenceMenu";
 
 // -- State Imports --
 import {
@@ -43,7 +38,6 @@ import { cleared } from "../../state/player/queueToast";
 
 import { useAddTracksToPlaylist, useCreatePlaylist } from "../../state/playlists/store";
 import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/queuePlaylist";
-import { useVisualizerSheet, useVisualizerSheetOpen } from "../../state/player/visualizerSheet";
 
 // -- Format Imports --
 import { formatCount } from "../../lib/format";
@@ -63,8 +57,8 @@ const SAVED_MS = 2000;
 /**
  * The up-next list beside the hero. Reads the queue, its metadata snapshot and the play cursor through
  * their own selectors, apart from the ticking status, so the playhead moving never re-renders these rows.
- * The header counts the tracks still ahead and holds the save-as-playlist action, the button that opens
- * the visualizer sheet, and the sequencing control; the footer clears the queue by stopping the engine.
+ * The header counts the tracks still ahead and holds the save-as-playlist action; the footer clears the
+ * queue by stopping the engine.
  *
  * While a plugin stream holds the seat the column shows the stream's card, then the parked queue under a
  * sentence naming the plugin. Its rows read as paused (none is marked playing; the cursor row shows the
@@ -83,7 +77,6 @@ export function QueueList() {
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const t = useT();
-  const sheetOpen = useVisualizerSheetOpen();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const savingRef = useRef(false);
@@ -137,20 +130,6 @@ export function QueueList() {
       {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
     </QuietButton>
   );
-  const iconButtons = (
-    <>
-      <IconToggle
-        pressed={sheetOpen}
-        aria-label={t((d) => d.player.visualizer)}
-        aria-haspopup="menu"
-        aria-expanded={sheetOpen}
-        onClick={(event) => useVisualizerSheet.getState().toggle(event.currentTarget)}
-      >
-        <Waves size={18} strokeWidth={1.8} />
-      </IconToggle>
-      <SequenceMenu />
-    </>
-  );
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || over.id === active.id) return;
@@ -167,12 +146,9 @@ export function QueueList() {
       {stream ? <QueueStreamCard stream={stream} /> : null}
       {stream ? (
         <div className={styles.headerParked}>
-          <div className={styles.parkRow}>
-            <p className={styles.park}>
-              {t((d) => d.player.stream.parkedHeader, { name: stream.plugin_name })}
-            </p>
-            <div className={styles.parkIcons}>{iconButtons}</div>
-          </div>
+          <p className={styles.park}>
+            {t((d) => d.player.stream.parkedHeader, { name: stream.plugin_name })}
+          </p>
           <div className={styles.parkActions}>
             {withHint(t((d) => d.player.stream.saveParkedHint), saveButton)}
             {withHint(
@@ -189,10 +165,7 @@ export function QueueList() {
             <span className={styles.label}>{t((d) => d.player.upNext)}</span>
             <span className={styles.count}>{formatCount(ahead)}</span>
           </div>
-          <div className={styles.actions}>
-            {saveButton}
-            {iconButtons}
-          </div>
+          <div className={styles.actions}>{saveButton}</div>
         </div>
       )}
 

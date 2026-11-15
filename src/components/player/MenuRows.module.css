@@ -1,0 +1,83 @@
+/* The Player's menu rows, shared by the visualizer popover: a glyph, its label and a trailing check slot,
+ * neutral throughout - the chosen rows read by a check and their ink, never the accent. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* A menu row: a glyph, its label, and a trailing check slot. Quiet at rest, veiling on hover. */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.item:hover {
+  background: var(--veil);
+  color: var(--ink);
+}
+
+/* The chosen row: full ink, so it reads by weight. */
+.item[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+}
+
+.item[aria-checked="true"] .icon {
+  color: var(--ink-2);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The trailing selected mark, holding its slot whether shown or not so a row never reflows as the choice
+ * moves. Neutral ink, never the accent. */
+.check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink);
+}
+
+/* A hairline between two groups of rows, set off by its own margin. */
+.sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

@@ -35,7 +35,7 @@ import type { MenuPanelApi } from "../../../common/ContextMenu";
 
 // -- Style Imports --
 // The rows and separators are the Player picker's, the tabs the segmented control's.
-import menuStyles from "../../SequenceMenu.module.css";
+import menuStyles from "../../MenuRows.module.css";
 import segmentStyles from "../../../common/SegmentedControl.module.css";
 import styles from "./VisualizerPopover.module.css";
 

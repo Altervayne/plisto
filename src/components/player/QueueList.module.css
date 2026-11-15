@@ -28,8 +28,8 @@
   pointer-events: none;
 }
 
-/* The header: the "up next" heading and its count on the left, the sequencing control pushed to the
- * trailing edge. */
+/* The header: the "up next" heading and its count on the left, the save action pushed to the trailing
+ * edge. */
 .header {
   display: flex;
   align-items: center;
@@ -38,27 +38,13 @@
   padding: 0 6px 8px 10px;
 }
 
-/* Under a plugin stream the header has two rows: the sentence with the icon buttons trailing it, where they
- * sit with no stream, then the two text actions on the trailing edge. */
+/* Under a plugin stream the header has two rows: the sentence, then the two text actions on the trailing
+ * edge. */
 .headerParked {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 0 6px 8px 10px;
-}
-
-.parkRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-/* The icon buttons never shrink or wrap, so they hold their place as the sentence reflows. */
-.parkIcons {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
 }
 
 /* The labels never wrap; whole buttons drop to a second line only for a very long translation. */
@@ -97,7 +83,7 @@
   min-width: 0;
 }
 
-/* The save action sits beside the sequencing control on the trailing edge. */
+/* The save action on the trailing edge, never shrinking. */
 .actions {
   display: flex;
   align-items: center;

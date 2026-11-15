@@ -2,7 +2,7 @@
 import type { HTMLAttributes, ReactElement } from "react";
 
 // -- Icon Imports --
-import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 // -- Component Imports --
 import { IconButton } from "../common/IconButton";
@@ -36,17 +36,14 @@ const SIZES = {
  *
  * With a plugin stream seated the cluster follows the stream: the main button reads the hub's state
  * (Pause in every state but paused, so a press during a wait stops the wait), Next and Previous dim
- * unless the plugin accepts them (kept hoverable so the tooltip can say so), and `withStop` adds Stop
- * after Next.
+ * unless the plugin accepts them (kept hoverable so the tooltip can say so).
  */
 export function Transport({
   size = "md",
   shortcutHints = false,
-  withStop = false,
 }: {
   size?: "md" | "lg";
   shortcutHints?: boolean;
-  withStop?: boolean;
 }) {
   const enginePlaying = useIsPlaying();
   const stream = useSeatedStream();
@@ -113,13 +110,6 @@ export function Transport({
         () => actions.next(),
         <SkipForward size={s.skip} strokeWidth={s.stroke} />,
       )}
-      {stream && withStop ? (
-        <Tooltip label={t((d) => d.player.stop)}>
-          <IconButton aria-label={t((d) => d.player.stop)} onClick={() => actions.stop()}>
-            <Square size={s.skip} strokeWidth={s.stroke} />
-          </IconButton>
-        </Tooltip>
-      ) : null}
     </div>
   );
 }

@@ -36,11 +36,6 @@ vi.mock("../../state/playlists/store", () => ({
   useCreatePlaylist: () => h.createPlaylist,
   useAddTracksToPlaylist: () => h.addTracks,
 }));
-vi.mock("../../state/player/visualizerSheet", () => ({
-  useVisualizerSheetOpen: () => false,
-  useVisualizerSheet: { getState: () => ({ toggle: () => {} }) },
-}));
-vi.mock("../common/IconToggle", () => ({ IconToggle: () => null }));
 vi.mock("../common/ScrollArea/ScrollArea", () => ({
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
@@ -58,7 +53,6 @@ vi.mock("./QueueRow", () => ({
   },
 }));
 vi.mock("./QueueStreamCard", () => ({ QueueStreamCard: () => <div data-card="" /> }));
-vi.mock("./SequenceMenu", () => ({ SequenceMenu: () => null }));
 
 const render = () => {
   h.buttons = [];
@@ -111,6 +105,12 @@ describe("QueueList with a stream seated", () => {
     expect(h.cleared).toHaveBeenCalledWith("Night Radio");
   });
 
+  it("holds no icon toggles in the parked header: sequencing and the visualizer live in the hero", () => {
+    const html = render();
+    expect(html).not.toContain("aria-pressed");
+    expect(html).not.toContain("<svg");
+  });
+
   it("keeps Clear queue out of the footer, so only the header one exists", () => {
     render();
     expect(h.buttons.filter((b) => b.label === "Clear queue")).toHaveLength(1);
@@ -142,6 +142,8 @@ describe("QueueList with no stream", () => {
   it("keeps the normal form: up next header, the current row playing, the footer stopping", () => {
     const html = render();
     expect(html).toContain("Up next");
+    expect(html).not.toContain("aria-pressed");
+    expect(html).not.toContain("<svg");
     expect(html).not.toContain("data-card");
     expect(h.rows.map((r) => r.state)).toEqual(["played", "now", "next"]);
     expect(h.rows.some((r) => r.dim)).toBe(false);
