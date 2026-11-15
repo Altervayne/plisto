@@ -208,7 +208,7 @@
 }
 
 .error {
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: 12px;
 }
 

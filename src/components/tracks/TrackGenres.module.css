@@ -18,7 +18,7 @@
   padding: 4px 10px;
   border-radius: var(--pill);
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
   font-weight: 550;
 }
@@ -48,7 +48,7 @@
   border: 0;
   border-radius: var(--pill);
   background: var(--danger-weak);
-  color: var(--danger);
+  color: var(--danger-text);
   cursor: pointer;
   opacity: 0;
   transition:

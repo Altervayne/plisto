@@ -74,7 +74,7 @@
 
 /* Zero is good news, so the settled line takes the good tone. */
 .verb[data-good] {
-  color: var(--good);
+  color: var(--good-text);
 }
 
 /* -- Preview -- */

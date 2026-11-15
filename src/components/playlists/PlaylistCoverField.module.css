@@ -56,5 +56,5 @@
 .error {
   margin: 0;
   font-size: 11.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }

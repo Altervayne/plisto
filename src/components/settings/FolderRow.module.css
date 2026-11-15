@@ -59,7 +59,7 @@
 .offline {
   margin-right: 10px;
   font-weight: 550;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* The row's glyph controls hold their slot but dissolve at rest, surfacing on row hover or focus. */
@@ -89,7 +89,7 @@
 
 .row:hover .glyph,
 .glyph:focus-visible {
-  opacity: 0.7;
+  opacity: 1;
 }
 
 .glyph:hover {
@@ -99,7 +99,7 @@
 
 /* Remove warms toward the warn tone as it surfaces, marking the destructive control apart. */
 .remove:hover {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .glyph:disabled {

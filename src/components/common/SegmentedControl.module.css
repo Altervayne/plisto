@@ -72,9 +72,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* An empty set keeps its place, faded but live: a click still opens its empty state. */
+/* An empty set keeps its place and stays live: a click still opens its empty state. */
 .dimmed:not(.active) {
-  opacity: 0.55;
+  opacity: 1;
 }
 
 /* A disabled chip keeps its place in the row so the choice it stands for stays visible, just inert. */

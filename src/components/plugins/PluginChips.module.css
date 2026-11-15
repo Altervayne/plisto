@@ -15,9 +15,9 @@
 }
 
 .accent {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .warn {
-  color: var(--warn);
+  color: var(--warn-text);
 }

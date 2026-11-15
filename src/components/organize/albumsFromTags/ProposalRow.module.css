@@ -139,7 +139,7 @@
 
 .warn {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* -- Target -- */
@@ -195,7 +195,7 @@
 
 /* A track whose file is gone still rides along, marked by a warn-tinted number. */
 .track[data-missing] .no {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .trackTitle {

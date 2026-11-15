@@ -167,7 +167,7 @@
 
 .presetActive {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* The Custom pair: two token fields over the quiet token help. */
@@ -293,7 +293,7 @@
 .warn {
   margin: 0;
   font-size: 12.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* Quiet guidance under the destination picker, distinct from a warning: the muted ink, not the warn tone. */
@@ -345,7 +345,7 @@
 }
 
 .tally {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* The done report: the counts stacked over the collapsed skip/error list. */
@@ -375,7 +375,7 @@
 
 .errors {
   font-size: 12.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* The collapsed list of skipped and failed items: mono container plus its plain-language note. */

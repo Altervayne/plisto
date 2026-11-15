@@ -107,7 +107,7 @@
 .warn {
   margin: 0;
   font-size: 12.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* -- Destination: the album folder shape's pre-picked target, mirroring the library export -- */
@@ -197,7 +197,7 @@
 }
 
 .tally {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .foot {

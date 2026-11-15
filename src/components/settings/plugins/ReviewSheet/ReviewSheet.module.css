@@ -158,7 +158,7 @@
 }
 
 .warnNote {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .caps {
@@ -225,7 +225,7 @@
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .badge {
@@ -233,7 +233,7 @@
   padding: 1px 7px;
   border-radius: var(--pill);
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 10.5px;
   font-weight: 600;
 }

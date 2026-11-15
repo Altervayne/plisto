@@ -71,7 +71,7 @@
   padding: 0 6px;
   border-radius: var(--r-sm);
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 650;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
@@ -85,6 +85,6 @@
 
 .error {
   flex: none;
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: 12px;
 }

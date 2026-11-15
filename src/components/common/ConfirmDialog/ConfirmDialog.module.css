@@ -101,7 +101,7 @@
 /* Destructive confirm: quiet danger tint at rest, solid red on hover to read as the point of no return. */
 .confirm.destructive {
   background: var(--danger-weak);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .confirm.destructive:hover {

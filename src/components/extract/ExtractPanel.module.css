@@ -281,7 +281,7 @@
 }
 
 .chipKey {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -338,7 +338,7 @@
 }
 
 .error {
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: 12px;
 }
 
@@ -361,5 +361,5 @@
 .resultSkip {
   margin: 0;
   font-size: 12px;
-  color: var(--warn);
+  color: var(--warn-text);
 }

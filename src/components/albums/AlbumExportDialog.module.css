@@ -81,7 +81,7 @@
 .warn {
   margin: 0;
   font-size: 12.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* Quiet guidance under the destination picker, distinct from a warning: the muted ink, not the warn tone. */
@@ -160,7 +160,7 @@
 }
 
 .tally {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .foot {

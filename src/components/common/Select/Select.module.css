@@ -118,9 +118,9 @@
 /* The highlighted row is the single accent: an accent-weak fill under accent text. */
 .active {
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .active .hint {
-  color: var(--accent);
+  color: var(--accent-text);
 }

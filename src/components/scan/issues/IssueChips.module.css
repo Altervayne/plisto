@@ -31,11 +31,10 @@
 .on,
 .on:hover {
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .count {
   margin-left: 6px;
-  opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }

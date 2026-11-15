@@ -107,7 +107,7 @@
 }
 
 .tally {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* A hair of breathing room under the running Cancel. */

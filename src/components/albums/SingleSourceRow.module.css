@@ -47,5 +47,5 @@
 
 /* A member whose file is gone still shows, its title warm-tinted to flag the gap. */
 .row[data-missing] .title {
-  color: var(--warn);
+  color: var(--warn-text);
 }

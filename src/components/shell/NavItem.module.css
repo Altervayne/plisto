@@ -76,11 +76,11 @@
 /* The one accent per view: the active row's text, count, full-opacity icon, and a 3px left bar
  * pinned to the sidebar's edge. */
 .active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .active .count {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .active svg {

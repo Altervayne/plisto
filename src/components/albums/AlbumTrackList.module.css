@@ -48,7 +48,7 @@
 
 .discLabel:hover .removeDisc,
 .removeDisc:focus-visible {
-  opacity: 0.7;
+  opacity: 1;
 }
 
 .removeDisc:hover {

@@ -117,7 +117,7 @@
 .remove:hover {
   background: var(--danger-weak);
   border-color: var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .sizing {

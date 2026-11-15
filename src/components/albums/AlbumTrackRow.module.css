@@ -83,7 +83,7 @@
 
 .row:hover .handle,
 .handle:focus-visible {
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .handle:hover {
@@ -109,7 +109,7 @@
 
 .row:hover .disc,
 .disc:focus-within {
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .disc:focus-within {
@@ -342,7 +342,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .revert {
@@ -370,7 +370,7 @@
 
 /* A member whose file is gone still holds its slot, marked by a quieter, warn-tinted number. */
 .row[data-missing] .no {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 @media (prefers-reduced-motion: reduce) {

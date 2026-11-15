@@ -62,7 +62,7 @@
 
 .row:hover .handle,
 .handle:focus-visible {
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .handle:hover {
@@ -240,7 +240,7 @@
 
 .remove:hover {
   opacity: 1;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 @media (prefers-reduced-motion: reduce) {

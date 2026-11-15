@@ -15,7 +15,7 @@
   border: 0;
   background: none;
   font: inherit;
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration: underline;
   cursor: pointer;
 }

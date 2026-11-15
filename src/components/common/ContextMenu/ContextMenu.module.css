@@ -150,16 +150,16 @@
 
 /* Destructive intent: danger-red label and icon; hover fills a faint red so the risk reads on approach. */
 .destructive {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .destructive .icon {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .destructive:not([aria-disabled]):hover {
   background: var(--danger-weak);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* A disabled entry stays visible and announced, but quiet and inert. */

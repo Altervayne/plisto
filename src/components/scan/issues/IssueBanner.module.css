@@ -10,7 +10,7 @@
 
 .check {
   flex: none;
-  color: var(--good);
+  color: var(--good-text);
 }
 
 .ring {

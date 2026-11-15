@@ -85,7 +85,7 @@
 /* The highlighted row is the single accent: an accent-weak fill under accent text. */
 .active {
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* The create fallback reads a touch quieter than a real vocabulary match. */
@@ -94,5 +94,5 @@
 }
 
 .create.active {
-  color: var(--accent);
+  color: var(--accent-text);
 }

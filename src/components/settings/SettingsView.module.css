@@ -96,7 +96,7 @@
 .scanFailed {
   margin: 0;
   font-size: 11.5px;
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* The genre add field holds a modest width rather than stretching the whole foot. */

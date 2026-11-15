@@ -170,7 +170,7 @@
 /* The days inside the span take the weak accent; the endpoints below override it with the solid fill. */
 .between {
   background: var(--accent-weak);
-  color: var(--accent);
+  color: var(--accent-text);
   border-radius: 0;
 }
 

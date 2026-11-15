@@ -45,7 +45,7 @@
 }
 
 .row.status.warn {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* The status tone: quiet by default, accent or warn when the plugin says so. */

@@ -8,5 +8,5 @@
 }
 
 .errors {
-  color: var(--warn);
+  color: var(--warn-text);
 }
