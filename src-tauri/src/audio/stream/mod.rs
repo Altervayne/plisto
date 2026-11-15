@@ -20,6 +20,7 @@ mod comment_check;
 pub mod decoder;
 mod guard;
 pub mod icy;
+mod isolate;
 mod mp4_guard;
 mod ogg_guard;
 mod open;
