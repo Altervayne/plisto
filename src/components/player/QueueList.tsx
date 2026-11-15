@@ -71,10 +71,9 @@ const SAVED_MS = 2000;
  * pause glyph only when the engine holds a parked track), Save as playlist saves the
  * parked queue, and Clear queue empties only that queue: it never stops the stream, so it moves into the
  * header beside Save and the footer goes.
- * `frosted` lays a glass backing under the column while the shown visualizer runs beneath it; the backing
- * fades with the stage's dip.
+ * The column sits on a glass backing (`.queue::before`).
  */
-export function QueueList({ frosted = false }: { frosted?: boolean }) {
+export function QueueList() {
   const queue = usePlayerQueue();
   const meta = usePlayerQueueMeta();
   const queueIndex = usePlayerQueueIndex();
@@ -164,7 +163,7 @@ export function QueueList({ frosted = false }: { frosted?: boolean }) {
   };
 
   return (
-    <div className={styles.queue} data-frosted={frosted ? "" : undefined}>
+    <div className={styles.queue}>
       {stream ? <QueueStreamCard stream={stream} /> : null}
       {stream ? (
         <div className={styles.headerParked}>

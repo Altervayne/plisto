@@ -21,7 +21,6 @@ import { useVisualizerChoice } from "./visualizers/useVisualizerChoice";
 
 // -- State Imports --
 import { useCurrentTrackId, useStreamArtRev } from "../../state/player/store";
-import { fillsStage } from "../../state/player/visualizerKind";
 
 // -- Type Imports --
 import type { Ref } from "react";
@@ -101,11 +100,10 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
  * The playing stage: the two columns over the current cover, spread as a soft ambient glow behind both,
  * an aurora of drifting colour blooms above it, and the picked visualizer rising around the cover. Mounts
  * only with a real track id, so its id-typed cover hook never runs empty. The ambient layers sit under the
- * content, which carries the only lit mark. Liquid and the fluid kinds fill the whole panel, so under
- * them the queue takes a frosted backing. A change of visualizer dips the panel through its ground, and
- * everything keyed to the visualizer follows the shown kind rather than the pick. The visualizer sheet
- * rises from the panel's bottom edge. While ambient mode is up, the aurora, the visualizer and the sheet
- * stand down here, so only the full-screen stage draws.
+ * content, which carries the only lit mark. The queue sits on a frosted backing. A change of visualizer
+ * dips the panel through its ground, and everything keyed to the visualizer follows the shown kind rather
+ * than the pick. The visualizer sheet rises from the panel's bottom edge. While ambient mode is up, the
+ * aurora, the visualizer and the sheet stand down here, so only the full-screen stage draws.
  */
 function PlayerStage({
   trackId,
@@ -173,7 +171,7 @@ function PlayerStage({
           onEnterAmbient={onEnterAmbient}
           ambientRef={entryRef}
         />
-        <QueueList frosted={!ambient && fillsStage(shown)} />
+        <QueueList />
       </div>
       {ambient ? null : <VisualizerSheet place="player" trackId={trackId} fallback={choice.fallback} />}
     </div>
