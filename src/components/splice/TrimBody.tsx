@@ -23,7 +23,13 @@ import { usePreviewToggle } from "./usePreviewToggle";
 import { useWorkbenchKeys } from "./useWorkbenchKeys";
 
 // -- State Imports --
-import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
+import {
+  PREF_KEYS,
+  usePreference,
+  useRetireTrimHint,
+  useSetPreference,
+  useTrimHintDue,
+} from "../../state/preferences/store";
 import { useAddRootPath } from "../../state/store";
 
 // -- IPC Imports --
@@ -142,10 +148,12 @@ export function TrimBody({
   const storedThreshold = usePreference(PREF_KEYS.spliceThresholdDb);
   const storedPadding = usePreference(PREF_KEYS.splicePaddingMs);
   const setPreference = useSetPreference();
+  const trimHintDue = useTrimHintDue();
+  const retireTrimHint = useRetireTrimHint();
   const thresholdDb = numberPref(storedThreshold, DEFAULT_THRESHOLD_DB);
   const paddingMs = numberPref(storedPadding, DEFAULT_PADDING_MS);
 
-  const { destination, check, pick } = useSpliceDestination();
+  const { destination, check, checking, pick } = useSpliceDestination();
   const addRootPath = useAddRootPath();
 
   // A detection generation, so a stale re-detect (an earlier threshold) never lands over a newer one.
@@ -170,6 +178,11 @@ export function TrimBody({
   useEffect(() => {
     if (thresholdDb !== ANALYSIS_THRESHOLD_DB) void redetect(thresholdDb);
   }, []);
+
+  // The first handle drag retires the hint for good.
+  useEffect(() => {
+    if (handMoved) retireTrimHint();
+  }, [handMoved]);
 
   // Publish the close-guard signal: only an unsaved edit on the trim surface arms it.
   useEffect(() => {
@@ -400,6 +413,8 @@ export function TrimBody({
           />
         </div>
 
+        {trimHintDue ? <p className={styles.trimHint}>{t((d) => d.splice.trimHint)}</p> : null}
+
         <div className={styles.controls}>
           <MiniTransport
             path={path}
@@ -442,6 +457,7 @@ export function TrimBody({
             <SpliceOutputConfig
               destination={destination}
               check={check}
+              checking={checking}
               collision={collision}
               segmentCount={1}
               confirming={confirmingRun}

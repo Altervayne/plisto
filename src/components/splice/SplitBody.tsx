@@ -121,6 +121,10 @@ export function SplitBody({
   const [subPhase, setSubPhase] = useState<SubPhase>("editing");
   const [destination, setDestination] = useState<string | null>(null);
   const [check, setCheck] = useState<DestinationCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  // The newest owner of the destination state (a seed run or a pick), and the last folder a pick validated.
+  const destOwner = useRef(0);
+  const pickedPath = useRef<string | null>(null);
   const [collision, setCollision] = useState<CollisionPolicy>("rename");
   const [confirmingRun, setConfirmingRun] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -166,18 +170,25 @@ export function SplitBody({
 
   // Seed the destination from the folder a past split remembered, validating it. With none
   // remembered, open with no destination - a neutral prompt to pick a folder, not an in-library
-  // warning on the source's own parent. Re-seeding to the same remembered value is idempotent, so no
-  // ref guard (which would leak across StrictMode's setup/cleanup/setup and swallow the validation).
+  // warning on the source's own parent. The per-run alive flag survives StrictMode's setup/cleanup/setup;
+  // the owner number lets a pick supersede a seed in flight, and the folder a pick just validated is
+  // not validated again when it is remembered.
   useEffect(() => {
-    if (!storedDestination) return;
+    if (!storedDestination || storedDestination === pickedPath.current) return;
     let alive = true;
+    const mine = ++destOwner.current;
+    const live = () => alive && destOwner.current === mine;
     setDestination(storedDestination);
+    setChecking(true);
     validateExportDestination(storedDestination)
       .then((c) => {
-        if (alive) setCheck(c);
+        if (live()) setCheck(c);
       })
       .catch(() => {
-        if (alive) setCheck(null);
+        if (live()) setCheck(null);
+      })
+      .finally(() => {
+        if (live()) setChecking(false);
       });
     return () => {
       alive = false;
@@ -278,16 +289,23 @@ export function SplitBody({
   const onPickDestination = useCallback(async () => {
     const picked = await pickFolder();
     if (!picked) return;
+    const mine = ++destOwner.current;
+    pickedPath.current = picked;
     setDestination(picked);
+    setCheck(null);
+    setChecking(true);
     setConfirmingRun(false);
     setRunError(null);
     try {
       const c = await validateExportDestination(picked);
+      if (destOwner.current !== mine) return;
       setCheck(c);
       // Remember a folder the cutter is actually allowed to write to, so the next split opens on it.
       if (c.ok) setPreference(PREF_KEYS.spliceDestination, picked);
     } catch {
-      setCheck(null);
+      if (destOwner.current === mine) setCheck(null);
+    } finally {
+      if (destOwner.current === mine) setChecking(false);
     }
   }, [setPreference]);
 
@@ -554,6 +572,7 @@ export function SplitBody({
             <SpliceOutputConfig
               destination={destination}
               check={check}
+              checking={checking}
               collision={collision}
               segmentCount={model.segments.length}
               confirming={confirmingRun}

@@ -1,3 +1,6 @@
+// -- Framework Imports --
+import { useId } from "react";
+
 // -- Icon Imports --
 import { FolderOpen } from "lucide-react";
 
@@ -6,6 +9,9 @@ import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { Tooltip } from "../common/Tooltip/Tooltip";
+
+// -- Utils Imports --
+import { runBlockers } from "./spliceRunGate";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -26,6 +32,7 @@ import styles from "./SpliceOutputConfig.module.css";
 export function SpliceOutputConfig({
   destination,
   check,
+  checking,
   collision,
   segmentCount,
   confirming,
@@ -41,6 +48,7 @@ export function SpliceOutputConfig({
 }: {
   destination: string | null;
   check: DestinationCheck | null;
+  checking: boolean;
   collision: CollisionPolicy;
   segmentCount: number;
   confirming: boolean;
@@ -59,7 +67,25 @@ export function SpliceOutputConfig({
   // The body-specific gate: the splitter's two-segment default, or a caller override for the cropper's
   // single output. The run also always needs a valid destination.
   const gateMet = canRun ?? segmentCount >= 2;
-  const runnable = gateMet && !!check?.ok;
+  const blockers = runBlockers(destination, check, checking, gateMet);
+  const runnable = blockers.length === 0;
+  const reasonId = useId();
+  const refusalId = useId();
+
+  // One line naming the first thing to fix. A refused folder already shows its own warning above, which
+  // the button then describes instead.
+  const first = blockers[0];
+  const reason =
+    first === "noDestination"
+      ? t((d) => d.splice.needsDestination)
+      : first === "unchecked"
+        ? t((d) => d.splice.destinationUnchecked)
+        : first === "gate"
+          ? (disabledHint ?? t((d) => d.splice.runHint))
+          : null;
+  const refusalShown = !!check && (check.inside_workspace || !check.writable);
+  const describedBy =
+    first === "invalidDestination" && refusalShown ? refusalId : reason ? reasonId : undefined;
 
   return (
     <div className={styles.config}>
@@ -72,18 +98,28 @@ export function SpliceOutputConfig({
         {destination ? (
           <Tooltip label={destination}>
             <span className={styles.chosen}>
-              <span className={styles.chosenDot} aria-hidden="true" />
+              <span
+                className={`${styles.chosenDot} ${checking ? styles.dotPending : check?.ok ? "" : styles.dotMissing}`}
+                aria-hidden="true"
+              />
               <span className={styles.chosenPath}>{destination}</span>
             </span>
           </Tooltip>
         ) : (
-          <p className={styles.hint}>{t((d) => d.splice.destinationHint)}</p>
+          <span className={styles.chosen}>
+            <span className={`${styles.chosenDot} ${styles.dotMissing}`} aria-hidden="true" />
+            <span className={styles.missingText}>{t((d) => d.splice.noFolder)}</span>
+          </span>
         )}
         {check?.inside_workspace ? (
-          <p className={styles.warn}>{t((d) => d.export.insideWorkspace)}</p>
+          <p id={refusalId} className={styles.warn}>
+            {t((d) => d.export.insideWorkspace)}
+          </p>
         ) : null}
         {check && !check.inside_workspace && !check.writable ? (
-          <p className={styles.warn}>{t((d) => d.export.notWritable)}</p>
+          <p id={refusalId} className={styles.warn}>
+            {t((d) => d.export.notWritable)}
+          </p>
         ) : null}
         {check?.ok && check.non_empty ? (
           <p className={styles.warn}>{t((d) => d.export.nonEmpty)}</p>
@@ -117,12 +153,19 @@ export function SpliceOutputConfig({
           </div>
         </div>
       ) : (
-        <PrimaryButton onClick={onRun} disabled={!runnable} block>
+        <PrimaryButton
+          onClick={onRun}
+          disabled={!runnable}
+          aria-describedby={describedBy}
+          block
+        >
           {runLabel ?? t((d) => d.splice.splitInto, { n: segmentCount })}
         </PrimaryButton>
       )}
-      {!gateMet ? (
-        <p className={styles.hint}>{disabledHint ?? t((d) => d.splice.runHint)}</p>
+      {reason ? (
+        <p id={reasonId} className={styles.reason}>
+          {reason}
+        </p>
       ) : null}
     </div>
   );

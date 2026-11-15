@@ -26,6 +26,9 @@ import {
 // -- Type Imports --
 import type { Peak, SilenceSpan } from "../../types";
 
+// -- Component Imports --
+import { Tooltip } from "../common/Tooltip/Tooltip";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
@@ -519,7 +522,7 @@ export const WaveformLane = forwardRef<WaveformLaneHandle, WaveformLaneProps>(fu
   const lensWidth = laneWidth > 0 ? (viewportW / laneWidth) * viewportW : viewportW;
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} data-crop={crop ? "" : undefined}>
       <div className={styles.scroll} ref={scrollRef} onScroll={onScroll}>
         <div
           className={styles.lane}
@@ -634,29 +637,33 @@ export const WaveformLane = forwardRef<WaveformLaneHandle, WaveformLaneProps>(fu
               />
               <div className={styles.trimHandle} style={{ left: `${pct(crop.inFrame)}%` }}>
                 <div className={styles.trimLine} aria-hidden="true" />
-                <div
-                  className={styles.trimGrip}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t((d) => d.splice.trimHandleIn)}
-                  onPointerDown={(e) => onTrimDown(e, "in")}
-                  onPointerMove={onTrimMove}
-                  onPointerUp={onTrimUp}
-                  onPointerCancel={onTrimUp}
-                />
+                <Tooltip label={t((d) => d.splice.trimGripInTip)}>
+                  <div
+                    className={styles.trimGrip}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t((d) => d.splice.trimHandleIn)}
+                    onPointerDown={(e) => onTrimDown(e, "in")}
+                    onPointerMove={onTrimMove}
+                    onPointerUp={onTrimUp}
+                    onPointerCancel={onTrimUp}
+                  />
+                </Tooltip>
               </div>
               <div className={styles.trimHandle} style={{ left: `${pct(crop.outFrame)}%` }}>
                 <div className={styles.trimLine} aria-hidden="true" />
-                <div
-                  className={styles.trimGrip}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t((d) => d.splice.trimHandleOut)}
-                  onPointerDown={(e) => onTrimDown(e, "out")}
-                  onPointerMove={onTrimMove}
-                  onPointerUp={onTrimUp}
-                  onPointerCancel={onTrimUp}
-                />
+                <Tooltip label={t((d) => d.splice.trimGripOutTip)}>
+                  <div
+                    className={styles.trimGrip}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t((d) => d.splice.trimHandleOut)}
+                    onPointerDown={(e) => onTrimDown(e, "out")}
+                    onPointerMove={onTrimMove}
+                    onPointerUp={onTrimUp}
+                    onPointerCancel={onTrimUp}
+                  />
+                </Tooltip>
               </div>
             </>
           ) : null}

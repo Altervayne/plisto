@@ -70,6 +70,8 @@ export const PREF_KEYS = {
   collectionBrowseFocus: "collection_browse_focus",
   // The Export screen's remembered setups: the last one plus one per destination, a JSON blob.
   exportSetups: "export_setups",
+  // "1" once the trim-bar drag hint is retired by the first drag.
+  trimHintSeen: "trim_hint_seen",
 } as const;
 
 interface PreferencesStore {
@@ -126,6 +128,21 @@ export const usePreference = (key: string): string | undefined =>
 
 export const useLoadPreferences = () => usePreferencesStore((s) => s.loadPreferences);
 export const useSetPreference = () => usePreferencesStore((s) => s.setPreference);
+
+/** Whether the trim-bar hint is still due: prefs have loaded and no drag has retired it. */
+export const useTrimHintDue = (): boolean => {
+  const loaded = usePreferencesLoaded();
+  return loaded && usePreference(PREF_KEYS.trimHintSeen) !== "1";
+};
+
+/** Retires the trim-bar hint for good. A no-op once retired, so a drag does not rewrite the pref per step. */
+export const useRetireTrimHint = (): (() => void) => {
+  const due = useTrimHintDue();
+  const setPreference = useSetPreference();
+  return () => {
+    if (due) setPreference(PREF_KEYS.trimHintSeen, "1");
+  };
+};
 
 /**
  * Whether closing the window keeps Plisto alive in the tray. Persisted, default off: an absent pref

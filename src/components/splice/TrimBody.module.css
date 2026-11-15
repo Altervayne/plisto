@@ -25,6 +25,14 @@
   min-height: 160px;
 }
 
+/* The one-time hint on moving the trim bars: quiet ink under the waveform, no icon, no motion. */
+.trimHint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
 /* The transport at the leading edge, the zoom stepper at the trailing edge, on one quiet row. */
 .controls {
   display: flex;

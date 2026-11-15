@@ -240,8 +240,8 @@
   outline-offset: 1px;
 }
 
-/* The one chromatic mark on the resting lane: the playhead, the accent stroke reused from the seek
- * bar. Centered on its position so it does not drift at the ends. */
+/* The playhead: the accent stroke reused from the seek bar, the one chromatic mark on the splitter's
+ * resting lane. Centered on its position so it does not drift at the ends. */
 .playhead {
   position: absolute;
   top: 0;
@@ -317,6 +317,13 @@
   margin-left: -0.5px;
   background: var(--accent);
   pointer-events: none;
+}
+
+/* On the cropper the trim bars are the accent marks, so the playhead steps to ink to stay distinct. The
+ * splitter keeps its accent playhead because its cut markers are the neutral ones. */
+.wrap[data-crop] .playhead,
+.wrap[data-crop] .ovPlayhead {
+  background: var(--ink);
 }
 
 /* The lens: a quiet frame over the visible window, a soft accent border and a barely-there fill so
