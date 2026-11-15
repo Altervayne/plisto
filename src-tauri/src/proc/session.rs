@@ -139,7 +139,7 @@ impl Session {
     }
 
     /// The isolation the session has settled on, if any.
-    #[cfg(test)]
+    #[cfg(any(test, debug_assertions))]
     pub fn settled(&self) -> Option<Isolation> {
         self.state().settled
     }

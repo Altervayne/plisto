@@ -81,7 +81,7 @@ pub fn run_helper_mode(mode: HelperMode) -> i32 {
 /// Starts the decode helper probe when its environment variable is set.
 #[cfg(debug_assertions)]
 pub fn start_decode_helper_probe() {
-    proc::helper_launch::start_probe()
+    proc::probe::start_probe()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
