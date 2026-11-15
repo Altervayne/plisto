@@ -65,6 +65,25 @@ fn app_info() -> AppInfo {
     }
 }
 
+pub use proc::helper::HelperMode;
+
+/// The helper mode argv[1] names, or None for a normal launch. Read before anything of the app starts.
+pub fn helper_mode() -> Option<HelperMode> {
+    proc::helper::mode_from_args(std::env::args_os())
+}
+
+/// Runs a helper mode to its end and returns the exit code. No window, tray, database,
+/// single-instance lock or plugin is ever started.
+pub fn run_helper_mode(mode: HelperMode) -> i32 {
+    proc::helper::run(mode)
+}
+
+/// Starts the decode helper probe when its environment variable is set.
+#[cfg(debug_assertions)]
+pub fn start_decode_helper_probe() {
+    proc::helper_launch::start_probe()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut context = tauri::generate_context!();

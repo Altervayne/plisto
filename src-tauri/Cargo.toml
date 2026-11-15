@@ -115,6 +115,8 @@ windows = { version = "0.58", features = [
     "Win32_Networking_WinHttp",
     "Win32_Security",
     "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_System_Pipes",
     "Win32_System_WindowsProgramming",
     "Win32_System_WinRT",
     "Win32_UI_Shell",
@@ -141,3 +143,7 @@ windows62 = { package = "windows", version = "=0.62.2", features = [
 rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 tokio = { version = "1", features = ["net", "rt-multi-thread", "io-util"] }
+
+# The decode helper tests read a registry key and start the socket stack from inside the AppContainer.
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.58", features = ["Win32_System_Registry", "Win32_Networking_WinSock"] }

@@ -96,6 +96,12 @@ impl Job {
         unsafe { AssignProcessToJobObject(self.0, handle) }.map_err(io::Error::from)
     }
 
+    /// The job's handle, for a launch that puts a process in the job as it creates it. It stays owned
+    /// by self.
+    pub(super) fn handle(&self) -> HANDLE {
+        self.0
+    }
+
     /// Kills every process in the job. The job stays usable and empty.
     pub fn terminate(&self) -> io::Result<()> {
         // Safety: the job handle stays open while self lives.
