@@ -28,6 +28,24 @@ may be at the root of the archive or inside one top-level folder. Use Install fr
 Plugins, or drop the file into the plugins folder that the Open plugins folder button opens and press
 Review on its entry. Use plain zip compression (stored or deflate); encrypted archives are refused.
 
+## Pack a UI plugin
+
+`examples/pack.ps1` builds the installable file for the two UI samples. From the `examples` folder:
+
+```
+powershell -File pack.ps1                  # hello-ui and hello-background
+powershell -File pack.ps1 -Sample hello-ui # one sample
+```
+
+It writes `dist\<id>-<version>.plistoplugin` inside each sample: a zip with `plugin.json` at its root and
+the files Plisto needs (the page, its scripts and styles, the icon and `plisto-sdk.js`), with no README and
+no dotfiles. It refuses to pack when the sample's `plisto-sdk.js` is not byte-identical to
+`sdk/plisto-sdk.js`; copy the kit's file over it and run again. Use it as a model for your own plugin: the
+archive is the folder's files, nothing more. The native sample packs with its own
+[`pack.ps1`](../examples/tap-meter/README.md).
+
+Before you install, you can try the page in a browser with the [mock host](getting-started.md#develop-in-a-browser-with-the-mock-host).
+
 ## Update while developing
 
 1. Change your files.

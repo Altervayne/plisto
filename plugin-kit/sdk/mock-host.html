@@ -1,0 +1,1250 @@
+<!doctype html>
+<!--
+  Plisto mock host: frames a plugin page in a sandboxed iframe and answers the SDK's calls with canned data,
+  so a page can be developed in an ordinary browser with no Plisto running. One static file: inline CSS and
+  script, no network requests. Serve the kit over http (node plugin-kit/sdk/mock-serve.mjs) and open
+  sdk/mock-host.html?page=../examples/hello-ui/index.html.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plisto mock host</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --ink: #15171a;
+  --ink-2: #555b63;
+  --line: #d6d9de;
+  --accent: #0a7f99;
+  --warn: #a15c00;
+  --bad: #b3261e;
+  --good: #1b7a3e;
+  --warn-bg: #fff3d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1d2025;
+    --ink: #eceef1;
+    --ink-2: #9aa1ab;
+    --line: #333841;
+    --accent: #3cc3dd;
+    --warn: #f0b24a;
+    --bad: #f2776f;
+    --good: #5fcf88;
+    --warn-bg: #3a2f14;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, sans-serif; }
+h1 { margin: 0 0 8px; font-size: 18px; }
+h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-2); }
+button, input, select { font: inherit; color: inherit; }
+button { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+input[type="text"], select { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.notice { background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+.notice p { margin: 0 0 4px; }
+.notice p:last-child { margin: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.bar input[type="text"] { flex: 1 1 320px; min-width: 0; }
+.status { color: var(--ink-2); margin-bottom: 12px; }
+.status .bad { color: var(--bad); }
+.status .warn { color: var(--warn); }
+.status .good { color: var(--good); }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.stage { padding: 0; overflow: hidden; }
+#strip { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); min-height: 20px; }
+#strip:empty { display: none; }
+.toast, .prompt { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.toast { background: var(--bg); }
+.prompt { background: var(--warn-bg); border-color: var(--warn); }
+.toast .grow, .prompt .grow { flex: 1 1 200px; }
+#frame { display: block; width: 100%; height: 640px; border: 0; background: var(--surface); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.row label { display: flex; gap: 4px; align-items: center; }
+.muted { color: var(--ink-2); }
+ul.list { list-style: none; margin: 0; padding: 0; }
+.side-item { display: flex; gap: 8px; align-items: center; padding: 3px 0; flex-wrap: wrap; }
+.side-item .lbl { flex: 1 1 100px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+.chip.accent { border-color: var(--accent); color: var(--accent); }
+.chip.warn { border-color: var(--warn); color: var(--warn); }
+progress { width: 120px; }
+.log { max-height: 260px; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.log li { border-bottom: 1px solid var(--line); padding: 2px 0; word-break: break-word; }
+.log .t { color: var(--ink-2); }
+.log .err { color: var(--bad); }
+.log .ok { color: var(--good); }
+.log .nop { color: var(--warn); }
+</style>
+</head>
+<body>
+<h1>Plisto mock host</h1>
+<div class="notice" role="note">
+  <p><strong>This is a mock, not Plisto.</strong> It answers the SDK with canned data: a small fixed library,
+  an in-memory store, a fake transport. It applies no real sandbox policy (no content security policy, no
+  rate budgets, only part of the argument checks), and it does not run native programs.</p>
+  <p>A page that works here is not proven. The real check is installing the plugin in Plisto and testing it there.</p>
+</div>
+
+<form id="loader" class="bar">
+  <input type="text" id="pageInput" aria-label="Plugin page" placeholder="../examples/hello-ui/index.html" />
+  <button type="submit">Load page</button>
+</form>
+<div class="bar muted">
+  Examples:
+  <a href="?page=../examples/hello-ui/index.html">hello-ui</a>
+  <a href="?page=../examples/hello-background/index.html">hello-background</a>
+  <a href="?page=../examples/tap-meter/page/index.html">tap-meter page</a>
+</div>
+<div class="status" id="status"></div>
+
+<div class="grid">
+  <div class="panel stage">
+    <div id="strip" aria-live="polite"></div>
+    <iframe id="frame" title="Plugin page" sandbox="allow-scripts" referrerpolicy="strict-origin"></iframe>
+  </div>
+  <div>
+    <div class="panel">
+      <h2>Host</h2>
+      <div class="row">
+        <label>Theme
+          <select id="themeSel"><option value="light">light</option><option value="dark">dark</option></select>
+        </label>
+        <label>Language
+          <select id="localeSel"><option value="en">en</option><option value="fr">fr</option></select>
+        </label>
+        <label>App mode
+          <select id="modeSel"><option>both</option><option>player</option><option>organizer</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="openChk" checked /> Page open</label>
+        <input type="text" id="routeInput" size="12" aria-label="Route" placeholder="route" />
+        <button type="button" id="routeBtn">Send route</button>
+        <button type="button" id="reloadBtn">Reload page</button>
+      </div>
+      <div class="muted">Language and app mode are read at start: reload to apply. Theme, visibility and route are sent as events.</div>
+    </div>
+    <div class="panel">
+      <h2>Transport</h2>
+      <div id="now" class="row"></div>
+      <div class="row">
+        <button type="button" id="prevBtn">Prev</button>
+        <button type="button" id="playBtn">Play</button>
+        <button type="button" id="pauseBtn">Pause</button>
+        <button type="button" id="nextBtn">Next</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Sidebar</h2>
+      <div id="sidebar"></div>
+    </div>
+    <div class="panel">
+      <h2>Calls <button type="button" id="clearCalls">Clear</button></h2>
+      <ul class="list log" id="calls"></ul>
+    </div>
+    <div class="panel">
+      <h2>Log <button type="button" id="clearLog">Clear</button></h2>
+      <ul class="list log" id="logList"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var PROTOCOL = 1;
+  var API_VERSION = 1;
+  var ARGS_MAX_CHARS = 262144;
+  var CALLS_MAX = 200;
+  var LOG_MAX = 200;
+  var STORAGE_QUOTA = 1048576;
+  var VALUE_MAX = 131072;
+  var METHOD_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/;
+  var GESTURE_MS = 5000;
+  var TOAST_MS = 4000;
+  var TOASTS_MAX = 4;
+
+  // Every capability value Plisto knows. Used when plugin.json cannot be read.
+  var ALL_CAPS = [
+    "playback.read", "library.read", "audio.events", "audio.tap", "audio.device", "audio.output_takeover",
+    "playback.control", "playback.stream", "ui.sidebar", "ui.chips", "ui.toast", "ui.confirm", "storage",
+    "background", "network"
+  ];
+
+  // Methods the SDK exposes that this page does not answer. They fail with an error that says so.
+  var NOT_IMPLEMENTED = [
+    "net.fetch",
+    "net.abort",
+    "net.stream.ack",
+    "net.stream.cancel",
+    "net.socket.open",
+    "net.socket.send",
+    "net.socket.close"
+  ];
+
+  // The capability each method needs; a method not listed needs none.
+  var NEEDS = {};
+  function needs(cap, names) {
+    names.forEach(function (n) { NEEDS[n] = cap; });
+  }
+  needs("storage", ["storage.get", "storage.set", "storage.remove", "storage.keys", "storage.clear", "storage.usage"]);
+  needs("ui.toast", ["ui.toast"]);
+  needs("ui.confirm", ["ui.confirm"]);
+  needs("ui.chips", ["ui.chips"]);
+  needs("ui.sidebar", ["ui.sidebar.update"]);
+  needs("library.read", [
+    "library.tracks", "library.tracks_by_id", "library.albums", "library.album", "library.album_tracks",
+    "library.playlists", "library.playlist", "library.playlist_tracks", "library.cover"
+  ]);
+  needs("playback.read", ["playback.state", "playback.queue"]);
+  needs("playback.control", [
+    "playback.toggle", "playback.pause", "playback.resume", "playback.next", "playback.prev", "playback.seek",
+    "queue.play", "queue.add", "queue.play_next"
+  ]);
+  needs("network", NOT_IMPLEMENTED);
+
+  // -- Small helpers --
+
+  var enc = new TextEncoder();
+  function byteLen(s) { return enc.encode(s).length; }
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function clip(s, n) { return s.length > n ? s.slice(0, n) + "..." : s; }
+  function clock() {
+    var d = new Date();
+    return d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+  }
+  function isObj(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+  function isInt(v) { return typeof v === "number" && isFinite(v) && Math.floor(v) === v; }
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  function ApiError(code, message, reason) {
+    this.code = code;
+    this.message = message;
+    this.reason = reason || null;
+  }
+  function fail(code, message, reason) { throw new ApiError(code, message, reason); }
+
+  // -- State --
+
+  var state = {
+    pageUrl: null,
+    manifest: null,
+    granted: ALL_CAPS.slice(),
+    theme: window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+    locale: "en",
+    appMode: "both",
+    pageOpen: true,
+    route: null,
+    loads: 0,
+    framing: false,
+    expectLoad: false,
+    lastPong: 0,
+    seq: 0
+  };
+  var store = new Map();
+  var chips = [];
+  var itemState = {};
+  var gestures = {};
+  var gestureN = 0;
+  var openToasts = 0;
+  var promptOpen = false;
+  var frame = $("frame");
+
+  // -- Canned library --
+
+  // id, title, artist, album id (or null), track no, disc no, seconds, genres, year when in no album.
+  var TRACK_ROWS = [
+    [1, "Harbor Lights", "Aria North", 1, 1, 1, 214, ["Pop"], null],
+    [2, "Night Shift", "Aria North", 1, 2, 1, 187, ["Pop"], null],
+    [3, "Static Bloom", "Aria North", 1, 3, 1, 243, ["Pop", "Electronic"], null],
+    [4, "Low Tide", "Aria North", 1, 4, 1, 201, ["Pop"], null],
+    [5, "Morning Glass", "Aria North", 1, 5, 1, 176, ["Pop"], null],
+    [6, "Paper Maps", "The Lanterns", 2, 1, 1, 232, ["Folk"], null],
+    [7, "Copper Wire", "The Lanterns", 2, 2, 1, 198, ["Folk"], null],
+    [8, "Salt Road", "The Lanterns", 2, 3, 1, 260, ["Folk", "Rock"], null],
+    [9, "Second Winter", "The Lanterns", 2, 1, 2, 221, ["Folk"], null],
+    [10, "Last Lamp", "The Lanterns", 2, 2, 2, 305, ["Folk"], null],
+    [11, "Glass Hour", "Mira Voss", 3, 1, 1, 189, ["Ambient"], null],
+    [12, "Unfiled Demo", "Mira Voss", null, 4, 1, 142, ["Ambient"], 2022],
+    [13, "Loose Thread", "Tom Ellery", null, null, null, 167, [], null],
+    [14, "Voicemail Blues", "Tom Ellery", null, 7, 1, 254, ["Blues"], 2018]
+  ];
+  var ALBUM_ROWS = [
+    { id: 1, kind: "album", title: "Night Shift", album_artist: "Aria North", year: 2019, color: "#2a7de1" },
+    { id: 2, kind: "album", title: "Paper Maps", album_artist: "The Lanterns", year: 2021, color: "#c7742b" },
+    { id: 3, kind: "single", title: "Glass Hour", album_artist: "Mira Voss", year: 2023, color: "#3aa57a" }
+  ];
+  var PLAYLIST_ROWS = [
+    { id: 1, name: "Late drive", description: "A track listed twice counts twice.", track_ids: [3, 8, 11, 3], color: "#8a4fd0" },
+    { id: 2, name: "Quiet", description: "", track_ids: [2, 5, 9, 12, 14], color: null }
+  ];
+
+  function albumById(id) {
+    for (var i = 0; i < ALBUM_ROWS.length; i++) if (ALBUM_ROWS[i].id === id) return ALBUM_ROWS[i];
+    return null;
+  }
+  function trackById(id) {
+    for (var i = 0; i < TRACK_ROWS.length; i++) if (TRACK_ROWS[i][0] === id) return trackObj(TRACK_ROWS[i]);
+    return null;
+  }
+  function trackObj(r) {
+    var album = r[3] === null ? null : albumById(r[3]);
+    return {
+      id: r[0],
+      title: r[1],
+      artist: r[2],
+      album: album ? album.title : null,
+      album_artist: album ? album.album_artist : null,
+      year: album ? album.year : r[8],
+      track_no: r[4],
+      disc_no: r[5],
+      duration_secs: r[6],
+      genres: r[7].slice(),
+      album_id: r[3]
+    };
+  }
+  function allTracks() { return TRACK_ROWS.map(trackObj); }
+  function albumObj(a) {
+    var n = TRACK_ROWS.filter(function (r) { return r[3] === a.id; }).length;
+    return { id: a.id, kind: a.kind, title: a.title, album_artist: a.album_artist, year: a.year, track_count: n };
+  }
+  function playlistObj(p) {
+    return { id: p.id, name: p.name, description: p.description, track_count: p.track_ids.length };
+  }
+  function playlistById(id) {
+    for (var i = 0; i < PLAYLIST_ROWS.length; i++) if (PLAYLIST_ROWS[i].id === id) return PLAYLIST_ROWS[i];
+    return null;
+  }
+  function albumTrackList(id) {
+    return allTracks()
+      .filter(function (t) { return t.album_id === id; })
+      .sort(function (a, b) { return a.disc_no - b.disc_no || a.track_no - b.track_no; });
+  }
+  function playlistTrackList(p) {
+    return p.track_ids.map(trackById);
+  }
+
+  // A square cover as an SVG data URL. The real host sends a JPEG.
+  function coverUrl(color, label) {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" fill="' +
+      color + '"/><text x="64" y="80" font-size="52" text-anchor="middle" fill="#fff" font-family="sans-serif">' +
+      label + "</text></svg>";
+    return "data:image/svg+xml;base64," + btoa(svg);
+  }
+
+  // -- Paging --
+
+  function textKey(s) { return (s || "").toLowerCase(); }
+
+  // `list` names the list and its container; a cursor only works for the list and sort it came from.
+  function page(items, list, sort, args, keyFns) {
+    var limit = 50;
+    if (args.limit !== undefined) {
+      if (!isInt(args.limit) || args.limit < 1 || args.limit > 200) fail("invalid_args", "limit must be 1 to 200.");
+      limit = args.limit;
+    }
+    var rows = items.slice();
+    if (keyFns && keyFns[sort]) {
+      var key = keyFns[sort];
+      rows.sort(function (a, b) {
+        var x = key(a);
+        var y = key(b);
+        return x < y ? -1 : x > y ? 1 : (a.id || 0) - (b.id || 0);
+      });
+    }
+    var start = 0;
+    if (args.cursor !== undefined && args.cursor !== null) {
+      var c = null;
+      try { c = JSON.parse(atob(String(args.cursor))); } catch (e) { c = null; }
+      if (!Array.isArray(c) || c[0] !== list || c[1] !== sort || !isInt(c[2]) || c[2] < 0) {
+        fail("invalid_args", "The cursor does not belong to this list and sort.");
+      }
+      start = c[2];
+    }
+    var slice = rows.slice(start, start + limit);
+    var next = start + limit < rows.length ? btoa(JSON.stringify([list, sort, start + limit])) : null;
+    return { items: slice, next_cursor: next };
+  }
+
+  function sortArg(args, allowed, fallback) {
+    if (args.sort === undefined) return fallback;
+    if (allowed.indexOf(args.sort) < 0) fail("invalid_args", "Unknown sort.");
+    return args.sort;
+  }
+
+  function idArg(args) {
+    if (!isInt(args.id)) fail("invalid_args", "id must be an integer.");
+    return args.id;
+  }
+
+  // -- Fake transport --
+
+  var transport = {
+    queue: TRACK_ROWS.map(function (r) { return r[0]; }),
+    index: 0,
+    playing: false,
+    pos: 0,
+    volume: 0.8,
+    repeat: "off",
+    shuffle: false
+  };
+
+  function currentTrack() {
+    var id = transport.queue[transport.index];
+    return id === undefined ? null : trackById(id);
+  }
+  function setPlaying(on) {
+    if (on && !currentTrack()) return;
+    transport.playing = on;
+    renderTransport();
+  }
+  function go(index) {
+    if (index < 0) index = 0;
+    if (index >= transport.queue.length) {
+      transport.playing = false;
+      transport.pos = 0;
+      renderTransport();
+      return;
+    }
+    transport.index = index;
+    transport.pos = 0;
+    renderTransport();
+  }
+  function stepNext() { go(transport.index + 1); }
+  function stepPrev() {
+    if (transport.pos > 3) {
+      transport.pos = 0;
+      renderTransport();
+    } else {
+      go(transport.index - 1);
+    }
+  }
+  setInterval(function () {
+    var t = currentTrack();
+    if (!transport.playing || !t) return;
+    transport.pos += 1;
+    if (transport.pos >= t.duration_secs) stepNext();
+    else renderTransport();
+  }, 1000);
+
+  function renderTransport() {
+    var t = currentTrack();
+    var box = $("now");
+    box.textContent = "";
+    var text = t ? t.title + " - " + t.artist : "Nothing queued";
+    box.appendChild(el("span", "", (transport.playing ? "Playing: " : "Paused: ") + text));
+    if (t) box.appendChild(el("span", "muted", transport.pos + " / " + t.duration_secs + " s"));
+    box.appendChild(el("span", "muted", "Queue " + (t ? transport.index + 1 : 0) + " of " + transport.queue.length));
+  }
+
+  // The tracks a queue.* source names, in play order. Exactly one source is required.
+  function sourceTracks(args) {
+    var n = ["track_ids", "album_id", "playlist_id"].filter(function (k) { return args[k] !== undefined; }).length;
+    if (n !== 1) fail("invalid_args", "Give exactly one of track_ids, album_id or playlist_id.");
+    if (args.track_ids !== undefined) {
+      if (!Array.isArray(args.track_ids) || !args.track_ids.every(isInt)) fail("invalid_args", "track_ids must be integers.");
+      if (args.track_ids.length > 500) fail("too_large", "At most 500 track ids.");
+      return args.track_ids.filter(function (id) { return trackById(id) !== null; });
+    }
+    if (args.album_id !== undefined) {
+      if (!isInt(args.album_id)) fail("invalid_args", "album_id must be an integer.");
+      if (!albumById(args.album_id)) fail("not_found", "No such album.");
+      return albumTrackList(args.album_id).map(function (t) { return t.id; });
+    }
+    if (!isInt(args.playlist_id)) fail("invalid_args", "playlist_id must be an integer.");
+    var p = playlistById(args.playlist_id);
+    if (!p) fail("not_found", "No such playlist.");
+    return p.track_ids.filter(function (id) { return trackById(id) !== null; });
+  }
+
+  // -- Gestures --
+
+  function issueGesture() {
+    gestureN += 1;
+    var token = "mock-gesture-" + gestureN;
+    gestures[token] = Date.now() + GESTURE_MS;
+    return token;
+  }
+  function takeGesture(token) {
+    var until = gestures[token];
+    if (until === undefined) return false;
+    delete gestures[token];
+    return Date.now() <= until;
+  }
+  function gestureArg(args) {
+    if (args.gesture === undefined) return undefined;
+    if (typeof args.gesture !== "string" || byteLen(args.gesture) > 64) fail("invalid_args", "Bad gesture.");
+    return args.gesture;
+  }
+  // A prompt or page-open call needs an open page or a fresh gesture.
+  function gate(token) {
+    if (state.pageOpen) return;
+    if (token !== undefined && takeGesture(token)) return;
+    fail("denied", "No open page and no fresh gesture.", "no_gesture");
+  }
+
+  // -- Text and chip checks --
+
+  var BAD_TEXT = new RegExp("[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]");
+  function textArg(v, max, name) {
+    if (typeof v !== "string" || v.trim() === "" || BAD_TEXT.test(v)) fail("invalid_args", name + " is not valid text.");
+    if (v.length > max) fail("too_large", name + " is over " + max + " characters.");
+    return v;
+  }
+  function chipArg(c) {
+    if (!isObj(c)) fail("invalid_args", "A chip is an object.");
+    var hasText = has(c, "text");
+    var hasCount = has(c, "count");
+    if (hasText === hasCount) fail("invalid_args", "A chip has exactly one of text or count.");
+    var out = {};
+    if (hasText) out.text = textArg(c.text, 12, "chip text");
+    else {
+      if (!isInt(c.count) || c.count < 0 || c.count > 2147483647) fail("invalid_args", "count is out of range.");
+      out.count = c.count;
+    }
+    if (c.tone !== undefined) {
+      if (["neutral", "accent", "warn"].indexOf(c.tone) < 0) fail("invalid_args", "Unknown tone.");
+      out.tone = c.tone;
+    }
+    return out;
+  }
+
+  // -- Handlers --
+
+  var HANDLERS = {};
+  function h(name, fn) { HANDLERS[name] = fn; }
+
+  function appInfo() {
+    var m = state.manifest;
+    return {
+      api_version: API_VERSION,
+      plisto_version: "mock",
+      plugin_id: m && typeof m.id === "string" ? m.id : "mock.unknown",
+      plugin_version: m && typeof m.version === "string" ? m.version : "0.0.0",
+      locale: state.locale,
+      theme: state.theme,
+      app_mode: state.appMode,
+      tier: m && m.tier === "native" ? "native" : "ui",
+      granted: state.granted.slice()
+    };
+  }
+  function methodNames() { return Object.keys(HANDLERS).sort(); }
+
+  h("app.info", function () { return appInfo(); });
+  h("app.methods", function () { return { api_version: API_VERSION, methods: methodNames() }; });
+
+  // storage
+  function keyArg(v, allowEmpty) {
+    if (typeof v !== "string" || (!allowEmpty && v === "") || byteLen(v) > 128 || /[\u0000-\u001f\u007f]/.test(v)) {
+      fail("invalid_args", "The key is not valid.");
+    }
+    return v;
+  }
+  function usage() {
+    var total = 0;
+    store.forEach(function (v, k) { total += byteLen(k) + byteLen(v); });
+    return total;
+  }
+  h("storage.get", function (a) {
+    var k = keyArg(a.key);
+    return store.has(k) ? { found: true, value: JSON.parse(store.get(k)) } : { found: false, value: null };
+  });
+  h("storage.set", function (a) {
+    var k = keyArg(a.key);
+    if (!has(a, "value")) fail("invalid_args", "value is required.");
+    var text = JSON.stringify(a.value);
+    if (byteLen(text) > VALUE_MAX) fail("too_large", "The value is over 131072 bytes.");
+    var before = store.has(k) ? byteLen(k) + byteLen(store.get(k)) : 0;
+    if (usage() - before + byteLen(k) + byteLen(text) > STORAGE_QUOTA) fail("too_large", "The storage quota is full.");
+    store.set(k, text);
+    return { usage: usage() };
+  });
+  h("storage.remove", function (a) {
+    var k = keyArg(a.key);
+    var removed = store.delete(k);
+    return { removed: removed, usage: usage() };
+  });
+  h("storage.keys", function (a) {
+    var prefix = a.prefix === undefined ? "" : keyArg(a.prefix, true);
+    return { keys: Array.from(store.keys()).filter(function (k) { return k.indexOf(prefix) === 0; }).sort() };
+  });
+  h("storage.clear", function () { store.clear(); return { usage: 0 }; });
+  h("storage.usage", function () { return { usage: usage(), quota: STORAGE_QUOTA }; });
+
+  // log
+  h("log.write", function (a) {
+    if (["debug", "info", "warn", "error"].indexOf(a.level) < 0) fail("invalid_args", "Unknown level.");
+    if (typeof a.text !== "string") fail("invalid_args", "text must be a string.");
+    var text = a.text.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 2048);
+    var truncated = text.length < a.text.length;
+    while (byteLen(text) > 2048) { text = text.slice(0, -1); truncated = true; }
+    addLog(a.level, text);
+    return { truncated: truncated };
+  });
+
+  // ui
+  h("ui.toast", function (a) {
+    var text = textArg(a.text, 140, "text");
+    var action = a.action === undefined ? null : textArg(a.action, 24, "action");
+    if (openToasts >= TOASTS_MAX) fail("busy", "Too many toasts are open.");
+    return showToast(text, action);
+  });
+  h("ui.confirm", function (a) {
+    var title = textArg(a.title, 60, "title");
+    var body = textArg(a.body, 300, "body");
+    var yes = textArg(a.confirm_label, 24, "confirm_label");
+    var no = a.cancel_label === undefined ? "Cancel" : textArg(a.cancel_label, 24, "cancel_label");
+    var token = gestureArg(a);
+    if (promptOpen) fail("busy", "A prompt is already open.");
+    gate(token);
+    return showPrompt(title, body, yes, no);
+  });
+  h("ui.chips", function (a) {
+    if (!Array.isArray(a.chips)) fail("invalid_args", "chips must be an array.");
+    if (a.chips.length > 2) fail("too_large", "At most 2 chips.");
+    chips = a.chips.map(chipArg);
+    renderSidebar();
+    return {};
+  });
+  h("ui.open_page", function (a) {
+    var route = null;
+    if (a.route !== undefined && a.route !== null) {
+      if (typeof a.route !== "string" || !/^[\x21-\x7e]{1,64}$/.test(a.route)) fail("invalid_args", "Bad route.");
+      route = a.route;
+    }
+    var token = gestureArg(a);
+    gate(token);
+    openRoute(route);
+    return {};
+  });
+  h("ui.sidebar.update", function (a) {
+    if (typeof a.item_id !== "string") fail("invalid_args", "item_id must be a string.");
+    var decl = declaredItem(a.item_id);
+    if (!decl) fail("not_found", "The manifest does not declare this item.");
+    if (!isObj(a.state)) fail("invalid_args", "state must be an object.");
+    itemState[a.item_id] = checkItemState(decl.type, a.state);
+    renderSidebar();
+    return {};
+  });
+
+  function checkItemState(type, s) {
+    var out = {};
+    if (s.visible !== undefined) {
+      if (typeof s.visible !== "boolean") fail("invalid_args", "visible must be a boolean.");
+      out.visible = s.visible;
+    }
+    function optText(name, max) {
+      if (s[name] === undefined) return;
+      out[name] = s[name] === null ? null : textArg(s[name], max, name);
+    }
+    function flag(name) {
+      if (s[name] === undefined) return;
+      if (typeof s[name] !== "boolean") fail("invalid_args", name + " must be a boolean.");
+      out[name] = s[name];
+    }
+    if (type === "nav") {
+      optText("label", 24);
+      if (s.chip !== undefined) out.chip = s.chip === null ? null : chipArg(s.chip);
+    } else if (type === "status") {
+      out.text = textArg(s.text, 40, "text");
+      if (s.tone !== undefined) {
+        if (["neutral", "accent", "warn"].indexOf(s.tone) < 0) fail("invalid_args", "Unknown tone.");
+        out.tone = s.tone;
+      }
+    } else if (type === "progress") {
+      if (s.value !== null && !(typeof s.value === "number" && s.value >= 0 && s.value <= 1)) {
+        fail("invalid_args", "value must be 0 to 1 or null.");
+      }
+      out.value = s.value;
+      optText("text", 40);
+    } else if (type === "toggle") {
+      if (typeof s.on !== "boolean") fail("invalid_args", "on must be a boolean.");
+      out.on = s.on;
+      flag("enabled");
+    } else if (type === "action") {
+      optText("label", 24);
+      flag("enabled");
+    }
+    return out;
+  }
+
+  // library
+  var TRACK_KEYS = {
+    id: function (t) { return t.id; },
+    title: function (t) { return textKey(t.title); },
+    artist: function (t) { return textKey(t.artist); }
+  };
+  var ALBUM_KEYS = {
+    id: function (a) { return a.id; },
+    title: function (a) { return textKey(a.title); },
+    artist: function (a) { return textKey(a.album_artist); }
+  };
+  var PLAYLIST_KEYS = {
+    id: function (p) { return p.id; },
+    name: function (p) { return textKey(p.name); }
+  };
+  h("library.tracks", function (a) {
+    var sort = sortArg(a, ["id", "title", "artist"], "id");
+    return page(allTracks(), "tracks", sort, a, TRACK_KEYS);
+  });
+  h("library.tracks_by_id", function (a) {
+    if (!Array.isArray(a.ids) || !a.ids.every(isInt)) fail("invalid_args", "ids must be integers.");
+    if (a.ids.length > 200) fail("too_large", "At most 200 ids.");
+    return { items: a.ids.map(trackById).filter(function (t) { return t !== null; }) };
+  });
+  h("library.albums", function (a) {
+    var sort = sortArg(a, ["id", "title", "artist"], "id");
+    var kind = a.kind === undefined ? null : a.kind;
+    if (kind !== null && kind !== "album" && kind !== "single") fail("invalid_args", "Unknown kind.");
+    var rows = ALBUM_ROWS.filter(function (x) { return kind === null || x.kind === kind; }).map(albumObj);
+    return page(rows, "albums:" + kind, sort, a, ALBUM_KEYS);
+  });
+  h("library.album", function (a) {
+    var al = albumById(idArg(a));
+    if (!al) fail("not_found", "No such album.");
+    return albumObj(al);
+  });
+  h("library.album_tracks", function (a) {
+    var id = idArg(a);
+    if (!albumById(id)) fail("not_found", "No such album.");
+    return page(albumTrackList(id), "album_tracks:" + id, "position", a, null);
+  });
+  h("library.playlists", function (a) {
+    var sort = sortArg(a, ["id", "name"], "id");
+    return page(PLAYLIST_ROWS.map(playlistObj), "playlists", sort, a, PLAYLIST_KEYS);
+  });
+  h("library.playlist", function (a) {
+    var p = playlistById(idArg(a));
+    if (!p) fail("not_found", "No such playlist.");
+    return playlistObj(p);
+  });
+  h("library.playlist_tracks", function (a) {
+    var id = idArg(a);
+    var p = playlistById(id);
+    if (!p) fail("not_found", "No such playlist.");
+    return page(playlistTrackList(p), "playlist_tracks:" + id, "position", a, null);
+  });
+  h("library.cover", function (a) {
+    if (["track", "album", "playlist"].indexOf(a.kind) < 0) fail("invalid_args", "Unknown kind.");
+    if (!isInt(a.id)) fail("invalid_args", "id must be an integer.");
+    if (["thumb", "grid", "detail"].indexOf(a.size) < 0) fail("invalid_args", "Unknown size.");
+    if (a.kind === "playlist") {
+      var p = playlistById(a.id);
+      if (!p) fail("not_found", "No such playlist.");
+      return { data_url: p.color ? coverUrl(p.color, p.name.charAt(0)) : null };
+    }
+    var album;
+    if (a.kind === "track") {
+      var t = trackById(a.id);
+      if (!t) fail("not_found", "No such track.");
+      album = t.album_id === null ? null : albumById(t.album_id);
+    } else {
+      album = albumById(a.id);
+      if (!album) fail("not_found", "No such album.");
+    }
+    return { data_url: album ? coverUrl(album.color, album.title.charAt(0)) : null };
+  });
+
+  // playback and queue
+  h("playback.state", function () {
+    var t = currentTrack();
+    return {
+      playing: transport.playing,
+      track_id: t ? t.id : null,
+      track: t,
+      position_secs: transport.pos,
+      duration_secs: t ? t.duration_secs : 0,
+      volume: transport.volume,
+      repeat: transport.repeat,
+      shuffle: transport.shuffle,
+      queue_index: transport.index,
+      queue_length: transport.queue.length
+    };
+  });
+  h("playback.queue", function () { return { track_ids: transport.queue.slice(), index: transport.index }; });
+  h("playback.toggle", function () { setPlaying(!transport.playing); return {}; });
+  h("playback.pause", function () { setPlaying(false); return {}; });
+  h("playback.resume", function () { setPlaying(true); return {}; });
+  h("playback.next", function () { stepNext(); return {}; });
+  h("playback.prev", function () { stepPrev(); return {}; });
+  h("playback.seek", function (a) {
+    if (typeof a.secs !== "number" || !isFinite(a.secs) || a.secs < 0) fail("invalid_args", "secs must be 0 or more.");
+    var t = currentTrack();
+    transport.pos = t ? Math.min(a.secs, t.duration_secs) : 0;
+    renderTransport();
+    return {};
+  });
+  h("queue.play", function (a) {
+    var ids = sourceTracks(a);
+    var start = a.start === undefined ? 0 : a.start;
+    if (!isInt(start) || start < 0 || (ids.length > 0 && start >= ids.length)) fail("invalid_args", "Bad start.");
+    if (ids.length === 0) return { queued: 0 };
+    transport.queue = ids;
+    transport.index = start;
+    transport.pos = 0;
+    transport.playing = true;
+    renderTransport();
+    return { queued: ids.length };
+  });
+  h("queue.add", function (a) {
+    var ids = sourceTracks(a);
+    if (ids.length === 0) return { queued: 0 };
+    var wasEmpty = transport.queue.length === 0;
+    transport.queue = transport.queue.concat(ids);
+    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; }
+    renderTransport();
+    return { queued: ids.length };
+  });
+  h("queue.play_next", function (a) {
+    var ids = sourceTracks(a);
+    if (ids.length === 0) return { queued: 0 };
+    var wasEmpty = transport.queue.length === 0;
+    var at = wasEmpty ? 0 : transport.index + 1;
+    transport.queue = transport.queue.slice(0, at).concat(ids, transport.queue.slice(at));
+    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; }
+    renderTransport();
+    return { queued: ids.length };
+  });
+
+  // -- Manifest --
+
+  function manifestUrls(pageUrl) {
+    return [new URL("plugin.json", pageUrl).href, new URL("../plugin.json", pageUrl).href];
+  }
+
+  function loadManifest(pageUrl) {
+    var urls = manifestUrls(pageUrl);
+    var errors = [];
+    function attempt(i) {
+      if (i >= urls.length) return Promise.reject(new Error(errors.join("; ")));
+      return fetch(urls[i], { cache: "no-store" })
+        .then(function (r) {
+          if (!r.ok) throw new Error(urls[i] + " answered " + r.status);
+          return r.json();
+        })
+        .then(function (m) {
+          if (!isObj(m) || !Array.isArray(m.capabilities)) throw new Error(urls[i] + " is not a plugin manifest");
+          return { manifest: m, url: urls[i] };
+        })
+        .catch(function (e) {
+          errors.push(e && e.message ? e.message : String(e));
+          return attempt(i + 1);
+        });
+    }
+    return attempt(0);
+  }
+
+  function declaredItem(id) {
+    var m = state.manifest;
+    if (!m) return { id: id, type: "status" };
+    var items = m.sidebar && Array.isArray(m.sidebar.items) ? m.sidebar.items : [];
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i];
+    return null;
+  }
+
+  // -- Dispatch --
+
+  function notImplemented(name) { return NOT_IMPLEMENTED.indexOf(name) >= 0; }
+
+  // Resolves with { ok, result } or { ok: false, error }.
+  function answer(method, argsText) {
+    if (method.indexOf("plugin.") === 0) {
+      return Promise.resolve(err("unknown_method", "A UI plugin has no native program to call.", null));
+    }
+    var known = has(HANDLERS, method);
+    var stub = notImplemented(method);
+    if (!known && !stub) return Promise.resolve(err("unknown_method", "Plisto has no method " + method + ".", null));
+    if (argsText.length > ARGS_MAX_CHARS) return Promise.resolve(err("too_large", "The arguments are too large.", null));
+    var need = NEEDS[method];
+    if (need && state.granted.indexOf(need) < 0) {
+      return Promise.resolve(err("denied", "The plugin does not hold " + need + ".", null));
+    }
+    if (stub) {
+      return Promise.resolve(err("unavailable", "Mock host: " + method + " is not implemented here. Test it in Plisto.", null, true));
+    }
+    var args;
+    try { args = JSON.parse(argsText); } catch (e) { args = null; }
+    if (!isObj(args)) return Promise.resolve(err("invalid_args", "The arguments must be a JSON object.", null));
+    try {
+      return Promise.resolve(HANDLERS[method](args)).then(
+        function (result) { return { ok: true, result: result === undefined ? {} : result }; },
+        failure
+      );
+    } catch (e) {
+      return Promise.resolve(failure(e));
+    }
+  }
+  function err(code, message, reason, stub) {
+    return { ok: false, error: { code: code, message: message, reason: reason }, stub: stub === true };
+  }
+  function failure(e) {
+    if (e instanceof ApiError) return err(e.code, e.message, e.reason);
+    if (window.console) console.error("mock host handler failed", e);
+    return err("unavailable", "Mock host: internal error: " + (e && e.message ? e.message : String(e)), null);
+  }
+
+  function send(msg) {
+    msg.plisto = PROTOCOL;
+    if (frame.contentWindow) frame.contentWindow.postMessage(msg, "*");
+  }
+
+  function reply(id, outcome) {
+    if (outcome.ok) {
+      send({ type: "plisto:result", id: id, ok: true, result: outcome.result });
+      return;
+    }
+    var e = { code: outcome.error.code, message: outcome.error.message };
+    if (outcome.error.reason) e.reason = outcome.error.reason;
+    send({ type: "plisto:result", id: id, ok: false, error: e });
+  }
+
+  window.addEventListener("message", function (event) {
+    if (event.source !== frame.contentWindow || event.origin !== "null") return;
+    var d = event.data;
+    if (!isObj(d) || d.plisto !== PROTOCOL) return;
+    if (d.type === "plisto:pong") {
+      state.lastPong = Date.now();
+      return;
+    }
+    if (d.type !== "plisto:call" || !isInt(d.id) || d.id < 1) return;
+    var entry = logCall(d.method, d.args);
+    if (typeof d.method !== "string" || d.method.length > 64 || !METHOD_RE.test(d.method) || typeof d.args !== "string") {
+      var bad = err("invalid_args", "The call is malformed.", null);
+      finishCall(entry, bad);
+      reply(d.id, bad);
+      return;
+    }
+    if (d.body !== undefined && d.method !== "net.fetch") {
+      var nb = err("invalid_args", "Only net.fetch takes a body.", null);
+      finishCall(entry, nb);
+      reply(d.id, nb);
+      return;
+    }
+    answer(d.method, d.args).then(function (outcome) {
+      finishCall(entry, outcome);
+      reply(d.id, outcome);
+    });
+  });
+
+  // -- Calls and log panels --
+
+  function logCall(method, args) {
+    var li = el("li");
+    li.appendChild(el("span", "t", clock() + " "));
+    li.appendChild(el("strong", "", typeof method === "string" ? method : "(bad method)"));
+    li.appendChild(document.createTextNode(" " + clip(typeof args === "string" ? args : "", 140) + " "));
+    var res = el("span", "t", "...");
+    li.appendChild(res);
+    var list = $("calls");
+    list.insertBefore(li, list.firstChild);
+    while (list.children.length > CALLS_MAX) list.removeChild(list.lastChild);
+    return { li: li, res: res };
+  }
+  function finishCall(entry, outcome) {
+    if (outcome.ok) {
+      entry.res.className = "ok";
+      entry.res.textContent = "-> ok " + clip(JSON.stringify(outcome.result), 140);
+    } else {
+      entry.res.className = outcome.stub ? "nop" : "err";
+      entry.res.textContent = "-> " + (outcome.stub ? "NOT IMPLEMENTED IN MOCK: " : "") + outcome.error.code +
+        (outcome.error.reason ? " (" + outcome.error.reason + ")" : "") + " " + outcome.error.message;
+    }
+  }
+  function addLog(level, text) {
+    var li = el("li");
+    li.appendChild(el("span", "t", clock() + " " + level.toUpperCase() + " "));
+    li.appendChild(document.createTextNode(text));
+    var list = $("logList");
+    list.insertBefore(li, list.firstChild);
+    while (list.children.length > LOG_MAX) list.removeChild(list.lastChild);
+  }
+
+  // -- Toasts and prompts --
+
+  function showToast(text, action) {
+    return new Promise(function (resolve) {
+      var node = el("div", "toast");
+      node.appendChild(el("span", "grow", text));
+      var timer = null;
+      function done(r) {
+        clearTimeout(timer);
+        node.remove();
+        openToasts -= 1;
+        resolve(r);
+      }
+      if (action) {
+        var b = el("button", "", action);
+        b.type = "button";
+        b.addEventListener("click", function () { done({ result: "action", gesture: issueGesture() }); });
+        node.appendChild(b);
+      }
+      var x = el("button", "", "Dismiss");
+      x.type = "button";
+      x.addEventListener("click", function () { done({ result: "dismissed" }); });
+      node.appendChild(x);
+      timer = setTimeout(function () { done({ result: "dismissed" }); }, TOAST_MS);
+      openToasts += 1;
+      $("strip").appendChild(node);
+    });
+  }
+
+  function showPrompt(title, body, yes, no) {
+    return new Promise(function (resolve) {
+      var node = el("div", "prompt");
+      var text = el("div", "grow");
+      text.appendChild(el("strong", "", title));
+      text.appendChild(el("div", "", body));
+      node.appendChild(text);
+      function done(answerValue) {
+        node.remove();
+        promptOpen = false;
+        resolve({ answer: answerValue });
+      }
+      var ok = el("button", "", yes);
+      ok.type = "button";
+      ok.addEventListener("click", function () { done(true); });
+      var cancel = el("button", "", no);
+      cancel.type = "button";
+      cancel.addEventListener("click", function () { done(false); });
+      node.appendChild(ok);
+      node.appendChild(cancel);
+      promptOpen = true;
+      $("strip").appendChild(node);
+    });
+  }
+
+  // -- Sidebar panel --
+
+  function renderSidebar() {
+    var box = $("sidebar");
+    box.textContent = "";
+    var m = state.manifest;
+    var name = m && typeof m.name === "string" ? m.name : "(plugin)";
+    var decl = m && m.sidebar && Array.isArray(m.sidebar.items) ? m.sidebar.items : [];
+    var section = decl.length >= 2 && m.sidebar.layout === "section";
+    var head = el("div", "side-item");
+    head.appendChild(el("strong", "lbl", name + (section ? " (section)" : " (row)")));
+    if (!section) {
+      chips.forEach(function (c) { head.appendChild(chipNode(c)); });
+      var open = el("button", "", "Open");
+      open.type = "button";
+      open.addEventListener("click", function () { openRoute(null); });
+      head.appendChild(open);
+    }
+    box.appendChild(head);
+    if (!section) return;
+    decl.forEach(function (item) {
+      var s = itemState[item.id] || null;
+      if (s && s.visible === false) return;
+      box.appendChild(sideItem(item, s));
+    });
+  }
+
+  function chipNode(c) {
+    return el("span", "chip" + (c.tone === "accent" || c.tone === "warn" ? " " + c.tone : ""),
+      c.text !== undefined ? c.text : String(c.count));
+  }
+
+  function sideItem(item, s) {
+    var row = el("div", "side-item");
+    var label = s && typeof s.label === "string" ? s.label : item.label;
+    if (item.type === "nav") {
+      var b = el("button", "lbl", label + (item.icon ? " [" + item.icon + "]" : ""));
+      b.type = "button";
+      b.addEventListener("click", function () { openRoute(item.route || null); });
+      row.appendChild(b);
+      if (s && s.chip) row.appendChild(chipNode(s.chip));
+    } else if (item.type === "status") {
+      row.appendChild(el("span", "lbl", item.label));
+      var t = el("span", s && s.tone === "warn" ? "chip warn" : s && s.tone === "accent" ? "chip accent" : "", s ? s.text : "unavailable");
+      row.appendChild(t);
+    } else if (item.type === "progress") {
+      row.appendChild(el("span", "lbl", item.label));
+      var p = document.createElement("progress");
+      p.max = 1;
+      if (s && s.value !== null) p.value = s.value;
+      row.appendChild(p);
+      if (s && s.text) row.appendChild(el("span", "muted", s.text));
+    } else if (item.type === "toggle") {
+      row.appendChild(el("span", "lbl", item.label));
+      var tg = el("button", "", s ? (s.on ? "On" : "Off") : "unavailable");
+      tg.type = "button";
+      tg.disabled = !s || s.enabled === false;
+      tg.addEventListener("click", function () {
+        send({ type: "plisto:sidebar", item_id: item.id, value: !(s && s.on), gesture: issueGesture() });
+      });
+      row.appendChild(tg);
+    } else if (item.type === "action") {
+      var a = el("button", "lbl", label);
+      a.type = "button";
+      a.disabled = !!s && s.enabled === false;
+      a.addEventListener("click", function () {
+        send({ type: "plisto:sidebar", item_id: item.id, value: null, gesture: issueGesture() });
+      });
+      row.appendChild(a);
+    }
+    return row;
+  }
+
+  // -- Routes, host controls, heartbeat --
+
+  function openRoute(route) {
+    state.route = route;
+    $("routeInput").value = route === null ? "" : route;
+    if (!state.pageOpen) {
+      state.pageOpen = true;
+      $("openChk").checked = true;
+      send({ type: "plisto:visibility", page_open: true });
+    }
+    send({ type: "plisto:route", route: route });
+  }
+
+  function sendInit() {
+    send({
+      type: "plisto:init",
+      info: appInfo(),
+      methods: methodNames(),
+      page_open: state.pageOpen,
+      route: state.route
+    });
+  }
+
+  frame.addEventListener("load", function () {
+    if (!state.framing) return;
+    state.loads += 1;
+    if (state.loads > 1 && !state.expectLoad) {
+      setStatus([["warn", "The page loaded a second document. Plisto counts that as a crash."]]);
+    }
+    state.expectLoad = false;
+    state.lastPong = Date.now();
+    sendInit();
+  });
+
+  function startFrame() {
+    state.framing = true;
+    state.expectLoad = state.loads > 0;
+    state.lastPong = Date.now();
+    frame.src = state.pageUrl;
+  }
+
+  setInterval(function () {
+    if (!state.pageUrl) return;
+    state.seq += 1;
+    send({ type: "plisto:ping", seq: state.seq });
+    var quiet = Date.now() - state.lastPong;
+    var node = $("beat");
+    if (!node) return;
+    if (quiet > 15000) { node.className = "bad"; node.textContent = "silent " + Math.floor(quiet / 1000) + " s: Plisto would stop this page"; }
+    else if (quiet > 5000) { node.className = "warn"; node.textContent = "silent " + Math.floor(quiet / 1000) + " s: Plisto would show 'not responding'"; }
+    else { node.className = "good"; node.textContent = "answering"; }
+  }, 1000);
+
+  function setStatus(parts) {
+    var box = $("status");
+    box.textContent = "";
+    parts.forEach(function (p, i) {
+      if (i > 0) box.appendChild(document.createTextNode(" "));
+      box.appendChild(el("span", p[0], p[1]));
+    });
+    var beat = el("span", "", "");
+    beat.id = "beat";
+    box.appendChild(document.createTextNode(" Heartbeat: "));
+    box.appendChild(beat);
+  }
+
+  function sameOrigin(u) {
+    if (location.protocol === "file:") return u.protocol === "file:";
+    return u.origin === location.origin;
+  }
+
+  function start() {
+    var param = new URLSearchParams(location.search).get("page");
+    $("pageInput").value = param || "";
+    renderTransport();
+    renderSidebar();
+    if (!param) {
+      setStatus([["muted", "No page loaded. Give a path in the box, relative to this file, or pick an example."]]);
+      return;
+    }
+    var u;
+    try { u = new URL(param, location.href); } catch (e) { u = null; }
+    if (!u || !sameOrigin(u)) {
+      setStatus([["bad", "The page must be a path on the same server as this file."]]);
+      return;
+    }
+    state.pageUrl = u.href;
+    loadManifest(u.href).then(
+      function (r) {
+        state.manifest = r.manifest;
+        state.granted = r.manifest.capabilities.filter(function (c) { return typeof c === "string"; });
+        var parts = [["good", "Manifest " + r.url.split("/").slice(-2).join("/") + "."],
+          ["", "Granted: " + (state.granted.join(", ") || "nothing") + "."]];
+        if (r.manifest.tier === "native") parts.push(["warn", "Native plugin: only its page is framed; its program does not run."]);
+        setStatus(parts);
+        renderSidebar();
+        startFrame();
+      },
+      function (e) {
+        state.manifest = null;
+        state.granted = ALL_CAPS.slice();
+        setStatus([["bad", "plugin.json could not be read (" + e.message + "). Every capability is allowed here; Plisto allows only what the manifest lists. Over file:// the browser blocks this read: serve the kit over http."]]);
+        renderSidebar();
+        startFrame();
+      }
+    );
+  }
+
+  $("loader").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var v = $("pageInput").value.trim();
+    location.search = v ? "?page=" + encodeURIComponent(v).replace(/%2F/g, "/") : "";
+  });
+  $("themeSel").value = state.theme;
+  $("themeSel").addEventListener("change", function (e) {
+    state.theme = e.target.value;
+    send({ type: "plisto:theme", theme: state.theme });
+  });
+  $("localeSel").addEventListener("change", function (e) { state.locale = e.target.value; });
+  $("modeSel").addEventListener("change", function (e) { state.appMode = e.target.value; });
+  $("openChk").addEventListener("change", function (e) {
+    state.pageOpen = e.target.checked;
+    send({ type: "plisto:visibility", page_open: state.pageOpen });
+  });
+  $("routeBtn").addEventListener("click", function () {
+    var v = $("routeInput").value;
+    openRoute(v === "" ? null : v);
+  });
+  $("reloadBtn").addEventListener("click", function () {
+    if (!state.pageUrl) return;
+    state.loads = 0;
+    startFrame();
+  });
+  $("prevBtn").addEventListener("click", stepPrev);
+  $("nextBtn").addEventListener("click", stepNext);
+  $("playBtn").addEventListener("click", function () { setPlaying(true); });
+  $("pauseBtn").addEventListener("click", function () { setPlaying(false); });
+  $("clearCalls").addEventListener("click", function () { $("calls").textContent = ""; });
+  $("clearLog").addEventListener("click", function () { $("logList").textContent = ""; });
+
+  start();
+})();
+</script>
+</body>
+</html>

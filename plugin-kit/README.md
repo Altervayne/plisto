@@ -67,8 +67,11 @@ Plisto does not review plugins. Users are told so when they install one.
 | `docs/install-and-test.md` | Installing into Plisto, testing, debugging and a release checklist. |
 | `sdk/plisto-sdk.js` | The SDK. Copy it into your plugin folder. |
 | `sdk/plisto-sdk.d.ts` | TypeScript types for the SDK. |
+| `sdk/mock-host.html` | A mock host page: develop a UI plugin's page in a browser with no Plisto running. Served by `sdk/mock-serve.mjs`. See [getting started](docs/getting-started.md#develop-in-a-browser-with-the-mock-host). |
 | `tests/net-sdk.mjs` | Tests of the SDK's network code. |
-| `tests/plugin-sdk.mjs` | Tests of the SDK's native-plugin half. Run both with `node --test tests/*.mjs`. |
+| `tests/plugin-sdk.mjs` | Tests of the SDK's native-plugin half. |
+| `tests/mock-host.mjs` | Checks that the mock host answers every SDK method. Run all three with `node --test tests/*.mjs`. |
+| `examples/pack.ps1` | Packs `hello-ui` and `hello-background` into installable `.plistoplugin` files. |
 | `examples/hello-ui/` | A page plugin that exercises toasts, prompts, chips and routes. |
 | `examples/hello-background/` | A background plugin with a sidebar section of live items. |
 | `examples/tap-meter/` | A native plugin in Rust, with a page: the starting point for the native tier. |
@@ -89,6 +92,8 @@ To skip the typing, install `examples/hello-ui` the same way and read its code.
 - [Getting started](docs/getting-started.md) walks through the steps above with real files.
 - [Manifest reference](docs/manifest.md) lists every `plugin.json` field and limit.
 - [API reference](docs/api.md) is the page to keep open while you code.
+- [Getting started](docs/getting-started.md#develop-in-a-browser-with-the-mock-host) also shows how to try a
+  page in a browser with the mock host before you install it.
 - [Install and test](docs/install-and-test.md) covers debugging and what to check before you hand a plugin
   to someone else.
 - [Native plugins](docs/native.md) is the guide for the native tier. Read it with

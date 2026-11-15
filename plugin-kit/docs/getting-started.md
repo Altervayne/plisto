@@ -175,8 +175,44 @@ in Settings > Plugins. Plisto sees the same `id` and offers an update that repla
 keeps your saved data. The [install and test guide](install-and-test.md) has the details and a debugging
 checklist.
 
+## Develop in a browser with the mock host
+
+You can run the page in an ordinary browser before you install anything. `sdk/mock-host.html` frames your
+page in a sandboxed frame with the same `sandbox` attribute Plisto uses, does the same handshake and heartbeat,
+and answers the SDK's calls with canned data: a small fixed library of tracks, albums and playlists, storage
+kept in memory, and a fake transport you can click. Toasts and prompts appear in a strip above the page, the
+sidebar items your manifest declares are listed beside it, and a Calls panel lists every call and reply,
+newest first.
+
+Serve the kit over http from the kit's folder (node only, nothing to install). Give it your plugin folder
+to frame your own page:
+
+```
+node sdk/mock-serve.mjs 8765 path/to/my-plugin
+```
+
+Then open `http://127.0.0.1:8765/sdk/mock-host.html?page=/plugin/index.html`. Without the folder argument the
+kit is served alone, and `page` can name a kit example, such as `?page=../examples/hello-ui/index.html`. The
+mock reads `plugin.json` from the page's folder (or the one above it) and answers the capability checks
+from its `capabilities`, with the same `denied` error Plisto gives. If it cannot read the manifest it says so
+and allows every capability. The server also serves Plisto's `/_plisto/tokens.css` and
+`/_plisto/plugin-base.css` from the app's `src/styles` when the kit sits in the Plisto repository; elsewhere
+those two links return 404 and the page is unstyled.
+
+Know what it is not:
+
+- It is a mock. The data is canned, there is no content security policy and no real sandbox check, and it
+  applies no rate budgets and only part of Plisto's argument checks. A page that works here is not proven.
+  The real check is installing the plugin in Plisto.
+- A method it does not answer fails with an error that says so and appears in the Calls panel. Today that
+  is every `net.*` method. `plisto.has` is false for them. A native plugin's program does not run.
+- Cover images are small SVGs, where Plisto sends JPEGs.
+- It needs http. Opened from `file://`, browsers block the manifest read and may block the frame's own
+  files, so use the server above.
+
 ## Where to go from here
 
+- Packing a UI plugin to share: [install and test](install-and-test.md#pack-a-ui-plugin).
 - Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
 - Running in the background: [lifecycle](lifecycle.md).
 - Talking to a web service: [network](network.md).
