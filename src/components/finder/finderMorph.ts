@@ -188,8 +188,9 @@ export function fieldFrame(from: MorphEnd, to: MorphEnd, k: number): FieldFrame 
 
 /**
  * The card's surface at unfold progress k: k 0 is the field's own box, k 1 the whole panel. Returned as
- * insets from the panel's edges, with the corner radius and the surface opacity, which is whole a third
- * of the way out so the unfolding edge reads as solid.
+ * insets from the panel's edges, with the corner radius and the surface opacity. The surface is whole
+ * from the first step out, so nothing under the palette reads through it; at k 0 it hides entirely,
+ * since it would only sit behind the field.
  */
 export function cardFrame(
   field: Rect,
@@ -206,7 +207,7 @@ export function cardFrame(
       left: lerp(field.x - panel.x, 0, k),
     },
     radius: lerp(fieldRadius, panelRadius, k),
-    opacity: clamp01(k * 3),
+    opacity: k > 0 ? 1 : 0,
   };
 }
 
@@ -302,6 +303,19 @@ export function layColor(top: string, under: string): string {
   if (b) return rgb(b);
   if (a) return rgb(a);
   return under;
+}
+
+/**
+ * The flying field's fill at k: from the pill's veil laid over the app's ground to the field's veil laid
+ * over the card. Both ends are opaque and the mix keeps them so, so the page never reads through the
+ * field, its label or its hint in flight. The ground is the plain background colour, without the ambient
+ * washes painted over it, so the first frame can differ from the pill by that wash alone.
+ */
+export function flightBackground(
+  colors: { pill: string; ground: string; field: string; card: string },
+  k: number,
+): string {
+  return mixColor(layColor(colors.pill, colors.ground), layColor(colors.field, colors.card), k);
 }
 
 // -- Branches --

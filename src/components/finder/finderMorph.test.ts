@@ -11,6 +11,7 @@ import {
   closeMotion,
   cubicBezier,
   fieldFrame,
+  flightBackground,
   focusAfterClose,
   insetRect,
   layColor,
@@ -87,8 +88,8 @@ describe("cardFrame and revealClip", () => {
     expect(end.opacity).toBe(1);
   });
 
-  it("is solid a third of the way out", () => {
-    expect(cardFrame(row.box, 12, panel, 16, 1 / 3).opacity).toBeCloseTo(1);
+  it("is solid from its first step out, so the page never reads through it", () => {
+    for (const k of [0.001, 0.05, 0.3, 0.9]) expect(cardFrame(row.box, 12, panel, 16, k).opacity).toBe(1);
   });
 
   it("hides a part the surface has not reached and shows one it covers", () => {
@@ -169,6 +170,31 @@ describe("timelines", () => {
         last = now;
       }
       expect(last).toEqual({ k: 0, scrim: 0, card: 0, label: 1, placeholder: 0, hint: 1 });
+    }
+  });
+});
+
+describe("flightBackground", () => {
+  // The light and dark token values as a browser computes them.
+  const themes = {
+    light: { pill: "rgba(28, 26, 64, 0.045)", ground: "rgb(244, 244, 248)", field: "rgba(28, 26, 64, 0.045)", card: "rgb(255, 255, 255)" },
+    dark: { pill: "rgba(255, 255, 255, 0.09)", ground: "rgb(12, 12, 16)", field: "rgba(255, 255, 255, 0.05)", card: "rgb(23, 23, 29)" },
+  };
+  const alpha = (color: string) => {
+    const parts = /^rgba?\(([^)]+)\)$/.exec(color)![1].split(",").map(Number);
+    return parts.length > 3 ? parts[3] : 1;
+  };
+
+  it("starts on the pill's veil over the ground", () => {
+    expect(flightBackground(themes.light, 0)).toBe("rgb(234.28, 234.19, 239.72)");
+  });
+
+  it("is opaque at every instant of the entrance and the fly-back, in both themes", () => {
+    for (const colors of Object.values(themes)) {
+      for (let t = 0; t <= OPEN_MS; t += 1) expect(alpha(flightBackground(colors, openFrame(t).k))).toBe(1);
+      for (let t = 0; t <= CLOSE_MS; t += 1) expect(alpha(flightBackground(colors, closeFrame(t).k))).toBe(1);
+      const mid = openFrame(100);
+      for (let t = 0; t <= CLOSE_MS; t += 1) expect(alpha(flightBackground(colors, closeFrame(t, mid).k))).toBe(1);
     }
   });
 });

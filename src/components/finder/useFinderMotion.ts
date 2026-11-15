@@ -14,7 +14,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 // -- Unit Imports --
 import { createFinderLifecycle } from "./finderLifecycle";
-import { cardFrame, fieldFrame, insetRect, layColor, measurable, mixColor, rectInside, revealClip } from "./finderMorph";
+import { cardFrame, fieldFrame, flightBackground, insetRect, measurable, rectInside, revealClip } from "./finderMorph";
 import type { Scheduler } from "./finderLifecycle";
 import type { CloseReason, FinderMotion, Insets, MorphEnd, MorphFrame, Rect } from "./finderMorph";
 
@@ -38,8 +38,7 @@ interface Geometry {
   panel: Rect;
   panelRadius: number;
   body: Rect;
-  fromBackground: string;
-  toBackground: string;
+  colors: { pill: string; ground: string; field: string; card: string };
 }
 
 const rectOf = (el: Element): Rect => {
@@ -123,9 +122,13 @@ function measure(origin: HTMLElement, parts: Parts): Geometry | null {
     panel: rectOf(parts.card),
     panelRadius: parseFloat(cardStyle.borderTopLeftRadius) || 0,
     body: rectOf(parts.body),
-    fromBackground: pillStyle.backgroundColor,
-    // The field ends on its veil laid over the card, opaque, so it still reads as a field over the scrim.
-    toBackground: layColor(fieldStyle.backgroundColor, cardStyle.backgroundColor),
+    // The body paints the ambient ground, and its background colour is that ground's opaque base.
+    colors: {
+      pill: pillStyle.backgroundColor,
+      ground: getComputedStyle(document.body).backgroundColor,
+      field: fieldStyle.backgroundColor,
+      card: cardStyle.backgroundColor,
+    },
   };
 }
 
@@ -134,7 +137,7 @@ function paint(geo: Geometry, frame: MorphFrame): void {
   const f = fieldFrame(geo.from, geo.to, frame.k);
   parts.field.style.transform = `translate(${px(f.shiftX)}, ${px(f.shiftY)})`;
   parts.field.style.clipPath = `inset(${insetText(f.clip)} round ${px(f.radius)})`;
-  parts.field.style.backgroundColor = mixColor(geo.fromBackground, geo.toBackground, frame.k);
+  parts.field.style.backgroundColor = flightBackground(geo.colors, frame.k);
   geo.icon.style.transformOrigin = "0 50%";
   geo.icon.style.transform = `translateX(${px(f.iconShift)}) scale(${f.iconScale.toFixed(4)})`;
   geo.input.style.transform = `translateX(${px(f.textShift)})`;
