@@ -1,7 +1,8 @@
 /*
  * The plugin API's memory per plugin: rate buckets, the count of calls in flight, the one open page
  * slot, open toasts and prompts with gesture tokens, chips and sidebar item state, running network
- * requests with their log, and the gates that serialize a plugin's own file work. The map locks are
+ * requests with their log, the playback stream session, and the gates that serialize a plugin's own
+ * file work. The map locks are
  * held only for in-memory work, never across disk I/O; `forget` takes them one after the other. The
  * one nesting is the sidebar store's lock, then the serving set's (see `sidebar.rs`). A plugin's gates
  * are the one place a lock is held across disk work; they are kept for the life of the process, so a
@@ -23,6 +24,7 @@ use super::net::state::NetState;
 use super::rate::{PluginBuckets, RateClass};
 use super::sidebar::SidebarStore;
 use super::storage::StorageSlot;
+use super::stream::{Gone, Producer, StreamHub};
 use super::ui_state::UiState;
 use super::MAX_IN_FLIGHT;
 
@@ -49,6 +51,7 @@ struct Shared {
     ui: UiState,
     sidebar: SidebarStore,
     net: NetState,
+    streams: StreamHub,
     // The plugins' read-only library connection, opened on first use. Never taken under another lock.
     reader: Mutex<Option<Connection>>,
 }
@@ -161,6 +164,11 @@ impl ApiState {
         &self.0.net
     }
 
+    /// The playback stream session.
+    pub fn streams(&self) -> &StreamHub {
+        &self.0.streams
+    }
+
     /// Runs `f` on a read-only connection to the database file at `path`, opened on first use and kept.
     /// Plugin reads use it so a long scan never holds the app's own connection. A connection that
     /// cannot be opened is `unavailable`, with no detail, and the next call tries again.
@@ -183,20 +191,31 @@ impl ApiState {
     /// prompts, and cancels its network requests with `stopped`. Waits for a storage call of `id` that
     /// is running to finish, so none outlives this.
     pub fn forget(&self, id: &str) {
+        self.forget_because(id, Gone::Off);
+    }
+
+    /// `forget`, with why the plugin stops serving, which its playback stream's end reports.
+    pub fn forget_because(&self, id: &str, gone: Gone) {
         {
             let mut inner = lock(&self.0.inner);
             if inner.open_page.as_deref() == Some(id) {
                 inner.open_page = None;
             }
         }
+        self.0.streams.forget(id, gone, Producer::Any);
         self.0.net.forget(id);
-        self.forget_run(id);
+        self.forget_calls(id);
     }
 
     /// `forget` for the end of a native plugin's child while the plugin still serves: what belongs to
     /// the page frame, which outlives the child, is kept. That is the open page slot and the network
-    /// work, which only frames start.
+    /// work, which only frames start. A stream the child pushed has lost its producer.
     pub fn forget_run(&self, id: &str) {
+        self.0.streams.forget(id, Gone::Off, Producer::Child);
+        self.forget_calls(id);
+    }
+
+    fn forget_calls(&self, id: &str) {
         {
             let mut inner = lock(&self.0.inner);
             inner.buckets.remove(id);

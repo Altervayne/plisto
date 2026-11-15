@@ -30,9 +30,9 @@ use crate::state::AppState;
 // The bounded longest edge for each requested size. The small size feeds the candidate list; the
 // grid size is the album wall card on a standard display; the large one is the peek cover, big
 // enough to scale cleanly on a HiDPI display. Imports write only the small and large sizes.
-const THUMB_EDGE: u32 = 128;
+pub(crate) const THUMB_EDGE: u32 = 128;
 pub(super) const GRID_EDGE: u32 = 256;
-pub(super) const DETAIL_EDGE: u32 = 512;
+pub(crate) const DETAIL_EDGE: u32 = 512;
 
 /// Resolves a track's single cover at the requested size, generating the thumbnail on a miss.
 /// Returns None when the track has no art from any source. `keep_own` mirrors the membership's
@@ -717,11 +717,22 @@ pub(crate) fn cache_ad_hoc_cover(
             .first()
             .and_then(|image| std::fs::read(image).ok())
     })?;
-    let (width, height) = read_image_dimensions(&bytes).ok()?;
-    let hash = blake3::hash(&bytes).to_hex().to_string();
+    cache_cover_bytes(covers_dir, guard, &bytes)
+}
+
+/// Caches image `bytes` at both thumb sizes by content hash and returns what `read_cover` needs to
+/// resolve them. None when the bytes are not an image the cache can decode, or the cache cannot be
+/// written. The webviews only ever see the re-encoded thumbnails.
+pub(crate) fn cache_cover_bytes(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    bytes: &[u8],
+) -> Option<AdHocCover> {
+    let (width, height) = read_image_dimensions(bytes).ok()?;
+    let hash = blake3::hash(bytes).to_hex().to_string();
     // Both sizes up front so each sentinel read resolves straight to a warm file, like an import.
-    ensure_thumb(covers_dir, &hash, &bytes, THUMB_EDGE, guard).ok()?;
-    ensure_thumb(covers_dir, &hash, &bytes, DETAIL_EDGE, guard).ok()?;
+    ensure_thumb(covers_dir, &hash, bytes, THUMB_EDGE, guard).ok()?;
+    ensure_thumb(covers_dir, &hash, bytes, DETAIL_EDGE, guard).ok()?;
     Some(AdHocCover {
         hash,
         width: width as i64,

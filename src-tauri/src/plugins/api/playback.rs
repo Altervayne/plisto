@@ -2,8 +2,9 @@
  * The playback methods: what is playing and the queue, read from the engine's shared snapshots, and
  * the player commands a plugin may send. Queue changes take library track ids, an album or a playlist
  * and go through the same `resolve_queue` the app's own play commands use, so a plugin queues exactly
- * what a click would. Tracks missing on disk are left out. A track played straight off disk has no
- * library id and reads as null, so its file is never named.
+ * what a click would. Tracks missing on disk are left out. A track played straight off disk, or a
+ * plugin stream, has no library id and reads as null, so its file is never named; a stream is
+ * described by its cleaned title and artist only.
  */
 
 // -- Library Imports --
@@ -91,6 +92,7 @@ fn read_state(ctx: &CallCtx<'_>) -> Result<Value, ApiError> {
         "shuffle": status.shuffle,
         "queue_index": status.queue_index,
         "queue_length": status.queue_len,
+        "stream": ctx.api.streams().describe(ctx.id),
     }))
 }
 
@@ -527,6 +529,7 @@ mod tests {
                 "queue_length",
                 "repeat",
                 "shuffle",
+                "stream",
                 "track",
                 "track_id",
                 "volume"

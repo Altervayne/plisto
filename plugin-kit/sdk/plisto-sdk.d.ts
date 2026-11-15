@@ -523,6 +523,14 @@ export interface PlistoMethods {
   "net.socket.open": { args: NetSocketOpenArgs; result: NetSocketOpenResult };
   "net.socket.send": { args: NetSocketSendArgs; result: EmptyResult };
   "net.socket.close": { args: NetSocketCloseArgs; result: EmptyResult };
+  "stream.play": { args: Record<string, unknown>; result: { item: number; state: "connecting" } };
+  "stream.update": { args: { item: number } & Record<string, unknown>; result: EmptyResult };
+  "stream.push": { args: { item: number; data_b64: string }; result: { buffered_ms: number; room: number } };
+  "stream.end": { args: { item: number }; result: EmptyResult };
+  "stream.pause": { args: { item: number }; result: EmptyResult };
+  "stream.resume": { args: { item: number }; result: EmptyResult };
+  "stream.stop": { args: { item: number }; result: EmptyResult };
+  "stream.state": { args: {}; result: Record<string, unknown> };
 }
 
 export interface CallOptions {

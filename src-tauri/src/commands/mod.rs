@@ -36,6 +36,7 @@ pub mod sandbox_check;
 pub mod scan_issues;
 pub mod settings;
 pub mod splice;
+pub mod stream;
 pub mod visualizer;
 pub mod window;
 

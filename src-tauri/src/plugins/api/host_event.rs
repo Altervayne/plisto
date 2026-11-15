@@ -1,8 +1,9 @@
 /*
  * The events Rust sends the main window about plugin UI surfaces: `plugins:ui` for toasts, prompts,
  * their withdrawal and page requests, `plugins:sidebar` for chips and sidebar item state,
- * `plugins:page_event` for what a native plugin's child pushes to its page, and `plugins:net` for
- * stream chunks and socket messages. They carry plugin text, data and ids only, never a gesture token.
+ * `plugins:page_event` for what a native plugin's child pushes to its page, `plugins:net` for stream
+ * chunks and socket messages, and `plugins:stream` for what the owner of the seated playback stream
+ * is told. They carry plugin text, data and ids only, never a gesture token.
  */
 
 // -- Library Imports --
@@ -11,11 +12,13 @@ use serde_json::Value;
 
 // -- Local Imports --
 use super::net::sink::NetEvent;
+use super::stream::StreamEvent;
 
 pub const EVENT_UI: &str = "plugins:ui";
 pub const EVENT_SIDEBAR: &str = "plugins:sidebar";
 pub const EVENT_PAGE: &str = "plugins:page_event";
 pub const EVENT_NET: &str = "plugins:net";
+pub const EVENT_STREAM: &str = "plugins:stream";
 
 /// One event for the main window.
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +27,14 @@ pub enum HostEvent {
     Sidebar(SidebarEvent),
     Page(PageEvent),
     Net(NetEvent),
+    Stream(StreamHostEvent),
+}
+
+/// A playback-stream event for plugin `id`, which the window hands to that plugin's newest frame.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct StreamHostEvent {
+    pub id: String,
+    pub event: StreamEvent,
 }
 
 /// A toast, a prompt, the withdrawal of either, or a page request from plugin `id`.

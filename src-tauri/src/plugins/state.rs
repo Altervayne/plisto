@@ -19,6 +19,7 @@ use serde::Serialize;
 
 // -- Local Imports --
 use super::api::state::ApiState;
+use super::api::stream::Gone;
 use super::install::sweep_staging;
 use super::manifest::{Capability, Tier};
 use super::install_error::{ErrorCode, InstallError};
@@ -262,6 +263,8 @@ impl PluginsState {
         };
         let enabled = EnabledSet::default();
         enabled.replace(inner.serving());
+        let api = ApiState::default();
+        api.streams().watch_serving(enabled.clone());
         PluginsState {
             inner: Mutex::new(inner),
             enabled,
@@ -271,7 +274,7 @@ impl PluginsState {
             starter: RwLock::new(None),
             on_safe: RwLock::new(None),
             generation: AtomicU64::new(0),
-            api: ApiState::default(),
+            api,
         }
     }
 
@@ -463,7 +466,12 @@ impl PluginsState {
     /// Drops the plugin's API state, then runs the stopper for `id`. Never holds a state lock while
     /// either runs.
     pub fn stop(&self, id: &str) {
-        self.api.forget(id);
+        self.stop_because(id, Gone::Off);
+    }
+
+    /// `stop`, with why the plugin stops serving.
+    pub fn stop_because(&self, id: &str, gone: Gone) {
+        self.api.forget_because(id, gone);
         let stopper = self
             .stopper
             .read()

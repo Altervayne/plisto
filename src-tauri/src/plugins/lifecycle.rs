@@ -18,6 +18,7 @@ use serde::Serialize;
 use super::install::{
     new_staging_dir, remove_tree, rename_with_retry, require_writable, staging_root,
 };
+use super::api::stream::Gone;
 use super::install_error::{ErrorCode, InstallError};
 use super::manifest::{Capability, Compat, Manifest, Tier};
 use super::paths::{data_dir, plugin_dir};
@@ -177,7 +178,7 @@ fn enable_or_approve(
         .and_then(|done| done);
     // A demoted plugin left the serving set, so its running code stops too.
     if demotes && seen.is_serving() && !plugins.is_enabled(id) {
-        plugins.stop(id);
+        plugins.stop_because(id, Gone::Consent);
     }
     let row = row?;
     if turn_on {

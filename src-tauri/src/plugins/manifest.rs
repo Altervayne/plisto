@@ -125,10 +125,11 @@ pub enum Capability {
     AudioEvents,
     AudioDevice,
     AudioOutputTakeover,
+    PlaybackStream,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 14] = [
+    pub const ALL: [Capability; 15] = [
         Capability::Storage,
         Capability::LibraryRead,
         Capability::PlaybackRead,
@@ -143,6 +144,7 @@ impl Capability {
         Capability::AudioEvents,
         Capability::AudioDevice,
         Capability::AudioOutputTakeover,
+        Capability::PlaybackStream,
     ];
 
     /// The manifest spelling, also the key of the Plisto-owned review-sheet label.
@@ -162,6 +164,7 @@ impl Capability {
             Capability::AudioEvents => "audio.events",
             Capability::AudioDevice => "audio.device",
             Capability::AudioOutputTakeover => "audio.output_takeover",
+            Capability::PlaybackStream => "playback.stream",
         }
     }
 

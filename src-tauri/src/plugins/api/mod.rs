@@ -3,7 +3,8 @@
  * in-memory locks and no I/O, whether a call may run; `start` parses its arguments and calls the
  * method's handler, which may touch the plugin's own data folder and so runs off the caller's thread.
  * The plugin id always comes from the caller, never from the arguments, and every refusal is one of the
- * closed error codes. The only player commands sent are the `playback.*` and `queue.*` methods.
+ * closed error codes. The only player commands sent are the `playback.*`, `queue.*` and `stream.*`
+ * methods.
  * A call comes from a plugin frame, through the main window, or from a native plugin's child, through
  * its pipe. Both pass the same checks; a frame of a native plugin may also call its own child through
  * `plugin.*`, and a child reaches neither that namespace nor the network methods.
@@ -28,6 +29,7 @@ mod sdk_parity;
 pub(crate) mod sidebar;
 pub(crate) mod state;
 mod storage;
+pub(crate) mod stream;
 pub(crate) mod tauri_host;
 #[cfg(test)]
 mod test_rig;
@@ -162,6 +164,7 @@ pub struct CallCtx<'a> {
     pub id: &'a str,
     /// The method as called.
     pub method: &'a str,
+    pub caller: Caller,
     pub serving: &'a Serving,
     /// The serving set, for a handler that must re-check after waiting on a gate.
     pub enabled: &'a EnabledSet,
@@ -176,6 +179,7 @@ pub struct CallCtx<'a> {
 pub struct Admitted {
     id: String,
     method: String,
+    caller: Caller,
     serving: Serving,
     enabled: EnabledSet,
     ticket: Ticket,
@@ -206,6 +210,7 @@ pub fn table() -> &'static [MethodSpec] {
             cover::METHODS,
             playback::METHODS,
             net::methods::METHODS,
+            stream::METHODS,
         ]
         .concat()
     })
@@ -325,6 +330,7 @@ fn admit_as(
     Ok(Admitted {
         id: id.to_string(),
         method: method.to_string(),
+        caller,
         serving,
         enabled: enabled.clone(),
         ticket,
@@ -350,6 +356,7 @@ pub fn start(
     let ctx = CallCtx {
         id: &admitted.id,
         method: &admitted.method,
+        caller: admitted.caller,
         serving: &admitted.serving,
         enabled: &admitted.enabled,
         app_data,
@@ -541,6 +548,7 @@ impl TestCall<'_> {
         CallCtx {
             id: "com.example.demo",
             method: "",
+            caller: Caller::Frame,
             serving: &self.serving,
             enabled: &self.enabled,
             app_data: self.app_data,

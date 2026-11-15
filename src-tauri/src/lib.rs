@@ -270,7 +270,11 @@ pub fn run() {
                 plugins.set_stopper(native.clone());
                 plugins.set_starter(native.clone());
                 let on_safe = native.clone();
-                plugins.set_on_safe(Arc::new(move |view| on_safe.on_runtime_safe(view)));
+                let streams = plugins.api().streams().clone();
+                plugins.set_on_safe(Arc::new(move |view| {
+                    streams.end_all(plugins::api::stream::Gone::SafeMode);
+                    on_safe.on_runtime_safe(view);
+                }));
                 if let Err(e) = native.spawn_ticker() {
                     eprintln!("plugins: no supervisor thread: {e}");
                 }
@@ -313,6 +317,17 @@ pub fn run() {
                 frames_ready: AtomicBool::new(false),
                 plugins,
             });
+
+            // Plugin streams reach the engine, the stash and the windows through the managed state,
+            // so the hub is connected once it exists.
+            {
+                let streams = app.state::<AppState>().streams().clone();
+                let link = plugins::api::stream::TauriStreamLink::new(app.handle().clone());
+                streams.attach(Arc::new(link));
+                if let Err(e) = plugins::api::stream::spawn_watch(&streams) {
+                    eprintln!("plugins: no stream watch thread: {e}");
+                }
+            }
 
             // Enabled native plugins start once state is managed, on their own thread since each
             // start reads its plugin folder. Only a running runtime starts them here; a held one
@@ -534,6 +549,8 @@ pub fn run() {
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
             commands::player::player_set_fine_spectrum,
+            commands::player::player_clear_parked,
+            commands::stream::get_stream_now,
             commands::plays::reset_play_history,
             commands::plays::get_recently_played,
             commands::plays::get_most_played,
@@ -608,10 +625,18 @@ pub fn run() {
         });
 }
 
-/// Stops every native plugin process. Plisto's own output is restored before any child is stopped.
-/// `leaving` ends restarts and new starts for good, so nothing starts again while the rest stop.
-/// Without it starts are only held, and `NativeHost::release_starts` lets the plugins run again.
+/// Stops every native plugin process. A plugin stream ends first, cancelling its decode helper, and
+/// Plisto's own output is restored before any child is stopped. `leaving` ends restarts, new starts
+/// and new streams for good, so nothing starts again while the rest stop. Without it starts and
+/// streams are only held, and `plugins_resume_after_update` lets the plugins run again.
 pub(crate) fn stop_plugins(app: &tauri::AppHandle, leaving: bool) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if leaving {
+            state.streams().close();
+        } else {
+            state.streams().hold();
+        }
+    }
     #[cfg(windows)]
     if let Some(native) = app.try_state::<Arc<plugins::native::NativeHost>>() {
         if leaving {

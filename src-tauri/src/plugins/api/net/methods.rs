@@ -146,7 +146,9 @@ fn optional_u64(
 }
 
 /// An object of string to string, in the map's order; the guard checks names and values.
-fn headers(args: &Map<String, Value>) -> Result<Vec<(String, String)>, ApiError> {
+pub(in crate::plugins::api) fn headers(
+    args: &Map<String, Value>,
+) -> Result<Vec<(String, String)>, ApiError> {
     let invalid = || ApiError::invalid_args("'headers' must be an object of strings.");
     match given(args.get("headers")) {
         None => Ok(Vec::new()),

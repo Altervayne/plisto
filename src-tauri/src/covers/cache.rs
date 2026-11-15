@@ -13,8 +13,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 
+use image::DynamicImage;
+
 // -- Local Imports --
-use super::thumbnail::thumbnail;
+use super::thumbnail::{encode_thumb, thumbnail};
 
 /// Serializes generation of identical thumbnails. A key is held while its thumbnail decodes and
 /// writes; other callers for the same key wait until it is released and then find a warm file.
@@ -133,6 +135,31 @@ pub fn ensure_thumb(
     let encoded = thumbnail(raw_bytes, max_edge).map_err(|e| e.to_string())?;
     write_atomic(&path, &encoded)?;
     Ok(path)
+}
+
+/// `ensure_thumb` at each of `edges`, from an image the caller already decoded from the bytes
+/// `content_hash` names, so several sizes cost one decode. Warm sizes are left untouched.
+pub fn ensure_thumbs_from(
+    covers_dir: &Path,
+    content_hash: &str,
+    decoded: &DynamicImage,
+    edges: &[u32],
+    guard: &InFlightGuard,
+) -> Result<(), String> {
+    for &max_edge in edges {
+        let path = thumb_cache_path(covers_dir, content_hash, max_edge);
+        if path.exists() {
+            continue;
+        }
+        let key = format!("{content_hash}_{max_edge}");
+        let _claim = guard.claim(&key);
+        if path.exists() {
+            continue;
+        }
+        let encoded = encode_thumb(decoded, max_edge).map_err(|e| e.to_string())?;
+        write_atomic(&path, &encoded)?;
+    }
+    Ok(())
 }
 
 /// Writes `bytes` to `path` by staging a temp file beside it and renaming into place, so a

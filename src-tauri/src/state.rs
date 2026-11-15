@@ -20,6 +20,7 @@ use crate::covers::InFlightGuard;
 use crate::dto::{ExportStatus, LibrarySyncStatus};
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
+use crate::plugins::api::stream::StreamHub;
 use crate::plugins::state::PluginsState;
 use crate::scan_lock::Holder;
 
@@ -80,6 +81,13 @@ pub struct AppState {
     pub frames_ready: AtomicBool,
     /// The plugin registry, boot findings and the set of plugins the frame host serves.
     pub plugins: PluginsState,
+}
+
+impl AppState {
+    /// The plugin playback stream session.
+    pub fn streams(&self) -> &StreamHub {
+        self.plugins.api().streams()
+    }
 }
 
 #[cfg(test)]

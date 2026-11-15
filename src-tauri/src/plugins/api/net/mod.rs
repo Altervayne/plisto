@@ -10,7 +10,7 @@ mod address;
 mod client;
 mod fetch;
 pub(super) mod methods;
-mod policy;
+pub(super) mod policy;
 pub(super) mod proxy;
 mod resolve;
 pub(crate) mod sink;

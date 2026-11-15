@@ -14,7 +14,9 @@ use tauri::{AppHandle, Emitter, Manager, Theme};
 
 // -- Local Imports --
 use super::error::ApiError;
-use super::host_event::{HostEvent, EVENT_NET, EVENT_PAGE, EVENT_SIDEBAR, EVENT_UI};
+use super::host_event::{
+    HostEvent, EVENT_NET, EVENT_PAGE, EVENT_SIDEBAR, EVENT_STREAM, EVENT_UI,
+};
 use super::net::sink::{NetEvent, NetSink};
 use super::{HostContext, NetEngine};
 use crate::db;
@@ -65,6 +67,7 @@ impl HostContext for TauriHost {
             HostEvent::Sidebar(event) => self.app.emit_to(MAIN_LABEL, EVENT_SIDEBAR, event),
             HostEvent::Page(event) => self.app.emit_to(MAIN_LABEL, EVENT_PAGE, event),
             HostEvent::Net(event) => self.app.emit_to(MAIN_LABEL, EVENT_NET, event),
+            HostEvent::Stream(event) => self.app.emit_to(MAIN_LABEL, EVENT_STREAM, event),
         };
     }
 

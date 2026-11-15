@@ -238,7 +238,10 @@ impl PcmQueue {
                 // Counted before the send, so the consumer never takes more than was added.
                 self.control.buffered_us.fetch_add(us, Ordering::AcqRel);
                 match self.tx.try_send(item) {
-                    Ok(()) => return Ok(()),
+                    Ok(()) => {
+                        self.control.chunks_queued.fetch_add(1, Ordering::AcqRel);
+                        return Ok(());
+                    }
                     Err(TrySendError::Full(back)) | Err(TrySendError::Disconnected(back)) => {
                         self.control.buffered_us.fetch_sub(us, Ordering::AcqRel);
                         item = back;

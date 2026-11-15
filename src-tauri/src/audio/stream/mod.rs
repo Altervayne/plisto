@@ -211,6 +211,8 @@ pub struct StreamControl {
     boundaries: AtomicU32,
     // The item's end is decided: the byte buffers' reads stop as if cancelled.
     source_closed: AtomicBool,
+    // Chunks ever queued. Never decreases, so a watcher tells whether audio arrived since it looked.
+    chunks_queued: AtomicU64,
 }
 
 impl Default for StreamControl {
@@ -225,6 +227,7 @@ impl Default for StreamControl {
             buffered_us: AtomicU64::new(0),
             boundaries: AtomicU32::new(0),
             source_closed: AtomicBool::new(false),
+            chunks_queued: AtomicU64::new(0),
         }
     }
 }
@@ -295,6 +298,11 @@ impl StreamControl {
     /// Whether a requested seek has no `Break` queued yet.
     pub fn seek_pending(&self) -> bool {
         self.requested() != self.answered()
+    }
+
+    /// How many chunks of decoded audio have entered the queue since the stream began.
+    pub fn chunks_queued(&self) -> u64 {
+        self.chunks_queued.load(Ordering::Acquire)
     }
 
     /// Whether the decode thread has ended, by any path. An empty queue then never refills.

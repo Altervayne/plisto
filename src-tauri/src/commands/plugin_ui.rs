@@ -19,6 +19,7 @@ use crate::plugins::api::sidebar::{
     check_input, SidebarDelivery, SidebarInputReply, SidebarSnapshot,
 };
 use crate::plugins::api::state::ApiState;
+use crate::plugins::api::stream::{Gone, Producer};
 use crate::plugins::api::ui_state::UiAnswer;
 use crate::plugins::manifest::Tier;
 #[cfg(windows)]
@@ -128,9 +129,9 @@ fn deliver_native(
     }
 }
 
-/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests and network
-/// work and drop its gestures; a crash also drops its sidebar state. Any other label, kind or id has no
-/// effect.
+/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests, network work
+/// and a stream its frames pushed, and drop its gestures; a crash also drops its sidebar state. Any
+/// other label, kind or id has no effect.
 fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
     if label != MAIN_LABEL || validate_id(id).is_err() {
         return;
@@ -140,11 +141,13 @@ fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
             api.ui().release(id);
             api.ui().drop_gestures(id);
             api.net().frame_gone(id);
+            api.streams().forget(id, Gone::Off, Producer::Frame);
         }
         "crashed" => {
             api.ui().release(id);
             api.ui().drop_gestures(id);
             api.net().frame_gone(id);
+            api.streams().forget(id, Gone::Off, Producer::Frame);
             api.sidebar().forget(id);
         }
         _ => {}

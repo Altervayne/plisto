@@ -402,6 +402,13 @@ pub fn player_stop(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Empties the queue parked under a plugin stream; the stream plays on. Ignored with no stream.
+#[tauri::command]
+pub fn player_clear_parked(state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.player.send(PlayerCmd::ClearParked);
+    Ok(())
+}
+
 /// Skips to the next track, honoring the repeat mode.
 #[tauri::command]
 pub fn player_next(state: State<'_, AppState>) -> Result<(), String> {

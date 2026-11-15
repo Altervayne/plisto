@@ -18,6 +18,7 @@ use serde::Serialize;
 
 // -- Local Imports --
 use super::install::{claim, is_held, remove_tree, rename_with_retry, require_writable, restage};
+use super::api::stream::Gone;
 use super::install_error::{ErrorCode, InstallError};
 use super::lifecycle::{busy, park, remove_folder, reset_consent, save_failed};
 use super::manifest::{Capability, Compat, Manifest};
@@ -192,7 +193,7 @@ fn update_claimed(
     // Read before taking the lock; the entry is checked again under it.
     let keep = consent_kept(&installed, &live, &manifest);
     let _withdrawn = plugins.withdraw(id);
-    plugins.stop(id);
+    plugins.stop_because(id, if keep { Gone::Update } else { Gone::Consent });
 
     let had_old = Cell::new(false);
     let leftover = Cell::new(None);

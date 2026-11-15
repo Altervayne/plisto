@@ -152,6 +152,7 @@ pub fn plugins_resume_after_update(webview: Webview, app: AppHandle) {
     #[cfg(windows)]
     app.state::<std::sync::Arc<crate::plugins::native::NativeHost>>()
         .release_starts();
+    app.state::<AppState>().streams().release();
     if app.state::<AppState>().plugins.runtime() == Runtime::Running {
         #[cfg(windows)]
         start_serving(app.clone());

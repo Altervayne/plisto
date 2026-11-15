@@ -36,6 +36,12 @@ pub enum RateClass {
     Relay,
     /// Events a native plugin's child pushes to its page. Not a method, so it never spends from `all`.
     PageEvent,
+    /// Starting, pausing, resuming and stopping a playback stream.
+    Stream,
+    /// A playback stream's metadata.
+    StreamMeta,
+    /// A playback stream's pushed bytes and their end.
+    StreamPush,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +78,9 @@ impl RateClass {
             RateClass::NetStream => (40, 20_000),
             RateClass::Relay => (40, 20_000),
             RateClass::PageEvent => (20, 20_000),
+            RateClass::Stream => (4, 1_000),
+            RateClass::StreamMeta => (10, 1_000),
+            RateClass::StreamPush => (60, 30_000),
         };
         Limit {
             capacity,
@@ -159,6 +168,9 @@ pub struct PluginBuckets {
     net_stream: Bucket,
     relay: Bucket,
     page_event: Bucket,
+    stream: Bucket,
+    stream_meta: Bucket,
+    stream_push: Bucket,
 }
 
 impl PluginBuckets {
@@ -186,6 +198,9 @@ impl PluginBuckets {
             net_stream: full(RateClass::NetStream),
             relay: full(RateClass::Relay),
             page_event: full(RateClass::PageEvent),
+            stream: full(RateClass::Stream),
+            stream_meta: full(RateClass::StreamMeta),
+            stream_push: full(RateClass::StreamPush),
         }
     }
 
@@ -210,6 +225,9 @@ impl PluginBuckets {
             RateClass::NetStream => &mut self.net_stream,
             RateClass::Relay => &mut self.relay,
             RateClass::PageEvent => &mut self.page_event,
+            RateClass::Stream => &mut self.stream,
+            RateClass::StreamMeta => &mut self.stream_meta,
+            RateClass::StreamPush => &mut self.stream_push,
         }
     }
 
@@ -349,6 +367,9 @@ mod tests {
             (RateClass::NetStream, 40, 50),
             (RateClass::Relay, 40, 50),
             (RateClass::PageEvent, 20, 50),
+            (RateClass::Stream, 4, 1_000),
+            (RateClass::StreamMeta, 10, 1_000),
+            (RateClass::StreamPush, 60, 34),
         ] {
             let mut b = PluginBuckets::new(t0);
             for _ in 0..capacity {

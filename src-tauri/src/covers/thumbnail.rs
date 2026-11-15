@@ -8,7 +8,7 @@
 use std::io::Cursor;
 
 use image::codecs::jpeg::JpegEncoder;
-use image::{ExtendedColorType, ImageError, ImageReader};
+use image::{DynamicImage, ExtendedColorType, ImageError, ImageReader};
 
 // JPEG quality for generated thumbnails. High enough that the shrink, not the codec, is what
 // the eye sees; low enough to keep the cache small.
@@ -18,8 +18,11 @@ const JPEG_QUALITY: u8 = 82;
 /// flattens any alpha, and encodes JPEG. Returns the encoded bytes, or an error when the source
 /// cannot be decoded. Never mutates anything on disk.
 pub fn thumbnail(raw_bytes: &[u8], max_edge: u32) -> Result<Vec<u8>, ImageError> {
-    let decoded = image::load_from_memory(raw_bytes)?;
+    encode_thumb(&image::load_from_memory(raw_bytes)?, max_edge)
+}
 
+/// `thumbnail` of an image already decoded, so one decode can feed several sizes.
+pub fn encode_thumb(decoded: &DynamicImage, max_edge: u32) -> Result<Vec<u8>, ImageError> {
     // thumbnail() fits the image inside the box while keeping aspect, so a square box bounds the
     // longest edge. to_rgb8 drops alpha, which JPEG cannot carry.
     let rgb = decoded.thumbnail(max_edge, max_edge).to_rgb8();

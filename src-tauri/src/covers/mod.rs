@@ -17,8 +17,8 @@ use crate::model::{ArtKey, CoverRecord};
 
 pub use adjacent::{discover_adjacent_images, is_adjacent_image};
 pub use cache::{
-    ensure_full_res, ensure_thumb, full_res_cache_path, read_full_res_blob, thumb_cache_path,
-    InFlightGuard,
+    ensure_full_res, ensure_thumb, ensure_thumbs_from, full_res_cache_path, read_full_res_blob,
+    thumb_cache_path, InFlightGuard,
 };
 #[cfg(test)]
 pub(crate) use embedded::test_support;
