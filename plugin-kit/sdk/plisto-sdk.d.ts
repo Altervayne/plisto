@@ -37,6 +37,8 @@ export interface AppInfo {
 export interface AppMethodsResult {
   api_version: number;
   methods: string[];
+  /** The app event topic names this Plisto offers, sorted. */
+  topics: string[];
 }
 
 export interface StorageGetArgs {
@@ -413,7 +415,7 @@ export interface StreamStateResult {
   seekable: boolean | null;
   /** Listened time for a live item, the play head for a finite one. */
   position_secs: number | null;
-  /** Always null today; do not wait for it. */
+  /** A finite item's length once its file's header gives one; null until then, for some files always, and for a live item. */
   duration_secs: number | null;
   buffered_ms: number | null;
   /** The caller's previous item's end, kept for 60 seconds. */
@@ -461,6 +463,101 @@ export interface PlistoStream {
   /** Ends the item `stopped`. */
   stop(item: number): Promise<EmptyResult>;
   state(): Promise<StreamStateResult>;
+}
+
+export type PlistoTransport = "playing" | "paused" | "stopped" | "buffering";
+
+/**
+ * Needs playback.read. Fires when the seated item changes, or a seated stream's title or artist does. For an
+ * opened file and for a stream the payload carries no identity, so two in a row can be equal: an event still
+ * arrives for each.
+ */
+export interface NowPlayingEvent {
+  /** Null when nothing is seated. `file` is an item opened straight from a file, which is not in the library. */
+  source: "library" | "file" | "stream" | null;
+  /** Set only for `library`. */
+  track_id: number | null;
+  /** Null as for `track_id`, and for a library track missing on disk. */
+  track: PlistoTrack | null;
+  /** Set only for `stream`, whoever owns it; can be null for a moment while `source` is `stream`, so handle null. */
+  stream: PlaybackStreamInfo | null;
+}
+
+/** Needs playback.read. Fires on any change but the position; the position is never streamed. */
+export interface PlaybackStateEvent {
+  /** `buffering` also covers a stream that is connecting or reconnecting. */
+  transport: PlistoTransport;
+  /** The play head at `position_at`, in seconds. */
+  position_secs: number;
+  /** Unix milliseconds when Plisto composed the event; `position_secs` can be up to about 33 ms older. */
+  position_at: number;
+  /** 0 when unknown, and for a live stream. */
+  duration_secs: number;
+  /** Rises when an item starts, cold or gaplessly, or is loaded. Compare it; do not read it as a count. */
+  start_seq: number;
+  /** Rises on a seek the user or a plugin made that took effect. */
+  seek_seq: number;
+  repeat: PlistoRepeat;
+  shuffle: boolean;
+  /** 0 to 1. */
+  volume: number;
+  /** Set while a plugin stream is seated, whoever owns it. */
+  stream: { phase: "connecting" | "buffering" | "playing" | "paused"; live: boolean; seekable: boolean } | null;
+}
+
+/** Needs playback.read. Read the ids with `playback.queue`. */
+export interface QueueEvent {
+  index: number;
+  length: number;
+  /** Changes whenever the queue may have changed, a replay of an identical list included. Compare for inequality; never read the value or a step. */
+  rev: number;
+  /** True while a stream is seated over the user's queue. */
+  parked: boolean;
+}
+
+/**
+ * Needs library.read. `track_ids` lists the changed or removed tracks, at most 500; null means many or
+ * unknown, so read again. A null can also come with no change at all.
+ */
+export interface LibraryChangedEvent {
+  track_ids: number[] | null;
+  /** An album, a single or an album's members changed. */
+  albums: boolean;
+  /** A playlist or its tracks changed. */
+  playlists: boolean;
+}
+
+export interface ThemeEvent {
+  theme: PlistoTheme;
+}
+export interface LocaleEvent {
+  locale: "en" | "fr";
+}
+export interface AppModeEvent {
+  app_mode: PlistoAppMode;
+}
+
+/** The app event topics and what each one carries. */
+export interface PlistoTopics {
+  now_playing: NowPlayingEvent;
+  playback_state: PlaybackStateEvent;
+  queue: QueueEvent;
+  library_changed: LibraryChangedEvent;
+  theme: ThemeEvent;
+  locale: LocaleEvent;
+  app_mode: AppModeEvent;
+}
+export type PlistoTopic = keyof PlistoTopics;
+
+export interface EventsSubscribeArgs {
+  /** 0 to 16 names; duplicates are ignored. An empty array clears the set. */
+  topics: PlistoTopic[];
+}
+export interface EventsSubscribeResult {
+  /** The accepted set, sorted. */
+  topics: PlistoTopic[];
+  /** One entry per accepted topic but `library_changed`, left out when its value could not be read. */
+  current: Partial<PlistoTopics>;
 }
 
 export interface NetFetchArgs {
@@ -697,7 +794,7 @@ export interface PlistoMethods {
   "stream.resume": { args: StreamItemArgs; result: EmptyResult };
   "stream.stop": { args: StreamItemArgs; result: EmptyResult };
   "stream.state": { args: {}; result: StreamStateResult };
-  "events.subscribe": { args: { topics: string[] }; result: { topics: string[]; current: { [topic: string]: unknown } } };
+  "events.subscribe": { args: EventsSubscribeArgs; result: EventsSubscribeResult };
 }
 
 export interface CallOptions {
@@ -756,6 +853,19 @@ export interface Plisto {
    * that is newest and running hears them. Returns an unsubscribe function.
    */
   onStream(callback: (event: StreamEvent) => void): () => void;
+  readonly events: {
+    /**
+     * Replaces this page's whole set of app event topics; `[]` clears it. The values in `current` reach
+     * the `events.on` handlers before the promise resolves. Needs playback.read for `now_playing`,
+     * `playback_state` and `queue`, and library.read for `library_changed`; rejects `denied` and keeps
+     * the old set when one is missing.
+     */
+    subscribe(topics: PlistoTopic[]): Promise<EventsSubscribeResult>;
+    /** Listens to one topic. Does not subscribe. Throws TypeError for a bad topic, `stream` included. */
+    on<T extends PlistoTopic>(topic: T, callback: (data: PlistoTopics[T]) => void): () => void;
+    /** The topic names this Plisto offers; empty when it offers none. */
+    topics(): Promise<string[]>;
+  };
   /** A native plugin's own program. A UI plugin's calls reject unknown_method. */
   readonly plugin: {
     /**

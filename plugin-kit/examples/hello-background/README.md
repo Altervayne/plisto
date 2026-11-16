@@ -5,8 +5,8 @@ shows another page. A one second timer counts up (a timer, not `requestAnimation
 hidden frame), the count is saved with `storage.set` every 5 seconds, and the page shows the count,
 whether it is the open page, its route, and the theme.
 
-It asks for `storage`, `background`, `ui.toast`, `ui.confirm`, `ui.chips` and `ui.sidebar`, and declares
-six sidebar items, one of each type:
+It asks for `storage`, `library.read`, `background`, `ui.toast`, `ui.confirm`, `ui.chips` and `ui.sidebar`,
+and declares six sidebar items, one of each type:
 
 - `home` and `settings` (nav). `settings` opens the page at the route `settings`. `home` carries a chip
   with the saved count.
@@ -17,6 +17,12 @@ six sidebar items, one of each type:
   confirms: the switch dims for 3 seconds and stays where it was.
 - `ping` (action): asks a prompt, using the click's gesture, then toasts the answer. Works with the page
   closed.
+
+Library events: at every start the page subscribes to `library_changed` and writes one line to the plugin's
+log for each event, such as `library changed: 1 track(s): 42` or `library changed: all tracks, read again`.
+Edit a track's title in Plisto and the line appears within a second. A rescan or a manual refresh while
+the plugin runs logs the read-again form: that event does not mean something changed. A reload that
+happens before the page subscribes is not replayed, so a start may log nothing. It needs `library.read`.
 
 Gesture tests, on the page: **Ask without a click in 11 s** and **Ask with an old click** each wait 11
 seconds and then ask for a prompt. Leave the page within those 11 seconds: while the page is open, a prompt
@@ -29,14 +35,15 @@ the sidebar; its page then shows the crash card with a Restart button.
 
 ## Install
 
-1. In Plisto, open the plugin hub and install from a folder (Settings > Plugins): choose this `hello-background` folder.
-2. Turn the plugin on. Read the capability review: it asks for `storage`, `background`, `ui.toast`,
-   `ui.confirm`, `ui.chips` and `ui.sidebar`. Updating from version 1.0.0 adds the last four, so Plisto
+1. In Plisto, open Settings > Plugins, choose Install from folder and pick this `hello-background` folder.
+2. Turn the plugin on. Read the capability review: it asks for `storage`, `library.read`, `background`,
+   `ui.toast`, `ui.confirm`, `ui.chips` and `ui.sidebar`. Updating from version 1.0.0 adds `ui.toast`,
+   `ui.confirm`, `ui.chips` and `ui.sidebar`, and updating from before 1.2.0 adds `library.read`, so Plisto
    asks for consent again.
 
 ## Remove
 
-Open the plugin hub, uninstall Hello background, and tick the box to delete its data if you want the
+Open Settings > Plugins, uninstall Hello background, and tick the box to delete its data if you want the
 saved count gone too.
 
 `plisto-sdk.js` here is a copy of `../../sdk/plisto-sdk.js`. Keep the copies identical. The guides are in `../../docs/` (start with `../../README.md`).

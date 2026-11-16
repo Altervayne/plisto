@@ -103,11 +103,21 @@ impl Plugin {
     }
 
     // The next `host_call` other than the status item's updates, which the reporter sends on its own
-    // schedule.
+    // schedule, and the event subscription every run makes after `ready`.
     fn next_call(&self) -> Value {
         loop {
             let call = self.next("host_call");
-            if call["args"]["item_id"] != "state" {
+            if call["args"]["item_id"] != "state" && call["method"] != "events.subscribe" {
+                return call;
+            }
+        }
+    }
+
+    // The run's `events.subscribe` call.
+    fn subscribe_call(&self) -> Value {
+        loop {
+            let call = self.next("host_call");
+            if call["method"] == "events.subscribe" {
                 return call;
             }
         }
@@ -242,6 +252,30 @@ fn the_action_asks_with_its_gesture_and_unprompted_asks_without() {
     let asked = p.next_call();
     assert_eq!(asked["method"], "ui.confirm");
     assert_eq!(asked["args"]["gesture"], "g-9");
+}
+
+#[test]
+fn the_run_subscribes_after_ready_and_logs_the_events_it_gets() {
+    let mut p = Plugin::start("none", &[]);
+    p.hello();
+    let call = p.subscribe_call();
+    assert_eq!(call["args"], json!({"topics": ["playback_state", "locale"]}));
+    p.send(json!({
+        "type": "host_result", "seq": call["seq"], "ok": true,
+        "result": {"topics": ["locale", "playback_state"], "current": {"locale": {"locale": "en"}}}
+    }));
+    p.next_log("subscribed to locale, playback_state");
+    p.next_log("current locale: en");
+    p.send(json!({
+        "type": "event", "topic": "playback_state",
+        "data": {"transport": "playing", "start_seq": 2, "seek_seq": 0}
+    }));
+    assert_eq!(
+        p.next_log("event playback_state")["text"],
+        "event playback_state: playing, start 2, seek 0"
+    );
+    p.send(json!({"type": "event", "topic": "locale", "data": {"locale": "fr"}}));
+    p.next_log("event locale: fr");
 }
 
 #[test]

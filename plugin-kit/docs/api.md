@@ -19,12 +19,14 @@ Limits that apply to every call:
 
 - A method name is two to four lowercase dotted parts, such as `storage.get`. Anything else is
   `invalid_args`.
-- Arguments are a JSON object, serialized to at most 262,144 characters. Beyond that the call is
-  `too_large`.
+- Arguments are a JSON object. From a page they are serialized to at most 262,144 characters; from a native
+  program's `host_call`, to at most 1,048,576 bytes. Beyond that the call is `too_large`.
 - One page may have 32 calls waiting for an answer, and a plugin may have 16 in flight at once. Past that,
   calls are refused `busy`. An open toast or prompt counts as a call in flight.
 - A call is answered to the page that made it. If the page closes first, the answer is dropped.
 - Calls from all of a plugin's pages share the budgets below.
+- A page that does not use the SDK sends the same calls as `plisto:call` messages: see the
+  [bridge reference](bridge.md). Every number in this reference is also in [limits](limits.md).
 
 ## Rate budgets
 
@@ -35,7 +37,7 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | Class | Used by | Capacity | Refill |
 | --- | --- | --- | --- |
 | all | every call | 100 | 50 per second |
-| ambient | `app.info`, `app.methods` | 10 | 2 per second |
+| ambient | `app.info`, `app.methods`, `events.subscribe` | 10 | 2 per second |
 | storage read | `storage.get`, `storage.keys`, `storage.usage` | 60 | 30 per second |
 | storage write | `storage.set`, `storage.remove`, `storage.clear` | 20 | 5 per second |
 | log | `log.write` | 40 | 10 per second |
@@ -54,6 +56,12 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | net | `net.fetch`, `net.socket.open` | 30 | 10 per second |
 | net send | `net.socket.send`, `net.socket.close`, `net.abort`, `net.stream.cancel` | 40 | 20 per second |
 | net stream | `net.stream.ack` | 40 | 20 per second |
+| relay | `plugin.*`: a native plugin's page calling its program | 40 | 20 per second |
+| sidebar click | The user's clicks on a toggle or action item (not a method) | 5 | 5 per second |
+| page event | A native program's `page_event` messages to its page (not a method) | 20 | 20 per second |
+
+The last two rows are not methods, so they spend nothing from the "all" budget. A click past the budget is
+refused and never reaches the plugin. A page event past the budget is dropped and counted.
 
 ## Methods
 
@@ -91,14 +99,44 @@ console.log(info.locale, info.theme);
 
 Needs: nothing. Class: ambient. Helper: `plisto.app.methods()`.
 
-Arguments: none. Result: `{ api_version, methods }`, where `methods` is the sorted list of every method
-name this Plisto answers.
+Arguments: none. Result: `{ api_version, methods, topics }`, where `methods` is the sorted list of every
+method name this Plisto answers and `topics` is the sorted list of the app event topics it offers (see
+[events](events.md)). A Plisto without events has no `topics` field.
 
 ```js
-const { methods } = await plisto.app.methods();
+const { methods, topics } = await plisto.app.methods();
 ```
 
-For a quick check use `plisto.has(name)` instead (see Feature detection).
+For a quick check use `plisto.has(name)` instead (see Feature detection), or `plisto.events.topics()` for the
+topic names.
+
+### `events.subscribe`
+
+Needs: nothing of its own; each topic needs the capability that reading it needs (`playback.read` for
+`now_playing`, `playback_state` and `queue`, `library.read` for `library_changed`, nothing for `theme`,
+`locale` and `app_mode`). Class: ambient. Helper: `plisto.events.subscribe(topics)`.
+
+Arguments: `{ topics }`, an array of 0 to 16 topic names; a name repeated is counted once. The call replaces
+the whole set of the side that made it, a page or a native program, and `[]` clears it. Result:
+`{ topics, current }`: the accepted topics, sorted, and the current value of each accepted topic but
+`library_changed`. A topic whose value could not be read is left out of `current`. The helper hands each
+value in `current` to the `plisto.events.on` handlers before it resolves.
+
+Errors:
+
+- `invalid_args`: `topics` is not an array of strings, holds more than 16, names an unknown topic, or names
+  `stream`, which is reserved.
+- `denied`: a topic needs a capability the plugin does not hold. The message names the topic, and the
+  previous set is kept.
+- `unavailable`: the plugin is not being served.
+- `unknown_method`: this Plisto has no events.
+
+A refused call changes nothing. The [events guide](events.md) has every topic, its payload and its pace.
+
+```js
+plisto.events.on("queue", ({ length }) => showCount(length));
+await plisto.events.subscribe(["queue", "theme"]);
+```
 
 ### `storage.get`
 
@@ -419,7 +457,8 @@ Arguments: none. Result:
 | `queue_length` | number | |
 | `stream` | object or `null` | The plugin stream that plays now, whoever owns it: `{ title, artist, live, mine }`, `mine` true when the caller owns it. `null` when none plays. While one plays, `track_id` and `track` are `null`. |
 
-The position is a snapshot; read it again to follow playback.
+The position is a snapshot; read it again to follow playback, or subscribe to `playback_state` and work the
+position out between events (see [events](events.md#following-the-play-head)).
 
 ### `playback.queue`
 
@@ -601,6 +640,16 @@ event's data. A topic is 1 to 64 characters of `a-z`, `0-9`, `_`, `.` and `-`; a
 plisto.onPluginEvent("levels", (data) => draw(data.peak_db));
 ```
 
+App events are a separate channel. `plisto.events.on(topic, callback)` listens to a topic of the [events
+guide](events.md) (`now_playing`, `playback_state`, `queue`, `library_changed`, `theme`, `locale`,
+`app_mode`) after `plisto.events.subscribe(topics)` asked for it, and returns an unsubscribe function. A
+native program's page events never reach `events.on`, and an app event never reaches `onPluginEvent`.
+
+```js
+plisto.events.on("now_playing", ({ track }) => showTitle(track ? track.title : ""));
+await plisto.events.subscribe(["now_playing"]);
+```
+
 A plugin that owns a playing stream hears its events on the topic `stream`, whatever its tier.
 `plisto.onStream(callback)` subscribes to it, and returns an unsubscribe function. The callback gets
 `{ item, kind, ... }` with `kind` one of `state`, `skip`, `room` and `ended`; the [stream guide](stream.md#events)
@@ -623,6 +672,9 @@ version is `plisto.sdkVersion` (`1.4.0`).
 | `on(event, callback)` | Subscribes to an event. Returns an unsubscribe function. Throws `TypeError` for an unknown event. |
 | `onPluginEvent(topic, callback)` | Subscribes to a native program's page events of one topic. Returns an unsubscribe function. |
 | `onStream(callback)` | Subscribes to the events of the plugin's own stream. Returns an unsubscribe function. |
+| `events.subscribe(topics)` | Replaces the page's set of app event topics. Resolves `{ topics, current }`. See the [events guide](events.md). |
+| `events.on(topic, callback)` | Listens to one app event topic. Returns an unsubscribe function. Throws `TypeError` for a bad topic, `stream` included. |
+| `events.topics()` | Resolves the topic names this Plisto offers. |
 | `plugin.call(name, args?, { timeoutMs }?)` | Calls the plugin's own native program. |
 | `app.info()`, `app.methods()` | Helpers for `app.info` and `app.methods`. |
 | `storage.get/set/remove/keys/clear/usage` | Helpers for the `storage.*` methods. |

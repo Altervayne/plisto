@@ -117,6 +117,10 @@ pub enum HostMessage {
     /// `kind` is `state`, `skip`, `room` or `ended`. A full input drops it, so read `stream.state`
     /// after a gap.
     Stream { event: Value },
+    /// An app event of a topic this plugin subscribed to with `events.subscribe`, through `host_call`.
+    /// `data` is the topic's payload. A full input holds the value and sends the latest later, so the
+    /// last value of a topic always arrives. A subscription ends with the run: subscribe after `ready`.
+    Event { topic: String, data: Value },
 }
 
 pub const HOST_KINDS: &[&str] = &[
@@ -130,6 +134,7 @@ pub const HOST_KINDS: &[&str] = &[
     "takeover_state",
     "page",
     "stream",
+    "event",
 ];
 
 /// The states a plugin may report through `status`.
@@ -438,6 +443,10 @@ mod tests {
             HostMessage::Stream {
                 event: json!({"item": -4, "kind": "ended", "reason": "user", "detail": null}),
             },
+            HostMessage::Event {
+                topic: "locale".into(),
+                data: json!({"locale": "fr"}),
+            },
         ]
     }
 
@@ -575,10 +584,22 @@ mod tests {
             r#"{"type":"takeover_state","held":false,"reason":"not_responding"}"#,
             r#"{"type":"page","open":true}"#,
             r#"{"type":"stream","event":{"item":-4,"kind":"ended","reason":"user","detail":null}}"#,
+            r#"{"type":"event","topic":"locale","data":{"locale":"fr"}}"#,
         ];
         assert_eq!(wire.len(), host_messages().len());
         for (json, expected) in wire.iter().zip(host_messages()) {
             assert_eq!(host(json), Decoded::Message(expected), "{json}");
+        }
+    }
+
+    #[test]
+    fn an_event_needs_its_topic_and_its_data() {
+        for json in [
+            r#"{"type":"event","data":{}}"#,
+            r#"{"type":"event","topic":"queue"}"#,
+            r#"{"type":"event","topic":4,"data":{}}"#,
+        ] {
+            assert!(matches!(host(json), Decoded::Malformed(_)), "{json}");
         }
     }
 

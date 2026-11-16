@@ -78,9 +78,10 @@ Semantic versions: `major.minor.patch`, with an optional `-prerelease` part and 
 like `1.0`.
 
 If `min_plisto` is newer than the running Plisto, the manifest is valid but the plugin cannot be installed
-or turned on. The user sees "needs Plisto X or newer". Set `min_plisto` to the oldest version that has the
-methods you use. The plugin system and the UI surfaces (toast, confirm, chips, sidebar items) first ship in
-Plisto 2.7, so `"2.7.0"` is the right value for a plugin that uses any of them.
+or turned on. The user sees "needs Plisto X or newer". Set `min_plisto` to the lowest Plisto version you tested the plugin on, and no lower: Plisto checks only
+this number, not the methods you call. The plugin system and the UI surfaces (toast, confirm, chips, sidebar
+items) first ship in Plisto 2.7, so `"2.7.0"` is the right value for a plugin that uses any of them, and the
+event and stream methods (`events.subscribe`, `stream.*`) need 2.7.0 or newer too.
 
 While you develop against a pre-release build that still reports 2.6.x, use `"2.6.0"`: Plisto refuses to
 turn on a plugin whose `min_plisto` is newer than the build. Set `"2.7.0"` before you release.
@@ -116,29 +117,57 @@ background page, if it has one, keeps running.
 
 Every path in the manifest (`entry`, `icon`, and files you link from your page) follows the same rules:
 forward slashes only, relative, at most 128 characters in the manifest, made of letters, digits, `.`, `_`,
-`-` and `/`. No empty, `.` or `..` part, no trailing dot, no drive letter, no Windows device name.
+`-` and `/`. No empty, `.` or `..` part, no part ending in a dot, no drive letter, no Windows device name.
+The same rule decides which files Plisto serves to your page, and Plisto serves only 16 file extensions: see
+[UI surfaces](ui-surfaces.md#files-plisto-serves).
 
 ## Capabilities
 
 A capability is a permission. The user sees the list on the review sheet, in plain language, before the
 plugin runs. Plisto grants all of them or none: there is no partial grant.
 
-| Capability | What it gives | Used by |
-| --- | --- | --- |
-| `storage` | The plugin's saved data. | `storage.*` methods |
-| `background` | Keep the page running while another page is shown. | [lifecycle](lifecycle.md) |
-| `ui.toast` | Show short toasts. | `ui.toast` |
-| `ui.confirm` | Ask the user to confirm something. | `ui.confirm` |
-| `ui.chips` | Put chips on the plugin's sidebar row. | `ui.chips` |
-| `ui.sidebar` | Declare sidebar entries and update them live. | `sidebar` block, `ui.sidebar.update` |
-| `network` | Exchange data with the sites in the `network` list, through Plisto. | `plisto.net`, see the [network guide](network.md) |
-| `library.read` | Read the library: titles, artists, albums, playlists and covers, never file locations. | `library.*` methods, see the [API reference](api.md#library-data) |
-| `playback.read` | Read what is playing and the queue. | `playback.state`, `playback.queue` |
-| `playback.control` | Play, pause, skip, seek and change the queue. | the other `playback.*` methods, `queue.*` |
-| `playback.stream` | Play audio streams through Plisto's player, a URL it fetches or bytes the plugin pushes. | `stream.*` methods, see the [stream guide](stream.md) |
-| `audio.tap`, `audio.events`, `audio.device`, `audio.output_takeover` | Read Plisto's audio, follow playback as events, and hold its output. Native plugins only. | the [native guide](native.md) |
+The third column is the line the user reads on the review sheet, word for word, in English. Plisto
+translates it for a French user, and the sheet draws it from its own text, never from yours.
 
-`app.info`, `app.methods`, `log.write` and `ui.open_page` need no capability.
+| Capability | What it gives | Shown to the user as | Used by |
+| --- | --- | --- | --- |
+| `storage` | The plugin's saved data. | Save its own settings and data | `storage.*` methods |
+| `background` | Keep the page running while another page is shown. | Runs in the background while Plisto is open | [lifecycle](lifecycle.md) |
+| `ui.toast` | Show short toasts. | Show short messages | `ui.toast` |
+| `ui.confirm` | Ask the user to confirm something. | Ask you to confirm things | `ui.confirm` |
+| `ui.chips` | Put chips on the plugin's sidebar row. | Show a badge on its sidebar entry | `ui.chips` |
+| `ui.sidebar` | Declare sidebar entries and update them live. | Add entries to the sidebar | `sidebar` block, `ui.sidebar.update` |
+| `network` | Exchange data with the sites in the `network` list, through Plisto. | Exchange data with the sites listed below, then each origin, then the notes below | `plisto.net`, see the [network guide](network.md) |
+| `library.read` | Read the library: titles, artists, albums, playlists and covers, never file locations. | Read your library (titles, artists, albums; never file locations) | `library.*` methods, see the [API reference](api.md#library-data); the `library_changed` event |
+| `playback.read` | Read what is playing and the queue. | Read what is playing | `playback.state`, `playback.queue`; the `now_playing`, `playback_state` and `queue` events |
+| `playback.control` | Play, pause, skip, seek and change the queue. | Play, pause and skip tracks | the other `playback.*` methods, `queue.*` |
+| `playback.stream` | Play audio streams through Plisto's player, a URL it fetches or bytes the plugin pushes. | Play audio streams through Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen | `stream.*` methods, see the [stream guide](stream.md) |
+| `audio.tap` | Read Plisto's audio. Native plugins only. | Hear Plisto's audio after the equalizer | the [native guide](native.md#the-audio-tap) |
+| `audio.events` | Follow playback as `feed` events. Native plugins only. | Follow changes in your sound devices and playback | the [native guide](native.md#the-feed) |
+| `audio.device` | Name the output device in `feed` events. Native plugins only. Needs `audio.events`. | Use your sound devices | the [native guide](native.md#the-feed) |
+| `audio.output_takeover` | Hold Plisto's own output silent. Native plugins only. | Silence Plisto's own speakers while it plays your music | the [native guide](native.md#output-takeover) |
+
+The sheet adds notes of its own beside some lines. Under `network` it lists each origin (a development
+address is tagged "This computer, only while developer mode is on") and says: "Plisto makes these
+connections for it and refuses every other address. The sites see your internet address, as when you
+visit them." With `playback.stream` too: "It can play audio from the sites listed above." For a UI plugin
+that also holds `library.read` or `playback.read`: "It can send what it reads here, such as your library or
+what is playing, to these sites." A capability this Plisto has no line for is not drawn, and is still
+granted. After an update, a line or an origin that the approved version lacked carries a "New" badge.
+
+What else the sheet says, by kind of plugin:
+
+| Plugin | Warning on the sheet |
+| --- | --- |
+| UI plugin | "It runs in a sandbox inside Plisto. It cannot read your files, and it can only reach the sites listed above." Without `network`: "It runs in a sandbox inside Plisto. It cannot read your files or reach the network." |
+| UI plugin while Plisto's sandbox check has not passed (the Unsandboxed tag) | "This plugin runs inside Plisto and Plisto cannot yet fully contain it. Until it can, the plugin may be able to read your library and files and use the network beyond what it lists. Plisto does not review or vouch for it." |
+| Native plugin | "This plugin is a program that runs on your computer with your access. It can read and change your files and use the network. Plisto does not review or vouch for it." Then "Why it is native (declared by the plugin)" and your `native_reason`, as plain text. |
+
+On the two warning sheets the user also ticks "I understand" before a confirm that turns the plugin on. Every
+sheet shows the author as "By <author>. Declared by the plugin, not verified."
+
+`app.info`, `app.methods`, `log.write` and `ui.open_page` need no capability, and neither do the `theme`,
+`locale` and `app_mode` events of the [events guide](events.md).
 
 `network` requires a `network` list of origins in the manifest, and the page can then reach only those
 sites, through `plisto.net`. The [network guide](network.md) covers the origin rules and the developer
@@ -166,22 +195,49 @@ Plisto checks the manifest when you install, and again every time it starts. Eac
 | Message starts with | Cause |
 | --- | --- |
 | `plugin.json is N bytes, over the 65536 byte limit` | File too large. |
-| `plugin.json is not valid` | Not JSON, wrong field type, or a duplicated key. |
-| `missing required field` | One of the required fields is absent. |
-| `unsupported manifest_version` | Not `1`. |
-| `invalid id` | The id breaks the rules above. |
-| `'name' must not be empty`, `is over N characters`, `contains control characters`, `has more than 6 combining marks in a row` | Text rule broken. |
-| `'version' is not a valid version` | Not semantic version. Same for `min_plisto`. |
-| `unknown tier` | Not `ui` or `native`. |
-| `'entry' ...` | A path rule broken. |
-| `a ui plugin's entry must be a .html file` | Wrong extension. |
+| `plugin.json is not valid: ...` | Not JSON, a field of the wrong type, or a duplicated key. The rest of the line says which. |
+| `missing required field 'x'` | One of the required fields is absent. `native_reason` has its own line below. |
+| `unsupported manifest_version N` | Not `1`. |
+| `invalid id: ...` | The id breaks the [rules above](#id). The rest of the line says which. |
+| `'name' must not be empty`, `'name' is over N characters`, `'name' contains control characters`, `'name' has more than 6 combining marks in a row` | A text rule broken. The same lines name `author` and `native_reason`. |
+| `'version' is not a valid version: 'x'` | Not a semantic version. Same for `min_plisto`. |
+| `unknown tier 'x'` | Not `ui` or `native`. |
+| `'entry' ...`, `'page' ...`, `'icon' ...` followed by `must not be empty`, `is too long`, `must be relative`, `must use '/' separators`, `may only contain letters, digits, '.', '_', '-' and '/'`, `must not contain an empty segment`, `must not contain '.' or '..' segments`, `a segment must not end with '.'` or `a segment is a reserved Windows device name` | A path rule broken (see "Paths"). |
+| `a ui plugin's entry must be a .html file` | The `entry` of a UI plugin has another extension. |
+| `a native plugin's entry must be a .exe file` | The `entry` of a native plugin has another extension. |
+| `'page' is only for native plugins (a UI plugin's page is its 'entry')` | A UI plugin sets `page`. Remove it. |
+| `'page' must be a .html file` | A native plugin's `page` has another extension. |
 | `'icon' must be a .png or .svg file` | Wrong extension. |
-| `unknown capability`, `capability ... is listed twice` | Check the spelling. Names are lowercase. |
-| `capability ... is not available to ui plugins` | An audio capability. |
-| `capability ... is not available to native plugins` | `background`. |
-| `unknown mode`, `mode ... is listed twice`, `'modes' must list at least one mode` | See `modes`. |
-| `'homepage' ...` | Not a valid `https` address. |
-| `sidebar must have 1 to 6 items` and other `sidebar` lines | See the [sidebar guide](sidebar.md). |
+| `a native plugin must give 'native_reason'` | A native plugin has no `native_reason`. It also needs 1 to 280 characters (the text lines above). A UI plugin's `native_reason` is ignored, not refused. |
+| `a native plugin with a sidebar 'nav' item must give 'page', the page the item opens` | A native plugin declares a nav item and has no `page`. |
+| `unknown capability 'x'`, `capability 'x' is listed twice` | Check the spelling. Names are lowercase. |
+| `capability 'x' is not available to ui plugins` | An audio capability in a UI plugin. |
+| `capability 'x' is not available to native plugins` | `background` in a native plugin. |
+| `the 'audio.device' capability requires 'audio.events', the only place the device is reported` | List `audio.events` too. |
+| `unknown mode 'x'`, `mode 'x' is listed twice`, `'modes' must list at least one mode` | See `modes`. |
+| `'homepage' ...` followed by `is too long`, `must be an https URL`, `must name a host` or `contains characters that are not allowed in a URL` | Not a valid `https` address. |
+| `the 'network' capability requires a non-empty 'network' origin list` | `network` is listed and the origin list is missing or empty. |
+| `'network' origins are only allowed with the 'network' capability` | An origin list without the capability. Add the capability or remove the list. |
+| `'network' lists N origins, over the limit of 8` | More than 8 origins. |
+| `network origin 'x' ...` followed by `is too long` (over 128 characters), `must start with https://`, `must not use wildcards`, `must not carry credentials`, `must be a bare origin without a path, query or fragment`, `has an invalid port`, `must be a lowercase DNS host name`, `must not be an IP address`, `uses a reserved name that is not on the public internet` or `is not a development address Plisto accepts (use http://127.0.0.1:<port>)` | A bad origin. See the origin rules in the [network guide](network.md#origins). |
+| `network origin 'x' is listed twice` | The same origin twice. |
+| `sidebar block requires the 'ui.sidebar' capability` and the other `sidebar` lines below | See the sidebar table. |
+
+The `sidebar` lines, from the same check:
+
+| Message | Cause |
+| --- | --- |
+| `sidebar must have 1 to 6 items, found N` | No items, or more than 6. |
+| `unknown sidebar layout 'x'` | `layout` is not `compact` or `section`. |
+| `sidebar item N is missing 'id'` (or `type`, `label`) | A required item field is absent. `N` counts from 1. |
+| `sidebar item id 'x' must be 1 to 32 characters of a-z, 0-9 and '-'` | A bad item id. |
+| `duplicate sidebar item id 'x'` | Two items share an id. |
+| `sidebar item 'x' has an empty label`, `label is over 24 characters`, `label has control characters`, `label has more than 6 combining marks in a row` | A label rule broken. |
+| `sidebar item 'x' has unknown type 'y'` | Not `nav`, `status`, `progress`, `toggle` or `action`. |
+| `sidebar item 'x' has unknown icon 'y'` | Not in the [icon list](sidebar.md#icon-names). |
+| `sidebar item 'x' route ...` followed by `must not be empty`, `is too long` or `may only contain visible ASCII characters` | A bad `route` (1 to 64 visible ASCII characters). |
+| `sidebar item 'x': 'route' is only allowed on nav items` (or `'icon'`) | `route` or `icon` on another type. |
+| `sidebar item 'x' is live and requires the 'background' capability` | A UI plugin has a `status`, `progress`, `toggle` or `action` item without `background`. |
 
 Plisto also checks files when it installs or starts: the entry file and the icon must exist and be plain
 files inside the plugin folder, and the manifest `id` must match the folder it was installed under. A

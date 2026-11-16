@@ -99,6 +99,48 @@ test("the mock fires stream events at the page on the stream topic, with the end
   }
 });
 
+/** The key and capability of each entry of the mock's TOPIC_NEEDS table. */
+function topicNeeds() {
+  const block = mock.match(/var TOPIC_NEEDS = \{([^}]*)\}/);
+  assert.ok(block, "mock-host.html has no TOPIC_NEEDS table");
+  return Object.fromEntries([...block[1].matchAll(/(\w+): (?:"([^"]+)"|null)/g)].map((m) => [m[1], m[2] ?? null]));
+}
+
+test("the mock's topics are the ones the types name, with the capabilities each needs", () => {
+  const types = readFileSync(new URL("../sdk/plisto-sdk.d.ts", import.meta.url), "utf8");
+  const map = types.match(/export interface PlistoTopics \{([^}]*)\}/);
+  assert.ok(map, "plisto-sdk.d.ts has no PlistoTopics");
+  const typed = [...map[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).sort();
+  const needs = topicNeeds();
+  assert.deepEqual(Object.keys(needs).sort(), typed);
+  assert.deepEqual(needs, {
+    now_playing: "playback.read",
+    playback_state: "playback.read",
+    queue: "playback.read",
+    library_changed: "library.read",
+    theme: null,
+    locale: null,
+    app_mode: null,
+  });
+  assert.match(mock, /topics: topicNames\(\)/, "app.methods does not list the topics");
+});
+
+test("the mock fires app events on plisto:event, apart from the stream channel, when its controls change", () => {
+  assert.match(mock, /type: "plisto:event", topic: topic/);
+  for (const topic of ["theme", "locale", "app_mode"]) {
+    assert.match(mock, new RegExp(`fireTopic\\("${topic}"\\)`), `no ${topic} event on its control`);
+  }
+  // The transport and the stream both publish the player topics after every change.
+  assert.equal(mock.match(/publishPlayer\(\);/g).length >= 3, true);
+  assert.match(mock, /fireTopic\(topic\)/);
+  assert.equal(/topic: "stream"/.test(mock.match(/function fireTopic[\s\S]*?\n  }\n/)[0]), false);
+});
+
+test("the mock refuses the reserved stream topic and starts each document with no subscription", () => {
+  assert.match(mock, /t === "stream"\) fail\("invalid_args"/);
+  assert.match(mock, /appSubs = \{\};\s+sentKey = \{\};\s+sendInit\(\)/);
+});
+
 test("the mock frames the page with the host's sandbox attribute and loads nothing remote", () => {
   assert.match(mock, /<iframe[^>]*sandbox="allow-scripts"/);
   assert.equal(/(?:src|href)="https?:/.test(mock), false, "the mock must not load remote files");

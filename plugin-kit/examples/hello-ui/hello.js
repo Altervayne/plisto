@@ -1,7 +1,8 @@
 /*
- * Hello UI page script: a persisted counter, the app info, library and playback calls, one button per UI
- * surface (toasts, prompts, chips, routes) and three buttons that misbehave on purpose to exercise the
- * host's not-responding overlay, crash handling and navigation guard.
+ * Hello UI page script: a persisted counter, the app info, library calls, the playing track and transport
+ * followed through app events, one button per UI surface (toasts, prompts, chips, routes) and three buttons
+ * that misbehave on purpose to exercise the host's not-responding overlay, crash handling and navigation
+ * guard.
  */
 (function () {
   "use strict";
@@ -216,14 +217,52 @@
         show("album next: queued " + r.queued);
       }, refused("album next"));
   });
-  $("now-playing").addEventListener("click", function () {
-    window.plisto.playback.state().then(function (state) {
-      var what = "nothing from the library";
-      if (state.track) what = trackLine(state.track);
-      else if (state.track_id !== null) what = "a track missing on disk";
-      show("now playing: " + what + (state.playing ? "" : " (paused)"));
-    }, refused("now playing"));
-  });
+  // ---- Player events ----
+
+  // The latest value of each topic; nothing here reads the player.
+  var player = { now: null, state: null };
+
+  function nowText(now) {
+    if (!now || now.source === null) return "nothing";
+    if (now.source === "file") return "a file outside the library";
+    if (now.source === "stream") return now.stream ? now.stream.title + " (stream)" : "a stream";
+    return now.track ? trackLine(now.track) : "a track missing on disk";
+  }
+
+  // The play head between events: the position at the last event plus the time since, while playing.
+  function positionText(state) {
+    var secs = state.position_secs;
+    if (state.transport === "playing") secs += (Date.now() - state.position_at) / 1000;
+    return secs.toFixed(1) + " s";
+  }
+
+  function showPlayer() {
+    var list = $("player");
+    list.textContent = "";
+    var state = player.state;
+    row(list, "Now playing", nowText(player.now));
+    row(list, "Transport", state ? state.transport : "...");
+    row(list, "Position", state ? positionText(state) : "...");
+    row(list, "Starts, seeks", state ? state.start_seq + ", " + state.seek_seq : "...");
+  }
+
+  function followPlayer() {
+    var events = window.plisto.events;
+    events.on("now_playing", function (data) {
+      player.now = data;
+      showPlayer();
+    });
+    events.on("playback_state", function (data) {
+      player.state = data;
+      showPlayer();
+    });
+    showPlayer();
+    // Only the position row moves between events, and it is worked out here.
+    setInterval(showPlayer, 1000);
+    events.subscribe(["now_playing", "playback_state"]).then(function (r) {
+      show("events: subscribed to " + r.topics.join(", "));
+    }, refused("events"));
+  }
 
   $("go-settings").addEventListener("click", function () {
     window.plisto.ui.openPage("settings").then(function () {
@@ -240,6 +279,8 @@
   window.plisto.ready.then(function (info) {
     showInfo(info);
     showRoute(window.plisto.route);
+    if (window.plisto.has("events.subscribe")) followPlayer();
+    else show("events: this Plisto does not offer them");
     return window.plisto.storage.get(KEY, 0).then(function (value) {
       count = typeof value === "number" ? value : 0;
       showCount();

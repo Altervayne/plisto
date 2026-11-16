@@ -21,6 +21,10 @@ drives its sidebar items and can hold Plisto's output. Read it next to the
   `snapshot` on. Logs each event but volume changes, with the `source` and `live` the feed carries, `lost`
   when it is not 0, and the output device id. Logs each `stream` message (the events of a plugin stream)
   by its kind and, for an end, its reason.
+- Subscribes to the app events `playback_state` and `locale` with `host_call("events.subscribe")` after
+  every `ready`, since a run starts with no subscription. Logs the current values the answer carries and
+  each `event` message after that, as `current ...` and `event ...` lines. Needs `playback.read` for
+  `playback_state`. See the [events guide](../../docs/events.md).
 - Sends `levels` page events ten times a second while its page is open, and none while it is closed.
 - Answers its page's `call`: `ping` answers `{ "pong": true, "seq": n }`, any other name is an error
   the page sees as `plugin_error`.
@@ -48,13 +52,13 @@ characters.
 
 | Path | What it is |
 | --- | --- |
-| `plugin.json` | The manifest: a native plugin with a page, the four audio capabilities, the UI ones and a sidebar section. |
+| `plugin.json` | The manifest: a native plugin with a page, the four audio capabilities, `playback.read`, the UI ones and a sidebar section. |
 | `page/` | The page: `index.html`, `page.js`, `page.css` and a copy of the SDK. |
 | `src/protocol.rs` | The wire protocol: frames and every message type. Lift it as it is. |
 | `src/tap.rs` | The tap reader for layout v1: open the mapping, follow epochs, detect overruns. Lift it as it is. |
 | `src/meter.rs` | Peak and RMS per channel, and the peak text. |
 | `src/status.rs` | Which `status` state fits what the tap is doing, and the gate that limits how often it is sent. |
-| `src/session.rs` | Everything said back to Plisto beyond pings and levels: page calls, sidebar input, API calls and their answers, the feed log. |
+| `src/session.rs` | Everything said back to Plisto beyond pings and levels: page calls, sidebar input, API calls and their answers, the feed and app event logs. |
 | `src/feed.rs` | The fields read from a `feed` event, its log lines, and the epoch log of the tap's records. |
 | `src/page.rs` | The pace of the `levels` page events. |
 | `src/takeover.rs` | Asking for Plisto's output once per run, and the meaning of each `takeover_state` reason. |
@@ -62,7 +66,7 @@ characters.
 | `src/main.rs` | The two threads that tie the above to the protocol. |
 | `src/test_ring.rs` | A tap writer for tests. |
 | `tests/process.rs` | Runs the built program the way Plisto does. |
-| `pack.ps1` | Builds a release and lays out a folder Plisto can install. |
+| `pack.ps1` | Builds a release, lays out a folder Plisto can install and packs it into a `.plistoplugin`. |
 
 The crate has an empty `[workspace]` table, so it never joins Plisto's own build. It needs a Rust
 toolchain for Windows and nothing else. Its only dependencies are `serde`, `serde_json` and `windows-sys`.
@@ -87,8 +91,11 @@ waits for an `on` status.
        bin\tap-meter.exe
        page\index.html, page.css, page.js, plisto-sdk.js
 
+   It then packs that folder with [`..\pack.ps1 -Path`](../../docs/install-and-test.md#pack-your-plugin)
+   into `dist\dev.plisto.tapmeter-<version>.plistoplugin`, the file you would share.
    `pack.ps1 -Flags "--stall 5"` also writes `bin\tap-meter.flags` with that text (see below).
-2. In Plisto, open Settings > Plugins, choose Install from folder and pick `dist\dev.plisto.tapmeter`.
+2. In Plisto, open Settings > Plugins, choose Install from folder and pick `dist\dev.plisto.tapmeter`, or
+   Install from file and pick the `.plistoplugin`.
 3. Read the review sheet. A native plugin shows the reason from `plugin.json` and asks for confirmation.
    Press Install, then turn the plugin's switch on.
 4. To stop it, turn the switch off, or quit Plisto. The process cannot outlive Plisto.
@@ -110,6 +117,8 @@ same folder. Every line below is in both.
 | Turn it on | `... granted ...` with the capabilities, `tap opened: ...`, `feed snapshot: <state>, tap epoch N`, `output device id ...`. Paused at that moment: the status says `paused` at once. |
 | Play, seek, change track | `feed start ...` or `feed seek ...`, then `new epoch N: <rate> Hz, <ch> ch`. A gapless pair: `epoch N continues: new record ...`. |
 | Lose feed events | `feed lost N event(s) before seq S`. Nothing in normal play. |
+| Play, pause, seek, skip | `event playback_state: <transport>, start N, seek N`, at most four a second. A position tick logs nothing. |
+| Change the language | `event locale: <en or fr>`. |
 | Open its page (the "Meters" item) | `page open: sending levels 10 times a second`; the meters move. Close it: `page closed: levels stopped`. |
 | Press Ping on the page | The page shows the answer, or the error code. "Call a missing method" shows `plugin_error` with tap-meter's message. |
 | Click "Mirroring" | `mirroring turned on; confirming`; the toggle settles and a "Mirroring" chip appears. |

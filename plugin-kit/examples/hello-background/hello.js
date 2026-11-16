@@ -1,7 +1,8 @@
 /*
  * Hello background page script: counts once a second with a timer (animation frames stop in a hidden
  * frame, timers do not), saves the count every five seconds, and keeps the plugin's sidebar section live:
- * a status line, a progress bar, a toggle and an action. Also runs the gesture tests.
+ * a status line, a progress bar, a toggle and an action. Also logs library changes it hears as app events
+ * and runs the gesture tests.
  */
 (function () {
   "use strict";
@@ -188,6 +189,24 @@
     delayedAsk("ask with an old click", lastPing ? lastPing.gesture : undefined);
   });
 
+  // Writes a line to the log for each library_changed event. Null ids say "read again", not "this changed".
+  function logLibraryChange(change) {
+    var what = "all tracks, read again";
+    if (change.track_ids !== null) {
+      what = change.track_ids.length + " track(s): " + change.track_ids.slice(0, 10).join(", ");
+    }
+    var scopes = (change.albums ? ", albums" : "") + (change.playlists ? ", playlists" : "");
+    window.plisto.log.info("library changed: " + what + scopes);
+  }
+
+  // A page starts with no subscription, so every start subscribes again.
+  function followLibrary() {
+    window.plisto.events.on("library_changed", logLibraryChange);
+    window.plisto.events.subscribe(["library_changed"]).then(null, function (e) {
+      window.plisto.log.warn("library events refused: " + describe(e));
+    });
+  }
+
   window.plisto.on("sidebar", onSidebar);
   window.plisto.on("route", showRoute);
 
@@ -196,6 +215,7 @@
     showTheme();
     showRoute(window.plisto.route);
     showAuto();
+    if (window.plisto.has("events.subscribe")) followLibrary();
     window.plisto.on("visibility", showPageOpen);
     window.plisto.on("theme", showTheme);
     return window.plisto.storage.get(KEY, 0).then(function (value) {

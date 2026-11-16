@@ -151,6 +151,69 @@ plisto.on("route", render);
 
 Treat the route as meaningful only while `plisto.pageOpen` is true.
 
+## What the page frame allows
+
+Your page runs in a frame with a fixed security policy. It is the same for every plugin and no manifest field
+changes it. Plisto serves the frame's files, so a refused file or request is invisible to your code: the
+frame sees a failed load, with no message. The mock host does not apply this policy (see
+[getting started](getting-started.md#develop-in-a-browser-with-the-mock-host)), so check a page in Plisto
+itself.
+
+### Files Plisto serves
+
+Plisto serves only plain files in your plugin folder, and only these 16 extensions (case ignored):
+
+| Kind | Extensions |
+| --- | --- |
+| Page, script, style, data | `html`, `js`, `css`, `json`, `txt` |
+| Images | `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `ico` |
+| Fonts | `woff`, `woff2`, `ttf`, `otf` |
+
+Every other extension is refused, whatever the file holds. That includes `.wasm`, `.mjs`, `.map`, `.avif`,
+`.mp3`, `.wav`, `.mp4`, `.xml`, `.csv` and `.md`. If you need one of those as data, rename it to `.txt` or
+`.json` and decode it in a script. Audio and video are not served at all: a page cannot play a file of its own
+(see below), so play sound through a [stream](stream.md).
+
+Other rules for a served file:
+
+- The path is at most 128 characters of letters, digits, `.`, `_`, `-` and `/`, with no empty, `.` or `..` part
+  and no part ending in `.`. A file name with a space is never served, even though the install accepts it.
+- A part named for a Windows device is never served, whatever its extension: `con`, `prn`, `aux`, `nul`,
+  `com0` to `com9` and `lpt0` to `lpt9`, in any case, with or without an extension (`aux.js` counts).
+- A file over 8 MiB is refused.
+- The first path part `_plisto` is Plisto's own (`/_plisto/tokens.css` and `/_plisto/plugin-base.css`). A
+  folder of that name in your plugin is never served.
+- A query string or fragment is ignored. A link, a shortcut or any folder that is not a plain folder is not
+  followed.
+- Plisto serves files only while the plugin is enabled.
+
+### The content security policy
+
+Every file is served with this policy, and the frame is also sandboxed:
+
+```
+sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:; font-src 'self'; connect-src 'none'
+```
+
+| Kind of load | Allowed |
+| --- | --- |
+| Scripts | Classic scripts from your folder. No inline script, no `eval` or `new Function`, no module script, no WebAssembly. |
+| Styles | Style sheets from your folder, and inline `<style>` and `style` attributes. |
+| Images | Your folder, `data:` and `blob:` URLs. |
+| Fonts | Your folder. |
+| Network | None. `fetch`, XMLHttpRequest, WebSocket, EventSource and beacons are refused. Use `plisto.net` (see the [network guide](network.md)). |
+| Audio and video | None. `<audio>`, `<video>` and their `data:` and `blob:` sources are refused: the policy has no media source. |
+| Workers | None, `blob:` workers included. |
+| Frames and plugins | None. `<iframe>`, `<embed>` and `<object>` are refused. |
+
+### The sandbox
+
+The frame's `sandbox` attribute is `allow-scripts` and nothing else. So the page has an opaque origin, with
+no `localStorage`, cookies or IndexedDB (use `plisto.storage`), and no form submission, popups, `alert`,
+`confirm` or `prompt`, top-level navigation, downloads or pointer lock. A page cannot read Plisto's window or
+another plugin.
+
 ## Which surface to use
 
 | You want to | Use |

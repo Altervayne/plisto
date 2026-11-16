@@ -65,11 +65,13 @@ ones were granted from the `granted` list in `hello`.
 - **Arguments.** Always these three, in this order:
   `--plisto-protocol 1 --plisto-data <dir> --plisto-tap <name|none>`. `<dir>` is the data folder.
   `<name>` is the tap mapping's name when the plugin has `audio.tap`, and `none` otherwise.
-- **Working directory.** The plugin's own folder, where `plugin.json` is. Plisto replaces this folder on an
-  update, so never write into it.
+- **Working directory.** The plugin's own folder, where `plugin.json` is:
+  `%APPDATA%\com.altervayne.plisto\plugins\<plugin id>\`. Plisto replaces this folder on an update, so never
+  write into it.
 - **Data directory.** `--plisto-data`, which is `plugins-data\<plugin id>\` inside Plisto's app data
   folder (`%APPDATA%\com.altervayne.plisto\` on Windows). It is yours to write, and it survives updates.
-  Plisto creates it before the launch.
+  Plisto creates it before the launch. Uninstalling with "Also delete its saved data" ticked removes the
+  whole folder, your files, the logs and the `webview2` profile included.
 - **Environment.** `WEBVIEW2_USER_DATA_FOLDER` is set to `webview2` inside the data directory, so a program
   that hosts a web view keeps its profile out of the code folder.
 - **Console.** None. The process gets no console window.
@@ -111,6 +113,60 @@ For example, `{"type":"shutdown"}` is 19 bytes and travels as `19\n{"type":"shut
 Write each frame with a single write, and flush. If your program has several threads that write, hold a
 lock for the whole frame, so two frames never interleave.
 
+To implement the frame in any language:
+
+- The body is UTF-8 JSON, and the length counts its **bytes**, not its characters. A body with an accented
+  letter is longer in bytes than in characters.
+- The separators are a bare line feed, byte `0x0A`. Put standard input and output in binary mode: a runtime
+  that turns `\n` into `\r\n` on Windows (the C runtime in text mode, and some language runtimes by default)
+  breaks every frame, since a carriage return is not a digit.
+- Read the length one byte at a time, up to the newline, then read exactly that many bytes, then one more byte
+  that must be a newline. Read the body as raw bytes, not through a text reader that decodes or translates.
+- Standard output carries frames and nothing else. Print your own debugging to standard error.
+
+A minimal read loop, in pseudo-code:
+
+```
+read_frame(input):
+    digits = ""
+    loop:
+        b = input.read_byte()
+        if b is the end of input and digits is empty:  return END
+        if b is the end of input:                      fail("torn frame")
+        if b == "\n" and digits is not empty:          break
+        if b is "0".."9" and length(digits) < 7:       digits = digits + b
+        else:                                          fail("bad length")
+    n = integer(digits)
+    if n > 1048576:                                    fail("too large")
+    body = input.read_exactly(n)                       # fail("torn frame") when the input ends early
+    if input.read_byte() != "\n":                      fail("torn frame")
+    return body
+
+write_frame(output, message):
+    body = utf8(json(message))
+    if length(body) > 1048576:                         do not send it
+    output.write(decimal(length(body)) + "\n" + body + "\n")    # one write, under the lock
+    output.flush()
+
+main:
+    read the arguments --plisto-protocol, --plisto-data and --plisto-tap
+    first = read_frame(stdin); it must be a "hello" message
+    write_frame(stdout, {"type": "ready", "protocol": 1})
+    loop:                                              # the reader thread: nothing slow on it
+        body = read_frame(stdin)
+        if body is END:  exit                          # Plisto is gone
+        message = parse_json(body)
+        if message is not an object with a string "type":  continue
+        if message.type == "ping":      write_frame(stdout, {"type": "pong", "seq": message.seq})
+        else if message.type == "shutdown":  exit
+        else if message.type == "call":  hand it to a worker, which answers {"type": "result", "seq": ...}
+        else if message.type is another type you handle:  hand it to a worker
+        else:  ignore it                                # unknown types are normal
+```
+
+A `fail` in the read loop means the stream is out of step and nothing after it can be trusted, so exit.
+Plisto does the same with a broken frame from the program: the run ends as a crash.
+
 ### The handshake
 
 1. Plisto sends `hello`.
@@ -133,6 +189,7 @@ lock for the whole frame, so two frames never interleave.
 | `takeover_state` | `held` (boolean), `reason` (string) | Whether you hold Plisto's local output, and why that changed. `reason` is one of `granted`, `released`, `denied`, `busy`, `user`, `not_responding` and `stopped`. |
 | `page` | `open` (boolean) | Your plugin's page was shown or hidden. Also sent once right after `ready`, with the current value. |
 | `stream` | `event` (object) | An event of the playback stream your plugin owns, the same object its page gets. See "Stream events". |
+| `event` | `topic` (string), `data` (any JSON) | An app event of a topic your program subscribed to: `data` is the topic's payload. See "App events". |
 
 ### Messages from your program to Plisto
 
@@ -148,7 +205,9 @@ lock for the whole frame, so two frames never interleave.
 | `log` | `level` (`debug`, `info`, `warn` or `error`; default `info`), `text` (string) | One line for the plugin's log. See "Logging". |
 
 Unknown fields are ignored in both directions, and so are message types you do not know. An integer is a
-JSON number no larger than 2^53.
+JSON number no larger than 2^53. Plisto keeps 64 frames waiting for a program that reads slowly and never
+waits for it; what each kind of frame does when that queue is full is in
+[limits](limits.md#when-the-programs-input-is-backed-up).
 
 ### Status
 
@@ -179,8 +238,9 @@ Plisto's output, Plisto takes it back at that moment. A `pong` that arrives late
 again, but the output stays with Plisto until the plugin asks for it again. Plisto never kills a plugin for
 silence alone.
 
-A `pong` is valid when its `seq` is one Plisto has sent and has not yet had answered. Any other `pong` is a
-protocol error and is ignored.
+A `pong` is valid when its `seq` is above the `seq` of your last valid `pong` and not above the last `ping`
+Plisto sent. So answering a ping makes every older ping stale: a late `pong` for an older one is a protocol
+error and is ignored. Answer each ping in order, as it arrives.
 
 So read standard input on a **dedicated thread** that does nothing else slow: it reads frames, answers
 pings at once, and hands other work to other threads. A program that does its heavy work on the thread that
@@ -204,9 +264,49 @@ stable and starts the sequence over.
 
 A frame that is complete but wrong is skipped and counted, and the stream goes on: an unknown or
 malformed message, a known type with wrong fields, a `status` with a bad state or text, a `result` whose
-`seq` matches no call, a `pong` out of range, a `host_call` whose `seq` is already open. A frame that is
+`seq` matches no call, a `pong` out of range, a second `ready`, a `host_call` whose `seq` is already open. A frame that is
 broken (bad length, over the size cap, torn) ends the process, since nothing after it can be trusted to be
 in step, and counts as a crash. The size cap is 1 MiB for each frame, in both directions.
+
+Plisto writes the first 16 protocol errors of a run to its own diagnostic output and only counts the rest.
+Neither reaches `plugin.log` or `stderr.log`, so you will not see them there: test your frames yourself (see
+"Testing your program").
+
+### A first session
+
+This is a session as the pipes carry it, for a plugin with `ui.toast` and a page. `>` is Plisto to the
+program and `<` the program to Plisto. Each line is one frame as written: the length, `\n`, the body and
+`\n`. The numbers (`seq` values, levels) are examples.
+
+```
+> 118\n{"type":"hello","protocol":1,"api_version":1,"plisto_version":"2.7.0","id":"com.example.meter","granted":["ui.toast"]}\n
+< 29\n{"type":"ready","protocol":1}\n
+> 28\n{"type":"page","open":false}\n
+> 23\n{"type":"ping","seq":1}\n
+< 23\n{"type":"pong","seq":1}\n
+< 59\n{"type":"status","state":"idle","text":"waiting for audio"}\n
+< 78\n{"type":"host_call","seq":1,"method":"ui.toast","args":{"text":"Meter ready"}}\n
+> 27\n{"type":"page","open":true}\n
+< 62\n{"type":"page_event","topic":"levels","data":{"peak_db":-6.5}}\n
+> 50\n{"type":"call","seq":1,"method":"reset","args":{}}\n
+< 61\n{"type":"result","seq":1,"ok":true,"result":{"cleared":true}}\n
+> 72\n{"type":"host_result","seq":1,"ok":true,"result":{"result":"dismissed"}}\n
+> 19\n{"type":"shutdown"}\n
+```
+
+In order:
+
+1. Plisto starts the process, and writes `hello`. The program answers `ready` within 10 seconds.
+2. Right after `ready`, Plisto tells the program whether its page is open (`page`). With `audio.events` it
+   also sends a `feed` snapshot. A `ping` follows every second from then on, and each gets a `pong`.
+3. The program reports `status`, and calls the API with `host_call`. Its answer comes back as `host_result`
+   with the same `seq`, here about 4 seconds later: a toast's call stays open until the toast leaves.
+   Other frames flow in the meantime.
+4. The user opens the page, so `page` says `open: true`, and the program starts sending `page_event`. It
+   sends none while the page is closed.
+5. The page calls `plisto.plugin.call("reset", {})`. Plisto sends `call` with `method` `reset`, and the
+   program answers `result` with the same `seq`. A program that does not know a method answers `ok: false`.
+6. The user turns the plugin off. Plisto sends `shutdown` and waits 2 seconds. The program exits.
 
 ## The page and the program
 
@@ -261,6 +361,7 @@ capability, the rate budgets, the argument rules. The program and its page share
 
 - `net.*` and `plugin.*` methods are `unknown_method` from the program: the network belongs to the page,
   and the relay goes the other way. The `stream.*` methods work from the program: see "Stream events".
+  So does `events.subscribe`: see "App events".
 - At most 16 calls may be open at once; another is `busy`. A `seq` that is already open is a protocol
   error, and that call is answered `invalid_args`.
 - A failure carries `error` as `{code, message, reason?, retry_after_ms?}`, the codes of the API
@@ -311,6 +412,43 @@ running page and its program, whichever of them called `stream.play`.
   side. A pull item the program started plays on when the program crashes, and the restarted program reads
   `stream.state`.
 - Treat the `ended` reasons `user` and `replaced` as the user's choice and do not start again.
+
+### App events
+
+A program learns what is playing, the queue, library changes and the theme, language and app mode as
+events, whether or not its page is open and with Plisto's window hidden to the tray. It subscribes with
+`host_call`; the topics, payloads and pace are in the [events guide](events.md), and the program's side is
+this:
+
+```json
+{"type":"host_call","seq":1,"method":"events.subscribe","args":{"topics":["playback_state","locale"]}}
+{"type":"host_result","seq":1,"ok":true,"result":{"topics":["locale","playback_state"],"current":{"locale":{"locale":"fr"},"playback_state":{"transport":"paused","position_secs":12.5,"position_at":1763300000000,"duration_secs":201,"start_seq":3,"seek_seq":0,"repeat":"off","shuffle":false,"volume":0.8,"stream":null}}}}
+{"type":"event","topic":"locale","data":{"locale":"en"}}
+```
+
+- **Subscribe after every `ready`.** A program's subscription ends with its run, so a restarted program
+  starts with none. Send `events.subscribe` once `ready` is out; the answer carries the current value of each
+  state topic, so the program needs no first read. Plisto sends no `event` from the moment it
+  reads the program's `events.subscribe` call until the answer is out: the first values come in `current`.
+  On a later subscribe, an `event` Plisto had already sent can still arrive before the answer; it is never
+  newer than `current`, so apply `current` over it.
+- **A subscribe replaces the program's whole set**, and `topics: []` clears it. Its page has its own set: the
+  page and the program subscribe separately, and both receive what they asked for.
+- **The grants are the page's.** `playback.read` for `now_playing`, `playback_state` and `queue`,
+  `library.read` for `library_changed`, nothing for the rest. A topic without its grant is `denied` and the
+  previous set stays.
+- **`event` carries `topic` and `data` only.** Plisto sends it while the program is running and has answered
+  `hello`. Ignore a topic you did not ask for, like any message type you do not know.
+- **A full input does not lose the last value.** Where `feed` and `stream` messages are dropped when the
+  program's input is backed up, an event is kept and tried again about 250 ms later, so the newest value
+  of each topic lands. Values between may be skipped, as with any pace-limited event (at most 4 a second for
+  each topic).
+- **`feed` and `event` differ.** `feed` is the sample-accurate account of the audio and the tap's cursors,
+  and it never names the item. `now_playing` is where a program learns which track it is: read `track_id`,
+  or `track` for the row as `library.tracks` returns it.
+- **Position is not streamed.** Work it out between `playback_state` events from `position_secs` and
+  `position_at`, as in [following the play head](events.md#following-the-play-head). A topic named like an
+  app topic that the program sends as a `page_event` reaches only the page's `onPluginEvent`.
 
 ### Sidebar items
 
@@ -391,7 +529,12 @@ continuous signal, so flush filters, delay lines and accumulators. The rule:
 - A cold start (a play, a skip, a load, a restore), a seek, or the writer resuming after it stopped opens
   a new epoch.
 - A gapless successor continues the epoch its predecessor last wrote in: a new record, the **same** epoch.
+  The exception is a predecessor that was not writing, for example one that produced no samples before the
+  successor took over: nothing continues, so the successor opens a **new** epoch like a cold start.
 - A format change keeps the epoch, with a new record: the signal continues in a new format.
+
+Do not count on a gapless change keeping the epoch. Compare the `epoch` of each record with the last one you
+saw, and flush when it differs.
 
 ### Reading it
 
@@ -447,7 +590,7 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
   need not work it out from the `seq` gap. In normal play it stays 0. Keep the last event you received and
   treat it as the current state. Do not depend on every event arriving.
 - **Epochs.** A `start` or a `seek` is followed in the tap by a record with a new epoch; a `gapless` by a
-  record in the same epoch. `tap_epoch` is the latest epoch when the event was taken, so it can still be
+  record in the same epoch, unless the predecessor was not writing (see "Epochs"). `tap_epoch` is the latest epoch when the event was taken, so it can still be
   the old one: the tap's records are the authority.
 - **Previews.** Plisto's own previews (such as the Track Editor's) send no events and never reach the tap.
   A snapshot taken during a preview says `stopped`.
@@ -516,9 +659,12 @@ your `status` text beside it. Keep that text meaningful while you hold it.
   exit, then kills it and whatever it started. An update stops the plugin and replaces the folder; the data
   directory is kept.
 - **Plisto exits.** The same stop runs for every plugin in parallel, within one 2-second grace. If Plisto
-  is killed instead, the job kills the plugin.
+  is killed instead, the job kills the plugin. Plisto exits when its process does: closing the window with
+  close-to-tray on only hides it, and the program keeps running behind the tray icon.
 - **Not started.** A native plugin does not start in safe mode, and does not start after an unclean exit
-  until the user has chosen how to start.
+  until the user has chosen how to start (see [safe mode](lifecycle.md#safe-mode)). It starts at launch
+  whether or not the library has tracks. If Windows refuses to run it, it does not start and is not
+  retried (see [what the user sees](lifecycle.md#what-the-user-sees-on-a-plugins-row)).
 - **Your process exits by itself.** That is a crash: see "Crashes and restarts".
 
 ## Logging
@@ -529,3 +675,37 @@ your `status` text beside it. Keep that text meaningful while you hold it.
   [lifecycle](lifecycle.md)). They are rate-limited: lines over the limit are dropped and counted. Text is
   cut at 2,000 characters.
 - Do not log secrets or personal data, and do not log in a tight loop.
+
+## Testing your program
+
+You can run and test a native program without Plisto. It needs only its three arguments and pipes.
+
+1. Write a small driver, in any language and with any test framework, that starts the program the way
+   Plisto does: `--plisto-protocol 1 --plisto-data <a temporary folder> --plisto-tap none`, standard input and
+   output piped, no console. The driver writes frames by hand, as in "A first session", and reads the
+   program's frames from its standard output. Write the frames out in the driver rather than through your
+   program's own protocol code, so the test also checks the wire format.
+2. Drive the whole life: `hello` and `ready`, a `ping` and its `pong` (also while the program is busy), a
+   `call` and its `result`, a `host_call` and a `host_result` you write yourself, a `shutdown` and the exit
+   within 2 seconds, and standard input closed with no `shutdown`.
+3. Send what the program must survive: a message type it does not know, a known type with extra fields, a
+   `host_result` with an `error` object. Check that it exits on a broken frame instead of going on.
+4. Check that standard output holds frames and nothing else, and that no frame is over 1 MiB.
+
+[`examples/tap-meter`](../examples/tap-meter/README.md) shows each part:
+
+- `tests/process.rs` is that driver, in Rust: it starts the built program with the arguments above, pipes it
+  `hello`, `ping`, page calls, sidebar input, `page` and `takeover_state`, and checks the answers.
+- `src/test_ring.rs` writes a tap for tests: it creates a named file mapping in layout v1 and writes samples
+  and segment records the way Plisto's engine does, so a tap reader can be tested with no audio running.
+- `--plisto-tap <name>` is the argument Plisto passes, so a test passes the name of a mapping it made by
+  hand (the test writer's names look like `Local\tap-meter-test-<pid>-<n>`), or `none` to run with no tap, as
+  a plugin without `audio.tap` does. tap-meter also accepts the same flag in its flags file, which overrides
+  the name Plisto passes, to read a mapping you made while it runs inside Plisto.
+- The program's test flags (`--crash-after`, `--stall`, `--takeover`) make it crash or stop answering on
+  purpose, to see how Plisto supervises a plugin that misbehaves. Add flags of your own for the failures you
+  want to see.
+
+A driver proves your frames and your exits. It does not prove how Plisto treats the plugin, so end with an
+install in Plisto: Developer mode, Reload from source and Open log show the result of each change (see
+[install and test](install-and-test.md#developer-mode)).

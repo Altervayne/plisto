@@ -2,11 +2,12 @@
   "manifest_version": 1,
   "id": "dev.plisto.hello-bg",
   "name": "Hello background",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "tier": "ui",
   "entry": "index.html",
   "capabilities": [
     "storage",
+    "library.read",
     "background",
     "ui.toast",
     "ui.confirm",

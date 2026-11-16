@@ -41,6 +41,8 @@
   var listeners = { visibility: [], theme: [], sidebar: [], route: [] };
   // Native page event listeners by topic. No prototype, so a topic such as "__proto__" is a plain key.
   var pluginEvents = Object.create(null);
+  // App event listeners by topic, kept apart from the native page events above.
+  var appEvents = Object.create(null);
   var own = Object.prototype.hasOwnProperty;
   var resolveReady = null;
 
@@ -166,6 +168,9 @@
       case "plisto:plugin-event":
         onPluginEvent(data);
         break;
+      case "plisto:event":
+        onAppEvent(data);
+        break;
       default:
         // Unknown types belong to later protocol additions and are ignored.
         break;
@@ -232,16 +237,27 @@
     };
   };
 
-  function onPluginEvent(data) {
-    if (typeof data.topic !== "string" || !own.call(pluginEvents, data.topic)) return;
-    var list = pluginEvents[data.topic].slice();
+  // Calls the listeners of `topic` in `table`, if any.
+  function deliver(table, topic, value) {
+    if (typeof topic !== "string" || !own.call(table, topic)) return;
+    var list = table[topic].slice();
     for (var i = 0; i < list.length; i++) {
       try {
-        list[i](data.data);
+        list[i](value);
       } catch (e) {
         // A throwing subscriber must not stop the others or the message loop.
       }
     }
+  }
+
+  function onPluginEvent(data) {
+    deliver(pluginEvents, data.topic, data.data);
+  }
+
+  // The topic `stream` never travels on this channel: it has its own, read through onPluginEvent.
+  function onAppEvent(data) {
+    if (data.topic === "stream") return;
+    deliver(appEvents, data.topic, data.data);
   }
 
   /**
@@ -259,6 +275,47 @@
       var i = list ? list.indexOf(callback) : -1;
       if (i >= 0) list.splice(i, 1);
     };
+  };
+
+  plisto.events = {
+    /**
+     * Replaces this page's set of app event topics with `topics` (an empty array clears it). Resolves
+     * `{ topics, current }`: the accepted topics, and the current value of each state topic that could
+     * be read. The values in `current` reach the handlers of `events.on` before the promise resolves.
+     */
+    subscribe: function (topics) {
+      return plisto.call("events.subscribe", { topics: topics }).then(function (result) {
+        var current = result && typeof result.current === "object" ? result.current : null;
+        if (current) {
+          var names = Object.keys(current);
+          for (var i = 0; i < names.length; i++) deliver(appEvents, names[i], current[names[i]]);
+        }
+        return result;
+      });
+    },
+    /**
+     * Calls `callback` with the data of each `topic` event this page is subscribed to. Returns an
+     * unsubscribe function. Does not subscribe: call `subscribe` too.
+     */
+    on: function (topic, callback) {
+      var bad = typeof topic !== "string" || !TOPIC_RE.test(topic) || topic === "stream";
+      if (bad || typeof callback !== "function") {
+        throw new TypeError("plisto.events.on: bad topic or callback");
+      }
+      if (!own.call(appEvents, topic)) appEvents[topic] = [];
+      appEvents[topic].push(callback);
+      return function () {
+        var list = appEvents[topic];
+        var i = list ? list.indexOf(callback) : -1;
+        if (i >= 0) list.splice(i, 1);
+      };
+    },
+    /** The topic names this Plisto offers; empty when it offers none. */
+    topics: function () {
+      return plisto.call("app.methods", {}).then(function (r) {
+        return r && Array.isArray(r.topics) ? r.topics.slice() : [];
+      });
+    },
   };
 
   plisto.plugin = {

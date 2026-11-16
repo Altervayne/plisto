@@ -1,5 +1,6 @@
 # Builds tap-meter in release mode and lays out a folder Plisto can install: plugin.json, the
-# executable at the path the manifest names, and the folder of the page the manifest names. Pass -Flags
+# executable at the path the manifest names, and the folder of the page the manifest names. It then packs
+# that folder into <id>-<version>.plistoplugin beside it, through examples\pack.ps1 -Path. Pass -Flags
 # to write a tap-meter.flags file beside the executable, for example -Flags "--crash-after 2".
 param(
     [string]$Out = (Join-Path $PSScriptRoot "dist\dev.plisto.tapmeter"),
@@ -29,6 +30,9 @@ try {
 
     Write-Host "Packed $Out"
     Get-ChildItem $Out -Recurse -File | ForEach-Object { Write-Host ("  " + $_.FullName.Substring($Out.Length + 1)) }
+
+    # The same folder as an installable file, written beside it by the shared script.
+    & (Join-Path $PSScriptRoot "..\pack.ps1") -Path $Out
 }
 finally {
     Pop-Location

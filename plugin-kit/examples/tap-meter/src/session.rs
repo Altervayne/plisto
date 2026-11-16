@@ -1,6 +1,6 @@
 /*
  * Everything tap-meter says back to Plisto beyond pings and levels: the answer to its page's calls, its
- * sidebar items, its API calls, the feed log and the output takeover. Each message in gives the frames
+ * sidebar items, its API calls, the feed and app event logs and the output takeover. Each message in gives the frames
  * to send out, and nothing here blocks: an API call goes out as `host_call` and its answer comes back
  * later as `host_result`, matched by seq. So the thread that reads standard input can run it and still
  * answer every ping at once.
@@ -27,6 +27,10 @@ pub const ITEM_PROMPT: &str = "prompt";
 const SIDEBAR_STATUS_MAX_CHARS: usize = 40;
 // Feed lines per run; a seek-heavy session stops logging them after this many.
 const FEED_LOG_LINES: u32 = 200;
+// App event lines per run, for the same reason.
+const EVENT_LOG_LINES: u32 = 200;
+/// The app event topics this plugin follows. `playback_state` needs `playback.read`; `locale` needs nothing.
+const TOPICS: [&str; 2] = ["playback_state", "locale"];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Options {
@@ -44,11 +48,13 @@ enum Pending {
     Toast,
     Prompt,
     UnpromptedPrompt,
+    Subscribe,
 }
 
 impl Pending {
     fn name(self) -> &'static str {
         match self {
+            Pending::Subscribe => "event subscription",
             Pending::Sidebar => "sidebar update",
             Pending::Chips => "chips",
             Pending::Toast => "toast",
@@ -81,6 +87,22 @@ fn stream_line(event: &Value) -> ChildMessage {
     log(LogLevel::Info, text)
 }
 
+/// What an app event topic's payload says, in a few words.
+fn topic_line(topic: &str, data: &Value) -> String {
+    let word = |name| data.get(name).and_then(Value::as_str);
+    let number = |name| data.get(name).and_then(Value::as_u64);
+    match topic {
+        "playback_state" => format!(
+            "playback_state: {}, start {}, seek {}",
+            word("transport").unwrap_or("unknown"),
+            number("start_seq").map_or("?".into(), |n| n.to_string()),
+            number("seek_seq").map_or("?".into(), |n| n.to_string()),
+        ),
+        "locale" => format!("locale: {}", word("locale").unwrap_or("unknown")),
+        other => other.to_string(),
+    }
+}
+
 /// `code (reason)` of a `host_result` error, or `code` alone.
 fn refusal(error: Option<&Value>) -> String {
     let field = |name| error.and_then(|e| e.get(name)).and_then(Value::as_str);
@@ -101,6 +123,7 @@ pub struct Session {
     takeover: Takeover,
     unprompted_due: bool,
     feed_lines_left: u32,
+    event_lines_left: u32,
 }
 
 impl Session {
@@ -115,6 +138,7 @@ impl Session {
             takeover: Takeover::default(),
             unprompted_due: options.prompt_unprompted,
             feed_lines_left: FEED_LOG_LINES,
+            event_lines_left: EVENT_LOG_LINES,
         }
     }
 
@@ -165,6 +189,9 @@ impl Session {
             }
             HostMessage::Page { open } => self.page(&mut out, open),
             HostMessage::Stream { event } => out.push(stream_line(&event)),
+            HostMessage::Event { topic, data } => {
+                self.event_line(&mut out, format!("event {}", topic_line(&topic, &data)));
+            }
             HostMessage::Ping { .. } | HostMessage::Shutdown => {}
         }
         out
@@ -213,6 +240,12 @@ impl Session {
         ));
         // Sidebar state does not survive a restart, so every run sends its own.
         out.push(self.sidebar_update(ITEM_MIRROR, json!({ "on": self.mirroring })));
+        // So does an event subscription: a run starts with none.
+        out.push(self.host_call(
+            Pending::Subscribe,
+            "events.subscribe",
+            json!({ "topics": TOPICS }),
+        ));
         if self.options.takeover {
             if let Some(request) = self.takeover.request() {
                 out.push(request);
@@ -238,6 +271,35 @@ impl Session {
         }
     }
 
+    /// Logs one app event line, within the run's budget.
+    fn event_line(&mut self, out: &mut Vec<ChildMessage>, text: String) {
+        match self.event_lines_left {
+            0 => {}
+            1 => out.push(log(LogLevel::Info, "further app events are not logged")),
+            _ => out.push(log(LogLevel::Info, text)),
+        }
+        self.event_lines_left = self.event_lines_left.saturating_sub(1);
+    }
+
+    /// Logs the accepted topics of a subscribe answer and the value each carries now.
+    fn subscribed(&mut self, out: &mut Vec<ChildMessage>, result: Option<&Value>) {
+        let accepted = result
+            .and_then(|r| r.get("topics"))
+            .and_then(Value::as_array)
+            .map(|names| names.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_default();
+        out.push(log(
+            LogLevel::Info,
+            format!("subscribed to {}", accepted.join(", ")),
+        ));
+        let current = result
+            .and_then(|r| r.get("current"))
+            .and_then(Value::as_object);
+        for (topic, data) in current.into_iter().flatten() {
+            self.event_line(out, format!("current {}", topic_line(topic, data)));
+        }
+    }
+
     fn host_result(
         &mut self,
         out: &mut Vec<ChildMessage>,
@@ -256,6 +318,10 @@ impl Session {
         if !ok {
             let line = format!("{} refused: {}", purpose.name(), refusal(error));
             out.push(log(LogLevel::Warn, line));
+            return;
+        }
+        if purpose == Pending::Subscribe {
+            self.subscribed(out, result);
             return;
         }
         let answer = result
@@ -417,11 +483,16 @@ mod tests {
         assert_eq!(out[0], ChildMessage::Ready { protocol: 1 });
         assert!(logs(&out)[0].1.contains("granted audio.tap, ui.sidebar"));
         let sent = calls(&out);
-        assert_eq!(sent.len(), 1);
+        assert_eq!(sent.len(), 2);
         assert_eq!(sent[0].1, "ui.sidebar.update");
         assert_eq!(
             *sent[0].2,
             json!({"item_id": "mirror", "state": {"on": false}})
+        );
+        assert_eq!(sent[1].1, "events.subscribe");
+        assert_eq!(
+            *sent[1].2,
+            json!({"topics": ["playback_state", "locale"]})
         );
         assert!(!out
             .iter()
@@ -571,7 +642,89 @@ mod tests {
                 .map(|c| c.0),
         );
         seqs.extend(calls(&s.handle(input("prompt", None))).iter().map(|c| c.0));
-        assert_eq!(seqs, [1, 2, 3, 4]);
+        assert_eq!(seqs, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn every_run_subscribes_again_and_logs_what_the_answer_carries() {
+        let mut s = Session::new(Options::default());
+        let first = calls(&s.handle(hello()))
+            .iter()
+            .find(|c| c.1 == "events.subscribe")
+            .map(|c| c.0)
+            .unwrap();
+        let answer = json!({
+            "topics": ["locale", "playback_state"],
+            "current": {
+                "locale": {"locale": "fr"},
+                "playback_state": {"transport": "paused", "start_seq": 3, "seek_seq": 1},
+            },
+        });
+        let out = s.handle(result(first, true, Some(answer), None));
+        assert_eq!(
+            logs(&out),
+            [
+                (LogLevel::Info, "subscribed to locale, playback_state"),
+                (LogLevel::Info, "current locale: fr"),
+                (
+                    LogLevel::Info,
+                    "current playback_state: paused, start 3, seek 1"
+                ),
+            ]
+        );
+        // A restarted run gets a new session and asks again.
+        let mut again = Session::new(Options::default());
+        assert!(calls(&again.handle(hello()))
+            .iter()
+            .any(|c| c.1 == "events.subscribe"));
+    }
+
+    #[test]
+    fn a_refused_subscribe_is_logged_with_its_code() {
+        let mut s = Session::new(Options::default());
+        let seq = calls(&s.handle(hello()))[1].0;
+        let out = s.handle(result(
+            seq,
+            false,
+            None,
+            Some(json!({"code": "denied", "message": "The 'playback_state' topic needs the playback.read permission."})),
+        ));
+        assert_eq!(
+            logs(&out),
+            [(LogLevel::Warn, "event subscription refused: denied")]
+        );
+    }
+
+    #[test]
+    fn an_event_is_logged_by_its_topic_within_a_budget() {
+        let mut s = Session::new(Options::default());
+        let event = |topic: &str, data: Value| HostMessage::Event {
+            topic: topic.into(),
+            data,
+        };
+        let out = s.handle(event("locale", json!({"locale": "en"})));
+        assert_eq!(logs(&out), [(LogLevel::Info, "event locale: en")]);
+        let out = s.handle(event(
+            "playback_state",
+            json!({"transport": "playing", "start_seq": 4, "seek_seq": 2, "position_secs": 9.5}),
+        ));
+        assert_eq!(
+            logs(&out),
+            [(LogLevel::Info, "event playback_state: playing, start 4, seek 2")]
+        );
+        assert_eq!(
+            logs(&s.handle(event("queue", json!({}))))[0].1,
+            "event queue"
+        );
+        for _ in 0..EVENT_LOG_LINES - 4 {
+            s.handle(event("locale", json!({"locale": "en"})));
+        }
+        let last = s.handle(event("locale", json!({"locale": "en"})));
+        assert_eq!(
+            logs(&last),
+            [(LogLevel::Info, "further app events are not logged")]
+        );
+        assert!(s.handle(event("locale", json!({"locale": "en"}))).is_empty());
     }
 
     #[test]

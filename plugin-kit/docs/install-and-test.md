@@ -23,26 +23,60 @@ packing, installing and where its logs are.
 
 ## Install from a file
 
-A `.plistoplugin` file is a zip archive of your plugin folder with the extension changed. `plugin.json`
-may be at the root of the archive or inside one top-level folder. Use Install from file in Settings >
-Plugins, or drop the file into the plugins folder that the Open plugins folder button opens and press
-Review on its entry. Use plain zip compression (stored or deflate); encrypted archives are refused.
+A `.plistoplugin` file is a zip archive of your plugin folder. Make it with the script in
+[Pack your plugin](#pack-your-plugin). `plugin.json` may be at the root of the archive or inside one
+top-level folder. Use Install from file in Settings > Plugins, or drop the file into the plugins folder that
+the Open plugins folder button opens and press Review on its entry. Use plain zip compression (stored or
+deflate); encrypted archives are refused.
 
-## Pack a UI plugin
+## Pack your plugin
 
-`examples/pack.ps1` builds the installable file for the two UI samples. From the `examples` folder:
+`examples/pack.ps1` builds the installable `.plistoplugin` file. It needs only Windows PowerShell and writes
+`<id>-<version>.plistoplugin`, a zip with `plugin.json` at its root.
 
 ```
-powershell -File pack.ps1                  # hello-ui and hello-background
-powershell -File pack.ps1 -Sample hello-ui # one sample
+powershell -File examples\pack.ps1 -Path C:\work\my-plugin
+powershell -File examples\pack.ps1 -Path C:\work\my-plugin -Out C:\work\release
+powershell -File examples\pack.ps1                    # the samples hello-ui and hello-background
+powershell -File examples\pack.ps1 -Sample hello-ui   # one sample, by name
 ```
 
-It writes `dist\<id>-<version>.plistoplugin` inside each sample: a zip with `plugin.json` at its root and
-the files Plisto needs (the page, its scripts and styles, the icon and `plisto-sdk.js`), with no README and
-no dotfiles. It refuses to pack when the sample's `plisto-sdk.js` is not byte-identical to
-`sdk/plisto-sdk.js`; copy the kit's file over it and run again. Use it as a model for your own plugin: the
-archive is the folder's files, nothing more. The native sample packs with its own
-[`pack.ps1`](../examples/tap-meter/README.md).
+- **`-Path <folder>`** packs any plugin folder, such as your own. Every file in it goes into the archive,
+  except dotfiles, dot folders and `.plistoplugin` files. The archive is written beside the folder (in its
+  parent folder) unless you give `-Out <folder>`; it refuses to write inside the folder it packs. Before it
+  packs, the script reads `plugin.json` and checks that the `entry`, the `page` and the `icon` it names exist
+  in the folder, and prints a warning when your `plisto-sdk.js` is not the kit's current file.
+- **`-Sample <name>`** (and no parameter at all) packs a sample from the kit. The file goes to the sample's
+  `dist` folder unless you give `-Out`. A sample is packed without its README, and the script refuses when its
+  `plisto-sdk.js` is not byte-identical to `sdk/plisto-sdk.js`; copy the kit's file over it and run again.
+
+The script prints each entry it wrote. Pack the folder you would install: it holds only what runs, so keep
+sources, tests and build output (a `target` or `node_modules` folder) out of it.
+
+**The entry-name rule.** Plisto refuses an archive whose entry names have a backslash, an absolute path, a
+drive letter or a `..` part, and names that differ only in case. `Compress-Archive` in Windows PowerShell 5.1
+writes `sub\file.txt` for a file in a subfolder, so an archive made with it is refused as soon as the plugin
+has a folder. The script builds the archive entry by entry with `System.IO.Compression.ZipArchive` and writes
+each name with forward slashes, so use it, or list the entries of an archive from another tool and look for
+`\`. `plugin.json` must be at
+the root of the archive, or inside exactly one top-level folder that holds everything.
+
+**Shipping a native plugin.** The archive is the same folder Plisto installs, so it must hold, at the paths
+`plugin.json` names:
+
+- `plugin.json`, at the root;
+- the program, at the `entry` path (for example `bin/tap-meter.exe`), and any DLL or data file it loads
+  beside it, since Plisto starts it with the plugin's folder as its working directory;
+- the page folder, when `page` is set, with its own copy of `plisto-sdk.js`;
+- the `icon`, when set.
+
+It must stay inside 4,096 files and 256 MiB. Do not ship files the program writes: it keeps its own state in
+the data folder Plisto passes it, which survives updates (see [native](native.md#how-plisto-launches-the-process)).
+The tap-meter sample has a `pack.ps1` that builds the Rust program in release mode, lays out the folder
+`dist\dev.plisto.tapmeter` and then calls `examples\pack.ps1 -Path` on it, so one command ends in
+`dist\dev.plisto.tapmeter-<version>.plistoplugin`. For a program built another way, do those two steps
+yourself: lay out the folder, then run `pack.ps1 -Path` on it. Test the final `.exe` on a machine with a
+default Windows Defender: see [when antivirus blocks the program](lifecycle.md#when-antivirus-blocks-the-program).
 
 Before you install, you can try the page in a browser with the [mock host](getting-started.md#develop-in-a-browser-with-the-mock-host).
 
@@ -51,8 +85,10 @@ Before you install, you can try the page in a browser with the [mock host](getti
 1. Change your files.
 2. Raise `version` in `plugin.json`.
 3. Install the folder again, as above. Plisto sees the same `id` and shows an update sheet.
-4. If you did not change `capabilities`, the plugin stays on and the page restarts on the new version. If
-   you added one, the plugin turns off and asks for approval: use Review, then approve it.
+4. If you did not change what the review sheet shows, the plugin stays on and the page restarts on the new
+   version. That means the `capabilities`, the `network` origins and `native_reason`. If you added or
+   removed a capability or an origin, or reworded `native_reason`, the plugin turns off and asks for
+   approval: use Review, then approve it. The rule is in [lifecycle](lifecycle.md#updates-and-the-manifest-hash).
 
 Your saved data survives updates. To start clean, uninstall the plugin and tick the box to delete its
 data, or call `plisto.storage.clear()` from a debug button.
@@ -95,7 +131,8 @@ every start. Until it passes, sandboxed plugins carry the Unsandboxed tag and us
 ## Remove a plugin
 
 Open Settings > Plugins, expand the plugin's row and press Uninstall. Tick "Also delete its saved data"
-to remove its storage.
+to remove its storage. With the box ticked Plisto removes the whole `plugins-data\<id>\` folder, so a native
+program's own files, its logs and its web view profile go with it.
 
 ## Test checklist
 
@@ -161,9 +198,15 @@ user has not approved it.
 | A call rejects with `denied` | The capability is missing from `capabilities`, or the plugin was approved before you added it. |
 | A call rejects with `unknown_method` | The method does not exist in this Plisto. Check `plisto.has`. |
 | The page shows "not responding" | The main thread is blocked. Find the long loop. |
-| The page shows a crash card | It was silent for 15 seconds, or it loaded a new document (a reload, `location` change or form post). |
+| The page shows a crash card | It was silent for 15 seconds, or it loaded a new document (a reload or a `location` change; a form post is blocked by the sandbox). |
 | Styles are missing | The two `/_plisto/` sheets must be linked with absolute paths, as shown in [getting started](getting-started.md). |
-| A font does not load | Do not rely on bundled web fonts. Use `var(--font-ui)`. |
+| A file the page names does not load, with no message | Plisto serves only 16 extensions (`html js css json txt png jpg jpeg gif webp svg ico woff woff2 ttf otf`) and refuses the rest, so `.wasm`, `.mp3`, `.mjs`, `.map` and `.avif` all fail. A path with a space or over 128 characters fails too. Rename data files to `.txt` or `.json`. See [UI surfaces](ui-surfaces.md#files-plisto-serves). |
+| `fetch`, a WebSocket, a worker, an `<audio>` or `<iframe>` does nothing | The frame's content security policy has no network, media, worker or frame source, and the sandbox is `allow-scripts` only. Use `plisto.net` and [streams](stream.md). See [the policy](ui-surfaces.md#the-content-security-policy). |
+| A font does not load | Fonts load from your own folder as `.woff`, `.woff2`, `.ttf` or `.otf` only. A remote font cannot load. Without a bundled font, use `var(--font-ui)`. |
+| The page never starts and no background plugin runs, though the plugin is on | The library has no tracks, or no folder has been added. Plisto starts page frames only once the library has tracks (a native program still starts). Add a folder. |
+| A native plugin row says "Could not start: Windows would not let it launch" | An antivirus or a policy blocked the program. See [lifecycle](lifecycle.md#when-antivirus-blocks-the-program). |
+| The plugin turned off after an update | The update changed what the user approved. Removing a capability or an origin asks again, as adding does. See [lifecycle](lifecycle.md#updates-and-the-manifest-hash). |
+| Install says the archive is not valid | An entry name has a backslash, or `plugin.json` is not at the root or in one top-level folder. Pack with `examples\pack.ps1`. |
 | Saved data is gone after an update | The key names changed in your code, or the user deleted the data on uninstall. |
 
 ## Pre-release checklist
@@ -178,12 +221,15 @@ Before you hand a plugin to someone else:
 - [ ] `icon` is square (PNG at least 64 px) and under 256 KiB. `homepage` is `https`.
 - [ ] `modes` says where the plugin should show.
 - [ ] The folder holds the current `plisto-sdk.js` from the kit, and nothing else you do not need.
-- [ ] Every file the page loads is in the folder. No external addresses, no inline script.
+- [ ] Every file the page loads is in the folder and has one of the 16 extensions Plisto serves. No external
+      addresses, no inline script.
+- [ ] A native plugin's archive holds the program at the `entry` path, and you started the final `.exe`
+      under a default Windows Defender.
 - [ ] You tested a first run, a second run, an update from your previous version, and an uninstall.
 - [ ] You tested light and dark, and both languages if your page shows text from `info.locale`.
 - [ ] The page never blocks the main thread. A background plugin has been left running for some time.
 - [ ] Logs hold no secrets or personal data.
 - [ ] You installed the final folder, or the final `.plistoplugin` file, from scratch in Plisto.
 
-Then zip the folder, rename the zip to `<name>.plistoplugin` and share it. Tell users that Plisto asks
-them to approve its capabilities when they install it.
+Then pack the folder with [`examples\pack.ps1 -Path`](#pack-your-plugin) and share the `.plistoplugin` file.
+Tell users that Plisto asks them to approve its capabilities when they install it.

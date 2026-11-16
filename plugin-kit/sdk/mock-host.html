@@ -132,7 +132,11 @@ progress { width: 120px; }
         <button type="button" id="routeBtn">Send route</button>
         <button type="button" id="reloadBtn">Reload page</button>
       </div>
-      <div class="muted">Language and app mode are read at start: reload to apply. Theme, visibility and route are sent as events.</div>
+      <div class="row">
+        <button type="button" id="libIds">Send library_changed (ids 1, 2)</button>
+        <button type="button" id="libAll">Send library_changed (re-read all)</button>
+      </div>
+      <div class="muted">Theme, visibility and route are sent as events. A page that subscribed also gets the theme, locale and app_mode topics when these controls change; language and app mode are otherwise read at start, so reload to apply. The library buttons reach a page subscribed to library_changed.</div>
     </div>
     <div class="panel">
       <h2>Transport</h2>
@@ -419,7 +423,11 @@ progress { width: 120px; }
     pos: 0,
     volume: 0.8,
     repeat: "off",
-    shuffle: false
+    shuffle: false,
+    // The counters playback_state and queue events carry.
+    startSeq: 0,
+    seekSeq: 0,
+    rev: 0
   };
 
   function currentTrack() {
@@ -441,12 +449,14 @@ progress { width: 120px; }
     }
     transport.index = index;
     transport.pos = 0;
+    transport.startSeq += 1;
     renderTransport();
   }
   function stepNext() { go(transport.index + 1); }
   function stepPrev() {
     if (transport.pos > 3) {
       transport.pos = 0;
+      transport.seekSeq += 1;
       renderTransport();
     } else {
       go(transport.index - 1);
@@ -468,6 +478,7 @@ progress { width: 120px; }
     box.appendChild(el("span", "", (transport.playing ? "Playing: " : "Paused: ") + text));
     if (t) box.appendChild(el("span", "muted", transport.pos + " / " + t.duration_secs + " s"));
     box.appendChild(el("span", "muted", "Queue " + (t ? transport.index + 1 : 0) + " of " + transport.queue.length));
+    publishPlayer();
   }
 
   // The tracks a queue.* source names, in play order. Exactly one source is required.
@@ -564,7 +575,7 @@ progress { width: 120px; }
   function methodNames() { return Object.keys(HANDLERS).sort(); }
 
   h("app.info", function () { return appInfo(); });
-  h("app.methods", function () { return { api_version: API_VERSION, methods: methodNames() }; });
+  h("app.methods", function () { return { api_version: API_VERSION, methods: methodNames(), topics: topicNames() }; });
 
   // storage
   function keyArg(v, allowEmpty) {
@@ -807,6 +818,7 @@ progress { width: 120px; }
     if (typeof a.secs !== "number" || !isFinite(a.secs) || a.secs < 0) fail("invalid_args", "secs must be 0 or more.");
     var t = currentTrack();
     transport.pos = t ? Math.min(a.secs, t.duration_secs) : 0;
+    if (t) transport.seekSeq += 1;
     renderTransport();
     return {};
   });
@@ -819,6 +831,8 @@ progress { width: 120px; }
     transport.index = start;
     transport.pos = 0;
     transport.playing = true;
+    transport.startSeq += 1;
+    transport.rev += 1;
     renderTransport();
     return { queued: ids.length };
   });
@@ -827,7 +841,8 @@ progress { width: 120px; }
     if (ids.length === 0) return { queued: 0 };
     var wasEmpty = transport.queue.length === 0;
     transport.queue = transport.queue.concat(ids);
-    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; }
+    transport.rev += 1;
+    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; transport.startSeq += 1; }
     renderTransport();
     return { queued: ids.length };
   });
@@ -837,7 +852,8 @@ progress { width: 120px; }
     var wasEmpty = transport.queue.length === 0;
     var at = wasEmpty ? 0 : transport.index + 1;
     transport.queue = transport.queue.slice(0, at).concat(ids, transport.queue.slice(at));
-    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; }
+    transport.rev += 1;
+    if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; transport.startSeq += 1; }
     renderTransport();
     return { queued: ids.length };
   });
@@ -1041,11 +1057,128 @@ progress { width: 120px; }
     var s = stream.seat;
     if (!s) {
       box.appendChild(el("span", "muted", "No stream"));
+      publishPlayer();
       return;
     }
     box.appendChild(el("span", "", "Item " + s.item + ": " + s.title + " (" + s.state + ")"));
     box.appendChild(el("span", "muted", (s.push ? "push, ring " + Math.floor(s.ring / 1024) + " KiB" : "pull") + ", " + (s.live ? "live" : "finite")));
+    publishPlayer();
   }
+
+  // -- App events --
+
+  // The topics a page may subscribe to, with the capability each needs (null for none).
+  var TOPIC_NEEDS = {
+    now_playing: "playback.read",
+    playback_state: "playback.read",
+    queue: "playback.read",
+    library_changed: "library.read",
+    theme: null,
+    locale: null,
+    app_mode: null
+  };
+  var TOPICS_MAX = 16;
+  // The topics the framed page subscribed to, and the last value sent on each. The real host also holds each
+  // topic to 4 deliveries a second; this one sends at once.
+  var appSubs = {};
+  var sentKey = {};
+
+  function topicNames() { return Object.keys(TOPIC_NEEDS).sort(); }
+
+  function nowPlayingValue() {
+    var s = stream.seat;
+    if (s) {
+      return { source: "stream", track_id: null, track: null, stream: { title: s.title, artist: s.artist, live: s.live, mine: true } };
+    }
+    var t = currentTrack();
+    if (!t) return { source: null, track_id: null, track: null, stream: null };
+    return { source: "library", track_id: t.id, track: t, stream: null };
+  }
+
+  function playbackStateValue() {
+    var s = stream.seat;
+    var t = currentTrack();
+    var kind = "stopped";
+    if (s) kind = s.state === "playing" ? "playing" : s.state === "paused" ? "paused" : "buffering";
+    else if (t) kind = transport.playing ? "playing" : "paused";
+    return {
+      transport: kind,
+      position_secs: s ? s.secs : transport.pos,
+      position_at: Date.now(),
+      duration_secs: s || !t ? 0 : t.duration_secs,
+      start_seq: transport.startSeq,
+      seek_seq: transport.seekSeq,
+      repeat: transport.repeat,
+      shuffle: transport.shuffle,
+      volume: transport.volume,
+      stream: s
+        ? { phase: s.state === "reconnecting" ? "buffering" : s.state, live: s.live, seekable: false }
+        : null
+    };
+  }
+
+  function queueValue() {
+    return { index: transport.index, length: transport.queue.length, rev: transport.rev, parked: !!stream.seat };
+  }
+
+  // The current value of a state topic; null for library_changed, which only reports changes.
+  function topicValue(topic) {
+    if (topic === "now_playing") return nowPlayingValue();
+    if (topic === "playback_state") return playbackStateValue();
+    if (topic === "queue") return queueValue();
+    if (topic === "theme") return { theme: state.theme };
+    if (topic === "locale") return { locale: state.locale };
+    if (topic === "app_mode") return { app_mode: state.appMode };
+    return null;
+  }
+
+  // What a value is compared by: playback_state without its position, so a position tick sends nothing.
+  function valueKey(topic, value) {
+    if (topic !== "playback_state") return JSON.stringify(value);
+    return JSON.stringify(Object.assign({}, value, { position_secs: 0, position_at: 0 }));
+  }
+
+  // Sends the topic's current value to the page when it subscribed and the value changed.
+  function fireTopic(topic) {
+    if (!has(appSubs, topic)) return;
+    var value = topicValue(topic);
+    var key = valueKey(topic, value);
+    if (sentKey[topic] === key) return;
+    sentKey[topic] = key;
+    send({ type: "plisto:event", topic: topic, data: value });
+  }
+
+  function publishPlayer() {
+    ["now_playing", "playback_state", "queue"].forEach(fireTopic);
+  }
+
+  h("events.subscribe", function (a) {
+    if (!Array.isArray(a.topics) || !a.topics.every(function (t) { return typeof t === "string"; })) {
+      fail("invalid_args", "'topics' must be an array of topic names.");
+    }
+    if (a.topics.length > TOPICS_MAX) fail("invalid_args", "'topics' holds at most 16 names.");
+    var set = {};
+    a.topics.forEach(function (t) {
+      if (t === "stream") fail("invalid_args", "The 'stream' topic is reserved and cannot be subscribed to.");
+      if (!has(TOPIC_NEEDS, t)) fail("invalid_args", "Unknown topic.");
+      set[t] = true;
+    });
+    var names = Object.keys(set).sort();
+    names.forEach(function (t) {
+      var cap = TOPIC_NEEDS[t];
+      if (cap && state.granted.indexOf(cap) < 0) fail("denied", "The '" + t + "' topic needs the " + cap + " permission.");
+    });
+    appSubs = set;
+    sentKey = {};
+    var current = {};
+    names.forEach(function (t) {
+      var value = topicValue(t);
+      if (value === null) return;
+      current[t] = value;
+      sentKey[t] = valueKey(t, value);
+    });
+    return { topics: names, current: current };
+  });
 
   // -- Manifest --
 
@@ -1358,6 +1491,9 @@ progress { width: 120px; }
     }
     state.expectLoad = false;
     state.lastPong = Date.now();
+    // A new document starts with no subscription.
+    appSubs = {};
+    sentKey = {};
     sendInit();
   });
 
@@ -1445,9 +1581,26 @@ progress { width: 120px; }
   $("themeSel").addEventListener("change", function (e) {
     state.theme = e.target.value;
     send({ type: "plisto:theme", theme: state.theme });
+    fireTopic("theme");
   });
-  $("localeSel").addEventListener("change", function (e) { state.locale = e.target.value; });
-  $("modeSel").addEventListener("change", function (e) { state.appMode = e.target.value; });
+  $("localeSel").addEventListener("change", function (e) {
+    state.locale = e.target.value;
+    fireTopic("locale");
+  });
+  $("modeSel").addEventListener("change", function (e) {
+    state.appMode = e.target.value;
+    fireTopic("app_mode");
+  });
+  $("libIds").addEventListener("click", function () {
+    if (has(appSubs, "library_changed")) {
+      send({ type: "plisto:event", topic: "library_changed", data: { track_ids: [1, 2], albums: false, playlists: false } });
+    }
+  });
+  $("libAll").addEventListener("click", function () {
+    if (has(appSubs, "library_changed")) {
+      send({ type: "plisto:event", topic: "library_changed", data: { track_ids: null, albums: true, playlists: true } });
+    }
+  });
   $("openChk").addEventListener("change", function (e) {
     state.pageOpen = e.target.checked;
     send({ type: "plisto:visibility", page_open: state.pageOpen });

@@ -14,7 +14,13 @@ The Library and playback card reads your library and changes the queue:
   `library.albums` and `library.cover`.
 - **Play an album next** puts that same album after the playing track, with `queue.play_next`. If nothing
   is playing, Plisto starts it.
-- **Now playing** shows the playing track from `playback.state`.
+
+The Player card follows playback through app events, with no polling. After `plisto.ready` the page calls
+`plisto.events.subscribe(["now_playing", "playback_state"])`: the reply carries the current values, and every
+later change arrives as an event. The card shows the playing track, the transport, the starts and seeks
+counters (`start_seq` and `seek_seq`), and the position, which the page works out between events from
+`position_secs` and `position_at`. Play, pause, seek and skip in Plisto and watch the card follow. It needs
+`playback.read`, and an older Plisto without events shows a line saying so.
 
 Each UI surface has buttons too.
 
@@ -40,16 +46,17 @@ Three buttons misbehave on purpose, to test how Plisto treats a page that stops 
 
 ## Install
 
-1. In Plisto, open the plugin hub and install from a folder (Settings > Plugins): choose this `hello-ui` folder.
+1. In Plisto, open Settings > Plugins, choose Install from folder and pick this `hello-ui` folder.
 2. Turn the plugin on. It appears in the sidebar under its own name.
 
 Updating from an earlier version adds capabilities, so Plisto asks for consent again: review the new
 capabilities (`ui.toast`, `ui.confirm` and `ui.chips` since 1.1.0; `library.read`, `playback.read` and
-`playback.control` since 1.2.0) and approve them before the plugin runs.
+`playback.control` since 1.2.0) and approve them before the plugin runs. Version 1.3.0 adds the Player card
+and no capability.
 
 ## Remove
 
-Open the plugin hub, uninstall Hello UI, and tick the box to delete its data if you want the saved counter
+Open Settings > Plugins, uninstall Hello UI, and tick the box to delete its data if you want the saved counter
 gone too.
 
 `plisto-sdk.js` here is a copy of `../../sdk/plisto-sdk.js`. Keep the copies identical. The guides are in `../../docs/` (start with `../../README.md`).

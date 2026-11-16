@@ -6,6 +6,10 @@ plugin installed and visible in the sidebar. The finished idea is the same as
 
 You need a text editor and Plisto 2.7 or newer (or a pre-release build, see step 2). No build tools are required.
 
+Plisto must have a library: add a music folder first, and let it find at least one track. Until then Plisto
+shows its first-run or empty-library screen instead of its main screen, and no plugin page opens while it
+does.
+
 ## 1. Make the folder
 
 ```
@@ -78,7 +82,9 @@ The rules that matter here:
   `<script>` block never runs. All code goes in `.js` files in your folder.
 - Load `plisto-sdk.js` first, in `<head>`. It starts answering Plisto at once. Load your own script with
   `defer` so it runs after the page is parsed.
-- No external addresses: no CDN, no remote fonts, no analytics. Put what you need in the folder.
+- No external addresses: no CDN, no remote fonts, no analytics. Put what you need in the folder, as one of
+  the 16 file types Plisto serves (`html js css json txt png jpg jpeg gif webp svg ico woff woff2 ttf otf`).
+  A `.wasm`, `.mp3` or `.mjs` file is refused. See [UI surfaces](ui-surfaces.md#what-the-page-frame-allows).
 - Use hash routing (`#/page`) if you need routes. Anything that loads a new document, a reload included,
   counts as the page crashing.
 
@@ -168,6 +174,37 @@ is still there, because it was saved with `storage.set`.
 A plugin with no `sidebar` block gets one row like this. To give it a section with several links, or
 live items such as a progress bar, see the [sidebar guide](sidebar.md).
 
+### A sidebar section with links only
+
+A section made of links needs no background page. Add the `ui.sidebar` capability and a `sidebar` block with
+`nav` items to the manifest of step 2:
+
+```json
+"capabilities": ["storage", "ui.sidebar"],
+"sidebar": {
+  "layout": "section",
+  "items": [
+    { "id": "home", "type": "nav", "label": "Counter", "icon": "house" },
+    { "id": "about", "type": "nav", "label": "About", "icon": "info", "route": "about" }
+  ]
+}
+```
+
+Raise `version`, install the folder again and approve the new capability. The plugin now has a section with
+two links. `home` opens your page at its start. `about` opens it with the route `about`, which your page
+reads from `plisto.route` and `plisto.on("route")`:
+
+```js
+function show(route) {
+  document.getElementById("count").hidden = route === "about";
+}
+plisto.ready.then(function () { show(plisto.route); });
+plisto.on("route", show);
+```
+
+Only `status`, `progress`, `toggle` and `action` items are live and need `background`. A `route` is optional
+and belongs to a `nav` item. The icon names and every rule are in the [sidebar guide](sidebar.md#the-declaration).
+
 ## 7. Change it and try again
 
 Edit your files, raise `version` in `plugin.json` (for example to `1.0.1`), then install the folder again
@@ -209,16 +246,23 @@ Know what it is not:
 - Cover images are small SVGs, where Plisto sends JPEGs.
 - `stream.*` answers for one fake stream that plays no sound. Its Stream panel fires `state`, `skip`, `room`
   and `ended` events at the page, so `plisto.onStream` can be tried.
+- `events.subscribe` answers with the fake transport's values and sends events when the Transport panel's
+  buttons and the Host panel's theme, language and app mode controls change, so `plisto.events.on` can be
+  tried. It sends each change at once, with none of Plisto's 4 a second pace, and sends
+  `library_changed` only from the two buttons in the Host panel.
 - It needs http. Opened from `file://`, browsers block the manifest read and may block the frame's own
   files, so use the server above.
 
 ## Where to go from here
 
-- Packing a UI plugin to share: [install and test](install-and-test.md#pack-a-ui-plugin).
+- Packing a plugin to share: [install and test](install-and-test.md#pack-your-plugin).
+- What the page may load and do: [UI surfaces](ui-surfaces.md#what-the-page-frame-allows).
 - Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
 - Running in the background: [lifecycle](lifecycle.md).
 - Talking to a web service: [network](network.md).
 - Playing audio through Plisto: [streams](stream.md).
+- Following playback, the library and the theme as they change: [events](events.md).
 - A program that runs beside Plisto, or reading the audio: [native plugins](native.md).
-- Every method with its limits: [API reference](api.md).
+- Every method with its limits: [API reference](api.md), and every number in one place: [limits](limits.md).
+- A page without the SDK: [the page bridge](bridge.md).
 - A larger working example: [`examples/hello-background`](../examples/hello-background/).

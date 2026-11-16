@@ -2,11 +2,12 @@
   "manifest_version": 1,
   "id": "dev.plisto.tapmeter",
   "name": "Tap meter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "tier": "native",
   "entry": "bin/tap-meter.exe",
   "page": "page/index.html",
   "capabilities": [
+    "playback.read",
     "audio.tap",
     "audio.events",
     "audio.device",
