@@ -21,96 +21,22 @@ use std::time::Instant;
 use crossbeam_channel::{Receiver, Sender};
 
 // -- Local Imports --
-use super::args::{Artwork, Play, Source};
+use super::args::{Play, Source};
+use super::feeder::{spawn_feeder, Wire};
 use super::gone::Producer;
+pub(super) use super::item::{ArtSlot, Feed, Item, LastEnd};
+use super::item::net_key;
 use super::link::{OnEnd, StreamLink};
-use super::meta::{display_pair, Meta};
-use super::{NowState, Skip, StreamEndNotice, StreamEvent, StreamNow, DECODER};
-use crate::adhoc::{next_ad_hoc_id, AdHocCover, AdHocTrack};
+use super::meta::display_pair;
+use super::{NowState, StreamEndNotice, StreamEvent, StreamNow, DECODER};
+use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
 use crate::audio::stream::{
-    byte_ring, hint_for_push, pcm_queue, PcmQueue, PushFormat, RingWriter, StreamControl,
-    StreamInput, LIVE_RING,
+    byte_ring, hint_for_push, pcm_queue, PushFormat, StreamControl, StreamInput, LIVE_RING,
 };
 use crate::audio::{AudioSpec, PlayerCmd, SkipFlags, StreamEndReason, StreamItem, StreamSignal};
 use crate::plugins::api::error::ApiError;
-use crate::plugins::state::EnabledSet;
-
-/// Where an item's bytes come from.
-pub(super) enum Feed {
-    /// Plisto fetches them. The queue's producer half waits here for the fetch to start decoding.
-    Pull { _queue: PcmQueue },
-    /// The plugin pushes them. `writer` is gone once the plugin ended its bytes.
-    Push {
-        writer: Option<RingWriter>,
-        wants_room: bool,
-    },
-}
-
-/// An item's artwork requests. Each request or clear takes a new generation, and only a decode of
-/// the current one may land.
-#[derive(Default)]
-pub(super) struct ArtSlot {
-    pub generation: u64,
-    // When this item's last decode started: one start per `ART_GAP`.
-    pub last: Option<Instant>,
-    pub pending: Option<Vec<u8>>,
-}
-
-/// The seated item.
-pub(super) struct Item {
-    pub id: i64,
-    pub plugin_id: String,
-    pub plugin_name: String,
-    pub producer: Producer,
-    pub feed: Feed,
-    pub control: Arc<StreamControl>,
-    pub skip_flags: Arc<SkipFlags>,
-    pub skip: Skip,
-    pub meta: Meta,
-    pub live: bool,
-    pub seekable: bool,
-    pub state: NowState,
-    pub cover: Option<AdHocCover>,
-    pub art: ArtSlot,
-    pub art_rev: u64,
-    pub rev: u64,
-    pub accepted: Instant,
-    // Whether any audio was decoded since `accepted`.
-    pub heard: bool,
-    // Since when the item has waited for audio in connecting or buffering.
-    pub waiting_since: Option<Instant>,
-}
-
-impl Item {
-    pub fn is_push(&self) -> bool {
-        matches!(self.feed, Feed::Push { .. })
-    }
-
-    pub fn snapshot(&self) -> StreamNow {
-        StreamNow {
-            item: self.id,
-            plugin_id: self.plugin_id.clone(),
-            plugin_name: self.plugin_name.clone(),
-            title: self.meta.title.clone(),
-            artist: self.meta.artist.clone(),
-            album: self.meta.album.clone(),
-            now: self.meta.now.clone(),
-            live: self.live,
-            seekable: self.seekable,
-            state: self.state,
-            skip: self.skip,
-            art_rev: self.art_rev,
-            rev: self.rev,
-        }
-    }
-}
-
-/// A plugin's previous item's end.
-pub(super) struct LastEnd {
-    pub reason: StreamEndReason,
-    pub detail: Option<&'static str>,
-    pub at: Instant,
-}
+use crate::plugins::api::net::proxy::{Clock, SystemClock};
+use crate::plugins::state::{EnabledSet, Serving};
 
 #[derive(Default)]
 pub(super) struct Session {
@@ -142,6 +68,8 @@ pub(super) struct Shared {
     link: RwLock<Option<Arc<dyn StreamLink>>>,
     serving: RwLock<Option<EnabledSet>>,
     pub signals: (Sender<StreamSignal>, Receiver<StreamSignal>),
+    // The clock every limit, wait and timestamp of the hub and its feeder reads.
+    clock: RwLock<Arc<dyn Clock>>,
 }
 
 /// Cheap to clone; every clone shares the same session.
@@ -155,6 +83,7 @@ impl Default for StreamHub {
             link: RwLock::new(None),
             serving: RwLock::new(None),
             signals: crossbeam_channel::unbounded(),
+            clock: RwLock::new(Arc::new(SystemClock)),
         }))
     }
 }
@@ -180,6 +109,7 @@ pub(super) struct Owner {
     pub id: String,
     pub name: String,
     pub producer: Producer,
+    pub wire: Option<Arc<Wire>>,
 }
 
 impl StreamHub {
@@ -221,6 +151,25 @@ impl StreamHub {
             .is_some_and(|set| set.contains(id))
     }
 
+    /// What plugin `id` serves with now, its consented origins among it; None once it stopped.
+    pub(super) fn serving_of(&self, id: &str) -> Option<Serving> {
+        self.0
+            .serving
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|set| set.serving(id))
+    }
+
+    pub(super) fn clock(&self) -> Arc<dyn Clock> {
+        Arc::clone(&self.0.clock.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_clock(&self, clock: Arc<dyn Clock>) {
+        *self.0.clock.write().unwrap_or_else(PoisonError::into_inner) = clock;
+    }
+
     /// Marks a checked play of `id` as on its way to its seat.
     pub(super) fn begin(&self, id: &str) -> Accepting<'_> {
         Accepting {
@@ -253,8 +202,8 @@ impl StreamHub {
         let control = Arc::new(StreamControl::new());
         let (queue, reader) = pcm_queue(Arc::clone(&control));
         let skip_flags = Arc::new(SkipFlags::new(play.skip.next, play.skip.prev));
-        let (feed, decode) = match play.source {
-            Source::Pull => (Feed::Pull { _queue: queue }, None),
+        let (feed, decode, pull) = match play.source {
+            Source::Pull(pull) => (Feed::Pull { queue: Some(queue) }, None, Some(pull)),
             Source::Push(format) => {
                 let (writer, ring) = byte_ring(LIVE_RING, Arc::clone(&control));
                 let input = match format {
@@ -274,7 +223,7 @@ impl StreamHub {
                     writer: Some(writer),
                     wants_room: false,
                 };
-                (feed, Some((input, queue)))
+                (feed, Some((input, queue)), None)
             }
         };
         let seat = StreamItem {
@@ -325,11 +274,17 @@ impl StreamHub {
             accepted: now,
             heard: false,
             waiting_since: None,
+            reconnecting: false,
+            awaiting_audio: false,
+            wire: owner.wire,
         };
         publish(&*link, &item);
+        if let (Some(pull), Some(wire)) = (pull, &item.wire) {
+            spawn_feeder(self, id, &item.plugin_id, pull, Arc::clone(wire), &item.control);
+        }
         session.item = Some(item);
-        if let Some(Artwork::Bytes(bytes)) = play.artwork {
-            self.want_art(&mut session, bytes, &link, now);
+        if let Some(artwork) = play.artwork {
+            self.want_art(&mut session, artwork, &link, now);
         }
         if let Some((input, queue)) = decode {
             if link.decode(input, queue, self.on_end(id)).is_err() {
@@ -350,11 +305,13 @@ impl StreamHub {
     }
 
     /// The decoder's end, reported to the hub without keeping it alive.
-    fn on_end(&self, id: i64) -> OnEnd {
+    pub(super) fn on_end(&self, id: i64) -> OnEnd {
         let hub = Arc::downgrade(&self.0);
         Box::new(move |end| {
             if let Some(shared) = hub.upgrade() {
-                StreamHub(shared).decode_ended(id, end, Instant::now());
+                let hub = StreamHub(shared);
+                let now = hub.clock().now();
+                hub.decode_ended(id, end, now);
             }
         })
     }
@@ -390,6 +347,11 @@ impl StreamHub {
         now: Instant,
     ) {
         item.control.cancel();
+        // Its connection and artwork fetch close now, so their stream and fetch slots are free
+        // before a play that replaces it opens its own.
+        if let Some(wire) = &item.wire {
+            wire.net.end_keyed(&item.plugin_id, &net_key(item.id));
+        }
         link.stash(item.id, None);
         if teller == Teller::Hub {
             link.send(PlayerCmd::StreamEnd {
@@ -428,16 +390,9 @@ impl StreamHub {
         let Some(link) = self.link() else {
             return;
         };
+        let now = self.clock().now();
         let mut session = self.lock();
-        self.end_current(
-            &mut session,
-            &*link,
-            id,
-            reason,
-            detail,
-            Teller::Hub,
-            Instant::now(),
-        );
+        self.end_current(&mut session, &*link, id, reason, detail, Teller::Hub, now);
     }
 
     /// What the seated stream shows; None when nothing is seated.

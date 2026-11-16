@@ -53,6 +53,8 @@ pub struct FakeLink {
     pub events: Mutex<Vec<(String, StreamEvent)>>,
     // Bytes the stand-in decoder has read and thrown away.
     pub media_read: Arc<AtomicU64>,
+    // Container decodes started, one per epoch of a pull item.
+    pub media_decodes: AtomicU64,
     pub covers: PathBuf,
     guard: InFlightGuard,
     // Artwork writes running now, the most ever at once, and how long each one holds on.
@@ -133,6 +135,7 @@ impl StreamLink for FakeLink {
     fn decode(&self, input: StreamInput, queue: PcmQueue, on_end: OnEnd) -> io::Result<()> {
         match input {
             StreamInput::Media { source, .. } => {
+                self.media_decodes.fetch_add(1, Ordering::AcqRel);
                 let read = Arc::clone(&self.media_read);
                 thread::Builder::new()
                     .name("test-stream-reader".into())
@@ -190,7 +193,7 @@ pub struct Bench {
     tick: Cell<u64>,
 }
 
-fn entry(plugin: &Plugin) -> Entry {
+fn entry(plugin: &Plugin, origin: &str) -> Entry {
     let network = plugin.2.contains(&Capability::Network);
     Entry {
         id: plugin.0.to_string(),
@@ -205,7 +208,7 @@ fn entry(plugin: &Plugin) -> Entry {
         sidebar_collapsed: false,
         ready_enabled: None,
         consented_network: if network {
-            vec![RADIO.into()]
+            vec![origin.into()]
         } else {
             Vec::new()
         },
@@ -214,11 +217,25 @@ fn entry(plugin: &Plugin) -> Entry {
 
 impl Bench {
     pub fn new(plugins: &[Plugin]) -> Bench {
+        Bench::consenting(plugins, RADIO)
+    }
+
+    /// One stream- and network-granted UI plugin, `A`, consenting to `origin`, its requests going
+    /// through `net`.
+    pub fn pull(origin: &str, net: crate::plugins::api::NetEngine) -> Bench {
+        let grants = &[Capability::PlaybackStream, Capability::Network];
+        let mut bench = Bench::consenting(&[Plugin(A, Tier::Ui, grants)], origin);
+        bench.host.net = Some(net);
+        bench
+    }
+
+    /// A bench whose network-granted plugins consent to `origin`.
+    pub fn consenting(plugins: &[Plugin], origin: &str) -> Bench {
         let temp = Temp::new("streams");
         let covers = temp.0.join("covers");
         std::fs::create_dir_all(&covers).unwrap();
         let registry = Registry {
-            entries: plugins.iter().map(entry).collect(),
+            entries: plugins.iter().map(|p| entry(p, origin)).collect(),
             ..Registry::default()
         };
         let state = PluginsState::new(registry, Problems::new(), BootState::default());

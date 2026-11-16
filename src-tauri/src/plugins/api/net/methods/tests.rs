@@ -641,3 +641,24 @@ async fn another_plugin_cannot_touch_a_live_stream_or_socket() {
         Ok(json!({}))
     );
 }
+
+#[test]
+fn a_key_with_the_reserved_prefix_is_refused_on_fetch_and_abort() {
+    let enabled = granted(Vec::new());
+    let api = ApiState::default();
+    let reserved = json!({ "abort_key": "plisto:stream:-3" });
+    let fetch = json!({ "url": "https://a.example/", "abort_key": "plisto:stream:-3" });
+    let refused = fetch_args(&args(fetch), Vec::new(), String::new()).err().unwrap();
+    assert_eq!(refused.code, ApiCode::InvalidArgs);
+    let admitted = admit(&enabled, &api, ID, "net.abort", 2, Instant::now()).unwrap();
+    let host = FakeHost::default();
+    let aborted = match start(&admitted, &reserved.to_string(), Path::new(""), &host, &api) {
+        Started::Done(result) => result,
+        Started::Later(_) => panic!("an abort answers at once"),
+    };
+    assert_eq!(aborted.unwrap_err().code, ApiCode::InvalidArgs);
+    // The prefix alone is reserved; a key that only resembles it is the plugin's.
+    assert!(abort_key(&args(json!({ "abort_key": "plisto-mine" })))
+        .unwrap()
+        .is_some());
+}

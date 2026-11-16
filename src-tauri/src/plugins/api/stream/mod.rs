@@ -1,11 +1,12 @@
 /*
  * Playback streams: a plugin hands Plisto audio, by URL or as pushed bytes, and Plisto plays it
  * through its own engine as a seat over the parked queue. `hub` holds the one session every end path
- * converges on and `gone` its plugin going away; `methods`, `args` and `ops` answer the `stream.*`
- * calls; `meta` sanitizes the plugin's text and computes what the now-playing surfaces show; `art`
- * turns artwork bytes into covers-cache thumbnails; `watch` follows the engine's signals and the
- * item's limits. The engine, the decode helper, the windows and the stash are reached through a
- * `StreamLink`, so the hub runs in tests against a fake one.
+ * converges on, `item` the seated item, and `gone` its plugin going away; `methods`, `args` and
+ * `ops` answer the `stream.*` calls; `meta` sanitizes the plugin's text and computes what the
+ * now-playing surfaces show; `art` turns artwork into covers-cache thumbnails; `feeder` fetches a
+ * pull item's bytes; `watch` follows the engine's signals and the item's limits. The engine, the
+ * decode helper, the windows and the stash are reached through a `StreamLink`, so the hub runs in
+ * tests against a fake one.
  *
  * Nothing here returns or emits a URL, a header, a path or another plugin's data.
  */
@@ -19,8 +20,10 @@ use crate::audio::{SkipDir, StreamEndReason, StreamPhase};
 // -- Module Declarations --
 mod args;
 mod art;
+mod feeder;
 mod gone;
 mod hub;
+mod item;
 mod link;
 mod meta;
 mod methods;
@@ -28,7 +31,7 @@ mod ops;
 mod watch;
 
 #[cfg(test)]
-mod test_link;
+pub(crate) mod test_link;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -36,11 +39,20 @@ mod tests_art;
 #[cfg(test)]
 mod tests_ends;
 #[cfg(test)]
+mod tests_epoch;
+#[cfg(test)]
 mod tests_limits;
+#[cfg(test)]
+mod tests_pull;
+#[cfg(test)]
+mod tests_resume;
 
 // -- Re-exports --
 pub(crate) use gone::{Gone, Producer};
 pub(crate) use hub::StreamHub;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use link::StreamLink;
 pub(crate) use link::TauriStreamLink;
 pub(super) use methods::METHODS;
 pub(crate) use watch::spawn_watch;

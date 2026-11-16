@@ -103,6 +103,11 @@ impl NetEngine {
             sink,
         }
     }
+
+    /// The HTTP clients, shared with the playback feeder.
+    pub(in crate::plugins::api) fn clients(&self) -> &'static Clients {
+        self.clients
+    }
 }
 
 /// What Windows says about a proxy, read through the shared clients' cache.
@@ -163,9 +168,14 @@ pub(in crate::plugins::api) fn headers(
     }
 }
 
-/// 1 to `MAX_ABORT_KEY` bytes of visible ASCII.
+/// The prefix of the abort keys Plisto's own work for a plugin runs under.
+pub const RESERVED_KEY_PREFIX: &str = "plisto:";
+
+/// 1 to `MAX_ABORT_KEY` bytes of visible ASCII, outside the reserved prefix.
 fn abort_key_ok(key: &str) -> bool {
-    (1..=MAX_ABORT_KEY).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_graphic())
+    (1..=MAX_ABORT_KEY).contains(&key.len())
+        && key.bytes().all(|b| b.is_ascii_graphic())
+        && !key.starts_with(RESERVED_KEY_PREFIX)
 }
 
 fn abort_key(args: &Map<String, Value>) -> Result<Option<String>, ApiError> {
@@ -187,7 +197,7 @@ fn fetch_timeout(args: &Map<String, Value>) -> Result<Duration, ApiError> {
     Ok(Duration::from_millis(ms))
 }
 
-fn user_agent(id: &str, version: &str) -> String {
+pub(in crate::plugins::api) fn user_agent(id: &str, version: &str) -> String {
     policy::user_agent(env!("CARGO_PKG_VERSION"), id, version)
 }
 
@@ -489,6 +499,7 @@ fn close(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, ApiError
 pub(crate) struct NetFixture {
     _ca: super::test_server::TestCa,
     server: super::test_server::TestServer,
+    lookup: Arc<super::test_server::ScriptedLookup>,
     engine: NetEngine,
     events: Arc<HostEvents>,
 }
@@ -522,7 +533,7 @@ impl NetFixture {
         let server = TestServer::tls(&ca, &[NetFixture::HOST]).await;
         let lookup = Arc::new(ScriptedLookup::default());
         lookup.answer(NetFixture::HOST, &[&[LOOPBACK]]);
-        let clients = Clients::for_tests(lookup, test_allowed, ca.root());
+        let clients = Clients::for_tests(lookup.clone(), test_allowed, ca.root());
         let events = Arc::new(HostEvents::default());
         let sink: Arc<dyn NetSink> = events.clone();
         let engine = NetEngine {
@@ -535,6 +546,7 @@ impl NetFixture {
         NetFixture {
             _ca: ca,
             server,
+            lookup,
             engine,
             events,
         }
@@ -542,6 +554,15 @@ impl NetFixture {
 
     pub fn engine(&self) -> NetEngine {
         self.engine.clone()
+    }
+
+    pub fn server(&self) -> &super::test_server::TestServer {
+        &self.server
+    }
+
+    /// Resolves `name` to `ips` from now on.
+    pub fn answer(&self, name: &str, ips: &[std::net::IpAddr]) {
+        self.lookup.answer(name, &[ips]);
     }
 
     /// Connections the server accepted so far.

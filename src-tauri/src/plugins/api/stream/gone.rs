@@ -5,9 +5,6 @@
  * pushed it, a frame or the native child, is the one that went.
  */
 
-// -- Library Imports --
-use std::time::Instant;
-
 // -- Local Imports --
 use super::hub::{StreamHub, Teller};
 use crate::audio::StreamEndReason;
@@ -73,7 +70,7 @@ impl StreamHub {
         } else {
             return;
         };
-        let now = Instant::now();
+        let now = self.clock().now();
         self.end_current(
             &mut session,
             &*link,
@@ -92,7 +89,7 @@ impl StreamHub {
         };
         let mut session = self.lock();
         if let Some(item) = session.item.take() {
-            let (reason, now) = (StreamEndReason::PluginGone, Instant::now());
+            let (reason, now) = (StreamEndReason::PluginGone, self.clock().now());
             self.end_item(
                 &mut session,
                 &*link,

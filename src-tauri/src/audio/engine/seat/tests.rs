@@ -1635,6 +1635,93 @@ fn live_seek_is_ignored() {
 }
 
 #[test]
+fn facts_make_a_finite_item_seekable_with_a_duration() {
+    let mut r = rig();
+    let (item, _p) = live();
+    r.handle(PlayerCmd::StreamStart(item));
+    assert!(r.stream().live && !r.stream().seekable);
+    let facts = |id| PlayerCmd::StreamFacts {
+        id,
+        live: false,
+        seekable: true,
+        duration_secs: Some(42.0),
+    };
+    // A stale id changes nothing.
+    r.handle(facts(ID - 1));
+    assert!(r.stream().live && !r.stream().seekable);
+    assert_eq!(r.status().duration_secs, 0.0);
+
+    r.handle(facts(ID));
+    let stream = r.stream();
+    assert!(!stream.live && stream.seekable);
+    assert_eq!(r.status().duration_secs, 42.0);
+}
+
+#[test]
+fn an_epoch_drops_the_old_queue_unheard_and_plays_the_new_one() {
+    let mut r = rig();
+    let (seated, mut old) = live();
+    r.start(seated, &mut old);
+    r.handle(PlayerCmd::StreamPause { id: ID, pause: true });
+    old.push_value(5, 0.5);
+
+    // A stale id changes nothing and cancels what it brought.
+    let (stale, _) = item(ID - 1, true, None);
+    let stale_control = Arc::clone(&stale.control);
+    r.handle(PlayerCmd::StreamEpoch {
+        id: ID - 1,
+        pcm: stale.pcm,
+        control: stale.control,
+    });
+    assert!(stale_control.is_cancelled());
+    assert!(r.attached());
+
+    let (fresh, mut new) = live();
+    r.handle(PlayerCmd::StreamEpoch {
+        id: ID,
+        pcm: fresh.pcm,
+        control: Arc::clone(&fresh.control),
+    });
+    assert!(old.control.is_cancelled());
+    assert!(!r.attached());
+    assert_eq!(r.stream().phase, StreamPhase::Paused);
+
+    r.handle(PlayerCmd::StreamPause { id: ID, pause: false });
+    assert_eq!(r.stream().phase, StreamPhase::Buffering);
+    new.push_value(REBUFFER_CHUNKS, 0.75);
+    r.tick();
+    assert!(r.attached());
+    assert_eq!(r.stream().phase, StreamPhase::Playing);
+    let heard = r.pull(REBUFFER_CHUNKS * CHUNK);
+    assert!(heard.contains(&0.75));
+    assert!(!heard.contains(&0.5) && !heard.contains(&0.25), "nothing from the old queue");
+}
+
+#[test]
+fn an_epoch_while_playing_cuts_the_old_queue_at_once() {
+    let mut r = rig();
+    let (seated, mut old) = live();
+    r.start(seated, &mut old);
+    assert!(r.hears(0.25));
+    old.push_value(5, 0.5);
+    let (fresh, mut new) = live();
+    r.handle(PlayerCmd::StreamEpoch {
+        id: ID,
+        pcm: fresh.pcm,
+        control: Arc::clone(&fresh.control),
+    });
+    assert!(old.control.is_cancelled());
+    assert!(!r.attached());
+    assert_eq!(r.stream().phase, StreamPhase::Buffering);
+    new.push_value(REBUFFER_CHUNKS, 0.75);
+    r.tick();
+    assert_eq!(r.stream().phase, StreamPhase::Playing);
+    let heard = r.pull(REBUFFER_CHUNKS * CHUNK);
+    assert!(heard.contains(&0.75));
+    assert!(!heard.contains(&0.5), "nothing queued before the cut");
+}
+
+#[test]
 fn finite_seek_reattaches() {
     let mut r = rig();
     let feed = r.hub.attach(false).expect("attaches");

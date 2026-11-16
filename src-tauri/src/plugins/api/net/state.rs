@@ -326,6 +326,14 @@ impl NetState {
         fire(callbacks, EndReason::Abort)
     }
 
+    /// Ends `id`'s entries opened with `abort_key`, playback work included, with `stopped`: Plisto's
+    /// own end of work it started for the plugin. Returns how many ended.
+    pub fn end_keyed(&self, id: &str, abort_key: &str) -> usize {
+        let callbacks = lock(&self.0)
+            .take(|e| e.plugin == id && e.abort_key.as_deref() == Some(abort_key));
+        fire(callbacks, EndReason::Stopped)
+    }
+
     /// Ends the entry `key` with `why`. False when it already ended.
     pub fn end(&self, key: u64, why: EndReason) -> bool {
         let entry = lock(&self.0).running.remove(&key);
@@ -357,6 +365,18 @@ impl NetState {
             inner.take(|e| e.plugin == id && e.kind.ends_with_page())
         };
         fire(callbacks, EndReason::Stopped);
+    }
+
+    /// The page streams `id` holds, then those of every plugin; playback streams are not counted.
+    pub fn page_streams(&self, id: &str) -> (usize, usize) {
+        let inner = lock(&self.0);
+        let pages = inner.running.values().filter(|e| e.kind == Kind::Stream);
+        let (mut mine, mut all) = (0, 0);
+        for entry in pages {
+            all += 1;
+            mine += usize::from(entry.plugin == id);
+        }
+        (mine, all)
     }
 
     /// Appends to `id`'s log, dropping its oldest entry past `LOG_CAPACITY`.

@@ -8,7 +8,7 @@
  * clocks then runs. An item with no decoded audio `NO_AUDIO_MS` after its start ends `no_audio`; one
  * that waits for more audio for `STALL_MS`, in buffering or still connecting after its first audio,
  * ends `stalled`. A paused item never waits, and a pending seek restarts the clock, since a seek
- * ahead of the bytes waits for them.
+ * ahead of the bytes waits for them. Neither clock runs while a fetched item reconnects.
  */
 
 // -- Library Imports --
@@ -45,15 +45,16 @@ pub fn spawn_watch(hub: &StreamHub) -> io::Result<()> {
                     return;
                 };
                 let hub = StreamHub(shared);
-                let now = Instant::now();
+                // The limits read the hub's clock; only the tick's pace is wall time.
+                let now = hub.clock().now();
                 match signal {
                     Ok(signal) => hub.handle(signal, now),
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
-                if now.duration_since(ticked) >= TICK {
+                if ticked.elapsed() >= TICK {
                     hub.tick(now);
-                    ticked = now;
+                    ticked = Instant::now();
                 }
             }
         })
@@ -102,8 +103,16 @@ impl StreamHub {
                 if item.state == state {
                     return;
                 }
+                let shown = item.shown();
                 item.state = state;
                 item.waiting_since = (state == NowState::Buffering).then_some(now);
+                if state == NowState::Playing {
+                    item.awaiting_audio = false;
+                }
+                let state = item.shown();
+                if state == shown {
+                    return;
+                }
                 item.rev += 1;
                 link.now(Some(&item.snapshot()));
                 link.owner(&item.plugin_id, StreamEvent::State { item: id, state });
@@ -125,7 +134,8 @@ impl StreamHub {
         }
     }
 
-    /// The decoder of item `id` ended.
+    /// The decoder of item `id` ended. A pull item whose plugin no longer serves is left to
+    /// `forget`.
     pub(super) fn decode_ended(&self, id: i64, end: DecodeEnd, now: Instant) {
         let Some(link) = self.link() else {
             return;
@@ -134,6 +144,10 @@ impl StreamHub {
         let Some(item) = session.item.as_ref().filter(|item| item.id == id) else {
             return;
         };
+        // The fetch stopped quietly, which broke the decoder's source.
+        if !item.is_push() && !self.serves(&item.plugin_id) {
+            return;
+        }
         if let Some((reason, detail)) = end_for(end, item.is_push()) {
             self.end_current(&mut session, &*link, id, reason, detail, Teller::Hub, now);
         }
@@ -183,6 +197,11 @@ impl StreamHub {
 
 /// The limit the item has run into, if any.
 fn over_limit(item: &mut Item, now: Instant) -> Option<StreamEndReason> {
+    // A reconnect has its own bounded tries, and restarts the audio clock when it lands.
+    if item.reconnecting {
+        item.waiting_since = None;
+        return None;
+    }
     if !item.heard {
         if item.control.chunks_queued() > 0 {
             item.heard = true;

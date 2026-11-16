@@ -1112,6 +1112,13 @@ impl Engine {
             PlayerCmd::StreamStart(item) => self.stream_start(item),
             PlayerCmd::StreamEnd { id, reason } => self.stream_end(id, reason),
             PlayerCmd::StreamPause { id, pause } => self.stream_owner_pause(id, pause),
+            PlayerCmd::StreamFacts {
+                id,
+                live,
+                seekable,
+                duration_secs,
+            } => self.stream_facts(id, live, seekable, duration_secs),
+            PlayerCmd::StreamEpoch { id, pcm, control } => self.stream_epoch(id, pcm, control),
             PlayerCmd::ClearParked => self.clear_parked(),
         }
     }

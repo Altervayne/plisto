@@ -31,7 +31,7 @@ const NOW_NOT_LIVE: &str = "'now' is for a live item only.";
 /// Where the bytes come from.
 pub enum Source {
     /// Plisto fetches the URL.
-    Pull,
+    Pull(Pull),
     /// The plugin pushes bytes in `format`.
     Push(PushFormat),
 }
@@ -45,10 +45,19 @@ pub struct Play {
     pub skip: Skip,
 }
 
-/// Artwork to show: bytes to decode, or a URL the pull path fetches.
+/// What a pull item fetches. The headers are checked, with lowercase names.
+pub struct Pull {
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub icy: bool,
+    /// The plugin's own `live`; None leaves it to the response head.
+    pub live: Option<bool>,
+}
+
+/// Artwork to show: bytes to decode, or a URL to fetch first.
 pub enum Artwork {
     Bytes(Vec<u8>),
-    Url,
+    Url(String),
 }
 
 /// A field present with a non-null value.
@@ -127,7 +136,10 @@ fn artwork_shape(value: &Value) -> Result<(Artwork, Option<&str>), ApiError> {
         return Err(ApiError::invalid_args(refused));
     };
     match (given(map, "url"), given(map, "data_b64")) {
-        (Some(url), None) => Ok((Artwork::Url, Some(text(url, refused)?))),
+        (Some(url), None) => {
+            let url = text(url, refused)?;
+            Ok((Artwork::Url(url.to_string()), Some(url)))
+        }
         (None, Some(data)) => {
             let data = text(data, refused)?;
             // Base64 of the cap is at most 4/3 of it: anything longer cannot fit.
@@ -193,9 +205,15 @@ fn source_shape(value: Option<&Value>) -> Result<(Source, Option<&str>), ApiErro
     match (given(map, "url"), given(map, "push")) {
         (Some(url), None) => {
             let url = text(url, refused)?;
-            check_headers(&headers(map)?).map_err(ApiError::from)?;
-            flag(map, "icy", "'icy' must be a boolean.")?;
-            Ok((Source::Pull, Some(url)))
+            let headers = check_headers(&headers(map)?).map_err(ApiError::from)?;
+            let icy = flag(map, "icy", "'icy' must be a boolean.")?.unwrap_or(false);
+            let pull = Pull {
+                url: url.to_string(),
+                headers,
+                icy,
+                live: None,
+            };
+            Ok((Source::Pull(pull), Some(url)))
         }
         (None, Some(Value::Object(push))) => Ok((Source::Push(push_format(push)?), None)),
         _ => Err(ApiError::invalid_args(refused)),
@@ -217,7 +235,10 @@ pub fn play(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Play, ApiErr
         .map(skip)
         .transpose()?
         .unwrap_or_default();
-    let (source, source_url) = source_shape(args.get("source"))?;
+    let (mut source, source_url) = source_shape(args.get("source"))?;
+    if let Source::Pull(pull) = &mut source {
+        pull.live = live;
+    }
     let (artwork, artwork_url) = match given(args, "artwork") {
         Some(value) => {
             let (artwork, url) = artwork_shape(value)?;

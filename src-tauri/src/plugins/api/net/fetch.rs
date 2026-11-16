@@ -229,6 +229,20 @@ pub async fn open_streamed(
     request: &FetchRequest,
     kind: StreamKind,
 ) -> Result<StreamHead, ApiError> {
+    open_streamed_with(clients, net, id, consent, request, kind, &[]).await
+}
+
+/// `open_streamed`, also sending `own`: headers Plisto sets itself, with lowercase names, sent
+/// after the plugin's and outside the limits the plugin's headers are checked against.
+pub async fn open_streamed_with(
+    clients: &Clients,
+    net: &NetState,
+    id: &str,
+    consent: Consent<'_>,
+    request: &FetchRequest,
+    kind: StreamKind,
+    own: &[(String, String)],
+) -> Result<StreamHead, ApiError> {
     let (tx, rx) = mpsc::unbounded_channel();
     let abort_key = request.abort_key.as_deref();
     let stream = net.open(id, kind.kind(), abort_key, signal(&tx))?;
@@ -241,8 +255,9 @@ pub async fn open_streamed(
     let at_ms = unix_ms();
     let started = Instant::now();
     let mut progress = Progress::at(target.url.clone());
-    let checked = policy::check_headers(&request.headers).and_then(|headers| {
+    let checked = policy::check_headers(&request.headers).and_then(|mut headers| {
         policy::check_body(request.method, request.body.len())?;
+        headers.extend(own.iter().cloned());
         Ok(headers)
     });
     let outcome = match checked {
@@ -437,7 +452,7 @@ fn header_list(response: &Response) -> ResponseHeaders {
 
 /// Names a failure on the wire `proxy` when a proxy explains it, keeping the replaced reason in
 /// `cause` for the log entry.
-pub(super) async fn explain(
+pub(in crate::plugins::api) async fn explain(
     proxy: &Proxy,
     error: ApiError,
     url: &Url,
@@ -586,7 +601,7 @@ fn log_entry(
 
 /// `code` or `code/reason`, with the code's wire name. A `proxy` reason keeps the transport reason
 /// it replaced: `network/connect+proxy`.
-pub(super) fn error_text(error: &ApiError, cause: Option<&str>) -> String {
+pub(in crate::plugins::api) fn error_text(error: &ApiError, cause: Option<&str>) -> String {
     let code = serde_json::to_value(error.code)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
@@ -598,7 +613,7 @@ pub(super) fn error_text(error: &ApiError, cause: Option<&str>) -> String {
     }
 }
 
-pub(super) fn unix_ms() -> u64 {
+pub(in crate::plugins::api) fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)

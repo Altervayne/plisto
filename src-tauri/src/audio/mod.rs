@@ -185,6 +185,21 @@ pub enum PlayerCmd {
         id: i64,
         pause: bool,
     },
+    // What a fetched stream's response head says about it, learned after its seat. Ignored for any
+    // other id.
+    StreamFacts {
+        id: i64,
+        live: bool,
+        seekable: bool,
+        duration_secs: Option<f64>,
+    },
+    // Gives the seated stream a fresh producer: what the old queue holds is dropped unheard and the
+    // next run starts cold from `pcm`. Ignored for any other id, whose `control` is then cancelled.
+    StreamEpoch {
+        id: i64,
+        pcm: stream::PcmReader,
+        control: Arc<stream::StreamControl>,
+    },
     // Empties the parked queue while a stream is seated; the stream plays on. Ignored with no stream.
     ClearParked,
 }

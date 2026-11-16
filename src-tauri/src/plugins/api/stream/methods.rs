@@ -1,20 +1,24 @@
 /*
  * The `stream.*` methods. Every one needs `playback.stream`, and no caller needs its page open or a
  * gesture: the granted capability is the gate. A refusal arrives as a call error; anything after a
- * play is accepted arrives as an `ended` event.
+ * play is accepted arrives as an `ended` event. A fetched item counts as one of the plugin's
+ * streams, so a plugin whose page already holds all of them is `busy`.
  */
 
 // -- Library Imports --
-use std::time::Instant;
+use std::sync::Arc;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde_json::{json, Map, Value};
 
 // -- Local Imports --
-use super::args::{self, item};
+use super::args::{self, item, Source};
+use super::feeder::Wire;
 use super::hub::Owner;
 use crate::plugins::api::error::ApiError;
+use crate::plugins::api::net::methods::user_agent;
+use crate::plugins::api::net::state::{MAX_STREAMS, MAX_STREAMS_PER_PLUGIN};
 use crate::plugins::api::rate::RateClass;
 use crate::plugins::api::{CallCtx, Handler, MethodSpec, Need, Outcome};
 use crate::plugins::manifest::Capability;
@@ -58,13 +62,29 @@ fn plugin_name(ctx: &CallCtx<'_>) -> String {
 fn play(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
     let hub = ctx.api.streams();
     let result = args::play(ctx, args).and_then(|play| {
+        // The seated item's own connection is not counted: this play replaces it, and its slot is
+        // free once it ends.
+        if matches!(play.source, Source::Pull(_)) {
+            let (mine, all) = ctx.api.net().page_streams(ctx.id);
+            if mine >= MAX_STREAMS_PER_PLUGIN || all >= MAX_STREAMS {
+                return Err(ApiError::busy());
+            }
+        }
         let accepting = hub.begin(ctx.id);
+        let wire = ctx.host.net().map(|engine| {
+            Arc::new(Wire {
+                clients: engine.clients(),
+                net: ctx.api.net().clone(),
+                user_agent: user_agent(ctx.id, &ctx.serving.version),
+            })
+        });
         let owner = Owner {
             id: ctx.id.to_string(),
             name: plugin_name(ctx),
             producer: ctx.caller.into(),
+            wire,
         };
-        hub.accept(owner, play, &accepting, ctx.enabled, Instant::now())
+        hub.accept(owner, play, &accepting, ctx.enabled, hub.clock().now())
     });
     Outcome::Done(result.map(|item| json!({ "item": item, "state": "connecting" })))
 }
@@ -125,5 +145,6 @@ fn stop(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
 }
 
 fn state(ctx: &CallCtx<'_>, _args: &Map<String, Value>) -> Outcome {
-    Outcome::Done(Ok(ctx.api.streams().state(ctx.id, Instant::now())))
+    let hub = ctx.api.streams();
+    Outcome::Done(Ok(hub.state(ctx.id, hub.clock().now())))
 }

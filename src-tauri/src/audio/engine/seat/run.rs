@@ -1,7 +1,7 @@
 /*
- * The seated stream's transport and tick: pause and resume, skips, seeks, the device rebind, and the
- * tick that starts a run once enough is queued, follows starvation and recovery, and starts the next
- * run when a source reached its edge.
+ * The seated stream's transport and tick: what its producer learned, a fresh producer, pause and
+ * resume, skips, seeks, the device rebind, and the tick that starts a run once enough is queued,
+ * follows starvation and recovery, and starts the next run when a source reached its edge.
  */
 
 // -- Library Imports --
@@ -12,7 +12,7 @@ use super::{Attached, Engine, SourceHandles};
 use crate::audio::dsp::DspStage;
 use crate::audio::feed::FeedCause;
 use crate::audio::source::{self, unpack_spec, DecoderSource, Edge, EdgeCell, StreamPackets};
-use crate::audio::stream::{REBUFFER_MS, START_MS};
+use crate::audio::stream::{PcmReader, StreamControl, REBUFFER_MS, START_MS};
 use crate::audio::{SkipDir, StreamEndReason, StreamPhase, StreamSignal};
 
 /// How a cold start went.
@@ -23,6 +23,60 @@ enum Start {
 }
 
 impl Engine {
+    /// What the item turned out to be once its producer knew: ignored unless `id` is the one seated.
+    pub(in crate::audio::engine) fn stream_facts(
+        &mut self,
+        id: i64,
+        live: bool,
+        seekable: bool,
+        duration: Option<f64>,
+    ) {
+        let previewing = self.previewing();
+        let Some(seat) = self.seating.seat.as_mut().filter(|s| s.id == id) else {
+            return;
+        };
+        seat.live = live;
+        seat.seekable = seekable;
+        seat.duration = duration.filter(|d| d.is_finite() && *d > 0.0);
+        if !previewing {
+            self.cur_duration = seat.duration.unwrap_or(0.0);
+        }
+        self.emit(true);
+    }
+
+    /// Gives the seated item a fresh producer, `pcm` and `control`: the attached source is cut and
+    /// what the old queue held is never played; the next run starts from the new queue once it
+    /// holds enough. The old control is cancelled. Ignored unless `id` is the one seated.
+    pub(in crate::audio::engine) fn stream_epoch(
+        &mut self,
+        id: i64,
+        pcm: PcmReader,
+        control: Arc<StreamControl>,
+    ) {
+        let position = self.position_secs();
+        let previewing = self.previewing();
+        let Some(seat) = self.seating.seat.as_mut().filter(|s| s.id == id) else {
+            control.cancel();
+            return;
+        };
+        let cut = seat.let_go();
+        if cut {
+            seat.carried = position;
+        }
+        let old = std::mem::replace(&mut seat.reader, pcm);
+        seat.held.push(old);
+        std::mem::replace(&mut seat.control, control).cancel();
+        seat.awaiting = None;
+        seat.last_seek = None;
+        seat.next_cause = FeedCause::Start;
+        if cut && !previewing {
+            if let Some(sink) = &self.sink {
+                sink.clear();
+            }
+        }
+        self.stream_waits();
+    }
+
     /// Moves the seated stream to `phase` and tells the owner. Outside a preview the engine's
     /// pause flag follows: only `Playing` sounds.
     pub(super) fn set_phase(&mut self, phase: StreamPhase) {

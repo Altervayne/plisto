@@ -10,7 +10,7 @@ use std::time::Instant;
 use serde_json::{json, Value};
 
 // -- Local Imports --
-use super::args::{Artwork, Update};
+use super::args::Update;
 use super::hub::{publish, Feed, Item, Session, StreamHub, Teller};
 use super::watch::LAST_END_HOLD;
 use crate::audio::stream::WriteError;
@@ -57,7 +57,7 @@ impl StreamHub {
             reason,
             None,
             Teller::Hub,
-            Instant::now(),
+            self.clock().now(),
         );
         Ok(())
     }
@@ -129,13 +129,14 @@ impl StreamHub {
                     seated.art_rev += 1;
                 }
             }
-            Some(Some(Artwork::Bytes(bytes))) => wanted = Some(bytes),
-            Some(Some(Artwork::Url)) | None => {}
+            Some(Some(artwork)) => wanted = Some(artwork),
+            None => {}
         }
         seated.rev += 1;
         publish(&*link, seated);
-        if let Some(bytes) = wanted {
-            self.want_art(&mut session, bytes, &link, Instant::now());
+        if let Some(artwork) = wanted {
+            let now = self.clock().now();
+            self.want_art(&mut session, artwork, &link, now);
         }
         Ok(())
     }
@@ -152,7 +153,7 @@ impl StreamHub {
         match session.item.as_ref().filter(|item| item.plugin_id == id) {
             Some(item) => json!({
                 "item": item.id,
-                "state": item.state,
+                "state": item.shown(),
                 "live": item.live,
                 "seekable": item.seekable,
                 "position_secs": link.and_then(|link| link.position(item.id)),

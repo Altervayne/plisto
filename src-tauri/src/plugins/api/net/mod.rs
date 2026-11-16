@@ -7,8 +7,8 @@
  */
 
 mod address;
-mod client;
-mod fetch;
+pub(super) mod client;
+pub(super) mod fetch;
 pub(super) mod methods;
 pub(super) mod policy;
 pub(super) mod proxy;
@@ -18,7 +18,7 @@ mod socket;
 pub(crate) mod state;
 mod stream;
 #[cfg(test)]
-mod test_server;
+pub(crate) mod test_server;
 
 // ---- Limits ----
 

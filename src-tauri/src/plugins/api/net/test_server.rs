@@ -51,6 +51,13 @@ pub const STALL_PIECE: usize = 1024;
 const SSE_EVERY: Duration = Duration::from_millis(20);
 /// The 1-byte chunks `/tiny-stream` writes at once.
 const TINY_BATCH: usize = 4096;
+/// The audio bytes between two `/radio` metadata blocks, and their period.
+pub const RADIO_METAINT: usize = 1024;
+const RADIO_EVERY: Duration = Duration::from_millis(20);
+/// Length and ETag of the `/file` body.
+pub const FILE_LEN: usize = 200 * 1024;
+pub const FILE_ETAG: &str = "\"v1\"";
+pub const FILE_DATE: &str = "Mon, 01 Jan 2024 00:00:00 GMT";
 
 /// The byte at `i` of every generated body.
 pub fn pattern(len: usize) -> Vec<u8> {
@@ -179,6 +186,11 @@ impl TestServer {
 
     pub fn streamed(&self) -> usize {
         self.record.streamed.load(Ordering::SeqCst)
+    }
+
+    /// Responses the client cut off by closing its end, so far.
+    pub fn cut_offs(&self) -> usize {
+        self.record.cut_off.load(Ordering::SeqCst)
     }
 
     /// Waits up to 5 s until `count` responses were cut off by the client closing the connection.
@@ -420,6 +432,114 @@ async fn write_tiny<S: AsyncWrite + Unpin>(
     }
 }
 
+/// An endless ICY radio body: `RADIO_METAINT` audio bytes every `RADIO_EVERY`, each followed by a
+/// metadata block titled `Song <n>` when the request asked for metadata. With `drop_ms`, the
+/// connection drops after that long, mid-body.
+async fn write_radio<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &Head,
+    drop_ms: Option<u64>,
+    record: &Record,
+) -> io::Result<()> {
+    let icy = head.header("icy-metadata") == Some("1");
+    let mut out = String::from("HTTP/1.1 200 OK\r\ncontent-type: audio/mpeg\r\nicy-name: Test\r\n");
+    if icy {
+        out.push_str(&format!("icy-metaint: {RADIO_METAINT}\r\n"));
+    }
+    out.push_str("transfer-encoding: chunked\r\nconnection: close\r\n\r\n");
+    stream.write_all(out.as_bytes()).await?;
+    let started = std::time::Instant::now();
+    for n in 1u64.. {
+        if drop_ms.is_some_and(|ms| started.elapsed() >= Duration::from_millis(ms)) {
+            return Ok(());
+        }
+        let mut piece = vec![0x55u8; RADIO_METAINT];
+        if icy {
+            let text = format!("StreamTitle='Song {n}';");
+            let mut block = text.into_bytes();
+            block.resize(block.len().div_ceil(16) * 16, 0);
+            piece.push((block.len() / 16) as u8);
+            piece.extend(block);
+        }
+        write_chunk(stream, &piece).await?;
+        record.streamed.fetch_add(RADIO_METAINT, Ordering::SeqCst);
+        tokio::time::sleep(RADIO_EVERY).await;
+    }
+    Ok(())
+}
+
+/// `FILE_LEN` bytes of `pattern` with a length, `accept-ranges`, an ETag (weak with `weak`) and a
+/// Last-Modified date. A `range: bytes=N-` whose `if-range` matches the strong ETag or the date gets
+/// a 206 from N; `resume=200` answers it with the whole body instead, `resume=badrange` with a
+/// `content-range` one byte off. Without a range, `drop=<n>` drops the connection after n bytes and
+/// `stall=<n>` holds it silent after n bytes.
+async fn write_file<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &Head,
+    query: &str,
+) -> io::Result<()> {
+    let body = pattern(FILE_LEN);
+    let flag = |name: &str| query.split('&').any(|kv| kv == name);
+    let etag = if flag("weak") {
+        format!("W/{FILE_ETAG}")
+    } else {
+        FILE_ETAG.to_string()
+    };
+    let validates = |v: &str| v == FILE_ETAG || v == FILE_DATE;
+    let from = head
+        .header("range")
+        .and_then(|r| r.strip_prefix("bytes="))
+        .and_then(|r| r.trim_end_matches('-').parse::<usize>().ok())
+        .filter(|_| head.header("if-range").is_some_and(validates))
+        .filter(|_| !flag("resume=200"));
+    let (status, start) = match from {
+        Some(from) => (206, from.min(FILE_LEN)),
+        None => (200, 0),
+    };
+    let mut out = format!(
+        "HTTP/1.1 {status} X\r\ncontent-type: audio/wav\r\naccept-ranges: bytes\r\netag: {etag}\r\nlast-modified: {FILE_DATE}\r\ncontent-length: {}\r\n",
+        FILE_LEN - start
+    );
+    if status == 206 {
+        let said = if flag("resume=badrange") { start + 1 } else { start };
+        out.push_str(&format!(
+            "content-range: bytes {said}-{}/{FILE_LEN}\r\n",
+            FILE_LEN - 1
+        ));
+    }
+    out.push_str("connection: close\r\n\r\n");
+    stream.write_all(out.as_bytes()).await?;
+    let number = |key: &str| {
+        query
+            .split('&')
+            .find_map(|kv| kv.strip_prefix(key))
+            .and_then(|n| n.parse::<usize>().ok())
+    };
+    match (status, number("drop="), number("stall=")) {
+        (200, Some(n), _) => {
+            stream.write_all(&body[..n]).await?;
+            stream.flush().await
+        }
+        (200, None, Some(n)) => {
+            stream.write_all(&body[..n]).await?;
+            stream.flush().await?;
+            hold(stream).await
+        }
+        _ => {
+            stream.write_all(&body[start..]).await?;
+            stream.flush().await
+        }
+    }
+}
+
+/// A 2 x 2 PNG.
+pub fn art_png() -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(2, 2, image::Rgb([200, 40, 40]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
 /// Reads until the client closes the connection, then reports the close as a cut-off.
 async fn hold<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
     let mut sink = [0u8; 1024];
@@ -447,6 +567,14 @@ async fn hold<S: AsyncRead + Unpin>(stream: &mut S) -> io::Result<()> {
 /// - `/sse-drop`: 3 events, then the connection drops mid-body.
 /// - `/fast-drop?len=<n>`: `n` bytes fast, then the connection drops mid-body.
 /// - `/tiny-stream?prefix=<n>`: `n` bytes in large chunks, then endless 1-byte chunks.
+/// - `/radio`: an endless `audio/mpeg` body, with ICY titles when asked; `/radio-drop` drops it
+///   after 3 s, or `?ms=<n>`.
+/// - `/file`: a finite `audio/wav` body that takes ranges (`write_file`).
+/// - `/playlist`, `/html`: a playlist and a page instead of audio.
+/// - `/silent`: an `audio/mpeg` head, then nothing until the client closes.
+/// - `/shift`: a short `audio/mpeg` body that drops, then `audio/ogg` on every later connection.
+/// - `/bad-icy`: an `icy-metaint` past the largest honored, then nothing.
+/// - `/art.png`: a small PNG.
 ///
 /// Stream bodies carry `pattern` bytes, continued across pieces.
 async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
@@ -536,6 +664,43 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
         (Some("tiny-stream"), None, None) => {
             let prefix = query.strip_prefix("prefix=").and_then(|n| n.parse().ok());
             write_tiny(stream, prefix.unwrap_or(0), record).await
+        }
+        (Some("radio"), None, None) => write_radio(stream, head, None, record).await,
+        (Some("radio-drop"), None, None) => {
+            let ms = query.strip_prefix("ms=").and_then(|n| n.parse().ok());
+            write_radio(stream, head, Some(ms.unwrap_or(3_000)), record).await
+        }
+        (Some("file"), None, None) => write_file(stream, head, query).await,
+        (Some("shift"), None, None) => {
+            let heads = record.heads.lock().unwrap().clone();
+            let first = heads.iter().filter(|h| h.path.starts_with("/shift")).count() == 1;
+            let kind = if first { "audio/mpeg" } else { "audio/ogg" };
+            write_chunked_head(stream, kind).await?;
+            write_chunk(stream, &[0x55; RADIO_METAINT]).await?;
+            record.streamed.fetch_add(RADIO_METAINT, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(())
+        }
+        (Some("bad-icy"), None, None) => {
+            let raw = "HTTP/1.1 200 OK\r\ncontent-type: audio/mpeg\r\nicy-metaint: 70000\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+            stream.write_all(raw.as_bytes()).await?;
+            hold(stream).await
+        }
+        (Some("playlist"), None, None) => {
+            let kind = [("content-type", "audio/x-mpegurl")];
+            write_response(stream, 200, &kind, b"https://example.com/a.mp3\n").await
+        }
+        (Some("html"), None, None) => {
+            let kind = [("content-type", "text/html")];
+            write_response(stream, 200, &kind, b"<html></html>").await
+        }
+        (Some("silent"), None, None) => {
+            write_chunked_head(stream, "audio/mpeg").await?;
+            hold(stream).await
+        }
+        (Some("art.png"), None, None) => {
+            let kind = [("content-type", "image/png")];
+            write_response(stream, 200, &kind, &art_png()).await
         }
         (Some("bad-chunk"), None, None) => {
             let raw = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\nzz\r\nabc\r\n";

@@ -57,6 +57,8 @@ pub(super) struct Seat {
     attached: Option<Attached>,
     // Detached sources the sink may still hold. The sink holds the only other clone of each cancel.
     gone: Vec<Attached>,
+    // Readers of earlier producers, kept until the sink has let go of every detached source.
+    held: Vec<PcmReader>,
     // The listened time or play head while no source is attached: the seed of the next one.
     carried: f64,
     // The seek the next start waits for: until the producer has answered it, nothing queued is
@@ -92,6 +94,7 @@ impl Seat {
             paused_by_user: false,
             attached: None,
             gone: Vec::new(),
+            held: Vec::new(),
             carried: 0.0,
             awaiting: None,
             last_seek: None,
@@ -119,6 +122,9 @@ impl Seat {
     fn sweep(&mut self) -> bool {
         self.gone
             .retain(|source| Arc::strong_count(&source.cancel) > 1);
+        if self.gone.is_empty() {
+            self.held.clear();
+        }
         self.gone.is_empty()
     }
 }
