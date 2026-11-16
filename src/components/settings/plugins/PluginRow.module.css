@@ -93,52 +93,6 @@
   gap: 6px;
 }
 
-/* The enable switch: a pill that fills cyan when on, sunken and quiet when off. */
-.switch {
-  flex: none;
-  position: relative;
-  width: 36px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--pill);
-  background: var(--veil-2);
-  box-shadow: inset 0 0 0 1.5px var(--ink-3);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-cover);
-}
-
-.switch[aria-checked="true"] {
-  background: var(--accent);
-  box-shadow: none;
-}
-
-/* A disabled switch loses its ring and fades, so it reads as unavailable rather than merely off. */
-.switch:disabled {
-  cursor: default;
-  opacity: 0.4;
-  box-shadow: none;
-}
-
-.knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--pill);
-  background: var(--ink-3);
-  transition:
-    transform var(--dur-fast) var(--ease-cover),
-    background var(--dur-fast) var(--ease-cover);
-}
-
-.switch[aria-checked="true"] .knob {
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  transform: translateX(16px);
-}
-
 .chevron svg {
   transition: transform var(--dur-fast) var(--ease-standard);
 }

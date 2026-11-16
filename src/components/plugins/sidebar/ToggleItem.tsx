@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Switch } from "../../common/Switch/Switch";
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- State Imports --
 import { useSidebarState } from "../../../state/plugins/sidebarState";
@@ -46,7 +47,7 @@ export function ToggleItem({
         title={view.enabled ? undefined : t((d) => d.plugins.ui.itemWaiting, { name: pluginName })}
       >
         <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-        <span className={styles.label}>{item.label}</span>
+        <TruncatedText text={item.label} className={styles.label} />
         <Switch
           checked={view.on}
           onChange={(next) => {

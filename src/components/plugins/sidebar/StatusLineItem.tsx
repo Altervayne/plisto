@@ -1,3 +1,6 @@
+// -- Component Imports --
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
+
 // -- Hook Imports --
 import { useItemView } from "./useItemView";
 
@@ -26,7 +29,7 @@ export function StatusLineItem({ pluginId, item }: { pluginId: string; item: Plu
         <span className={styles.slot} aria-hidden="true">
           <span className={`${styles.dot} ${tone}`} />
         </span>
-        <span className={styles.label}>{view.text}</span>
+        <TruncatedText text={view.text} className={styles.label} />
       </div>
     );
   }

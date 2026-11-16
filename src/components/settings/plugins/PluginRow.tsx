@@ -7,6 +7,7 @@ import { ChevronRight } from "lucide-react";
 // -- Component Imports --
 import { IconButton } from "../../common/IconButton";
 import { QuietButton } from "../../common/QuietButton";
+import { Switch } from "../../common/Switch/Switch";
 import { PluginIcon } from "../../plugins/PluginIcon";
 import { PluginTag } from "../../plugins/PluginTag";
 import { DevRowTools } from "./DevRowTools";
@@ -134,17 +135,12 @@ export function PluginRow({
         </div>
         <div className={styles.acts}>
           {view.action === "switch" ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={row.enabled}
-              aria-label={t((d) => d.plugins.enableLabel, { name: view.name })}
-              className={styles.switch}
+            <Switch
+              checked={row.enabled}
+              onChange={(on) => onToggle(row, on)}
+              label={t((d) => d.plugins.enableLabel, { name: view.name })}
               disabled={busy || view.locked}
-              onClick={() => onToggle(row, !row.enabled)}
-            >
-              <span className={styles.knob} aria-hidden="true" />
-            </button>
+            />
           ) : null}
           {view.action === "review" ? (
             <QuietButton onClick={() => onReview(row)} disabled={busy}>

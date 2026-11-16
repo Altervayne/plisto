@@ -1,6 +1,9 @@
 // -- Framework Imports --
 import type { ReactNode } from "react";
 
+// -- Component Imports --
+import { TruncatedText } from "../common/TruncatedText/TruncatedText";
+
 // -- Utils Imports --
 import { formatCount } from "../../lib/format";
 
@@ -40,11 +43,11 @@ export function NavItem({
       {icon}
       {tag ? (
         <span className={styles.tagged}>
-          <span className={styles.name}>{label}</span>
+          <TruncatedText text={label} className={styles.name} />
           {tag}
         </span>
       ) : (
-        <span className={styles.txt}>{label}</span>
+        <TruncatedText text={label} className={styles.txt} />
       )}
       {chips ? <span className={styles.chips}>{chips}</span> : null}
       {count != null ? <span className={styles.count}>{formatCount(count)}</span> : null}

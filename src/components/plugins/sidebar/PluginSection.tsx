@@ -5,6 +5,7 @@ import { useId } from "react";
 import { ChevronDown } from "lucide-react";
 
 // -- Component Imports --
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 import { PluginIcon } from "../PluginIcon";
 import { StatusDot } from "../StatusDot";
 import { PluginTag } from "../PluginTag";
@@ -94,7 +95,7 @@ export function PluginSection({
       <div className={styles.head}>
         <span className={styles.title}>
           <PluginIcon source={{ kind: "installed", id: plugin.id, hash: plugin.manifest_hash }} size={16} />
-          <span className={styles.name}>{name}</span>
+          <TruncatedText text={name} className={styles.name} />
           {tag ? (
             <span className={styles.tagWrap}>
               <PluginTag kind={tag} />

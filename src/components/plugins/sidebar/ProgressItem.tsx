@@ -1,3 +1,6 @@
+// -- Component Imports --
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
+
 // -- Hook Imports --
 import { useItemView } from "./useItemView";
 
@@ -36,7 +39,7 @@ export function ProgressItem({ pluginId, item }: { pluginId: string; item: Plugi
         aria-valuemax={100}
         aria-valuenow={percent ?? undefined}
       >
-        <span className={styles.label}>{label}</span>
+        <TruncatedText text={label} className={styles.label} />
         <div className={styles.track} aria-hidden="true">
           {percent == null ? (
             <i className={styles.sweep} />

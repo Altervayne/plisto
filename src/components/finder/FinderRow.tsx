@@ -1,4 +1,5 @@
 // -- Component Imports --
+import { TruncatedText } from "../common/TruncatedText/TruncatedText";
 import { FinderThumb } from "./FinderThumb";
 import { PluginTag } from "../plugins/PluginTag";
 
@@ -70,11 +71,11 @@ export function FinderRow({
       <span className={styles.text}>
         {(entry.kind === "plugin" || entry.kind === "setting") && entry.tag ? (
           <span className={styles.labelLine}>
-            <span className={styles.label}>{entry.label}</span>
+            <TruncatedText text={entry.label} className={styles.label} />
             <PluginTag kind={entry.tag} />
           </span>
         ) : (
-          <span className={styles.label}>{entry.label}</span>
+          <TruncatedText text={entry.label} className={styles.label} />
         )}
         {sublabel ? <span className={styles.sublabel}>{sublabel}</span> : null}
       </span>

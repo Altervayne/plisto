@@ -2,6 +2,7 @@
 import type { Ref } from "react";
 
 // -- Component Imports --
+import { Switch } from "../../common/Switch/Switch";
 import { SettingRow } from "../SettingRow";
 import { PluginLogPanel } from "./PluginLogPanel";
 
@@ -16,7 +17,6 @@ import type { PluginRow } from "../../../types";
 
 // -- Style Imports --
 import settingsStyles from "../SettingsView.module.css";
-import switchStyles from "./PluginRow.module.css";
 import styles from "./DevModeEntry.module.css";
 
 /**
@@ -49,17 +49,12 @@ export function DevModeEntry({
     <SettingRow id="developerMode" className={settingsStyles.pref}>
       <div className={settingsStyles.row}>
         <span className={settingsStyles.rowLabel}>{t((d) => d.plugins.devMode.label)}</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          aria-label={t((d) => d.plugins.devMode.label)}
-          className={switchStyles.switch}
+        <Switch
+          checked={on}
+          onChange={onToggle}
+          label={t((d) => d.plugins.devMode.label)}
           disabled={disabled}
-          onClick={() => onToggle(!on)}
-        >
-          <span className={switchStyles.knob} aria-hidden="true" />
-        </button>
+        />
       </div>
       <p className={settingsStyles.helper}>{t((d) => d.plugins.devMode.helper)}</p>
       <p className={settingsStyles.helper}>{t((d) => d.plugins.devMode.loopbackNote)}</p>
