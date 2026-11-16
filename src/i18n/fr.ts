@@ -727,8 +727,6 @@ export const fr: Dict = {
     keepUpToDate: "Garder l'audiothèque à jour",
     keepUpToDateHelper:
       "Plisto repère les fichiers ajoutés, modifiés ou supprimés dans ces répertoires. Il ne les modifie jamais.",
-    keepOn: "Activé",
-    keepOff: "Désactivé",
     trackCount: { one: "{{n}} piste", other: "{{n}} pistes" },
     removeConfirm: "Retirer ce répertoire ?",
     removeDrops: { one: "Cela retire {{n}} piste.", other: "Cela retire {{n}} pistes." },

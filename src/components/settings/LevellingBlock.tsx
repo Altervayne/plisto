@@ -1,5 +1,5 @@
 // -- Component Imports --
-import { SegmentedControl } from "../common/SegmentedControl";
+import { Switch } from "../common/Switch/Switch";
 import { SettingRow } from "./SettingRow";
 
 // -- State Imports --
@@ -38,13 +38,9 @@ export function LevellingBlock() {
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.levelLoudness)}</span>
           <span className={styles.control}>
-            <SegmentedControl
-              segments={[
-                { value: "off", label: t((d) => d.sound.off) },
-                { value: "on", label: t((d) => d.sound.on) },
-              ]}
-              value={on ? "on" : "off"}
-              onChange={(value) => setLevelling(value === "on")}
+            <Switch
+              checked={on}
+              onChange={setLevelling}
               label={t((d) => d.sound.levelLoudness)}
             />
           </span>

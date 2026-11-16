@@ -5,7 +5,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import { IconButton } from "../common/IconButton";
 import { QuietButton } from "../common/QuietButton";
 import { LevellingBlock } from "./LevellingBlock";
-import { SegmentedControl } from "../common/SegmentedControl";
+import { Switch } from "../common/Switch/Switch";
 import { EqCurve } from "../sound/EqCurve";
 import { PresetRow } from "../sound/PresetRow";
 import { SettingRow } from "./SettingRow";
@@ -51,13 +51,9 @@ export function SoundSection() {
         <div className={styles.row}>
           <span className={styles.rowLabel}>{t((d) => d.sound.equalizer)}</span>
           <span className={styles.control}>
-            <SegmentedControl
-              segments={[
-                { value: "off", label: t((d) => d.sound.off) },
-                { value: "on", label: t((d) => d.sound.on) },
-              ]}
-              value={settings.eq.on ? "on" : "off"}
-              onChange={(value) => actions.setOn(value === "on")}
+            <Switch
+              checked={settings.eq.on}
+              onChange={actions.setOn}
               label={t((d) => d.sound.equalizer)}
             />
           </span>

@@ -7,6 +7,7 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { SegmentedControl } from "../common/SegmentedControl";
+import { Switch } from "../common/Switch/Switch";
 import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
 import { GenreSettingRow } from "./GenreSettingRow";
@@ -167,11 +168,6 @@ export function SettingsView({
     { value: "fr", label: "Français" },
   ];
 
-  const keepSegments: Segment<"on" | "off">[] = [
-    { value: "on", label: t((d) => d.settings.keepOn) },
-    { value: "off", label: t((d) => d.settings.keepOff) },
-  ];
-
   // The two close behaviors, mapped to a boolean pref: "tray" keeps it alive, "quit" exits.
   const closeSegments: Segment<"quit" | "tray">[] = [
     { value: "quit", label: t((d) => d.settings.closeQuit) },
@@ -257,10 +253,9 @@ export function SettingsView({
                 <div className={styles.row}>
                   <span className={styles.rowLabel}>{t((d) => d.settings.keepUpToDate)}</span>
                   <span className={styles.control}>
-                    <SegmentedControl
-                      segments={keepSegments}
-                      value={keepUpToDate ? "on" : "off"}
-                      onChange={(value) => setKeepUpToDate(value === "on")}
+                    <Switch
+                      checked={keepUpToDate}
+                      onChange={setKeepUpToDate}
                       label={t((d) => d.settings.keepUpToDate)}
                     />
                   </span>

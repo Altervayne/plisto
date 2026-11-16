@@ -725,8 +725,6 @@ export const en = {
     keepUpToDate: "Keep library up to date",
     keepUpToDateHelper:
       "Plisto notices files you add, change or remove in these folders. It never modifies them.",
-    keepOn: "On",
-    keepOff: "Off",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     removeConfirm: "Remove this folder?",
     removeDrops: { one: "This drops {{n}} track.", other: "This drops {{n}} tracks." },

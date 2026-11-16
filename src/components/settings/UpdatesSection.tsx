@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
-import { SegmentedControl } from "../common/SegmentedControl";
+import { Switch } from "../common/Switch/Switch";
 import { SettingRow } from "./SettingRow";
 import { sectionAttr } from "./settingsSections";
 
@@ -22,9 +22,6 @@ import { appVersion } from "../../lib/updater";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
-
-// -- Type Imports --
-import type { Segment } from "../common/SegmentedControl";
 
 // -- Style Imports --
 import styles from "./SettingsView.module.css";
@@ -55,10 +52,6 @@ export function UpdatesSection() {
   const autoCheck = useUpdaterAutoCheck();
   const setAutoCheck = useSetUpdaterAutoCheck();
   const skipped = useIsSkippedUpdate(updateOf(state)?.version ?? "");
-  const autoSegments: Segment<"on" | "off">[] = [
-    { value: "on", label: t((d) => d.settings.keepOn) },
-    { value: "off", label: t((d) => d.settings.keepOff) },
-  ];
 
   const busy = state.kind === "checking" || state.kind === "downloading" || state.kind === "ready";
 
@@ -116,10 +109,9 @@ export function UpdatesSection() {
           <div className={styles.row}>
             <span className={styles.rowLabel}>{t((d) => d.updater.autoCheck)}</span>
             <span className={styles.control}>
-              <SegmentedControl
-                segments={autoSegments}
-                value={autoCheck ? "on" : "off"}
-                onChange={(value) => setAutoCheck(value === "on")}
+              <Switch
+                checked={autoCheck}
+                onChange={setAutoCheck}
                 label={t((d) => d.updater.autoCheck)}
               />
             </span>
