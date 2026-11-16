@@ -485,8 +485,8 @@ test("socket: opens, queues early messages until a handler is set, sends text an
   assert.deepEqual(JSON.parse(close.msg.args), { socket: "s1", code: 1000, reason: "done" });
 });
 
-test("sdk version is 1.4.0", () => {
-  assert.equal(plisto.sdkVersion, "1.4.0");
+test("sdk version is 1.5.0", () => {
+  assert.equal(plisto.sdkVersion, "1.5.0");
 });
 
 // -- Review fixes --

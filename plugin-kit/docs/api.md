@@ -664,7 +664,7 @@ lists the fields. Do not use the topic `stream` for your own program's page even
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
-version is `plisto.sdkVersion` (`1.4.0`).
+version is `plisto.sdkVersion` (`1.5.0`).
 
 | Member | Meaning |
 | --- | --- |

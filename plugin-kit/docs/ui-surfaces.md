@@ -237,6 +237,22 @@ no `localStorage`, cookies or IndexedDB (use `plisto.storage`), and no form subm
 `confirm` or `prompt`, top-level navigation, downloads or pointer lock. A page cannot read Plisto's window or
 another plugin.
 
+### Scrollbars
+
+The SDK styles the page's scrollbars to match Plisto's own: 8 px wide, a rounded thumb, and a transparent
+track. The thumb shows while the pointer is over the scrolling area and is brighter under the pointer. The
+colours follow the theme and come from two custom properties, `--plisto-scroll-thumb` and
+`--plisto-scroll-thumb-hover`. Set them on `:root` to retint:
+
+```css
+:root { --plisto-scroll-thumb: rgba(0, 200, 255, 0.35); }
+```
+
+The SDK adds its rules as the first `<style>` in `<head>`, so your own `::-webkit-scrollbar` rules win,
+for the whole page or for one element. One exception: the thumb's colour under the pointer comes from
+`::-webkit-scrollbar-thumb:hover`, so set `--plisto-scroll-thumb-hover` or write your own `:hover` rule
+to change it.
+
 ## Which surface to use
 
 | You want to | Use |

@@ -25,9 +25,25 @@ globalThis.window = {
     if (type === "message") listener = fn;
   },
 };
-globalThis.document = { documentElement: { dataset: {} } };
+const existingLink = { tagName: "link" };
+const head = {
+  children: [existingLink],
+  insertBefore(node, ref) {
+    this.children.splice(this.children.indexOf(ref), 0, node);
+  },
+  get firstChild() {
+    return this.children[0] || null;
+  },
+};
+globalThis.document = {
+  documentElement: { dataset: {} },
+  head,
+  createElement: (tagName) => ({ tagName }),
+  getElementById: (id) => head.children.find((n) => n.id === id) || null,
+};
 const sdk = new URL("../sdk/plisto-sdk.js", import.meta.url);
-vm.runInThisContext(readFileSync(sdk, "utf8"), { filename: "plisto-sdk.js" });
+const sdkSource = readFileSync(sdk, "utf8");
+vm.runInThisContext(sdkSource, { filename: "plisto-sdk.js" });
 const plisto = globalThis.window.plisto;
 
 /** Delivers a host message to the SDK as the bridge would. */
@@ -40,6 +56,25 @@ function lastCall() {
   const calls = posted.filter((m) => m.type === "plisto:call");
   return calls[calls.length - 1];
 }
+
+// -- Scrollbar style --
+
+test("the scrollbar style is injected once, first in head, with a dark-theme rule", () => {
+  const styles = head.children.filter((n) => n.tagName === "style");
+  assert.equal(styles.length, 1);
+  assert.equal(head.children[0], styles[0]);
+  assert.match(styles[0].textContent, /::-webkit-scrollbar\{width:8px/);
+  assert.match(styles[0].textContent, /:root\[data-theme="dark"\]\)\{--plisto-scroll-thumb:/);
+  assert.doesNotMatch(styles[0].textContent, /scrollbar-(width|color)/);
+});
+
+test("loading the SDK a second time adds no second style", () => {
+  const firstListener = listener;
+  vm.runInThisContext(sdkSource, { filename: "plisto-sdk.js" });
+  assert.equal(head.children.filter((n) => n.tagName === "style").length, 1);
+  listener = firstListener;
+  globalThis.window.plisto = plisto;
+});
 
 // -- plisto.plugin.call --
 

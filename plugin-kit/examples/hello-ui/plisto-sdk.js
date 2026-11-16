@@ -47,7 +47,7 @@
   var resolveReady = null;
 
   var plisto = {
-    sdkVersion: "1.4.0",
+    sdkVersion: "1.5.0",
     info: null,
     pageOpen: false,
     route: null,
@@ -57,6 +57,34 @@
   plisto.ready = new Promise(function (resolve) {
     resolveReady = resolve;
   });
+
+  var SCROLLBAR_STYLE_ID = "plisto-sdk-scrollbars";
+  // Zero-specificity selectors and a first-in-head position, so any rule the page writes wins. The thumb is
+  // transparent until the pointer is over the scrolling element, as in Plisto's own scroll areas.
+  var SCROLLBAR_CSS =
+    ":where(:root){--plisto-scroll-thumb:rgba(28,26,64,0.2);--plisto-scroll-thumb-hover:rgba(28,26,64,0.38)}\n" +
+    ':where(:root[data-theme="dark"]){--plisto-scroll-thumb:rgba(255,255,255,0.16);--plisto-scroll-thumb-hover:rgba(255,255,255,0.3)}\n' +
+    "::-webkit-scrollbar{width:8px;height:8px;background:transparent}\n" +
+    "::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}\n" +
+    "::-webkit-scrollbar-button{display:none}\n" +
+    "::-webkit-scrollbar-thumb{background:transparent;border-radius:999px}\n" +
+    ":where(:hover)::-webkit-scrollbar-thumb{background:var(--plisto-scroll-thumb)}\n" +
+    "::-webkit-scrollbar-thumb:hover{background:var(--plisto-scroll-thumb-hover)}\n";
+
+  // Never throws: a page with an odd DOM just keeps the system scrollbar.
+  function injectScrollbarStyle() {
+    try {
+      if (document.getElementById(SCROLLBAR_STYLE_ID)) return;
+      var host = document.head || document.documentElement;
+      var style = document.createElement("style");
+      style.id = SCROLLBAR_STYLE_ID;
+      style.textContent = SCROLLBAR_CSS;
+      host.insertBefore(style, host.firstChild);
+    } catch (e) {
+      // Styling is cosmetic; the SDK starts regardless.
+    }
+  }
+  injectScrollbarStyle();
 
   function post(msg, transfer) {
     msg.plisto = PROTOCOL;

@@ -322,7 +322,7 @@ Six numbers are in play. This is the whole policy.
 | `api_version` | `app.info().api_version`, and `hello` | `1`. Within a version, methods and result fields are only added, never removed or changed in meaning. Ignore result fields you do not know. A removal or a change of meaning raises `api_version`. |
 | `hello.protocol`, `ready.protocol` | The native wire protocol | `1`. Adding a message type or a field does not raise it: both sides ignore what they do not know. A change to the frame format or to what a message means would. A program answers `ready` with the protocol it speaks. If it speaks another one than Plisto's, Plisto kills it and the start fails. A program that finds a `hello.protocol` or a `--plisto-protocol` argument other than the one it speaks should exit without sending `ready`, as tap-meter does for the argument. |
 | `layout_version` | The audio tap header | `1`. A change to the header, the records or the sample ring would be a new layout version. A reader must refuse a mapping whose version, capacity or segment count it does not know. |
-| `sdkVersion` | `plisto.sdkVersion` | The SDK's own number, currently `1.4.0`. A newer SDK is a drop-in replacement: copy the new `plisto-sdk.js` over yours. It does not depend on a Plisto version: it calls only what Plisto lists, and `plisto.has` tells you what that is. |
+| `sdkVersion` | `plisto.sdkVersion` | The SDK's own number, currently `1.5.0`. A newer SDK is a drop-in replacement: copy the new `plisto-sdk.js` over yours. It does not depend on a Plisto version: it calls only what Plisto lists, and `plisto.has` tells you what that is. |
 | Your `version` | `plugin.json` | Semantic versioning. Raise it for every release, or Plisto cannot tell an update from a reinstall. |
 
 - `min_plisto` says which Plisto you need. Plisto refuses to install or turn on a plugin that needs a newer
@@ -335,8 +335,8 @@ Six numbers are in play. This is the whole policy.
 ### SDK changelog
 
 The SDK file carries the version in `sdkVersion`. This is what each version added, from the kit's history.
-Version 1.4.0 is still the number on the file after the later additions below, so compare behaviour with
-`plisto.has` and not with the version string.
+The additions listed after 1.4.0 arrived without a new number, so a file that says 1.4.0 may or may not have
+them: compare behaviour with `plisto.has` and not with the version string.
 
 - **1.1.0.** The first release: `plisto.call`, `ready`, `info`, `has`, `on` (`theme`, `visibility`, `route`,
   `sidebar`), and the helpers for `app`, `storage`, `log` and `ui` (toast, confirm, chips, sidebar update,
@@ -351,3 +351,5 @@ Version 1.4.0 is still the number on the file after the later additions below, s
   exists, or copy the current file. The SDK also acknowledges socket messages with `net.socket.ack`, which a
   socket needs to keep receiving past 2 MiB; the version string did not change for it, so copy the current
   file for any plugin that uses `plisto.net.socket`.
+- **1.5.0.** The SDK styles the page's scrollbars to match Plisto (see
+  [UI surfaces](ui-surfaces.md#scrollbars)). It includes everything listed above.
