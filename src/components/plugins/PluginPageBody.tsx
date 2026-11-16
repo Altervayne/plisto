@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 // -- Component Imports --
 import { CrashCard } from "./CrashCard";
 import { NotRespondingOverlay } from "./frames/NotRespondingOverlay";
+import { StaffSpinner } from "../scan/StaffSpinner";
 
 // -- Utils Imports --
 import { disablePlugin } from "./frames/disablePlugin";
@@ -21,9 +22,9 @@ import { useT } from "../../i18n";
 import styles from "./PluginPage.module.css";
 
 /**
- * What the page's recess holds in place of the plugin's own content: the Starting card, the crash card,
- * the could-not-start card, the not-responding overlay of a plugin without a frame, or the unavailable
- * line. A framed plugin's content is its frame, drawn over the recess by the frame layer, so a running
+ * What the page's recess holds in place of the plugin's own content: the Starting card (with a spinner
+ * that appears after a short wait), the crash card, the could-not-start card, the not-responding
+ * overlay of a plugin without a frame, or the unavailable line. A framed plugin's content is its frame, drawn over the recess by the frame layer, so a running
  * one leaves the recess empty. A plugin without a frame has no page to show yet, so it reads as
  * unavailable while running.
  */
@@ -54,6 +55,9 @@ export function PluginPageBody({
     case "starting":
       return (
         <div className={styles.card}>
+          <div className={styles.spinnerSlot}>
+            <StaffSpinner />
+          </div>
           <h2 className={styles.cardTitle}>{t((d) => d.plugins.frame.starting, { name })}</h2>
           <p className={styles.cardLine}>{t((d) => d.plugins.frame.startingLine)}</p>
         </div>

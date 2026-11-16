@@ -1,12 +1,11 @@
-/* The details panel under an open row: a soft recess holding what the plugin can do, who made it and its actions. */
+/* The details under an open row, inside the row's own surface: what the plugin can do, who made it and
+ * its actions. The left padding is 8px row padding + 32px icon + 12px gap, so text starts on the name's
+ * column; the right edge keeps the row's 8px. */
 .panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: 2px 8px 10px;
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  background: var(--veil);
+  padding: 4px 8px 14px 52px;
 }
 
 .facts {

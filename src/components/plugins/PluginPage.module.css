@@ -88,7 +88,7 @@
   color: var(--ink-3);
 }
 
-/* The Starting card: static text, no spinner. */
+/* The Starting card: the staff spinner over a title and a line. */
 .card {
   display: flex;
   flex-direction: column;
@@ -96,6 +96,29 @@
   gap: 10px;
   max-width: 440px;
   text-align: center;
+}
+
+/* Its height is reserved from the first frame; the spinner fades in only if the wait outlasts the delay,
+ * so a page that answers at once shows none. */
+.spinnerSlot {
+  height: 44px;
+  margin-bottom: 6px;
+  animation: spinnerIn var(--dur-fast) ease 350ms both;
+}
+
+@keyframes spinnerIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinnerSlot {
+    animation: none;
+  }
 }
 
 .cardTitle {

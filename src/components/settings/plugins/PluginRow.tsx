@@ -105,7 +105,7 @@ export function PluginRow({
   }, [focus, row.id, clearFocus]);
 
   return (
-    <div className={`${styles.wrap} ${open ? styles.open : ""}`}>
+    <div className={`${styles.wrap} ${open && view.expandable ? styles.open : ""}`}>
       <div className={`${styles.row} ${view.grey ? styles.grey : ""}`}>
         <PluginIcon
           source={row.manifest ? { kind: "installed", id: row.id, hash: row.manifest_hash } : null}

@@ -1,11 +1,18 @@
 /*
  * One installed plugin: an icon tile, its name with tag and version over a single status line, and the
- * one inline action. A details panel opens in a soft recess under the row. Long names and statuses
- * truncate or wrap so a row never outgrows the column.
+ * one inline action. An open row and its details panel form one veiled surface carried by the wrap. Long
+ * names and statuses truncate or wrap so a row never outgrows the column.
  */
 .wrap {
   display: flex;
   flex-direction: column;
+}
+
+/* The open wrap is the single surface; the margin keeps neighbouring open rows from fusing. */
+.open {
+  margin: 4px 0;
+  border-radius: var(--r-md);
+  background: var(--veil);
 }
 
 .row {
@@ -18,7 +25,7 @@
   transition: background var(--dur-fast) ease;
 }
 
-.row:hover {
+.wrap:not(.open) .row:hover {
   background: var(--veil);
 }
 
