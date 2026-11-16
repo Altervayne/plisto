@@ -6,6 +6,7 @@ import { PluginTag } from "../../../plugins/PluginTag";
 import { useProbe } from "../../../../state/plugins/sandboxStore";
 
 // -- Utils Imports --
+import { authorChanged } from "../../../../state/plugins/review";
 import { tagKind } from "../../../../state/plugins/trust";
 
 // -- i18n Imports --
@@ -43,6 +44,14 @@ export function SheetHeader({
           <span className={styles.version}>{subject.version}</span>
         </div>
         <div className={styles.byline}>{t((d) => d.plugins.sheet.byline, { author: subject.author })}</div>
+        {authorChanged(subject) ? (
+          <p className={`${styles.note} ${styles.warnNote}`}>
+            {t((d) => d.plugins.sheet.authorChanged, {
+              author: subject.author,
+              previous: subject.previous!.author,
+            })}
+          </p>
+        ) : null}
       </div>
     </div>
   );

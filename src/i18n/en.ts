@@ -1523,6 +1523,10 @@ export const en = {
       changeUpgrade: "This replaces version {previous} with {version}.",
       changeDowngrade:
         "This version is older than the installed {previous}. Updating replaces the newer one with {version}.",
+      authorChanged: "New author: this version names {author}. The previous version named {previous}.",
+      leftoverNote:
+        "Plisto still holds data saved earlier by a plugin with this id. This plugin will be able to read it.",
+      leftoverClear: "Delete that data before installing",
       changeSame: "This reinstalls version {previous}.",
       changeUnknown: "This replaces the version you have installed.",
       canLabel: "This plugin can",

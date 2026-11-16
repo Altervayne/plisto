@@ -1225,9 +1225,12 @@ export function pluginInspect(path: string): Promise<PluginInspection> {
   return invoke<PluginInspection>("plugin_inspect", { path });
 }
 
-/** Installs an inspected plugin, turned off and needing consent. Returns its row. */
-export function pluginInstall(token: string): Promise<PluginRow> {
-  return invoke<PluginRow>("plugin_install", { token });
+/**
+ * Installs an inspected plugin, turned off and needing consent. `clearData` deletes the data saved under
+ * the same id first, so the plugin does not inherit it. Returns its row.
+ */
+export function pluginInstall(token: string, clearData: boolean): Promise<PluginRow> {
+  return invoke<PluginRow>("plugin_install", { token, clearData });
 }
 
 /** Drops an inspected plugin and its staged copy. */

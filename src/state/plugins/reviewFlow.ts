@@ -49,8 +49,8 @@ export interface ReviewFlow {
   inspect: (path: string) => Promise<void>;
   /** Opens the review of an installed plugin. False when its manifest cannot be read, so none opened. */
   openReview: (row: PluginRow, previous?: ReviewPrevious | null, lead?: ReviewLead) => boolean;
-  /** Runs the open review's confirm. `ticked` is the "I understand" box. */
-  confirm: (ticked: boolean) => Promise<void>;
+  /** Runs the open review's confirm. `ticked` is the "I understand" box, `clearData` the delete-saved-data box. */
+  confirm: (ticked: boolean, clearData?: boolean) => Promise<void>;
   /** Closes the sheet. Held while a command is running. */
   close: () => void;
   /** Marks the flow as owned again (a remount); `dispose` undoes it. */
@@ -155,11 +155,11 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
     }
   };
 
-  const install = async (s: ReviewState, ticked: boolean) => {
+  const install = async (s: ReviewState, ticked: boolean, clearData: boolean) => {
     setPhase("installing");
     let row: PluginRow;
     try {
-      row = await pluginInstall(s.token!);
+      row = await pluginInstall(s.token!, s.subject.leftoverData && clearData);
     } catch (e) {
       const key = logInstallError("install", e);
       if (key === "already_installed") {
@@ -188,7 +188,11 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
         show(null);
         return;
       }
-      const previous = { ...(s.subject.previous ?? previousFromRow(undefined)), version: done.previous_version };
+      const previous = {
+        ...(s.subject.previous ?? previousFromRow(undefined)),
+        version: done.previous_version,
+        author: done.previous_author,
+      };
       if (!openReview(done.row, previous, "updated")) showNotice("updatedUnreadable", s.subject.name);
     } catch (e) {
       discardQuietly(s.token!);
@@ -196,13 +200,13 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
     }
   };
 
-  const confirm = async (ticked: boolean) => {
+  const confirm = async (ticked: boolean, clearData = false) => {
     if (!sheet || sheet.kind !== "review" || sheet.phase !== "idle") return;
     const s = sheet;
     await lock.run(async () => {
       if (s.mode === "update") await update(s);
       else if (consentCommand(s.mode) === "enable") await consentReviewed("enable", s.subject, s.hash!, ticked);
-      else await install(s, ticked);
+      else await install(s, ticked, clearData);
     });
   };
 

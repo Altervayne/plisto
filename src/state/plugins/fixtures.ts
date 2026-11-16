@@ -55,6 +55,7 @@ export const inspection = (over: Partial<PluginInspection> = {}): PluginInspecti
   installed: null,
   origins: ["lyrics.example.com", "notes.example.com"],
   sidebar_items: 1,
+  leftover_data: false,
   ...over,
 });
 

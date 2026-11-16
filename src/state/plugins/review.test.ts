@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   afterUpdate,
+  authorChanged,
   canConfirm,
   consentCommand,
   enableArgs,
@@ -38,7 +39,32 @@ describe("the subject of a review", () => {
       version: "1.3.0",
       capabilities: ["playback.read", "network"],
       origins: ["lyrics.example.com"],
+      author: "Lyric Works",
     });
+  });
+
+  it("marks leftover data for an install only, never an update or an installed row", () => {
+    expect(subjectFromInspection(inspection({ leftover_data: true })).leftoverData).toBe(true);
+    expect(subjectFromInspection(inspection({ leftover_data: false })).leftoverData).toBe(false);
+    expect(subjectFromInspection(inspection({ leftover_data: true, installed: "1.3.0" }), row()).leftoverData).toBe(false);
+    expect(subjectFromRow(row())?.leftoverData).toBe(false);
+  });
+
+  it("carries the previous author from the installed row, and none when there is no row", () => {
+    expect(subjectFromInspection(inspection({ installed: "1.3.0" }), row()).previous?.author).toBe("Lyric Works");
+    expect(subjectFromInspection(inspection({ installed: "1.3.0" })).previous?.author).toBe("");
+  });
+
+  it("flags an author change only when both authors are known and differ", () => {
+    const from = (author: string) => ({ ...subjectFromInspection(inspection({ installed: "1.3.0" }), row()), author });
+    const withPrev = (author: string) => {
+      const s = from("Lyric Works");
+      return { ...s, previous: { ...s.previous!, author } };
+    };
+    expect(authorChanged(withPrev("Someone Else"))).toBe(true);
+    expect(authorChanged(withPrev("Lyric Works"))).toBe(false);
+    expect(authorChanged(withPrev(""))).toBe(false);
+    expect(authorChanged(subjectFromInspection(inspection()))).toBe(false);
   });
 
   it("records no approval for an installed plugin that was never approved", () => {
@@ -153,8 +179,8 @@ describe("the flow decisions", () => {
   });
 
   it("goes straight to a permission review when an update comes back needing consent", () => {
-    expect(afterUpdate({ row: row({ state: "needs_consent" }), previous_version: "1.3.0" })).toBe("consent");
-    expect(afterUpdate({ row: row(), previous_version: "1.3.0" })).toBe("done");
+    expect(afterUpdate({ row: row({ state: "needs_consent" }), previous_version: "1.3.0", previous_author: "Lyric Works" })).toBe("consent");
+    expect(afterUpdate({ row: row(), previous_version: "1.3.0", previous_author: "Lyric Works" })).toBe("done");
   });
 
   it("reopens the review on a manifest that changed or a plugin that was busy, and no other refusal", () => {

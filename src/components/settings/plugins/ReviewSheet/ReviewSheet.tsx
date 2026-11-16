@@ -55,7 +55,7 @@ export function ReviewSheet({
   onClose,
 }: {
   state: SheetState;
-  onConfirm: (ticked: boolean) => void;
+  onConfirm: (ticked: boolean, clearData: boolean) => void;
   onClose: () => void;
 }) {
   const titleId = useId();

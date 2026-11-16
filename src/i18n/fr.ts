@@ -1542,6 +1542,11 @@ export const fr: Dict = {
       changeUpgrade: "Remplace la version {previous} par la {version}.",
       changeDowngrade:
         "Cette version est plus ancienne que la {previous} installée. La mise à jour remplace la plus récente par la {version}.",
+      authorChanged:
+        "Nouvel auteur : cette version nomme {author}. La version précédente nommait {previous}.",
+      leftoverNote:
+        "Plisto conserve encore des données enregistrées plus tôt par un plugin portant cet identifiant. Ce plugin pourra les lire.",
+      leftoverClear: "Supprimer ces données avant l'installation",
       changeSame: "Réinstalle la version {previous}.",
       changeUnknown: "Remplace la version que vous avez installée.",
       canLabel: "Ce plugin peut",

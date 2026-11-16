@@ -199,7 +199,7 @@ export function PluginsSection() {
       ) : null}
 
       {flow.sheet ? (
-        <ReviewSheet state={flow.sheet} onConfirm={(ticked) => void flow.confirm(ticked)} onClose={flow.close} />
+        <ReviewSheet state={flow.sheet} onConfirm={(ticked, clearData) => void flow.confirm(ticked, clearData)} onClose={flow.close} />
       ) : null}
     </section>
   );

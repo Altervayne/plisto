@@ -21,7 +21,7 @@ import styles from "./ReviewSheet.module.css";
 
 /**
  * The foot of a review: the "I understand" tick where the confirm turns the plugin on and the variant
- * is not calm, a line saying what the confirm does, and Cancel beside the confirm. The confirm stays
+ * is not calm, for an install over leftover saved data the note and the clear-data tick (off by default), a line saying what the confirm does, and Cancel beside the confirm. The confirm stays
  * off until the tick is set, and for a plugin this Plisto cannot run. Focus starts on Cancel.
  */
 export function ReviewActions({
@@ -32,11 +32,13 @@ export function ReviewActions({
 }: {
   subject: ReviewSubject;
   mode: ReviewMode;
-  onConfirm: (ticked: boolean) => void;
+  onConfirm: (ticked: boolean, clearData: boolean) => void;
   onCancel: () => void;
 }) {
   const t = useT();
   const [ticked, setTicked] = useState(false);
+  const [clearData, setClearData] = useState(false);
+  const leftover = mode === "install" && subject.leftoverData;
   const probe = useProbe();
   const tick = needsTick(subject, mode, probe);
   const compatible = isCompatible(subject);
@@ -44,6 +46,12 @@ export function ReviewActions({
 
   return (
     <div className={styles.footer}>
+      {leftover ? (
+        <>
+          <p className={styles.note}>{t((d) => d.plugins.sheet.leftoverNote)}</p>
+          <CheckRow checked={clearData} onChange={setClearData} label={t((d) => d.plugins.sheet.leftoverClear)} />
+        </>
+      ) : null}
       {tick ? (
         <CheckRow checked={ticked} onChange={setTicked} label={t((d) => d.plugins.sheet.understand)} />
       ) : null}
@@ -64,7 +72,7 @@ export function ReviewActions({
           type="button"
           className={styles.confirm}
           disabled={!canConfirm(subject, mode, ticked, false, probe)}
-          onClick={() => onConfirm(ticked)}
+          onClick={() => onConfirm(ticked, leftover && clearData)}
         >
           {mode === "install"
             ? t((d) => d.plugins.sheet.install)

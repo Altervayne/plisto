@@ -17,6 +17,7 @@ vi.mock("./usePluginsSync", () => ({ reloadPlugins }));
 
 // -- Unit Imports --
 import { createReviewFlow } from "./reviewFlow";
+import { needsTick } from "./review";
 import { createLock } from "./operationLock";
 import { usePluginsStore } from "./store";
 import { inspection, row } from "./fixtures";
@@ -93,6 +94,37 @@ describe("a new install", () => {
   });
 });
 
+describe("an install over leftover saved data", () => {
+  const install = async (leftover: boolean, clearData?: boolean) => {
+    await openInstall({ leftover_data: leftover });
+    ipc.pluginInstall.mockResolvedValue(pending({ manifest_hash: "h" }));
+    ipc.pluginApprove.mockResolvedValue(ready());
+    await flow.confirm(false, clearData);
+  };
+
+  it("sends clearData true only when the note was shown and the box ticked", async () => {
+    await install(true, true);
+    expect(ipc.pluginInstall).toHaveBeenCalledWith("tok", true);
+  });
+
+  it("sends false when the box is left unticked", async () => {
+    await install(true, false);
+    expect(ipc.pluginInstall).toHaveBeenCalledWith("tok", false);
+  });
+
+  it("sends false when there was no leftover data, whatever the box says", async () => {
+    await install(false, true);
+    expect(ipc.pluginInstall).toHaveBeenCalledWith("tok", false);
+  });
+
+  it("shows the install error when the data could not be deleted", async () => {
+    await openInstall({ leftover_data: true });
+    ipc.pluginInstall.mockRejectedValue({ code: "io", detail: "data" });
+    await flow.confirm(false, true);
+    expect(notice()).toMatchObject({ notice: "install", error: "io" });
+  });
+});
+
 describe("an update", () => {
   const installedRow = () => row({ enabled: true });
 
@@ -100,16 +132,46 @@ describe("an update", () => {
     usePluginsStore.getState().applyRows([installedRow()]);
     await openInstall({ installed: "1.3.0" });
     expect(review().mode).toBe("update");
-    ipc.pluginUpdate.mockResolvedValue({ row: pending({ manifest_hash: "h2", version: "1.4.0" }), previous_version: "1.3.0" });
+    ipc.pluginUpdate.mockResolvedValue({ row: pending({ manifest_hash: "h2", version: "1.4.0" }), previous_version: "1.3.0", previous_author: "Lyric Works" });
     await flow.confirm(false);
     expect(review()).toMatchObject({ mode: "consent", hash: "h2", lead: "updated", phase: "idle", token: null });
     expect(review().subject.previous?.version).toBe("1.3.0");
   });
 
+  it("carries the replaced version's author into the follow-up review", async () => {
+    usePluginsStore.getState().applyRows([installedRow()]);
+    await openInstall({ installed: "1.3.0" });
+    ipc.pluginUpdate.mockResolvedValue({
+      row: pending({ manifest_hash: "h2", version: "1.4.0" }),
+      previous_version: "1.3.0",
+      previous_author: "Old Author",
+    });
+    await flow.confirm(false);
+    expect(review().subject.previous?.author).toBe("Old Author");
+  });
+
+  it("lands a native update in the consent sheet and requires the acknowledgement", async () => {
+    const native = (over = {}) => row({ tier: "native", enabled: true, ...over });
+    usePluginsStore.getState().applyRows([native()]);
+    await openInstall({ installed: "1.3.0", tier: "native", native_reason: "Needs devices." });
+    ipc.pluginUpdate.mockResolvedValue({
+      row: pending({ tier: "native", manifest_hash: "h3", version: "1.4.0" }),
+      previous_version: "1.3.0",
+      previous_author: "Lyric Works",
+    });
+    await flow.confirm(false);
+    expect(review()).toMatchObject({ mode: "consent", lead: "updated", phase: "idle" });
+    expect(review().subject.tier).toBe("native");
+    expect(needsTick(review().subject, review().mode, "passed")).toBe(true);
+    ipc.pluginEnable.mockResolvedValue(native({ manifest_hash: "h3" }));
+    await flow.confirm(true);
+    expect(ipc.pluginEnable.mock.calls[0][2]).toBe(true);
+  });
+
   it("closes when the update keeps consent", async () => {
     usePluginsStore.getState().applyRows([installedRow()]);
     await openInstall({ installed: "1.3.0" });
-    ipc.pluginUpdate.mockResolvedValue({ row: installedRow(), previous_version: "1.3.0" });
+    ipc.pluginUpdate.mockResolvedValue({ row: installedRow(), previous_version: "1.3.0", previous_author: "Lyric Works" });
     await flow.confirm(false);
     expect(flow.getSheet()).toBeNull();
   });
@@ -117,7 +179,7 @@ describe("an update", () => {
   it("ends in a closable notice when the updated plugin cannot be read for review", async () => {
     usePluginsStore.getState().applyRows([installedRow()]);
     await openInstall({ installed: "1.3.0" });
-    ipc.pluginUpdate.mockResolvedValue({ row: pending({ manifest: null }), previous_version: "1.3.0" });
+    ipc.pluginUpdate.mockResolvedValue({ row: pending({ manifest: null }), previous_version: "1.3.0", previous_author: "Lyric Works" });
     await flow.confirm(false);
     expect(notice().notice).toBe("updatedUnreadable");
     flow.close();

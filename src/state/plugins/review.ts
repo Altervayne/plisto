@@ -35,6 +35,8 @@ export interface ReviewPrevious {
   version: string;
   capabilities: PluginCapability[] | null;
   origins: string[];
+  /** Empty when unknown. */
+  author: string;
 }
 
 /** Everything a review sheet renders, as plain data. */
@@ -51,6 +53,8 @@ export interface ReviewSubject {
   nativeReason: string | null;
   compat: PluginCompat;
   previous: ReviewPrevious | null;
+  /** An install whose id still has saved data from an earlier plugin. Never set for an installed row. */
+  leftoverData: boolean;
 }
 
 /**
@@ -62,8 +66,13 @@ export function previousFromRow(row: PluginRow | undefined, version = ""): Revie
     version: version || row?.version || "",
     capabilities: row && row.state === "ready" ? row.granted : null,
     origins: row?.manifest?.origins ?? [],
+    author: row?.manifest?.author ?? "",
   };
 }
+
+/** Whether the plugin names another author than the version it replaces. Unknown is not a change. */
+export const authorChanged = (subject: ReviewSubject): boolean =>
+  !!subject.previous?.author && subject.previous.author !== subject.author;
 
 /** The subject of an inspected plugin. An installed row of the same id supplies what was approved. */
 export function subjectFromInspection(
@@ -83,6 +92,7 @@ export function subjectFromInspection(
     compat: inspection.compat,
     previous:
       inspection.installed === null ? null : previousFromRow(installed, inspection.installed),
+    leftoverData: inspection.installed === null && inspection.leftover_data,
   };
 }
 
@@ -102,6 +112,7 @@ export function subjectFromRow(row: PluginRow, previous: ReviewPrevious | null =
     nativeReason: m.native_reason,
     compat: m.compat,
     previous,
+    leftoverData: false,
   };
 }
 

@@ -1412,6 +1412,8 @@ export interface PluginInspection {
   installed: string | null;
   origins: string[];
   sidebar_items: number;
+  /** True when the id is not installed but a saved-data folder already exists for it. */
+  leftover_data: boolean;
 }
 
 /** What waits in the plugins inbox folder. Mirrors InboxItem in install.rs. */
@@ -1425,6 +1427,8 @@ export interface PluginInboxItem {
 export interface PluginUpdated {
   row: PluginRow;
   previous_version: string;
+  /** The author of the replaced version; empty when its manifest no longer validates. */
+  previous_author: string;
 }
 
 /** The end of a plugin's logs. Mirrors LogTail in log_tail.rs; `stderr` is null for a UI plugin. */
