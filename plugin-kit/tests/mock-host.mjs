@@ -146,3 +146,20 @@ test("the mock frames the page with the host's sandbox attribute and loads nothi
   assert.equal(/(?:src|href)="https?:/.test(mock), false, "the mock must not load remote files");
   assert.equal(/[^\x00-\x7f]/.test(mock), false, "the mock must be ASCII only");
 });
+
+test("the mock refuses a queue change without both playback.control and library.read", () => {
+  assert.deepEqual(quotedList('needs("playback.control"').slice(-3), ["queue.play", "queue.add", "queue.play_next"]);
+  assert.deepEqual(quotedList('alsoNeeds("library.read"'), ["queue.play", "queue.add", "queue.play_next"]);
+  // Every capability a method needs must be held: the check lists the missing ones.
+  assert.match(mock, /\(NEEDS\[method\] \|\| \[\]\)\.filter\(/);
+  assert.match(mock, /missing\.length/);
+});
+
+test("the mock mirrors the frame message budget and the one open toast of a plugin", () => {
+  assert.match(mock, /var FRAME_BURST = 200;/);
+  assert.match(mock, /var FRAME_REFILL_PER_SEC = 100;/);
+  assert.match(mock, /var PONG_BURST = 5;/);
+  assert.match(mock, /var PONG_REFILL_PER_SEC = 2;/);
+  assert.match(mock, /if \(!frameAdmits\(isObj\(d\) && d\.type === "plisto:pong"\)\) return;/);
+  assert.match(mock, /var TOASTS_MAX = 1;/);
+});

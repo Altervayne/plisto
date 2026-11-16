@@ -36,6 +36,16 @@ function host(data) {
   listener({ source: parent, data: { plisto: 1, ...data } });
 }
 
+// The SDK's timers (call timeouts, acknowledgement retries) must not keep the process alive when a test
+// leaves a socket open, so they are unref'd. The test's own waits use the real timer.
+const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (...args) => {
+  const handle = realSetTimeout(...args);
+  if (handle && typeof handle.unref === "function") handle.unref();
+  return handle;
+};
+const sleep = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Waits for the next call to `method`, answers it with `result` (or an error) and returns what was posted. */
@@ -43,7 +53,7 @@ async function answer(method, result, error) {
   let found;
   for (let i = 0; i < 400 && !found; i++) {
     found = posted.find((p) => p.msg.type === "plisto:call" && p.msg.method === method && !p.answered);
-    if (!found) await new Promise((resolve) => setTimeout(resolve, 10));
+    if (!found) await sleep(10);
   }
   assert.ok(found, "no call to " + method);
   found.answered = true;
@@ -759,4 +769,95 @@ test("socket: the held queue is capped by bytes too", async () => {
   let count = 0;
   socket.onmessage = () => count++;
   assert.equal(count, 4);
+});
+
+// -- Socket acknowledgements --
+
+/** The net.socket.ack calls posted for socket `id`, in order, with their parsed arguments. */
+function socketAcks(id) {
+  return posted
+    .filter((p) => p.msg.type === "plisto:call" && p.msg.method === "net.socket.ack")
+    .map((p) => ({ call: p, args: JSON.parse(p.msg.args) }))
+    .filter((a) => a.args.socket === id);
+}
+
+/** Waits until socket `id` has at least `n` acknowledgement calls, and returns them. */
+async function waitForAcks(id, n) {
+  for (let i = 0; i < 100 && socketAcks(id).length < n; i++) await sleep(10);
+  return socketAcks(id);
+}
+
+function reply(call, error) {
+  if (error) host({ type: "plisto:result", id: call.msg.id, ok: false, error });
+  else host({ type: "plisto:result", id: call.msg.id, ok: true, result: {} });
+}
+
+test("socket ack: the running total counts UTF-8 bytes of text and the byte length of binary", async () => {
+  const socket = await openSocket("a1");
+  socket.onmessage = () => {};
+  // "h", "e acute" (2 bytes), "l", "l", "o", "euro" (3 bytes): 9 bytes in 6 characters.
+  const word = "h" + String.fromCharCode(0xe9) + "llo" + String.fromCharCode(0x20ac);
+  host({ type: "plisto:socket", socket: "a1", kind: "text", data: word });
+  host({ type: "plisto:socket", socket: "a1", kind: "binary", data: buf("12345") });
+  assert.deepEqual(socketAcks("a1"), [], "small messages wait for the delay");
+  const first = await waitForAcks("a1", 1);
+  assert.equal(first.length, 1, "both messages go out in one acknowledgement");
+  assert.equal(first[0].args.bytes, 14);
+  reply(first[0].call);
+  host({ type: "plisto:socket", socket: "a1", kind: "text", data: "ab" });
+  const second = await waitForAcks("a1", 2);
+  assert.equal(second[1].args.bytes, 16, "the total is running, not a delta");
+  reply(second[1].call);
+});
+
+test("socket ack: a burst past 256 KiB is acknowledged at once", async () => {
+  const socket = await openSocket("a2");
+  socket.onmessage = () => {};
+  host({ type: "plisto:socket", socket: "a2", kind: "binary", data: new Uint8Array(262144).buffer });
+  const acks = socketAcks("a2");
+  assert.equal(acks.length, 1);
+  assert.equal(acks[0].args.bytes, 262144);
+  reply(acks[0].call);
+});
+
+test("socket ack: a held message is acknowledged once handed over, and a dropped one at its drop", async () => {
+  const socket = await openSocket("a3");
+  for (let i = 0; i < 150; i++) host({ type: "plisto:socket", socket: "a3", kind: "text", data: "m" });
+  // 50 of the 150 fell out of the held queue: they count, the 100 still held do not.
+  const dropped = await waitForAcks("a3", 1);
+  assert.equal(dropped[0].args.bytes, 50);
+  reply(dropped[0].call);
+  socket.onmessage = () => {};
+  const handed = await waitForAcks("a3", 2);
+  assert.equal(handed[1].args.bytes, 150);
+  reply(handed[1].call);
+});
+
+test("socket ack: no message is acknowledged while no handler is set", async () => {
+  await openSocket("a4");
+  host({ type: "plisto:socket", socket: "a4", kind: "text", data: "waiting" });
+  await sleep(400);
+  assert.deepEqual(socketAcks("a4"), []);
+});
+
+test("socket ack: nothing is sent after the socket closed", async () => {
+  const socket = await openSocket("a5");
+  socket.onmessage = () => {};
+  host({ type: "plisto:socket", socket: "a5", kind: "text", data: "last" });
+  host({ type: "plisto:socket", socket: "a5", kind: "close", code: 1000, reason: "", clean: true });
+  await sleep(400);
+  assert.deepEqual(socketAcks("a5"), []);
+});
+
+test("socket ack: a retryable failure is sent again, a final one is not", async () => {
+  const socket = await openSocket("a6");
+  socket.onmessage = () => {};
+  host({ type: "plisto:socket", socket: "a6", kind: "text", data: "abc" });
+  const first = await waitForAcks("a6", 1);
+  reply(first[0].call, { code: "busy", message: "busy" });
+  const again = await waitForAcks("a6", 2);
+  assert.equal(again[1].args.bytes, 3);
+  reply(again[1].call, { code: "not_found", message: "gone" });
+  await sleep(400);
+  assert.equal(socketAcks("a6").length, 2, "not_found ends the retries");
 });

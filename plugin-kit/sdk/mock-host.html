@@ -189,7 +189,27 @@ progress { width: 120px; }
   var METHOD_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}$/;
   var GESTURE_MS = 5000;
   var TOAST_MS = 4000;
-  var TOASTS_MAX = 4;
+  // One toast open per plugin; the mock hosts one plugin.
+  var TOASTS_MAX = 1;
+  // A frame's message budget: a burst, then a refill each second. A message past it is dropped unanswered.
+  var FRAME_BURST = 200;
+  var FRAME_REFILL_PER_SEC = 100;
+  // Heartbeat pongs have a bucket of their own, so a busy page still shows as responding.
+  var PONG_BURST = 5;
+  var PONG_REFILL_PER_SEC = 2;
+  var buckets = {
+    other: { tokens: FRAME_BURST, at: Date.now(), burst: FRAME_BURST, perSec: FRAME_REFILL_PER_SEC },
+    pong: { tokens: PONG_BURST, at: Date.now(), burst: PONG_BURST, perSec: PONG_REFILL_PER_SEC }
+  };
+  function frameAdmits(isPong) {
+    var b = isPong ? buckets.pong : buckets.other;
+    var now = Date.now();
+    b.tokens = Math.min(b.burst, b.tokens + (Math.max(0, now - b.at) * b.perSec) / 1000);
+    b.at = now;
+    if (b.tokens < 1) return false;
+    b.tokens -= 1;
+    return true;
+  }
 
   // Every capability value Plisto knows. Used when plugin.json cannot be read.
   var ALL_CAPS = [
@@ -205,14 +225,19 @@ progress { width: 120px; }
     "net.stream.ack",
     "net.stream.cancel",
     "net.socket.open",
+    "net.socket.ack",
     "net.socket.send",
     "net.socket.close"
   ];
 
-  // The capability each method needs; a method not listed needs none.
+  // The capabilities each method needs, all of them; a method not listed needs none.
   var NEEDS = {};
   function needs(cap, names) {
-    names.forEach(function (n) { NEEDS[n] = cap; });
+    names.forEach(function (n) { NEEDS[n] = [cap]; });
+  }
+  // Adds a capability the methods need besides the one `needs` gave them.
+  function alsoNeeds(cap, names) {
+    names.forEach(function (n) { NEEDS[n].push(cap); });
   }
   needs("storage", ["storage.get", "storage.set", "storage.remove", "storage.keys", "storage.clear", "storage.usage"]);
   needs("ui.toast", ["ui.toast"]);
@@ -228,6 +253,8 @@ progress { width: 120px; }
     "playback.toggle", "playback.pause", "playback.resume", "playback.next", "playback.prev", "playback.seek",
     "queue.play", "queue.add", "queue.play_next"
   ]);
+  // A queue change names tracks by library id, so it also needs the library.
+  alsoNeeds("library.read", ["queue.play", "queue.add", "queue.play_next"]);
   needs("playback.stream", [
     "stream.play", "stream.update", "stream.push", "stream.end", "stream.pause", "stream.resume", "stream.stop",
     "stream.state"
@@ -1229,9 +1256,9 @@ progress { width: 120px; }
     var stub = notImplemented(method);
     if (!known && !stub) return Promise.resolve(err("unknown_method", "Plisto has no method " + method + ".", null));
     if (argsText.length > ARGS_MAX_CHARS) return Promise.resolve(err("too_large", "The arguments are too large.", null));
-    var need = NEEDS[method];
-    if (need && state.granted.indexOf(need) < 0) {
-      return Promise.resolve(err("denied", "The plugin does not hold " + need + ".", null));
+    var missing = (NEEDS[method] || []).filter(function (cap) { return state.granted.indexOf(cap) < 0; });
+    if (missing.length) {
+      return Promise.resolve(err("denied", "The plugin does not hold " + missing.join(" and ") + ".", null));
     }
     if (stub) {
       return Promise.resolve(err("unavailable", "Mock host: " + method + " is not implemented here. Test it in Plisto.", null, true));
@@ -1275,6 +1302,7 @@ progress { width: 120px; }
   window.addEventListener("message", function (event) {
     if (event.source !== frame.contentWindow || event.origin !== "null") return;
     var d = event.data;
+    if (!frameAdmits(isObj(d) && d.type === "plisto:pong")) return;
     if (!isObj(d) || d.plisto !== PROTOCOL) return;
     if (d.type === "plisto:pong") {
       state.lastPong = Date.now();

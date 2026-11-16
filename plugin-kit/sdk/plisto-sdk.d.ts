@@ -624,6 +624,12 @@ export interface NetSocketOpenResult {
   protocol: string | null;
 }
 /** Exactly one of `text` and `data_b64`, each at most 64 KiB. */
+export interface NetSocketAckArgs {
+  socket: string;
+  /** Total payload bytes of the messages the page has taken so far; never decreases, never above what was delivered. */
+  bytes: number;
+}
+
 export interface NetSocketSendArgs {
   socket: string;
   text?: string;
@@ -784,6 +790,7 @@ export interface PlistoMethods {
   "net.stream.ack": { args: NetStreamAckArgs; result: EmptyResult };
   "net.stream.cancel": { args: NetStreamCancelArgs; result: EmptyResult };
   "net.socket.open": { args: NetSocketOpenArgs; result: NetSocketOpenResult };
+  "net.socket.ack": { args: NetSocketAckArgs; result: EmptyResult };
   "net.socket.send": { args: NetSocketSendArgs; result: EmptyResult };
   "net.socket.close": { args: NetSocketCloseArgs; result: EmptyResult };
   "stream.play": { args: StreamPlayArgs; result: StreamPlayResult };

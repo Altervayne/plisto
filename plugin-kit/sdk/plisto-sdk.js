@@ -663,26 +663,17 @@
   }
 
   /**
-   * The body of a streamed response. The host's chunks arrive through chunk(seq, bytes), end() and fail(err);
-   * the page reads the returned ReadableStream. The stream queues at most STREAM_WINDOW bytes the page has
-   * not read; what the page has read is acknowledged so the host keeps sending: at once when ACK_BYTES are
-   * unacknowledged, else after ACK_DELAY_MS. A gap in `seq` fails the stream. `io` supplies everything with
-   * a side effect: ReadableStream, ack(totalBytes) (may return a promise; a retryable rejection is
-   * retried), cancel(), setTimer(fn, ms), clearTimer(handle) and onDone().
+   * Acknowledges a running byte total to the host in batches, for a stream body and a socket alike. `read()`
+   * returns the total the page has taken so far. `account()` acknowledges it at once when ACK_BYTES are
+   * unacknowledged, else after ACK_DELAY_MS, so a flood of small messages costs few calls. A refused
+   * acknowledgement that retrying can fix is sent again, or the host would end the transfer as stalled.
+   * `io` supplies ack(total) (may return a promise), setTimer(fn, ms) and clearTimer(handle). `stop()` ends
+   * all of it: nothing is sent afterwards.
    */
-  function createStreamBody(io) {
-    var expectSeq = 1;
-    var received = 0;
+  function createAcker(io, read) {
     var acked = 0;
     var timer = null;
     var finished = false;
-    var controller = null;
-
-    // Bytes the page has read: everything received minus what still sits in the stream's queue.
-    function consumed() {
-      var desired = controller.desiredSize;
-      return desired === null ? acked : received - (STREAM_WINDOW - desired);
-    }
 
     function sendAck(total) {
       if (timer !== null) {
@@ -694,8 +685,6 @@
       var sent = io.ack(total);
       if (sent && typeof sent.then === "function") {
         sent.then(null, function (e) {
-          // A refused acknowledgement that retrying can fix is sent again, or the host would end the stream as
-          // stalled.
           if (finished || acked !== total || !(e && RETRYABLE[e.code] === true)) return;
           acked = previous;
           if (timer === null) {
@@ -709,23 +698,56 @@
     function onTimer() {
       timer = null;
       if (finished) return;
-      var total = consumed();
+      var total = read();
       if (total > acked) sendAck(total);
     }
 
-    function account() {
-      if (finished) return;
-      var total = consumed();
-      if (total - acked >= ACK_BYTES) sendAck(total);
-      else if (total > acked && timer === null) timer = io.setTimer(onTimer, ACK_DELAY_MS);
+    return {
+      account: function () {
+        if (finished) return;
+        var total = read();
+        if (total - acked >= ACK_BYTES) sendAck(total);
+        else if (total > acked && timer === null) timer = io.setTimer(onTimer, ACK_DELAY_MS);
+      },
+      stop: function () {
+        finished = true;
+        if (timer !== null) {
+          io.clearTimer(timer);
+          timer = null;
+        }
+      },
+      acked: function () {
+        return acked;
+      },
+    };
+  }
+
+  /**
+   * The body of a streamed response. The host's chunks arrive through chunk(seq, bytes), end() and fail(err);
+   * the page reads the returned ReadableStream. The stream queues at most STREAM_WINDOW bytes the page has
+   * not read; what the page has read is acknowledged so the host keeps sending: at once when ACK_BYTES are
+   * unacknowledged, else after ACK_DELAY_MS. A gap in `seq` fails the stream. `io` supplies everything with
+   * a side effect: ReadableStream, ack(totalBytes) (may return a promise; a retryable rejection is
+   * retried), cancel(), setTimer(fn, ms), clearTimer(handle) and onDone().
+   */
+  function createStreamBody(io) {
+    var expectSeq = 1;
+    var received = 0;
+    var finished = false;
+    var controller = null;
+
+    // Bytes the page has read: everything received minus what still sits in the stream's queue.
+    function consumed() {
+      var desired = controller.desiredSize;
+      return desired === null ? acker.acked() : received - (STREAM_WINDOW - desired);
     }
+
+    var acker = createAcker(io, consumed);
+    var account = acker.account;
 
     function stop() {
       finished = true;
-      if (timer !== null) {
-        io.clearTimer(timer);
-        timer = null;
-      }
+      acker.stop();
       io.onDone();
     }
 
@@ -1300,14 +1322,39 @@
           // A throwing handler must not stop later events.
         }
       }
+      // The bytes of messages handed to onmessage or dropped from the held queue, as the host counts them: a
+      // text message by its UTF-8 length, a binary one by its byteLength. The host pauses reading until this
+      // total is acknowledged, so a held message is not counted until it leaves the queue.
+      var taken = 0;
+      var acker = createAcker(
+        {
+          ack: function (total) {
+            return plisto.call("net.socket.ack", { socket: id, bytes: total });
+          },
+          setTimer: function (fn, ms) {
+            return setTimeout(fn, ms);
+          },
+          clearTimer: function (handle) {
+            clearTimeout(handle);
+          },
+        },
+        function () {
+          return taken;
+        },
+      );
+      function wireSize(data) {
+        return typeof data.data === "string" ? new TextEncoder().encode(data.data).length : sizeOf(data);
+      }
       function drain() {
         if (typeof onmessage === "function") {
           while (queue.length > 0) {
             var data = queue.shift();
             heldBytes -= sizeOf(data);
+            taken += wireSize(data);
             call(onmessage, { data: data.data });
           }
         }
+        acker.account();
         // The close is final: messages still held have no handler and are dropped with it.
         if (closeEvent && typeof onclose === "function") {
           var close = closeEvent;
@@ -1343,11 +1390,15 @@
           if (data.kind === "close") {
             delete sockets[id];
             closeEvent = data;
+            // The socket is gone: an acknowledgement now would be refused.
+            acker.stop();
           } else {
             queue.push(data);
             heldBytes += sizeOf(data);
             while (queue.length > SOCKET_HELD_MAX || heldBytes > SOCKET_HELD_BYTES) {
-              heldBytes -= sizeOf(queue.shift());
+              var dropped = queue.shift();
+              heldBytes -= sizeOf(dropped);
+              taken += wireSize(dropped);
             }
           }
           drain();
