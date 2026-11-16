@@ -49,7 +49,7 @@ mod tests_takeover;
 pub use protocol::TakeoverReason;
 
 // -- Library Imports --
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,14 +61,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::manifest::{Capability, Tier};
 use super::paths::{data_dir, plugin_dir};
 use super::revalidate::check_folder;
-use super::state::{BootView, PluginsState, Starter, Stopper};
+use super::state::{BootView, PluginsState, Starter, Stopper, Turn};
 use child::{Child, Stopped};
 use feed::{FeedGrant, FeedSlot};
 use heartbeat::{Beat, Heartbeat};
 use events::EventGate;
 use host_calls::{HostCalls, SerialCalls};
 use launch::{entry_path, LaunchSpec};
-use link::{HostLink, Notice, NoticeKind};
+use link::{Disabled, HostLink, Notice, NoticeKind};
 use protocol::{Gesture, HostMessage, API_VERSION, PROTOCOL_VERSION};
 use pump::ChildStats;
 use relay::{Relays, RELAY_TIMEOUT};
@@ -82,6 +82,10 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STOP_GRACE: Duration = Duration::from_secs(2);
 /// How often the supervisor thread ticks.
 pub const TICK: Duration = Duration::from_millis(250);
+// A crash-loop disable that cannot be saved is tried again after this, doubling up to the cap. One
+// that meets another operation's turn is tried again at the next tick.
+const DISABLE_RETRY_FIRST: Duration = Duration::from_secs(1);
+const DISABLE_RETRY_MAX: Duration = Duration::from_secs(60);
 // When a child's output ends, how long its process gets to exit so its exit code can be read.
 const EXIT_SETTLE: Duration = Duration::from_millis(500);
 // Windows error codes for an executable blocked by an antivirus or by policy.
@@ -103,6 +107,8 @@ pub enum StartError {
     Exiting,
     /// Starts are held while an update installs.
     Held,
+    /// Another operation on the plugin holds its lifecycle turn.
+    Busy,
 }
 
 impl std::fmt::Display for StartError {
@@ -115,6 +121,7 @@ impl std::fmt::Display for StartError {
             StartError::Launch(e) => write!(f, "cannot launch: {e}"),
             StartError::Exiting => f.write_str("Plisto is quitting"),
             StartError::Held => f.write_str("plugins are stopped for an update"),
+            StartError::Busy => f.write_str("another change to the plugin is under way"),
         }
     }
 }
@@ -174,6 +181,22 @@ struct Supervision {
     // Kept across restarts; dropped by a stop, so a disable, an update or an uninstall starts afresh.
     policies: HashMap<String, CrashPolicy>,
     due: HashMap<String, Instant>,
+    // Starts owed to a plugin (boot, resume, an enable's or update's end) that met another
+    // operation's turn. Tried again every tick until one runs or the plugin no longer serves.
+    owed: HashSet<String>,
+    // Crash-loop disables that did not land, with when to try again. Kept until one lands or the
+    // saved entry no longer serves; meanwhile the plugin does not start.
+    owed_disables: HashMap<String, DisableRetry>,
+    // How many failed crash-loop disables were logged.
+    #[cfg(test)]
+    disable_failures_logged: usize,
+}
+
+/// When a crash-loop disable that did not land is tried again.
+struct DisableRetry {
+    at: Instant,
+    // The wait after the last failed save; zero while it only met another operation's turn.
+    backoff: Duration,
 }
 
 /// Runs once per silence of a child, with its id, after the host took its output takeover back, to
@@ -287,13 +310,61 @@ impl NativeHost {
     }
 
     /// Starts the plugin when it is a serving native plugin whose manifest is the consented one. A
-    /// plugin already running, or being started, is left as it is.
+    /// plugin already running, or being started, is left as it is. Refused as `Busy` while another
+    /// operation holds the plugin's lifecycle turn.
     pub fn start(&self, plugins: &PluginsState, id: &str) -> Result<(), StartError> {
+        self.start_with(plugins, id, false)
+    }
+
+    /// `start`; with `fresh`, the plugin's crashes and any due restart are forgotten first, once its
+    /// turn is taken, so a refused start forgets nothing.
+    fn start_with(&self, plugins: &PluginsState, id: &str, fresh: bool) -> Result<(), StartError> {
         if self.exiting.load(Ordering::SeqCst) {
             return Err(StartError::Exiting);
         }
         if self.held.load(Ordering::SeqCst) {
             return Err(StartError::Held);
+        }
+        let turn = plugins.try_turn(id).ok_or(StartError::Busy)?;
+        if fresh {
+            self.reset(id);
+        }
+        self.start_in_turn(plugins, id, turn)
+    }
+
+    /// A start the plugin is owed: an enable's, an update's, a boot's or a resume's. One that meets
+    /// another operation's turn is kept and tried again on the next tick, never dropped.
+    fn start_owed(&self, plugins: &PluginsState, id: &str) {
+        match self.start_with(plugins, id, true) {
+            Ok(()) => {}
+            Err(StartError::NotNative) => {
+                let background = plugins
+                    .enabled_set()
+                    .serving(id)
+                    .is_some_and(|serving| is_background(&serving.granted));
+                if background {
+                    self.board.set_host(id, HostState::Starting, self.clock.now());
+                }
+            }
+            Err(StartError::Busy) => {
+                lock(&self.supervision).owed.insert(id.to_string());
+            }
+            Err(e) => eprintln!("plugins: {id}: not started: {e}"),
+        }
+    }
+
+    /// `start` with the plugin's turn already taken. Everything from the serving check to the adopted
+    /// child runs in the turn, so no update can swap the files between the check and the launch; the
+    /// turn ends before the handshake and before any crash policy runs.
+    fn start_in_turn(
+        &self,
+        plugins: &PluginsState,
+        id: &str,
+        turn: Turn<'_>,
+    ) -> Result<(), StartError> {
+        // A crash-loop disable still owed keeps the plugin off for the session, saved or not.
+        if lock(&self.supervision).owed_disables.contains_key(id) {
+            return Err(StartError::NotServing);
         }
         let serving = plugins
             .enabled_set()
@@ -335,6 +406,8 @@ impl NativeHost {
         let child = match Child::spawn(id, &spec) {
             Ok(child) => Arc::new(child),
             Err(e) => {
+                // The crash policy can turn the plugin off, which takes the turn.
+                drop(turn);
                 run.feed.detach(self.link.as_ref());
                 if launch_denied(&e) {
                     let denied = HostState::Failed {
@@ -357,6 +430,7 @@ impl NativeHost {
             self.stop_plugin(id);
             return Err(StartError::NotServing);
         }
+        drop(turn);
         let hello = HostMessage::Hello {
             protocol: PROTOCOL_VERSION,
             api_version: API_VERSION,
@@ -406,8 +480,12 @@ impl NativeHost {
     pub fn start_serving(&self, plugins: &PluginsState) {
         for (id, serving) in plugins.snapshot().serving() {
             if serving.tier == Tier::Native {
-                if let Err(e) = self.start(plugins, &id) {
-                    eprintln!("plugins: {id}: not started: {e}");
+                match self.start(plugins, &id) {
+                    Ok(()) => {}
+                    Err(StartError::Busy) => {
+                        lock(&self.supervision).owed.insert(id.clone());
+                    }
+                    Err(e) => eprintln!("plugins: {id}: not started: {e}"),
                 }
             } else if is_background(&serving.granted) && plugins.is_enabled(&id) {
                 self.board.set_host(&id, HostState::Starting, self.clock.now());
@@ -432,13 +510,21 @@ impl NativeHost {
             .serving(id)
             .ok_or(StartError::NotServing)?;
         if serving.tier == Tier::Native {
+            if self.exiting.load(Ordering::SeqCst) {
+                return Err(StartError::Exiting);
+            }
+            if self.held.load(Ordering::SeqCst) {
+                return Err(StartError::Held);
+            }
+            // Taken before the stop, so a restart refused as busy leaves the running child alone.
+            let turn = plugins.try_turn(id).ok_or(StartError::Busy)?;
             // The stop restores any output the child held before the status changes. The API is
             // forgotten after the stop, so nothing the old child asked for during its grace outlives
             // it. The page frame stays on screen, so its page slot and network work are kept.
             self.stop_plugin(id);
             self.reset(id);
             plugins.api().forget_run(id);
-            return self.start(plugins, id);
+            return self.start_in_turn(plugins, id, turn);
         }
         self.reset(id);
         self.board.set_host(id, HostState::Starting, self.clock.now());
@@ -446,12 +532,14 @@ impl NativeHost {
     }
 
     /// Stops the plugin's child, if one runs: `shutdown`, the grace period, then a kill. Never a
-    /// crash. Drops its crash policy and any due restart.
+    /// crash. Drops its crash policy, any due restart and any owed start: whatever stops it decides
+    /// whether it starts again.
     pub fn stop_plugin(&self, id: &str) {
         {
             let mut supervision = lock(&self.supervision);
             supervision.policies.remove(id);
             supervision.due.remove(id);
+            supervision.owed.remove(id);
         }
         let run = {
             let mut children = lock(&self.children);
@@ -478,7 +566,7 @@ impl NativeHost {
     /// gone, with the plugins' open API calls ended. For app exit, safe mode and anything that
     /// replaces the running binary.
     pub fn shutdown_all(&self) {
-        lock(&self.supervision).due.clear();
+        self.forget_scheduled();
         let all: Vec<(String, Arc<Run>)> = {
             let mut children = lock(&self.children);
             self.give_back_any(TakeoverReason::Stopped, &children);
@@ -510,7 +598,15 @@ impl NativeHost {
             let _children = lock(&self.children);
             self.held.store(true, Ordering::SeqCst);
         }
-        lock(&self.supervision).due.clear();
+        self.forget_scheduled();
+    }
+
+    /// Drops every due restart and owed start. A pending crash-loop disable is kept: it takes rights
+    /// away and still has to land.
+    fn forget_scheduled(&self) {
+        let mut supervision = lock(&self.supervision);
+        supervision.due.clear();
+        supervision.owed.clear();
     }
 
     /// Allows starts again after `hold_starts`.
@@ -526,7 +622,7 @@ impl NativeHost {
             let _children = lock(&self.children);
             self.exiting.store(true, Ordering::SeqCst);
         }
-        lock(&self.supervision).due.clear();
+        self.forget_scheduled();
     }
 
     /// The runtime turned safe: every child stops, every status goes off, and the main window is told.
@@ -536,6 +632,7 @@ impl NativeHost {
             let mut supervision = lock(&self.supervision);
             supervision.policies.clear();
             supervision.due.clear();
+            supervision.owed.clear();
         }
         self.board.all_off(self.clock.now());
         self.link.emit_runtime(view);
@@ -604,7 +701,94 @@ impl NativeHost {
         for id in due {
             self.restart_due(&id);
         }
+        self.retry_owed();
         self.board.flush(now);
+    }
+
+    /// Records how a crash-loop disable went: one that did not land stays pending, at the next tick
+    /// after meeting a turn, or after a growing wait when it could not be saved. The first failed
+    /// save is logged; later ones are not.
+    fn disable_tried(&self, id: &str, outcome: Disabled) {
+        let now = self.clock.now();
+        let mut supervision = lock(&self.supervision);
+        let last = supervision.owed_disables.remove(id).map(|retry| retry.backoff);
+        let backoff = match outcome {
+            Disabled::Landed => return,
+            Disabled::Busy => last.unwrap_or(Duration::ZERO),
+            Disabled::Failed => match last {
+                Some(wait) if !wait.is_zero() => (wait * 2).min(DISABLE_RETRY_MAX),
+                _ => {
+                    eprintln!("plugins: {id}: cannot save the crash-loop disable; trying again later");
+                    #[cfg(test)]
+                    {
+                        supervision.disable_failures_logged += 1;
+                    }
+                    DISABLE_RETRY_FIRST
+                }
+            },
+        };
+        let at = if outcome == Disabled::Busy { now } else { now + backoff };
+        supervision
+            .owed_disables
+            .insert(id.to_string(), DisableRetry { at, backoff });
+    }
+
+    /// Whether the saved entry still has the plugin enabled and approved. A plugin only withdrawn for
+    /// the length of an operation still counts, and while another operation holds the turn the
+    /// entry is not judged at all: it may be mid-change.
+    fn still_owes_disable(&self, id: &str) -> Option<bool> {
+        let judged = self.with_plugins(|plugins| {
+            drop(plugins.try_turn(id)?);
+            Some(plugins.snapshot().entry(id).is_some_and(|e| e.is_serving()))
+        });
+        // No plugin state at all: nothing is left to disable.
+        judged.unwrap_or(Some(false))
+    }
+
+    /// Tries every pending crash-loop disable that is due, then every owed start, each again from the
+    /// start: a disable is dropped once the saved entry no longer serves, and a start re-checks
+    /// everything in its own turn, so a plugin disabled, reset or removed meanwhile drops out. A
+    /// start runs on a thread of its own, as a restart does.
+    fn retry_owed(&self) {
+        let now = self.clock.now();
+        let (disables, starts) = {
+            let mut supervision = lock(&self.supervision);
+            let disables: Vec<String> = supervision
+                .owed_disables
+                .iter()
+                .filter(|(_, retry)| retry.at <= now)
+                .map(|(id, _)| id.clone())
+                .collect();
+            let starts: Vec<String> = supervision.owed.drain().collect();
+            (disables, starts)
+        };
+        for id in disables {
+            match self.still_owes_disable(&id) {
+                // Another operation holds the turn: the next tick looks again.
+                None => self.disable_tried(&id, Disabled::Busy),
+                Some(false) => {
+                    lock(&self.supervision).owed_disables.remove(&id);
+                }
+                Some(true) => {
+                    let outcome = self.link.disable(&id);
+                    self.disable_tried(&id, outcome);
+                }
+            }
+        }
+        for id in starts {
+            if lock(&self.supervision).owed_disables.contains_key(&id) {
+                continue;
+            }
+            let host = self.clone();
+            let spawned = thread::Builder::new()
+                .name(format!("plugin-start-{id}"))
+                .spawn(move || {
+                    host.with_plugins(|plugins| host.start_owed(plugins, &id));
+                });
+            if let Err(e) = spawned {
+                eprintln!("plugins: a start owed to a plugin cannot run: {e}");
+            }
+        }
     }
 
     /// Fires a restart the crash policy scheduled, if the plugin still serves. A native start reads
@@ -612,6 +796,10 @@ impl NativeHost {
     /// up the pings of other children.
     fn restart_due(&self, id: &str) {
         let now = self.clock.now();
+        // A plugin waiting to be turned off for its crash loop is never restarted.
+        if lock(&self.supervision).owed_disables.contains_key(id) {
+            return;
+        }
         let target = self
             .with_plugins(|plugins| plugins.enabled_set().serving(id))
             .flatten();
@@ -634,13 +822,19 @@ impl NativeHost {
         }
     }
 
-    /// Starts a native plugin again after a crash. When it no longer serves, or Plisto is quitting,
-    /// its status leaves "restarting".
+    /// Starts a native plugin again after a crash. One that meets another operation's turn stays
+    /// due, for the next tick, and keeps its "restarting" status. When it no longer serves or Plisto
+    /// is quitting, its status leaves "restarting".
     fn restart_native(&self, id: &str) {
         let result = self.with_plugins(|plugins| self.start(plugins, id));
         match result {
             Some(Ok(())) => {}
-            None | Some(Err(StartError::NotServing | StartError::Exiting | StartError::Held)) => {
+            Some(Err(StartError::Busy)) => {
+                let now = self.clock.now();
+                lock(&self.supervision).due.insert(id.to_string(), now);
+            }
+            None
+            | Some(Err(StartError::NotServing | StartError::Exiting | StartError::Held)) => {
                 self.board.stopped(id, self.clock.now());
             }
             Some(Err(e)) => eprintln!("plugins: {id}: not restarted: {e}"),
@@ -877,7 +1071,8 @@ impl NativeHost {
         };
         if verdict == Verdict::CrashLoop {
             eprintln!("plugins: {id}: turned off after repeated crashes");
-            self.link.disable(id);
+            let outcome = self.link.disable(id);
+            self.disable_tried(id, outcome);
             self.link.emit_notice(&Notice {
                 id: id.to_string(),
                 kind: NoticeKind::AutoDisabled,
@@ -895,20 +1090,7 @@ impl Stopper for NativeHost {
 impl Starter for NativeHost {
     /// An enable, an update or a resolved boot: a start the user asked for, so the crash count resets.
     fn start(&self, plugins: &PluginsState, id: &str) {
-        self.reset(id);
-        match NativeHost::start(self, plugins, id) {
-            Ok(()) => {}
-            Err(StartError::NotNative) => {
-                let background = plugins
-                    .enabled_set()
-                    .serving(id)
-                    .is_some_and(|serving| is_background(&serving.granted));
-                if background {
-                    self.board.set_host(id, HostState::Starting, self.clock.now());
-                }
-            }
-            Err(e) => eprintln!("plugins: {id}: not started: {e}"),
-        }
+        self.start_owed(plugins, id);
     }
 }
 

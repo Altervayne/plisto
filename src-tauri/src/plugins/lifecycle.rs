@@ -1,7 +1,9 @@
 /*
- * What happens to an installed plugin after install: consent and enable, disable, and uninstall. Every
- * change is made and saved through `PluginsState::mutate`, under the state lock, so two calls on one
- * id never interleave and the frame host's set follows the saved registry. Files are read before the
+ * What happens to an installed plugin after install: consent and enable, disable, and uninstall. Each
+ * runs in the plugin's lifecycle turn, so two calls on one id never interleave and a second one is
+ * refused as busy; a start it triggers runs after the turn ends. Every change is made and saved
+ * through `PluginsState::mutate`, under the state lock, so the frame host's set follows the saved
+ * registry. Files are read before the
  * lock is taken and the entry is checked again under it, so a slow disk never holds the lock. Consent
  * is granted only here, and only for the manifest the user reviewed, as it is on disk at that moment.
  */
@@ -127,6 +129,7 @@ fn enable_or_approve(
     turn_on: bool,
 ) -> Result<PluginRow, InstallError> {
     require_writable(plugins)?;
+    let turn = plugins.turn(id)?;
     let seen = plugins
         .snapshot()
         .entry(id)
@@ -181,6 +184,8 @@ fn enable_or_approve(
         plugins.stop_because(id, Gone::Consent);
     }
     let row = row?;
+    // The start takes the turn itself.
+    drop(turn);
     if turn_on {
         plugins.start(id);
     }
@@ -294,6 +299,7 @@ pub fn disable(
     id: &str,
 ) -> Result<PluginRow, InstallError> {
     require_writable(plugins)?;
+    let _turn = plugins.turn(id)?;
     let (row, was_on) = plugins.mutate(
         app_data,
         Withdraw::No,
@@ -334,6 +340,15 @@ pub(super) fn remove_folder(app_data: &Path, path: &Path, name: &str) -> Result<
     Ok(())
 }
 
+/// Deletes the plugin's saved-data folder, when there is one. The path comes from the id alone.
+pub(super) fn remove_data(app_data: &Path, id: &str) -> Result<(), InstallError> {
+    let data = data_dir(app_data, id);
+    if fs::symlink_metadata(&data).is_err() {
+        return Ok(());
+    }
+    remove_folder(app_data, &data, id)
+}
+
 /// Moves `from` to `to` when `from` exists.
 fn move_if_present(from: &Path, to: &Path) -> io::Result<()> {
     if fs::symlink_metadata(from).is_err() {
@@ -354,6 +369,7 @@ pub fn uninstall(
     delete_data: bool,
 ) -> Result<Uninstalled, InstallError> {
     require_writable(plugins)?;
+    let turn = plugins.turn(id)?;
     if plugins.snapshot().entry(id).is_none() {
         return Err(not_found(id));
     }
@@ -401,13 +417,13 @@ pub fn uninstall(
         let _ = fs::remove_dir(&holder);
         // The plugin is still installed and was stopped above; it runs again if still serving.
         drop(withdrawn);
+        drop(turn);
         plugins.start(id);
         return Err(e);
     }
     let _ = remove_tree(&holder);
-    let data = data_dir(app_data, id);
-    let data_warning = (delete_data && fs::symlink_metadata(&data).is_ok())
-        .then(|| remove_folder(app_data, &data, id).err())
+    let data_warning = delete_data
+        .then(|| remove_data(app_data, id).err())
         .flatten()
         .map(|e| e.detail);
     Ok(Uninstalled {
@@ -623,11 +639,11 @@ mod tests {
         let data = k.data.clone();
         plugins.set_stopper(std::sync::Arc::new(move |id: &str| {
             let p = weak.upgrade().unwrap();
-            enable(&data, &p, id, None, false, None).unwrap();
+            let refused = enable(&data, &p, id, None, false, None).unwrap_err();
+            assert_eq!(refused.code, ErrorCode::Busy);
         }));
         uninstall(&k.data, &plugins, ID, false).unwrap();
-        let refused = format!("{ID} (not serving)");
-        assert_eq!(k.starts(), [ID, refused.as_str()]);
+        assert_eq!(k.starts(), [ID]);
         assert!(plugins.rows().is_empty());
         assert!(!plugins.is_enabled(ID));
     }

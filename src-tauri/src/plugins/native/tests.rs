@@ -21,7 +21,7 @@ use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCES
 use super::child::{Child, HandshakeError, Inbound, SendError, Stopped, INBOX_CAP, OUTBOX_CAP};
 use super::launch::{stderr_log, LaunchSpec};
 use super::child::CLOSED_EXITED;
-use super::link::{NoticeKind, RecordingLink};
+use super::link::{Disabled, NoticeKind, RecordingLink};
 use super::protocol::{
     ChildMessage, HostMessage, ReportedState, API_VERSION, PROTOCOL_VERSION,
 };
@@ -810,7 +810,11 @@ fn concurrent_starts_launch_the_plugin_once() {
     let s = Supervised::new("echo");
     thread::scope(|scope| {
         for _ in 0..8 {
-            scope.spawn(|| s.host.start(&s.plugins, ID).unwrap());
+            // A start that meets another one inside its turn is refused as busy.
+            scope.spawn(|| match s.host.start(&s.plugins, ID) {
+                Ok(()) | Err(StartError::Busy) => {}
+                Err(e) => panic!("{e}"),
+            });
         }
     });
     assert!(s.reaches(HostState::Running));
@@ -901,6 +905,272 @@ fn a_due_restart_of_a_plugin_that_no_longer_serves_clears_restarting() {
     assert!(s.reaches(HostState::Off));
     assert!(!s.host.is_running(ID));
     drop(withdrawn);
+}
+
+fn launches(s: &Supervised) -> usize {
+    fs::read_to_string(data_dir(&s.k.data, ID).join(LAUNCHES_FILE))
+        .map_or(0, |text| text.lines().count())
+}
+
+#[test]
+fn a_start_or_restart_while_the_turn_is_held_launches_nothing() {
+    let s = Supervised::new("echo");
+    let turn = s.plugins.try_turn(ID).unwrap();
+    assert!(matches!(s.host.start(&s.plugins, ID), Err(StartError::Busy)));
+    assert!(matches!(s.host.restart(&s.plugins, ID), Err(StartError::Busy)));
+    s.host.start_serving(&s.plugins);
+    assert!(!s.host.is_running(ID));
+    assert_eq!(launches(&s), 0);
+    drop(turn);
+
+    s.start();
+    assert!(s.reaches(HostState::Running));
+    assert_eq!(launches(&s), 1);
+    let pid = s.host.pid(ID);
+    // A restart refused as busy leaves the running child alone.
+    let turn = s.plugins.try_turn(ID).unwrap();
+    assert!(matches!(s.host.restart(&s.plugins, ID), Err(StartError::Busy)));
+    assert_eq!(s.host.pid(ID), pid);
+    assert_eq!(s.state(), Some(HostState::Running));
+    drop(turn);
+    assert_eq!(launches(&s), 1);
+}
+
+/// The crash child crashed once and its restart is due now; launches are counted from here on.
+fn crashed_and_due(s: &Supervised) {
+    s.start();
+    assert!(s.reaches(HostState::Restarting { retry_in_ms: 1000 }));
+    fs::write(data_dir(&s.k.data, ID).join(MODE_FILE), "echo").unwrap();
+    s.clock.advance(Duration::from_secs(1));
+}
+
+/// Inside the next operation's turn, a tick fires the due restart, which meets that turn; waits
+/// until the refused restart is due again.
+fn restart_in_next_turn(s: &Supervised) {
+    let host = s.host.clone();
+    s.plugins.on_next_turn(move || {
+        host.tick();
+        assert!(eventually(|| super::lock(&host.supervision).due.contains_key(ID)));
+    });
+}
+
+/// Ticks until the plugin runs.
+fn ticks_until_running(s: &Supervised) -> bool {
+    eventually(|| {
+        s.host.tick();
+        s.state() == Some(HostState::Running)
+    })
+}
+
+fn nothing_pending(s: &Supervised) -> bool {
+    let supervision = super::lock(&s.host.supervision);
+    supervision.owed.is_empty() && supervision.owed_disables.is_empty()
+}
+
+/// After a refused restart: still restarting, nothing launched, then a later tick runs it.
+fn assert_restarts_later(s: &Supervised) {
+    assert_eq!(s.state(), Some(HostState::Restarting { retry_in_ms: 1000 }));
+    assert_eq!(launches(s), 0);
+    assert!(ticks_until_running(s));
+    assert_eq!(launches(s), 1);
+    assert!(nothing_pending(s));
+}
+
+#[test]
+fn a_restart_refused_by_a_disable_whose_save_fails_runs_on_a_later_tick() {
+    let s = Supervised::new("crash");
+    crashed_and_due(&s);
+    restart_in_next_turn(&s);
+    s.k.break_saves();
+    crate::plugins::lifecycle::disable(&s.k.data, &s.plugins, ID).unwrap_err();
+    s.k.unbreak_saves();
+    assert!(s.plugins.is_enabled(ID));
+    assert_restarts_later(&s);
+}
+
+#[test]
+fn a_restart_refused_by_an_approve_runs_on_a_later_tick() {
+    let s = Supervised::new("crash");
+    crashed_and_due(&s);
+    restart_in_next_turn(&s);
+    crate::plugins::lifecycle::approve(&s.k.data, &s.plugins, ID, None, false, None).unwrap();
+    assert_restarts_later(&s);
+}
+
+#[test]
+fn a_restart_refused_by_an_install_of_the_installed_id_runs_on_a_later_tick() {
+    let s = Supervised::new("crash");
+    crashed_and_due(&s);
+    let token = s.k.inspect_into(&s.plugins, &native("1.1.0", &[]));
+    restart_in_next_turn(&s);
+    let refused = crate::plugins::install::install(&s.k.data, &s.plugins, &token, 1).unwrap_err();
+    assert_eq!(
+        refused.code,
+        crate::plugins::install_error::ErrorCode::AlreadyInstalled
+    );
+    assert_restarts_later(&s);
+}
+
+#[test]
+fn a_restart_due_during_an_update_launches_nothing_and_nothing_follows_it() {
+    let s = Supervised::new("crash");
+    crashed_and_due(&s);
+    let token = s.k.inspect_into(&s.plugins, &native("1.1.0", &[]));
+    restart_in_next_turn(&s);
+    crate::plugins::update::update(&s.k.data, &s.plugins, &token).unwrap();
+    // A native update ends needing consent, so neither its own start nor a retry runs anything.
+    for _ in 0..5 {
+        s.tick_after(Duration::from_secs(5));
+    }
+    assert!(!s.host.is_running(ID));
+    assert_eq!(launches(&s), 0);
+    assert_eq!(
+        s.plugins.snapshot().entry(ID).unwrap().state,
+        crate::plugins::registry::EntryState::NeedsConsent
+    );
+    assert!(super::lock(&s.host.supervision).due.is_empty());
+    assert!(nothing_pending(&s));
+}
+
+#[test]
+fn a_boot_start_that_met_a_turn_runs_on_a_later_tick() {
+    let s = Supervised::new("echo");
+    let (host, plugins) = (s.host.clone(), s.plugins.clone());
+    s.plugins.on_next_turn(move || host.start_serving(&plugins));
+    crate::plugins::lifecycle::approve(&s.k.data, &s.plugins, ID, None, false, None).unwrap();
+    assert!(super::lock(&s.host.supervision).owed.contains(ID));
+    assert_eq!(launches(&s), 0);
+    assert!(ticks_until_running(&s));
+    assert_eq!(launches(&s), 1);
+    assert!(nothing_pending(&s));
+}
+
+#[test]
+fn a_boot_start_that_met_a_disable_never_runs_and_leaves_nothing_pending() {
+    let s = Supervised::new("echo");
+    let (host, plugins) = (s.host.clone(), s.plugins.clone());
+    s.plugins.on_next_turn(move || host.start_serving(&plugins));
+    crate::plugins::lifecycle::disable(&s.k.data, &s.plugins, ID).unwrap();
+    for _ in 0..5 {
+        s.tick_after(Duration::from_secs(1));
+    }
+    assert!(nothing_pending(&s));
+    assert!(!s.host.is_running(ID));
+    assert_eq!(launches(&s), 0);
+}
+
+#[test]
+fn a_crash_loop_disable_that_met_a_turn_lands_later_with_no_restart_between() {
+    let s = Supervised::new("echo");
+    let host = s.host.clone();
+    s.plugins.on_next_turn(move || {
+        for _ in 0..3 {
+            host.run_policy(ID, host.crash_info(CrashReason::Exited, Some(3)));
+        }
+    });
+    crate::plugins::lifecycle::approve(&s.k.data, &s.plugins, ID, None, false, None).unwrap();
+    assert!(super::lock(&s.host.supervision).owed_disables.contains_key(ID));
+    assert!(s.link.disabled().is_empty());
+    assert!(s.plugins.is_enabled(ID));
+
+    // The second crash scheduled a restart; it is due now, but the disable comes first.
+    s.tick_after(Duration::from_secs(5));
+    assert_eq!(s.link.disabled(), [ID]);
+    assert!(!s.plugins.is_enabled(ID));
+    assert!(!s.k.saved_entry().enabled);
+    s.tick_after(Duration::from_secs(5));
+    assert!(!s.host.is_running(ID));
+    assert_eq!(launches(&s), 0);
+    assert!(nothing_pending(&s));
+}
+
+/// Three crashes now, as the crash policy sees them.
+fn crash_loop(host: &NativeHost) {
+    for _ in 0..3 {
+        host.run_policy(ID, host.crash_info(CrashReason::Exited, Some(3)));
+    }
+}
+
+#[test]
+fn a_crash_loop_during_an_update_that_fails_is_still_turned_off() {
+    let s = Supervised::new("echo");
+    let token = s.k.inspect_into(&s.plugins, &native("1.1.0", &[]));
+    let host = s.host.clone();
+    s.plugins.on_next_turn(move || {
+        crash_loop(&host);
+        // A tick while the update holds the turn keeps the disable pending.
+        host.tick();
+        assert!(super::lock(&host.supervision).owed_disables.contains_key(ID));
+    });
+    // The update fails before it moves anything, so the plugin keeps its consent and the update
+    // asks for a start at its end.
+    s.k.break_saves();
+    crate::plugins::update::update(&s.k.data, &s.plugins, &token).unwrap_err();
+    s.k.unbreak_saves();
+    assert!(s.plugins.is_enabled(ID));
+    assert!(!s.host.is_running(ID), "the owed disable keeps it from starting");
+
+    s.tick_after(Duration::from_millis(1));
+    assert_eq!(s.link.disabled(), [ID]);
+    assert!(!s.plugins.is_enabled(ID));
+    assert!(!s.k.saved_entry().enabled);
+    s.tick_after(Duration::from_secs(10));
+    assert!(!s.host.is_running(ID));
+    assert_eq!(launches(&s), 0);
+    assert!(nothing_pending(&s));
+}
+
+#[test]
+fn a_crash_loop_disable_that_cannot_be_saved_backs_off_and_lands_later() {
+    let s = Supervised::new("echo");
+    s.k.break_saves();
+    crash_loop(&s.host);
+    assert_eq!(s.link.disable_attempts(), 1);
+    assert!(s.plugins.is_enabled(ID), "the failed save left it on in the registry");
+    // Kept off in memory: no start, no restart.
+    assert!(matches!(
+        s.host.start(&s.plugins, ID),
+        Err(StartError::NotServing)
+    ));
+    s.plugins.start(ID);
+    assert!(!s.host.is_running(ID));
+
+    // Tried again after 1 s, then 2 s, then 4 s, never on the ticks between.
+    let mut attempts = 1;
+    for wait in [1, 2, 4] {
+        s.tick_after(Duration::from_millis(wait * 1000 - 1));
+        assert_eq!(s.link.disable_attempts(), attempts, "before {wait} s");
+        s.tick_after(Duration::from_millis(1));
+        attempts += 1;
+        assert_eq!(s.link.disable_attempts(), attempts, "at {wait} s");
+    }
+    assert_eq!(super::lock(&s.host.supervision).disable_failures_logged, 1);
+    assert_eq!(launches(&s), 0);
+
+    s.k.unbreak_saves();
+    s.tick_after(Duration::from_secs(8));
+    assert_eq!(s.link.disabled(), [ID]);
+    assert!(!s.plugins.is_enabled(ID));
+    assert!(!s.k.saved_entry().enabled);
+    assert_eq!(launches(&s), 0);
+    assert!(nothing_pending(&s));
+}
+
+#[test]
+fn the_disable_backoff_doubles_up_to_its_cap() {
+    let s = Supervised::new("echo");
+    let mut waits = Vec::new();
+    for _ in 0..9 {
+        s.host.disable_tried(ID, Disabled::Failed);
+        waits.push(super::lock(&s.host.supervision).owed_disables[ID].backoff.as_secs());
+    }
+    assert_eq!(waits, [1, 2, 4, 8, 16, 32, 60, 60, 60]);
+    // Meeting a turn retries at the next tick and keeps the wait reached.
+    s.host.disable_tried(ID, Disabled::Busy);
+    let supervision = super::lock(&s.host.supervision);
+    assert_eq!(supervision.owed_disables[ID].at, s.clock.now());
+    assert_eq!(supervision.owed_disables[ID].backoff.as_secs(), 60);
+    assert_eq!(supervision.disable_failures_logged, 1);
 }
 
 #[test]

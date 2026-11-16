@@ -2,7 +2,8 @@
  * The IPC commands for developer mode: the switch, reload from source and the log tail. Each is a thin
  * wrapper over `plugins::dev_mode` and `plugins::log_tail`; a change that reaches the registry tells the
  * main window through `plugins:changed`, as every other plugin command does. Every command here answers
- * the main window only, and the log tail takes an id, never a path.
+ * the main window only, reload and the log tail only while developer mode is on, and the log tail takes
+ * an id, never a path.
  */
 
 // -- Library Imports --
@@ -42,7 +43,7 @@ pub async fn plugin_set_dev_mode(
 }
 
 /// Re-installs a plugin from the source it was installed from, as an update. Returns the updated row.
-/// Main window only.
+/// Main window only, and only while developer mode is on.
 #[tauri::command]
 pub async fn plugin_reload(
     id: String,
@@ -68,7 +69,8 @@ fn main_only(label: &str) -> Result<(), InstallError> {
     ))
 }
 
-/// The last lines of a plugin's `plugin.log` and, for a native plugin, its `stderr.log`. Main window only.
+/// The last lines of a plugin's `plugin.log` and, for a native plugin, its `stderr.log`. Main window
+/// only, and only while developer mode is on.
 #[tauri::command]
 pub async fn plugin_log_tail(
     id: String,
@@ -77,6 +79,7 @@ pub async fn plugin_log_tail(
 ) -> Result<LogTail, InstallError> {
     main_only(webview.label())?;
     run_blocking(app, move |app_data, plugins| {
+        dev_mode::require_on(plugins)?;
         log_tail::log_tail(&app_data, plugins, &id)
     })
     .await

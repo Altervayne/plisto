@@ -77,6 +77,8 @@ pub struct RowView {
 pub struct UpdatedView {
     pub row: RowView,
     pub previous_version: String,
+    /// The author of the replaced manifest; empty when unknown.
+    pub previous_author: String,
 }
 
 /// Reads and parses the `plugin.json` in `dir`. A folder or manifest that is a link, is missing, is
@@ -117,6 +119,7 @@ pub fn updated_view(app_data: &Path, updated: Updated) -> UpdatedView {
     UpdatedView {
         row: view(app_data, updated.row),
         previous_version: updated.previous_version,
+        previous_author: updated.previous_author,
     }
 }
 
@@ -273,6 +276,7 @@ mod tests {
         let done = crate::plugins::update::update(&k.data, &k.plugins, &token).unwrap();
         let json = serde_json::to_value(updated_view(&k.data, done)).unwrap();
         assert_eq!(json["previous_version"], "1.0.0");
+        assert_eq!(json["previous_author"], "A");
         assert_eq!(json["row"]["version"], "1.1.0");
         assert_eq!(json["row"]["manifest"]["name"], "Demo");
     }

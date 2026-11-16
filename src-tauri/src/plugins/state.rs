@@ -23,8 +23,9 @@ use super::api::stream::Gone;
 use super::install::sweep_staging;
 use super::manifest::{Capability, Tier};
 use super::install_error::{ErrorCode, InstallError};
+use super::lifecycle::{busy, reset_consent};
 use super::registry::{self, Entry, EntryState, FileRead, Registry};
-use super::revalidate::{adopt_folders, demote, revalidate, Problems};
+use super::revalidate::{adopt_folders, revalidate, Problems};
 use super::session::{self, BootState};
 use super::update::recover_swaps;
 
@@ -139,6 +140,24 @@ impl Drop for Withdrawn<'_> {
     }
 }
 
+/// One plugin's lifecycle turn: while it lives, no other operation that changes the plugin's files,
+/// consent or enabled state, and no start of it, may run. Taken with `try_turn`, never waited for.
+#[must_use = "the turn ends as soon as the guard drops"]
+pub struct Turn<'a> {
+    state: &'a PluginsState,
+    id: String,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        self.state
+            .turns
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.id);
+    }
+}
+
 /// Empties the serving set when dropped during a panic. The panic poisons the state lock, which
 /// `inner()` then reads as a safe runtime; this closes the set at once instead of at the next lock.
 struct EmptyOnPanic<'a>(&'a EnabledSet);
@@ -249,6 +268,11 @@ pub struct PluginsState {
     // Bumped by every registry change kept in memory, so a caller can tell whether its call changed it.
     generation: AtomicU64,
     api: ApiState,
+    // Ids whose lifecycle turn is taken; see `Turn`.
+    turns: Mutex<HashSet<String>>,
+    // Runs once, in the holder's thread, right after the next turn is taken.
+    #[cfg(test)]
+    on_next_turn: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl PluginsState {
@@ -275,7 +299,52 @@ impl PluginsState {
             on_safe: RwLock::new(None),
             generation: AtomicU64::new(0),
             api,
+            turns: Mutex::new(HashSet::new()),
+            #[cfg(test)]
+            on_next_turn: Mutex::new(None),
         }
+    }
+
+    /// Takes `id`'s lifecycle turn, or None when another operation holds it.
+    pub fn try_turn(&self, id: &str) -> Option<Turn<'_>> {
+        let taken = self
+            .turns
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id.to_string());
+        if !taken {
+            return None;
+        }
+        let turn = Turn {
+            state: self,
+            id: id.to_string(),
+        };
+        #[cfg(test)]
+        {
+            let hook = self
+                .on_next_turn
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        Some(turn)
+    }
+
+    /// Runs `hook` inside the next operation that takes a turn, right after it takes it.
+    #[cfg(test)]
+    pub fn on_next_turn(&self, hook: impl FnOnce() + Send + 'static) {
+        *self
+            .on_next_turn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Box::new(hook));
+    }
+
+    /// `try_turn`, refused as busy.
+    pub fn turn(&self, id: &str) -> Result<Turn<'_>, InstallError> {
+        self.try_turn(id).ok_or_else(|| busy(id))
     }
 
     /// No plugins and a clean boot.
@@ -489,8 +558,8 @@ impl PluginsState {
     /// nothing is saved. When the save fails, `undo` puts the files back and memory is left as it was.
     /// A change that leaves both as they were saves nothing. `withdraw` says how one id leaves the
     /// serving set meanwhile; afterwards the set follows the registry. A `NeedsReinstall` error means
-    /// the withdrawn plugin's files are in an unknown state: its entry is marked broken in memory even
-    /// when that cannot be saved.
+    /// the withdrawn plugin's files are in an unknown state: its entry is marked broken, with its
+    /// consent dropped, in memory even when that cannot be saved.
     pub fn mutate<T>(
         &self,
         app_data: &Path,
@@ -544,7 +613,9 @@ impl PluginsState {
         let Some(entry) = inner.registry.entries.iter_mut().find(|e| e.id == id) else {
             return;
         };
-        demote(entry, EntryState::Broken);
+        // The files may be the new ones or the old ones; nothing consented to carries over.
+        reset_consent(entry);
+        entry.state = EntryState::Broken;
         inner.problems.insert(id.to_string(), problem.to_string());
         self.generation.fetch_add(1, Ordering::SeqCst);
         if let Err(e) = self.save(app_data, &inner.registry) {
@@ -621,7 +692,15 @@ fn load(app_data: &Path, now: i64) -> (Registry, Problems, bool) {
     // Only a registry actually read can say a plugin is gone; without one, every swap is undone.
     let registered: Option<HashSet<String>> =
         parsed.then(|| loaded.entries.iter().map(|e| e.id.clone()).collect());
-    recover_swaps(app_data, registered.as_ref());
+    // A native plugin's consent binds only its manifest, so new files from a cut-short swap must
+    // never run under it.
+    for id in recover_swaps(app_data, registered.as_ref()) {
+        if let Some(entry) = loaded.entries.iter_mut().find(|e| e.id == id) {
+            if entry.tier == Tier::Native {
+                reset_consent(entry);
+            }
+        }
+    }
     let mut problems = revalidate(app_data, &mut loaded);
     let known: HashSet<String> = loaded.entries.iter().map(|e| e.id.clone()).collect();
     let (adopted, adopted_problems) = adopt_folders(app_data, now, &known);

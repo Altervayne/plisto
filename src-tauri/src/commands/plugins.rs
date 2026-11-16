@@ -209,11 +209,17 @@ pub async fn plugin_inspect(path: String, app: AppHandle) -> Result<Inspection, 
     .await
 }
 
-/// Installs an inspected plugin, disabled and needing consent. Returns its `plugins_list` row.
+/// Installs an inspected plugin, disabled and needing consent. With `clear_data`, saved data left
+/// under the id is deleted first. Returns its `plugins_list` row.
 #[tauri::command]
-pub async fn plugin_install(token: String, app: AppHandle) -> Result<RowView, InstallError> {
+pub async fn plugin_install(
+    token: String,
+    clear_data: Option<bool>,
+    app: AppHandle,
+) -> Result<RowView, InstallError> {
+    let clear_data = clear_data.unwrap_or(false);
     run_changing(app, move |app_data, plugins| {
-        let row = install::install(&app_data, plugins, &token, now_unix())?;
+        let row = install::install_new(&app_data, plugins, &token, now_unix(), clear_data)?;
         Ok(summary::view(&app_data, row))
     })
     .await

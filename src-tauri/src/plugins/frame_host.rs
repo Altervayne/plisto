@@ -4,7 +4,8 @@
  * plugin is its own origin, and a `.invalid` https host is neither a Tauri-local URL nor reachable
  * on the network when nothing intercepts it. Every response, refusals included, carries the frame's
  * own CSP with `sandbox allow-scripts`, so a document served here is opaque-origin even when loaded
- * outside a sandboxed iframe, and nothing in the headers lets another origin read it. Everything here
+ * outside a sandboxed iframe, and nothing in the headers lets another origin read it. A
+ * `Permissions-Policy` turns every known device, sensor and clipboard feature off for the page. Everything here
  * is a function of the app data dir and the request, so each rule is testable without a webview.
  */
 
@@ -37,11 +38,96 @@ const APP_ORIGIN: &str = "http://tauri.localhost";
 #[cfg(dev)]
 const DEV_ORIGIN: &str = "http://localhost:1420";
 
+const PERMISSIONS_POLICY: &str = "permissions-policy";
+
 // The first path segment reserved for files the host itself serves.
 const HOST_SEGMENT: &str = "_plisto";
 
 pub const FRAME_CSP: &str = "sandbox allow-scripts; default-src 'none'; script-src 'self'; \
     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'";
+
+// The policy-controlled features Chromium knows, each turned off by `Permissions-Policy`. A plugin
+// page draws and talks to the host through its bridge; it never needs a device, a sensor or the
+// clipboard. A name the webview does not know is ignored. Features added to the web later are not
+// listed; `allow=""` on the frame keeps the app from delegating them. The scheduling features
+// (`execution-while-*`, `vertical-scroll`) stay out, so a background frame keeps running.
+const DENIED_FEATURES: &[&str] = &[
+    "accelerometer",
+    "all-screens-capture",
+    "ambient-light-sensor",
+    "attribution-reporting",
+    "autoplay",
+    "bluetooth",
+    "browsing-topics",
+    "camera",
+    "captured-surface-control",
+    "clipboard-read",
+    "clipboard-write",
+    "compute-pressure",
+    "controlled-frame",
+    "cross-origin-isolated",
+    "deferred-fetch",
+    "digital-credentials-get",
+    "direct-sockets",
+    "display-capture",
+    "document-domain",
+    "encrypted-media",
+    "fenced-unpartitioned-data",
+    "fullscreen",
+    "gamepad",
+    "geolocation",
+    "gyroscope",
+    "hid",
+    "identity-credentials-get",
+    "idle-detection",
+    "join-ad-interest-group",
+    "keyboard-map",
+    "language-detector",
+    "language-model",
+    "local-fonts",
+    "local-network-access",
+    "magnetometer",
+    "microphone",
+    "midi",
+    "on-device-speech-recognition",
+    "otp-credentials",
+    "payment",
+    "picture-in-picture",
+    "private-aggregation",
+    "private-state-token-issuance",
+    "private-state-token-redemption",
+    "publickey-credentials-create",
+    "publickey-credentials-get",
+    "rewriter",
+    "run-ad-auction",
+    "screen-wake-lock",
+    "serial",
+    "shared-storage",
+    "shared-storage-select-url",
+    "smart-card",
+    "speaker-selection",
+    "storage-access",
+    "summarizer",
+    "sync-xhr",
+    "translator",
+    "usb",
+    "usb-unrestricted",
+    "web-printing",
+    "web-share",
+    "window-management",
+    "writer",
+    "xr-spatial-tracking",
+];
+
+/// The `Permissions-Policy` value every response carries: each of `DENIED_FEATURES` with an empty
+/// allowlist.
+fn permissions_policy() -> String {
+    DENIED_FEATURES
+        .iter()
+        .map(|f| format!("{f}=()"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 // Lowercase extension to Content-Type. Anything else is refused, so a plugin folder can never
 // serve an executable, a database or a type the frame CSP was not written for.
@@ -302,6 +388,7 @@ fn with_frame_headers(status: StatusCode) -> tauri::http::response::Builder {
         .header(header::CONTENT_SECURITY_POLICY, FRAME_CSP)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::CACHE_CONTROL, "no-store")
+        .header(PERMISSIONS_POLICY, permissions_policy())
 }
 
 /// An empty response with the frame headers.
@@ -1293,6 +1380,7 @@ mod tests {
             assert_eq!(h[header::CONTENT_SECURITY_POLICY], FRAME_CSP);
             assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
             assert_eq!(h[header::CACHE_CONTROL], "no-store");
+            assert_eq!(h[PERMISSIONS_POLICY], permissions_policy().as_str());
             assert!(!h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
             if res.status() != StatusCode::OK {
                 assert!(res.body().is_empty());
@@ -1303,12 +1391,14 @@ mod tests {
 
     #[test]
     fn header_block_is_exact() {
+        let policy = permissions_policy();
         assert_eq!(
             header_block(&served("text/css; charset=utf-8", b"x".to_vec())),
             format!(
                 "content-security-policy: {FRAME_CSP}\r\n\
                  x-content-type-options: nosniff\r\n\
                  cache-control: no-store\r\n\
+                 permissions-policy: {policy}\r\n\
                  content-type: text/css; charset=utf-8\r\n"
             )
         );
@@ -1317,9 +1407,52 @@ mod tests {
             format!(
                 "content-security-policy: {FRAME_CSP}\r\n\
                  x-content-type-options: nosniff\r\n\
-                 cache-control: no-store\r\n"
+                 cache-control: no-store\r\n\
+                 permissions-policy: {policy}\r\n"
             )
         );
+    }
+
+    #[test]
+    fn the_permissions_policy_turns_every_feature_off() {
+        let policy = permissions_policy();
+        let entries: Vec<&str> = policy.split(", ").collect();
+        assert_eq!(entries.len(), DENIED_FEATURES.len());
+        for (entry, feature) in entries.iter().zip(DENIED_FEATURES) {
+            assert_eq!(*entry, format!("{feature}=()"));
+        }
+        for feature in [
+            "camera",
+            "microphone",
+            "geolocation",
+            "display-capture",
+            "picture-in-picture",
+            "fullscreen",
+            "gamepad",
+            "usb",
+            "hid",
+            "serial",
+            "bluetooth",
+            "midi",
+            "payment",
+            "screen-wake-lock",
+            "clipboard-read",
+            "clipboard-write",
+            "autoplay",
+            "encrypted-media",
+            "speaker-selection",
+            "keyboard-map",
+            "direct-sockets",
+            "smart-card",
+            "web-printing",
+        ] {
+            assert!(
+                entries.contains(&format!("{feature}=()").as_str()),
+                "{feature}"
+            );
+        }
+        let unique: std::collections::HashSet<_> = DENIED_FEATURES.iter().collect();
+        assert_eq!(unique.len(), DENIED_FEATURES.len());
     }
 
     #[test]

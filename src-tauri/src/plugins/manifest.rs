@@ -244,6 +244,7 @@ pub enum ManifestError {
     },
     ControlChars(&'static str),
     StackedMarks(&'static str),
+    PaddedField(&'static str),
     BadVersion {
         field: &'static str,
         value: String,
@@ -302,6 +303,7 @@ impl fmt::Display for ManifestError {
                 f,
                 "'{name}' has more than {MAX_COMBINING_RUN} combining marks in a row"
             ),
+            PaddedField(name) => write!(f, "'{name}' must not start or end with a space"),
             BadVersion { field, value } => write!(f, "'{field}' is not a valid version: '{value}'"),
             UnknownTier(t) => write!(f, "unknown tier '{t}'"),
             BadPath { field, reason } => write!(f, "'{field}' {reason}"),
@@ -398,6 +400,16 @@ fn check_text(s: &str, field: &'static str, max: usize) -> Result<(), ManifestEr
         Some(TextProblem::TooLong) => Err(ManifestError::FieldTooLong { field, max }),
         None => Ok(()),
     }
+}
+
+/// `check_text` for a name the sheet shows as who the plugin is. Surrounding whitespace is refused, so
+/// two values that look the same are the same.
+fn check_identity(s: &str, field: &'static str, max: usize) -> Result<(), ManifestError> {
+    check_text(s, field, max)?;
+    if s.trim() != s {
+        return Err(ManifestError::PaddedField(field));
+    }
+    Ok(())
 }
 
 fn check_path(s: &str, field: &'static str) -> Result<(), ManifestError> {
@@ -652,7 +664,7 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
     validate_id(&id).map_err(ManifestError::BadId)?;
 
     let name = require(raw.name, "name")?;
-    check_text(&name, "name", MAX_NAME)?;
+    check_identity(&name, "name", MAX_NAME)?;
 
     let version = require(raw.version, "version")?;
     if SemVer::parse(&version).is_none() {
@@ -709,7 +721,7 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
     })?;
 
     let author = require(raw.author, "author")?;
-    check_text(&author, "author", MAX_AUTHOR)?;
+    check_identity(&author, "author", MAX_AUTHOR)?;
 
     if let Some(url) = &raw.homepage {
         if let Some(reason) = homepage_problem(url) {
@@ -985,6 +997,20 @@ mod tests {
                 run(&with(ui(), field, json!("a\u{7}b"))),
                 Err(ManifestError::ControlChars(_))
             ));
+        }
+    }
+
+    #[test]
+    fn a_name_or_author_with_surrounding_whitespace_is_refused() {
+        for field in ["name", "author"] {
+            for padded in ["A ", " A", "\u{a0}A", "A\u{3000}"] {
+                assert_eq!(
+                    run(&with(ui(), field, json!(padded))),
+                    Err(ManifestError::PaddedField(field)),
+                    "{field} {padded:?}"
+                );
+            }
+            assert!(run(&with(ui(), field, json!("A B"))).is_ok(), "{field}");
         }
     }
 

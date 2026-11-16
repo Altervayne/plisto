@@ -131,6 +131,8 @@ fn check(app_data: &Path, id: &str) -> Result<(Manifest, String), String> {
 ///
 /// - folder or manifest unusable: `Broken`, disabled
 /// - manifest edited since consent (hash differs): `NeedsConsent`, disabled, grants cleared
+/// - no hash recorded: the current one is recorded, and a `Ready` entry goes to `NeedsConsent`,
+///   disabled, grants cleared
 /// - needs a newer Plisto: `Incompatible`, disabled
 /// - a `Broken` or `Incompatible` entry that passes again returns to `Ready`, with the enabled flag
 ///   it had, only if it was `Ready` before it was demoted; any other goes to `NeedsConsent`
@@ -149,6 +151,7 @@ pub fn revalidate(app_data: &Path, registry: &mut Registry) -> Problems {
         };
         entry.tier = parsed.tier;
         entry.version = parsed.version.clone();
+        entry.drop_unbound_consent();
 
         let edited = !entry.manifest_hash.is_empty() && entry.manifest_hash != hash;
         entry.manifest_hash = hash;
@@ -454,15 +457,34 @@ mod tests {
     }
 
     #[test]
-    fn an_unrecorded_hash_is_recorded_and_the_entry_keeps_its_state() {
+    fn an_unrecorded_hash_is_recorded_and_a_ready_entry_needs_consent() {
         let d = AppData::new();
         let json = manifest_json(ID, "");
         d.install(ID, &json);
         let mut reg = registry(vec![ready(ID, "")]);
+        // The boot order: normalize, then revalidate.
+        reg.normalize();
         revalidate(&d.0, &mut reg);
         let e = reg.entry(ID).unwrap();
-        assert!(e.enabled && e.state == EntryState::Ready);
+        assert_eq!(e.state, EntryState::NeedsConsent);
+        assert!(!e.enabled && e.granted.is_empty());
         assert_eq!(e.manifest_hash, hash_of(&json));
+        assert!(reg.serving_ids().is_empty());
+    }
+
+    #[test]
+    fn revalidate_alone_gives_a_ready_entry_without_a_hash_no_consent() {
+        let d = AppData::new();
+        let json = manifest_json(ID, "");
+        d.install(ID, &json);
+        let mut reg = registry(vec![ready(ID, "")]);
+        let problems = revalidate(&d.0, &mut reg);
+        assert!(problems.is_empty());
+        let e = reg.entry(ID).unwrap();
+        assert_eq!(e.state, EntryState::NeedsConsent);
+        assert!(!e.enabled && e.granted.is_empty());
+        assert_eq!(e.manifest_hash, hash_of(&json));
+        assert!(reg.serving_ids().is_empty());
     }
 
     #[test]

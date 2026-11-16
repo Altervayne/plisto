@@ -67,8 +67,8 @@ pub struct Entry {
     /// Unix seconds.
     #[serde(default)]
     pub installed_at: i64,
-    /// blake3 of the `plugin.json` bytes consent was given on. Empty means not recorded yet: the
-    /// next boot records the current one.
+    /// blake3 of the `plugin.json` bytes consent was given on. Empty means none was recorded: the
+    /// entry holds no consent, and the next boot records the current one.
     #[serde(default)]
     pub manifest_hash: String,
     #[serde(default = "needs_consent")]
@@ -106,6 +106,7 @@ impl Entry {
     fn normalize(&mut self) {
         let mut seen = HashSet::new();
         self.granted.retain(|c| seen.insert(*c));
+        self.drop_unbound_consent();
         if self.state != EntryState::Ready {
             self.enabled = false;
         }
@@ -118,6 +119,22 @@ impl Entry {
         if !self.network_consented() {
             self.consented_network.clear();
         }
+    }
+
+    /// Consent is bound to a manifest hash; without one there is nothing it was given on. A ready
+    /// entry with no hash goes to needs-consent, disabled with nothing granted, and no entry without
+    /// one may recover to ready.
+    pub(super) fn drop_unbound_consent(&mut self) {
+        if !self.manifest_hash.is_empty() {
+            return;
+        }
+        if self.state == EntryState::Ready {
+            self.state = EntryState::NeedsConsent;
+            self.enabled = false;
+            self.granted.clear();
+            self.consented_network.clear();
+        }
+        self.ready_enabled = None;
     }
 
     fn network_consented(&self) -> bool {
@@ -515,7 +532,7 @@ mod tests {
     #[test]
     fn unknown_capabilities_are_dropped_not_fatal() {
         let json = br#"{"entries":[{"id":"com.example.one","tier":"ui","state":"ready",
-            "granted":["storage","time.travel","storage","ui.toast"]}]}"#;
+            "manifest_hash":"abc","granted":["storage","time.travel","storage","ui.toast"]}]}"#;
         let mut registry = parse(json).unwrap();
         registry.normalize();
         assert_eq!(
@@ -569,6 +586,34 @@ mod tests {
         let serving = registry.serving_ids();
         assert_eq!(serving.len(), 2);
         assert!(serving.contains("com.example.one") && serving.contains("com.example.dup"));
+    }
+
+    #[test]
+    fn an_entry_without_a_recorded_hash_holds_no_consent() {
+        let mut registry = Registry {
+            entries: vec![
+                Entry {
+                    manifest_hash: String::new(),
+                    ..entry("com.example.ready")
+                },
+                Entry {
+                    manifest_hash: String::new(),
+                    state: EntryState::Broken,
+                    enabled: false,
+                    ready_enabled: Some(true),
+                    ..entry("com.example.broken")
+                },
+            ],
+            ..Registry::default()
+        };
+        registry.normalize();
+        let ready = registry.entry("com.example.ready").unwrap();
+        assert_eq!(ready.state, EntryState::NeedsConsent);
+        assert!(!ready.enabled && ready.granted.is_empty());
+        let broken = registry.entry("com.example.broken").unwrap();
+        assert_eq!(broken.state, EntryState::Broken);
+        assert_eq!(broken.ready_enabled, None);
+        assert!(registry.serving_ids().is_empty());
     }
 
     #[test]

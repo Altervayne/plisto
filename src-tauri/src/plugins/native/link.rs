@@ -18,6 +18,7 @@ use super::status::PluginStatus;
 use crate::audio::{self, FeedConsumer, PlayerCmd};
 use crate::plugins::api::tauri_host::TauriHost;
 use crate::plugins::api::HostContext;
+use crate::plugins::install_error::{ErrorCode, InstallError};
 use crate::plugins::lifecycle;
 use crate::plugins::state::{BootView, PluginsState};
 use crate::state::AppState;
@@ -42,12 +43,33 @@ pub struct Notice {
     pub kind: NoticeKind,
 }
 
+/// How a disable through the lifecycle went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Disabled {
+    /// Saved, or there is nothing left to disable.
+    Landed,
+    /// Another operation holds the plugin's turn.
+    Busy,
+    /// Refused otherwise, a failed save among them.
+    Failed,
+}
+
+impl Disabled {
+    fn of(outcome: Result<(), InstallError>) -> Disabled {
+        match outcome {
+            Ok(()) => Disabled::Landed,
+            Err(e) if e.code == ErrorCode::Busy => Disabled::Busy,
+            Err(_) => Disabled::Failed,
+        }
+    }
+}
+
 pub trait HostLink: Send + Sync {
     fn emit_status(&self, status: &PluginStatus);
     fn emit_notice(&self, notice: &Notice);
     fn emit_runtime(&self, view: BootView);
     /// Disables the plugin as the user would: saved, and the main window told.
-    fn disable(&self, id: &str);
+    fn disable(&self, id: &str) -> Disabled;
     /// Queues a command for the player without waiting.
     fn player(&self, cmd: PlayerCmd);
     /// Attaches a playback feed consumer; with `tap`, one that reads the tap.
@@ -82,19 +104,19 @@ impl HostLink for TauriLink {
         let _ = self.app.emit_to(MAIN_LABEL, EVENT_RUNTIME, view);
     }
 
-    fn disable(&self, id: &str) {
+    fn disable(&self, id: &str) -> Disabled {
+        // Without app data or state there is nothing to disable, and nothing to try again.
         let Ok(app_data) = self.app.path().app_data_dir() else {
-            return;
+            return Disabled::Landed;
         };
         let Some(state) = self.app.try_state::<AppState>() else {
-            return;
+            return Disabled::Landed;
         };
-        match lifecycle::disable(&app_data, &state.plugins, id) {
-            Ok(_) => {
-                let _ = self.app.emit_to(MAIN_LABEL, EVENT_CHANGED, ());
-            }
-            Err(e) => eprintln!("plugins: {id}: cannot turn off after repeated crashes: {e}"),
+        let outcome = lifecycle::disable(&app_data, &state.plugins, id);
+        if outcome.is_ok() {
+            let _ = self.app.emit_to(MAIN_LABEL, EVENT_CHANGED, ());
         }
+        Disabled::of(outcome.map(|_| ()))
     }
 
     fn player(&self, cmd: PlayerCmd) {
@@ -133,6 +155,7 @@ pub(crate) struct RecordingLink {
     notices: std::sync::Mutex<Vec<Notice>>,
     runtimes: std::sync::Mutex<Vec<BootView>>,
     disabled: std::sync::Mutex<Vec<String>>,
+    disable_attempts: std::sync::Mutex<usize>,
     plugins: std::sync::Mutex<Option<(std::sync::Weak<PluginsState>, std::path::PathBuf)>>,
     player: std::sync::Mutex<Vec<PlayerCmd>>,
     feed: audio::FeedHub,
@@ -154,6 +177,11 @@ impl RecordingLink {
 
     pub fn notices(&self) -> Vec<Notice> {
         self.notices.lock().unwrap().clone()
+    }
+
+    /// Every disable tried, landed or not.
+    pub fn disable_attempts(&self) -> usize {
+        *self.disable_attempts.lock().unwrap()
     }
 
     pub fn runtimes(&self) -> Vec<BootView> {
@@ -222,11 +250,17 @@ impl HostLink for RecordingLink {
         self.runtimes.lock().unwrap().push(view);
     }
 
-    fn disable(&self, id: &str) {
-        self.disabled.lock().unwrap().push(id.to_string());
+    /// Records each attempt, and each disable that landed.
+    fn disable(&self, id: &str) -> Disabled {
+        *self.disable_attempts.lock().unwrap() += 1;
         if let Some((plugins, data)) = self.attached() {
-            lifecycle::disable(&data, &plugins, id).unwrap();
+            let outcome = Disabled::of(lifecycle::disable(&data, &plugins, id).map(|_| ()));
+            if outcome != Disabled::Landed {
+                return outcome;
+            }
         }
+        self.disabled.lock().unwrap().push(id.to_string());
+        Disabled::Landed
     }
 
     fn player(&self, cmd: PlayerCmd) {

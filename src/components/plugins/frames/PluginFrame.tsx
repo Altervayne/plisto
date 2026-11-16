@@ -141,6 +141,7 @@ export function PluginFrame({
           title={t((d) => d.plugins.frame.title, { name })}
           src={src}
           sandbox="allow-scripts"
+          allow=""
           referrerPolicy="strict-origin"
           onLoad={onLoad}
         />

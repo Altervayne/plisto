@@ -21,9 +21,9 @@ use super::copy_in::copy_in;
 use super::extract::extract;
 use super::frame_host::is_reparse_point;
 use super::install_error::{ErrorCode, InstallError};
-use super::lifecycle::{park, save_failed};
+use super::lifecycle::{busy, park, remove_data, save_failed};
 use super::manifest::{Capability, Compat, Tier};
-use super::paths::{inbox_dir, plugin_dir, staging_dir};
+use super::paths::{data_dir, inbox_dir, plugin_dir, staging_dir};
 use super::registry::{Entry, EntryState};
 use super::revalidate::{check_folder, needs_newer};
 use super::stage::{fits_under, Limits, Totals};
@@ -61,6 +61,9 @@ pub struct Inspection {
     pub origins: Vec<String>,
     /// How many sidebar items the manifest declares.
     pub sidebar_items: usize,
+    /// The id is not installed but saved data under it is already there, left by an earlier plugin
+    /// that claimed the same id; an install hands that data to this one.
+    pub leftover_data: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -171,6 +174,8 @@ pub fn inspect(
             .is_ok()
             .then(String::new),
     };
+    let leftover_data =
+        installed.is_none() && fs::symlink_metadata(data_dir(app_data, &manifest.id)).is_ok();
     let evicted = plugins.keep_staged(StagedPlugin {
         token: token.clone(),
         dir,
@@ -198,6 +203,7 @@ pub fn inspect(
         installed,
         origins: manifest.network,
         sidebar_items,
+        leftover_data,
     })
 }
 
@@ -223,16 +229,36 @@ pub(crate) fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// Moves a staged plugin to `plugins/<id>/` and records it disabled, with no grants. An id that is
-/// already installed is refused and stays staged under its token, for an update to pick up.
+/// already installed is refused and stays staged under its token, for an update to pick up. Runs in
+/// the id's lifecycle turn; while another operation holds it, the install is refused as busy and the
+/// token stays staged.
 pub fn install(
     app_data: &Path,
     plugins: &PluginsState,
     token: &str,
     now: i64,
 ) -> Result<PluginRow, InstallError> {
+    install_new(app_data, plugins, token, now, false)
+}
+
+/// `install`; with `clear_data`, the saved data left under the id is deleted first, in the same turn.
+/// A delete that fails refuses the install with nothing committed. An installed id is refused as
+/// already installed before anything is deleted.
+pub fn install_new(
+    app_data: &Path,
+    plugins: &PluginsState,
+    token: &str,
+    now: i64,
+    clear_data: bool,
+) -> Result<PluginRow, InstallError> {
     require_writable(plugins)?;
     let staged = claim(plugins, token)?;
-    commit(app_data, plugins, staged, now)
+    let Some(_turn) = plugins.try_turn(&staged.id) else {
+        let id = staged.id.clone();
+        restage(plugins, staged);
+        return Err(busy(&id));
+    };
+    commit(app_data, plugins, staged, now, clear_data)
 }
 
 /// Refuses any change when the registry could not be read at launch: a save would overwrite it.
@@ -270,12 +296,20 @@ fn commit(
     plugins: &PluginsState,
     staged: StagedPlugin,
     now: i64,
+    clear_data: bool,
 ) -> Result<PluginRow, InstallError> {
-    let result = commit_claimed(app_data, plugins, &staged, now);
+    let result = commit_claimed(app_data, plugins, &staged, now, clear_data);
     if result.is_err() {
         restage(plugins, staged);
     }
     result
+}
+
+fn already_installed(id: &str) -> InstallError {
+    InstallError::new(
+        ErrorCode::AlreadyInstalled,
+        format!("{id} is already installed"),
+    )
 }
 
 fn commit_claimed(
@@ -283,6 +317,7 @@ fn commit_claimed(
     plugins: &PluginsState,
     staged: &StagedPlugin,
     now: i64,
+    clear_data: bool,
 ) -> Result<PluginRow, InstallError> {
     let (manifest, hash) = check_folder(&staged.dir, Some(&staged.id))?;
     if hash != staged.manifest_hash {
@@ -292,6 +327,13 @@ fn commit_claimed(
         ));
     }
     let target = plugin_dir(app_data, &staged.id);
+    if clear_data {
+        // The turn is held, so the id cannot be installed between this check and the commit.
+        if plugins.snapshot().entry(&staged.id).is_some() || fs::symlink_metadata(&target).is_ok() {
+            return Err(already_installed(&staged.id));
+        }
+        remove_data(app_data, &staged.id)?;
+    }
     // Where the undo parked a folder it could not move back; deleted once the lock is released.
     let parked = Cell::new(None);
     let committed = plugins.mutate(
@@ -299,10 +341,7 @@ fn commit_claimed(
         Withdraw::No,
         |registry, problems| {
             if registry.entry(&staged.id).is_some() || fs::symlink_metadata(&target).is_ok() {
-                return Err(InstallError::new(
-                    ErrorCode::AlreadyInstalled,
-                    format!("{} is already installed", staged.id),
-                ));
+                return Err(already_installed(&staged.id));
             }
             rename_with_retry(&staged.dir, &target)
                 .map_err(|e| InstallError::io("cannot move the plugin into place", e))?;
@@ -804,7 +843,7 @@ mod tests {
             ErrorCode::UnknownToken
         );
 
-        let row = commit(&data, &plugins, staged, 3).unwrap();
+        let row = commit(&data, &plugins, staged, 3, false).unwrap();
         assert_eq!(row.entry.id, ID);
         assert!(plugin_dir(&data, ID).join("ui/index.html").is_file());
     }
@@ -906,6 +945,81 @@ mod tests {
         let json = serde_json::to_value(&plain).unwrap();
         assert_eq!(json["origins"], json!([]));
         assert_eq!(json["sidebar_items"], 0);
+    }
+
+    #[test]
+    fn an_inspection_reports_saved_data_left_under_a_new_id() {
+        let k = Kit::new();
+        let manifest = ui("1.0.0", &["storage"]);
+        assert!(!k.inspect_path(&k.source(&manifest, &[])).leftover_data);
+
+        let data = data_dir(&k.data, manifest["id"].as_str().unwrap());
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("kv.json"), b"{}").unwrap();
+        let found = k.inspect_path(&k.source(&manifest, &[]));
+        assert!(found.leftover_data);
+        assert_eq!(serde_json::to_value(&found).unwrap()["leftover_data"], true);
+
+        // Once the id is installed, the data is its own.
+        install(&k.data, &k.plugins, &found.token, 1).unwrap();
+        let again = k.inspect_path(&k.source(&ui("1.1.0", &["storage"]), &[]));
+        assert!(!again.leftover_data);
+    }
+
+    /// Saved data under the demo id, as an earlier plugin of that id left it.
+    fn leave_data(k: &Kit) -> PathBuf {
+        let data = data_dir(&k.data, ID);
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("kv.json"), b"{\"a\":1}").unwrap();
+        data
+    }
+
+    #[test]
+    fn clearing_data_on_install_deletes_what_was_left_under_the_id() {
+        let k = Kit::new();
+        let data = leave_data(&k);
+        let token = k.inspect(&ui("1.0.0", &["storage"]));
+        let row = install_new(&k.data, &k.plugins, &token, 1, true).unwrap();
+        assert_eq!(row.entry.id, ID);
+        assert!(!data.exists());
+        assert!(plugin_dir(&k.data, ID).join("plugin.json").is_file());
+    }
+
+    #[test]
+    fn without_clearing_the_new_plugin_inherits_the_data() {
+        let k = Kit::new();
+        let data = leave_data(&k);
+        let token = k.inspect(&ui("1.0.0", &["storage"]));
+        install_new(&k.data, &k.plugins, &token, 1, false).unwrap();
+        assert_eq!(fs::read(data.join("kv.json")).unwrap(), b"{\"a\":1}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_data_delete_that_fails_commits_nothing() {
+        let k = Kit::new();
+        let data = leave_data(&k);
+        let token = k.inspect(&ui("1.0.0", &["storage"]));
+        let held = crate::plugins::test_kit::hold(&data.join("kv.json"));
+        let err = install_new(&k.data, &k.plugins, &token, 1, true).unwrap_err();
+        drop(held);
+        assert_eq!(err.code, ErrorCode::Io);
+        assert!(!plugin_dir(&k.data, ID).exists());
+        assert!(k.plugins.rows().is_empty());
+        assert!(k.plugins.staged(&token).is_some());
+        assert_eq!(fs::read(data.join("kv.json")).unwrap(), b"{\"a\":1}");
+    }
+
+    #[test]
+    fn clearing_data_for_an_installed_id_is_refused_and_deletes_nothing() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &["storage"]));
+        let data = leave_data(&k);
+        let token = k.inspect(&ui("1.1.0", &["storage"]));
+        let err = install_new(&k.data, &k.plugins, &token, 1, true).unwrap_err();
+        assert_eq!(err.code, ErrorCode::AlreadyInstalled);
+        assert_eq!(fs::read(data.join("kv.json")).unwrap(), b"{\"a\":1}");
+        assert!(k.plugins.staged(&token).is_some());
     }
 
     #[test]

@@ -21,6 +21,17 @@ pub fn is_on(plugins: &PluginsState) -> bool {
     plugins.snapshot().dev_mode
 }
 
+/// Refuses a developer tool while developer mode is off.
+pub fn require_on(plugins: &PluginsState) -> Result<(), InstallError> {
+    if is_on(plugins) {
+        return Ok(());
+    }
+    Err(InstallError::new(
+        ErrorCode::NotFound,
+        "developer mode is off",
+    ))
+}
+
 /// Turns developer mode on or off and saves it. Returns the saved value.
 pub fn set(app_data: &Path, plugins: &PluginsState, on: bool) -> Result<bool, InstallError> {
     require_writable(plugins)?;
@@ -36,15 +47,16 @@ pub fn set(app_data: &Path, plugins: &PluginsState, on: bool) -> Result<bool, In
 }
 
 /// Re-installs `id` from its remembered source: inspects the source as an install would, then applies
-/// it as an update. A source that is gone or no longer valid, holds another plugin, or changes the tier
-/// is refused with the staged copy removed and the installed plugin untouched. A changed capability set
-/// or origin list returns the entry to needs-consent, as any update does.
+/// it as an update. Refused while developer mode is off. A source that is gone or no longer valid,
+/// holds another plugin, or changes the tier is refused with the staged copy removed and the installed
+/// plugin untouched. A changed consent surface returns the entry to needs-consent, as any update does.
 pub fn reload(
     app_data: &Path,
     plugins: &PluginsState,
     id: &str,
     limits: Limits,
 ) -> Result<Updated, InstallError> {
+    require_on(plugins)?;
     require_writable(plugins)?;
     let source = plugins
         .snapshot()
@@ -85,6 +97,13 @@ mod tests {
     use crate::plugins::test_kit::{native, ui, Kit, ID};
     use std::fs;
     use std::path::PathBuf;
+
+    /// A fresh kit with developer mode on.
+    fn dev_kit() -> Kit {
+        let k = Kit::new();
+        set(&k.data, &k.plugins, true).unwrap();
+        k
+    }
 
     /// Installs the demo plugin from a fresh source folder and returns the folder.
     fn installed(k: &Kit, caps: &[&str]) -> PathBuf {
@@ -146,8 +165,35 @@ mod tests {
     }
 
     #[test]
+    fn a_reload_is_refused_while_developer_mode_is_off() {
+        let k = dev_kit();
+        let src = installed(&k, &["storage"]);
+        set(&k.data, &k.plugins, false).unwrap();
+        rewrite(&src, &ui("1.1.0", &["storage"]), b"<p>edited");
+
+        assert_eq!(
+            require_on(&k.plugins).unwrap_err().code,
+            ErrorCode::NotFound
+        );
+        let refused = reload(&k.data, &k.plugins, ID, Limits::DEFAULT).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::NotFound);
+        assert_untouched(&k, "1.0.0");
+
+        set(&k.data, &k.plugins, true).unwrap();
+        assert!(require_on(&k.plugins).is_ok());
+        assert_eq!(
+            reload(&k.data, &k.plugins, ID, Limits::DEFAULT)
+                .unwrap()
+                .row
+                .entry
+                .version,
+            "1.1.0"
+        );
+    }
+
+    #[test]
     fn a_reload_applies_the_source_and_keeps_consent_for_an_unchanged_surface() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         k.enable(&["storage"]);
         rewrite(&src, &ui("1.1.0", &["storage"]), b"<p>edited");
@@ -166,7 +212,7 @@ mod tests {
 
     #[test]
     fn a_reload_with_a_new_capability_asks_for_consent_again() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         k.enable(&["storage"]);
         rewrite(&src, &ui("1.1.0", &["storage", "ui.toast"]), b"<p>edited");
@@ -182,7 +228,7 @@ mod tests {
 
     #[test]
     fn a_reload_that_changes_the_tier_is_refused_and_leaves_the_plugin_alone() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         k.enable(&["storage"]);
         rewrite(&src, &native("1.1.0", &["storage"]), b"<p>edited");
@@ -196,7 +242,7 @@ mod tests {
 
     #[test]
     fn a_reload_revalidates_the_manifest() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         fs::write(src.join("plugin.json"), b"{ not json").unwrap();
         let refused = reload(&k.data, &k.plugins, ID, Limits::DEFAULT).unwrap_err();
@@ -213,7 +259,7 @@ mod tests {
 
     #[test]
     fn a_reload_from_a_missing_source_leaves_the_plugin_intact() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         k.enable(&["storage"]);
         fs::remove_dir_all(&src).unwrap();
@@ -226,7 +272,7 @@ mod tests {
 
     #[test]
     fn a_reload_when_the_source_holds_another_plugin_is_refused() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         let mut other = ui("1.1.0", &["storage"]);
         other["id"] = serde_json::json!("com.example.other");
@@ -240,7 +286,7 @@ mod tests {
 
     #[test]
     fn a_reload_needs_a_remembered_source_and_an_installed_plugin() {
-        let k = Kit::new();
+        let k = dev_kit();
         let refused = reload(&k.data, &k.plugins, ID, Limits::DEFAULT).unwrap_err();
         assert_eq!(refused.code, ErrorCode::NotInstalled);
         installed(&k, &["storage"]);
@@ -252,7 +298,7 @@ mod tests {
 
     #[test]
     fn a_reload_holds_the_same_size_caps_as_an_install() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         fs::write(src.join("big.bin"), vec![0u8; 4096]).unwrap();
         let tight = Limits {
@@ -266,7 +312,7 @@ mod tests {
 
     #[test]
     fn a_reload_in_safe_mode_starts_nothing() {
-        let k = Kit::new();
+        let k = dev_kit();
         let src = installed(&k, &["storage"]);
         k.enable(&["storage"]);
         session::clear(&k.data);

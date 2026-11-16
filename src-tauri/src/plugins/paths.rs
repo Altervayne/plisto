@@ -33,6 +33,7 @@ pub const REL_PATH_MAX: usize = 128;
 const RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
     "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CONIN$", "CONOUT$",
 ];
 
 /// The folder holding every installed plugin.
@@ -267,6 +268,16 @@ mod tests {
         let max = format!("a.{}", "b".repeat(62));
         assert_eq!(max.len(), 64);
         assert!(validate_id(&max).is_ok());
+    }
+
+    #[test]
+    fn console_devices_are_reserved_in_any_case_and_with_an_extension() {
+        for name in ["CONIN$", "conout$", "ConIn$.txt", "CONOUT$.log.1"] {
+            assert!(is_reserved(name), "{name}");
+        }
+        for name in ["CONIN", "conin$x", "conout$$", "CONOUT"] {
+            assert!(!is_reserved(name), "{name}");
+        }
     }
 
     #[test]
