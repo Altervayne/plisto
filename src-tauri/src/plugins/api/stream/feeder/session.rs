@@ -52,6 +52,15 @@ impl StreamHub {
         if !live {
             item.meta.now = None;
         }
+        // The reconnect is over before the decoding starts, so no `Playing` from the new audio can
+        // reach the hub while the item still counts as reconnecting.
+        let shown = item.shown();
+        if item.reconnecting {
+            item.reconnecting = false;
+            if !item.heard {
+                item.accepted = self.clock().now();
+            }
+        }
         item.rev += 1;
         link.send(PlayerCmd::StreamFacts {
             id,
@@ -60,6 +69,10 @@ impl StreamHub {
             duration_secs: None,
         });
         publish(&*link, item);
+        let state = item.shown();
+        if state != shown {
+            link.owner(&item.plugin_id, StreamEvent::State { item: id, state });
+        }
         if link.decode(input, queue, self.on_end(id)).is_ok() {
             return true;
         }
@@ -179,5 +192,50 @@ impl StreamHub {
             link.owner(&item.plugin_id, StreamEvent::State { item: id, state });
         }
         Some(control)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use crate::audio::stream::{byte_ring, StreamControl, StreamInput, LIVE_RING};
+    use crate::plugins::api::stream::test_link::{Bench, Call, Plugin, A, RADIO};
+    use crate::plugins::api::stream::{NowState, StreamEvent};
+    use crate::plugins::manifest::{Capability, Tier};
+
+    #[test]
+    fn a_head_ends_the_reconnect_before_its_decoding_starts() {
+        let grants = &[Capability::PlaybackStream, Capability::Network];
+        let bench = Bench::new(&[Plugin(A, Tier::Ui, grants)]);
+        // The bench has no network engine, so the item has no feeder: the test plays its part.
+        let play = json!({ "source": { "url": format!("{RADIO}/live") }, "title": "Radio" });
+        let reply = bench.call(A, "stream.play", play).unwrap();
+        let id = reply["item"].as_i64().unwrap();
+        let hub = bench.api().streams().clone();
+        hub.pull_reconnecting(id, true, hub.clock().now());
+        bench.link.calls.lock().unwrap().clear();
+
+        let (_writer, ring) = byte_ring(LIVE_RING, Arc::new(StreamControl::new()));
+        let input = StreamInput::Media {
+            source: Box::new(ring),
+            hint: None,
+        };
+        assert!(hub.pull_head(id, true, false, input));
+        let calls = bench.link.calls.lock().unwrap().clone();
+        let decode = calls.iter().position(|call| *call == Call::Decode);
+        let decode = decode.expect("the head starts decoding");
+        let published = calls[..decode].iter().rev().find_map(|call| match call {
+            Call::Now(state) => Some(*state),
+            _ => None,
+        });
+        assert_eq!(published, Some(Some(NowState::Connecting)), "{calls:?}");
+        let told = Call::Owner(StreamEvent::State {
+            item: id,
+            state: NowState::Connecting,
+        });
+        assert!(calls[..decode].contains(&told), "{calls:?}");
     }
 }

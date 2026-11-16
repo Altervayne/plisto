@@ -61,6 +61,16 @@ pub struct FakeLink {
     pub art_running: AtomicU64,
     pub art_most: AtomicU64,
     pub art_hold: Mutex<Duration>,
+    // Snapshots, owner events and decodes, in the order the hub made them.
+    pub calls: Mutex<Vec<Call>>,
+}
+
+/// One call the hub made on the link, as `FakeLink::calls` records it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call {
+    Now(Option<super::NowState>),
+    Owner(StreamEvent),
+    Decode,
 }
 
 impl FakeLink {
@@ -133,6 +143,7 @@ impl StreamLink for FakeLink {
     }
 
     fn decode(&self, input: StreamInput, queue: PcmQueue, on_end: OnEnd) -> io::Result<()> {
+        self.calls.lock().unwrap().push(Call::Decode);
         match input {
             StreamInput::Media { source, .. } => {
                 self.media_decodes.fetch_add(1, Ordering::AcqRel);
@@ -155,6 +166,8 @@ impl StreamLink for FakeLink {
     }
 
     fn now(&self, now: Option<&StreamNow>) {
+        let state = now.map(|now| now.state);
+        self.calls.lock().unwrap().push(Call::Now(state));
         self.nows.lock().unwrap().push(now.cloned());
     }
 
@@ -163,6 +176,7 @@ impl StreamLink for FakeLink {
     }
 
     fn owner(&self, id: &str, event: StreamEvent) {
+        self.calls.lock().unwrap().push(Call::Owner(event.clone()));
         self.events.lock().unwrap().push((id.to_string(), event));
     }
 

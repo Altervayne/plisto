@@ -17,7 +17,8 @@ use crate::audio::stream::{LIVE_PAUSE_HOLD_MS, NO_AUDIO_MS, RECONNECT_BACKOFF_MS
 use crate::audio::{StreamEndReason, StreamItem, StreamPhase};
 
 /// Pauses the seated item past the hold, takes the fresh epoch, and resumes it as the engine does:
-/// with no source attached, in buffering.
+/// with no source attached, in buffering. Returns once the new connection's head was taken and its
+/// decoding started, which is the earliest the engine could report the new audio playing.
 async fn hold_and_resume(p: &Pull, seat: &StreamItem, connections: usize) {
     p.signal(seat, StreamPhase::Paused);
     // The feeder sees the pause before the clock passes the hold.
@@ -28,6 +29,8 @@ async fn hold_and_resume(p: &Pull, seat: &StreamItem, connections: usize) {
     p.signal(seat, StreamPhase::Buffering);
     assert_eq!(p.shown(), Some(NowState::Reconnecting));
     assert!(until(|| p.fx.connections() == connections).await);
+    // One head taken per connection, each with its facts.
+    assert!(until(|| p.facts().len() == connections).await);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -35,10 +38,6 @@ async fn an_epoch_whose_new_head_yields_no_audio_ends_no_audio() {
     let p = Pull::new().await;
     let (_, seat) = p.play(&p.fx.url("/radio"), json!({})).unwrap();
     hold_and_resume(&p, &seat, 2).await;
-    assert!(
-        until(|| p.facts().len() == 2).await,
-        "the new epoch decodes"
-    );
     // The audio clock restarted at the new head.
     p.clock.advance(Duration::from_millis(NO_AUDIO_MS - 1));
     p.drain();
