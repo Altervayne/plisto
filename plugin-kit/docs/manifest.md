@@ -84,9 +84,6 @@ this number, not the methods you call. The plugin system and the UI surfaces (to
 items) first ship in Plisto 2.7, so `"2.7.0"` is the right value for a plugin that uses any of them, and the
 event and stream methods (`events.subscribe`, `stream.*`) need 2.7.0 or newer too.
 
-While you develop against a pre-release build that still reports 2.6.x, use `"2.6.0"`: Plisto refuses to
-turn on a plugin whose `min_plisto` is newer than the build. Set `"2.7.0"` before you release.
-
 ### `entry`
 
 The page Plisto opens. It must be an `.html` file (the extension check ignores case) and a plain file in

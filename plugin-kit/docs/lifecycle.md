@@ -328,8 +328,7 @@ Six numbers are in play. This is the whole policy.
 - `min_plisto` says which Plisto you need. Plisto refuses to install or turn on a plugin that needs a newer
   one. Set it to the lowest Plisto version you tested the plugin on. The plugin system first ships in
   Plisto 2.7.0, and the stream and app event methods (`stream.*`, `events.subscribe`) need 2.7.0 or newer,
-  so a plugin that uses them says `"2.7.0"`. The examples in this kit keep `"2.6.0"` because they were
-  built and run against pre-release builds that report 2.6.x; see the
+  so a plugin that uses them says `"2.7.0"`, as the examples in this kit do; see the
   [manifest reference](manifest.md#version-and-min_plisto).
 - To use a method an older Plisto may lack, check `plisto.has("name")` first.
 

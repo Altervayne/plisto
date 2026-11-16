@@ -14,7 +14,7 @@
     "ui.confirm",
     "ui.chips"
   ],
-  "min_plisto": "2.6.0",
+  "min_plisto": "2.7.0",
   "author": "Plisto",
   "icon": "icon.svg",
   "modes": [

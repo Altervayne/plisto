@@ -46,9 +46,8 @@ SDK. Copy `sdk/plisto-sdk.js` from this kit into `my-plugin/`.
 - `capabilities` lists what the plugin may do. `storage` lets it save data. The user sees this list
   before the plugin is turned on.
 - `entry` is the page Plisto opens.
-- `min_plisto` is the oldest Plisto version the plugin works with. Use `"2.7.0"` for a release. While
-  you develop against a pre-release build that still reports 2.6.x, use `"2.6.0"`, because Plisto refuses
-  to turn on a plugin that needs a newer version than the build. See the
+- `min_plisto` is the oldest Plisto version the plugin works with. Use `"2.7.0"`, the first
+  version with plugins: Plisto refuses to turn on a plugin that needs a newer version than itself. See the
   [manifest reference](manifest.md#version-and-min_plisto).
 
 Every field, limit and rule is in the [manifest reference](manifest.md).
