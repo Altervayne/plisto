@@ -53,6 +53,9 @@ pub const REDIRECT: &str = "redirect";
 pub const HANDSHAKE: &str = "handshake";
 /// The close reason, and log reason, of a socket Plisto ended for passing an incoming limit.
 pub const PLISTO_LIMIT: &str = "plisto_limit";
+/// The close reason, and log reason, of a socket Plisto ended because its page acknowledged nothing
+/// for `STALL_MS` while the window was full.
+pub const PLISTO_STALLED: &str = "plisto_stalled";
 /// A `dns`, `connect`, `tls` or `closed` failure while Windows has a proxy configured.
 pub const PROXY: &str = "proxy";
 /// A stream that received no byte for its idle time, with `timeout`.

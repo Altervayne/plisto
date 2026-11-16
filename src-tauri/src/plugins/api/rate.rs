@@ -30,7 +30,7 @@ pub enum RateClass {
     Net,
     /// Socket sends and closes, aborts and stream cancels.
     NetSend,
-    /// Stream acknowledgements.
+    /// Stream and socket acknowledgements.
     NetStream,
     /// Page calls relayed to a native plugin's child.
     Relay,

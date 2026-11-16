@@ -76,6 +76,12 @@ pub(crate) const METHODS: &[MethodSpec] = &[
         run: socket_send,
     },
     MethodSpec {
+        name: "net.socket.ack",
+        need: NETWORK,
+        class: RateClass::NetStream,
+        run: socket_ack,
+    },
+    MethodSpec {
         name: "net.socket.close",
         need: NETWORK,
         class: RateClass::NetSend,
@@ -469,6 +475,19 @@ fn send(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, ApiError>
         }
     };
     socket::send(&engine(ctx)?.sockets, ctx.id, socket, message)?;
+    Ok(json!({}))
+}
+
+fn socket_ack(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
+    Outcome::Done(acknowledge(ctx, args))
+}
+
+fn acknowledge(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, ApiError> {
+    let socket = string(args, "socket", "'socket' must be a string.")?;
+    let bad_bytes = "'bytes' must be a non-negative integer.";
+    let bytes =
+        optional_u64(args, "bytes", bad_bytes)?.ok_or_else(|| ApiError::invalid_args(bad_bytes))?;
+    socket::ack(&engine(ctx)?.sockets, ctx.id, socket, bytes)?;
     Ok(json!({}))
 }
 

@@ -26,11 +26,14 @@ use super::error::ApiError;
 use super::host_event::UiEvent;
 use super::pending::{Expiry, Pending, Resolution};
 use super::state::lock;
+use super::PLUGINS_AT_FULL_CAP;
 
-/// One shown plus three waiting.
-pub const MAX_OPEN_TOASTS: usize = 4;
-/// One shown plus three waiting.
-pub const MAX_OPEN_PROMPTS: usize = 4;
+/// One per plugin, so a plugin that keeps toasting only delays its own next one.
+pub const MAX_OPEN_TOASTS_PER_PLUGIN: usize = 1;
+pub const MAX_OPEN_TOASTS: usize = MAX_OPEN_TOASTS_PER_PLUGIN * PLUGINS_AT_FULL_CAP;
+/// The window shows one prompt at a time; the rest wait in arrival order.
+pub const MAX_OPEN_PROMPTS_PER_PLUGIN: usize = 1;
+pub const MAX_OPEN_PROMPTS: usize = MAX_OPEN_PROMPTS_PER_PLUGIN * PLUGINS_AT_FULL_CAP;
 pub const TOAST_DEADLINE_MS: u64 = 60_000;
 pub const CONFIRM_DEADLINE_MS: u64 = 300_000;
 pub const GESTURE_MS: u64 = 5_000;
@@ -152,7 +155,7 @@ impl Inner {
 
     fn confirm_busy(&self, id: &str) -> Result<(), ApiError> {
         let is_prompt = |r: &OpenRequest| r.kind == OpenKind::Confirm;
-        if self.count(|r| is_prompt(r) && r.plugin == id) > 0
+        if self.count(|r| is_prompt(r) && r.plugin == id) >= MAX_OPEN_PROMPTS_PER_PLUGIN
             || self.count(is_prompt) >= MAX_OPEN_PROMPTS
         {
             return Err(ApiError::busy());
@@ -181,8 +184,9 @@ impl UiState {
             inner.prune(now);
             match kind {
                 OpenKind::Toast { .. } => {
-                    let toasts = inner.count(|r| matches!(r.kind, OpenKind::Toast { .. }));
-                    if toasts >= MAX_OPEN_TOASTS {
+                    let is_toast = |r: &OpenRequest| matches!(r.kind, OpenKind::Toast { .. });
+                    let mine = inner.count(|r| is_toast(r) && r.plugin == id);
+                    if mine >= MAX_OPEN_TOASTS_PER_PLUGIN || inner.count(is_toast) >= MAX_OPEN_TOASTS {
                         return Err(ApiError::busy());
                     }
                 }
@@ -209,7 +213,8 @@ impl UiState {
         ))
     }
 
-    /// Registers a toast of plugin `id`; `busy` when `MAX_OPEN_TOASTS` are already open.
+    /// Registers a toast of plugin `id`; `busy` when it already has `MAX_OPEN_TOASTS_PER_PLUGIN` or
+    /// `MAX_OPEN_TOASTS` are open.
     pub fn open_toast(
         &self,
         id: &str,
@@ -405,37 +410,49 @@ mod tests {
     }
 
     #[test]
-    fn the_fifth_open_toast_is_busy() {
+    fn toasts_are_one_per_plugin_and_sixteen_app_wide() {
+        assert_eq!(MAX_OPEN_TOASTS, 16);
         let ui = UiState::default();
         let now = Instant::now();
-        let held: Vec<Pending> = (0..4)
-            .map(|i| open_toast(&ui, if i % 2 == 0 { A } else { B }, now).unwrap())
-            .collect();
+        let mine = open_toast(&ui, A, now).unwrap();
         assert_eq!(open_toast(&ui, A, now).unwrap_err().code, ApiCode::Busy);
         // A refused toast is not registered.
-        assert_eq!(ui.pending_events().len(), 4);
+        assert_eq!(ui.pending_events().len(), 1);
+        // Every other plugin still gets its own.
+        let others: Vec<Pending> = (1..MAX_OPEN_TOASTS)
+            .map(|n| open_toast(&ui, &format!("com.example.p{n}"), now).unwrap())
+            .collect();
+        assert_eq!(
+            open_toast(&ui, "com.example.late", now).unwrap_err().code,
+            ApiCode::Busy
+        );
         // Toasts do not count against prompts.
         assert!(open_confirm(&ui, A, now).is_ok());
-        drop(held);
+        // A plugin's toast that left frees its slot.
+        assert!(ui.expire("r1"));
+        drop(mine);
+        assert!(open_toast(&ui, A, now).is_ok());
+        drop(others);
     }
 
     #[test]
-    fn prompts_are_one_per_plugin_and_four_app_wide() {
+    fn prompts_are_one_per_plugin_and_sixteen_app_wide() {
         let ui = UiState::default();
         let now = Instant::now();
         let _a = open_confirm(&ui, A, now).unwrap();
         assert_eq!(ui.confirm_busy(A).unwrap_err().code, ApiCode::Busy);
         assert_eq!(open_confirm(&ui, A, now).unwrap_err().code, ApiCode::Busy);
-        let _others: Vec<Pending> = ["com.example.b", "com.example.c", "com.example.d"]
-            .iter()
-            .map(|id| open_confirm(&ui, id, now).unwrap())
+        assert_eq!(MAX_OPEN_PROMPTS, 16);
+        // Every other plugin still gets its own.
+        let _others: Vec<Pending> = (1..MAX_OPEN_PROMPTS)
+            .map(|n| open_confirm(&ui, &format!("com.example.p{n}"), now).unwrap())
             .collect();
         assert_eq!(
-            ui.confirm_busy("com.example.e").unwrap_err().code,
+            ui.confirm_busy("com.example.late").unwrap_err().code,
             ApiCode::Busy
         );
         assert_eq!(
-            open_confirm(&ui, "com.example.e", now).unwrap_err().code,
+            open_confirm(&ui, "com.example.late", now).unwrap_err().code,
             ApiCode::Busy
         );
     }

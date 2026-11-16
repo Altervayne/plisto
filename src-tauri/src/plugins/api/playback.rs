@@ -1,10 +1,10 @@
 /*
  * The playback methods: what is playing and the queue, read from the engine's shared snapshots, and
- * the player commands a plugin may send. Queue changes take library track ids, an album or a playlist
- * and go through the same `resolve_queue` the app's own play commands use, so a plugin queues exactly
- * what a click would. Tracks missing on disk are left out. A track played straight off disk, or a
- * plugin stream, has no library id and reads as null, so its file is never named; a stream is
- * described by its cleaned title and artist only.
+ * the player commands a plugin may send. Queue changes take library track ids, an album or a playlist,
+ * need `library.read` beside `playback.control`, and go through the same `resolve_queue` the app's own
+ * play commands use, so a plugin queues exactly what a click would. Tracks missing on disk are left
+ * out. A track played straight off disk, or a plugin stream, has no library id and reads as null, so
+ * its file is never named; a stream is described by its cleaned title and artist only.
  */
 
 // -- Library Imports --
@@ -26,11 +26,14 @@ pub const MAX_QUEUE_IDS: usize = 500;
 
 const READ: Need = Need::Cap(Capability::PlaybackRead);
 const CONTROL: Need = Need::Cap(Capability::PlaybackControl);
+// A queue change names library ids, and its answer tells which exist and how many tracks an album
+// or playlist holds, so it needs the library grant as well.
+const QUEUE: Need = Need::All(&[Capability::PlaybackControl, Capability::LibraryRead]);
 
-const fn control(name: &'static str, run: super::Handler) -> MethodSpec {
+const fn control(name: &'static str, need: Need, run: super::Handler) -> MethodSpec {
     MethodSpec {
         name,
-        need: CONTROL,
+        need,
         class: RateClass::Play,
         run,
     }
@@ -49,15 +52,15 @@ pub(super) const METHODS: &[MethodSpec] = &[
         class: RateClass::PlaybackRead,
         run: queue,
     },
-    control("playback.toggle", toggle),
-    control("playback.pause", pause),
-    control("playback.resume", resume),
-    control("playback.next", next),
-    control("playback.prev", prev),
-    control("playback.seek", seek),
-    control("queue.play", queue_play),
-    control("queue.add", queue_add),
-    control("queue.play_next", queue_play_next),
+    control("playback.toggle", CONTROL, toggle),
+    control("playback.pause", CONTROL, pause),
+    control("playback.resume", CONTROL, resume),
+    control("playback.next", CONTROL, next),
+    control("playback.prev", CONTROL, prev),
+    control("playback.seek", CONTROL, seek),
+    control("queue.play", QUEUE, queue_play),
+    control("queue.add", QUEUE, queue_add),
+    control("queue.play_next", QUEUE, queue_play_next),
 ];
 
 /// A library id, or None for a track played off disk.
@@ -299,7 +302,11 @@ mod tests {
     use crate::plugins::api::test_rig::{insert_track, mark_gone, Rig};
 
     fn rig() -> Rig {
-        Rig::new(&[Capability::PlaybackRead, Capability::PlaybackControl])
+        Rig::new(&[
+            Capability::PlaybackRead,
+            Capability::PlaybackControl,
+            Capability::LibraryRead,
+        ])
     }
 
     fn code(result: Result<Value, ApiError>) -> ApiCode {
@@ -601,8 +608,8 @@ mod tests {
 
     #[test]
     fn reads_and_commands_need_their_own_grants() {
-        let reader = Rig::new(&[Capability::PlaybackRead]);
-        let controller = Rig::new(&[Capability::PlaybackControl]);
+        let reader = Rig::new(&[Capability::PlaybackRead, Capability::LibraryRead]);
+        let controller = Rig::new(&[Capability::PlaybackControl, Capability::LibraryRead]);
         for spec in METHODS {
             let (allowed, refused) = if spec.need == READ {
                 (&reader, &controller)
@@ -617,6 +624,73 @@ mod tests {
                 spec.name
             );
             assert!(allowed.call(spec.name, args).is_ok(), "{}", spec.name);
+        }
+    }
+
+    #[test]
+    fn a_queue_change_needs_the_library_grant_as_well() {
+        let control_only = Rig::new(&[Capability::PlaybackRead, Capability::PlaybackControl]);
+        let library_only = Rig::new(&[Capability::LibraryRead]);
+        let both = rig();
+        let (t, album, list) = stock(&both);
+        let (_, other_album, other_list) = stock(&control_only);
+        for method in ["queue.play", "queue.add", "queue.play_next"] {
+            for (args, theirs) in [
+                (json!({ "track_ids": [t[0]] }), json!({ "track_ids": [t[0]] })),
+                (json!({ "album_id": album }), json!({ "album_id": other_album })),
+                (json!({ "playlist_id": list }), json!({ "playlist_id": other_list })),
+                (json!({ "album_id": 999 }), json!({ "album_id": 999 })),
+            ] {
+                // Refused at admission, so an id that exists answers as a missing one does.
+                assert_eq!(
+                    code(control_only.call(method, theirs.clone())),
+                    ApiCode::Denied,
+                    "{method} {theirs}"
+                );
+                assert_eq!(
+                    code(library_only.call(method, theirs)),
+                    ApiCode::Denied,
+                    "{method}"
+                );
+                let reply = both.call(method, args.clone());
+                if args["album_id"] == 999 {
+                    assert_eq!(code(reply), ApiCode::NotFound, "{method}");
+                } else {
+                    assert!(reply.is_ok(), "{method} {args}");
+                }
+            }
+        }
+        assert!(control_only.sent().is_empty());
+        assert_eq!(both.sent().len(), 9);
+    }
+
+    #[test]
+    fn a_control_only_plugin_still_drives_the_transport() {
+        let rig = Rig::new(&[Capability::PlaybackControl]);
+        for (method, name) in [
+            ("playback.pause", "pause"),
+            ("playback.next", "skip"),
+            ("playback.prev", "prev"),
+            ("playback.resume", "resume"),
+            ("playback.toggle", "toggle"),
+        ] {
+            assert_eq!(rig.call(method, json!({})), Ok(json!({})), "{method}");
+            assert_eq!(sent_one(&rig).0, name, "{method}");
+        }
+        rig.call("playback.seek", json!({ "secs": 5 })).unwrap();
+        assert_eq!(sent_one(&rig), ("seek", vec![5], None));
+    }
+
+    #[test]
+    fn the_table_needs_the_library_grant_exactly_for_the_queue_changes() {
+        for spec in METHODS {
+            let needs_library = spec.need.caps().contains(&Capability::LibraryRead);
+            assert_eq!(
+                needs_library,
+                spec.name.starts_with("queue."),
+                "{}",
+                spec.name
+            );
         }
     }
 }

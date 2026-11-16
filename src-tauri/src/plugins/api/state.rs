@@ -208,29 +208,28 @@ impl ApiState {
             if inner.open_page.as_deref() == Some(id) {
                 inner.open_page = None;
             }
+            inner.buckets.remove(id);
+            inner.in_flight.remove(id);
         }
         self.0.streams.forget(id, gone, Producer::Any);
         self.0.events.forget(id);
         self.0.net.forget(id);
-        self.forget_calls(id);
+        self.release_calls(id);
     }
 
     /// `forget` for the end of a native plugin's child while the plugin still serves: what belongs to
     /// the page frame, which outlives the child, is kept. That is the open page slot and the network
     /// work, which only frames start. A stream the child pushed has lost its producer, and the
-    /// child's event subscriptions end with it.
+    /// child's event subscriptions end with it. The rate buckets and the in-flight count belong to
+    /// the plugin, not the run, so exiting never refills them; a call still running gives its slot
+    /// back to that same count.
     pub fn forget_run(&self, id: &str) {
         self.0.streams.forget(id, Gone::Off, Producer::Child);
         self.0.events.drop_side(id, Side::Child);
-        self.forget_calls(id);
+        self.release_calls(id);
     }
 
-    fn forget_calls(&self, id: &str) {
-        {
-            let mut inner = lock(&self.0.inner);
-            inner.buckets.remove(id);
-            inner.in_flight.remove(id);
-        }
+    fn release_calls(&self, id: &str) {
         self.0.ui.release(id);
         self.0.ui.drop_gestures(id);
         self.0.sidebar.forget(id);
@@ -258,6 +257,7 @@ impl ApiState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugins::api::error::ApiCode;
 
     const A: &str = "com.example.a";
     const B: &str = "com.example.b";
@@ -332,21 +332,41 @@ mod tests {
     }
 
     #[test]
-    fn forget_run_keeps_the_page_slot_and_clears_the_rest() {
+    fn forget_run_keeps_the_page_slot_and_the_buckets_and_drops_gestures() {
         let api = ApiState::default();
         let now = Instant::now();
         for _ in 0..10 {
             api.take(A, RateClass::Ambient, now).unwrap();
         }
-        let _guard = api.enter(A).unwrap();
         api.set_page_open(A, true);
         let token = api.ui().mint(A, now);
 
         api.forget_run(A);
         assert!(api.is_page_open(A));
-        assert!(!api.has_buckets(A));
-        assert_eq!(api.in_flight(A), 0);
         assert!(!api.ui().consume(A, &token, now));
+        // A child that exits does not refill its plugin's buckets.
+        let limited = api.take(A, RateClass::Ambient, now).unwrap_err();
+        assert_eq!(limited.code, ApiCode::RateLimited);
+    }
+
+    #[test]
+    fn calls_running_across_a_run_end_keep_the_count_exact() {
+        let api = ApiState::default();
+        let mut held: Vec<InFlight> = (0..16).map(|_| api.enter(A).unwrap()).collect();
+
+        api.forget_run(A);
+        assert_eq!(api.in_flight(A), 16);
+        // The next run cannot claim slots the old one still holds.
+        assert_eq!(api.enter(A).err(), Some(ApiError::busy()));
+        held.truncate(10);
+        assert_eq!(api.in_flight(A), 10);
+        held.push(api.enter(A).unwrap());
+        assert_eq!(api.in_flight(A), 11);
+        drop(held);
+        assert_eq!(api.in_flight(A), 0);
+        // Every guard lowered the one count once: nothing below zero.
+        let _again = api.enter(A).unwrap();
+        assert_eq!(api.in_flight(A), 1);
     }
 
     #[test]

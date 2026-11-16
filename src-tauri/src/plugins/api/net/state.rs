@@ -22,16 +22,19 @@ use tauri::Url;
 // -- Local Imports --
 use crate::plugins::api::error::ApiError;
 use crate::plugins::api::state::lock;
+use crate::plugins::api::PLUGINS_AT_FULL_CAP;
 
 // ---- Caps ----
 
+// The per-plugin caps share the load; the app-wide ones only bound the connections of a pathological
+// install.
 /// Fetches until their headers, or their body when buffered.
 pub const MAX_FETCHES_PER_PLUGIN: usize = 4;
-pub const MAX_FETCHES: usize = 12;
+pub const MAX_FETCHES: usize = MAX_FETCHES_PER_PLUGIN * PLUGINS_AT_FULL_CAP;
 pub const MAX_STREAMS_PER_PLUGIN: usize = 2;
-pub const MAX_STREAMS: usize = 8;
+pub const MAX_STREAMS: usize = MAX_STREAMS_PER_PLUGIN * PLUGINS_AT_FULL_CAP;
 pub const MAX_SOCKETS_PER_PLUGIN: usize = 2;
-pub const MAX_SOCKETS: usize = 8;
+pub const MAX_SOCKETS: usize = MAX_SOCKETS_PER_PLUGIN * PLUGINS_AT_FULL_CAP;
 /// Log entries kept per plugin; the oldest goes first.
 pub const LOG_CAPACITY: usize = 200;
 
@@ -452,6 +455,30 @@ mod tests {
             assert_eq!(busy.map(|e| e.code), Some(ApiCode::Busy), "{kind:?}");
             held.pop();
             assert!(net.open("com.example.late", kind, None, noop()).is_ok());
+        }
+    }
+
+    #[test]
+    fn plugins_at_their_own_caps_leave_a_sixteenth_its_full_share() {
+        assert_eq!(MAX_FETCHES, 64);
+        assert_eq!(MAX_STREAMS, 32);
+        assert_eq!(MAX_SOCKETS, 32);
+        let net = NetState::default();
+        let mut held = Vec::new();
+        for n in 0..PLUGINS_AT_FULL_CAP - 1 {
+            let id = format!("com.example.p{n}");
+            for kind in [Kind::Fetch, Kind::Stream, Kind::Socket] {
+                for _ in 0..kind.caps().0 {
+                    held.push(net.open(&id, kind, None, noop()).unwrap());
+                }
+            }
+        }
+        for kind in [Kind::Fetch, Kind::Stream, Kind::Socket] {
+            for _ in 0..kind.caps().0 {
+                held.push(net.open(A, kind, None, noop()).unwrap());
+            }
+            let busy = net.open(A, kind, None, noop()).err().map(|e| e.code);
+            assert_eq!(busy, Some(ApiCode::Busy), "{kind:?}");
         }
     }
 

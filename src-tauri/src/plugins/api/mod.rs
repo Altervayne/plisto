@@ -73,6 +73,9 @@ pub(crate) use self::net::state::{EndReason, Kind, Running};
 pub const API_VERSION: u32 = 1;
 pub const MAX_ARGS_BYTES: usize = 1_048_576;
 pub const MAX_IN_FLIGHT: u32 = 16;
+/// How many plugins an app-wide cap fits at their full per-plugin caps: sixteen plugins at their own
+/// caps never refuse one another.
+pub const PLUGINS_AT_FULL_CAP: usize = 16;
 /// The namespace a native plugin's page calls its own child through.
 pub const RELAY_PREFIX: &str = "plugin.";
 const NAME_MAX_CHARS: usize = 64;
@@ -92,6 +95,23 @@ pub enum Need {
     /// Every serving plugin.
     Ambient,
     Cap(Capability),
+    /// Every one of these.
+    All(&'static [Capability]),
+}
+
+impl Need {
+    /// The capabilities a plugin must hold; none for an ambient method.
+    pub fn caps(&self) -> &[Capability] {
+        match self {
+            Need::Ambient => &[],
+            Need::Cap(cap) => std::slice::from_ref(cap),
+            Need::All(caps) => caps,
+        }
+    }
+
+    pub fn met_by(&self, granted: &[Capability]) -> bool {
+        self.caps().iter().all(|cap| granted.contains(cap))
+    }
 }
 
 pub type Handler = fn(&CallCtx<'_>, &Map<String, Value>) -> Outcome;
@@ -336,10 +356,8 @@ fn admit_as(
     if args_len > MAX_ARGS_BYTES {
         return Err(ApiError::too_large("The arguments are over 1048576 bytes."));
     }
-    if let Need::Cap(cap) = spec.need {
-        if !serving.granted.contains(&cap) {
-            return Err(ApiError::denied());
-        }
+    if !spec.need.met_by(&serving.granted) {
+        return Err(ApiError::denied());
     }
     api.take(id, spec.class, now)?;
     let in_flight = api.enter(id)?;
@@ -728,9 +746,9 @@ mod tests {
         let enabled = plugins.enabled_set();
         let api = plugins.api();
         let host = std::sync::Arc::new(FakeHost::default());
-        let waiting = start_toasts(&plugins, &host, 4);
+        let waiting = start_toasts(&plugins, &host, 1);
         let t0 = Instant::now();
-        let held: Vec<Admitted> = (0..12)
+        let held: Vec<Admitted> = (0..15)
             .map(|_| admit_in(PENDING, &enabled, api, ID, "test.open", 2, t0).unwrap())
             .collect();
         assert_eq!(api.in_flight(ID), 16);
@@ -741,7 +759,7 @@ mod tests {
         for handle in waiting {
             assert_eq!(handle.join().unwrap(), Ok(json!({ "result": "dismissed" })));
         }
-        assert_eq!(api.in_flight(ID), 12);
+        assert_eq!(api.in_flight(ID), 15);
         drop(held);
         assert_eq!(api.in_flight(ID), 0);
     }
@@ -806,7 +824,7 @@ mod tests {
         let plugins = plugins_with(Vec::new());
         let api = plugins.api();
         let host = std::sync::Arc::new(FakeHost::default());
-        let waiting = start_toasts(&plugins, &host, 2);
+        let waiting = start_toasts(&plugins, &host, 1);
         let token = api.ui().mint(ID, Instant::now());
 
         api.forget(ID);
@@ -814,7 +832,7 @@ mod tests {
             assert_eq!(handle.join().unwrap(), Ok(json!({ "result": "dismissed" })));
         }
         assert!(api.ui().pending_events().is_empty());
-        assert_eq!(host.events.lock().unwrap().len(), 2);
+        assert_eq!(host.events.lock().unwrap().len(), 1);
         assert!(!api.ui().consume(ID, &token, Instant::now()));
         assert_eq!(api.in_flight(ID), 0);
     }

@@ -7,6 +7,11 @@
  * the driver panics. The socket's cap slot lives in that task too: it is held until the task ends,
  * except that a cancel (frame gone, stopped) frees it at once while the task closes the connection,
  * for at most `CLOSE_GRACE`.
+ *
+ * Incoming messages are paced by the page: once `SOCKET_WINDOW` payload bytes are delivered and not
+ * acknowledged, the driver stops reading, so TCP slows the server and nothing piles up towards a slow
+ * main window. Pings are not answered while reads wait, since they sit behind the unread messages. A
+ * full window with no acknowledgement for `STALL_MS`, on an injected clock, closes the socket.
  */
 
 // -- Library Imports --
@@ -22,7 +27,7 @@ use base64::Engine;
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::Upgraded;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
 use tokio::time::Instant as TokioInstant;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
@@ -33,9 +38,11 @@ use tokio_tungstenite::WebSocketStream;
 use super::client::Clients;
 use super::fetch::{error_text, explain, map_transport_error, unix_ms};
 use super::policy::{self, Consent, Target, Transport};
+use super::proxy::{Clock, SystemClock};
 use super::sink::{NetEvent, NetSink, SocketEventKind};
 use super::state::{CancelFn, EndReason, Kind, LogKind, NetLogEntry, NetState, Running};
-use super::{Refusal, CLOSED, HANDSHAKE, PLISTO_LIMIT, PROTOCOL};
+use super::stream::STALL_MS;
+use super::{Refusal, CLOSED, HANDSHAKE, PLISTO_LIMIT, PLISTO_STALLED, PROTOCOL};
 use crate::plugins::api::error::ApiError;
 use crate::plugins::api::state::lock;
 
@@ -54,6 +61,11 @@ pub const MAX_CLOSE_REASON: usize = 123;
 pub const MAX_INCOMING: usize = 1_048_576;
 pub const MAX_INCOMING_PER_SECOND: u32 = 100;
 pub const MAX_INCOMING_BYTES_PER_SECOND: usize = 4 * 1_048_576;
+/// Incoming payload bytes delivered and not yet acknowledged at which reading waits. A message at the
+/// incoming limit always fits once the page has caught up, with room for smaller ones behind it.
+pub const SOCKET_WINDOW: u64 = 2 * 1_048_576;
+/// The longest a waiting driver sleeps before it checks for a stall again.
+const TICK: Duration = Duration::from_millis(250);
 /// How long a closing socket waits on the server: to take its close frame, or, when the plugin closes,
 /// to take the queued messages and the close and answer with its own close.
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
@@ -105,15 +117,85 @@ pub fn handshake_timeout(timeout_ms: Option<u64>) -> Result<Duration, ApiError> 
 
 // ---- Socket table ----
 
+struct Credit {
+    sent: u64,
+    acked: u64,
+    /// The last acknowledgement that moved `acked`, or when data began waiting on the page.
+    progress_at: Instant,
+}
+
+/// What a socket's driver and its `ack` calls share.
+struct Window {
+    credit: Mutex<Credit>,
+    acked: Notify,
+    /// Stall checks the waiting driver ran so far.
+    #[cfg(test)]
+    checks: AtomicU64,
+}
+
+impl Window {
+    fn new(now: Instant) -> Window {
+        Window {
+            credit: Mutex::new(Credit {
+                sent: 0,
+                acked: 0,
+                progress_at: now,
+            }),
+            acked: Notify::new(),
+            #[cfg(test)]
+            checks: AtomicU64::new(0),
+        }
+    }
+
+    #[cfg(test)]
+    fn checked(&self) {
+        self.checks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(not(test))]
+    fn checked(&self) {}
+
+    fn full(&self) -> bool {
+        let credit = lock(&self.credit);
+        credit.sent - credit.acked >= SOCKET_WINDOW
+    }
+
+    /// Whether data has waited on the page for `STALL_MS` with no acknowledgement.
+    fn stalled(&self, now: Instant) -> bool {
+        let credit = lock(&self.credit);
+        credit.sent > credit.acked
+            && now.saturating_duration_since(credit.progress_at) >= Duration::from_millis(STALL_MS)
+    }
+
+    fn delivered(&self, len: u64, now: Instant) {
+        let mut credit = lock(&self.credit);
+        if credit.sent == credit.acked {
+            credit.progress_at = now;
+        }
+        credit.sent += len;
+    }
+}
+
 struct Handle {
     plugin: String,
     outbox: mpsc::Sender<Message>,
     close: oneshot::Sender<CloseFrame>,
+    window: Arc<Window>,
 }
 
-/// The open sockets by id. Cheap to clone; every clone shares the same table.
-#[derive(Clone, Default)]
-pub struct Sockets(Arc<Mutex<HashMap<String, Handle>>>);
+/// The open sockets by id, and the clock their stall check reads. Cheap to clone; every clone shares
+/// the same table.
+#[derive(Clone)]
+pub struct Sockets {
+    table: Arc<Mutex<HashMap<String, Handle>>>,
+    clock: Arc<dyn Clock>,
+}
+
+impl Default for Sockets {
+    fn default() -> Sockets {
+        Sockets::new(Arc::new(SystemClock))
+    }
+}
 
 static SHARED: OnceLock<Sockets> = OnceLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -123,13 +205,29 @@ impl Sockets {
         SHARED.get_or_init(Sockets::default)
     }
 
+    pub fn new(clock: Arc<dyn Clock>) -> Sockets {
+        Sockets {
+            table: Arc::default(),
+            clock,
+        }
+    }
+
     fn table(&self) -> MutexGuard<'_, HashMap<String, Handle>> {
-        lock(&self.0)
+        lock(&self.table)
     }
 
     #[cfg(test)]
     fn len(&self) -> usize {
         self.table().len()
+    }
+
+    /// The stall checks `socket`'s waiting driver ran; none once it is gone.
+    #[cfg(test)]
+    fn checks(&self, socket: &str) -> u64 {
+        let table = self.table();
+        table
+            .get(socket)
+            .map_or(0, |h| h.window.checks.load(Ordering::Relaxed))
     }
 }
 
@@ -153,6 +251,31 @@ pub fn send(sockets: &Sockets, id: &str, socket: &str, message: Outgoing) -> Res
             mpsc::error::TrySendError::Full(_) => ApiError::busy(),
             mpsc::error::TrySendError::Closed(_) => ApiError::not_found(),
         })
+}
+
+/// Records that plugin `id`'s page consumed `bytes` of `socket`'s incoming payload in all. An unknown,
+/// closed or foreign socket is `not_found`; a count below the last one or above what was delivered is
+/// `invalid_args`.
+pub fn ack(sockets: &Sockets, id: &str, socket: &str, bytes: u64) -> Result<(), ApiError> {
+    let window = sockets
+        .table()
+        .get(socket)
+        .filter(|h| h.plugin == id)
+        .map(|h| h.window.clone())
+        .ok_or_else(ApiError::not_found)?;
+    let mut credit = lock(&window.credit);
+    if bytes < credit.acked || bytes > credit.sent {
+        return Err(ApiError::invalid_args(
+            "The acknowledged byte count is out of range.",
+        ));
+    }
+    if bytes > credit.acked {
+        credit.acked = bytes;
+        credit.progress_at = sockets.clock.now();
+    }
+    drop(credit);
+    window.acked.notify_one();
+    Ok(())
 }
 
 /// Starts closing plugin `id`'s `socket` with `code` (1000 or 3000-4999, default 1000) and `reason`.
@@ -244,12 +367,14 @@ pub async fn open(
     let socket = format!("s{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let (outbox, queued) = mpsc::channel(SEND_QUEUE);
     let (close_tx, close_rx) = oneshot::channel();
+    let window = Arc::new(Window::new(sockets.clock.now()));
     sockets.table().insert(
         socket.clone(),
         Handle {
             plugin: id.to_string(),
             outbox,
             close: close_tx,
+            window: window.clone(),
         },
     );
     let link = Link {
@@ -258,6 +383,7 @@ pub async fn open(
         sockets: sockets.clone(),
         net: net.clone(),
         sink,
+        window,
         entry,
         started,
         _running: running,
@@ -354,6 +480,7 @@ struct Link {
     sockets: Sockets,
     net: NetState,
     sink: Arc<dyn NetSink>,
+    window: Arc<Window>,
     entry: NetLogEntry,
     started: Instant,
     _running: Running,
@@ -441,7 +568,15 @@ impl Meter {
 async fn drive(mut ws: Ws, link: &mut Link, mut signals: Signals) -> End {
     let mut meter = Meter::new(Instant::now());
     let mut queue_done = false;
+    let window = link.window.clone();
     loop {
+        let waiting = window.full();
+        if waiting {
+            if window.stalled(link.sockets.clock.now()) {
+                break over_limit(&mut ws, PLISTO_STALLED).await;
+            }
+            window.checked();
+        }
         tokio::select! {
             biased;
             why = &mut signals.ended => break abandon(&mut ws, why).await,
@@ -460,10 +595,12 @@ async fn drive(mut ws: Ws, link: &mut Link, mut signals: Signals) -> End {
                 },
                 None => queue_done = true,
             },
-            incoming = ws.next() => {
+            () = window.acked.notified(), if waiting => {}
+            () = tokio::time::sleep(TICK), if waiting => {}
+            incoming = ws.next(), if !waiting => {
                 let message = match incoming {
                     Some(Ok(message)) => message,
-                    Some(Err(WsError::Capacity(_))) => break over_limit(&mut ws).await,
+                    Some(Err(WsError::Capacity(_))) => break over_limit(&mut ws, PLISTO_LIMIT).await,
                     Some(Err(error)) => break End::dropped(ws_error(&error)),
                     None => break End::dropped(Refusal::network(CLOSED).into()),
                 };
@@ -475,8 +612,9 @@ async fn drive(mut ws: Ws, link: &mut Link, mut signals: Signals) -> End {
                 };
                 link.entry.received += len as u64;
                 if !meter.admit(len, Instant::now()) {
-                    break over_limit(&mut ws).await;
+                    break over_limit(&mut ws, PLISTO_LIMIT).await;
                 }
+                window.delivered(len as u64, link.sockets.clock.now());
                 link.deliver(message);
             }
         }
@@ -614,14 +752,15 @@ async fn abandon(ws: &mut Ws, why: Result<EndReason, oneshot::error::RecvError>)
     }
 }
 
-/// A message or a rate over the limits: 1008 `plisto_limit`, without reading any further.
-async fn over_limit(ws: &mut Ws) -> End {
-    send_close(ws, POLICY, PLISTO_LIMIT).await;
+/// A message or a rate over the limits (`plisto_limit`), or a page that stopped acknowledging
+/// (`plisto_stalled`): 1008 with `reason`, without reading any further.
+async fn over_limit(ws: &mut Ws, reason: &'static str) -> End {
+    send_close(ws, POLICY, reason).await;
     End {
         code: POLICY,
-        reason: PLISTO_LIMIT.to_string(),
+        reason: reason.to_string(),
         clean: false,
-        error: Some(Refusal::network(PLISTO_LIMIT).into()),
+        error: Some(Refusal::network(reason).into()),
     }
 }
 

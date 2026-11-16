@@ -556,17 +556,15 @@ mod tests {
     }
 
     #[test]
-    fn the_fifth_open_toast_is_busy_and_not_announced() {
+    fn a_plugins_second_open_toast_is_busy_and_not_announced() {
         let host = FakeHost::default();
         let call = call(&host);
         let ctx = call.ctx();
         let now = Instant::now();
-        let held: Vec<Pending> = (0..4)
-            .map(|_| open_toast(&ctx, &args(json!({ "text": "Saved" })), now).unwrap())
-            .collect();
+        let held = open_toast(&ctx, &args(json!({ "text": "Saved" })), now).unwrap();
         let busy = open_toast(&ctx, &args(json!({ "text": "Saved" })), now);
         assert_eq!(code(busy), ApiCode::Busy);
-        assert_eq!(ui_events(&host).len(), 4);
+        assert_eq!(ui_events(&host).len(), 1);
         drop(held);
     }
 

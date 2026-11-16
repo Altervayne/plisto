@@ -548,6 +548,7 @@ fn the_page_stays_open_across_a_crash_restart_and_a_user_restart() {
         "{}",
         s.stderr()
     );
+    // The second run spends the twenty tokens the restart delay refilled.
     assert!(eventually(|| s.page_events().len() == 40));
 
     s.host.restart(&s.plugins, ID).unwrap();
@@ -557,6 +558,11 @@ fn the_page_stays_open_across_a_crash_restart_and_a_user_restart() {
         "{}",
         s.stderr()
     );
+    // A new run does not refill the plugin's bucket: the third run's events are dropped until the
+    // clock refills it.
+    assert!(eventually(|| s.page_events_dropped() >= 10));
+    assert_eq!(s.page_events().len(), 40);
+    s.clock.advance(Duration::from_secs(1));
     assert!(eventually(|| s.page_events().len() == 60));
 }
 

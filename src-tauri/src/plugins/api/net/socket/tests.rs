@@ -7,7 +7,7 @@ use std::time::Duration;
 
 // -- Local Imports --
 use super::super::address;
-use super::super::proxy::{Answer, Proxy, ScriptedSource, SystemClock, UserProxy};
+use super::super::proxy::{Answer, Proxy, ScriptedSource, SystemClock, TestClock, UserProxy};
 use super::super::sink::RecordingSink;
 use super::super::test_server::{
     pattern, ScriptedLookup, TestCa, TestServer, WS_CLOSE_CODE, WS_CLOSE_REASON,
@@ -57,9 +57,13 @@ struct Fixture {
     clients: Clients,
     net: NetState,
     sockets: Sockets,
+    /// The clock the stall check reads.
+    clock: Arc<TestClock>,
     sink: Arc<RecordingSink>,
     origins: Vec<String>,
     dev_mode: bool,
+    /// Sockets opened from now on acknowledge each message as it is emitted.
+    acking: bool,
 }
 
 impl Fixture {
@@ -72,15 +76,18 @@ impl Fixture {
     fn with(ca: &TestCa, server: TestServer) -> Fixture {
         let lookup = Arc::new(ScriptedLookup::default());
         lookup.answer(A, &[&[LOOPBACK]]);
+        let clock = Arc::new(TestClock::new());
         Fixture {
             clients: Clients::for_tests(lookup.clone(), test_allowed, ca.root()),
             origins: vec![format!("https://{A}:{}", server.port)],
             server,
             lookup,
             net: NetState::default(),
-            sockets: Sockets::default(),
+            sockets: Sockets::new(clock.clone()),
+            clock,
             sink: Arc::new(RecordingSink::default()),
             dev_mode: false,
+            acking: false,
         }
     }
 
@@ -93,21 +100,50 @@ impl Fixture {
         net: &NetState,
         request: SocketRequest,
     ) -> Result<SocketOpened, ApiError> {
+        self.open_as(ID, net, request).await
+    }
+
+    async fn open_as(
+        &self,
+        id: &str,
+        net: &NetState,
+        request: SocketRequest,
+    ) -> Result<SocketOpened, ApiError> {
         let consent = Consent {
             origins: &self.origins,
             dev_mode: self.dev_mode,
         };
-        let sink: Arc<dyn NetSink> = self.sink.clone();
+        let sink: Arc<dyn NetSink> = if self.acking {
+            Arc::new(AckingSink {
+                record: self.sink.clone(),
+                sockets: self.sockets.clone(),
+                totals: Mutex::default(),
+            })
+        } else {
+            self.sink.clone()
+        };
         open(
             &self.clients,
             net,
             &self.sockets,
             sink,
-            ID,
+            id,
             consent,
             request,
         )
         .await
+    }
+
+    /// The payload bytes `socket` delivered so far.
+    fn delivered(&self, socket: &str) -> u64 {
+        delivered(&self.sink, socket)
+    }
+
+    /// Waits until `socket`'s waiting driver has run two more stall checks, so at least one began
+    /// after this call: whatever that check decided is in effect.
+    async fn rechecked(&self, socket: &str) {
+        let start = self.sockets.checks(socket);
+        assert!(until(|| self.sockets.checks(socket) >= start + 2).await);
     }
 
     async fn open(&self, request: SocketRequest) -> Result<SocketOpened, ApiError> {
@@ -136,6 +172,49 @@ impl Fixture {
                 clean,
             }) => (*code, reason.clone(), *clean),
             other => panic!("the close is not the last event: {other:?}"),
+        }
+    }
+}
+
+/// The payload bytes one socket event carries.
+fn payload_len(kind: &SocketEventKind) -> u64 {
+    match kind {
+        SocketEventKind::Text { data } => data.len() as u64,
+        SocketEventKind::Binary { data_b64 } => {
+            let padding = data_b64.bytes().rev().take_while(|b| *b == b'=').count();
+            (data_b64.len() / 4 * 3 - padding) as u64
+        }
+        SocketEventKind::Close { .. } => 0,
+    }
+}
+
+fn delivered(sink: &RecordingSink, socket: &str) -> u64 {
+    sink.socket_events(socket).iter().map(payload_len).sum()
+}
+
+/// Records like `RecordingSink`, and acknowledges each message as it is emitted, as a page that keeps
+/// up would.
+struct AckingSink {
+    record: Arc<RecordingSink>,
+    sockets: Sockets,
+    totals: Mutex<HashMap<String, u64>>,
+}
+
+impl NetSink for AckingSink {
+    fn emit(&self, event: NetEvent) {
+        let message = match &event.body {
+            super::super::sink::NetEventBody::Socket(socket) => {
+                Some((socket.socket.clone(), payload_len(&socket.kind)))
+            }
+            _ => None,
+        };
+        let id = event.id.clone();
+        self.record.emit(event);
+        if let Some((socket, len)) = message {
+            let mut totals = self.totals.lock().unwrap();
+            let total = totals.entry(socket.clone()).or_default();
+            *total += len;
+            let _ = ack(&self.sockets, &id, &socket, *total);
         }
     }
 }
@@ -260,6 +339,82 @@ fn the_meter_allows_100_messages_and_4_mib_per_second() {
     assert!(meter.admit(MAX_INCOMING_BYTES_PER_SECOND, next));
     assert!(!meter.admit(1, next + Duration::from_millis(999)));
     assert!(meter.admit(1, next + Duration::from_secs(1)));
+}
+
+// ---- Window ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reads_wait_at_the_window_and_resume_on_an_ack() {
+    let fx = Fixture::new().await;
+    let socket = fx.open_path("/ws-heavy").await;
+    let message = MAX_INCOMING as u64;
+    // Two messages at the incoming limit fill the window.
+    assert!(until(|| fx.delivered(&socket) == SOCKET_WINDOW).await);
+    fx.rechecked(&socket).await;
+    assert_eq!(fx.delivered(&socket), SOCKET_WINDOW);
+
+    ack(&fx.sockets, ID, &socket, message).unwrap();
+    assert!(until(|| fx.delivered(&socket) == SOCKET_WINDOW + message).await);
+    fx.rechecked(&socket).await;
+    assert_eq!(fx.delivered(&socket), SOCKET_WINDOW + message);
+    // Sending does not wait on the window.
+    fx.send(&socket, Outgoing::Text("still".into())).unwrap();
+    close(&fx.sockets, ID, &socket, None, "").unwrap();
+    fx.ended(&socket).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ack_out_of_range_or_for_a_socket_not_the_plugins_is_refused() {
+    let fx = Fixture::new().await;
+    let socket = fx.open_path("/ws-heavy").await;
+    assert!(until(|| fx.delivered(&socket) == SOCKET_WINDOW).await);
+    let over = ack(&fx.sockets, ID, &socket, SOCKET_WINDOW + 1);
+    assert_eq!(code(&over), (ApiCode::InvalidArgs, None));
+    ack(&fx.sockets, ID, &socket, 10).unwrap();
+    ack(&fx.sockets, ID, &socket, 10).unwrap();
+    let back = ack(&fx.sockets, ID, &socket, 9);
+    assert_eq!(code(&back), (ApiCode::InvalidArgs, None));
+    let foreign = ack(&fx.sockets, OTHER, &socket, 10);
+    assert_eq!(code(&foreign), (ApiCode::NotFound, None));
+    let unknown = ack(&fx.sockets, ID, "s0", 0);
+    assert_eq!(code(&unknown), (ApiCode::NotFound, None));
+    close(&fx.sockets, ID, &socket, None, "").unwrap();
+    fx.ended(&socket).await;
+    let closed = ack(&fx.sockets, ID, &socket, 10);
+    assert_eq!(code(&closed), (ApiCode::NotFound, None));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_window_left_unacknowledged_closes_as_stalled_and_others_run_on() {
+    let fx = Fixture::new().await;
+    let socket = fx.open_path("/ws-heavy").await;
+    let trickle = fx.open_path("/ws-trickle").await;
+    let other = fx
+        .open_as(OTHER, &fx.net, request(fx.url("/ws")))
+        .await
+        .unwrap()
+        .socket;
+    assert!(until(|| fx.delivered(&socket) == SOCKET_WINDOW).await);
+    assert!(until(|| fx.delivered(&trickle) > 0).await);
+
+    fx.clock.advance(Duration::from_millis(STALL_MS - 1));
+    fx.rechecked(&socket).await;
+    assert!(fx.sockets.table().contains_key(&socket));
+    fx.clock.advance(Duration::from_millis(1));
+    let stalled = (POLICY, PLISTO_STALLED.to_string(), false);
+    assert_eq!(fx.ended(&socket).await, stalled);
+    let entry = fx.net.log(ID).pop().unwrap();
+    assert_eq!(entry.error.as_deref(), Some("network/plisto_stalled"));
+    assert!(until(|| fx.net.running(ID, Kind::Socket) == 1).await);
+
+    // A window that never filled does not stall, though nothing was acknowledged.
+    assert!(fx.sockets.table().contains_key(&trickle));
+    // Another plugin's socket runs on.
+    send(&fx.sockets, OTHER, &other, Outgoing::Text("on".into())).unwrap();
+    let echo = SocketEventKind::Text { data: "on".into() };
+    assert!(until(|| fx.sink.socket_events(&other).contains(&echo)).await);
+    close(&fx.sockets, ID, &trickle, None, "").unwrap();
+    close(&fx.sockets, OTHER, &other, None, "").unwrap();
 }
 
 // ---- Cancellation ----
@@ -486,6 +641,7 @@ fn idle_socket() -> (
         plugin: ID.to_string(),
         outbox,
         close,
+        window: Arc::new(Window::new(Instant::now())),
     };
     sockets.table().insert("s-idle".into(), handle);
     (sockets, queued, closing)
@@ -741,7 +897,8 @@ async fn fragments_past_1_mib_together_close_with_plisto_limit() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn more_than_4_mib_in_a_second_closes_with_plisto_limit() {
-    let fx = Fixture::new().await;
+    let mut fx = Fixture::new().await;
+    fx.acking = true;
     let socket = fx.open_path("/ws-heavy").await;
     let limit = (POLICY, PLISTO_LIMIT.to_string(), false);
     assert_eq!(fx.ended(&socket).await, limit);

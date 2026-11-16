@@ -33,7 +33,7 @@ use crate::plugins::api::library_rows::tracks_by_id;
 use crate::plugins::api::state::ApiState;
 use crate::plugins::api::stream::StreamNow;
 use crate::plugins::api::tauri_host::TauriHost;
-use crate::plugins::api::{HostContext, Need};
+use crate::plugins::api::HostContext;
 use crate::plugins::state::EnabledSet;
 use crate::state::AppState;
 
@@ -272,11 +272,9 @@ fn deliver(env: &Env<'_>, deliveries: Vec<Delivery>, now: Instant) {
             events.forget(&delivery.id);
             continue;
         };
-        if let Need::Cap(cap) = delivery.topic.need() {
-            if !serving.granted.contains(&cap) {
-                events.drop_topic(&delivery.id, delivery.side, delivery.topic);
-                continue;
-            }
+        if !delivery.topic.need().met_by(&serving.granted) {
+            events.drop_topic(&delivery.id, delivery.side, delivery.topic);
+            continue;
         }
         match delivery.side {
             Side::Frame => env.host.emit(HostEvent::Topic(TopicEvent {

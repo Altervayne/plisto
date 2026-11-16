@@ -184,10 +184,13 @@ fn topics_arg(args: &Map<String, Value>) -> Result<BTreeSet<Topic>, ApiError> {
 }
 
 fn denied_for(topic: Topic) -> ApiError {
-    let grant = match topic.need() {
-        Need::Cap(cap) => cap.as_str(),
-        Need::Ambient => "",
-    };
+    let grant = topic
+        .need()
+        .caps()
+        .iter()
+        .map(|cap| cap.as_str())
+        .collect::<Vec<_>>()
+        .join(" and ");
     ApiError {
         message: format!("The '{}' topic needs the {grant} permission.", topic.name()),
         ..ApiError::denied()
@@ -208,10 +211,8 @@ fn subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
 fn run_subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, ApiError> {
     let topics = topics_arg(args)?;
     for &topic in &topics {
-        if let Need::Cap(cap) = topic.need() {
-            if !ctx.serving.granted.contains(&cap) {
-                return Err(denied_for(topic));
-            }
+        if !topic.need().met_by(&ctx.serving.granted) {
+            return Err(denied_for(topic));
         }
     }
     let state: Vec<Topic> = topics.iter().copied().filter(|t| t.is_state()).collect();

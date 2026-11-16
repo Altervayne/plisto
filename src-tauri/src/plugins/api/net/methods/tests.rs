@@ -18,13 +18,14 @@ use crate::plugins::manifest::Tier;
 use crate::plugins::state::{EnabledSet, Serving};
 
 const ID: &str = "com.example.demo";
-const SEVEN: [&str; 7] = [
+const NET_METHODS: [&str; 8] = [
     "net.fetch",
     "net.abort",
     "net.stream.ack",
     "net.stream.cancel",
     "net.socket.open",
     "net.socket.send",
+    "net.socket.ack",
     "net.socket.close",
 ];
 
@@ -92,29 +93,29 @@ fn args(value: Value) -> Map<String, Value> {
 // ---- Table ----
 
 #[test]
-fn app_methods_lists_the_seven_with_the_grant_and_their_classes() {
+fn app_methods_lists_the_network_methods_with_the_grant_and_their_classes() {
     let names = method_names();
-    for name in SEVEN {
+    for name in NET_METHODS {
         assert!(names.contains(&name), "{name}");
     }
     for spec in table().iter().filter(|m| m.name.starts_with("net.")) {
         assert_eq!(spec.need, Need::Cap(Capability::Network), "{}", spec.name);
         let class = match spec.name {
             "net.fetch" | "net.socket.open" => RateClass::Net,
-            "net.stream.ack" => RateClass::NetStream,
+            "net.stream.ack" | "net.socket.ack" => RateClass::NetStream,
             _ => RateClass::NetSend,
         };
         assert_eq!(spec.class, class, "{}", spec.name);
     }
     let listed = names.iter().filter(|n| n.starts_with("net.")).count();
-    assert_eq!(listed, SEVEN.len());
+    assert_eq!(listed, NET_METHODS.len());
 }
 
 #[test]
-fn a_plugin_without_the_network_grant_is_denied_on_all_seven() {
+fn a_plugin_without_the_network_grant_is_denied_on_every_network_method() {
     let enabled = serving(Tier::Ui, vec![Capability::Storage], Vec::new());
     let api = ApiState::default();
-    for method in SEVEN {
+    for method in NET_METHODS {
         let refused = admit(&enabled, &api, ID, method, 2, Instant::now());
         assert_eq!(
             refused.err().map(|e| e.code),
@@ -141,7 +142,7 @@ fn a_native_child_still_cannot_open_a_socket_when_its_plugin_is_granted() {
     let enabled = serving(Tier::Native, vec![Capability::Network], Vec::new());
     let api = ApiState::default();
     let now = Instant::now();
-    for method in SEVEN {
+    for method in NET_METHODS {
         let child = admit_from(Caller::Child, &enabled, &api, ID, method, 2, now);
         assert_eq!(
             child.err().map(|e| e.code),
@@ -159,6 +160,7 @@ fn each_class_bucket_limits_its_methods() {
         ("net.socket.open", 30),
         ("net.abort", 40),
         ("net.stream.ack", 40),
+        ("net.socket.ack", 40),
     ] {
         let enabled = granted(Vec::new());
         let api = ApiState::default();
@@ -274,6 +276,9 @@ async fn call_arguments_are_checked_before_the_engine() {
         ("net.stream.ack", json!({ "stream": "t1", "bytes": -1 })),
         ("net.stream.ack", json!({ "stream": 1, "bytes": 0 })),
         ("net.stream.cancel", json!({})),
+        ("net.socket.ack", json!({ "socket": "s1" })),
+        ("net.socket.ack", json!({ "socket": "s1", "bytes": -1 })),
+        ("net.socket.ack", json!({ "socket": 1, "bytes": 0 })),
         ("net.socket.open", json!({})),
         (
             "net.socket.open",
@@ -326,6 +331,7 @@ async fn call_arguments_are_checked_before_the_engine() {
             json!({ "socket": "s999999", "text": "a" }),
         ),
         ("net.socket.close", json!({ "socket": "s999999" })),
+        ("net.socket.ack", json!({ "socket": "s999999", "bytes": 0 })),
     ] {
         let result = call(&host, &enabled, &api, method, unknown).await;
         assert_eq!(code(&result), (ApiCode::NotFound, None), "{method}");
@@ -605,6 +611,7 @@ async fn another_plugin_cannot_touch_a_live_stream_or_socket() {
         ("net.stream.ack", json!({ "stream": stream, "bytes": 0 })),
         ("net.stream.cancel", json!({ "stream": stream })),
         ("net.socket.send", json!({ "socket": socket, "text": "x" })),
+        ("net.socket.ack", json!({ "socket": socket, "bytes": 0 })),
         ("net.socket.close", json!({ "socket": socket })),
     ] {
         let result = call_as(B, &host, &b, &api, method, args).await;
@@ -626,6 +633,11 @@ async fn another_plugin_cannot_touch_a_live_stream_or_socket() {
     assert!(
         fx.until(|events| events.iter().any(|(_, p)| echoed(p)))
             .await
+    );
+    let ack = json!({ "socket": socket, "bytes": 5 });
+    assert_eq!(
+        call(&host, &a, &api, "net.socket.ack", ack).await,
+        Ok(json!({}))
     );
     let ended = |p: &Value| matches!(p["kind"].as_str(), Some("end" | "error" | "close"));
     assert!(!fx.events().iter().any(|(_, p)| ended(p)));
