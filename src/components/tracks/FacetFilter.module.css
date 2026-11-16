@@ -1,7 +1,7 @@
 /*
  * The facet control row: the trigger, the active chips, and the clear-all, wrapping over the toolbar
  * width. The trigger opens a floating two-step menu that lifts on a shadow like the other pop panels;
- * a full chip carries the accent-weak fill, its remove x surfacing on hover.
+ * a full chip carries the accent-weak fill, its remove x surfacing over the text's end on hover.
  */
 .wrap {
   position: relative;
@@ -39,10 +39,11 @@
 
 /* A full filter: the accent-weak pill, the same grammar as the album genre pills. */
 .chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 4px 5px 4px 11px;
+  min-width: 36px;
+  padding: 4px 11px;
   border-radius: var(--pill);
   background: var(--accent-weak);
   color: var(--accent-text);
@@ -59,8 +60,21 @@
   text-overflow: ellipsis;
 }
 
-/* The remove x holds its slot but dissolves at rest, deepening to the solid danger on hover or focus. */
+/* While the x shows, the text's trailing end fades out beneath it; a mask keeps that independent of the
+ * translucent pill fill. */
+.chip:hover .chipText,
+.chip:focus-within .chipText {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent calc(100% - 10px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent calc(100% - 10px));
+}
+
+/* The remove x rides absolutely over the pill's trailing end, so it holds no slot and the pill never
+ * resizes. It dissolves at rest and deepens to the solid danger on hover or focus. */
 .chipRemove {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
