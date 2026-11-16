@@ -38,6 +38,8 @@ pub(super) struct ArtSlot {
     // When this item's last decode started: one start per `ART_GAP`.
     pub last: Option<Instant>,
     pub pending: Option<Artwork>,
+    // The artwork keys this item holds files for, oldest first: at most `ART_KEPT`.
+    pub kept: Vec<String>,
 }
 
 /// The seated item.

@@ -22,6 +22,8 @@ use crossbeam_channel::{Receiver, Sender};
 
 // -- Local Imports --
 use super::args::{Play, Source};
+use super::art::{drop_art, ArtBudget};
+use super::art_store::clear_art_files;
 use super::feeder::{spawn_feeder, Wire};
 use super::gone::Producer;
 pub(super) use super::item::{ArtSlot, Feed, Item, LastEnd};
@@ -50,6 +52,7 @@ pub(super) struct Session {
     pub held: bool,
     // An artwork decode is running, app-wide.
     pub art_busy: bool,
+    pub art_budget: ArtBudget,
 }
 
 /// Who already knows of an end, so it is not sent back to them.
@@ -129,7 +132,11 @@ impl StreamHub {
     }
 
     /// Connects the hub to the engine and the windows. Until then every play is `unavailable`.
+    /// Stream artwork left on disk by an earlier run is deleted first.
     pub fn attach(&self, link: Arc<dyn StreamLink>) {
+        if let Some(covers) = link.covers() {
+            clear_art_files(&covers);
+        }
         *self.0.link.write().unwrap_or_else(PoisonError::into_inner) = Some(link);
     }
 
@@ -352,6 +359,9 @@ impl StreamHub {
         // before a play that replaces it opens its own.
         if let Some(wire) = &item.wire {
             wire.net.end_keyed(&item.plugin_id, &net_key(item.id));
+        }
+        for key in &item.art.kept {
+            drop_art(link, key);
         }
         link.stash(item.id, None);
         if teller == Teller::Hub {

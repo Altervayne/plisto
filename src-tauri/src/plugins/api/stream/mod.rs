@@ -20,6 +20,7 @@ use crate::audio::{SkipDir, StreamEndReason, StreamPhase};
 // -- Module Declarations --
 mod args;
 mod art;
+mod art_store;
 mod feeder;
 mod gone;
 mod hub;
@@ -36,6 +37,10 @@ pub(crate) mod test_link;
 mod tests;
 #[cfg(test)]
 mod tests_art;
+#[cfg(test)]
+mod tests_art_budget;
+#[cfg(test)]
+mod tests_art_store;
 #[cfg(test)]
 mod tests_ends;
 #[cfg(test)]

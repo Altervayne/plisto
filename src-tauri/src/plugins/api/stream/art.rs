@@ -1,6 +1,6 @@
 /*
  * A stream's artwork, from bytes or from a URL: checked, decoded once, then re-encoded into the
- * covers cache by content hash at both thumb sizes, so the windows only ever load Plisto's own
+ * stream artwork store (`art_store`) at both thumb sizes, so the windows only ever load Plisto's own
  * thumbnail files. A URL is fetched first, on the artwork thread, through the plugin network lane
  * under the origins the plugin consents to at that moment, and its body goes through the same
  * decode with the same limits.
@@ -9,14 +9,16 @@
  * is read from the header before any decode, and the decoder itself is held to the same sizes and
  * to `ART_ALLOC_MAX`, so a header that lies cannot make it allocate past them.
  *
- * One decode runs at a time for the whole app, on a thread of its own, never under the hub lock. An
- * item keeps only its latest request, at most one decode starts per `ART_GAP` for it, and every
+ * One decode runs at a time for the whole app, on a thread of its own, never under the hub lock, and
+ * the app-wide `ArtBudget` bounds how many start, so replacing items cannot buy more. An item keeps
+ * only its latest request, at most one decode starts per `ART_GAP` for it, and every
  * request or clear takes a new generation: a result for an older generation or an item that is gone
  * is dropped.
  */
 
 // -- Library Imports --
 use std::io::Cursor;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +27,7 @@ use image::{DynamicImage, ImageReader, Limits};
 
 // -- Local Imports --
 use super::args::Artwork;
+use super::art_store::{art_key, drop_art_files, keep};
 use super::feeder::Wire;
 use super::hub::{publish, Session, StreamHub};
 use super::item::net_key;
@@ -49,6 +52,39 @@ pub const ART_URL_MAX_BYTES: usize = 4 << 20;
 const ART_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 /// How often a running artwork fetch checks that its item and request are still current.
 const ART_CHECK: Duration = Duration::from_millis(50);
+/// Artwork fetches and decodes the app may run back to back, whatever the item or plugin.
+pub const ART_BURST: u32 = 3;
+/// How long the app-wide budget takes to win back one of them.
+pub const ART_REFILL: Duration = Duration::from_secs(5);
+
+/// The app-wide budget of artwork fetches and decodes: `ART_BURST` at once, then one per
+/// `ART_REFILL`. A started one spends its share whether or not it yields an image.
+#[derive(Default)]
+pub(super) struct ArtBudget {
+    spent: u32,
+    // When the next share comes back, counted from the last refill.
+    since: Option<Instant>,
+}
+
+impl ArtBudget {
+    /// Spends one share at `now`; false when none is left.
+    fn take(&mut self, now: Instant) -> bool {
+        if let Some(since) = self.since {
+            let back = now.saturating_duration_since(since).as_millis() / ART_REFILL.as_millis();
+            let back = u32::try_from(back).unwrap_or(u32::MAX).min(self.spent);
+            self.spent -= back;
+            self.since = Some(since + ART_REFILL * back);
+        }
+        if self.spent >= ART_BURST {
+            return false;
+        }
+        if self.spent == 0 {
+            self.since = Some(now);
+        }
+        self.spent += 1;
+        true
+    }
+}
 
 fn fits(width: u32, height: u32) -> bool {
     width > 0
@@ -76,15 +112,22 @@ fn decode(bytes: &[u8]) -> Option<DynamicImage> {
     fits(image.width(), image.height()).then_some(image)
 }
 
-/// Caches `bytes` as artwork thumbnails. None when they are not a usable image.
-pub fn thumbnail(link: &dyn StreamLink, bytes: &[u8]) -> Option<AdHocCover> {
+/// Caches `bytes` as artwork thumbnails under the stream artwork `key`. None when they are not a
+/// usable image.
+pub fn thumbnail(link: &dyn StreamLink, key: String, bytes: &[u8]) -> Option<AdHocCover> {
     let image = decode(bytes)?;
-    let hash = blake3::hash(bytes).to_hex().to_string();
-    link.cache_art(&hash, &image).then(|| AdHocCover {
-        hash,
+    link.cache_art(&key, &image).then(|| AdHocCover {
+        hash: key,
         width: i64::from(image.width()),
         height: i64::from(image.height()),
     })
+}
+
+/// Deletes the files of artwork `key` from the link's covers folder.
+pub(super) fn drop_art(link: &dyn StreamLink, key: &str) {
+    if let Some(covers) = link.covers() {
+        drop_art_files(&covers, key);
+    }
 }
 
 impl StreamHub {
@@ -171,7 +214,8 @@ impl StreamHub {
             .art
             .last
             .is_none_or(|last| now.saturating_duration_since(last) >= ART_GAP);
-        if !due {
+        // Too early for the item or over the app's budget, the request waits for a later tick.
+        if !due || item.art.pending.is_none() || !session.art_budget.take(now) {
             return;
         }
         let Some(artwork) = item.art.pending.take() else {
@@ -184,16 +228,35 @@ impl StreamHub {
         session.art_busy = thread::Builder::new()
             .name("plisto-stream-art".into())
             .spawn(move || {
-                let bytes = match artwork {
-                    Artwork::Bytes(bytes) => Some(bytes),
-                    Artwork::Url(url) => match (hub.upgrade(), wire) {
-                        (Some(shared), Some(wire)) => {
-                            StreamHub(shared).fetch_art((id, generation), &plugin, &wire, url)
+                // A fetch or decode that panics on hostile bytes is a failed artwork for this
+                // item only: the result is still reported, which frees the artwork thread.
+                let mut tried = None;
+                let made = panic::catch_unwind(AssertUnwindSafe(|| {
+                    let bytes = match artwork {
+                        Artwork::Bytes(bytes) => Some(bytes),
+                        Artwork::Url(url) => match (hub.upgrade(), wire) {
+                            (Some(shared), Some(wire)) => {
+                                let hub = StreamHub(shared);
+                                hub.fetch_art((id, generation), &plugin, &wire, url)
+                            }
+                            _ => None,
+                        },
+                    };
+                    let bytes = bytes?;
+                    let key = art_key(id, &blake3::hash(&bytes).to_hex());
+                    tried = Some(key.clone());
+                    thumbnail(&*link, key, &bytes)
+                }));
+                let cover = match made {
+                    Ok(cover) => cover,
+                    // A write the panic cut short leaves nothing behind.
+                    Err(_) => {
+                        if let Some(key) = &tried {
+                            drop_art(&*link, key);
                         }
-                        _ => None,
-                    },
+                        None
+                    }
                 };
-                let cover = bytes.and_then(|bytes| thumbnail(&*link, &bytes));
                 if let Some(shared) = hub.upgrade() {
                     StreamHub(shared).art_done(id, generation, cover);
                 }
@@ -201,21 +264,29 @@ impl StreamHub {
             .is_ok();
     }
 
-    /// A decode for item `id` at `generation` ended. A failure keeps the artwork shown before.
+    /// A decode for item `id` at `generation` ended. A failure keeps the artwork shown before. The
+    /// files of an artwork that lands for a request no longer current are deleted at once, and the
+    /// item keeps files for at most `ART_KEPT` artworks.
     fn art_done(&self, id: i64, generation: u64, cover: Option<AdHocCover>) {
         let Some(link) = self.link() else {
             return;
         };
         let mut session = self.lock();
         session.art_busy = false;
-        if let Some(item) = session.item.as_mut() {
-            if item.id == id && item.art.generation == generation {
-                if let Some(cover) = cover {
+        if let Some(cover) = cover {
+            let current = session.item.as_mut().filter(|item| item.id == id);
+            match current {
+                Some(item) if item.art.generation == generation => {
+                    if let Some(dropped) = keep(&mut item.art.kept, cover.hash.clone()) {
+                        drop_art(&*link, &dropped);
+                    }
                     item.cover = Some(cover);
                     item.art_rev += 1;
                     item.rev += 1;
                     publish(&*link, item);
                 }
+                Some(item) if item.art.kept.contains(&cover.hash) => {}
+                _ => drop_art(&*link, &cover.hash),
             }
         }
         let now = self.clock().now();

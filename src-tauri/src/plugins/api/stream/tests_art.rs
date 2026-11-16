@@ -14,6 +14,7 @@ use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use serde_json::json;
 
 // -- Local Imports --
+use super::art_store::art_key;
 use super::test_link::{pcm, until, Bench, A};
 use crate::commands::covers::{DETAIL_EDGE, THUMB_EDGE};
 use crate::covers::thumb_cache_path;
@@ -31,13 +32,13 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 fn artwork_bytes_land_in_the_cache_by_hash() {
     let bench = Bench::one();
     let bytes = png(64, 48);
-    let hash = blake3::hash(&bytes).to_hex().to_string();
     let args = json!({
         "source": { "push": pcm() }, "title": "T", "artwork": { "data_b64": STANDARD.encode(&bytes) },
     });
     let item = bench.call(A, "stream.play", args).unwrap()["item"]
         .as_i64()
         .unwrap();
+    let hash = art_key(item, &blake3::hash(&bytes).to_hex());
     let cached = until(|| {
         let stash = bench.link.stash.lock().unwrap();
         stash.get(&item).and_then(|t| t.cover.clone()).is_some()

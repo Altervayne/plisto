@@ -3,11 +3,13 @@
  * ad-hoc stash, the windows and the covers cache. In the app all of it goes through the managed
  * `AppState`, read at each call, so the hub never holds a clone of the engine's command channel.
  * Every method returns at once: none waits on the engine, a helper or a window. The one that writes
- * files, `cache_art`, is called only from the artwork thread, never under the hub lock.
+ * files, `cache_art`, is called only from the artwork thread, never under the hub lock; the hub
+ * deletes the few small files of an artwork it lets go of in `covers` itself.
  */
 
 // -- Library Imports --
 use std::io;
+use std::path::PathBuf;
 
 use image::DynamicImage;
 use tauri::{AppHandle, Emitter, Manager};
@@ -46,9 +48,14 @@ pub trait StreamLink: Send + Sync {
     fn ended(&self, notice: &StreamEndNotice);
     /// A stream event for plugin `id`.
     fn owner(&self, id: &str, event: StreamEvent);
-    /// Writes both cover thumbnail sizes of a decoded image under the hash of its bytes. False when
-    /// the cache cannot be written.
-    fn cache_art(&self, hash: &str, image: &DynamicImage) -> bool;
+    /// Writes both cover thumbnail sizes of a decoded image under `key`. False when the cache cannot
+    /// be written.
+    fn cache_art(&self, key: &str, image: &DynamicImage) -> bool;
+    /// The covers folder stream artwork is written to; None before the app is set up, and on a link
+    /// that writes no artwork.
+    fn covers(&self) -> Option<PathBuf> {
+        None
+    }
     /// Where the engine stands in item `id`: the listened time or the play head. None when the
     /// engine reports another track.
     fn position(&self, id: i64) -> Option<f64>;
@@ -109,12 +116,16 @@ impl StreamLink for TauriStreamLink {
         TauriHost::new(self.app.clone()).emit(HostEvent::Stream(event));
     }
 
-    fn cache_art(&self, hash: &str, image: &DynamicImage) -> bool {
+    fn cache_art(&self, key: &str, image: &DynamicImage) -> bool {
         let Some(state) = self.state() else {
             return false;
         };
         let (dir, guard) = (&state.covers_dir, &state.covers_in_flight);
-        ensure_thumbs_from(dir, hash, image, &[THUMB_EDGE, DETAIL_EDGE], guard).is_ok()
+        ensure_thumbs_from(dir, key, image, &[THUMB_EDGE, DETAIL_EDGE], guard).is_ok()
+    }
+
+    fn covers(&self) -> Option<PathBuf> {
+        self.state().map(|state| state.covers_dir.clone())
     }
 
     fn position(&self, id: i64) -> Option<f64> {

@@ -192,7 +192,8 @@ async fn an_ended_item_cancels_its_artwork_fetch() {
         .call(A, "stream.play", args(p.fx.url("/hang")))
         .unwrap()["item"]
         .clone();
-    assert!(until(|| p.fx.connections() == 1).await);
+    // The server sees a close only once it holds the request, not at the connection.
+    assert!(until(|| p.fx.server().heads().len() == 1).await);
     p.bench
         .call(A, "stream.stop", json!({ "item": first }))
         .unwrap();

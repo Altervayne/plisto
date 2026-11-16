@@ -417,7 +417,9 @@ async fn the_log_writes_one_playback_entry_per_connection() {
 async fn a_stop_during_the_connect_is_logged_and_ends_only_stopped() {
     let p = Pull::new().await;
     let (item, _) = p.play(&p.fx.url("/hang"), json!({})).unwrap();
-    assert!(until(|| p.fx.connections() == 1).await);
+    // The server counts a connection before its TLS handshake, and sees a close only once it
+    // holds the request: wait for the request.
+    assert!(until(|| p.fx.server().heads().len() == 1).await);
     p.bench
         .call(A, "stream.stop", json!({ "item": item }))
         .unwrap();

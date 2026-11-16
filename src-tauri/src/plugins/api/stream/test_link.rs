@@ -61,6 +61,8 @@ pub struct FakeLink {
     pub art_running: AtomicU64,
     pub art_most: AtomicU64,
     pub art_hold: Mutex<Duration>,
+    // Makes the next artwork writes panic, as a decoder failing hard on hostile bytes would.
+    pub art_panic: AtomicBool,
     // Snapshots, owner events and decodes, in the order the hub made them.
     pub calls: Mutex<Vec<Call>>,
 }
@@ -180,7 +182,14 @@ impl StreamLink for FakeLink {
         self.events.lock().unwrap().push((id.to_string(), event));
     }
 
+    fn covers(&self) -> Option<PathBuf> {
+        Some(self.covers.clone())
+    }
+
     fn cache_art(&self, hash: &str, image: &image::DynamicImage) -> bool {
+        if self.art_panic.load(Ordering::Acquire) {
+            panic!("an artwork decode fails hard");
+        }
         let running = self.art_running.fetch_add(1, Ordering::AcqRel) + 1;
         self.art_most.fetch_max(running, Ordering::AcqRel);
         thread::sleep(*self.art_hold.lock().unwrap());
