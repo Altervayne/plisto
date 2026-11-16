@@ -12,6 +12,7 @@ use super::super::sink::RecordingSink;
 use super::super::test_server::{
     pattern, ScriptedLookup, TestCa, TestServer, WS_CLOSE_CODE, WS_CLOSE_REASON,
 };
+use super::driver::Meter;
 use super::super::{
     BLOCKED_ADDRESS, CONNECT, DEV_ONLY, FORBIDDEN_HEADER, ORIGIN_NOT_LISTED, PROXY,
 };
