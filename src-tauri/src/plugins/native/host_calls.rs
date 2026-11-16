@@ -3,11 +3,15 @@
  * the same checks a frame's call passes, as `Caller::Child` with the id of the pipe's owner; an
  * admitted call then runs on the async runtime, so a slow method never stalls the child's output. Its
  * `host_result` goes back only while the run that asked is still the plugin's current one: after a
- * crash or a stop the answer is dropped, never sent to a pipe that is gone.
+ * crash or a stop the answer is dropped, never sent to a pipe that is gone. A child's event
+ * subscriptions are the exception to running in parallel: each replaces the last, so they run one at a
+ * time in the order they were admitted.
  */
 
 // -- Library Imports --
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -31,6 +35,51 @@ impl HostCalls {
 
     fn end(&self, seq: u64) {
         lock(&self.0).remove(&seq);
+    }
+}
+
+/// The method whose calls run in admission order.
+const SERIAL_METHOD: &str = "events.subscribe";
+
+type Job = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// The calls of a run that go one at a time, in the order they were queued.
+#[derive(Default)]
+pub struct SerialCalls(Arc<Mutex<SerialQueue>>);
+
+#[derive(Default)]
+struct SerialQueue {
+    waiting: VecDeque<Job>,
+    draining: bool,
+}
+
+impl SerialCalls {
+    /// Queues `job` behind the ones before it. The job that finds the queue idle starts its drain.
+    fn queue(&self, job: Job) {
+        let start = {
+            let mut queue = lock(&self.0);
+            queue.waiting.push_back(job);
+            !std::mem::replace(&mut queue.draining, true)
+        };
+        if start {
+            tauri::async_runtime::spawn(drain(self.0.clone()));
+        }
+    }
+}
+
+/// Runs the queued jobs one after another until none is left.
+async fn drain(queue: Arc<Mutex<SerialQueue>>) {
+    loop {
+        let next = {
+            let mut queue = lock(&queue);
+            let next = queue.waiting.pop_front();
+            queue.draining = next.is_some();
+            next
+        };
+        match next {
+            Some(job) => job.await,
+            None => return,
+        }
     }
 }
 
@@ -80,11 +129,17 @@ pub(super) fn begin(
         }
     };
     let job = api::complete(admitted, args, host.app_data.clone(), api_host.clone(), api);
-    let (host, id, run) = (host.clone(), id.to_string(), run.clone());
-    tauri::async_runtime::spawn(async move {
+    let serial = method == SERIAL_METHOD;
+    let (host, id, owner) = (host.clone(), id.to_string(), run.clone());
+    let call = async move {
         let result = job.await;
-        finish(&host, &id, &run, seq, result);
-    });
+        finish(&host, &id, &owner, seq, result);
+    };
+    if serial {
+        run.serial_calls.queue(Box::pin(call));
+    } else {
+        tauri::async_runtime::spawn(call);
+    }
     true
 }
 
@@ -127,6 +182,39 @@ fn host_result(seq: u64, result: Result<Value, ApiError>) -> HostMessage {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn serial_calls_run_one_at_a_time_in_the_order_queued() {
+        let calls = SerialCalls::default();
+        let (opened, open) = tokio::sync::oneshot::channel::<()>();
+        let (done, finished) = std::sync::mpsc::channel();
+        let record = move |name: &'static str| {
+            let done = done.clone();
+            move || done.send(name).unwrap()
+        };
+        let (first, second, third) = (record("first"), record("second"), record("third"));
+        // The first call is still waiting when the other two are queued; the second would finish
+        // first if the calls ran side by side.
+        calls.queue(Box::pin(async move {
+            let _ = open.await;
+            first();
+        }));
+        calls.queue(Box::pin(async move { second() }));
+        calls.queue(Box::pin(async move { third() }));
+        assert!(finished.try_recv().is_err());
+        opened.send(()).unwrap();
+        let order: Vec<_> = (0..3)
+            .map(|_| finished.recv_timeout(std::time::Duration::from_secs(10)).unwrap())
+            .collect();
+        assert_eq!(order, ["first", "second", "third"]);
+
+        // An idle queue starts again.
+        calls.queue(Box::pin(async move { record("again")() }));
+        assert_eq!(
+            finished.recv_timeout(std::time::Duration::from_secs(10)).unwrap(),
+            "again"
+        );
+    }
 
     #[test]
     fn a_seq_is_open_once_until_it_ends() {

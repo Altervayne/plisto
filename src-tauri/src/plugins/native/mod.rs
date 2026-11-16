@@ -17,6 +17,7 @@
  */
 
 mod child;
+mod events;
 mod feed;
 mod frames;
 mod heartbeat;
@@ -36,6 +37,8 @@ mod test_child;
 mod tests;
 #[cfg(test)]
 mod tests_bridge;
+#[cfg(test)]
+mod tests_events;
 #[cfg(test)]
 mod tests_stream;
 #[cfg(test)]
@@ -60,7 +63,7 @@ use super::state::{BootView, PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
 use feed::{FeedGrant, FeedSlot};
 use heartbeat::{Beat, Heartbeat};
-use host_calls::HostCalls;
+use host_calls::{HostCalls, SerialCalls};
 use launch::{entry_path, LaunchSpec};
 use link::{HostLink, Notice, NoticeKind};
 use protocol::{Gesture, HostMessage, API_VERSION, PROTOCOL_VERSION};
@@ -134,6 +137,7 @@ struct Run {
     feed: Arc<FeedSlot>,
     relays: Relays,
     host_calls: HostCalls,
+    serial_calls: SerialCalls,
     stats: ChildStats,
     /// The `takeover_state` the child is still to hear, as `(held, reason)`.
     takeover_owed: Mutex<Option<(bool, TakeoverReason)>>,
@@ -149,6 +153,7 @@ impl Run {
             feed: Arc::default(),
             relays: Relays::default(),
             host_calls: HostCalls::default(),
+            serial_calls: SerialCalls::default(),
             stats: ChildStats::default(),
             takeover_owed: Mutex::new(None),
             ending: AtomicBool::new(false),

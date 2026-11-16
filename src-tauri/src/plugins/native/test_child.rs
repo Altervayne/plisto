@@ -21,6 +21,7 @@ use super::protocol::{
     ReportedState, HOST_KINDS, PROTOCOL_VERSION,
 };
 
+mod events;
 mod stream;
 
 /// The file in the data folder that names the behavior, optionally followed by `:<number>` for the
@@ -122,6 +123,7 @@ fn serve_with(input: &mut BufReader<io::Stdin>, mut also: impl FnMut(&HostMessag
             HostMessage::SidebarInput { .. } => log_received("sidebar_input", &message),
             HostMessage::TakeoverState { .. } => log_received("takeover_state", &message),
             HostMessage::Stream { .. } => log_received("stream", &message),
+            HostMessage::Event { .. } => log_received("event", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }
@@ -342,6 +344,8 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
         }
         "stream-push" => stream::push(&mut input, param),
         "stream-pull" => stream::pull(&mut input, param),
+        "events" => events::subscribed(&mut input),
+        "events-order" => events::in_order(&mut input),
         "confirm-on-input" => {
             // A prompt with no page and no gesture first; then one with the gesture of a click, and
             // the same gesture again once that prompt is answered.

@@ -74,14 +74,26 @@ fn subscribe_replaces_the_callers_side_only() {
 }
 
 #[test]
-fn a_child_subscribe_is_refused_and_sets_nothing() {
+fn a_child_subscribe_sets_the_child_side_only() {
     let rig = reader();
     subscribe(&rig, json!(["theme"])).unwrap();
-    let refused = child_subscribe(&rig, json!(["locale"]), 1).unwrap_err();
-    assert_eq!(refused.code, ApiCode::Unavailable);
+    let reply = child_subscribe(&rig, json!(["locale", "queue"]), 1).unwrap();
+    assert_eq!(reply["topics"], json!(["locale", "queue"]));
+    assert!(reply["current"]["locale"].is_object());
+    assert_eq!(topics(&rig, Side::Child), [Topic::Queue, Topic::Locale]);
+    assert_eq!(topics(&rig, Side::Frame), [Topic::Theme]);
+
+    // A grant the child's plugin lacks is refused and keeps its set.
+    let ambient_only = Rig::new(&[]);
+    child_subscribe(&ambient_only, json!(["theme"]), 1).unwrap();
+    let denied = child_subscribe(&ambient_only, json!(["queue"]), 2).unwrap_err();
+    assert_eq!(denied.code, ApiCode::Denied);
+    assert_eq!(topics(&ambient_only, Side::Child), [Topic::Theme]);
+
+    // An empty set clears the child side alone.
+    child_subscribe(&rig, json!([]), 3).unwrap();
     assert!(topics(&rig, Side::Child).is_empty());
     assert_eq!(topics(&rig, Side::Frame), [Topic::Theme]);
-    assert_eq!(rig.plugins.api().events().mask(), Topic::Theme.bit());
 }
 
 /// A serving entry like the rig's own, with `version` and `granted`.

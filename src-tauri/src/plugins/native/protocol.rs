@@ -107,6 +107,8 @@ pub enum HostMessage {
     Page { open: bool },
     /// What the owner of the seated playback stream is told: the same object its frame would get.
     Stream { event: Value },
+    /// An app event topic the child subscribed to, with its payload.
+    Event { topic: String, data: Value },
 }
 
 pub const HOST_KINDS: &[&str] = &[
@@ -120,6 +122,7 @@ pub const HOST_KINDS: &[&str] = &[
     "takeover_state",
     "page",
     "stream",
+    "event",
 ];
 
 /// The states a child may report through `status`.
@@ -424,6 +427,10 @@ mod tests {
                 reason: TakeoverReason::NotResponding,
             },
             HostMessage::Page { open: true },
+            HostMessage::Event {
+                topic: "theme".into(),
+                data: json!({"theme": "dark"}),
+            },
             HostMessage::Stream {
                 event: json!({"item": -4, "kind": "ended", "reason": "user", "detail": null}),
             },
@@ -698,6 +705,25 @@ mod tests {
         assert_eq!(
             wire(&message),
             r#"{"type":"stream","event":{"detail":null,"item":-4,"kind":"ended","reason":"user"}}"#
+        );
+        let frame = encode(&message).unwrap();
+        let mut r = Cursor::new(frame);
+        let body = read_frame(&mut r).unwrap().unwrap();
+        assert_eq!(
+            decode::<HostMessage>(&body, HOST_KINDS),
+            Decoded::Message(message)
+        );
+    }
+
+    #[test]
+    fn event_message_round_trips() {
+        let message = HostMessage::Event {
+            topic: "theme".into(),
+            data: json!({"theme": "dark"}),
+        };
+        assert_eq!(
+            wire(&message),
+            r#"{"type":"event","topic":"theme","data":{"theme":"dark"}}"#
         );
         let frame = encode(&message).unwrap();
         let mut r = Cursor::new(frame);

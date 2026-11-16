@@ -1,16 +1,22 @@
 // -- Library Imports --
+use std::collections::BTreeSet;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 // -- Local Imports --
 use super::coalesce::GAP;
-use super::hub::Env;
+use super::hub::{Env, EventHub};
 use super::tests_hub::{reader, Bench};
-use super::{Input, Side, Topic};
-use crate::plugins::api::app::SETTING_THEME;
-use crate::plugins::api::test_rig::{insert_track, ID};
+use super::{ChildDelivery, Input, Side, Topic};
+use crate::plugins::api::app::{SETTING_LOCALE, SETTING_THEME};
+use crate::plugins::api::error::ApiError;
+use crate::plugins::api::host_event::HostEvent;
+use crate::plugins::api::test_rig::{insert_track, Rig, ID};
+use crate::plugins::api::{FakeHost, HostContext};
 use crate::plugins::state::EnabledSet;
+use crate::state::AppState;
 
 #[test]
 fn a_failed_ambient_read_fires_nothing() {
@@ -148,6 +154,98 @@ fn a_trailing_value_is_never_delivered_once_the_plugin_stops_serving() {
         assert!(events.topics_of(ID, Side::Frame).is_empty());
         assert_eq!(events.next_due(), None);
     }
+}
+
+/// A host whose child has no room for its first `full` deliveries and takes every later one.
+struct ChildHost {
+    inner: FakeHost,
+    full: Mutex<u32>,
+    taken: Mutex<Vec<(String, Value)>>,
+}
+
+impl HostContext for ChildHost {
+    fn setting(&self, key: &str) -> Option<String> {
+        self.inner.setting(key)
+    }
+
+    fn os_prefers_dark(&self) -> bool {
+        self.inner.os_prefers_dark()
+    }
+
+    fn emit(&self, event: HostEvent) {
+        self.inner.emit(event);
+    }
+
+    fn main_window_shown(&self) -> bool {
+        self.inner.main_window_shown()
+    }
+
+    fn app_state(&self) -> Option<&AppState> {
+        self.inner.app_state()
+    }
+
+    fn relay_call(&self, id: &str, method: &str, args: Value) -> Result<Value, ApiError> {
+        self.inner.relay_call(id, method, args)
+    }
+
+    fn deliver_event(&self, _id: &str, topic: &str, data: &Value) -> ChildDelivery {
+        let mut full = self.full.lock().unwrap();
+        if *full > 0 {
+            *full -= 1;
+            return ChildDelivery::Full;
+        }
+        self.taken.lock().unwrap().push((topic.to_string(), data.clone()));
+        ChildDelivery::Sent
+    }
+}
+
+#[test]
+fn a_full_outbox_defers_and_lands_the_last_value() {
+    let rig = Rig::new(&[]);
+    let (api, enabled) = (rig.plugins.api(), rig.plugins.enabled_set());
+    api.events()
+        .replace(ID, Side::Child, &BTreeSet::from([Topic::Locale]), &[]);
+    let mut host = ChildHost {
+        inner: FakeHost::default(),
+        full: Mutex::new(0),
+        taken: Mutex::new(Vec::new()),
+    };
+    let mut hub = EventHub::default();
+    let t0 = Instant::now();
+    let locale = |host: &mut ChildHost, value: &str| {
+        host.inner.settings.insert(SETTING_LOCALE.into(), value.into());
+    };
+    let taken = |host: &ChildHost| host.taken.lock().unwrap().clone();
+    let en = ("locale".to_string(), json!({ "locale": "en" }));
+    let fr = ("locale".to_string(), json!({ "locale": "fr" }));
+
+    // The child has no room for "fr"; a newer "en" arrives inside the gap and replaces it.
+    *host.full.lock().unwrap() = 1;
+    locale(&mut host, "fr");
+    let env = Env { api, enabled: &enabled, host: &host };
+    hub.handle(&env, Input::Ambient, t0, 0);
+    assert!(taken(&host).is_empty());
+    locale(&mut host, "en");
+    let env = Env { api, enabled: &enabled, host: &host };
+    hub.handle(&env, Input::Ambient, t0 + GAP / 2, 0);
+    hub.flush(&env, t0 + GAP / 2);
+    assert!(taken(&host).is_empty());
+    hub.flush(&env, t0 + GAP);
+    assert_eq!(taken(&host), std::slice::from_ref(&en));
+    hub.flush(&env, t0 + GAP * 8);
+    assert_eq!(taken(&host).len(), 1);
+    assert_eq!(api.events().next_due(), None);
+
+    // With nothing newer, the deferred value itself is retried at the next tick and lands.
+    let later = t0 + Duration::from_secs(5);
+    *host.full.lock().unwrap() = 1;
+    locale(&mut host, "fr");
+    let env = Env { api, enabled: &enabled, host: &host };
+    hub.handle(&env, Input::Ambient, later, 0);
+    assert_eq!(taken(&host).len(), 1);
+    assert_eq!(api.events().next_due(), Some(later + GAP));
+    hub.flush(&env, later + GAP);
+    assert_eq!(taken(&host), [en, fr]);
 }
 
 #[test]

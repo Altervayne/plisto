@@ -114,9 +114,17 @@ impl HostContext for TauriHost {
         Some(self.net_engine())
     }
 
-    /// The one path from the event hub to a native child. The native protocol has no event message,
-    /// so every child reads as not running and its values are dropped.
-    fn deliver_event(&self, _id: &str, _topic: &str, _data: &Value) -> ChildDelivery {
+    /// The one path from the event hub to a native child.
+    #[cfg(windows)]
+    fn deliver_event(&self, id: &str, topic: &str, data: &Value) -> ChildDelivery {
+        match self.app.try_state::<Arc<NativeHost>>() {
+            Some(native) => native.deliver_event(id, topic, data),
+            None => ChildDelivery::NotRunning,
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn deliver_event(&self, _: &str, _: &str, _: &Value) -> ChildDelivery {
         ChildDelivery::NotRunning
     }
 }

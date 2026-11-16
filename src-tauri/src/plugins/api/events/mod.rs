@@ -2,8 +2,7 @@
  * App event topics: what is playing, the transport, the queue, library changes and the theme, locale
  * and app mode, pushed to the plugins that subscribed. `events.subscribe` replaces the frame side of
  * the calling plugin and answers the current value of every state topic it accepts and could read.
- * Subscriptions keep a child side apart from the frame side, but a native child's subscribe is
- * refused: children have no event delivery.
+ * Subscriptions keep a native child's side apart from the frame side; the caller picks the side.
  * Rust composes every value once (`compose`), the hub thread gates and paces it per plugin, side and
  * topic (`hub`, `coalesce`), and the grant is checked again before every delivery (`hub`).
  */
@@ -24,7 +23,7 @@ use self::compose::LibraryChange;
 use self::hub::Env;
 use super::error::ApiError;
 use super::rate::RateClass;
-use super::{CallCtx, Caller, MethodSpec, Need, Outcome};
+use super::{CallCtx, MethodSpec, Need, Outcome};
 use crate::plugins::manifest::Capability;
 
 pub(crate) use self::hub::spawn;
@@ -201,10 +200,6 @@ fn subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
 }
 
 fn run_subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, ApiError> {
-    // A native child has no event delivery, so its subscribe is refused and sets nothing.
-    if ctx.caller == Caller::Child {
-        return Err(ApiError::unavailable());
-    }
     let topics = topics_arg(args)?;
     for &topic in &topics {
         if let Need::Cap(cap) = topic.need() {
