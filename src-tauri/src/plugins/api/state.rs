@@ -29,7 +29,8 @@ use super::stream::{Gone, Producer, StreamHub};
 use super::ui_state::UiState;
 use super::MAX_IN_FLIGHT;
 
-/// Locks serializing one plugin's file work. Never taken under any other lock.
+/// Locks serializing one plugin's file work. Taken under no lock but each other: the log gate may be
+/// taken while the storage gate is held, never the reverse.
 #[derive(Debug, Default)]
 pub struct PluginGates {
     pub storage: Mutex<StorageSlot>,

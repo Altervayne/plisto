@@ -50,6 +50,7 @@ pub const STREAM_WINDOW: u64 = 1_048_576;
 pub const STREAM_BUFFER: usize = 4 * 1_048_576;
 /// How long data may wait on a page that acknowledges nothing.
 pub const STALL_MS: u64 = 60_000;
+/// The shortest, longest and default idle time a plugin may ask for.
 pub const IDLE_MIN_MS: u64 = 5_000;
 pub const IDLE_MAX_MS: u64 = 600_000;
 pub const IDLE_DEFAULT_MS: u64 = 60_000;

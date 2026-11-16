@@ -50,6 +50,7 @@ pub(super) mod handshake;
 
 // ---- Limits ----
 
+/// The shortest, longest and default handshake time a plugin may ask for.
 pub const HANDSHAKE_MIN_MS: u64 = 1_000;
 pub const HANDSHAKE_MAX_MS: u64 = 30_000;
 pub const HANDSHAKE_DEFAULT_MS: u64 = 15_000;
@@ -57,8 +58,11 @@ pub const HANDSHAKE_DEFAULT_MS: u64 = 15_000;
 pub const MAX_SEND: usize = 64 * 1024;
 /// Messages waiting to be written, per socket.
 pub const SEND_QUEUE: usize = 16;
+/// A close frame's payload holds 125 bytes; the code takes 2.
 pub const MAX_CLOSE_REASON: usize = 123;
+/// Largest incoming message, in bytes.
 pub const MAX_INCOMING: usize = 1_048_576;
+/// Incoming messages and bytes in one second past which the socket closes `plisto_limit`.
 pub const MAX_INCOMING_PER_SECOND: u32 = 100;
 pub const MAX_INCOMING_BYTES_PER_SECOND: usize = 4 * 1_048_576;
 /// Incoming payload bytes delivered and not yet acknowledged at which reading waits. A message at the

@@ -43,6 +43,9 @@ const PERMISSIONS_POLICY: &str = "permissions-policy";
 // The first path segment reserved for files the host itself serves.
 const HOST_SEGMENT: &str = "_plisto";
 
+// The policy on every frame response. The sandbox has no `allow-same-origin`, so the page has an opaque
+// origin; scripts and files come from its own host only; `connect-src 'none'` leaves the bridge as the
+// only way out. Inline styles stay allowed for page styling.
 pub const FRAME_CSP: &str = "sandbox allow-scripts; default-src 'none'; script-src 'self'; \
     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'";
 

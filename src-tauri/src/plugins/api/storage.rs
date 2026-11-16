@@ -24,8 +24,11 @@ use super::{CallCtx, MethodSpec, Need, Outcome};
 use crate::plugins::manifest::Capability;
 use crate::plugins::paths::{kv_bad_file, kv_file};
 
+/// The most bytes a plugin's encoded store may hold.
 pub const QUOTA_BYTES: usize = 1_048_576;
+/// The longest key or prefix, in bytes.
 pub const MAX_KEY_BYTES: usize = 128;
+/// The longest JSON-encoded value, in bytes.
 pub const MAX_VALUE_BYTES: usize = 131_072;
 
 const NEED: Need = Need::Cap(Capability::Storage);

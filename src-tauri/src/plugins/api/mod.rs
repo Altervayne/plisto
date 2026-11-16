@@ -73,8 +73,8 @@ pub(crate) use self::net::state::{EndReason, Kind, Running};
 pub const API_VERSION: u32 = 1;
 pub const MAX_ARGS_BYTES: usize = 1_048_576;
 pub const MAX_IN_FLIGHT: u32 = 16;
-/// How many plugins an app-wide cap fits at their full per-plugin caps: sixteen plugins at their own
-/// caps never refuse one another.
+/// Each app-wide cap is the per-plugin cap times this, so that many plugins at their full caps never
+/// refuse one another.
 pub const PLUGINS_AT_FULL_CAP: usize = 16;
 /// The namespace a native plugin's page calls its own child through.
 pub const RELAY_PREFIX: &str = "plugin.";

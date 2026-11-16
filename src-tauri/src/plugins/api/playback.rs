@@ -22,6 +22,7 @@ use crate::commands::player::resolve_queue;
 use crate::plugins::manifest::Capability;
 use crate::state::AppState;
 
+/// The most track ids one queue change takes.
 pub const MAX_QUEUE_IDS: usize = 500;
 
 const READ: Need = Need::Cap(Capability::PlaybackRead);

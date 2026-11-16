@@ -377,6 +377,7 @@ pub fn next_hop(
     if next.as_str().len() > MAX_URL_BYTES {
         return Err(not_listed());
     }
+    // A redirect never downgrades from https.
     if sent.url.scheme() == "https" && next.scheme() != "https" {
         return Err(not_listed());
     }

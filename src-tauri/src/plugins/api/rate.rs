@@ -51,6 +51,7 @@ struct Limit {
     milli_per_sec: u64,
 }
 
+// The plugin-wide bucket every call spends from.
 const ALL: Limit = Limit {
     capacity: 100,
     milli_per_sec: 50_000,
@@ -58,6 +59,7 @@ const ALL: Limit = Limit {
 
 impl RateClass {
     fn limit(self) -> Limit {
+        // Each class's burst and its sustained rate.
         let (capacity, milli_per_sec) = match self {
             RateClass::Ambient => (10, 2_000),
             RateClass::StorageRead => (60, 30_000),
