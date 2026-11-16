@@ -40,6 +40,10 @@ pub struct TopicEvent {
     pub id: String,
     pub topic: String,
     pub data: Value,
+    /// The delivery's sequence number. The window drops it when at or under the frame's mark: it was
+    /// produced before that subscribe seeded its lanes, and the refresh after the subscribe sends
+    /// whatever differs from the answer.
+    pub seq: u64,
 }
 
 /// A playback-stream event for plugin `id`, which the window hands to that plugin's newest frame.
@@ -201,10 +205,12 @@ mod tests {
             id: "com.example.demo".into(),
             topic: "theme".into(),
             data: json!({ "theme": "dark" }),
+            seq: 7,
         };
         assert_eq!(
             serde_json::to_value(event).unwrap(),
-            json!({ "id": "com.example.demo", "topic": "theme", "data": { "theme": "dark" } })
+            json!({ "id": "com.example.demo", "topic": "theme", "data": { "theme": "dark" },
+                    "seq": 7 })
         );
     }
 }

@@ -103,9 +103,15 @@ fn ambient(host: &dyn HostContext, topic: Topic) -> Option<Value> {
     compose::ambient(topic, resolved(host, topic)?)
 }
 
+/// The values a subscribe answers with, and the seated item they were read with.
+pub struct Current {
+    pub values: Vec<(Topic, Value)>,
+    pub item: Option<i64>,
+}
+
 /// The value of each state topic of `topics` for plugin `id`, read now. A topic whose source cannot
 /// be read is left out.
-pub fn current(env: &Env<'_>, id: &str, topics: &[Topic], unix_ms: i64) -> Vec<(Topic, Value)> {
+pub fn current(env: &Env<'_>, id: &str, topics: &[Topic], unix_ms: i64) -> Current {
     let wanted = bits(topics);
     let status = match wanted & player_bits() {
         0 => None,
@@ -136,7 +142,10 @@ pub fn current(env: &Env<'_>, id: &str, topics: &[Topic], unix_ms: i64) -> Vec<(
             values.push((topic, value));
         }
     }
-    values
+    Current {
+        values,
+        item: status.and_then(|status| status.track_id),
+    }
 }
 
 #[derive(Default)]
@@ -212,7 +221,9 @@ impl EventHub {
                 }
                 if wanted & Topic::NowPlaying.bit() != 0 {
                     if let Some(shown) = self.now_playing(env, &status, stream.as_ref()) {
-                        out.extend(events.offer(Topic::NowPlaying, now, &|id| shown.render(id)));
+                        let item = status.track_id;
+                        let render = |id: &str| shown.render(id);
+                        out.extend(events.offer_seated(Topic::NowPlaying, now, item, &render));
                     }
                 }
             }
@@ -272,10 +283,12 @@ fn deliver(env: &Env<'_>, deliveries: Vec<Delivery>, now: Instant) {
                 id: delivery.id,
                 topic: delivery.topic.name().to_string(),
                 data: delivery.data,
+                seq: delivery.seq,
             })),
             Side::Child => {
-                let topic = delivery.topic.name();
-                let taken = env.host.deliver_event(&delivery.id, topic, &delivery.data);
+                let (topic, seq) = (delivery.topic.name(), delivery.seq);
+                let taken = env.host.deliver_event(&delivery.id, topic, &delivery.data, seq);
+                // A stale value is superseded by the answer the child already has: not retried.
                 if taken == ChildDelivery::Full {
                     events.defer(delivery, now);
                 }

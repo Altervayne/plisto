@@ -74,12 +74,17 @@ impl Lane {
         self.raise(rule.order);
     }
 
+    /// Forgets what the receiver holds and any pending value, so the next value offered goes out
+    /// even when it equals the last one sent.
+    pub fn forget_sent(&mut self) {
+        self.sent = None;
+        self.pending = None;
+    }
+
     /// Offers a value. Returns the value to send now, if any.
     pub fn offer(&mut self, data: Value, rule: Rule, now: Instant) -> Option<Value> {
-        if let (Some(order), Some(floor)) = (rule.order, self.floor) {
-            if order[0] < floor[0] || order[1] < floor[1] {
-                return None;
-            }
+        if self.behind(rule.order) {
+            return None;
         }
         if let Some(key) = &rule.key {
             let latest = match &self.pending {
@@ -106,8 +111,9 @@ impl Lane {
         None
     }
 
-    /// The pending value once the gap has passed, unless the receiver already holds it.
-    pub fn due(&mut self, now: Instant) -> Option<Value> {
+    /// The pending value once the gap has passed, unless the receiver already holds it, with the
+    /// key it was compared by.
+    pub fn due(&mut self, now: Instant) -> Option<(Value, Option<Value>)> {
         if self.pending.is_none() || !self.open(now) {
             return None;
         }
@@ -115,8 +121,8 @@ impl Lane {
         if pending.key.is_some() && pending.key == self.sent {
             return None;
         }
-        self.mark(pending.key, now);
-        Some(pending.data)
+        self.mark(pending.key.clone(), now);
+        Some((pending.data, pending.key))
     }
 
     /// When the pending value may go out; None with nothing pending.
@@ -141,6 +147,14 @@ impl Lane {
                 key: rule.key,
             },
         });
+    }
+
+    /// Whether counters are behind the highest the lane has seen.
+    fn behind(&self, order: Option<Order>) -> bool {
+        match (order, self.floor) {
+            (Some(order), Some(floor)) => order[0] < floor[0] || order[1] < floor[1],
+            _ => false,
+        }
     }
 
     fn open(&self, now: Instant) -> bool {
@@ -170,6 +184,12 @@ mod tests {
         Duration::from_millis(n)
     }
 
+    impl Lane {
+        fn due_data(&mut self, now: Instant) -> Option<Value> {
+            self.due(now).map(|(data, _)| data)
+        }
+    }
+
     fn state(lane: &mut Lane, value: i64, now: Instant) -> Option<Value> {
         lane.offer(json!(value), Rule::state(json!(value)), now)
     }
@@ -188,11 +208,11 @@ mod tests {
         assert_eq!(state(&mut lane, 2, t0 + ms(50)), None);
         assert_eq!(state(&mut lane, 3, t0 + ms(100)), None);
         assert_eq!(lane.next_due(), Some(t0 + GAP));
-        assert_eq!(lane.due(t0 + ms(249)), None);
+        assert_eq!(lane.due_data(t0 + ms(249)), None);
         // The trailing edge carries the latest.
-        assert_eq!(lane.due(t0 + GAP), Some(json!(3)));
+        assert_eq!(lane.due_data(t0 + GAP), Some(json!(3)));
         assert_eq!(lane.next_due(), None);
-        assert_eq!(lane.due(t0 + ms(900)), None);
+        assert_eq!(lane.due_data(t0 + ms(900)), None);
         // A quiet lane sends at once again.
         assert_eq!(state(&mut lane, 4, t0 + ms(900)), Some(json!(4)));
 
@@ -202,7 +222,7 @@ mod tests {
         assert_eq!(offer(&mut edge, 1, t0), Some(json!(1)));
         assert_eq!(offer(&mut edge, 2, t0 + ms(10)), None);
         assert_eq!(offer(&mut edge, 3, t0 + ms(20)), None);
-        assert_eq!(edge.due(t0 + GAP), Some(json!(5)));
+        assert_eq!(edge.due_data(t0 + GAP), Some(json!(5)));
         // An edge topic is never deduplicated.
         assert_eq!(offer(&mut edge, 1, t0 + ms(600)), Some(json!(1)));
         assert_eq!(offer(&mut edge, 1, t0 + ms(900)), Some(json!(1)));
@@ -217,7 +237,7 @@ mod tests {
         for step in 0..300u64 {
             let at = t0 + ms(step * 10);
             last = step as i64 + 1;
-            if let Some(value) = lane.due(at) {
+            if let Some(value) = lane.due_data(at) {
                 sent.push((at - t0, value));
             }
             if let Some(value) = state(&mut lane, last, at) {
@@ -225,7 +245,7 @@ mod tests {
             }
         }
         let end = t0 + ms(3000) + GAP;
-        if let Some(value) = lane.due(end) {
+        if let Some(value) = lane.due_data(end) {
             sent.push((end - t0, value));
         }
         for (start, _) in &sent {
@@ -251,7 +271,7 @@ mod tests {
         assert_eq!(state(&mut lane, 2, t0 + ms(600)), Some(json!(2)));
         assert_eq!(state(&mut lane, 3, t0 + ms(650)), None);
         assert_eq!(state(&mut lane, 2, t0 + ms(700)), None);
-        assert_eq!(lane.due(t0 + ms(900)), None);
+        assert_eq!(lane.due_data(t0 + ms(900)), None);
         // A seed counts as held.
         lane.seed(Rule::state(json!(9)));
         assert_eq!(state(&mut lane, 9, t0 + ms(2000)), None);
@@ -280,7 +300,7 @@ mod tests {
         // Inside the gap an older value neither replaces the pending one nor goes out.
         assert_eq!(lane.offer(json!(4), ordered(4, [4, 1]), t0 + ms(10)), None);
         assert_eq!(lane.offer(json!(5), ordered(5, [3, 1]), t0 + ms(20)), None);
-        assert_eq!(lane.due(t0 + GAP), Some(json!(4)));
+        assert_eq!(lane.due_data(t0 + GAP), Some(json!(4)));
         // A value with no counters is never held back by them.
         assert_eq!(
             lane.offer(json!(6), Rule::state(json!(6)), t0 + ms(600)),
@@ -295,18 +315,18 @@ mod tests {
         let sent = state(&mut lane, 1, t0).unwrap();
         lane.defer(sent, Rule::state(json!(1)), t0);
         assert_eq!(lane.next_due(), Some(t0 + GAP));
-        assert_eq!(lane.due(t0 + GAP), Some(json!(1)));
+        assert_eq!(lane.due_data(t0 + GAP), Some(json!(1)));
 
         let sent = state(&mut lane, 2, t0 + ms(600)).unwrap();
         assert_eq!(state(&mut lane, 3, t0 + ms(650)), None);
         lane.defer(sent, Rule::state(json!(2)), t0 + ms(600));
-        assert_eq!(lane.due(t0 + ms(850)), Some(json!(3)));
+        assert_eq!(lane.due_data(t0 + ms(850)), Some(json!(3)));
 
         let mut edge = Lane::default();
         let sent = edge.offer(json!(1), Rule::edge(sum), t0).unwrap();
         assert_eq!(edge.offer(json!(2), Rule::edge(sum), t0 + ms(10)), None);
         edge.defer(sent, Rule::edge(sum), t0);
-        assert_eq!(edge.due(t0 + GAP), Some(json!(3)));
+        assert_eq!(edge.due_data(t0 + GAP), Some(json!(3)));
     }
 
     #[test]
@@ -316,7 +336,7 @@ mod tests {
         let mut lane = Lane::default();
         lane.defer(json!(1), Rule::state(json!(1)), t0);
         assert_eq!(lane.next_due(), Some(t0 + GAP));
-        assert_eq!(lane.due(t0 + ms(100)), None);
-        assert_eq!(lane.due(t0 + GAP), Some(json!(1)));
+        assert_eq!(lane.due_data(t0 + ms(100)), None);
+        assert_eq!(lane.due_data(t0 + GAP), Some(json!(1)));
     }
 }

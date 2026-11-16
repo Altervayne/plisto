@@ -188,7 +188,7 @@ impl HostContext for ChildHost {
         self.inner.relay_call(id, method, args)
     }
 
-    fn deliver_event(&self, _id: &str, topic: &str, data: &Value) -> ChildDelivery {
+    fn deliver_event(&self, _id: &str, topic: &str, data: &Value, _seq: u64) -> ChildDelivery {
         let mut full = self.full.lock().unwrap();
         if *full > 0 {
             *full -= 1;

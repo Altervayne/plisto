@@ -5,7 +5,8 @@
  * `host_result` goes back only while the run that asked is still the plugin's current one: after a
  * crash or a stop the answer is dropped, never sent to a pipe that is gone. A child's event
  * subscriptions are the exception to running in parallel: each replaces the last, so they run one at a
- * time in the order they were admitted.
+ * time in the order they were admitted, and each is answered through the run's event gate (see
+ * `events.rs`), which keeps its sequence mark out of the `host_result`.
  */
 
 // -- Library Imports --
@@ -18,10 +19,12 @@ use serde_json::Value;
 
 // -- Local Imports --
 use super::child::SendError;
+use super::events::Subscribing;
 use super::protocol::HostMessage;
 use super::pump::bump;
 use super::{lock, NativeHost, Run};
 use crate::plugins::api::error::{ApiError, CallReply};
+use crate::plugins::api::events::Side;
 use crate::plugins::api::{self, Caller, HostContext};
 
 /// The seqs of a run's host calls that have no answer yet.
@@ -55,7 +58,7 @@ struct SerialQueue {
 
 impl SerialCalls {
     /// Queues `job` behind the ones before it. The job that finds the queue idle starts its drain.
-    fn queue(&self, job: Job) {
+    pub(super) fn queue(&self, job: Job) {
         let start = {
             let mut queue = lock(&self.0);
             queue.waiting.push_back(job);
@@ -101,7 +104,7 @@ pub(super) fn begin(
     }
     if !run.host_calls.begin(seq) {
         let reused = ApiError::invalid_args("The seq of an open host call was sent again.");
-        reply(host, id, run, seq, Err(reused));
+        let _ = reply(host, id, run, seq, Err(reused));
         return false;
     }
     let args = args.to_string();
@@ -124,48 +127,84 @@ pub(super) fn begin(
     let (admitted, api) = match admitted {
         Ok(admitted) => admitted,
         Err(refused) => {
-            finish(host, id, run, seq, Err(refused));
+            let _ = finish(host, id, run, seq, Err(refused));
             return true;
         }
     };
     let job = api::complete(admitted, args, host.app_data.clone(), api_host.clone(), api);
-    let serial = method == SERIAL_METHOD;
     let (host, id, owner) = (host.clone(), id.to_string(), run.clone());
-    let call = async move {
-        let result = job.await;
-        finish(&host, &id, &owner, seq, result);
-    };
-    if serial {
-        run.serial_calls.queue(Box::pin(call));
-    } else {
-        tauri::async_runtime::spawn(call);
+    if method != SERIAL_METHOD {
+        tauri::async_runtime::spawn(async move {
+            let result = job.await;
+            let _ = finish(&host, &id, &owner, seq, result);
+        });
+        return true;
     }
+    // Held from admission until the answer is in the outbox, so no event overtakes it.
+    let hold = Subscribing::begin(run);
+    run.serial_calls.queue(Box::pin(async move {
+        let result = job.await;
+        let mark = hold.answer(result, |result| finish(&host, &id, &owner, seq, result));
+        if let Some(mark) = mark {
+            drop_if_ended(&host, &id, &owner, mark);
+        }
+    }));
     true
 }
 
-/// Closes host call `seq` and answers it.
-fn finish(host: &NativeHost, id: &str, run: &Arc<Run>, seq: u64, result: Result<Value, ApiError>) {
+/// Undoes the child side a subscribe of `run` set, once that run has ended. The run's end may have
+/// cleared the side before the subscribe set it; the side is left alone when a later subscribe has
+/// replaced it, which its own mark shows.
+fn drop_if_ended(host: &NativeHost, id: &str, run: &Arc<Run>, mark: u64) {
+    if host.current_child(id, run).is_some() {
+        return;
+    }
+    host.with_plugins(|plugins| {
+        let events = plugins.api().events();
+        if events.mark_of(id, Side::Child) == mark {
+            events.drop_side(id, Side::Child);
+        }
+    });
+}
+
+/// Closes host call `seq` and answers it. True when the answer itself was queued for the child.
+fn finish(
+    host: &NativeHost,
+    id: &str,
+    run: &Arc<Run>,
+    seq: u64,
+    result: Result<Value, ApiError>,
+) -> bool {
     run.host_calls.end(seq);
-    reply(host, id, run, seq, result);
+    reply(host, id, run, seq, result)
 }
 
 /// Sends `host_result` while `run` is the plugin's current run. An answer the outbox has no room for
-/// is dropped and counted; one over the frame cap is replaced by `too_large`.
-fn reply(host: &NativeHost, id: &str, run: &Arc<Run>, seq: u64, result: Result<Value, ApiError>) {
+/// is dropped and counted; one over the frame cap is replaced by `too_large`. True when the answer
+/// as given was queued.
+fn reply(
+    host: &NativeHost,
+    id: &str,
+    run: &Arc<Run>,
+    seq: u64,
+    result: Result<Value, ApiError>,
+) -> bool {
     let Some(child) = host.current_child(id, run) else {
-        return;
+        return false;
     };
     let sent = match child.send(&host_result(seq, result)) {
         Err(SendError::TooLarge) => {
             let refused =
                 ApiError::too_large("The result does not fit in one frame to the plugin.");
-            child.send(&host_result(seq, Err(refused)))
+            let _ = child.send(&host_result(seq, Err(refused)));
+            return false;
         }
         other => other,
     };
     if sent == Err(SendError::Full) {
         bump(&run.stats.results_dropped);
     }
+    sent.is_ok()
 }
 
 fn host_result(seq: u64, result: Result<Value, ApiError>) -> HostMessage {

@@ -116,15 +116,15 @@ impl HostContext for TauriHost {
 
     /// The one path from the event hub to a native child.
     #[cfg(windows)]
-    fn deliver_event(&self, id: &str, topic: &str, data: &Value) -> ChildDelivery {
+    fn deliver_event(&self, id: &str, topic: &str, data: &Value, seq: u64) -> ChildDelivery {
         match self.app.try_state::<Arc<NativeHost>>() {
-            Some(native) => native.deliver_event(id, topic, data),
+            Some(native) => native.deliver_event(id, topic, data, seq),
             None => ChildDelivery::NotRunning,
         }
     }
 
     #[cfg(not(windows))]
-    fn deliver_event(&self, _: &str, _: &str, _: &Value) -> ChildDelivery {
+    fn deliver_event(&self, _: &str, _: &str, _: &Value, _: u64) -> ChildDelivery {
         ChildDelivery::NotRunning
     }
 }

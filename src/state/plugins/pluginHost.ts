@@ -102,7 +102,7 @@ interface Host {
   sendRoute: (mountKey: string, routePath: string | null) => void;
   sendSidebar: (pluginId: string, delivery: PluginSidebarDelivery) => boolean;
   sendPluginEvent: (pluginId: string, topic: string, data: unknown) => boolean;
-  sendTopicEvent: (pluginId: string, topic: string, data: unknown) => boolean;
+  sendTopicEvent: (pluginId: string, topic: string, data: unknown, seq: unknown) => boolean;
   sendStream: (pluginId: string, delivery: StreamDelivery) => boolean;
   sendSocket: (pluginId: string, delivery: SocketDelivery) => boolean;
   hasLiveFrame: (pluginId: string) => boolean;
@@ -168,7 +168,7 @@ function createHost(deps: HostDeps): Host {
     extra.calls.add(callId);
     rec.pending += 1;
     const subscribing = method === SUBSCRIBE_METHOD;
-    const seq = subscribing ? extra.router.begin(args) : 0;
+    if (subscribing) extra.router.begin();
     // A frame's subscribes reach Rust one at a time, so Rust applies them in the order they were issued.
     const turn = subscribing ? extra.subscribing : null;
     let release = () => {};
@@ -193,9 +193,11 @@ function createHost(deps: HostDeps): Host {
     rec.pending -= 1;
     extra.calls.delete(callId);
     // Applied before the reply is posted; events held meanwhile follow the reply.
-    const held = subscribing ? extra.router.settle(seq, reply ?? UNREACHABLE) : [];
-    post(rec, resultMsg(callId, reply ?? UNREACHABLE), transfer);
-    for (const event of held) post(rec, eventMsg(event.topic, event.data));
+    const settled = subscribing
+      ? extra.router.settle(reply ?? UNREACHABLE)
+      : { reply: reply ?? UNREACHABLE, held: [] };
+    post(rec, resultMsg(callId, settled.reply), transfer);
+    for (const event of settled.held) post(rec, eventMsg(event.topic, event.data));
   };
 
   /** One of the host's own calls at init, retried only while the record is live. */
@@ -343,10 +345,10 @@ function createHost(deps: HostDeps): Host {
       return true;
     },
 
-    sendTopicEvent(pluginId, topic, data) {
+    sendTopicEvent(pluginId, topic, data, seq) {
       const rec = initialised(pluginId);
       const router = rec && extras.get(rec)?.router;
-      const offer = router ? router.offer(topic, data) : "drop";
+      const offer = router ? router.offer(topic, data, seq) : "drop";
       if (rec && offer === "send") post(rec, eventMsg(topic, data));
       return offer !== "drop";
     },
@@ -466,8 +468,8 @@ export function sendPluginEvent(pluginId: string, topic: string, data: unknown):
  * subscribe reply accepted the topic. An event for a topic a subscribe in flight asked for is held until
  * its reply and posted after it. Returns false when the event is dropped.
  */
-export function sendTopicEvent(pluginId: string, topic: string, data: unknown): boolean {
-  return active?.sendTopicEvent(pluginId, topic, data) ?? false;
+export function sendTopicEvent(pluginId: string, topic: string, data: unknown, seq: unknown): boolean {
+  return active?.sendTopicEvent(pluginId, topic, data, seq) ?? false;
 }
 
 /** The topic a plugin's playback-stream events arrive on in its frame. */

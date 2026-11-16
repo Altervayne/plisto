@@ -26,8 +26,8 @@ describe("createTopicEventSync", () => {
     const { send, emit, name } = setup();
     await flush();
     expect(name()).toBe(EVENT_TOPIC);
-    emit({ id: "dev.tandem", topic: "theme", data: { theme: "dark" } });
-    expect(send).toHaveBeenCalledWith("dev.tandem", "theme", { theme: "dark" });
+    emit({ id: "dev.tandem", topic: "theme", data: { theme: "dark" }, seq: 7 });
+    expect(send).toHaveBeenCalledWith("dev.tandem", "theme", { theme: "dark" }, 7);
   });
 
   it("drops a malformed payload", async () => {
@@ -37,7 +37,9 @@ describe("createTopicEventSync", () => {
     emit("theme");
     emit({ topic: "theme", data: 1 });
     emit({ id: "dev.tandem", data: 1 });
-    emit({ id: 1, topic: "theme" });
+    emit({ id: 1, topic: "theme", seq: 1 });
+    emit({ id: "dev.tandem", topic: "theme", data: 1 });
+    emit({ id: "dev.tandem", topic: "theme", data: 1, seq: "3" });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -46,7 +48,7 @@ describe("createTopicEventSync", () => {
     await flush();
     stop();
     expect(off).toHaveBeenCalledTimes(1);
-    emit({ id: "dev.tandem", topic: "theme", data: 1 });
+    emit({ id: "dev.tandem", topic: "theme", data: 1, seq: 1 });
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -64,7 +66,7 @@ describe("createTopicEventSync", () => {
     createTopicEventSync({ listen, send });
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(listen).toHaveBeenCalledTimes(2);
-    handler({ payload: { id: "a", topic: "theme", data: 1 } });
+    handler({ payload: { id: "a", topic: "theme", data: 1, seq: 1 } });
     expect(send).toHaveBeenCalledTimes(1);
   });
 

@@ -167,9 +167,9 @@ pub trait HostContext: Send + Sync {
     fn net(&self) -> Option<NetEngine> {
         None
     }
-    /// Hands an app event topic to plugin `id`'s native child; a host with no children has none
-    /// running.
-    fn deliver_event(&self, _id: &str, _topic: &str, _data: &Value) -> ChildDelivery {
+    /// Hands an app event topic, produced as delivery `seq`, to plugin `id`'s native child; a host
+    /// with no children has none running.
+    fn deliver_event(&self, _id: &str, _topic: &str, _data: &Value, _seq: u64) -> ChildDelivery {
         ChildDelivery::NotRunning
     }
 }

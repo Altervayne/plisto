@@ -1,5 +1,5 @@
 // -- Test Imports --
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
 import {
@@ -840,6 +840,8 @@ describe("teardown", () => {
 
 describe("topic events", () => {
   const SUBSCRIBE = { method: "events.subscribe", args: '{"topics":["theme"]}' };
+  const LOCALE = { method: "events.subscribe", args: '{"topics":["locale"]}' };
+  const denied: PluginCallReply = { ok: false, error: { code: "denied", message: "no" } };
 
   /** Has the frame call events.subscribe and answers it. */
   async function subscribe(h: ReturnType<typeof setup>, win: FakeWindow, id: number, reply: PluginCallReply) {
@@ -848,16 +850,23 @@ describe("topic events", () => {
     h.calls[at].resolve(reply);
     await flush();
   }
-  const ok = (topics: string[]): PluginCallReply => ({ ok: true, result: { topics, current: {} } });
+  const ok = (topics: string[], mark = 0): PluginCallReply => ({ ok: true, result: { topics, current: {}, mark } });
+
+  // Events carry a rising seq with gaps, as Rust produces them.
+  let seq = 0;
+  beforeEach(() => {
+    seq = 0;
+  });
+  const emit = (id: string, topic: string, data: unknown) => sendTopicEvent(id, topic, data, (seq += 2));
 
   it("reach only the newest initialised frame that accepted the topic", async () => {
     const h = setup();
     const older = await liveFrame(h.calls, "k-a1", "plug-a");
     const newer = await liveFrame(h.calls, "k-a2", "plug-a");
     await subscribe(h, older, 1, ok(["theme"]));
-    expect(sendTopicEvent("plug-a", "theme", { theme: "dark" })).toBe(false);
+    expect(emit("plug-a", "theme", { theme: "dark" })).toBe(false);
     await subscribe(h, newer, 1, ok(["theme"]));
-    expect(sendTopicEvent("plug-a", "theme", { theme: "dark" })).toBe(true);
+    expect(emit("plug-a", "theme", { theme: "dark" })).toBe(true);
     expect(newer.posted[newer.posted.length - 1]).toEqual({
       msg: { plisto: 1, type: "plisto:event", topic: "theme", data: { theme: "dark" } },
       origin: "*",
@@ -869,7 +878,7 @@ describe("topic events", () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     await subscribe(h, win, 1, ok(["theme"]));
-    expect(sendTopicEvent("plug-a", "locale", { locale: "fr" })).toBe(false);
+    expect(emit("plug-a", "locale", { locale: "fr" })).toBe(false);
     expect(win.types()).toEqual(["plisto:init", "plisto:result"]);
   });
 
@@ -877,8 +886,8 @@ describe("topic events", () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     await subscribe(h, win, 1, ok(["theme"]));
-    await subscribe(h, win, 2, { ok: false, error: { code: "denied", message: "no" } });
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(true);
+    await subscribe(h, win, 2, denied);
+    expect(emit("plug-a", "theme", 1)).toBe(true);
   });
 
   it("give a remounted frame nothing before its own subscribe", async () => {
@@ -887,7 +896,7 @@ describe("topic events", () => {
     await subscribe(h, first, 1, ok(["theme"]));
     detachFrame("k-a1");
     const second = await liveFrame(h.calls, "k-a2", "plug-a");
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "theme", 1)).toBe(false);
     expect(second.types()).toEqual(["plisto:init"]);
   });
 
@@ -896,58 +905,108 @@ describe("topic events", () => {
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const ended = { item: -41, kind: "ended", reason: "network", detail: null } as const;
     expect(sendPlaybackStreamEvent("plug-a", ended)).toBe(true);
-    expect(sendTopicEvent("plug-a", "stream", ended)).toBe(false);
+    expect(emit("plug-a", "stream", ended)).toBe(false);
     expect(win.types()).toEqual(["plisto:init", "plisto:plugin-event"]);
   });
 
-  it("hold an event that beats the reply and post it after the reply", async () => {
+  it("drop an event without a numeric seq", async () => {
+    const h = setup();
+    const win = await liveFrame(h.calls, "k-a", "plug-a");
+    await subscribe(h, win, 1, ok(["theme"]));
+    expect(sendTopicEvent("plug-a", "theme", 1, undefined)).toBe(false);
+    expect(sendTopicEvent("plug-a", "theme", 1, "3")).toBe(false);
+    expect(win.types()).toEqual(["plisto:init", "plisto:result"]);
+  });
+
+  it("hold events that beat the reply and post those above the mark after it", async () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const at = h.calls.length;
-    h.call(win, 1, SUBSCRIBE);
-    expect(sendTopicEvent("plug-a", "theme", { theme: "light" })).toBe(true);
-    expect(sendTopicEvent("plug-a", "theme", { theme: "dark" })).toBe(true);
-    expect(sendTopicEvent("plug-a", "locale", { locale: "fr" })).toBe(false);
+    h.call(win, 1, { method: "events.subscribe", args: "{\"topics\":[\"theme\",\"locale\"]}" });
+    expect(emit("plug-a", "theme", { theme: "old" })).toBe(true);
+    expect(emit("plug-a", "locale", { locale: "fr" })).toBe(true);
     expect(win.types()).toEqual(["plisto:init"]);
-    h.calls[at].resolve(ok(["theme"]));
+    h.calls[at].resolve(ok(["theme", "locale"], 2));
     await flush();
     expect(win.types()).toEqual(["plisto:init", "plisto:result", "plisto:event"]);
-    expect(win.posted[2].msg).toMatchObject({ topic: "theme", data: { theme: "dark" } });
+    expect(win.posted[2].msg).toMatchObject({ topic: "locale", data: { locale: "fr" } });
   });
 
-  it("discard held events when the reply is refused", async () => {
+  it("drop a held event at or under the mark", async () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const at = h.calls.length;
     h.call(win, 1, SUBSCRIBE);
-    sendTopicEvent("plug-a", "theme", 1);
-    h.calls[at].resolve({ ok: false, error: { code: "denied", message: "no" } });
+    emit("plug-a", "theme", 1);
+    h.calls[at].resolve(ok(["theme"], 2));
     await flush();
     expect(win.types()).toEqual(["plisto:init", "plisto:result"]);
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
   });
 
-  it("forward a frame's subscribes one at a time, in the order issued", async () => {
+  it("never post the mark or a seq to the page", async () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const at = h.calls.length;
-    h.call(win, 1, { method: "events.subscribe", args: "{\"topics\":[\"theme\"]}" });
-    h.call(win, 2, { method: "events.subscribe", args: "{\"topics\":[\"locale\"]}" });
+    h.call(win, 1, SUBSCRIBE);
+    emit("plug-a", "theme", 1);
+    emit("plug-a", "theme", 2);
+    h.calls[at].resolve(ok(["theme"], 2));
+    await flush();
+    expect(win.posted[1].msg).toMatchObject({ type: "plisto:result", ok: true });
+    expect(JSON.stringify(win.posted[1].msg)).not.toContain("mark");
+    expect(win.posted[2].msg).toEqual({ plisto: 1, type: "plisto:event", topic: "theme", data: 2 });
+  });
+
+  it("deliver held events of a kept topic when the re-subscribe is refused", async () => {
+    const h = setup();
+    const win = await liveFrame(h.calls, "k-a", "plug-a");
+    await subscribe(h, win, 1, ok(["theme"]));
+    const at = h.calls.length;
+    h.call(win, 2, SUBSCRIBE);
+    emit("plug-a", "theme", "kept");
+    h.calls[at].resolve(denied);
+    await flush();
+    expect(win.posted[win.posted.length - 1].msg).toMatchObject({ type: "plisto:event", data: "kept" });
+  });
+
+  it("forward a frame's subscribes one at a time and hold events until the last settles", async () => {
+    const h = setup();
+    const win = await liveFrame(h.calls, "k-a", "plug-a");
+    const at = h.calls.length;
+    h.call(win, 1, SUBSCRIBE);
+    h.call(win, 2, LOCALE);
     await flush();
     // The second waits for the first's answer before it reaches Rust.
     expect(h.calls.length).toBe(at + 1);
-    expect(h.calls[at].args).toBe("{\"topics\":[\"theme\"]}");
-    h.calls[at].resolve(ok(["theme"]));
+    emit("plug-a", "theme", "t");
+    emit("plug-a", "locale", "l");
+    h.calls[at].resolve(ok(["theme"], 0));
     await flush();
     expect(h.calls.length).toBe(at + 2);
-    expect(h.calls[at + 1].args).toBe("{\"topics\":[\"locale\"]}");
-    // The first reply answered its caller but did not set the set: the second is the latest issued.
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
-    h.calls[at + 1].resolve(ok(["locale"]));
+    expect(h.calls[at + 1].args).toBe('{"topics":["locale"]}');
+    expect(win.types()).toEqual(["plisto:init", "plisto:result"]);
+    h.calls[at + 1].resolve(ok(["locale"], 0));
     await flush();
-    expect(sendTopicEvent("plug-a", "locale", 1)).toBe(true);
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
-    expect(win.types().filter((type) => type === "plisto:result")).toHaveLength(2);
+    expect(win.types()).toEqual(["plisto:init", "plisto:result", "plisto:result", "plisto:event"]);
+    expect(win.posted[3].msg).toMatchObject({ topic: "locale", data: "l" });
+    expect(emit("plug-a", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "locale", 1)).toBe(true);
+  });
+
+  it("leave the first set in force when a second subscribe is refused", async () => {
+    const h = setup();
+    const win = await liveFrame(h.calls, "k-a", "plug-a");
+    const at = h.calls.length;
+    h.call(win, 1, SUBSCRIBE);
+    h.call(win, 2, LOCALE);
+    emit("plug-a", "theme", "t");
+    h.calls[at].resolve(ok(["theme"], 0));
+    await flush();
+    h.calls[at + 1].resolve(denied);
+    await flush();
+    expect(win.posted[win.posted.length - 1].msg).toMatchObject({ type: "plisto:event", data: "t" });
+    expect(emit("plug-a", "theme", 1)).toBe(true);
+    expect(emit("plug-a", "locale", 1)).toBe(false);
   });
 
   it("forward the next subscribe after a failed one", async () => {
@@ -955,13 +1014,13 @@ describe("topic events", () => {
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const at = h.calls.length;
     h.call(win, 1, SUBSCRIBE);
-    h.call(win, 2, { method: "events.subscribe", args: "{\"topics\":[\"locale\"]}" });
+    h.call(win, 2, LOCALE);
     h.calls[at].reject(new Error("gone"));
     await flush();
     expect(h.calls.length).toBe(at + 2);
     h.calls[at + 1].resolve(ok(["locale"]));
     await flush();
-    expect(sendTopicEvent("plug-a", "locale", 1)).toBe(true);
+    expect(emit("plug-a", "locale", 1)).toBe(true);
     // Other methods never wait on a subscribe.
     h.call(win, 3, SUBSCRIBE);
     h.call(win, 4);
@@ -973,7 +1032,7 @@ describe("topic events", () => {
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     await subscribe(h, win, 1, ok(["theme"]));
     await subscribe(h, win, 2, { ok: true, result: { topics: "theme" } });
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "theme", 1)).toBe(false);
   });
 
   it("follow an empty or smaller accepted set", async () => {
@@ -981,10 +1040,10 @@ describe("topic events", () => {
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     await subscribe(h, win, 1, ok(["theme", "locale"]));
     await subscribe(h, win, 2, ok(["locale"]));
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
-    expect(sendTopicEvent("plug-a", "locale", 1)).toBe(true);
+    expect(emit("plug-a", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "locale", 1)).toBe(true);
     await subscribe(h, win, 3, ok([]));
-    expect(sendTopicEvent("plug-a", "locale", 1)).toBe(false);
+    expect(emit("plug-a", "locale", 1)).toBe(false);
   });
 
   it("keep two plugins' subscriptions apart", async () => {
@@ -992,8 +1051,8 @@ describe("topic events", () => {
     const a = await liveFrame(h.calls, "k-a", "plug-a");
     const b = await liveFrame(h.calls, "k-b", "plug-b");
     await subscribe(h, a, 1, ok(["theme"]));
-    expect(sendTopicEvent("plug-b", "theme", 1)).toBe(false);
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(true);
+    expect(emit("plug-b", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "theme", 1)).toBe(true);
     expect(b.types()).toEqual(["plisto:init"]);
   });
 
@@ -1006,7 +1065,7 @@ describe("topic events", () => {
     const second = await liveFrame(h.calls, "k-a2", "plug-a");
     h.calls[at].resolve(ok(["theme"]));
     await flush();
-    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
+    expect(emit("plug-a", "theme", 1)).toBe(false);
     expect(second.types()).toEqual(["plisto:init"]);
   });
 });

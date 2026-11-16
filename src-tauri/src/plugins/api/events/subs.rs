@@ -4,6 +4,12 @@
  * an app event nobody listens to costs its listener one load and nothing else. The queue's revision
  * lives here too: it counts every `player:queue` while anyone listens to `queue`, and moves once when
  * the last listener leaves, so a value read after a quiet stretch never equals one read before it.
+ *
+ * Every delivery carries a sequence number and every subscribe leaves a mark on its side, both from
+ * one counter that never goes back. The answer to a subscribe reaches its receiver on a channel not
+ * ordered with the events, or after events already queued, so the receiver drops an event under the
+ * mark: it was produced before the answer's seed. It can still be newer than the answer, which is
+ * read before the seed; the refresh that follows every subscribe reads again and sends what differs.
  */
 
 // -- Library Imports --
@@ -13,7 +19,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use crossbeam_channel::Sender;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 // -- Local Imports --
 use super::coalesce::{Lane, Rule};
@@ -45,12 +51,20 @@ pub struct Delivery {
     pub side: Side,
     pub topic: Topic,
     pub data: Value,
+    /// What the lane compared the value by, kept for a retry.
+    pub key: Option<Value>,
+    /// Its place among every delivery and every mark, strictly increasing process-wide.
+    pub seq: u64,
 }
 
 #[derive(Default)]
 struct PluginSubs {
     frame: BTreeMap<Topic, Lane>,
     child: BTreeMap<Topic, Lane>,
+    // The sequence mark of each side's last subscribe: what was produced at or under it is
+    // superseded by that subscribe's answer.
+    frame_mark: u64,
+    child_mark: u64,
 }
 
 impl PluginSubs {
@@ -58,6 +72,13 @@ impl PluginSubs {
         match side {
             Side::Frame => &mut self.frame,
             Side::Child => &mut self.child,
+        }
+    }
+
+    fn mark(&mut self, side: Side) -> &mut u64 {
+        match side {
+            Side::Frame => &mut self.frame_mark,
+            Side::Child => &mut self.child_mark,
         }
     }
 
@@ -73,21 +94,30 @@ impl PluginSubs {
     }
 }
 
-/// How a topic's values are compared, ordered and folded.
-fn rule(topic: Topic, data: &Value) -> Rule {
-    if topic.is_state() {
-        Rule {
-            order: order(topic, data),
-            ..Rule::state(key(topic, data))
-        }
-    } else {
-        Rule::edge(merge_library)
+/// How a topic's values are compared, ordered and folded. A `now_playing` value is compared together
+/// with `item`, the seated item it describes, which its payload does not always name: two items in a
+/// row with equal payloads, such as two opened files, still differ.
+fn rule(topic: Topic, data: &Value, item: Option<i64>) -> Rule {
+    if !topic.is_state() {
+        return Rule::edge(merge_library);
+    }
+    let compared = key(topic, data);
+    let compared = match topic {
+        Topic::NowPlaying => json!([compared, item]),
+        _ => compared,
+    };
+    Rule {
+        order: order(topic, data),
+        ..Rule::state(compared)
     }
 }
 
 #[derive(Default)]
 pub struct EventSubs {
     plugins: Mutex<HashMap<String, PluginSubs>>,
+    // The last sequence number given to a delivery. Never reset; read and advanced only under the
+    // `plugins` lock, so a mark and every delivery are ordered by it.
+    seq: AtomicU64,
     mask: AtomicU8,
     queue_rev: AtomicU64,
     feed: OnceLock<Sender<Input>>,
@@ -124,31 +154,58 @@ impl EventSubs {
         self.queue_rev.fetch_add(1, Ordering::AcqRel) + 1
     }
 
-    /// Replaces one side's topics. A kept topic keeps its lane; `current` seeds the lanes of state
-    /// topics with what the caller was answered.
+    /// `replace_seated` with no seated item.
     pub fn replace(
         &self,
         id: &str,
         side: Side,
         topics: &BTreeSet<Topic>,
         current: &[(Topic, Value)],
-    ) {
+    ) -> u64 {
+        self.replace_seated(id, side, topics, current, None)
+    }
+
+    /// Replaces one side's topics. A kept topic keeps its lane; `current`, what the caller was
+    /// answered with `item` the seated item it was read with, seeds the lanes of state topics. A
+    /// state topic left out of `current`, its read having failed, forgets what it sent, so its next
+    /// value goes out whatever it was before.
+    ///
+    /// Returns the side's new mark, a sequence number of its own: every delivery numbered under it
+    /// was produced before the seed and its receiver drops it.
+    pub fn replace_seated(
+        &self,
+        id: &str,
+        side: Side,
+        topics: &BTreeSet<Topic>,
+        current: &[(Topic, Value)],
+        item: Option<i64>,
+    ) -> u64 {
         let mut plugins = lock(&self.plugins);
+        let mark = self.next_seq();
         let subs = plugins.entry(id.to_string()).or_default();
+        *subs.mark(side) = mark;
         let lanes = subs.side(side);
         lanes.retain(|topic, _| topics.contains(topic));
         for &topic in topics {
             lanes.entry(topic).or_default();
         }
-        for (topic, value) in current {
-            if let Some(lane) = lanes.get_mut(topic) {
-                lane.seed(rule(*topic, value));
+        for (&topic, lane) in lanes.iter_mut() {
+            match current.iter().find(|(answered, _)| *answered == topic) {
+                Some((_, value)) => lane.seed(rule(topic, value, item)),
+                None if topic.is_state() => lane.forget_sent(),
+                None => {}
             }
         }
         if subs.is_empty() {
             plugins.remove(id);
         }
         self.refresh_mask(&plugins);
+        mark
+    }
+
+    /// The next sequence number. Called only with the `plugins` lock held.
+    fn next_seq(&self) -> u64 {
+        self.seq.fetch_add(1, Ordering::AcqRel) + 1
     }
 
     /// Drops one side of plugin `id`.
@@ -194,12 +251,23 @@ impl EventSubs {
         }
     }
 
-    /// Offers a new value of `topic` to every lane of it; `value_for` gives the payload for a plugin.
-    /// Returns what goes out now.
+    /// `offer_seated` with no seated item.
     pub fn offer(
         &self,
         topic: Topic,
         now: Instant,
+        value_for: &dyn Fn(&str) -> Value,
+    ) -> Vec<Delivery> {
+        self.offer_seated(topic, now, None, value_for)
+    }
+
+    /// Offers a new value of `topic` to every lane of it; `value_for` gives the payload for a plugin
+    /// and `item` is the seated item it was composed with. Returns what goes out now.
+    pub fn offer_seated(
+        &self,
+        topic: Topic,
+        now: Instant,
+        item: Option<i64>,
         value_for: &dyn Fn(&str) -> Value,
     ) -> Vec<Delivery> {
         let mut out = Vec::new();
@@ -209,13 +277,16 @@ impl EventSubs {
                     continue;
                 };
                 let data = value_for(id);
-                let rule = rule(topic, &data);
+                let rule = rule(topic, &data, item);
+                let key = rule.key.clone();
                 if let Some(data) = lane.offer(data, rule, now) {
                     out.push(Delivery {
                         id: id.clone(),
                         side,
                         topic,
                         data,
+                        key,
+                        seq: self.next_seq(),
                     });
                 }
             }
@@ -229,12 +300,14 @@ impl EventSubs {
         for (id, subs) in lock(&self.plugins).iter_mut() {
             for (side, lanes) in subs.sides() {
                 for (&topic, lane) in lanes.iter_mut() {
-                    if let Some(data) = lane.due(now) {
+                    if let Some((data, key)) = lane.due(now) {
                         out.push(Delivery {
                             id: id.clone(),
                             side,
                             topic,
                             data,
+                            key,
+                            seq: self.next_seq(),
                         });
                     }
                 }
@@ -253,14 +326,21 @@ impl EventSubs {
     }
 
     /// Takes back a delivery its receiver could not take at `now`; it is retried once its gap has
-    /// passed.
+    /// passed, with a new sequence number. One at or under its side's mark is superseded by that
+    /// subscribe's answer and is dropped.
     pub fn defer(&self, delivery: Delivery, now: Instant) {
         let mut plugins = lock(&self.plugins);
-        let lane = plugins
-            .get_mut(&delivery.id)
-            .and_then(|subs| subs.side(delivery.side).get_mut(&delivery.topic));
-        if let Some(lane) = lane {
-            let rule = rule(delivery.topic, &delivery.data);
+        let Some(subs) = plugins.get_mut(&delivery.id) else {
+            return;
+        };
+        if delivery.seq <= *subs.mark(delivery.side) {
+            return;
+        }
+        if let Some(lane) = subs.side(delivery.side).get_mut(&delivery.topic) {
+            let rule = Rule {
+                key: delivery.key,
+                ..rule(delivery.topic, &delivery.data, None)
+            };
             lane.defer(delivery.data, rule, now);
         }
     }
@@ -271,6 +351,13 @@ impl EventSubs {
             .get_mut(id)
             .map(|subs| subs.side(side).keys().copied().collect())
             .unwrap_or_default()
+    }
+
+    /// The mark of one side; 0 for a plugin with no subscription.
+    pub fn mark_of(&self, id: &str, side: Side) -> u64 {
+        lock(&self.plugins)
+            .get_mut(id)
+            .map_or(0, |subs| *subs.mark(side))
     }
 }
 
@@ -374,15 +461,18 @@ mod tests {
         let sent = events.offer(Topic::Theme, t0, &|_| theme("light"));
         assert_eq!(sent.len(), 1);
         assert_eq!((sent[0].side, sent[0].topic), (Side::Frame, Topic::Theme));
-        // Within the gap the change waits; replacing the set with the topic kept keeps it waiting.
+        // Within the gap the change waits. A replace that keeps the topic but answered no value for
+        // it drops the wait and what was sent; the lane keeps its pace, and the next value lands.
         assert!(events
             .offer(Topic::Theme, t0, &|_| theme("dark"))
             .is_empty());
         events.replace(A, Side::Frame, &set(&[Topic::Theme, Topic::Locale]), &[]);
-        assert_eq!(events.next_due(), Some(t0 + super::super::coalesce::GAP));
-        let due = events.due(t0 + super::super::coalesce::GAP);
+        assert_eq!(events.next_due(), None);
+        let gap = super::super::coalesce::GAP;
+        assert!(events.offer(Topic::Theme, t0 + gap / 2, &|_| theme("light")).is_empty());
+        let due = events.due(t0 + gap);
         assert_eq!(due.len(), 1);
-        assert_eq!(due[0].data, theme("dark"));
+        assert_eq!(due[0].data, theme("light"));
         // Only a subscribed topic is offered.
         assert_eq!(events.offer(Topic::Locale, t0, &|_| json!(1)).len(), 1);
         assert!(events.offer(Topic::Queue, t0, &|_| json!(1)).is_empty());

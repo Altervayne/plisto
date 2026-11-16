@@ -40,6 +40,8 @@ mod tests_bridge;
 #[cfg(test)]
 mod tests_events;
 #[cfg(test)]
+mod tests_sample;
+#[cfg(test)]
 mod tests_stream;
 #[cfg(test)]
 mod tests_takeover;
@@ -63,6 +65,7 @@ use super::state::{BootView, PluginsState, Starter, Stopper};
 use child::{Child, Stopped};
 use feed::{FeedGrant, FeedSlot};
 use heartbeat::{Beat, Heartbeat};
+use events::EventGate;
 use host_calls::{HostCalls, SerialCalls};
 use launch::{entry_path, LaunchSpec};
 use link::{HostLink, Notice, NoticeKind};
@@ -138,6 +141,8 @@ struct Run {
     relays: Relays,
     host_calls: HostCalls,
     serial_calls: SerialCalls,
+    /// Orders app events against the answers to the child's event subscribes.
+    event_gate: Mutex<EventGate>,
     stats: ChildStats,
     /// The `takeover_state` the child is still to hear, as `(held, reason)`.
     takeover_owed: Mutex<Option<(bool, TakeoverReason)>>,
@@ -154,6 +159,7 @@ impl Run {
             relays: Relays::default(),
             host_calls: HostCalls::default(),
             serial_calls: SerialCalls::default(),
+            event_gate: Mutex::new(EventGate::default()),
             stats: ChildStats::default(),
             takeover_owed: Mutex::new(None),
             ending: AtomicBool::new(false),

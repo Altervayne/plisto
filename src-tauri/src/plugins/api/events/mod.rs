@@ -142,13 +142,19 @@ impl Input {
     }
 }
 
+/// The field of a subscribe's result that carries the side's sequence mark.
+pub const MARK_FIELD: &str = "mark";
+
 /// How a native child takes a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChildDelivery {
     Sent,
-    /// Its outbox is full: the value is retried.
+    /// Its outbox is full or a subscribe is being answered: the value is retried.
     Full,
     NotRunning,
+    /// Produced before the run's last subscribe was answered, which supersedes it: dropped, not
+    /// retried.
+    Stale,
 }
 
 /// The `topics` argument: 0 to 16 known names, duplicates ignored.
@@ -214,10 +220,10 @@ fn run_subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, 
         enabled: ctx.enabled,
         host: ctx.host,
     };
-    let current = hub::current(&env, ctx.id, &state, hub::unix_ms());
+    let hub::Current { values, item } = hub::current(&env, ctx.id, &state, hub::unix_ms());
     let events = ctx.api.events();
     let side = Side::from(ctx.caller);
-    events.replace(ctx.id, side, &topics, &current);
+    let mark = events.replace_seated(ctx.id, side, &topics, &values, item);
     // A plugin that stopped serving, or was updated or reinstalled, during the call keeps nothing
     // from it.
     if !serves_as_admitted(ctx) {
@@ -227,11 +233,15 @@ fn run_subscribe(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Result<Value, 
     events.feed(Input::Refresh(bits(&state)));
     let mut names: Vec<&str> = topics.iter().map(|t| t.name()).collect();
     names.sort_unstable();
-    let current: Map<String, Value> = current
+    let current: Map<String, Value> = values
         .into_iter()
         .map(|(topic, value)| (topic.name().to_string(), value))
         .collect();
-    Ok(json!({ "topics": names, "current": current }))
+    // A frame's receiver drops events at or under `mark`; a native child's call takes it out of
+    // the answer and applies it to the child's run before the answer is sent.
+    let mut answer = json!({ "topics": names, "current": current });
+    answer[MARK_FIELD] = json!(mark);
+    Ok(answer)
 }
 
 #[cfg(test)]
@@ -240,3 +250,7 @@ mod tests;
 mod tests_edges;
 #[cfg(test)]
 mod tests_hub;
+#[cfg(test)]
+mod tests_order;
+#[cfg(test)]
+mod tests_seat;

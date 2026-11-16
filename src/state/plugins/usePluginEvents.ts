@@ -1,8 +1,8 @@
 /*
  * Carries app event topics from Rust to plugin frames. Rust emits `plugins:event` for a plugin; the host
  * posts it only to that plugin's newest live, initialised frame, and only when the frame's own subscribe
- * accepted the topic. An event for a topic a subscribe in flight asked for is held until its reply;
- * otherwise nothing is queued, and a frame that opens later sees later events only.
+ * accepted the topic. Each event carries a `seq`, which the frame's router orders against subscribe replies;
+ * an event without one is dropped. Nothing is queued for a frame that opens later.
  */
 
 // -- Framework Imports --
@@ -29,14 +29,15 @@ export interface TopicEventDeps {
   /** Subscribes to a Tauri event and resolves its removal. */
   listen: (name: string, handler: (event: { payload: unknown }) => void) => Promise<() => void>;
   /** Posts to the plugin's newest accepting frame; false when it has none. */
-  send: (id: string, topic: string, data: unknown) => boolean;
+  send: (id: string, topic: string, data: unknown, seq: number) => boolean;
 }
 
 /** Whether a payload has the shape Rust emits. Anything else is dropped. */
 function isTopicEvent(payload: unknown): payload is PluginTopicEvent {
   if (typeof payload !== "object" || payload === null) return false;
   const { id, topic } = payload as Record<string, unknown>;
-  return typeof id === "string" && typeof topic === "string";
+  const { seq } = payload as Record<string, unknown>;
+  return typeof id === "string" && typeof topic === "string" && typeof seq === "number" && Number.isFinite(seq);
 }
 
 /** Starts listening and returns the teardown. */
@@ -47,7 +48,10 @@ export function createTopicEventSync(deps: TopicEventDeps): () => void {
   // A rejected listen retries: an early rejection must not leave the frames deaf for the session.
   withRetry(() =>
     deps.listen(EVENT_TOPIC, (event) => {
-      if (alive && isTopicEvent(event.payload)) deps.send(event.payload.id, event.payload.topic, event.payload.data);
+      if (alive && isTopicEvent(event.payload)) {
+        const { id, topic, data, seq } = event.payload;
+        deps.send(id, topic, data, seq);
+      }
     }),
   )
     .then((off) => {

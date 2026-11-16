@@ -1258,6 +1258,8 @@ export interface PluginTopicEvent {
   id: string;
   topic: string;
   data: unknown;
+  /** Strictly rises across the events produced for the plugin; gaps are normal. */
+  seq: number;
 }
 
 /** What a library change reports to Rust: the changed ids (null when many or unknown) and the scopes touched. */
