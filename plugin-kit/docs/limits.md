@@ -9,6 +9,7 @@ Every number a plugin author meets, in one place. Each table links the page that
 | Method name | 2 to 4 lowercase dotted parts, at most 64 characters | [API](api.md#how-a-call-works) |
 | Arguments of a page's call | 262,144 characters of JSON (`too_large` beyond) | [API](api.md#how-a-call-works) |
 | Arguments of a native program's `host_call` | 1,048,576 bytes (`too_large` beyond) | [API](api.md#how-a-call-works) |
+| Messages a page posts | 200 at once, then 100 more each second. Heartbeat pongs are counted apart, 5 at once and 2 a second, so a busy page still shows as responding; the SDK sends about one a second. A message past either budget is dropped with no reply: a call over the rate never settles in the page and ends in the SDK's timeout. | [bridge](bridge.md#the-rules-of-the-channel) |
 | Calls waiting, one page | 32 (`busy` beyond) | [API](api.md#how-a-call-works) |
 | Calls in flight, one plugin | 16 (`busy` beyond). An open toast or prompt counts as one. | [API](api.md#how-a-call-works) |
 | SDK call timeout | 10 seconds, or `timeoutMs` from 1 to 600,000 | [API](api.md#the-sdk) |
@@ -18,7 +19,9 @@ Every number a plugin author meets, in one place. Each table links the page that
 ## Rates
 
 Each is a burst, then a refill. A call refused rejects `rate_limited` with `retryAfterMs`. Every method call
-also spends one token of the "all" bucket.
+also spends one token of the "all" bucket. The buckets and the count of calls in flight belong to the plugin,
+not to a run of its program: a native program that exits or restarts does not refill them. Only disabling,
+uninstalling or updating the plugin resets them.
 
 | Class | Burst | Then | More |
 | --- | --- | --- | --- |
@@ -42,7 +45,7 @@ also spends one token of the "all" bucket.
 | `stream.push`, `stream.end` | 60 | 30 per second | [stream](stream.md#limits) |
 | `net.fetch`, `net.socket.open` | 30 | 10 per second | [network](network.md#limits) |
 | Socket send and close, abort, stream cancel | 40 | 20 per second | [network](network.md#limits) |
-| `net.stream.ack` | 40 | 20 per second | [network](network.md#limits) |
+| `net.stream.ack`, `net.socket.ack` (sent by the SDK) | 40 | 20 per second | [network](network.md#limits) |
 | `plugin.*` relay | 40 | 20 per second | [native](native.md#calls-from-the-page) |
 | A native program's `page_event` (not a method) | 20 | 20 per second | [native](native.md#page-events) |
 | App events, each topic and side | 1 at once | 4 per second | [events](events.md#how-often-events-arrive) |
@@ -105,8 +108,8 @@ and a page call with arguments that do not fit is answered `too_large`.
 | Status text, progress text | Up to 40 characters | [sidebar](sidebar.md#updating-items-live) |
 | Sidebar draws | One change per item every half second, and an appearance change every 2 seconds | [sidebar](sidebar.md#updating-items-live) |
 | Toggle waits for its state | 3 seconds | [sidebar](sidebar.md#receiving-clicks) |
-| Toast | Text 140, action 24 characters. 4 open across plugins. Shown about 4 seconds, dismissed after 60. | [UI surfaces](ui-surfaces.md#toasts) |
-| Prompt | Title 60, body 300, labels 24 characters. 1 open per plugin and 4 across plugins. Times out at 5 minutes. | [UI surfaces](ui-surfaces.md#prompts) |
+| Toast | Text 140, action 24 characters. 1 open per plugin and 16 across plugins. Shown about 4 seconds, dismissed after 60. | [UI surfaces](ui-surfaces.md#toasts) |
+| Prompt | Title 60, body 300, labels 24 characters. 1 open per plugin and 16 across plugins, shown one at a time in arrival order. Times out at 5 minutes. | [UI surfaces](ui-surfaces.md#prompts) |
 | Chips | 2, each text up to 12 characters | [UI surfaces](ui-surfaces.md#chips) |
 | Gesture | Single use, valid 5 seconds | [UI surfaces](ui-surfaces.md#the-prompt-gate-and-gestures) |
 
@@ -154,6 +157,7 @@ and a page call with arguments that do not fit is answered `too_large`.
 | Push buffer | 1 MiB | [stream](stream.md#limits) |
 | Artwork by bytes | 524,288 bytes decoded | [stream](stream.md#limits) |
 | Artwork by URL | 4 MiB, 15 seconds | [stream](stream.md#limits) |
+| Artwork decodes | One per 5 seconds per item. In the app, 3 in a row, then one every 5 seconds. | [stream](stream.md#artwork) |
 | Streams in the app | 1 playing | [stream](stream.md#limits) |
 | `last_end` kept | 60 seconds | [stream](stream.md#limits) |
 
@@ -162,13 +166,14 @@ and a page call with arguments that do not fit is answered `too_large`.
 | Limit | Value | More |
 | --- | --- | --- |
 | Buffered response | 8 MiB | [network](network.md#limits) |
-| Fetches in progress | 4 per plugin, 12 in the app | [network](network.md#limits) |
-| Streams open | 2 per plugin, 8 in the app | [network](network.md#limits) |
-| Sockets open | 2 per plugin, 8 in the app | [network](network.md#limits) |
+| Fetches in progress | 4 per plugin, 64 in the app | [network](network.md#limits) |
+| Streams open | 2 per plugin, 32 in the app | [network](network.md#limits) |
+| Sockets open | 2 per plugin, 32 in the app | [network](network.md#limits) |
 | URL | 8,192 bytes | [network](network.md#limits) |
 | Connect timeout | 10 seconds | [network](network.md#limits) |
 | Socket send | 64 KiB, 16 queued | [network](network.md#sockets) |
 | Incoming socket message | 1 MiB. At most 100 messages and 4 MiB per second. | [network](network.md#sockets) |
+| Unacknowledged socket messages | 2 MiB. Plisto stops reading the socket at that point. With nothing acknowledged for 60 seconds, it closes with 1008 `plisto_stalled`. | [network](network.md#sockets) |
 
 ## The audio tap
 

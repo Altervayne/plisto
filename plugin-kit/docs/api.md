@@ -32,7 +32,8 @@ Limits that apply to every call:
 
 Each budget is a token bucket per plugin: a capacity (the burst you may make at once) and a refill rate.
 Every call spends one token from the "all" budget and one from its own class. A refused call rejects with
-`rate_limited` and `retryAfterMs`, the time to wait.
+`rate_limited` and `retryAfterMs`, the time to wait. The budgets belong to the plugin: a native program's
+exit or restart does not refill them, and only disabling, uninstalling or updating the plugin does.
 
 | Class | Used by | Capacity | Refill |
 | --- | --- | --- | --- |
@@ -55,7 +56,7 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | stream push | `stream.push`, `stream.end` | 60 | 30 per second |
 | net | `net.fetch`, `net.socket.open` | 30 | 10 per second |
 | net send | `net.socket.send`, `net.socket.close`, `net.abort`, `net.stream.cancel` | 40 | 20 per second |
-| net stream | `net.stream.ack` | 40 | 20 per second |
+| net stream | `net.stream.ack`, `net.socket.ack` (both issued by the SDK, not by authors) | 40 | 20 per second |
 | relay | `plugin.*`: a native plugin's page calling its program | 40 | 20 per second |
 | sidebar click | The user's clicks on a toggle or action item (not a method) | 5 | 5 per second |
 | page event | A native program's `page_event` messages to its page (not a method) | 20 | 20 per second |
@@ -212,7 +213,9 @@ Storage limits in one place:
 | Total per plugin | 1,048,576 bytes |
 
 Storage is kept per plugin and survives restarts and updates. It is removed on uninstall only if the user
-ticks the box to delete it. If Plisto finds the storage file damaged, it moves it aside to `kv.json.bad`,
+ticks the box to delete it, and a later install under the same id starts with the kept data unless the user
+ticks "Delete that data before installing" (see [lifecycle](lifecycle.md#uninstall)). Treat what you read
+as possibly stale or written by another plugin. If Plisto finds the storage file damaged, it moves it aside to `kv.json.bad`,
 starts empty and notes it in your log.
 
 ### `log.write`
@@ -240,7 +243,7 @@ Arguments: `{ text, action? }`. `text` is 1 to 140 characters. `action` is the l
 `{ result: "action", gesture }`.
 
 Errors: `invalid_args` (blank text, control or invisible characters), `too_large` (over a length cap),
-`busy` (too many toasts open).
+`busy` (the plugin already has a toast open, or 16 are open).
 
 Details, queueing and gestures are in [UI surfaces](ui-surfaces.md).
 
@@ -256,7 +259,7 @@ Arguments: `{ title, body, confirm_label, cancel_label?, gesture? }`. `title` 1 
 to 300, `confirm_label` and `cancel_label` 1 to 24. `gesture` is a token from a recent click (at most 64
 bytes). Result: `{ answer }` where `answer` is a boolean. The helper resolves `true` or `false`.
 
-Errors: `invalid_args`, `too_large`, `busy` (you already have a prompt open, or too many are open),
+Errors: `invalid_args`, `too_large`, `busy` (you already have a prompt open, or 16 are open across plugins),
 `denied` with `reason: "no_gesture"` (see the prompt gate), `timeout` (nobody answered in 5 minutes).
 
 ```js
@@ -485,7 +488,8 @@ Errors: `invalid_args`.
 
 ### `queue.play`, `queue.add`, `queue.play_next`
 
-Needs: `playback.control`. Class: play. Helpers: `plisto.queue.play(source, start?)`,
+Needs: `playback.control` and `library.read`, both; with either missing the call is `denied`. Class: play.
+Helpers: `plisto.queue.play(source, start?)`,
 `plisto.queue.add(source)`, `plisto.queue.playNext(source)`.
 
 Arguments: exactly one source, `{ track_ids }` (at most 500 integers), `{ album_id }` or
@@ -500,7 +504,7 @@ player. When it is 0, nothing changes.
 An album plays in album order, a playlist in playlist order. Tracks missing on disk, and ids that are not
 library tracks, are left out.
 
-Errors: `invalid_args` (no source, more than one, or a bad id or start), `too_large` (more than 500
+Errors: `denied` (`playback.control` or `library.read` is not held), `invalid_args` (no source, more than one, or a bad id or start), `too_large` (more than 500
 `track_ids`), `not_found` (no such album or playlist).
 
 ```js
@@ -533,7 +537,9 @@ try {
 ### Network
 
 The network methods are `net.fetch`, `net.abort`, `net.stream.ack`, `net.stream.cancel`, `net.socket.open`,
-`net.socket.send` and `net.socket.close`. Use the `plisto.net` helpers rather than calling them with
+`net.socket.send`, `net.socket.ack` and `net.socket.close`. The two `ack` methods tell Plisto how many
+bytes of a streamed body or of socket messages the page has taken; the SDK sends them for you, and a page
+without the SDK sends them too (see the [bridge reference](bridge.md)). Use the `plisto.net` helpers rather than calling them with
 `plisto.call`: a fetch carries its body beside the arguments, and streams and sockets deliver their data as
 events the SDK reads for you. The [network guide](network.md) has the arguments, limits and errors, and
 lists the few parts that are not reachable from Plisto's interface yet.

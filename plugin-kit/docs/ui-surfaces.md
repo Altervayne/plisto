@@ -23,8 +23,9 @@ if (r.result === "action") {
 ```
 
 - `text` is up to 140 characters. `action`, the label of an optional button, is up to 24.
-- One toast shows at a time, for about 4 seconds, in the order they arrived. At most 4 toasts are open
-  across all plugins; a fifth is refused `busy`.
+- One toast shows at a time, for about 4 seconds, in the order they arrived. A plugin may have one toast
+  open, so a second while the first is open is refused `busy`. At most 16 toasts are open across all
+  plugins; a seventeenth is refused `busy`.
 - You may send 3 toasts at once, then one every 10 seconds. More is `rate_limited`.
 - The call stays open until the toast leaves. It resolves `{ result: "dismissed" }`, or
   `{ result: "action", gesture }` when the user pressed the action button. The gesture is described below.
@@ -52,8 +53,9 @@ if (yes) clearCache();
 - Plisto shows the prompt in its own dialog, marked as coming from your plugin, with both buttons neutral.
   You cannot make a button look dangerous or primary. The SDK resolves `true` or `false`; you learn
   nothing else about what the user did.
-- A plugin has one open prompt at a time (a second is `busy`), and 4 are open across all plugins (a fifth
-  is `busy`). A prompt waits while another Plisto dialog is open.
+- A plugin has one open prompt at a time (a second is `busy`), and 16 are open across all plugins (a
+  seventeenth is `busy`). Plisto shows one prompt at a time and queues the rest in the order they arrived. A
+  prompt also waits while another Plisto dialog is open.
 - You may ask once every 10 seconds. More is `rate_limited`.
 - If nobody answers in 5 minutes the call rejects `timeout` and the prompt closes. If your page closes or
   the plugin is disabled while it is open, the prompt closes and resolves `false`.
@@ -179,7 +181,8 @@ Other rules for a served file:
 - The path is at most 128 characters of letters, digits, `.`, `_`, `-` and `/`, with no empty, `.` or `..` part
   and no part ending in `.`. A file name with a space is never served, even though the install accepts it.
 - A part named for a Windows device is never served, whatever its extension: `con`, `prn`, `aux`, `nul`,
-  `com0` to `com9` and `lpt0` to `lpt9`, in any case, with or without an extension (`aux.js` counts).
+  `com0` to `com9`, `lpt0` to `lpt9`, `conin$` and `conout$`, in any case, with or without an extension
+  (`aux.js` counts). The install refuses a file of such a name too.
 - A file over 8 MiB is refused.
 - The first path part `_plisto` is Plisto's own (`/_plisto/tokens.css` and `/_plisto/plugin-base.css`). A
   folder of that name in your plugin is never served.
@@ -206,6 +209,26 @@ img-src 'self' data: blob:; font-src 'self'; connect-src 'none'
 | Audio and video | None. `<audio>`, `<video>` and their `data:` and `blob:` sources are refused: the policy has no media source. |
 | Workers | None, `blob:` workers included. |
 | Frames and plugins | None. `<iframe>`, `<embed>` and `<object>` are refused. |
+
+### Browser features
+
+Every file is also served with a `Permissions-Policy` that turns each of these features off with an empty
+allowlist, and the frame carries `allow=""`, so no feature is delegated to it. A page cannot get any of
+them, and no manifest field or prompt turns one on. The ones an author reaches for most:
+
+- fullscreen and picture-in-picture
+- clipboard read and write
+- autoplay, and encrypted media
+- camera, microphone and screen capture
+- geolocation
+- Web Share and payment
+- synchronous XMLHttpRequest (`sync-xhr`), which a page cannot use even for a request to its own folder
+
+The policy also turns off the accelerometer, gyroscope, magnetometer, ambient light and other sensors,
+Bluetooth, USB, serial, HID, MIDI, gamepads, XR, screen wake lock, idle detection, local fonts, window
+management, storage access, credentials and the other advanced features the browser can gate. Treat every
+powerful browser feature as off. Sound goes through Plisto's player ([streams](stream.md)), never through the
+page.
 
 ### The sandbox
 

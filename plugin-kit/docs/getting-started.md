@@ -239,8 +239,11 @@ those two links return 404 and the page is unstyled.
 Know what it is not:
 
 - It is a mock. The data is canned, there is no content security policy and no real sandbox check, and it
-  applies no rate budgets and only part of Plisto's argument checks. A page that works here is not proven.
-  The real check is installing the plugin in Plisto.
+  applies no per-method rate budgets and only part of Plisto's argument checks. It does mirror the frame's
+  message budget (200 at once, 100 a second, with pongs counted apart at 5 and 2 a second, extra messages
+  dropped unanswered), the one open toast and one open prompt of a
+  plugin, and the rule that a queue change needs both `playback.control` and `library.read`. A page that
+  works here is not proven. The real check is installing the plugin in Plisto.
 - A method it does not answer fails with an error that says so and appears in the Calls panel. Today that
   is every `net.*` method. `plisto.has` is false for them. A native plugin's program does not run.
 - Cover images are small SVGs, where Plisto sends JPEGs.

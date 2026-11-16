@@ -16,6 +16,11 @@ what crosses the frame. The SDK's own code, `sdk/plisto-sdk.js`, is the working 
 - Plisto reads your message by own data properties only. It drops a message from an origin other than the
   frame's, a message that is not a plain object (an array, a class instance, an object with accessors) and
   one whose `plisto` is not `1`. A dropped message gets no answer, so put a timeout on every call.
+- Pongs are counted apart from the rest: 5 at once and 2 a second. Answer each ping once, as it comes (one
+  a second), and a page that floods its other messages still shows as responding.
+- A page may post 200 other messages at once and 100 more each second, counted before Plisto reads them. A
+  message beyond that is dropped with no reply, so a call over that rate never settles in the page: your
+  timeout is the only end it has. See [limits](limits.md#calls).
 - Register your listener when your script loads, before the page finishes parsing. Plisto starts pinging
   as soon as the frame loads and counts silence as a crash (see the [heartbeat](lifecycle.md#the-heartbeat)).
   A page that loads a new document, a reload included, is counted as crashed.
@@ -172,6 +177,14 @@ An event of a WebSocket opened with `net.socket.open`. The `socket` id is the on
 | `kind` | `"text"`, `"binary"` or `"close"` | What this message is. |
 | `data` | string, or `ArrayBuffer` | With `text` and `binary`. |
 | `code`, `reason`, `clean` | number, string, boolean | With `close`: the close code, its reason and whether the close was clean. |
+
+A page without the SDK must acknowledge what it takes, or Plisto stops reading the socket. Call
+`net.socket.ack` with `{ socket, bytes }`, where `bytes` is the running total of payload bytes of the
+messages you have handled so far: the UTF-8 length of a text message, the byte length of a binary one. The
+total never decreases and never exceeds what Plisto delivered (`invalid_args` otherwise); repeating a value is
+fine, and an unknown or closed socket is `not_found`. Acknowledge in batches, as the SDK does (at once past
+256 KiB, else about 250 ms later), since the budget is 40 then 20 a second. Streamed responses work the same
+way with `net.stream.ack`. See the [network guide](network.md#sockets).
 
 ## A page without the SDK
 

@@ -135,8 +135,13 @@ in MPEG-TS or fragmented MP4 need remuxing to ADTS first. A native program is th
   file or your URL.
 - Artwork that cannot be fetched or decoded is not an error: the item plays on and keeps the artwork it had.
   The arguments are checked at call time (a bad shape, a URL outside your origins), the image itself later.
-- At most one artwork decode starts per 5 seconds for an item; a newer request replaces one still waiting.
-  Without artwork the player shows its empty-cover look.
+- At most one artwork decode starts per 5 seconds for an item, and across all plugins only 3 start in quick
+  succession, then one every 5 seconds. A fetch or decode that starts spends its share whether or not it
+  yields an image. So new artwork may show a few seconds late.
+- Only the latest artwork you sent is used: a newer request replaces one still waiting.
+- Plisto keeps an item's artwork only while the item plays. Its thumbnail files are removed when the item
+  ends.
+- Without artwork the player shows its empty-cover look.
 
 ### Skip flags
 
@@ -338,8 +343,8 @@ These apply to a pull item.
   and to the user's pause alike.
 - A finite file that stops short resumes once with a `range` request when the server sent `accept-ranges:
   bytes` and a validator; otherwise it ends `network` with detail `closed`.
-- A pull item's connection shares the stream caps of `plisto.net`: 2 per plugin and 8 for the whole app. A
-  `stream.play` with a URL is `busy` when the plugin already has 2 `plisto.net` streams open, or the app has 8.
+- A pull item's connection shares the stream caps of `plisto.net`: 2 per plugin and 32 for the whole app. A
+  `stream.play` with a URL is `busy` when the plugin already has 2 `plisto.net` streams open, or the app has 32.
 - The item's own network work runs under the abort key `plisto:stream:<item>`.
 
 ## Limits
@@ -353,7 +358,7 @@ These apply to a pull item.
 | Artwork by bytes | 524,288 bytes decoded |
 | Artwork by URL | 4 MiB, 15 seconds |
 | Artwork image | 8,192 pixels a side, 16,777,216 pixels in all |
-| Artwork decodes | one per 5 seconds per item |
+| Artwork decodes | one per 5 seconds per item, and 3 in a row across all plugins, then one every 5 seconds |
 | URL | 8,192 bytes |
 | Rate, `stream.play`, `pause`, `resume`, `stop` | burst 4, 1 per second |
 | Rate, `stream.update` | burst 10, 1 per second |

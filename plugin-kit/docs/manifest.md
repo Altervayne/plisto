@@ -38,7 +38,7 @@ manifest. For a first example see [getting started](getting-started.md); for the
 | --- | --- | --- |
 | `manifest_version` | yes | The number `1`. |
 | `id` | yes | See below. |
-| `name` | yes | 1 to 40 characters. |
+| `name` | yes | 1 to 40 characters, with no space at the start or end. |
 | `version` | yes | Semantic version, for example `1.2.3`. |
 | `tier` | yes | `"ui"`, or `"native"` for a program Plisto starts (see the [native guide](native.md)). |
 | `entry` | yes | Relative path to an `.html` file in the folder; for a native plugin, to an `.exe` file. |
@@ -46,7 +46,7 @@ manifest. For a first example see [getting started](getting-started.md); for the
 | `native_reason` | native only | 1 to 280 characters, shown on the review sheet. Required for a native plugin. |
 | `capabilities` | yes | List of capability names. May be empty. No duplicates. |
 | `min_plisto` | yes | Semantic version of the oldest Plisto that runs the plugin. |
-| `author` | yes | 1 to 80 characters. |
+| `author` | yes | 1 to 80 characters, with no space at the start or end. |
 | `homepage` | no | An `https` address, at most 200 characters. |
 | `icon` | no | Relative path to a `.png` or `.svg` file. |
 | `modes` | no | List of `"player"` and `"organizer"`. |
@@ -67,7 +67,8 @@ carry the same id as the installed plugin.
 ### `name`, `author`
 
 Plain text, not blank, with no control characters and no invisible or text-direction characters, and
-no run of more than 6 combining marks. Plisto
+no run of more than 6 combining marks. Neither may start or end with a space (any Unicode whitespace):
+trim them. Plisto
 shows them as written on the review sheet, in the plugin list and in the sidebar. The author is shown as
 declared by the plugin and not verified.
 
@@ -140,7 +141,7 @@ translates it for a French user, and the sheet draws it from its own text, never
 | `network` | Exchange data with the sites in the `network` list, through Plisto. | Exchange data with the sites listed below, then each origin, then the notes below | `plisto.net`, see the [network guide](network.md) |
 | `library.read` | Read the library: titles, artists, albums, playlists and covers, never file locations. | Read your library (titles, artists, albums; never file locations) | `library.*` methods, see the [API reference](api.md#library-data); the `library_changed` event |
 | `playback.read` | Read what is playing and the queue. | Read what is playing | `playback.state`, `playback.queue`; the `now_playing`, `playback_state` and `queue` events |
-| `playback.control` | Play, pause, skip, seek and change the queue. | Play, pause and skip tracks | the other `playback.*` methods, `queue.*` |
+| `playback.control` | Play, pause, skip, seek and change the queue. The `queue.*` methods also need `library.read`: without both they are `denied`. | Play, pause and skip tracks | the other `playback.*` methods, `queue.*` (with `library.read`) |
 | `playback.stream` | Play audio streams through Plisto's player, a URL it fetches or bytes the plugin pushes. | Play audio streams through Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen | `stream.*` methods, see the [stream guide](stream.md) |
 | `audio.tap` | Read Plisto's audio. Native plugins only. | Hear Plisto's audio after the equalizer | the [native guide](native.md#the-audio-tap) |
 | `audio.events` | Follow playback as `feed` events. Native plugins only. | Follow changes in your sound devices and playback | the [native guide](native.md#the-feed) |
@@ -200,6 +201,7 @@ Plisto checks the manifest when you install, and again every time it starts. Eac
 | `unsupported manifest_version N` | Not `1`. |
 | `invalid id: ...` | The id breaks the [rules above](#id). The rest of the line says which. |
 | `'name' must not be empty`, `'name' is over N characters`, `'name' contains control characters`, `'name' has more than 6 combining marks in a row` | A text rule broken. The same lines name `author` and `native_reason`. |
+| `'name' must not start or end with a space` | `name` or `author` (the line names the field) has a space at the start or end. |
 | `'version' is not a valid version: 'x'` | Not a semantic version. Same for `min_plisto`. |
 | `unknown tier 'x'` | Not `ui` or `native`. |
 | `'entry' ...`, `'page' ...`, `'icon' ...` followed by `must not be empty`, `is too long`, `must be relative`, `must use '/' separators`, `may only contain letters, digits, '.', '_', '-' and '/'`, `must not contain an empty segment`, `must not contain '.' or '..' segments`, `a segment must not end with '.'` or `a segment is a reserved Windows device name` | A path rule broken (see "Paths"). |

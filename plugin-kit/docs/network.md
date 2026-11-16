@@ -273,9 +273,15 @@ await socket.close(1000, "done");
 - `close` takes a `code` of 1000 or 3000 to 4999 (default 1000) and a `reason` of at most 123 bytes.
 - Incoming messages are at most 1 MiB, and at most 100 messages and 4 MiB per second per socket. Beyond that
   Plisto closes the socket with code 1008 and reason `plisto_limit`.
+- Plisto stops reading a socket once 2 MiB of received messages are unacknowledged, and closes it with
+  code 1008 and reason `plisto_stalled` if nothing is acknowledged for 60 seconds. The SDK acknowledges as
+  your `onmessage` handler takes messages, so keep the handler fast. A message held because no handler is
+  set is not acknowledged until it is handed over or dropped. While reading is paused Plisto also answers no
+  ping from the server and sees neither its messages nor its close, so a server with a short ping timeout may drop a page
+  that falls behind.
 - A frame that goes away (the page closes) closes its sockets with 1001.
 - A socket does not keep an in-flight call slot once it is open. A plugin may have 2 sockets open, and Plisto
-  8 across all plugins; more is `busy`.
+  32 across all plugins; more is `busy`.
 
 ## Images
 
@@ -299,14 +305,15 @@ it is at most 8 MiB.
 | --- | --- |
 | Request body | 1 MiB (`too_large`, reason `request_body`) |
 | Buffered response body | 8 MiB (`too_large`, reason `response_body`) |
-| Fetches in progress | 4 per plugin, 12 for the whole app (`busy`) |
-| Streams open | 2 per plugin, 8 for the whole app (`busy`) |
-| Sockets open | 2 per plugin, 8 for the whole app (`busy`) |
+| Fetches in progress | 4 per plugin, 64 for the whole app (`busy`) |
+| Streams open | 2 per plugin, 32 for the whole app (`busy`) |
+| Sockets open | 2 per plugin, 32 for the whole app (`busy`) |
 | URL | at most 8192 bytes, no userinfo; the fragment is dropped |
 | Connect timeout | 10 seconds, fixed |
 | Rate, `net.fetch` and `net.socket.open` | burst 30, 10 per second |
 | Rate, send, close, abort and stream cancel | burst 40, 20 per second |
-| Rate, stream acknowledgements | burst 40, 20 per second |
+| Rate, stream and socket acknowledgements | burst 40, 20 per second |
+| Unacknowledged socket messages | 2 MiB, then Plisto stops reading; 60 seconds with none acknowledged closes with 1008 `plisto_stalled` |
 | All calls together | burst 100, 50 per second, as for every method |
 
 The SDK waits `timeoutMs` plus 5 seconds for a call, so Plisto answers a timeout first. Past a rate limit a

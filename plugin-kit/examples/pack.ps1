@@ -32,6 +32,10 @@ function Read-Manifest([string]$Src) {
     foreach ($field in @("id", "version", "entry")) {
         if (-not $manifest.$field) { throw "plugin.json has no '$field'" }
     }
+    foreach ($field in @("name", "author")) {
+        $value = [string]$manifest.$field
+        if ($value -ne $value.Trim()) { throw "'$field' must not start or end with a space" }
+    }
     $named = @($manifest.entry, $manifest.page, $manifest.icon) | Where-Object { $_ }
     foreach ($rel in $named) {
         if (-not (Test-Path (Join-Path $Src ($rel -replace "/", "\")) -PathType Leaf)) {

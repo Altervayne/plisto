@@ -9,7 +9,8 @@ you give it to someone else. For what Plisto does at each step, see [lifecycle](
 2. In Plisto, open Settings > Plugins and choose Install from folder.
 3. Pick the folder. Plisto inspects it and shows the review sheet with the capabilities the plugin asks
    for.
-4. Press Install. The plugin appears in the list turned off.
+4. Press Install. The plugin appears in the list turned off. If data from an earlier uninstall is still
+   kept under your id, the sheet says so and offers "Delete that data before installing"; tick it to start clean.
 5. Turn its switch on.
 6. Click its row in the sidebar. Plisto shows a short "Starting" card until the page answers its first
    heartbeat, then your page.
@@ -44,7 +45,7 @@ powershell -File examples\pack.ps1 -Sample hello-ui   # one sample, by name
 - **`-Path <folder>`** packs any plugin folder, such as your own. Every file in it goes into the archive,
   except dotfiles, dot folders and `.plistoplugin` files. The archive is written beside the folder (in its
   parent folder) unless you give `-Out <folder>`; it refuses to write inside the folder it packs. Before it
-  packs, the script reads `plugin.json` and checks that the `entry`, the `page` and the `icon` it names exist
+  packs, the script reads `plugin.json`, refuses a `name` or `author` with a space at either end, and checks that the `entry`, the `page` and the `icon` it names exist
   in the folder, and prints a warning when your `plisto-sdk.js` is not the kit's current file.
 - **`-Sample <name>`** (and no parameter at all) packs a sample from the kit. The file goes to the sample's
   `dist` folder unless you give `-Out`. A sample is packed without its README, and the script refuses when its
@@ -85,10 +86,11 @@ Before you install, you can try the page in a browser with the [mock host](getti
 1. Change your files.
 2. Raise `version` in `plugin.json`.
 3. Install the folder again, as above. Plisto sees the same `id` and shows an update sheet.
-4. If you did not change what the review sheet shows, the plugin stays on and the page restarts on the new
-   version. That means the `capabilities`, the `network` origins and `native_reason`. If you added or
-   removed a capability or an origin, or reworded `native_reason`, the plugin turns off and asks for
-   approval: use Review, then approve it. The rule is in [lifecycle](lifecycle.md#updates-and-the-manifest-hash).
+4. A UI plugin whose review sheet is unchanged stays on and its page restarts on the new version. The sheet
+   is the `capabilities`, the `network` origins, `native_reason` and the `author`. If you added or removed a
+   capability or an origin, reworded `native_reason` or changed `author`, the plugin turns off and asks for
+   approval: use Review, then approve it. A native plugin always turns off and asks again, on every update.
+   The rule is in [lifecycle](lifecycle.md#updates-and-the-manifest-hash).
 
 Your saved data survives updates. To start clean, uninstall the plugin and tick the box to delete its
 data, or call `plisto.storage.clear()` from a debug button.
@@ -112,8 +114,11 @@ from. Reload from source reads that folder or file again, runs every install che
 installed copy the way an update does. Plisto never runs the plugin from your source folder: it reads the
 copy it made. You do not need to raise `version` to reload.
 
-- If `capabilities`, the `network` origins or the native reason changed, the plugin turns off and Plisto
-  opens the review, as for an update. Approve it to turn the plugin back on.
+- If the review sheet changed (`capabilities`, the `network` origins, the native reason or the `author`),
+  the plugin turns off and Plisto opens the review, as for an update. A native plugin does this on every
+  reload. Approve it to turn the plugin back on.
+- Reload from source and the log panel work only while developer mode is on. With it off, Plisto refuses
+  both, and the row has neither button.
 - If the source is missing, fails a check, holds a different plugin `id`, or changes the `tier`, Plisto
   shows the same message as an install would and leaves the installed plugin as it was.
 - A plugin that was added by copying files into the plugins folder has no remembered source, and its row
@@ -205,7 +210,7 @@ user has not approved it.
 | A font does not load | Fonts load from your own folder as `.woff`, `.woff2`, `.ttf` or `.otf` only. A remote font cannot load. Without a bundled font, use `var(--font-ui)`. |
 | The page never starts and no background plugin runs, though the plugin is on | The library has no tracks, or no folder has been added. Plisto starts page frames only once the library has tracks (a native program still starts). Add a folder. |
 | A native plugin row says "Could not start: Windows would not let it launch" | An antivirus or a policy blocked the program. See [lifecycle](lifecycle.md#when-antivirus-blocks-the-program). |
-| The plugin turned off after an update | The update changed what the user approved. Removing a capability or an origin asks again, as adding does. See [lifecycle](lifecycle.md#updates-and-the-manifest-hash). |
+| The plugin turned off after an update | The update changed what the user approved (a capability, an origin, the native reason or the author), or the plugin is native: a native update always asks again. See [lifecycle](lifecycle.md#updates-and-the-manifest-hash). |
 | Install says the archive is not valid | An entry name has a backslash, or `plugin.json` is not at the root or in one top-level folder. Pack with `examples\pack.ps1`. |
 | Saved data is gone after an update | The key names changed in your code, or the user deleted the data on uninstall. |
 

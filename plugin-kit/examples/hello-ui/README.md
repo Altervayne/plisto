@@ -27,7 +27,7 @@ Each UI surface has buttons too.
 - **Toast** shows a plain toast.
 - **Toast with action** shows a toast with a Details button. Pressing it logs that a gesture arrived, then
   opens the route `details` with it.
-- **Flood 10 toasts** fires ten at once. Three are accepted; the rest show `rate_limited` or `busy`.
+- **Flood 10 toasts** fires ten at once. The first is shown, the next two are `busy` (a plugin may have one toast open) and the rest are `rate_limited`.
 - **Confirm** raises a prompt and shows the answer.
 - **Confirm twice** fires two prompts at once; the second shows `busy`.
 - **Set chips** puts `3 devices` and a `2` chip in the plugin's sidebar row. **Long chip** sets one long

@@ -656,8 +656,9 @@ your `status` text beside it. Keep that text meaningful while you hold it.
 - **Enable.** Plisto checks the folder and the manifest again, then launches the process and sends
   `hello`. A plugin that does not reach `ready` in 10 seconds is killed and not started.
 - **Disable, uninstall, update.** Plisto sends `shutdown`, waits 2 seconds for the process to
-  exit, then kills it and whatever it started. An update stops the plugin and replaces the folder; the data
-  directory is kept.
+  exit, then kills it and whatever it started. An update stops the plugin, replaces the folder and always
+  asks the user for consent again, so the program starts again only after the user approves the new version
+  on the full sheet. The data directory is kept.
 - **Plisto exits.** The same stop runs for every plugin in parallel, within one 2-second grace. If Plisto
   is killed instead, the job kills the plugin. Plisto exits when its process does: closing the window with
   close-to-tray on only hides it, and the program keeps running behind the tray icon.

@@ -25,7 +25,7 @@ What is checked:
 - The manifest does not need a newer Plisto than the one running.
 - File and path rules: no more than 4,096 files, no more than 256 MiB in total, a path of at most 16
   parts, the file name included, no path over 200 characters, and no installed path over 240 characters. A path has no control
-  character and none of `: < > " | ? *`, no part ending in a dot or a space, no Windows device name and no
+  character and none of `: < > " | ? *`, no part ending in a dot or a space, no Windows device name (`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`, `conin$`, `conout$`, in any case and with any extension) and no
   8.3 short name such as `PROGRA~1`. The install is wider than what Plisto serves to a page: see
   [UI surfaces](ui-surfaces.md#files-plisto-serves).
 - No links or shortcuts, no hidden file streams (the `Zone.Identifier` mark Windows adds to downloaded
@@ -94,15 +94,22 @@ offers an update on the review sheet.
 - The new version replaces the old one. Saved data is kept.
 - A tier change is refused: uninstall the plugin, then install the new one.
 - Going to an older version is allowed.
-- Consent is kept only when everything the review sheet shows is unchanged. Plisto compares the
-  capabilities, the `network` origins and `native_reason` of the installed manifest with the new one, and
-  the capabilities the user approved with the new list. A capability added or removed, an origin added or
-  removed, or a different `native_reason` all ask again: removing a capability asks too, not only adding
-  one. A change to `name`, `version`, `author`, `homepage`, `icon`, `modes` or the sidebar block asks for
-  nothing. It also asks again when the installed manifest no longer matches the hash the user approved, or
+- **An update of a native plugin always asks for consent again**, whatever changed, even with an identical
+  manifest, a downgrade or a replacement of the same version. The program is new code that runs with the
+  user's rights, so the full sheet shows again, with its native acknowledgement.
+- **A UI plugin keeps its consent** only when everything the review sheet shows is unchanged. Plisto
+  compares the `author`, the capabilities, the `network` origins and `native_reason` of the installed
+  manifest with the new one, and the capabilities the user approved with the new list. A capability added
+  or removed, an origin added or removed, a different `native_reason` or a different `author` all ask
+  again: removing a capability asks too, not only adding one. A change to `name`, `version`, `homepage`,
+  `icon`, `modes` or the sidebar block asks for nothing. When the author changed, the sheet names both: the
+  new author and the one the user approved.
+- A native plugin also asks again after an update that did not finish: the approval is cleared before any
+  file moves, and comes back only when the undo restored the approved files.
+- Either tier also asks again when the installed manifest no longer matches the hash the user approved, or
   the installed plugin was waiting for review. Then the plugin stays off and the sheet asks again, marking
-  what is new. The update is not lost: it is installed and waits for approval. When consent is kept, the
-  plugin keeps its approval and its on or off state.
+  what is new. The update is not lost: it is installed and waits for approval. When a UI plugin keeps its
+  consent, it keeps its approval and its on or off state.
 - During an update the plugin stops. Its pages and background page restart on the new version, and its
   live sidebar state is cleared, so send it again at start.
 - If the swap fails, Plisto puts the old version back.
@@ -117,6 +124,13 @@ box is not ticked, a reinstall finds the data again. With the box ticked, Plisto
 `plugins-data\<id>\` folder: the saved data, `plugin.log` and `plugin.log.1`, and for a native plugin
 `stderr.log`, the program's own files and the web view profile in `webview2`. A native plugin stops first.
 The user's library and source folders are never touched.
+
+Saved data can outlive an uninstall. When a plugin is installed under an id for which Plisto still holds
+saved data, the install sheet says so ("Plisto still holds data saved earlier by a plugin with this id. This
+plugin will be able to read it.") and offers an unticked box, "Delete that data before installing". Unticked,
+the new plugin starts with the data; ticked, with none. An update never shows this. So a plugin must cope
+with no data at all and with stale data from an older version, and it must not take data it finds as proof
+that it wrote it: another plugin may have used the id. Keep nothing secret resting on that.
 
 ## The life of a page
 
@@ -335,4 +349,6 @@ Version 1.4.0 is still the number on the file after the later additions below, s
 - **Added after 1.4.0 without a new number.** The stream helpers (`stream.*`, `stream.pushFrom`,
   `plisto.onStream`), then the app event helpers (`events.subscribe`, `events.on`, `events.topics`). A
   copy of `plisto-sdk.js` that predates them lacks these members: check `plisto.events` or `plisto.stream`
-  exists, or copy the current file.
+  exists, or copy the current file. The SDK also acknowledges socket messages with `net.socket.ack`, which a
+  socket needs to keep receiving past 2 MiB; the version string did not change for it, so copy the current
+  file for any plugin that uses `plisto.net.socket`.
