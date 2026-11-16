@@ -39,6 +39,8 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
+  /* Fixed so the section label can be centred against the first entry. */
+  line-height: 1.25;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;

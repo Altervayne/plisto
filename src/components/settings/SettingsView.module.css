@@ -9,7 +9,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 24px;
   padding: 4px 30px 24px;
   /* The rail and the Sections button choose between themselves by this container's width. */
   container: settingsview / inline-size;
@@ -78,6 +78,10 @@
   flex-direction: column;
   max-width: 662px;
   margin-right: 3px;
+  /* Centres the first micro-label on the rail's first entry (2px rail inset + 7px item padding + half a
+   * 13px x 1.25 line, less half the label's 10.5px x 1.45 line), and leaves room above for the landing
+   * wash and a focus ring. Scrolls away with the content. */
+  padding-top: 10px;
   /* The 8px the scroller gave back, so the column keeps its place. */
   padding-left: 8px;
   /* Clear of the scrollbar overlay on the right edge. */
