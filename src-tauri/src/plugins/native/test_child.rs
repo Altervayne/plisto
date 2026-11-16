@@ -21,6 +21,8 @@ use super::protocol::{
     ReportedState, HOST_KINDS, PROTOCOL_VERSION,
 };
 
+mod stream;
+
 /// The file in the data folder that names the behavior, optionally followed by `:<number>` for the
 /// modes that take one.
 pub const MODE_FILE: &str = "test-mode";
@@ -119,6 +121,7 @@ fn serve_with(input: &mut BufReader<io::Stdin>, mut also: impl FnMut(&HostMessag
             HostMessage::Page { .. } => log_received("page", &message),
             HostMessage::SidebarInput { .. } => log_received("sidebar_input", &message),
             HostMessage::TakeoverState { .. } => log_received("takeover_state", &message),
+            HostMessage::Stream { .. } => log_received("stream", &message),
             HostMessage::Shutdown => return,
             _ => {}
         }
@@ -337,6 +340,8 @@ fn run(mode: &str, param: Option<u64>, data: &Path, args: &[String]) {
             }
             serve(&mut input);
         }
+        "stream-push" => stream::push(&mut input, param),
+        "stream-pull" => stream::pull(&mut input, param),
         "confirm-on-input" => {
             // A prompt with no page and no gesture first; then one with the gesture of a click, and
             // the same gesture again once that prompt is answered.

@@ -45,6 +45,8 @@ pub struct ChildStats {
     pub logs_dropped: AtomicU32,
     /// `takeover_state` frames the outbox had no room for.
     pub takeover_dropped: AtomicU32,
+    /// `stream` frames the outbox had no room for.
+    pub stream_dropped: AtomicU32,
     /// Page events sent while the page was closed, over the size cap or over the rate.
     pub page_events_dropped: AtomicU32,
     /// `host_result` frames the outbox had no room for.

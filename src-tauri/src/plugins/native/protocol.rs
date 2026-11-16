@@ -105,6 +105,8 @@ pub enum HostMessage {
     TakeoverState { held: bool, reason: TakeoverReason },
     /// The plugin's page was shown or hidden.
     Page { open: bool },
+    /// What the owner of the seated playback stream is told: the same object its frame would get.
+    Stream { event: Value },
 }
 
 pub const HOST_KINDS: &[&str] = &[
@@ -117,6 +119,7 @@ pub const HOST_KINDS: &[&str] = &[
     "sidebar_input",
     "takeover_state",
     "page",
+    "stream",
 ];
 
 /// The states a child may report through `status`.
@@ -421,6 +424,9 @@ mod tests {
                 reason: TakeoverReason::NotResponding,
             },
             HostMessage::Page { open: true },
+            HostMessage::Stream {
+                event: json!({"item": -4, "kind": "ended", "reason": "user", "detail": null}),
+            },
         ]
     }
 
@@ -683,6 +689,22 @@ mod tests {
         assert_eq!(
             wire(&child_messages()[7]),
             r#"{"type":"status","state":"idle"}"#
+        );
+    }
+
+    #[test]
+    fn the_stream_message_round_trips() {
+        let message = host_messages().pop().unwrap();
+        assert_eq!(
+            wire(&message),
+            r#"{"type":"stream","event":{"detail":null,"item":-4,"kind":"ended","reason":"user"}}"#
+        );
+        let frame = encode(&message).unwrap();
+        let mut r = Cursor::new(frame);
+        let body = read_frame(&mut r).unwrap().unwrap();
+        assert_eq!(
+            decode::<HostMessage>(&body, HOST_KINDS),
+            Decoded::Message(message)
         );
     }
 

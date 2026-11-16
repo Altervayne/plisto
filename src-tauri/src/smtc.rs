@@ -4,7 +4,9 @@
  * playback transition pushes title, artist and cover out to the lock-screen and flyout card. The
  * controls bind to the main window's HWND, which only hides and never closes, so the binding holds
  * while audio plays behind the tray. A dedicated `plisto-smtc` thread owns the WinRT handles and diffs
- * each transition against the last, so the frequent position ticks never touch the OS. All
+ * each transition against the last, so the frequent position ticks never touch the OS. A seated plugin
+ * stream takes the card over from `player:stream`: its text, status and skip buttons come from the
+ * stream's snapshot, and its rev refreshes the card without a track change. All
  * best-effort: a failed WinRT call logs and the app plays on. Non-Windows gets no-op stubs.
  */
 
@@ -50,18 +52,20 @@ mod win {
     use crate::audio::PlayerCmd;
     use crate::state::AppState;
 
+    mod card;
+    use card::{plan, seated, stream_lines, CardKey, Metadata, StreamCard};
+
     /// Kept in managed state so the exit teardown can reach the controls from the main thread. The
     /// WinRT handle is agile, so this clone and the coordinator's own clone name one OS object.
     struct SmtcState {
         controls: SystemMediaTransportControls,
     }
 
-    /// One playback transition forwarded from the status listener to the coordinator. Carries only
-    /// what the card needs to diff and refresh; the coordinator resolves the title, artist and cover
-    /// from the track id itself.
-    struct Transition {
-        track_id: Option<i64>,
-        playing: bool,
+    /// One input forwarded from an event listener to the coordinator. The coordinator keeps the latest
+    /// of each kind and resolves the title, artist and cover itself.
+    enum Input {
+        Status { track_id: Option<i64>, playing: bool },
+        Stream(Option<StreamCard>),
     }
 
     /// The fields of `player:status` the card reads. serde ignores the rest of the snapshot.
@@ -100,9 +104,9 @@ mod win {
         // The coordinator owns its own clone of the controls and the display updater; the exit
         // teardown reaches the controls through managed state.
         let updater = controls.DisplayUpdater()?;
-        let (tx, rx) = mpsc::channel::<Transition>();
+        let (tx, rx) = mpsc::channel::<Input>();
         spawn_coordinator(app.clone(), controls.clone(), updater, rx);
-        register_status_listener(app, tx);
+        register_listeners(app, tx);
 
         app.manage(SmtcState { controls });
         Ok(())
@@ -161,16 +165,23 @@ mod win {
         }
     }
 
-    /// Listens for `player:status` and forwards the transition to the coordinator. Kept trivial: it
-    /// parses the two fields the card needs and sends them on every tick, leaving the diff to the
-    /// coordinator so a torn or stale channel never blocks Tauri's event delivery.
-    fn register_status_listener(app: &AppHandle, tx: Sender<Transition>) {
+    /// Listens for `player:status` and `player:stream` and forwards them to the coordinator. Kept
+    /// trivial: it parses the fields the card needs and sends them on every event, leaving the diff to
+    /// the coordinator so a torn or stale channel never blocks Tauri's event delivery, and no plugin or
+    /// hub lock is taken on this thread.
+    fn register_listeners(app: &AppHandle, tx: Sender<Input>) {
+        let status_tx = tx.clone();
         app.listen("player:status", move |event| {
             if let Ok(status) = serde_json::from_str::<StatusPayload>(event.payload()) {
-                let _ = tx.send(Transition {
+                let _ = status_tx.send(Input::Status {
                     track_id: status.track_id,
                     playing: status.playing,
                 });
+            }
+        });
+        app.listen("player:stream", move |event| {
+            if let Ok(stream) = serde_json::from_str::<Option<StreamCard>>(event.payload()) {
+                let _ = tx.send(Input::Stream(stream));
             }
         });
     }
@@ -182,7 +193,7 @@ mod win {
         app: AppHandle,
         controls: SystemMediaTransportControls,
         updater: SystemMediaTransportControlsDisplayUpdater,
-        rx: Receiver<Transition>,
+        rx: Receiver<Input>,
     ) {
         let _ = std::thread::Builder::new()
             .name("plisto-smtc".to_string())
@@ -190,14 +201,15 @@ mod win {
     }
 
     /// The coordinator body. Initializes an MTA so the thumbnail's async file open blocks cleanly
-    /// without a message pump, then diffs each transition against the last seen pair: a change in
-    /// `(track_id, playing)` sets the playback status, and a change in the track id alone refreshes
-    /// the title, artist and cover (or empties the card on stop). Nothing else touches the OS.
+    /// without a message pump, then diffs each input against the last seen `(track_id, playing, rev)`:
+    /// a change sets the playback status and the Next and Previous buttons, and a change in the track
+    /// id or the stream's rev refreshes the title, artist, album and cover (or empties the card on
+    /// stop). Nothing else touches the OS.
     fn coordinator(
         app: AppHandle,
         controls: SystemMediaTransportControls,
         updater: SystemMediaTransportControlsDisplayUpdater,
-        rx: Receiver<Transition>,
+        rx: Receiver<Input>,
     ) {
         // COINIT_MULTITHREADED, not the STA the shell picker uses: on an MTA thread the thumbnail's
         // IAsyncOperation::get blocks until the file opens instead of deadlocking for want of a pump.
@@ -205,52 +217,55 @@ mod win {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         }
 
-        let mut last: Option<(Option<i64>, bool)> = None;
-        while let Ok(t) = rx.recv() {
-            let cur = (t.track_id, t.playing);
-            if last == Some(cur) {
+        let mut last: Option<CardKey> = None;
+        let mut status = (None, false);
+        let mut stream: Option<StreamCard> = None;
+        let mut ended: Option<i64> = None;
+        while let Ok(input) = rx.recv() {
+            match input {
+                Input::Status { track_id, playing } => status = (track_id, playing),
+                Input::Stream(card) => {
+                    ended = match (&stream, &card) {
+                        (Some(old), None) => Some(old.item),
+                        (_, None) => ended,
+                        (_, Some(_)) => None,
+                    };
+                    stream = card;
+                }
+            }
+            let Some(plan) = plan(last, status.0, status.1, stream.as_ref(), ended) else {
                 continue;
-            }
-            let track_changed = last.map(|(id, _)| id) != Some(cur.0);
-            let _ = controls.SetPlaybackStatus(playback_status(cur.0, cur.1));
-            if track_changed {
-                match cur.0 {
-                    Some(id) => {
-                        let _ = push_metadata(&app, &updater, id);
-                    }
-                    None => {
-                        let _ = clear_card(&updater);
-                    }
+            };
+            let _ = controls.SetPlaybackStatus(plan.status);
+            let _ = controls.SetIsNextEnabled(plan.next);
+            let _ = controls.SetIsPreviousEnabled(plan.prev);
+            match (plan.metadata, plan.key.track_id) {
+                (Metadata::Refresh, Some(id)) => {
+                    let card = seated(Some(id), stream.as_ref());
+                    let _ = push_metadata(&app, &updater, id, card);
                 }
+                (Metadata::Clear, _) => {
+                    let _ = clear_card(&updater);
+                }
+                _ => {}
             }
-            last = Some(cur);
+            last = Some(plan.key);
         }
     }
 
-    /// The OS playback status for a snapshot: Stopped with no track, else Playing or Paused. `playing`
-    /// already folds in the pause state the engine reports.
-    fn playback_status(track_id: Option<i64>, playing: bool) -> MediaPlaybackStatus {
-        match track_id {
-            None => MediaPlaybackStatus::Stopped,
-            Some(_) => {
-                if playing {
-                    MediaPlaybackStatus::Playing
-                } else {
-                    MediaPlaybackStatus::Paused
-                }
-            }
-        }
-    }
-
-    /// Pushes the card's metadata for `track_id`: its title, artist and cover art. Resolves the
-    /// display fields and cover under the DB lock, then writes them to the updater. A track with no
-    /// art clears the thumbnail via the reset, so a previous cover never lingers.
+    /// Pushes the card's metadata for `track_id`: its title, artist and cover art, plus the album for
+    /// a seated stream. Resolves the display fields and cover under the DB lock, then writes them to
+    /// the updater. A track with no art clears the thumbnail via the reset, so a previous cover never
+    /// lingers.
     fn push_metadata(
         app: &AppHandle,
         updater: &SystemMediaTransportControlsDisplayUpdater,
         track_id: i64,
+        stream: Option<&StreamCard>,
     ) -> Result<()> {
         let (title, artist, cover) = resolve_display(app, track_id);
+        let (title, artist) = stream.map_or((title, artist), stream_lines);
+        let album = stream.and_then(|card| card.album.clone());
 
         // ClearAll resets every field, including the last track's thumbnail, so the branches below
         // only set what this track has.
@@ -259,6 +274,9 @@ mod win {
         let music = updater.MusicProperties()?;
         music.SetTitle(&HSTRING::from(title))?;
         music.SetArtist(&HSTRING::from(artist))?;
+        if let Some(album) = album {
+            music.SetAlbumTitle(&HSTRING::from(album))?;
+        }
         if let Some(path) = cover {
             if let Ok(reference) = thumbnail_reference(&path) {
                 updater.SetThumbnail(&reference)?;

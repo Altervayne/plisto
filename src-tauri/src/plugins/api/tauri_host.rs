@@ -67,7 +67,15 @@ impl HostContext for TauriHost {
             HostEvent::Sidebar(event) => self.app.emit_to(MAIN_LABEL, EVENT_SIDEBAR, event),
             HostEvent::Page(event) => self.app.emit_to(MAIN_LABEL, EVENT_PAGE, event),
             HostEvent::Net(event) => self.app.emit_to(MAIN_LABEL, EVENT_NET, event),
-            HostEvent::Stream(event) => self.app.emit_to(MAIN_LABEL, EVENT_STREAM, event),
+            HostEvent::Stream(event) => {
+                // A native owner hears it in its child and in its page frame, which may have started
+                // the item.
+                #[cfg(windows)]
+                if let Some(native) = self.app.try_state::<Arc<NativeHost>>() {
+                    native.deliver_stream(&event.id, &event.event);
+                }
+                self.app.emit_to(MAIN_LABEL, EVENT_STREAM, event)
+            }
         };
     }
 

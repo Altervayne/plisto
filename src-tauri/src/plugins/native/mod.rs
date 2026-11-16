@@ -27,6 +27,7 @@ mod protocol;
 mod pump;
 mod relay;
 pub mod status;
+mod stream;
 mod supervisor;
 pub mod takeover;
 #[cfg(test)]
@@ -35,6 +36,8 @@ mod test_child;
 mod tests;
 #[cfg(test)]
 mod tests_bridge;
+#[cfg(test)]
+mod tests_stream;
 #[cfg(test)]
 mod tests_takeover;
 
