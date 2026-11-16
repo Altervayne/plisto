@@ -14,6 +14,7 @@ use std::time::Instant;
 use tauri::{AppHandle, Manager, State, Webview};
 
 // -- Local Imports --
+use crate::plugins::api::events::Side;
 use crate::plugins::api::host_event::UiEvent;
 use crate::plugins::api::sidebar::{
     check_input, SidebarDelivery, SidebarInputReply, SidebarSnapshot,
@@ -129,9 +130,9 @@ fn deliver_native(
     }
 }
 
-/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests, network work
-/// and a stream its frames pushed, and drop its gestures; a crash also drops its sidebar state. Any
-/// other label, kind or id has no effect.
+/// Frees what plugin `id` holds once its frame is gone. Both kinds end its open requests, network work,
+/// a stream its frames pushed and its frames' event subscriptions, and drop its gestures; a crash also
+/// drops its sidebar state. Any other label, kind or id has no effect.
 fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
     if label != MAIN_LABEL || validate_id(id).is_err() {
         return;
@@ -142,12 +143,14 @@ fn frame_event_from(label: &str, api: &ApiState, id: &str, kind: &str) {
             api.ui().drop_gestures(id);
             api.net().frame_gone(id);
             api.streams().forget(id, Gone::Off, Producer::Frame);
+            api.events().drop_side(id, Side::Frame);
         }
         "crashed" => {
             api.ui().release(id);
             api.ui().drop_gestures(id);
             api.net().frame_gone(id);
             api.streams().forget(id, Gone::Off, Producer::Frame);
+            api.events().drop_side(id, Side::Frame);
             api.sidebar().forget(id);
         }
         _ => {}
@@ -681,6 +684,31 @@ mod tests {
             assert_eq!(api.net().running(ID, Kind::Socket), 0);
             assert!(other.lock().unwrap().is_empty(), "{kind}");
             assert_eq!(api.net().running(OTHER, Kind::Stream), 1);
+        }
+    }
+
+    #[test]
+    fn frame_gone_clears_the_frame_side() {
+        use crate::plugins::api::events::Topic;
+        use std::collections::BTreeSet;
+
+        const OTHER: &str = "com.example.other";
+        let topics: BTreeSet<Topic> = [Topic::Theme, Topic::Locale].into();
+        for kind in ["detached", "crashed"] {
+            let plugins = plugins_of(Tier::Native);
+            let events = plugins.api().events();
+            events.replace(ID, Side::Frame, &topics, &[]);
+            events.replace(ID, Side::Child, &topics, &[]);
+            events.replace(OTHER, Side::Frame, &topics, &[]);
+
+            frame_event_from("tray", plugins.api(), ID, kind);
+            frame_event_from(MAIN_LABEL, plugins.api(), ID, "unmounted");
+            assert_eq!(events.topics_of(ID, Side::Frame).len(), 2, "{kind}");
+
+            frame_event_from(MAIN_LABEL, plugins.api(), ID, kind);
+            assert!(events.topics_of(ID, Side::Frame).is_empty(), "{kind}");
+            assert_eq!(events.topics_of(ID, Side::Child).len(), 2, "{kind}");
+            assert_eq!(events.topics_of(OTHER, Side::Frame).len(), 2, "{kind}");
         }
     }
 

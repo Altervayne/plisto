@@ -82,6 +82,8 @@ interface FrameExtra {
   route: string | null;
   /** The frame's own event subscription; a new frame starts with none. */
   router: TopicRouter;
+  /** Settles when the frame's last forwarded subscribe has its answer; null when none is in flight. */
+  subscribing: Promise<void> | null;
 }
 
 const UNREACHABLE: PluginCallReply = {
@@ -165,7 +167,13 @@ function createHost(deps: HostDeps): Host {
     }
     extra.calls.add(callId);
     rec.pending += 1;
-    const seq = method === SUBSCRIBE_METHOD ? extra.router.begin(args) : 0;
+    const subscribing = method === SUBSCRIBE_METHOD;
+    const seq = subscribing ? extra.router.begin(args) : 0;
+    // A frame's subscribes reach Rust one at a time, so Rust applies them in the order they were issued.
+    const turn = subscribing ? extra.subscribing : null;
+    let release = () => {};
+    const mine = subscribing ? new Promise<void>((resolve) => (release = () => resolve())) : null;
+    if (mine) extra.subscribing = mine;
     let reply: PluginCallReply;
     let transfer: ArrayBuffer[] | undefined;
     if (method === FETCH_METHOD) {
@@ -174,15 +182,18 @@ function createHost(deps: HostDeps): Host {
       transfer = fetched.body ? [fetched.body] : undefined;
     } else {
       try {
+        if (turn) await turn;
         reply = await deps.invoke(rec.pluginId, method, args);
       } catch {
         reply = UNREACHABLE;
       }
     }
+    release();
+    if (mine && extra.subscribing === mine) extra.subscribing = null;
     rec.pending -= 1;
     extra.calls.delete(callId);
     // Applied before the reply is posted; events held meanwhile follow the reply.
-    const held = method === SUBSCRIBE_METHOD ? extra.router.settle(seq, reply ?? UNREACHABLE) : [];
+    const held = subscribing ? extra.router.settle(seq, reply ?? UNREACHABLE) : [];
     post(rec, resultMsg(callId, reply ?? UNREACHABLE), transfer);
     for (const event of held) post(rec, eventMsg(event.topic, event.data));
   };
@@ -243,7 +254,15 @@ function createHost(deps: HostDeps): Host {
       if (holder) unmap(holder.mountKey);
       const rec: FrameRecord<FrameWindow> = { mountKey, pluginId, source, loads: 0, pending: 0, dead: false };
       map.attach(source, rec);
-      extras.set(rec, { calls: new Set(), pageOpen: false, init: "none", theme: null, route: null, router: createTopicRouter() });
+      extras.set(rec, {
+        calls: new Set(),
+        pageOpen: false,
+        init: "none",
+        theme: null,
+        route: null,
+        router: createTopicRouter(),
+        subscribing: null,
+      });
     },
 
     detach,

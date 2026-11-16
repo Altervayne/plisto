@@ -25,6 +25,7 @@ pub mod playlist_export;
 pub mod playlists;
 pub mod plugin_call;
 pub mod plugin_dev;
+pub mod plugin_events;
 pub mod plugin_fetch;
 #[cfg(windows)]
 pub mod plugin_status;

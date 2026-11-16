@@ -697,6 +697,7 @@ export interface PlistoMethods {
   "stream.resume": { args: StreamItemArgs; result: EmptyResult };
   "stream.stop": { args: StreamItemArgs; result: EmptyResult };
   "stream.state": { args: {}; result: StreamStateResult };
+  "events.subscribe": { args: { topics: string[] }; result: { topics: string[]; current: { [topic: string]: unknown } } };
 }
 
 export interface CallOptions {

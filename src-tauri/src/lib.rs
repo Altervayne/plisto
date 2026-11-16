@@ -140,6 +140,16 @@ pub fn run() {
                     let _ = state.library_sync.send(SyncCmd::Focus);
                 }
             }
+            // An OS theme change moves the resolved theme of a user who follows the system.
+            WindowEvent::ThemeChanged(_) if window.label() == "main" => {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state
+                        .plugins
+                        .api()
+                        .events()
+                        .feed(plugins::api::events::Input::Ambient);
+                }
+            }
             // The popup dismisses itself when it loses focus, like a native popover.
             WindowEvent::Focused(false) if window.label() == "tray" => {
                 let _ = window.hide();
@@ -327,6 +337,12 @@ pub fn run() {
                 if let Err(e) = plugins::api::stream::spawn_watch(&streams) {
                     eprintln!("plugins: no stream watch thread: {e}");
                 }
+            }
+
+            // App event topics for plugins: the hub reads the player and the settings through the
+            // managed state, so it starts once that exists.
+            if let Err(e) = plugins::api::events::spawn(app.handle()) {
+                eprintln!("plugins: no event hub thread: {e}");
             }
 
             // Enabled native plugins start once state is managed, on their own thread since each
@@ -592,6 +608,7 @@ pub fn run() {
             commands::plugin_dev::plugin_log_tail,
             commands::plugin_call::plugin_call,
             commands::plugin_call::plugin_page_state,
+            commands::plugin_events::plugin_library_changed,
             commands::plugin_fetch::plugin_fetch,
             commands::plugin_fetch::plugin_net_log,
             commands::plugin_fetch::plugin_net_environment,

@@ -14,6 +14,11 @@ use crate::audio::PlayerCmd;
 use crate::db;
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
+use crate::plugins::api::app::{
+    SETTING_APP_MODE, SETTING_LOCALE, SETTING_PLAYER_ENABLED, SETTING_THEME,
+};
+use crate::plugins::api::events::Input;
+use crate::plugins::api::state::ApiState;
 use crate::sound_settings::{self, Levelling};
 use crate::state::AppState;
 
@@ -73,7 +78,21 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
         let _ = state.loudness.send(LoudnessCmd::SetEnabled(on));
         let _ = state.player.send(PlayerCmd::SetSound(sound));
     }
+    notify_plugins(&key, state.plugins.api());
     Ok(())
+}
+
+/// Tells the plugin event hub that a setting behind the theme, locale or app mode was written.
+fn notify_plugins(key: &str, api: &ApiState) {
+    let ambient = [
+        SETTING_THEME,
+        SETTING_LOCALE,
+        SETTING_APP_MODE,
+        SETTING_PLAYER_ENABLED,
+    ];
+    if ambient.contains(&key) {
+        api.events().feed(Input::Ambient);
+    }
 }
 
 /// Opens the Windows Default apps settings page, where the user picks Plisto per file type. Win8+
@@ -112,6 +131,27 @@ mod tests {
             "PLUGINS.x",
         ] {
             assert!(guard_key(key).is_err(), "{key}");
+        }
+    }
+
+    #[test]
+    fn the_theme_locale_and_mode_keys_notify_plugins() {
+        use crate::plugins::api::events::{Side, Topic};
+        use std::collections::BTreeSet;
+
+        let api = ApiState::default();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        api.events().attach(tx);
+        let topics: BTreeSet<Topic> = [Topic::Theme].into();
+        api.events()
+            .replace("com.example.demo", Side::Frame, &topics, &[]);
+        for key in ["sound", "closeToTray", "drawer_width", "Theme"] {
+            notify_plugins(key, &api);
+        }
+        assert!(rx.try_recv().is_err());
+        for key in ["theme", "locale", "app_mode", "player_enabled"] {
+            notify_plugins(key, &api);
+            assert!(matches!(rx.try_recv(), Ok(Input::Ambient)), "{key}");
         }
     }
 

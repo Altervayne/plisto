@@ -927,18 +927,45 @@ describe("topic events", () => {
     expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
   });
 
-  it("apply only the latest-issued subscribe when replies arrive out of order", async () => {
+  it("forward a frame's subscribes one at a time, in the order issued", async () => {
     const h = setup();
     const win = await liveFrame(h.calls, "k-a", "plug-a");
     const at = h.calls.length;
     h.call(win, 1, { method: "events.subscribe", args: "{\"topics\":[\"theme\"]}" });
     h.call(win, 2, { method: "events.subscribe", args: "{\"topics\":[\"locale\"]}" });
-    h.calls[at + 1].resolve(ok(["locale"]));
     await flush();
+    // The second waits for the first's answer before it reaches Rust.
+    expect(h.calls.length).toBe(at + 1);
+    expect(h.calls[at].args).toBe("{\"topics\":[\"theme\"]}");
     h.calls[at].resolve(ok(["theme"]));
+    await flush();
+    expect(h.calls.length).toBe(at + 2);
+    expect(h.calls[at + 1].args).toBe("{\"topics\":[\"locale\"]}");
+    // The first reply answered its caller but did not set the set: the second is the latest issued.
+    expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
+    h.calls[at + 1].resolve(ok(["locale"]));
     await flush();
     expect(sendTopicEvent("plug-a", "locale", 1)).toBe(true);
     expect(sendTopicEvent("plug-a", "theme", 1)).toBe(false);
+    expect(win.types().filter((type) => type === "plisto:result")).toHaveLength(2);
+  });
+
+  it("forward the next subscribe after a failed one", async () => {
+    const h = setup();
+    const win = await liveFrame(h.calls, "k-a", "plug-a");
+    const at = h.calls.length;
+    h.call(win, 1, SUBSCRIBE);
+    h.call(win, 2, { method: "events.subscribe", args: "{\"topics\":[\"locale\"]}" });
+    h.calls[at].reject(new Error("gone"));
+    await flush();
+    expect(h.calls.length).toBe(at + 2);
+    h.calls[at + 1].resolve(ok(["locale"]));
+    await flush();
+    expect(sendTopicEvent("plug-a", "locale", 1)).toBe(true);
+    // Other methods never wait on a subscribe.
+    h.call(win, 3, SUBSCRIBE);
+    h.call(win, 4);
+    expect(h.calls.map((c) => c.method).slice(at + 2)).toEqual(["events.subscribe", "storage.get"]);
   });
 
   it("fail closed on a malformed ok reply", async () => {

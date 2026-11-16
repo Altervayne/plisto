@@ -14,6 +14,7 @@ pub(crate) mod app;
 mod cover;
 mod cursor;
 pub(crate) mod error;
+pub(crate) mod events;
 pub(crate) mod files;
 pub(crate) mod host_event;
 mod kv_file;
@@ -48,6 +49,7 @@ use serde_json::{Map, Value};
 
 // -- Local Imports --
 use self::error::ApiError;
+use self::events::ChildDelivery;
 use self::host_event::HostEvent;
 use self::pending::Pending;
 use self::rate::RateClass;
@@ -144,6 +146,14 @@ pub trait HostContext: Send + Sync {
     /// A row of the settings table; absent when unset or unreadable.
     fn setting(&self, key: &str) -> Option<String>;
     fn os_prefers_dark(&self) -> bool;
+    /// `setting`, telling an unset row (`Some(None)`) from one that could not be read (`None`).
+    fn read_setting(&self, key: &str) -> Option<Option<String>> {
+        Some(self.setting(key))
+    }
+    /// `os_prefers_dark`; None when the OS theme cannot be read.
+    fn read_os_dark(&self) -> Option<bool> {
+        Some(self.os_prefers_dark())
+    }
     /// Sends an event to the main window. Best-effort: a window that is gone misses it.
     fn emit(&self, event: HostEvent);
     /// Whether the main window is visible and not minimized; `false` when it cannot be read.
@@ -156,6 +166,11 @@ pub trait HostContext: Send + Sync {
     /// events, where the network methods are `unavailable`.
     fn net(&self) -> Option<NetEngine> {
         None
+    }
+    /// Hands an app event topic to plugin `id`'s native child; a host with no children has none
+    /// running.
+    fn deliver_event(&self, _id: &str, _topic: &str, _data: &Value) -> ChildDelivery {
+        ChildDelivery::NotRunning
     }
 }
 
@@ -211,6 +226,7 @@ pub fn table() -> &'static [MethodSpec] {
             playback::METHODS,
             net::methods::METHODS,
             stream::METHODS,
+            events::METHODS,
         ]
         .concat()
     })
@@ -437,7 +453,8 @@ pub fn dispatch(
 
 /// A host with settings set by the test, a fixed OS theme and window state, a record of the events
 /// sent and the calls relayed, the app state and network engine the test gives it. A relayed call is
-/// answered with `relay_answer`, or `unavailable` when it is unset.
+/// answered with `relay_answer`, or `unavailable` when it is unset. With `unreadable`, the
+/// failure-aware reads of the settings and the OS theme fail.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct FakeHost {
@@ -449,6 +466,8 @@ pub(crate) struct FakeHost {
     pub relayed: std::sync::Mutex<Vec<(String, String, Value)>>,
     pub relay_answer: Option<Result<Value, ApiError>>,
     pub net: Option<NetEngine>,
+    /// Every setting and the OS theme read as failed.
+    pub unreadable: bool,
 }
 
 #[cfg(test)]
@@ -467,6 +486,14 @@ impl HostContext for FakeHost {
 
     fn os_prefers_dark(&self) -> bool {
         self.dark
+    }
+
+    fn read_setting(&self, key: &str) -> Option<Option<String>> {
+        (!self.unreadable).then(|| self.setting(key))
+    }
+
+    fn read_os_dark(&self) -> Option<bool> {
+        (!self.unreadable).then_some(self.dark)
     }
 
     fn emit(&self, event: HostEvent) {
@@ -941,7 +968,8 @@ mod tests {
             "library.missing",
             "playback.missing",
             "queue.clear",
-            "events.subscribe",
+            "events.unsubscribe",
+            "events.on",
             "plugin.call",
             "app",
             "app.info.x",

@@ -7,6 +7,7 @@
 use serde_json::{json, Map, Value};
 
 // -- Local Imports --
+use super::events::topic_names;
 use super::rate::RateClass;
 use super::{method_names, CallCtx, MethodSpec, Need, Outcome, API_VERSION};
 
@@ -82,6 +83,7 @@ fn methods(_ctx: &CallCtx<'_>, _args: &Map<String, Value>) -> Outcome {
     Outcome::Done(Ok(json!({
         "api_version": API_VERSION,
         "methods": method_names(),
+        "topics": topic_names(),
     })))
 }
 
@@ -181,5 +183,26 @@ mod tests {
         for name in ["app.info", "app.methods", "log.write"] {
             assert!(listed.iter().any(|n| n == name), "{name}");
         }
+    }
+
+    #[test]
+    fn app_methods_lists_topics() {
+        let host = FakeHost::default();
+        let call = test_ctx(Path::new("unused"), &host);
+        let result = methods(&call.ctx(), &Map::new()).done().unwrap();
+        assert_eq!(
+            result["topics"],
+            json!([
+                "app_mode",
+                "library_changed",
+                "locale",
+                "now_playing",
+                "playback_state",
+                "queue",
+                "theme"
+            ])
+        );
+        // The owner-only stream topic is not one of them.
+        assert!(!result["topics"].as_array().unwrap().contains(&json!("stream")));
     }
 }

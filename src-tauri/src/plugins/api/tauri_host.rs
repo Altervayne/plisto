@@ -14,8 +14,9 @@ use tauri::{AppHandle, Emitter, Manager, Theme};
 
 // -- Local Imports --
 use super::error::ApiError;
+use super::events::ChildDelivery;
 use super::host_event::{
-    HostEvent, EVENT_NET, EVENT_PAGE, EVENT_SIDEBAR, EVENT_STREAM, EVENT_UI,
+    HostEvent, EVENT_NET, EVENT_PAGE, EVENT_SIDEBAR, EVENT_STREAM, EVENT_TOPIC, EVENT_UI,
 };
 use super::net::sink::{NetEvent, NetSink};
 use super::{HostContext, NetEngine};
@@ -49,16 +50,22 @@ impl NetSink for TauriHost {
 
 impl HostContext for TauriHost {
     fn setting(&self, key: &str) -> Option<String> {
-        let state = self.app.try_state::<AppState>()?;
-        let conn = state.db.lock().ok()?;
-        db::get_setting(&conn, key).ok().flatten()
+        self.read_setting(key).flatten()
     }
 
     fn os_prefers_dark(&self) -> bool {
-        self.app
-            .get_webview_window(MAIN_LABEL)
-            .and_then(|main| main.theme().ok())
-            .is_some_and(|theme| matches!(theme, Theme::Dark))
+        self.read_os_dark().unwrap_or(false)
+    }
+
+    fn read_setting(&self, key: &str) -> Option<Option<String>> {
+        let state = self.app.try_state::<AppState>()?;
+        let conn = state.db.lock().ok()?;
+        db::get_setting(&conn, key).ok()
+    }
+
+    fn read_os_dark(&self) -> Option<bool> {
+        let theme = self.app.get_webview_window(MAIN_LABEL)?.theme().ok()?;
+        Some(matches!(theme, Theme::Dark))
     }
 
     fn emit(&self, event: HostEvent) {
@@ -76,6 +83,7 @@ impl HostContext for TauriHost {
                 }
                 self.app.emit_to(MAIN_LABEL, EVENT_STREAM, event)
             }
+            HostEvent::Topic(event) => self.app.emit_to(MAIN_LABEL, EVENT_TOPIC, event),
         };
     }
 
@@ -104,5 +112,11 @@ impl HostContext for TauriHost {
 
     fn net(&self) -> Option<NetEngine> {
         Some(self.net_engine())
+    }
+
+    /// The one path from the event hub to a native child. The native protocol has no event message,
+    /// so every child reads as not running and its values are dropped.
+    fn deliver_event(&self, _id: &str, _topic: &str, _data: &Value) -> ChildDelivery {
+        ChildDelivery::NotRunning
     }
 }

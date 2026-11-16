@@ -2,8 +2,9 @@
  * The events Rust sends the main window about plugin UI surfaces: `plugins:ui` for toasts, prompts,
  * their withdrawal and page requests, `plugins:sidebar` for chips and sidebar item state,
  * `plugins:page_event` for what a native plugin's child pushes to its page, `plugins:net` for stream
- * chunks and socket messages, and `plugins:stream` for what the owner of the seated playback stream
- * is told. They carry plugin text, data and ids only, never a gesture token.
+ * chunks and socket messages, `plugins:stream` for what the owner of the seated playback stream is
+ * told, and `plugins:event` for an app event topic a plugin's frame subscribed to. They carry plugin
+ * text, data and ids only, never a gesture token.
  */
 
 // -- Library Imports --
@@ -19,6 +20,7 @@ pub const EVENT_SIDEBAR: &str = "plugins:sidebar";
 pub const EVENT_PAGE: &str = "plugins:page_event";
 pub const EVENT_NET: &str = "plugins:net";
 pub const EVENT_STREAM: &str = "plugins:stream";
+pub const EVENT_TOPIC: &str = "plugins:event";
 
 /// One event for the main window.
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +30,16 @@ pub enum HostEvent {
     Page(PageEvent),
     Net(NetEvent),
     Stream(StreamHostEvent),
+    Topic(TopicEvent),
+}
+
+/// An app event topic for plugin `id`, which the window hands to that plugin's newest frame when the
+/// frame subscribed to it. Mirrors `PluginTopicEvent` in the frontend's types.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TopicEvent {
+    pub id: String,
+    pub topic: String,
+    pub data: Value,
 }
 
 /// A playback-stream event for plugin `id`, which the window hands to that plugin's newest frame.
@@ -180,6 +192,19 @@ mod tests {
         assert_eq!(
             serde_json::to_value(event).unwrap(),
             json!({ "id": "com.example.demo", "topic": "levels", "data": [0.5, 0.25] })
+        );
+    }
+
+    #[test]
+    fn topic_events_have_their_wire_shape() {
+        let event = TopicEvent {
+            id: "com.example.demo".into(),
+            topic: "theme".into(),
+            data: json!({ "theme": "dark" }),
+        };
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({ "id": "com.example.demo", "topic": "theme", "data": { "theme": "dark" } })
         );
     }
 }
