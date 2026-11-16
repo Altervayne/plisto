@@ -9,6 +9,7 @@
 import {
   FETCH_METHOD,
   FrameMap,
+  isPongShaped,
   errorMsg,
   initMsg,
   pingMsg,
@@ -24,11 +25,13 @@ import {
   visibilityMsg,
 } from "./bridge";
 import { browserHostDeps } from "./hostBrowser";
+import { FRAME_LIMIT, PONG_LIMIT, admit, defaultNow, newBudget } from "./frameBudget";
 import { hostCall } from "./hostCall";
 import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
 import { SUBSCRIBE_METHOD, createTopicRouter } from "./topicRouter";
 
 // -- Type Imports --
+import type { FrameBudget } from "./frameBudget";
 import type { TopicRouter } from "./topicRouter";
 import type { AppInfo, FrameRecord, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
 import type {
@@ -64,6 +67,8 @@ export interface HostDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Called once a plugin's last mapped frame is detached. */
   frameGone?: (pluginId: string) => void;
+  /** The clock for each frame's message budget, in milliseconds. */
+  now?: () => number;
 }
 
 export type LoadKind = "first" | "again";
@@ -84,6 +89,10 @@ interface FrameExtra {
   router: TopicRouter;
   /** Settles when the frame's last forwarded subscribe has its answer; null when none is in flight. */
   subscribing: Promise<void> | null;
+  /** What the frame may still post; spent by every message it sends, valid or not. */
+  budget: FrameBudget;
+  /** The frame's pong allowance, spent by nothing else. */
+  pongBudget: FrameBudget;
 }
 
 const UNREACHABLE: PluginCallReply = {
@@ -114,6 +123,7 @@ const pongs = new Set<PongListener>();
 
 function createHost(deps: HostDeps): Host {
   const map = new FrameMap<FrameWindow>();
+  const now = deps.now ?? defaultNow;
   const extras = new WeakMap<FrameRecord<FrameWindow>, FrameExtra>();
 
   const isLive = (rec: FrameRecord<FrameWindow>) => !rec.dead && map.byKey(rec.mountKey) === rec;
@@ -205,6 +215,12 @@ function createHost(deps: HostDeps): Host {
     hostCall(deps, rec.pluginId, method, () => isLive(rec));
 
   const onMessage = (event: HostMessage) => {
+    // Spent before any parsing: a flood costs the host one map lookup per message, and an over-budget
+    // message gets no reply, so the page cannot make the host post back either.
+    const source = event.source as FrameWindow | null;
+    const known = source == null ? undefined : map.get(source);
+    const owned = known && extras.get(known);
+    if (owned && !admit(isPongShaped(event.data) ? owned.pongBudget : owned.budget, now())) return;
     const action = route(map, {
       origin: event.origin,
       source: event.source as FrameWindow | null,
@@ -264,6 +280,8 @@ function createHost(deps: HostDeps): Host {
         route: null,
         router: createTopicRouter(),
         subscribing: null,
+        budget: newBudget(now(), FRAME_LIMIT),
+        pongBudget: newBudget(now(), PONG_LIMIT),
       });
     },
 

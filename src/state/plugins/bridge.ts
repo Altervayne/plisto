@@ -192,6 +192,14 @@ function arrayBufferLength(value: unknown): number | null {
   }
 }
 
+/** The `type` of the heartbeat answer. */
+export const PONG_TYPE = "plisto:pong";
+
+/** Whether a message is a plain object whose own `type` is exactly the pong's. Reads nothing else. */
+export function isPongShaped(data: unknown): boolean {
+  return isPlainObject(data) && ownValue(data, "type") === PONG_TYPE;
+}
+
 /** A shim-composed refusal for one call id. */
 function refusal<S>(
   rec: FrameRecord<S>,
@@ -219,7 +227,7 @@ export function route<S>(map: FrameMap<S>, event: RouteInput<S>): Action<S> {
     if (ownValue(data, "plisto") !== PROTOCOL) return DROP;
     const type = ownValue(data, "type");
 
-    if (type === "plisto:pong") {
+    if (type === PONG_TYPE) {
       const seq = ownValue(data, "seq");
       return isId(seq) ? { kind: "pong", rec, seq } : DROP;
     }

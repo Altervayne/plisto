@@ -75,7 +75,11 @@ afterEach(() => {
   stop = null;
 });
 
-function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: string) => void) {
+function setup(
+  sleep?: (ms: number) => Promise<void>,
+  frameGone?: (pluginId: string) => void,
+  now?: () => number,
+) {
   let listener: ((event: HostMessage) => void) | null = null;
   let themeListener: (() => void) | null = null;
   let theme: FrameTheme = "light";
@@ -100,6 +104,7 @@ function setup(sleep?: (ms: number) => Promise<void>, frameGone?: (pluginId: str
     fetch,
     sleep,
     frameGone,
+    now,
     theme: () => theme,
     subscribeTheme: (fn) => {
       themeListener = fn;
@@ -1067,5 +1072,107 @@ describe("topic events", () => {
     await flush();
     expect(emit("plug-a", "theme", 1)).toBe(false);
     expect(second.types()).toEqual(["plisto:init"]);
+  });
+});
+
+describe("frame message budget", () => {
+  const pong = (seq: number) => ({ plisto: 1, type: "plisto:pong", seq });
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, advance: (ms: number) => (t += ms) };
+  };
+
+  it("admits a burst of 200 and drops the rest without a reply", () => {
+    const c = clock();
+    const { invoke, call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    for (let id = 1; id <= 200; id += 1) call(a, id);
+    // 32 reach Rust; the 168 beyond the pending cap are refused, which proves all 200 were admitted.
+    expect(invoke).toHaveBeenCalledTimes(32);
+    expect(a.posted.length).toBe(168);
+    for (let id = 201; id <= 300; id += 1) call(a, id);
+    expect(invoke).toHaveBeenCalledTimes(32);
+    expect(a.posted.length).toBe(168);
+  });
+
+  it("refills 100 a second from the injected clock", () => {
+    const c = clock();
+    const { call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    for (let i = 0; i < 200; i += 1) call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(200);
+    call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(200);
+    c.advance(50);
+    for (let i = 0; i < 8; i += 1) call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(205);
+    c.advance(60000);
+    for (let i = 0; i < 300; i += 1) call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(405);
+  });
+
+  it("stops refusing a malformed flood once over budget", () => {
+    const c = clock();
+    const { call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    for (let i = 0; i < 1000; i += 1) call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(200);
+  });
+
+  it("lets pongs through while a call flood has emptied the main bucket", () => {
+    const c = clock();
+    const { emit, call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    const heard: number[] = [];
+    const stopPong = onPong((_k, seq) => heard.push(seq));
+    for (let i = 0; i < 500; i += 1) call(a, 1, { method: "NOPE" });
+    emit(a, pong(1));
+    expect(heard).toEqual([1]);
+    stopPong();
+  });
+
+  it("cuts a pong flood to its own budget and leaves the main bucket whole", () => {
+    const c = clock();
+    const { emit, call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    const heard: number[] = [];
+    const stopPong = onPong((_k, seq) => heard.push(seq));
+    for (let seq = 1; seq <= 500; seq += 1) emit(a, pong(seq));
+    expect(heard.length).toBe(5);
+    for (let i = 0; i < 300; i += 1) call(a, 1, { method: "NOPE" });
+    expect(a.posted.length).toBe(200);
+    stopPong();
+  });
+
+  it("refills the pong budget at 2 a second from the injected clock", () => {
+    const c = clock();
+    const { emit, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    const heard: number[] = [];
+    const stopPong = onPong((_k, seq) => heard.push(seq));
+    for (let seq = 1; seq <= 10; seq += 1) emit(a, pong(seq));
+    expect(heard.length).toBe(5);
+    c.advance(1000);
+    for (let seq = 11; seq <= 20; seq += 1) emit(a, pong(seq));
+    expect(heard.length).toBe(7);
+    stopPong();
+  });
+
+  it("keeps one frame's flood from another frame's calls and pongs", () => {
+    const c = clock();
+    const { emit, call, frame } = setup(undefined, undefined, c.now);
+    const a = frame("a");
+    const b = frame("b");
+    const heard: string[] = [];
+    const stopPong = onPong((key) => heard.push(key));
+    for (let i = 0; i < 500; i += 1) {
+      call(a, 1, { method: "NOPE" });
+      emit(a, pong(i + 1));
+    }
+    emit(b, pong(1));
+    call(b, 1, { method: "NOPE" });
+    expect(heard.filter((k) => k === "k-b")).toEqual(["k-b"]);
+    expect(b.posted.length).toBe(1);
+    stopPong();
   });
 });
