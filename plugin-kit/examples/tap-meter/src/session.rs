@@ -65,6 +65,22 @@ pub fn log(level: LogLevel, text: impl Into<String>) -> ChildMessage {
     }
 }
 
+/// The log line for a stream event: its kind, with the state, or the reason and detail of an end.
+fn stream_line(event: &Value) -> ChildMessage {
+    let word = |name| event.get(name).and_then(Value::as_str);
+    let text = match word("kind") {
+        Some("ended") => format!(
+            "stream ended: {} ({})",
+            word("reason").unwrap_or("no reason"),
+            word("detail").unwrap_or("no detail")
+        ),
+        Some("state") => format!("stream {}", word("state").unwrap_or("in an unknown state")),
+        Some(kind) => format!("stream {kind}"),
+        None => "stream event with no kind".into(),
+    };
+    log(LogLevel::Info, text)
+}
+
 /// `code (reason)` of a `host_result` error, or `code` alone.
 fn refusal(error: Option<&Value>) -> String {
     let field = |name| error.and_then(|e| e.get(name)).and_then(Value::as_str);
@@ -148,6 +164,7 @@ impl Session {
                 out.push(log(level, line));
             }
             HostMessage::Page { open } => self.page(&mut out, open),
+            HostMessage::Stream { event } => out.push(stream_line(&event)),
             HostMessage::Ping { .. } | HostMessage::Shutdown => {}
         }
         out
@@ -605,6 +622,28 @@ mod tests {
             (LogLevel::Warn, "feed lost 2 event(s) before seq 33")
         );
         assert_eq!(s.transport(), Some("playing"));
+    }
+
+    #[test]
+    fn a_stream_event_is_logged_by_its_kind() {
+        let mut s = Session::new(Options::default());
+        let cases = [
+            (json!({"item": -4, "kind": "state", "state": "buffering"}), "stream buffering"),
+            (json!({"item": -4, "kind": "skip", "direction": "next"}), "stream skip"),
+            (
+                json!({"item": -4, "kind": "ended", "reason": "network", "detail": "closed"}),
+                "stream ended: network (closed)",
+            ),
+            (
+                json!({"item": -4, "kind": "ended", "reason": "user", "detail": null}),
+                "stream ended: user (no detail)",
+            ),
+            (json!({"item": -4}), "stream event with no kind"),
+        ];
+        for (event, line) in cases {
+            let out = s.handle(HostMessage::Stream { event });
+            assert_eq!(logs(&out), [(LogLevel::Info, line)]);
+        }
     }
 
     #[test]

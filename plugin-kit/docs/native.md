@@ -132,6 +132,7 @@ lock for the whole frame, so two frames never interleave.
 | `sidebar_input` | `item_id` (string), `value` (boolean or null), `gesture` (string) | The user used one of your sidebar items: a toggle (`value` is its new state) or an action (`value` is null). Treat `gesture` as an opaque token and never log it. |
 | `takeover_state` | `held` (boolean), `reason` (string) | Whether you hold Plisto's local output, and why that changed. `reason` is one of `granted`, `released`, `denied`, `busy`, `user`, `not_responding` and `stopped`. |
 | `page` | `open` (boolean) | Your plugin's page was shown or hidden. Also sent once right after `ready`, with the current value. |
+| `stream` | `event` (object) | An event of the playback stream your plugin owns, the same object its page gets. See "Stream events". |
 
 ### Messages from your program to Plisto
 
@@ -259,7 +260,7 @@ with the same `seq`. A call is checked exactly like a page's (see the [API refer
 capability, the rate budgets, the argument rules. The program and its page share the plugin's budgets.
 
 - `net.*` and `plugin.*` methods are `unknown_method` from the program: the network belongs to the page,
-  and the relay goes the other way.
+  and the relay goes the other way. The `stream.*` methods work from the program: see "Stream events".
 - At most 16 calls may be open at once; another is `busy`. A `seq` that is already open is a protocol
   error, and that call is answered `invalid_args`.
 - A failure carries `error` as `{code, message, reason?, retry_after_ms?}`, the codes of the API
@@ -274,6 +275,42 @@ lasts 5 seconds. Without either, the call is refused `denied` with `reason: "no_
 When the program crashes, is restarted or is stopped, Plisto closes what that run opened: prompts,
 toasts, gestures, rate counts and sidebar state. Answers still owed to that run are dropped. What the page
 opened, such as its own network requests, stays while the page does.
+
+### Stream events
+
+A native plugin with `playback.stream` can play audio through Plisto: the program sends `host_call` with
+`stream.play`, `stream.push`, `stream.update` and the other methods of the [stream guide](stream.md). No page
+needs to be open, and a start needs no user action: it pauses and parks the user's music. A URL source also
+needs `network` and its origin, as for a page; a program that pushes bytes needs neither. `net.*` stays
+closed to a program, so a program that wants to fetch the bytes itself uses its own network code and pushes
+them.
+
+To push, put the bytes in `args` as `data_b64`, at most 65,536 bytes decoded (about 87 KB of base64, well
+inside the 1 MiB frame). A `stream.push` is `busy` when Plisto's 1 MiB buffer is full; wait for a `room` event
+before pushing again.
+
+Plisto reports the stream to its owner with the `stream` message:
+
+```json
+{"type":"stream","event":{"item":-4,"kind":"state","state":"playing"}}
+{"type":"stream","event":{"item":-4,"kind":"room","room":786432}}
+{"type":"stream","event":{"item":-4,"kind":"ended","reason":"network","detail":"closed"}}
+```
+
+`event` is the object the page gets from `plisto.onStream`: `kind` is `state`, `skip`, `room` or `ended`, and the
+fields are in the [stream guide](stream.md#events). Every event reaches both sides of the plugin, its newest
+running page and its program, whichever of them called `stream.play`.
+
+- The event goes to the program that is running and ready. A program that was replaced, is still starting or
+  is stopping hears nothing.
+- If the program's input is backed up, Plisto drops the event and counts it. It is not sent again, and the
+  program is not told how many it missed. After a gap, and after every restart, call `stream.state` and read
+  `last_end`: it holds the end of your previous item for 60 seconds.
+- A push item ends `producer_gone` when the side that called `play` goes away: if the program called `play`
+  and exits, the item ends; if only the page goes away, nothing ends. Call `play` and `push` from the same
+  side. A pull item the program started plays on when the program crashes, and the restarted program reads
+  `stream.state`.
+- Treat the `ended` reasons `user` and `replaced` as the user's choice and do not start again.
 
 ### Sidebar items
 
@@ -389,10 +426,10 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `seq` | number | Rises by one per snapshot Plisto takes, shared by every plugin, so your first value can be any number. A gap after it means you missed events. |
-| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume`, `device` or `snapshot`. A `snapshot` is sent once, right after `ready`, and carries the current state; it opens no epoch. |
+| `cause` | string | Why the snapshot was taken: `start`, `gapless`, `pause`, `resume`, `seek`, `stop`, `volume`, `device`, `buffering`, `buffered` or `snapshot`. A `snapshot` is sent once, right after `ready`, and carries the current state; it opens no epoch. `buffering` and `buffered` are for a stream: it is waiting for audio, or has enough again and plays on in the same epoch. |
 | `tap_epoch` | number | The tap's latest epoch when the snapshot was taken. |
 | `tap_cursor` | number | The tap's `write_cursor` when the snapshot was taken. What the event changes reaches the ring at or after it. |
-| `transport` | string | `playing`, `paused` or `stopped`. |
+| `transport` | string | `playing`, `paused`, `stopped` or `buffering`. `buffering` is for a stream waiting for audio; nothing reaches the tap meanwhile. Treat it as not playing. |
 | `sample_rate` | number | The current source's rate, `0` when stopped. |
 | `channels` | number | The current source's channel count, `0` when stopped. |
 | `position_secs` | number | The play head, in seconds. |
@@ -400,6 +437,8 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 | `device` | string or null | The name of the output device Plisto renders to, null when none is open. Always null without `audio.device`. |
 | `device_id` | string or null | The Windows endpoint ID of that device, null when none is open or it could not be matched. Two devices can share a name; the ID tells them apart. Always null without `audio.device`. |
 | `latency_ms` | number | The device's buffer period, a good estimate of the output delay. Always sent. |
+| `source` | string | What plays: `track` for a library track or a file the user opened, `stream` for a plugin's stream. |
+| `live` | boolean | True for a stream with no end and no seek. Always false for a track. |
 
 - **The first event.** Right after `ready` Plisto asks for a `snapshot`, so you know at once whether
   playback is playing, paused or stopped, without waiting for a change.
@@ -418,7 +457,9 @@ A plugin with `audio.events` receives `feed` messages. The `event` object has th
 A plugin that plays the sound itself, for example on another device, can ask Plisto to stop playing it
 locally. Plisto then holds its own output at volume 0 and keeps everything else running: decoding, the tap,
 the spectrum and the visualizers. The `volume` in `feed` events stays the user's volume. Plisto's own
-previews stay audible.
+previews stay audible. A plugin's stream is muted like any other sound and reaches the tap, with `source` set
+to `stream` in the feed; a stream starting or ending never releases the takeover, and a release never
+touches the stream.
 
 ### Asking and releasing
 

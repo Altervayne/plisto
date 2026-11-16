@@ -26,6 +26,22 @@ pub struct FeedEvent {
     /// Null unless the plugin holds `audio.device`, and when no device is open.
     #[serde(default)]
     pub device_id: Option<String>,
+    /// `track` or `stream`; empty from a Plisto that does not send it.
+    #[serde(default)]
+    pub source: String,
+    /// True for a stream with no end and no seek.
+    #[serde(default)]
+    pub live: bool,
+}
+
+impl FeedEvent {
+    /// What plays, for a log line; nothing when Plisto did not say.
+    fn source_text(&self) -> String {
+        match self.source.as_str() {
+            "" => String::new(),
+            source => format!(", source {source}, live {}", self.live),
+        }
+    }
 }
 
 /// The log lines for one `feed` frame. Volume changes are left out: a slider drag sends one per step.
@@ -42,15 +58,20 @@ pub fn feed_lines(event: &FeedEvent, lost: u64) -> Vec<(LogLevel, String)> {
         "snapshot" => lines.push((
             LogLevel::Info,
             format!(
-                "feed snapshot: {}, tap epoch {}",
-                event.transport, event.tap_epoch
+                "feed snapshot: {}, tap epoch {}{}",
+                event.transport,
+                event.tap_epoch,
+                event.source_text()
             ),
         )),
         cause => lines.push((
             LogLevel::Info,
             format!(
-                "feed {cause}: {}, tap epoch {} (seq {})",
-                event.transport, event.tap_epoch, event.seq
+                "feed {cause}: {}, tap epoch {} (seq {}){}",
+                event.transport,
+                event.tap_epoch,
+                event.seq,
+                event.source_text()
             ),
         )),
     }
@@ -157,6 +178,38 @@ mod tests {
         );
         let volume = event(json!({"seq": 6, "cause": "volume", "transport": "playing"}));
         assert!(feed_lines(&volume, 0).is_empty());
+    }
+
+    #[test]
+    fn the_source_and_live_flag_are_logged_when_plisto_sends_them() {
+        let start = event(json!({
+            "seq": 8, "cause": "start", "tap_epoch": 2, "transport": "playing",
+            "source": "stream", "live": true
+        }));
+        assert_eq!(
+            texts(&feed_lines(&start, 0)),
+            ["feed start: playing, tap epoch 2 (seq 8), source stream, live true"]
+        );
+        let track = event(json!({
+            "seq": 9, "cause": "snapshot", "tap_epoch": 2, "transport": "paused",
+            "source": "track", "live": false
+        }));
+        assert_eq!(
+            texts(&feed_lines(&track, 0))[0],
+            "feed snapshot: paused, tap epoch 2, source track, live false"
+        );
+    }
+
+    #[test]
+    fn a_buffering_stream_is_logged_like_any_cause() {
+        let e = event(json!({
+            "seq": 10, "cause": "buffering", "tap_epoch": 2, "transport": "buffering",
+            "source": "stream", "live": true
+        }));
+        assert_eq!(
+            texts(&feed_lines(&e, 0)),
+            ["feed buffering: buffering, tap epoch 2 (seq 10), source stream, live true"]
+        );
     }
 
     fn segment(epoch: u32, rate: u32) -> Segment {

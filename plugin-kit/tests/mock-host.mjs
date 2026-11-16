@@ -61,6 +61,44 @@ test("the mock answers no method the SDK does not send", () => {
   assert.deepEqual(stale, [], `mock-host.html names methods the SDK no longer has: ${stale.join(", ")}`);
 });
 
+const STREAM_METHODS = [
+  "stream.play",
+  "stream.update",
+  "stream.push",
+  "stream.end",
+  "stream.pause",
+  "stream.resume",
+  "stream.stop",
+  "stream.state",
+];
+
+/** The quoted words of the array literal that follows `marker` in the mock. */
+function quotedList(marker) {
+  const at = mock.indexOf(marker);
+  assert.ok(at >= 0, `mock-host.html has no ${marker}`);
+  const open = mock.indexOf("[", at);
+  const close = mock.indexOf("]", open);
+  return [...mock.slice(open, close).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+test("the mock handles every stream method and gates it on playback.stream", () => {
+  const have = handled();
+  for (const name of STREAM_METHODS) assert.ok(have.has(name), `no handler for ${name}`);
+  assert.deepEqual(quotedList('needs("playback.stream"'), STREAM_METHODS);
+});
+
+test("the mock fires stream events at the page on the stream topic, with the end reasons the types name", () => {
+  assert.match(mock, /type: "plisto:plugin-event", topic: "stream"/);
+  const types = readFileSync(new URL("../sdk/plisto-sdk.d.ts", import.meta.url), "utf8");
+  const union = types.match(/export type StreamEndReason =([^;]*);/);
+  assert.ok(union, "plisto-sdk.d.ts has no StreamEndReason");
+  const typed = [...union[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(quotedList("var STREAM_REASONS"), typed);
+  for (const kind of ["state", "skip", "room", "ended"]) {
+    assert.match(mock, new RegExp(`<option>${kind}</option>`), `the event picker lacks ${kind}`);
+  }
+});
+
 test("the mock frames the page with the host's sandbox attribute and loads nothing remote", () => {
   assert.match(mock, /<iframe[^>]*sandbox="allow-scripts"/);
   assert.equal(/(?:src|href)="https?:/.test(mock), false, "the mock must not load remote files");

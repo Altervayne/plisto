@@ -113,6 +113,10 @@ pub enum HostMessage {
     TakeoverState { held: bool, reason: TakeoverReason },
     /// The plugin's page was shown or hidden.
     Page { open: bool },
+    /// An event of the playback stream this plugin owns: the object its page gets from `onStream`.
+    /// `kind` is `state`, `skip`, `room` or `ended`. A full input drops it, so read `stream.state`
+    /// after a gap.
+    Stream { event: Value },
 }
 
 pub const HOST_KINDS: &[&str] = &[
@@ -125,6 +129,7 @@ pub const HOST_KINDS: &[&str] = &[
     "sidebar_input",
     "takeover_state",
     "page",
+    "stream",
 ];
 
 /// The states a plugin may report through `status`.
@@ -430,6 +435,9 @@ mod tests {
                 reason: TakeoverReason::NotResponding,
             },
             HostMessage::Page { open: true },
+            HostMessage::Stream {
+                event: json!({"item": -4, "kind": "ended", "reason": "user", "detail": null}),
+            },
         ]
     }
 
@@ -566,7 +574,9 @@ mod tests {
             r#"{"type":"sidebar_input","item_id":"reset","value":null,"gesture":"g-2"}"#,
             r#"{"type":"takeover_state","held":false,"reason":"not_responding"}"#,
             r#"{"type":"page","open":true}"#,
+            r#"{"type":"stream","event":{"item":-4,"kind":"ended","reason":"user","detail":null}}"#,
         ];
+        assert_eq!(wire.len(), host_messages().len());
         for (json, expected) in wire.iter().zip(host_messages()) {
             assert_eq!(host(json), Decoded::Message(expected), "{json}");
         }

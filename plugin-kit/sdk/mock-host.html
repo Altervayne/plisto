@@ -145,6 +145,18 @@ progress { width: 120px; }
       </div>
     </div>
     <div class="panel">
+      <h2>Stream</h2>
+      <div id="streamNow" class="row"></div>
+      <div class="row">
+        <select id="evKind" aria-label="Event kind">
+          <option>state</option><option>skip</option><option>room</option><option>ended</option>
+        </select>
+        <select id="evValue" aria-label="Event value"></select>
+        <button type="button" id="evFire">Fire event</button>
+      </div>
+      <div class="muted">Sends a stream event to the page, as Plisto does for the plugin's own stream. An ended event also clears the fake stream.</div>
+    </div>
+    <div class="panel">
       <h2>Sidebar</h2>
       <div id="sidebar"></div>
     </div>
@@ -211,6 +223,10 @@ progress { width: 120px; }
   needs("playback.control", [
     "playback.toggle", "playback.pause", "playback.resume", "playback.next", "playback.prev", "playback.seek",
     "queue.play", "queue.add", "queue.play_next"
+  ]);
+  needs("playback.stream", [
+    "stream.play", "stream.update", "stream.push", "stream.end", "stream.pause", "stream.resume", "stream.stop",
+    "stream.state"
   ]);
   needs("network", NOT_IMPLEMENTED);
 
@@ -775,7 +791,10 @@ progress { width: 120px; }
       repeat: transport.repeat,
       shuffle: transport.shuffle,
       queue_index: transport.index,
-      queue_length: transport.queue.length
+      queue_length: transport.queue.length,
+      stream: stream.seat
+        ? { title: stream.seat.title, artist: stream.seat.artist, live: stream.seat.live, mine: true }
+        : null
     };
   });
   h("playback.queue", function () { return { track_ids: transport.queue.slice(), index: transport.index }; });
@@ -822,6 +841,211 @@ progress { width: 120px; }
     renderTransport();
     return { queued: ids.length };
   });
+
+  // stream: one fake seat. A pull item walks connecting, buffering, playing on a timer; a push item plays
+  // from a 1 MiB ring that drains at 16 bytes per millisecond, so a page sees `busy` and the room event.
+  var STREAM_RING = 1048576;
+  var STREAM_PUSH_MAX = 65536;
+  var STREAM_START_BYTES = 24000;
+  var STREAM_DRAIN_BYTES = 3200;
+  var STREAM_TICK_MS = 200;
+  var LAST_END_MS = 60000;
+  var STREAM_STATES = ["connecting", "buffering", "playing", "paused", "reconnecting"];
+  var STREAM_REASONS = [
+    "user", "replaced", "stopped", "finished", "plugin_gone", "producer_gone", "network", "denied",
+    "unsupported", "no_audio", "stalled"
+  ];
+  var PUSH_FORMATS = ["mp3", "aac_adts", "ogg", "flac", "pcm_s16le"];
+  var stream = { seat: null, lastEnd: null, next: -1, wantsRoom: false };
+
+  function streamEmit(data) { send({ type: "plisto:plugin-event", topic: "stream", data: data }); }
+
+  function streamSetState(next) {
+    var s = stream.seat;
+    if (!s || s.state === next) return;
+    s.state = next;
+    streamEmit({ item: s.item, kind: "state", state: next });
+    renderStream();
+  }
+
+  function streamEnd(reason, detail) {
+    var s = stream.seat;
+    if (!s) return;
+    stream.seat = null;
+    stream.wantsRoom = false;
+    stream.lastEnd = { reason: reason, detail: detail || null, at: Date.now() };
+    streamEmit({ item: s.item, kind: "ended", reason: reason, detail: detail || null });
+    renderStream();
+  }
+
+  function ownSeat(a) {
+    if (!isInt(a.item) || !stream.seat || stream.seat.item !== a.item) {
+      fail("not_found", "That is not this plugin's current stream item.");
+    }
+    return stream.seat;
+  }
+
+  function optionalText(a, name) {
+    if (a[name] === undefined || a[name] === null) return null;
+    if (typeof a[name] !== "string" || a[name].length > 200) fail("invalid_args", name + " is not valid text.");
+    var t = a[name].trim();
+    return t === "" ? null : t;
+  }
+
+  function checkSource(src) {
+    if (!isObj(src) || (src.url === undefined) === (src.push === undefined)) {
+      fail("invalid_args", "source must hold exactly one of url and push.");
+    }
+    if (src.url !== undefined) {
+      var u;
+      try { u = new URL(src.url); } catch (e) { u = null; }
+      if (!u || (u.protocol !== "https:" && u.protocol !== "http:")) fail("invalid_args", "url must be an absolute http(s) URL.");
+      if (state.granted.indexOf("network") < 0) fail("denied", "A URL needs the network capability.");
+      var listed = state.manifest && Array.isArray(state.manifest.network) ? state.manifest.network : [];
+      if (listed.indexOf(u.origin) < 0) fail("denied", "That origin is not in the manifest.", "origin_not_listed");
+      return false;
+    }
+    var p = src.push;
+    if (!isObj(p) || PUSH_FORMATS.indexOf(p.format) < 0) fail("invalid_args", "push.format is not a known format.");
+    var pcm = p.format === "pcm_s16le";
+    if (pcm !== (p.rate !== undefined) || pcm !== (p.channels !== undefined)) {
+      fail("invalid_args", "rate and channels are for pcm_s16le, and required there.");
+    }
+    if (pcm && !(isInt(p.rate) && p.rate >= 8000 && p.rate <= 192000 && (p.channels === 1 || p.channels === 2))) {
+      fail("invalid_args", "rate is 8000 to 192000 and channels is 1 or 2.");
+    }
+    return true;
+  }
+
+  function skipArg(v) {
+    if (!isObj(v)) fail("invalid_args", "skip must be an object.");
+    return { next: v.next === true, prev: v.prev === true };
+  }
+
+  h("stream.play", function (a) {
+    var push = checkSource(a.source);
+    var title = optionalText(a, "title");
+    if (title === null) fail("invalid_args", "title must be 1 to 200 characters of text.");
+    var live = a.live === undefined ? true : a.live;
+    if (typeof live !== "boolean") fail("invalid_args", "live must be a boolean.");
+    var seat = {
+      item: stream.next--,
+      push: push,
+      live: live,
+      title: title,
+      artist: optionalText(a, "artist"),
+      album: optionalText(a, "album"),
+      now: optionalText(a, "now"),
+      skip: a.skip === undefined ? { next: false, prev: false } : skipArg(a.skip),
+      state: "connecting",
+      age: 0,
+      ring: 0,
+      ended: false,
+      secs: 0
+    };
+    if (seat.now !== null && !live) fail("invalid_args", "now is for a live item only.");
+    if (stream.seat) streamEnd("replaced");
+    stream.seat = seat;
+    renderStream();
+    return { item: seat.item, state: "connecting" };
+  });
+  h("stream.update", function (a) {
+    var s = ownSeat(a);
+    var keys = ["title", "artist", "album", "now", "artwork", "skip"].filter(function (k) { return a[k] !== undefined; });
+    if (keys.length === 0) fail("invalid_args", "Give at least one field to change.");
+    if (a.title !== undefined && optionalText(a, "title") === null) fail("invalid_args", "title cannot be cleared.");
+    if (a.now !== undefined && a.now !== null && !s.live) fail("invalid_args", "now is for a live item only.");
+    keys.forEach(function (k) {
+      if (k === "title" || k === "artist" || k === "album" || k === "now") s[k] = optionalText(a, k);
+      else if (k === "skip") s.skip = a.skip === null ? { next: false, prev: false } : skipArg(a.skip);
+    });
+    renderStream();
+    return {};
+  });
+  h("stream.push", function (a) {
+    var s = ownSeat(a);
+    if (!s.push) fail("invalid_args", "The item is not a push item.");
+    if (s.ended) fail("invalid_args", "The item's bytes have ended.");
+    if (typeof a.data_b64 !== "string") fail("invalid_args", "data_b64 must be a string.");
+    var n;
+    try { n = atob(a.data_b64).length; } catch (e) { fail("invalid_args", "data_b64 is not valid base64."); }
+    if (n === 0) fail("invalid_args", "A push carries at least 1 byte.");
+    if (n > STREAM_PUSH_MAX) fail("too_large", "A push carries at most 65536 bytes.");
+    if (s.ring + n > STREAM_RING) {
+      stream.wantsRoom = true;
+      fail("busy", "The ring is full.");
+    }
+    s.ring += n;
+    return { buffered_ms: Math.floor(s.ring / 16), room: STREAM_RING - s.ring };
+  });
+  h("stream.end", function (a) {
+    var s = ownSeat(a);
+    if (!s.push) fail("invalid_args", "The item is not a push item.");
+    s.ended = true;
+    return {};
+  });
+  h("stream.pause", function (a) { ownSeat(a); streamSetState("paused"); return {}; });
+  h("stream.resume", function (a) {
+    var s = ownSeat(a);
+    if (s.state === "paused") streamSetState(s.push && s.ring < STREAM_START_BYTES ? "buffering" : "playing");
+    return {};
+  });
+  h("stream.stop", function (a) { ownSeat(a); streamEnd("stopped"); return {}; });
+  h("stream.state", function () {
+    var s = stream.seat;
+    var last = stream.lastEnd && Date.now() - stream.lastEnd.at < LAST_END_MS
+      ? { reason: stream.lastEnd.reason, detail: stream.lastEnd.detail }
+      : null;
+    if (!s) {
+      return {
+        item: null, state: null, live: null, seekable: null, position_secs: null, duration_secs: null,
+        buffered_ms: null, last_end: last
+      };
+    }
+    return {
+      item: s.item, state: s.state, live: s.live, seekable: false, position_secs: s.secs, duration_secs: null,
+      buffered_ms: Math.floor(s.ring / 16), last_end: last
+    };
+  });
+
+  setInterval(function () {
+    var s = stream.seat;
+    if (!s) return;
+    if (!s.push) {
+      s.age += STREAM_TICK_MS;
+      if (s.state === "connecting" && s.age >= 300) streamSetState("buffering");
+      else if (s.state === "buffering" && s.age >= 900) streamSetState("playing");
+    } else {
+      if (s.state === "connecting" && s.ring > 0) streamSetState("buffering");
+      if (s.state === "buffering" && (s.ring >= STREAM_START_BYTES || (s.ended && s.ring > 0))) streamSetState("playing");
+      if (s.state === "playing") {
+        s.ring = Math.max(0, s.ring - STREAM_DRAIN_BYTES);
+        if (s.ring === 0) {
+          if (s.ended) { streamEnd("finished"); return; }
+          streamSetState("buffering");
+        }
+      }
+      if (stream.wantsRoom && STREAM_RING - s.ring >= STREAM_RING / 2) {
+        stream.wantsRoom = false;
+        streamEmit({ item: s.item, kind: "room", room: STREAM_RING - s.ring });
+      }
+    }
+    if (s.state === "playing") s.secs += STREAM_TICK_MS / 1000;
+    renderStream();
+  }, STREAM_TICK_MS);
+
+  function renderStream() {
+    var box = $("streamNow");
+    if (!box) return;
+    box.textContent = "";
+    var s = stream.seat;
+    if (!s) {
+      box.appendChild(el("span", "muted", "No stream"));
+      return;
+    }
+    box.appendChild(el("span", "", "Item " + s.item + ": " + s.title + " (" + s.state + ")"));
+    box.appendChild(el("span", "muted", (s.push ? "push, ring " + Math.floor(s.ring / 1024) + " KiB" : "pull") + ", " + (s.live ? "live" : "finite")));
+  }
 
   // -- Manifest --
 
@@ -1178,6 +1402,7 @@ progress { width: 120px; }
     var param = new URLSearchParams(location.search).get("page");
     $("pageInput").value = param || "";
     renderTransport();
+    renderStream();
     renderSidebar();
     if (!param) {
       setStatus([["muted", "No page loaded. Give a path in the box, relative to this file, or pick an example."]]);
@@ -1240,6 +1465,31 @@ progress { width: 120px; }
   $("nextBtn").addEventListener("click", stepNext);
   $("playBtn").addEventListener("click", function () { setPlaying(true); });
   $("pauseBtn").addEventListener("click", function () { setPlaying(false); });
+  var EVENT_VALUES = {
+    state: STREAM_STATES,
+    skip: ["next", "prev"],
+    room: ["524288", "1048576"],
+    ended: STREAM_REASONS
+  };
+  function fillEventValues() {
+    var sel = $("evValue");
+    sel.textContent = "";
+    EVENT_VALUES[$("evKind").value].forEach(function (v) { sel.appendChild(el("option", "", v)); });
+  }
+  $("evKind").addEventListener("change", fillEventValues);
+  $("evFire").addEventListener("click", function () {
+    var kind = $("evKind").value;
+    var value = $("evValue").value;
+    var item = stream.seat ? stream.seat.item : -1;
+    if (kind === "ended") streamEnd(value);
+    else if (kind === "state") {
+      if (stream.seat) streamSetState(value);
+      else streamEmit({ item: item, kind: "state", state: value });
+    }
+    else if (kind === "skip") streamEmit({ item: item, kind: "skip", direction: value });
+    else streamEmit({ item: item, kind: "room", room: Number(value) });
+  });
+  fillEventValues();
   $("clearCalls").addEventListener("click", function () { $("calls").textContent = ""; });
   $("clearLog").addEventListener("click", function () { $("logList").textContent = ""; });
 

@@ -207,6 +207,8 @@ Know what it is not:
 - A method it does not answer fails with an error that says so and appears in the Calls panel. Today that
   is every `net.*` method. `plisto.has` is false for them. A native plugin's program does not run.
 - Cover images are small SVGs, where Plisto sends JPEGs.
+- `stream.*` answers for one fake stream that plays no sound. Its Stream panel fires `state`, `skip`, `room`
+  and `ended` events at the page, so `plisto.onStream` can be tried.
 - It needs http. Opened from `file://`, browsers block the manifest read and may block the frame's own
   files, so use the server above.
 
@@ -216,6 +218,7 @@ Know what it is not:
 - Toasts, prompts and chips: [UI surfaces](ui-surfaces.md).
 - Running in the background: [lifecycle](lifecycle.md).
 - Talking to a web service: [network](network.md).
+- Playing audio through Plisto: [streams](stream.md).
 - A program that runs beside Plisto, or reading the audio: [native plugins](native.md).
 - Every method with its limits: [API reference](api.md).
 - A larger working example: [`examples/hello-background`](../examples/hello-background/).

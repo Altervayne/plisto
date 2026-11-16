@@ -274,6 +274,15 @@ export interface PlaybackState {
   shuffle: boolean;
   queue_index: number;
   queue_length: number;
+  /** The plugin stream that plays now, whoever owns it; null when none does. */
+  stream: PlaybackStreamInfo | null;
+}
+export interface PlaybackStreamInfo {
+  title: string;
+  artist: string | null;
+  live: boolean;
+  /** True when the calling plugin owns the stream. */
+  mine: boolean;
 }
 export interface PlaybackQueueResult {
   /** In play order; null for a track opened straight from a file. */
@@ -295,6 +304,163 @@ export type QueuePlayArgs = QueueSource & { start?: number };
 export interface QueueResult {
   /** How many tracks went to the player; 0 sends nothing. */
   queued: number;
+}
+
+/** Why a stream item ended. */
+export type StreamEndReason =
+  | "user"
+  | "replaced"
+  | "stopped"
+  | "finished"
+  | "plugin_gone"
+  | "producer_gone"
+  | "network"
+  | "denied"
+  | "unsupported"
+  | "no_audio"
+  | "stalled";
+
+/**
+ * The fixed word that refines an end reason, or null. `network`: dns, connect, tls, protocol, closed,
+ * redirect, proxy, status. `denied`: origin_not_listed, redirect_not_listed, blocked_address, dev_only.
+ * `unsupported`: content_type, playlist, format, codec, seek, decoder. `plugin_gone`: update, consent,
+ * safe_mode, or null for a disable, an uninstall and a crash-loop auto-disable.
+ */
+export type StreamEndDetail = string;
+
+export type StreamState = "connecting" | "buffering" | "playing" | "paused" | "reconnecting";
+
+/** The formats a push item may carry. `pcm_s16le` is little-endian 16-bit frames and needs `rate` and `channels`. */
+export type StreamPushSpec =
+  | { format: "mp3" | "aac_adts" | "ogg" | "flac" }
+  | { format: "pcm_s16le"; rate: number; channels: 1 | 2 };
+
+/** Exactly one of `url` (Plisto fetches it) and `push` (the plugin sends the bytes). */
+export type StreamSource =
+  | {
+      /** Absolute `https` URL (or `http` for a developer loopback origin) on a consented origin; needs `network`. */
+      url: string;
+      /** The network guide's header rules apply. */
+      headers?: Record<string, string>;
+      /** True asks the server for ICY metadata and reads `StreamTitle` into `now`. Default false. */
+      icy?: boolean;
+      push?: never;
+    }
+  | { push: StreamPushSpec; url?: never; headers?: never; icy?: never };
+
+/** Exactly one of `url` (needs `network`, a consented origin) and `data_b64` (at most 524288 bytes decoded). */
+export type StreamArtwork = { url: string; data_b64?: never } | { data_b64: string; url?: never };
+
+export interface StreamSkip {
+  next?: boolean;
+  prev?: boolean;
+}
+
+export interface StreamPlayArgs {
+  source: StreamSource;
+  /**
+   * Pull: by default live when the response has no `content-length` or carries an `icy-*` header, else
+   * finite. Push: default true; false means the plugin will call `stream.end`.
+   */
+  live?: boolean;
+  /** 1 to 200 characters once cleaned. */
+  title: string;
+  /** At most 200 characters; empty reads as absent. */
+  artist?: string;
+  album?: string;
+  /** The line playing now. A live item only: refused `invalid_args` when `live` is false. */
+  now?: string;
+  artwork?: StreamArtwork;
+  /** Which of Next and Previous the plugin takes; both default to false. */
+  skip?: StreamSkip;
+}
+export interface StreamPlayResult {
+  item: number;
+  state: "connecting";
+}
+
+/** At least one field. `null` clears an optional one; `title` cannot be cleared. */
+export interface StreamUpdateFields {
+  title?: string;
+  artist?: string | null;
+  album?: string | null;
+  now?: string | null;
+  artwork?: StreamArtwork | null;
+  /** `null` turns both skips off. */
+  skip?: StreamSkip | null;
+}
+export type StreamUpdateArgs = StreamUpdateFields & { item: number };
+
+export interface StreamItemArgs {
+  item: number;
+}
+export interface StreamPushArgs {
+  item: number;
+  /** Base64 of 1 to 65536 bytes. */
+  data_b64: string;
+}
+export interface StreamPushResult {
+  /** Decoded audio waiting to play, in milliseconds. */
+  buffered_ms: number;
+  /** Bytes the ring still takes. */
+  room: number;
+}
+export interface StreamStateResult {
+  /** The caller's own current item; null when it has none. */
+  item: number | null;
+  state: StreamState | null;
+  live: boolean | null;
+  seekable: boolean | null;
+  /** Listened time for a live item, the play head for a finite one. */
+  position_secs: number | null;
+  /** Always null today; do not wait for it. */
+  duration_secs: number | null;
+  buffered_ms: number | null;
+  /** The caller's previous item's end, kept for 60 seconds. */
+  last_end: { reason: StreamEndReason; detail: StreamEndDetail | null } | null;
+}
+
+/** What the owner of the playing stream is told, on both its page and its native program. */
+export type StreamEvent =
+  | { kind: "state"; item: number; state: StreamState }
+  /** Only when `skip` accepted that direction. */
+  | { kind: "skip"; item: number; direction: "next" | "prev" }
+  /** A push item has room again, after a `busy` answer. */
+  | { kind: "room"; item: number; room: number }
+  | { kind: "ended"; item: number; reason: StreamEndReason; detail: StreamEndDetail | null };
+
+export interface PlistoPushFromOptions {
+  /** Call `stream.end` once the stream is read to its end. Default true. */
+  end?: boolean;
+}
+export interface PlistoPushFromResult {
+  /** Bytes written. */
+  bytes: number;
+}
+
+export interface PlistoStream {
+  /** Needs `playback.stream`. Starts the stream at once: it pauses and parks the user's music. */
+  play(args: StreamPlayArgs): Promise<StreamPlayResult>;
+  update(item: number, fields: StreamUpdateFields): Promise<EmptyResult>;
+  /** An ArrayBuffer or a typed array of 1 to 65536 bytes. Rejects `busy` when the ring is full. */
+  push(item: number, data: ArrayBuffer | ArrayBufferView): Promise<StreamPushResult>;
+  /**
+   * Writes a stream of Uint8Array chunks into a push item, waiting for room as the host reports it. Calls
+   * `stream.end` after the last byte unless `options.end` is false. Rejects `not_found`, and cancels the
+   * stream, when the item ends first.
+   */
+  pushFrom(
+    item: number,
+    readable: ReadableStream<Uint8Array>,
+    options?: PlistoPushFromOptions,
+  ): Promise<PlistoPushFromResult>;
+  /** Push items only: no more bytes. What is buffered plays out, then the item ends `finished`. */
+  end(item: number): Promise<EmptyResult>;
+  pause(item: number): Promise<EmptyResult>;
+  resume(item: number): Promise<EmptyResult>;
+  /** Ends the item `stopped`. */
+  stop(item: number): Promise<EmptyResult>;
+  state(): Promise<StreamStateResult>;
 }
 
 export interface NetFetchArgs {
@@ -523,14 +689,14 @@ export interface PlistoMethods {
   "net.socket.open": { args: NetSocketOpenArgs; result: NetSocketOpenResult };
   "net.socket.send": { args: NetSocketSendArgs; result: EmptyResult };
   "net.socket.close": { args: NetSocketCloseArgs; result: EmptyResult };
-  "stream.play": { args: Record<string, unknown>; result: { item: number; state: "connecting" } };
-  "stream.update": { args: { item: number } & Record<string, unknown>; result: EmptyResult };
-  "stream.push": { args: { item: number; data_b64: string }; result: { buffered_ms: number; room: number } };
-  "stream.end": { args: { item: number }; result: EmptyResult };
-  "stream.pause": { args: { item: number }; result: EmptyResult };
-  "stream.resume": { args: { item: number }; result: EmptyResult };
-  "stream.stop": { args: { item: number }; result: EmptyResult };
-  "stream.state": { args: {}; result: Record<string, unknown> };
+  "stream.play": { args: StreamPlayArgs; result: StreamPlayResult };
+  "stream.update": { args: StreamUpdateArgs; result: EmptyResult };
+  "stream.push": { args: StreamPushArgs; result: StreamPushResult };
+  "stream.end": { args: StreamItemArgs; result: EmptyResult };
+  "stream.pause": { args: StreamItemArgs; result: EmptyResult };
+  "stream.resume": { args: StreamItemArgs; result: EmptyResult };
+  "stream.stop": { args: StreamItemArgs; result: EmptyResult };
+  "stream.state": { args: {}; result: StreamStateResult };
 }
 
 export interface CallOptions {
@@ -584,6 +750,11 @@ export interface Plisto {
    * a-z, 0-9, "_", "." and "-"; anything else throws TypeError). Returns an unsubscribe function.
    */
   onPluginEvent(topic: string, callback: (data: unknown) => void): () => void;
+  /**
+   * Subscribes to the events of the stream this plugin owns (the `stream` topic of onPluginEvent). The page
+   * that is newest and running hears them. Returns an unsubscribe function.
+   */
+  onStream(callback: (event: StreamEvent) => void): () => void;
   /** A native plugin's own program. A UI plugin's calls reject unknown_method. */
   readonly plugin: {
     /**
@@ -650,6 +821,8 @@ export interface Plisto {
     add(source: QueueSource): Promise<QueueResult>;
     playNext(source: QueueSource): Promise<QueueResult>;
   };
+  /** Needs playback.stream. */
+  readonly stream: PlistoStream;
   /** Needs network. */
   readonly net: PlistoNet;
   readonly log: {

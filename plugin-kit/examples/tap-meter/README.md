@@ -18,7 +18,9 @@ drives its sidebar items and can hold Plisto's output. Read it next to the
 - Logs each tap record: a new epoch after a start or a seek, the same epoch with a new record after a
   gapless change or a format change. Counts overruns and logs them.
 - Keeps the last `feed` event, so it knows whether playback is paused or stopped from the first
-  `snapshot` on. Logs each event but volume changes, `lost` when it is not 0, and the output device id.
+  `snapshot` on. Logs each event but volume changes, with the `source` and `live` the feed carries, `lost`
+  when it is not 0, and the output device id. Logs each `stream` message (the events of a plugin stream)
+  by its kind and, for an end, its reason.
 - Sends `levels` page events ten times a second while its page is open, and none while it is closed.
 - Answers its page's `call`: `ping` answers `{ "pong": true, "seq": n }`, any other name is an error
   the page sees as `plugin_error`.
@@ -33,7 +35,7 @@ drives its sidebar items and can hold Plisto's output. Read it next to the
 | State | When | Text |
 | --- | --- | --- |
 | `on` | Audio is playing through the tap. | The peak of each channel, such as `peak -6.0 -6.0 dB`. |
-| `idle` | Playback is paused or stopped, or the tap is open and silent. | `paused`, `stopped` or `silent`. |
+| `idle` | Playback is paused, stopped or buffering (a stream waiting for audio), or the tap is open and silent. | `paused`, `stopped`, `buffering` or `silent`. |
 | `warn` | Plisto gave it no tap, or the tap cannot be opened. | `no tap` or `tap not open`. |
 
 In Plisto's sidebar `on` is a cyan dot, `idle` a grey one and `warn` an amber one, with the text as the

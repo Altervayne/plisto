@@ -40,8 +40,8 @@ impl Line {
     }
 }
 
-/// `on` while audio plays through the tap, `idle` while it is paused, stopped or silent, `warn` while
-/// there is no tap to read. `transport` is the last playback state from the feed, if any arrived.
+/// `on` while audio plays through the tap, `idle` while it is paused, stopped, buffering or silent, `warn`
+/// while there is no tap to read. `transport` is the last playback state from the feed, if any arrived.
 /// While the plugin holds Plisto's output the text says so first, since Plisto shows it beside the
 /// takeover.
 pub fn line(tap: TapState, transport: Option<&str>, window: &Window, held: bool) -> Line {
@@ -49,7 +49,9 @@ pub fn line(tap: TapState, transport: Option<&str>, window: &Window, held: bool)
         TapState::Missing => (ReportedState::Warn, "no tap".to_string()),
         TapState::Closed => (ReportedState::Warn, "tap not open".to_string()),
         TapState::Open => match (transport, peak_text(window)) {
-            (Some(state @ ("paused" | "stopped")), _) => (ReportedState::Idle, state.to_string()),
+            (Some(state @ ("paused" | "stopped" | "buffering")), _) => {
+                (ReportedState::Idle, state.to_string())
+            }
             (_, Some(peak)) => (ReportedState::On, peak),
             _ => (ReportedState::Idle, "silent".to_string()),
         },
@@ -118,8 +120,8 @@ mod tests {
     }
 
     #[test]
-    fn paused_stopped_and_silent_are_idle() {
-        for transport in ["paused", "stopped"] {
+    fn paused_stopped_buffering_and_silent_are_idle() {
+        for transport in ["paused", "stopped", "buffering"] {
             let idle = line(TapState::Open, Some(transport), &audible(), false);
             assert_eq!(idle, Line::new(ReportedState::Idle, transport));
         }

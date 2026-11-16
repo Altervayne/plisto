@@ -1378,6 +1378,7 @@ mod tests {
             ("sandbox-probe2", "dev.plisto.probe2"),
             ("network-probe", "dev.plisto.netprobe"),
             ("network-probe-none", "dev.plisto.netprobe0"),
+            ("stream-probe", "dev.plisto.streamprobe"),
         ] {
             let dir = root.join(folder);
             // The fixtures are local-only (the folder is git-ignored), so a fresh clone skips.

@@ -152,6 +152,12 @@ As in browsers, 301 and 302 turn `POST` into `GET` without a body, 303 turns eve
 `GET` without a body, and 307 and 308 keep the method and body. A hop to another origin drops `authorization`
 and `cookie`. The same rules apply to streamed requests.
 
+### Abort keys
+
+A raw `net.fetch` or `net.abort` call names a request by an abort key of 1 to 64 visible ASCII characters.
+Keys that start with `plisto:` are reserved for Plisto's own work, such as a playing stream's connection, and
+are refused with `invalid_args`.
+
 ## Buffered and streamed
 
 **Buffered** (the default) waits for the whole body, at most 8 MiB, and resolves one `ArrayBuffer`. A larger

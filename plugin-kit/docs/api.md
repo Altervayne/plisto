@@ -46,8 +46,11 @@ Every call spends one token from the "all" budget and one from its own class. A 
 | nav | `ui.open_page` | 3 | 1 per second |
 | library read | `library.*` except `library.cover` | 60 | 30 per second |
 | cover | `library.cover` | 30 | 10 per second |
-| playback read | `playback.state`, `playback.queue` | 20 | 10 per second |
+| playback read | `playback.state`, `playback.queue`, `stream.state` | 20 | 10 per second |
 | play | the other `playback.*` methods, `queue.*` | 10 | 5 per second |
+| stream | `stream.play`, `stream.pause`, `stream.resume`, `stream.stop` | 4 | 1 per second |
+| stream update | `stream.update` | 10 | 1 per second |
+| stream push | `stream.push`, `stream.end` | 60 | 30 per second |
 | net | `net.fetch`, `net.socket.open` | 30 | 10 per second |
 | net send | `net.socket.send`, `net.socket.close`, `net.abort`, `net.stream.cancel` | 40 | 20 per second |
 | net stream | `net.stream.ack` | 40 | 20 per second |
@@ -414,6 +417,7 @@ Arguments: none. Result:
 | `shuffle` | boolean | |
 | `queue_index` | number | The current track's place in the queue. |
 | `queue_length` | number | |
+| `stream` | object or `null` | The plugin stream that plays now, whoever owns it: `{ title, artist, live, mine }`, `mine` true when the caller owns it. `null` when none plays. While one plays, `track_id` and `track` are `null`. |
 
 The position is a snapshot; read it again to follow playback.
 
@@ -495,6 +499,24 @@ The network methods are `net.fetch`, `net.abort`, `net.stream.ack`, `net.stream.
 events the SDK reads for you. The [network guide](network.md) has the arguments, limits and errors, and
 lists the few parts that are not reachable from Plisto's interface yet.
 
+### Streams
+
+The stream methods play audio a plugin hands Plisto: a URL Plisto fetches, or bytes the plugin pushes. They
+need `playback.stream`; a URL also needs `network`.
+
+| Method | Helper | Arguments | Result |
+| --- | --- | --- | --- |
+| `stream.play` | `plisto.stream.play(args)` | `source`, `title` and optional metadata | `{ item, state }` |
+| `stream.update` | `plisto.stream.update(item, fields)` | `item` and the fields to change | `{}` |
+| `stream.push` | `plisto.stream.push(item, bytes)` | `item`, `data_b64` of at most 64 KiB | `{ buffered_ms, room }` |
+| `stream.end` | `plisto.stream.end(item)` | `item` | `{}` |
+| `stream.pause`, `stream.resume`, `stream.stop` | `plisto.stream.pause(item)` and so on | `item` | `{}` |
+| `stream.state` | `plisto.stream.state()` | none | the item, its state and `last_end` |
+
+`plisto.stream.pushFrom(item, readable)` writes a `ReadableStream` of bytes into a push item. A start needs no
+user action, pauses and parks the user's music, and replaces any stream that plays. The
+[stream guide](stream.md) has the arguments, the events, every way a stream ends and the limits.
+
 ## Error codes
 
 Every failure rejects with a `PlistoError` whose `code` is one of twelve values:
@@ -542,7 +564,7 @@ if (plisto.has("ui.toast")) { /* safe to call */ }
 `has` says only that the method exists. It does not say that the plugin holds the capability. Check
 `info.granted` for that, or catch `denied`.
 
-There are no audio methods. A native plugin reads audio through the tap and the feed (see the
+No method reads audio. A native plugin reads audio through the tap and the feed (see the
 [native guide](native.md)), not through `plisto.call`.
 
 ## Events
@@ -579,6 +601,11 @@ event's data. A topic is 1 to 64 characters of `a-z`, `0-9`, `_`, `.` and `-`; a
 plisto.onPluginEvent("levels", (data) => draw(data.peak_db));
 ```
 
+A plugin that owns a playing stream hears its events on the topic `stream`, whatever its tier.
+`plisto.onStream(callback)` subscribes to it, and returns an unsubscribe function. The callback gets
+`{ item, kind, ... }` with `kind` one of `state`, `skip`, `room` and `ended`; the [stream guide](stream.md#events)
+lists the fields. Do not use the topic `stream` for your own program's page events.
+
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
@@ -595,6 +622,7 @@ version is `plisto.sdkVersion` (`1.4.0`).
 | `has(method)` | Whether Plisto listed the method at start. |
 | `on(event, callback)` | Subscribes to an event. Returns an unsubscribe function. Throws `TypeError` for an unknown event. |
 | `onPluginEvent(topic, callback)` | Subscribes to a native program's page events of one topic. Returns an unsubscribe function. |
+| `onStream(callback)` | Subscribes to the events of the plugin's own stream. Returns an unsubscribe function. |
 | `plugin.call(name, args?, { timeoutMs }?)` | Calls the plugin's own native program. |
 | `app.info()`, `app.methods()` | Helpers for `app.info` and `app.methods`. |
 | `storage.get/set/remove/keys/clear/usage` | Helpers for the `storage.*` methods. |
@@ -604,6 +632,7 @@ version is `plisto.sdkVersion` (`1.4.0`).
 | `library.tracks/tracksById/albums/album/albumTracks/playlists/playlist/playlistTracks/cover` | Helpers for the `library.*` methods. |
 | `playback.state/queue/toggle/pause/resume/next/prev/seek` | Helpers for the `playback.*` methods. |
 | `queue.play/add/playNext` | Helpers for the `queue.*` methods. |
+| `stream.play/update/push/pushFrom/end/pause/resume/stop/state` | Helpers for the `stream.*` methods. Need `playback.stream`. See the [stream guide](stream.md). |
 | `net.fetch/eventSource/imageUrl/revoke/socket` | Network helpers. Need `network`. See the [network guide](network.md). |
 | `PlistoError` | The error class. |
 

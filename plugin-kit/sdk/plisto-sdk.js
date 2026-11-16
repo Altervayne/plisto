@@ -1321,5 +1321,158 @@
     },
   };
 
+  // ---- stream ----
+
+  var STREAM_PUSH_MAX = 65536;
+  // With less room than this, a slice goes out whole: the host's refusal is what arms the room event.
+  var STREAM_MIN_SLICE = 4096;
+  // A push that waits for room tries again after this long, in case the room event went to another frame.
+  var ROOM_RETRY_MS = 2000;
+
+  function itemCall(method) {
+    return function (item) {
+      return plisto.call(method, { item: item });
+    };
+  }
+
+  /** The bytes of an ArrayBuffer or a typed array as a Uint8Array over the same memory; null for anything else. */
+  function asBytes(data) {
+    if (data instanceof Uint8Array) return data;
+    if (isArrayBuffer(data)) return new Uint8Array(data);
+    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return null;
+  }
+
+  function streamPush(item, data) {
+    var bytes = asBytes(data);
+    if (bytes === null) {
+      return Promise.reject(new PlistoError("invalid_args", "The data must be an ArrayBuffer or a typed array."));
+    }
+    return plisto.call("stream.push", { item: item, data_b64: toBase64(bytes) });
+  }
+
+  /**
+   * Writes a ReadableStream of Uint8Array into a push item. Each chunk goes out in slices of at most 64 KiB.
+   * A `busy` answer waits for the item's `room` event (or ROOM_RETRY_MS) and tries again; a `rate_limited`
+   * answer waits its `retryAfterMs`. Resolves `{ bytes }` once the stream is read to its end and, unless
+   * `options.end` is false, `stream.end` was called. Rejects with the call's own error, and with `not_found`
+   * when the item ends first; the stream is cancelled then.
+   */
+  function streamPushFrom(item, readable, options) {
+    if (!readable || typeof readable.getReader !== "function") {
+      return Promise.reject(new PlistoError("invalid_args", "pushFrom needs a ReadableStream."));
+    }
+    var closeWhenDone = !options || options.end !== false;
+    var reader = readable.getReader();
+    var room = null;
+    var ended = null;
+    var wake = null;
+    var total = 0;
+
+    var off = plisto.onPluginEvent("stream", function (event) {
+      if (!event || event.item !== item) return;
+      if (event.kind === "room" && typeof event.room === "number") {
+        room = event.room;
+      } else if (event.kind === "ended") {
+        ended = new PlistoError("not_found", "The item ended (" + event.reason + ").");
+        // A read still waiting for the source finishes at once.
+        reader.cancel().then(noop, noop);
+      } else {
+        return;
+      }
+      if (wake) wake();
+    });
+
+    function pause(ms) {
+      return new Promise(function (resolve) {
+        var timer = setTimeout(done, ms);
+        function done() {
+          clearTimeout(timer);
+          wake = null;
+          resolve();
+        }
+        wake = done;
+      });
+    }
+
+    function writeFrom(bytes, at) {
+      if (ended) return Promise.reject(ended);
+      if (at >= bytes.length) return Promise.resolve();
+      var take = Math.min(STREAM_PUSH_MAX, bytes.length - at);
+      if (room !== null && room >= STREAM_MIN_SLICE) take = Math.min(take, room);
+      return streamPush(item, bytes.subarray(at, at + take)).then(
+        function (result) {
+          total += take;
+          room = result && typeof result.room === "number" ? result.room : null;
+          return writeFrom(bytes, at + take);
+        },
+        function (e) {
+          if (e && e.code === "busy") {
+            room = 0;
+            return pause(ROOM_RETRY_MS).then(function () {
+              return writeFrom(bytes, at);
+            });
+          }
+          if (e && e.code === "rate_limited") {
+            return pause(e.retryAfterMs || 100).then(function () {
+              return writeFrom(bytes, at);
+            });
+          }
+          throw e;
+        },
+      );
+    }
+
+    function pump() {
+      return reader.read().then(function (r) {
+        if (ended) throw ended;
+        if (r.done) return null;
+        var bytes = asBytes(r.value);
+        if (bytes === null) {
+          throw new PlistoError("invalid_args", "The stream must hold Uint8Array chunks.");
+        }
+        return writeFrom(bytes, 0).then(pump);
+      });
+    }
+
+    return pump()
+      .then(function () {
+        return closeWhenDone ? plisto.stream.end(item) : null;
+      })
+      .then(
+        function () {
+          off();
+          return { bytes: total };
+        },
+        function (e) {
+          off();
+          reader.cancel().then(noop, noop);
+          throw e;
+        },
+      );
+  }
+
+  plisto.stream = {
+    play: function (args) {
+      return plisto.call("stream.play", args);
+    },
+    update: function (item, fields) {
+      return plisto.call("stream.update", Object.assign({}, fields, { item: item }));
+    },
+    push: streamPush,
+    pushFrom: streamPushFrom,
+    end: itemCall("stream.end"),
+    pause: itemCall("stream.pause"),
+    resume: itemCall("stream.resume"),
+    stop: itemCall("stream.stop"),
+    state: noArgs("stream.state"),
+  };
+
+  /** Subscribes to the events of this plugin's stream. Returns an unsubscribe function. */
+  plisto.onStream = function (callback) {
+    if (typeof callback !== "function") throw new TypeError("plisto.onStream: bad callback");
+    return plisto.onPluginEvent("stream", callback);
+  };
+
   window.plisto = plisto;
 })();

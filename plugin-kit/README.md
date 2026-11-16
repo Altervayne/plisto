@@ -62,6 +62,7 @@ Plisto does not review plugins. Users are told so when they install one.
 | `docs/ui-surfaces.md` | Toasts, prompts, chips, the prompt gate and opening your page. |
 | `docs/sidebar.md` | The sidebar declaration and live items. |
 | `docs/network.md` | Network access: origins, fetch, streams, Server-Sent Events, sockets, limits and errors. |
+| `docs/stream.md` | Playing audio through Plisto: pull and push, formats, metadata, events, every end reason and limit. |
 | `docs/native.md` | The native tier: manifest, launch, the wire protocol, the audio tap and feed, output takeover. |
 | `docs/lifecycle.md` | Install, enable, update, heartbeat, background plugins, crashes, safe mode, logging, versioning. |
 | `docs/install-and-test.md` | Installing into Plisto, testing, debugging and a release checklist. |
@@ -70,7 +71,8 @@ Plisto does not review plugins. Users are told so when they install one.
 | `sdk/mock-host.html` | A mock host page: develop a UI plugin's page in a browser with no Plisto running. Served by `sdk/mock-serve.mjs`. See [getting started](docs/getting-started.md#develop-in-a-browser-with-the-mock-host). |
 | `tests/net-sdk.mjs` | Tests of the SDK's network code. |
 | `tests/plugin-sdk.mjs` | Tests of the SDK's native-plugin half. |
-| `tests/mock-host.mjs` | Checks that the mock host answers every SDK method. Run all three with `node --test tests/*.mjs`. |
+| `tests/stream-sdk.mjs` | Tests of the SDK's stream helpers and `pushFrom`'s back-pressure. |
+| `tests/mock-host.mjs` | Checks that the mock host answers every SDK method. Run all four with `node --test tests/*.mjs`. |
 | `examples/pack.ps1` | Packs `hello-ui` and `hello-background` into installable `.plistoplugin` files. |
 | `examples/hello-ui/` | A page plugin that exercises toasts, prompts, chips and routes. |
 | `examples/hello-background/` | A background plugin with a sidebar section of live items. |

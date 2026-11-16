@@ -135,6 +135,7 @@ plugin runs. Plisto grants all of them or none: there is no partial grant.
 | `library.read` | Read the library: titles, artists, albums, playlists and covers, never file locations. | `library.*` methods, see the [API reference](api.md#library-data) |
 | `playback.read` | Read what is playing and the queue. | `playback.state`, `playback.queue` |
 | `playback.control` | Play, pause, skip, seek and change the queue. | the other `playback.*` methods, `queue.*` |
+| `playback.stream` | Play audio streams through Plisto's player, a URL it fetches or bytes the plugin pushes. | `stream.*` methods, see the [stream guide](stream.md) |
 | `audio.tap`, `audio.events`, `audio.device`, `audio.output_takeover` | Read Plisto's audio, follow playback as events, and hold its output. Native plugins only. | the [native guide](native.md) |
 
 `app.info`, `app.methods`, `log.write` and `ui.open_page` need no capability.
@@ -143,6 +144,13 @@ plugin runs. Plisto grants all of them or none: there is no partial grant.
 sites, through `plisto.net`. The [network guide](network.md) covers the origin rules and the developer
 loopback origins. The audio capabilities are for native plugins only and a UI plugin that lists one is
 refused. Ask only for what you use: a smaller list is easier for a user to approve.
+
+`playback.stream` is for both tiers. The user reads this line on the review sheet: "Play audio streams through
+Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen".
+It is the only consent a stream needs: a plugin that holds it can start one with no click and no open
+page. A stream from a URL also needs `network` and the site in the `network` list; with both declared the
+sheet adds "It can play audio from the sites listed above." A plugin that only pushes bytes needs no
+`network`. The [stream guide](stream.md) says what a start does to the user's music.
 
 Two further rules:
 
