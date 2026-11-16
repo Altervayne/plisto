@@ -7,7 +7,7 @@
 
   [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
   ![Platform: Windows](https://img.shields.io/badge/platform-Windows_x64-informational)
-  ![Version](https://img.shields.io/badge/version-2.1.0-success)
+  ![Version](https://img.shields.io/badge/version-2.7.0-success)
 </div>
 
 ---
@@ -86,6 +86,20 @@ SQLite database placed under `%APPDATA%`. This means every edit is non-destructi
 - **Direct-to-device (MTP) export on Windows.** Copy a curated selection straight
   onto a connected phone, with progress and cancel, including an update-in-place
   merge mode.
+
+## Plugins
+
+Plisto can be extended with plugins. Install one from **Settings > Plugins**,
+from a folder or a `.plistoplugin` file. A plugin can add its own page and
+sidebar entries, run in the background, and play audio through Plisto's player.
+A native plugin can also ship its own program that runs next to Plisto.
+
+Plisto does not review plugins. Before you turn one on, Plisto shows what it
+asks for, so install only plugins you trust. **Safe mode** starts Plisto with
+every plugin off for one session.
+
+To write a plugin, start with the [plugin kit](./plugin-kit/README.md). It has
+the guides, the API reference, the SDK, and three example plugins.
 
 ## Tech stack
 
