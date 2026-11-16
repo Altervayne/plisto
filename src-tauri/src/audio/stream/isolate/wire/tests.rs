@@ -6,6 +6,7 @@ use crate::audio::AudioSpec;
 use std::io::{self, Cursor, Read};
 use std::sync::atomic::Ordering;
 
+mod inspect;
 mod reader;
 
 /// A reader that counts the bytes it hands out.

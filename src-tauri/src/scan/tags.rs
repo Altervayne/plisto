@@ -13,7 +13,7 @@ use lofty::prelude::{Accessor, AudioFile, ItemKey, TaggedFileExt};
 use lofty::tag::Tag;
 
 // -- Cover Imports --
-use crate::covers::{art_key, read_with_art};
+use crate::covers::{art_key, read_with_art, ArtFile};
 
 // -- Type Imports --
 use super::issues::{classify, describe, Reason};
@@ -54,7 +54,11 @@ pub fn read_tags_detailed(path: &Path) -> (RawTags, Option<TagFailure>) {
             );
         }
     };
+    (raw_from_art(&art), None)
+}
 
+/// The tags, duration and cover key of a file lofty has parsed.
+pub fn raw_from_art(art: &ArtFile) -> RawTags {
     let tagged = art.tagged();
     let mut raw = RawTags {
         duration_secs: Some(tagged.properties().duration().as_secs_f64()),
@@ -82,8 +86,7 @@ pub fn read_tags_detailed(path: &Path) -> (RawTags, Option<TagFailure>) {
     let cover = art.cover();
     raw.has_embedded_cover = Some(cover.is_some());
     raw.cover_art = cover.and_then(|picture| art_key(picture.data()));
-
-    (raw, None)
+    raw
 }
 
 /// Fills the four ReplayGain fields from the tag. lofty maps `REPLAYGAIN_*` for ID3v2 (TXXX), Vorbis

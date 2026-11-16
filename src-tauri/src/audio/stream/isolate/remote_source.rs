@@ -18,6 +18,7 @@ pub(super) struct RemoteSource {
     out: Outlet,
     // `Data`, `Eof` and `Broken`, in the order the reads were sent.
     replies: Receiver<MainFrame>,
+    source: ReadSource,
     pos: u64,
     seekable: bool,
     len: Option<u64>,
@@ -33,10 +34,16 @@ impl RemoteSource {
         RemoteSource {
             out,
             replies,
+            source: ReadSource::Audio,
             pos: 0,
             seekable,
             len,
         }
+    }
+
+    /// The same source, reading `source`'s bytes instead of the audio.
+    pub(super) fn reading(self, source: ReadSource) -> RemoteSource {
+        RemoteSource { source, ..self }
     }
 }
 
@@ -53,7 +60,7 @@ impl Read for RemoteSource {
         }
         let max = buf.len().min(READ_MAX as usize);
         let read = HelperFrame::Read {
-            source: ReadSource::Audio,
+            source: self.source,
             pos: self.pos,
             max: max as u32,
         };

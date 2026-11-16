@@ -10,6 +10,7 @@
 mod adjacent;
 mod cache;
 mod embedded;
+mod inspected;
 mod thumbnail;
 
 // -- Type Imports --
@@ -22,8 +23,11 @@ pub use cache::{
 };
 #[cfg(test)]
 pub(crate) use embedded::test_support;
-pub use embedded::{read_embedded_cover_bytes, read_with_art};
-pub use thumbnail::read_image_dimensions;
+pub use embedded::{read_art_from, read_embedded_cover_bytes, read_with_art, ArtFile};
+pub use inspected::cache_scaled_cover;
+#[cfg(test)]
+pub(crate) use inspected::scaled_cover_key;
+pub use thumbnail::{read_image_dimensions, scale_thumb};
 
 /// Where a cover came from, stored as a stable string on the manifest row. All three kinds are
 /// valid schema values; only imported art is written to the manifest, embedded and adjacent art

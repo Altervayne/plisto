@@ -25,6 +25,11 @@ use crate::db;
 use crate::model::RawTags;
 use crate::state::AppState;
 
+// -- Module Declarations --
+mod staging;
+
+use staging::read_ad_hoc_tracks;
+
 /// Resolves track ids to a DB-free queue with each track's levelling gain, keeping the caller's order
 /// and dropping ids that no longer resolve (a deleted row). `load_queue_tracks` returns only present
 /// ids in an arbitrary order, so index them by id and rebuild along the requested sequence. The only
@@ -140,8 +145,9 @@ async fn stage_ad_hoc(
         (state.covers_dir.clone(), Arc::clone(&state.covers_in_flight))
     };
 
-    // Read tags and cache covers for every file on one blocking hop, never the player thread. Each
-    // readable file comes back with its path; an unreadable one is dropped here.
+    // Read tags and cache covers for every file on one blocking hop, never the player thread, which
+    // also waits out the decode helper's launch. Each readable file comes back with its path; an
+    // unreadable one is dropped here.
     let readable = tauri::async_runtime::spawn_blocking(move || {
         read_ad_hoc_tracks(&covers_dir, &guard, paths)
     })
@@ -154,23 +160,6 @@ async fn stage_ad_hoc(
     }
 
     Ok(build_ad_hoc_queue(readable))
-}
-
-/// Reads tags and caches a cover for each path, dropping any file that cannot be read as audio, and
-/// keeping the caller's order among the survivors. Each survivor carries its tagged levelling gain.
-fn read_ad_hoc_tracks(
-    covers_dir: &Path,
-    guard: &InFlightGuard,
-    paths: Vec<String>,
-) -> Vec<(String, AdHocTrack, f32)> {
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            read_ad_hoc_track(covers_dir, guard, &path)
-                .ok()
-                .map(|(track, gain_db)| (path, track, gain_db))
-        })
-        .collect()
 }
 
 /// Allocates a fresh negative id for each readable file and pairs the stash entries with the queue
@@ -243,11 +232,11 @@ pub fn get_startup_error(state: State<'_, AppState>) -> Result<Option<PlayerNoti
     Ok(slot.take())
 }
 
-/// Reads a lone file's tags and resolves its cover for ad-hoc playback, on a blocking thread. Both
-/// the tag read and the cover decode run here, never on the player thread. Errors when the file
-/// cannot be opened as audio (missing or undecodable), so the caller reports it rather than queueing
-/// a dead track; a readable file with no tags is fine - it falls back to the filename stem.
-fn read_ad_hoc_track(
+/// Reads a lone file's tags and resolves its cover for ad-hoc playback in this process, when no
+/// decode helper can be set up. Errors when the file cannot be opened as audio (missing or
+/// undecodable), so the caller reports it rather than queueing a dead track; a readable file with
+/// no tags is fine - it falls back to the filename stem.
+fn read_in_process(
     covers_dir: &Path,
     guard: &InFlightGuard,
     source_path: &str,
@@ -592,6 +581,9 @@ mod tests {
     fn read_ad_hoc_tracks_skips_files_it_cannot_read() {
         // Missing files are unreadable through the tag reader, so every one drops out and nothing is
         // queued - the all-unreadable case play_files reports as an error.
+        let session = crate::audio::stream::isolate::file::use_test_session(
+            std::time::Duration::from_secs(15),
+        );
         let guard = crate::covers::InFlightGuard::default();
         let readable = read_ad_hoc_tracks(
             Path::new("/covers"),
@@ -602,5 +594,6 @@ mod tests {
             ],
         );
         assert!(readable.is_empty(), "an unreadable file never reaches the queue");
+        assert_eq!(session.launches(), 0, "a missing file never starts a helper");
     }
 }

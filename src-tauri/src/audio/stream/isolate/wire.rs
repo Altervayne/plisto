@@ -28,9 +28,14 @@ use crate::audio::PcmChunk;
 // -- Module Declarations --
 mod decode;
 mod encode;
+mod inspect;
 
 // -- Re-exports --
 pub use decode::{HelperReader, MainReader};
+pub use inspect::{
+    check_edges, Cover, Inspect, Inspected, InspectedCover, InspectedFile, Thumb, EDGE_MAX,
+    SOURCE_EDGE_MAX, TEXT_MAX,
+};
 
 /// The largest payload either side may send.
 pub const WIRE_FRAME_MAX: u32 = 1 << 20;
@@ -63,6 +68,8 @@ const EOF: u8 = 0x03;
 const BROKEN: u8 = 0x04;
 const SEEK: u8 = 0x05;
 const SEEKS_CLOSED: u8 = 0x06;
+const INSPECT: u8 = 0x07;
+const COVER: u8 = 0x08;
 
 // Helper to main: the high bit set.
 const READ: u8 = 0x81;
@@ -73,6 +80,8 @@ const CLOSE_SEEKS: u8 = 0x85;
 const END: u8 = 0x86;
 const READY: u8 = 0x87;
 const OPENED: u8 = 0x88;
+const INSPECTED: u8 = 0x89;
+const COVERED: u8 = 0x8A;
 
 /// A frame the main process sends to the helper.
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +108,10 @@ pub enum MainFrame {
     SeeksClosed {
         pending: Option<(f64, u64)>,
     },
+    /// Asks an inspecting helper for one file's tags: its first frame, then one after each answer.
+    Inspect(Inspect),
+    /// Asks an inspecting helper for the cover of the file it last read.
+    Cover(Cover),
 }
 
 /// Which bytes a `Read` asks for.
@@ -132,6 +145,10 @@ pub enum HelperFrame {
     SeeksOpen,
     CloseSeeks,
     End(DecodeEnd),
+    /// The answer to an `Inspect`.
+    Inspected(Inspected),
+    /// The answer to a `Cover`: None when there is none that decodes.
+    Covered(Option<InspectedCover>),
 }
 
 /// A `Break`'s seam as the helper sent it. Its generation is the helper's word until `check`
@@ -214,6 +231,16 @@ pub enum WireError {
     /// `Cancelled`, `ReaderGone` and `Isolated` are decided by the main process; the helper never
     /// sends them.
     NotOnWire(DecodeEnd),
+    /// A tag text over `TEXT_MAX` bytes.
+    TextTooLong(usize),
+    TextNotUtf8,
+    /// A thumbnail edge outside 1..=`EDGE_MAX`, or a pair whose largest answer would not fit a frame.
+    BadEdge(u32),
+    /// An image size outside its bounds.
+    BadImageSize {
+        width: u32,
+        height: u32,
+    },
 }
 
 // The legal payload lengths of each main-to-helper kind; None for a kind this direction never has.
@@ -224,6 +251,8 @@ fn main_bounds(kind: u8) -> Option<RangeInclusive<u32>> {
         EOF | BROKEN => 0..=0,
         SEEK => 16..=16,
         SEEKS_CLOSED => 1..=17,
+        INSPECT => inspect::INSPECT_LEN,
+        COVER => inspect::COVER_LEN,
         _ => return None,
     })
 }
@@ -236,6 +265,9 @@ fn helper_bounds(kind: u8) -> Option<RangeInclusive<u32>> {
         CHUNK => CHUNK_HEAD + 4..=CHUNK_MAX,
         BREAK => 1..=9,
         END => 1..=2,
+        INSPECTED => inspect::INSPECTED_LEN,
+        // The pixels' share is checked against the sizes the payload declares.
+        COVERED => 1..=WIRE_FRAME_MAX,
         _ => return None,
     })
 }

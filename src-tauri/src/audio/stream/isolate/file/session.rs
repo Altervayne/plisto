@@ -93,7 +93,7 @@ impl FileSession {
         lock(&self.faulted).iter().any(|k| k == key)
     }
 
-    pub(super) fn mark_faulted(&self, key: PathBuf) {
+    pub(in crate::audio::stream::isolate) fn mark_faulted(&self, key: PathBuf) {
         let mut faulted = lock(&self.faulted);
         if faulted.contains(&key) {
             return;
@@ -105,12 +105,12 @@ impl FileSession {
     }
 
     /// Whether helpers are not tried, after one could not be set up.
-    pub(super) fn setup_down(&self) -> bool {
+    pub(in crate::audio::stream::isolate) fn setup_down(&self) -> bool {
         lock(&self.setup_down_until).is_some_and(|until| Instant::now() < until)
     }
 
     /// A helper could not be set up: none is tried for `FILE_SETUP_RETRY_MS`.
-    pub(super) fn setup_failed(&self, error: &str) {
+    pub(in crate::audio::stream::isolate) fn setup_failed(&self, error: &str) {
         let retry = Instant::now() + Duration::from_millis(FILE_SETUP_RETRY_MS);
         *lock(&self.setup_down_until) = Some(retry);
         if !self.warned.swap(true, Ordering::AcqRel) {
@@ -119,7 +119,7 @@ impl FileSession {
     }
 
     /// Counts one helper launch.
-    pub(super) fn launching(&self) {
+    pub(in crate::audio::stream::isolate) fn launching(&self) {
         #[cfg(test)]
         self.launches.fetch_add(1, Ordering::AcqRel);
     }

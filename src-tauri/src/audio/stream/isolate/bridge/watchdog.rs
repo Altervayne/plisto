@@ -67,7 +67,13 @@ pub(super) struct Watchdog<'a> {
     last_check: Instant,
     // A failed CPU reading was logged for this item.
     warned: bool,
+    // When the helper last used more CPU than an idle one, or main last held it up.
+    busy_at: Instant,
 }
+
+/// The CPU an idle helper may use and still count as stopped: several times the 1.4 to 5.1 ms
+/// per second measured for an idle helper, a small share of what any decode or parse uses.
+pub(super) const QUIET_CPU_PER_SEC: Duration = Duration::from_millis(20);
 
 impl<'a> Watchdog<'a> {
     pub(super) fn new(
@@ -90,7 +96,20 @@ impl<'a> Watchdog<'a> {
             next_cpu_read: now,
             last_check: now,
             warned: false,
+            busy_at: now,
         }
+    }
+
+    /// The watchdog, with the last CPU reading of an earlier one over the same helper as its
+    /// baseline: what the helper used since then is charged at the first reading.
+    pub(super) fn continuing(mut self, baseline: Option<(Instant, Duration)>) -> Watchdog<'a> {
+        self.reading = baseline;
+        self
+    }
+
+    /// The last CPU reading, for the next watchdog over the same helper to continue from.
+    pub(super) fn baseline(&self) -> Option<(Instant, Duration)> {
+        self.reading
     }
 
     /// Counts a `Seek` main has just sent the helper.
@@ -109,6 +128,9 @@ impl<'a> Watchdog<'a> {
         self.audio_at_check = audio_us;
         let main_holds = self.outstanding.load(Ordering::Acquire)
             || self.activity.pushing.load(Ordering::Acquire);
+        if main_holds {
+            self.busy_at = now;
+        }
         if let Some(fault) = self.ledger.tick(elapsed, main_holds, audio) {
             return Some(fault);
         }
@@ -127,15 +149,31 @@ impl<'a> Watchdog<'a> {
                     );
                 }
                 // The next good reading is a new baseline, the credit kept: what the helper used
-                // meanwhile is neither charged nor paid for.
+                // meanwhile is neither charged nor paid for, nor taken for quiet.
                 self.reading = None;
+                self.busy_at = now;
                 return None;
             }
         };
         let audio = Duration::from_micros(audio_us - self.audio_at_reading);
         self.audio_at_reading = audio_us;
         let (at, before) = self.reading.replace((now, cpu))?;
-        self.ledger
-            .reading(now.duration_since(at), cpu.saturating_sub(before), audio)
+        let (wall, used) = (now.duration_since(at), cpu.saturating_sub(before));
+        if used > rate(QUIET_CPU_PER_SEC, wall) {
+            self.busy_at = now;
+        }
+        self.ledger.reading(wall, used, audio)
     }
+
+    /// How long the helper has used no more CPU than an idle helper does, with main holding
+    /// nothing up and its CPU readable: how long it has been stopped dead. Measured from this
+    /// watchdog's start at most, and in steps of the CPU tick.
+    pub(super) fn quiet_for(&self) -> Duration {
+        self.busy_at.elapsed()
+    }
+}
+
+// `per_sec` for each second of `span`.
+fn rate(per_sec: Duration, span: Duration) -> Duration {
+    per_sec.mul_f64(span.as_secs_f64())
 }

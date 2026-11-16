@@ -3,8 +3,9 @@
  * reads the `Open` frame, runs the stream decode thread unchanged on a control and queue of its own,
  * and sends what lands in that queue to the main process. A guarded `Open` is a stream item; an
  * unguarded one is a local file the user opened, probed as library playback opens a file, and main
- * is told its spec and length in an `Opened` frame before its first chunk. Its bytes come from main
- * a read at a time through `RemoteSource`, so it holds no byte buffer and opens no file.
+ * is told its spec and length in an `Opened` frame before its first chunk. An `Inspect` as the first
+ * frame makes it an inspecting helper instead (`inspect`). Its bytes come from main a read at a time
+ * through `RemoteSource`, so it holds no byte buffer and opens no file.
  *
  * Three threads. The demux owns the one reader of main's frames for the helper's whole life and
  * routes each frame. The decode thread closes seeks through `Gate`, a round trip to main's control.
@@ -27,6 +28,7 @@ use symphonia::core::io::MediaSource;
 
 // -- Local Imports --
 use super::alloc;
+use super::inspect;
 use super::remote_source::RemoteSource;
 use super::wire::{HelperFrame, MainFrame, MainReader, UncheckedSeam, WireError, CHUNK_FRAMES_MAX};
 use crate::audio::stream::decoder::{spawn_gated, SeekGate};
@@ -40,9 +42,9 @@ const HINTS: [&str; 9] = [
     "mp3", "aac", "ogg", "flac", "wav", "m4a", "m4b", "oga", "opus",
 ];
 
-const EXIT_OK: i32 = 0;
+pub(super) const EXIT_OK: i32 = 0;
 /// The helper's own exit when main's pipe broke or named nothing it decodes.
-const EXIT_FAILED: i32 = 2;
+pub(super) const EXIT_FAILED: i32 = 2;
 
 /// The helper's pipe to the main process. A frame is written whole under its lock.
 pub(super) type Outlet = Arc<Mutex<Box<dyn Write + Send>>>;
@@ -88,14 +90,15 @@ pub(super) fn serve_with(
         return EXIT_FAILED;
     }
     let mut reader = MainReader::new(BufReader::new(input));
-    let Ok(Some(MainFrame::Open {
-        hint,
-        seekable,
-        guarded,
-        len,
-    })) = reader.read_frame()
-    else {
-        return EXIT_FAILED;
+    let (hint, seekable, guarded, len) = match reader.read_frame() {
+        Ok(Some(MainFrame::Open {
+            hint,
+            seekable,
+            guarded,
+            len,
+        })) => (hint, seekable, guarded, len),
+        Ok(Some(MainFrame::Inspect(first))) => return inspect::serve(first, reader, out),
+        _ => return EXIT_FAILED,
     };
     // Unguarded media is a local file the user opened, served whole by position.
     if !guarded && !(seekable && len.is_some()) {
@@ -177,7 +180,7 @@ fn demux(
                 true
             }
             MainFrame::SeeksClosed { pending } => closed.send(pending).is_ok(),
-            MainFrame::Open { .. } => false,
+            MainFrame::Open { .. } | MainFrame::Inspect(_) | MainFrame::Cover(_) => false,
         };
         if !routed {
             return;

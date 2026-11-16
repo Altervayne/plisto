@@ -8,7 +8,7 @@
 use std::io::Cursor;
 
 use image::codecs::jpeg::JpegEncoder;
-use image::{DynamicImage, ExtendedColorType, ImageError, ImageReader};
+use image::{DynamicImage, ExtendedColorType, ImageError, ImageReader, RgbImage};
 
 // JPEG quality for generated thumbnails. High enough that the shrink, not the codec, is what
 // the eye sees; low enough to keep the cache small.
@@ -23,10 +23,18 @@ pub fn thumbnail(raw_bytes: &[u8], max_edge: u32) -> Result<Vec<u8>, ImageError>
 
 /// `thumbnail` of an image already decoded, so one decode can feed several sizes.
 pub fn encode_thumb(decoded: &DynamicImage, max_edge: u32) -> Result<Vec<u8>, ImageError> {
+    encode_rgb(&scale_thumb(decoded, max_edge))
+}
+
+/// The pixels `thumbnail` encodes: the image fitted to a `max_edge` square, as RGB8.
+pub fn scale_thumb(decoded: &DynamicImage, max_edge: u32) -> RgbImage {
     // thumbnail() fits the image inside the box while keeping aspect, so a square box bounds the
     // longest edge. to_rgb8 drops alpha, which JPEG cannot carry.
-    let rgb = decoded.thumbnail(max_edge, max_edge).to_rgb8();
+    decoded.thumbnail(max_edge, max_edge).to_rgb8()
+}
 
+/// Encodes scaled pixels as the cache's JPEG.
+pub fn encode_rgb(rgb: &RgbImage) -> Result<Vec<u8>, ImageError> {
     let mut out = Vec::new();
     let mut encoder = JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY);
     encoder.encode(

@@ -3,6 +3,7 @@
  * same queue fills, the same control answers seeks and cancel, and `on_end` gets one end on every
  * path. Only the decoding happens in another process. `spawn_file` does the same for a local file
  * the user opened, under the file cap, and reports the helper's launch and `Opened` to its opener.
+ * `inspect` runs a helper that reads opened files' tags and covers instead of decoding.
  *
  * Four threads per helper. The bridge thread launches the helper, forwards new seeks, watches for
  * cancel, for the helper's exit through its process handle and for a helper that spins or hangs, and
@@ -49,6 +50,7 @@ use crate::proc::session::{Session, DECODE_HELPER};
 // -- Module Declarations --
 mod byte_server;
 mod ending;
+pub(super) mod inspect;
 mod ledger;
 mod outbox;
 #[cfg(test)]

@@ -34,6 +34,67 @@ mod seeks;
 pub const FAULT: &str = "fault";
 /// The argument after the helper flag that turns the guards off.
 pub const GUARDS_OFF: &str = "guards-off";
+/// The title that marks the file an inspecting helper's fault is for.
+pub const MARKED_TITLE: &str = "fault here";
+
+/// How an inspecting helper misbehaves, started with `--plisto-decode-helper <args>`. Every other
+/// file and step is inspected as it should be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectFault {
+    /// Aborts after reading the tags of a file titled `MARKED_TITLE`.
+    Abort,
+    /// `Abort`, only when the helper has answered a request before.
+    AbortReused,
+    /// Exits once it has answered the tags of a file titled `MARKED_TITLE`.
+    ExitAfter,
+    /// Burns CPU in every cover step.
+    CoverSpin,
+    /// Commits more memory than its cap in every cover step.
+    CoverHog,
+    /// Stops dead in every cover step.
+    CoverPark,
+    /// Stops dead after reading the tags of a file titled `MARKED_TITLE`, with no read outstanding.
+    Idle,
+    /// `Idle`, only when the helper has answered a request before.
+    IdleReused,
+    /// Asks for two reads at once for a file whose hint is `DOUBLE_READ_HINT`, then stops dead.
+    DoubleRead,
+    /// Answers the tags of a file titled `MARKED_TITLE` with a cover.
+    WrongAnswer,
+}
+
+/// The hint `InspectFault::DoubleRead` acts on.
+pub const DOUBLE_READ_HINT: &str = "double";
+
+const INSPECT_FAULTS: [InspectFault; 10] = [
+    InspectFault::Abort,
+    InspectFault::AbortReused,
+    InspectFault::ExitAfter,
+    InspectFault::CoverSpin,
+    InspectFault::CoverHog,
+    InspectFault::CoverPark,
+    InspectFault::Idle,
+    InspectFault::IdleReused,
+    InspectFault::DoubleRead,
+    InspectFault::WrongAnswer,
+];
+
+impl InspectFault {
+    pub fn args(self) -> &'static [&'static str] {
+        match self {
+            InspectFault::Abort => &["inspect-abort"],
+            InspectFault::AbortReused => &["inspect-abort-reused"],
+            InspectFault::ExitAfter => &["inspect-exit-after"],
+            InspectFault::CoverSpin => &["inspect-cover-spin"],
+            InspectFault::CoverHog => &["inspect-cover-hog"],
+            InspectFault::CoverPark => &["inspect-cover-park"],
+            InspectFault::Idle => &["inspect-idle"],
+            InspectFault::IdleReused => &["inspect-idle-reused"],
+            InspectFault::DoubleRead => &["inspect-double-read"],
+            InspectFault::WrongAnswer => &["inspect-wrong-answer"],
+        }
+    }
+}
 /// How long `Die` lets main's write back up before it exits.
 const DIE_AFTER: Duration = Duration::from_millis(500);
 /// The exit code of `Die` and `Vanish`: neither the job's kill nor `EXIT_MEMORY`.
@@ -222,6 +283,19 @@ pub fn from_args() -> Option<TestFault> {
 /// Whether this process's arguments turn the guards off.
 pub fn guards_off() -> bool {
     helper_args().is_some_and(|args| args.len() == 1 && args[0] == GUARDS_OFF)
+}
+
+/// The inspecting helper's fault this process's arguments name, if any.
+pub fn inspect_fault() -> Option<InspectFault> {
+    let args = helper_args()?;
+    INSPECT_FAULTS
+        .into_iter()
+        .find(|fault| args.len() == 1 && args[0] == *fault.args()[0])
+}
+
+/// Burns CPU until the process is killed.
+pub fn burn() -> ! {
+    spin()
 }
 
 /// Runs the faulty helper on its stdin and stdout.

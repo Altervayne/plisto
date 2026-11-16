@@ -7,6 +7,7 @@
  */
 
 // -- Library Imports --
+use std::io::{Read, Seek};
 use std::path::Path;
 
 use lofty::config::ParseOptions;
@@ -55,7 +56,11 @@ impl ArtFile {
 /// Opens `path` once, returning the parsed file and its pictures. The format comes from the
 /// extension, as in `lofty::read_from_path`.
 pub fn read_with_art(path: &Path) -> Result<ArtFile, FileParseError> {
-    let probe = Probe::open(path)?;
+    read_art_from(Probe::open(path)?)
+}
+
+/// `read_with_art` over any reader, with the format the probe names.
+pub fn read_art_from<R: Read + Seek>(probe: Probe<R>) -> Result<ArtFile, FileParseError> {
     if probe.file_type() != Some(FileType::Mp4) {
         return Ok(ArtFile {
             tagged: probe.read()?,

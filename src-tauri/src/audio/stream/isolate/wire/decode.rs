@@ -99,6 +99,8 @@ pub(super) fn read_main<R: Read>(r: &mut R) -> Result<Option<MainFrame>, WireErr
                 None
             },
         },
+        INSPECT => MainFrame::Inspect(inspect::read_inspect(&mut p)?),
+        COVER => MainFrame::Cover(inspect::read_cover(&mut p)?),
         _ => return Err(WireError::UnknownKind(kind)),
     };
     p.finish()?;
@@ -168,13 +170,15 @@ pub(super) fn read_helper<R: Read>(r: &mut R) -> Result<Option<HelperFrame>, Wir
                 _ => Unsupported::Seek,
             }),
         }),
+        INSPECTED => HelperFrame::Inspected(inspect::read_inspected(&mut p)?),
+        COVERED => HelperFrame::Covered(inspect::read_covered(&mut p)?),
         _ => return Err(WireError::UnknownKind(kind)),
     };
     p.finish()?;
     Ok(Some(frame))
 }
 
-fn read_hint<R: Read>(p: &mut Payload<'_, R>) -> Result<Option<String>, WireError> {
+pub(super) fn read_hint<R: Read>(p: &mut Payload<'_, R>) -> Result<Option<String>, WireError> {
     if !p.flag("hint")? {
         return Ok(None);
     }
@@ -226,7 +230,7 @@ fn read_full(r: &mut impl Read, buf: &mut [u8]) -> Result<(), WireError> {
 
 /// The rest of one frame's payload, read field by field. A field longer than what is left is
 /// refused before it is read.
-struct Payload<'a, R> {
+pub(super) struct Payload<'a, R> {
     r: &'a mut R,
     left: u32,
 }
@@ -247,28 +251,28 @@ impl<R: Read> Payload<'_, R> {
         Ok(buf)
     }
 
-    fn u8(&mut self) -> Result<u8, WireError> {
+    pub(super) fn u8(&mut self) -> Result<u8, WireError> {
         Ok(self.array::<1>()?[0])
     }
 
-    fn u16(&mut self) -> Result<u16, WireError> {
+    pub(super) fn u16(&mut self) -> Result<u16, WireError> {
         Ok(u16::from_le_bytes(self.array()?))
     }
 
-    fn u32(&mut self) -> Result<u32, WireError> {
+    pub(super) fn u32(&mut self) -> Result<u32, WireError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
-    fn u64(&mut self) -> Result<u64, WireError> {
+    pub(super) fn u64(&mut self) -> Result<u64, WireError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
-    fn f64(&mut self) -> Result<f64, WireError> {
+    pub(super) fn f64(&mut self) -> Result<f64, WireError> {
         Ok(f64::from_le_bytes(self.array()?))
     }
 
     /// A tag byte below `count`.
-    fn tag(&mut self, field: &'static str, count: u8) -> Result<u8, WireError> {
+    pub(super) fn tag(&mut self, field: &'static str, count: u8) -> Result<u8, WireError> {
         let tag = self.u8()?;
         if tag >= count {
             return Err(WireError::BadTag { field, tag });
@@ -276,11 +280,11 @@ impl<R: Read> Payload<'_, R> {
         Ok(tag)
     }
 
-    fn flag(&mut self, field: &'static str) -> Result<bool, WireError> {
+    pub(super) fn flag(&mut self, field: &'static str) -> Result<bool, WireError> {
         Ok(self.tag(field, 2)? == 1)
     }
 
-    fn bytes(&mut self, len: usize) -> Result<Vec<u8>, WireError> {
+    pub(super) fn bytes(&mut self, len: usize) -> Result<Vec<u8>, WireError> {
         if len > self.left as usize {
             return Err(WireError::Short);
         }
@@ -302,7 +306,7 @@ impl<R: Read> Payload<'_, R> {
         Ok(samples)
     }
 
-    fn finish(self) -> Result<(), WireError> {
+    pub(super) fn finish(self) -> Result<(), WireError> {
         if self.left > 0 {
             return Err(WireError::Trailing(self.left));
         }

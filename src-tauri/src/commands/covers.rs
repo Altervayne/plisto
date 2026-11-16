@@ -10,13 +10,16 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use image::RgbImage;
 use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
 use crate::adhoc::{is_ad_hoc, AdHocCover};
+use crate::audio::stream::isolate::inspect::InspectedCover;
 use crate::covers::{
-    art_key, discover_adjacent_images, ensure_full_res, ensure_thumb, full_res_cache_path,
+    art_key, cache_scaled_cover, discover_adjacent_images, ensure_full_res, ensure_thumb,
+    full_res_cache_path,
     normalize_cover, read_embedded_cover_bytes, read_full_res_blob, read_image_dimensions,
     resolve_track_cover, thumb_cache_path, CoverSourceKind, InFlightGuard, ResolvedCover,
 };
@@ -47,7 +50,7 @@ pub async fn read_cover(
     state: State<'_, AppState>,
 ) -> Result<Option<CoverRef>, String> {
     // An ad-hoc track has no index row: its cover resolves from the stash, a cheap map read with no
-    // decode, since player_play_file already cached both sizes by hash when the file was opened.
+    // decode, since both sizes were cached by hash when the file was staged.
     if is_ad_hoc(track_id) {
         return Ok(resolve_ad_hoc_cover(state.inner(), track_id, max_edge(size)));
     }
@@ -720,6 +723,30 @@ pub(crate) fn cache_ad_hoc_cover(
     cache_cover_bytes(covers_dir, guard, &bytes)
 }
 
+/// The thumbnail edges an opened file's cover is cached at, in the order a decode helper returns them.
+pub(crate) const AD_HOC_EDGES: [u32; 2] = [THUMB_EDGE, DETAIL_EDGE];
+
+/// `cache_ad_hoc_cover` from the thumbnails a decode helper scaled at `AD_HOC_EDGES`: they are
+/// encoded here and keyed by a hash of the pixels computed here, never by anything the helper names.
+/// None when a thumbnail's pixels do not match its size or the cache cannot be written.
+pub(crate) fn cache_inspected_cover(
+    covers_dir: &Path,
+    guard: &InFlightGuard,
+    cover: InspectedCover,
+) -> Option<AdHocCover> {
+    let scaled = AD_HOC_EDGES
+        .into_iter()
+        .zip(cover.thumbs)
+        .map(|(edge, thumb)| Some((edge, RgbImage::from_raw(thumb.width, thumb.height, thumb.rgb)?)))
+        .collect::<Option<Vec<_>>>()?;
+    let hash = cache_scaled_cover(covers_dir, guard, &scaled).ok()?;
+    Some(AdHocCover {
+        hash,
+        width: i64::from(cover.width),
+        height: i64::from(cover.height),
+    })
+}
+
 /// Caches image `bytes` at both thumb sizes by content hash and returns what `read_cover` needs to
 /// resolve them. None when the bytes are not an image the cache can decode, or the cache cannot be
 /// written. The webviews only ever see the re-encoded thumbnails.
@@ -742,7 +769,7 @@ pub(crate) fn cache_cover_bytes(
 
 /// Resolves an ad-hoc track's cover at `max_edge` from the stash: a cached-by-hash file path, no
 /// decode. None when the entry has no cover or no entry is stashed. The map read stands in for the DB
-/// read the library path takes; the thumbnail was written by cache_ad_hoc_cover when the file opened.
+/// read the library path takes; both sizes were cached when the file was staged.
 /// The source reads Embedded - the file's own art, embedded taking precedence over an adjacent image.
 fn resolve_ad_hoc_cover(state: &AppState, track_id: i64, max_edge: u32) -> Option<CoverRef> {
     let stash = state.ad_hoc.lock().ok()?;

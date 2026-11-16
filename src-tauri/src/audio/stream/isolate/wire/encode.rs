@@ -24,16 +24,7 @@ impl MainFrame {
                 guarded,
                 len,
             } => frame(OPEN, main_bounds, |out| {
-                match hint {
-                    Some(hint) => {
-                        if hint.len() > HINT_MAX {
-                            return Err(WireError::HintTooLong(hint.len()));
-                        }
-                        out.extend([1, hint.len() as u8]);
-                        out.extend(hint.as_bytes());
-                    }
-                    None => out.push(0),
-                }
+                put_hint(out, hint.as_deref())?;
                 out.extend([u8::from(*seekable), u8::from(*guarded)]);
                 push_option(out, len.map(u64::to_le_bytes));
                 Ok(())
@@ -68,6 +59,12 @@ impl MainFrame {
                 }
                 Ok(())
             }),
+            MainFrame::Inspect(inspect) => frame(INSPECT, main_bounds, |out| {
+                inspect::put_inspect(out, inspect)
+            }),
+            MainFrame::Cover(cover) => {
+                frame(COVER, main_bounds, |out| inspect::put_cover(out, cover))
+            }
         }
     }
 }
@@ -157,12 +154,33 @@ impl HelperFrame {
                 }
                 Ok(())
             }),
+            HelperFrame::Inspected(inspected) => frame(INSPECTED, helper_bounds, |out| {
+                inspect::put_inspected(out, inspected)
+            }),
+            HelperFrame::Covered(cover) => {
+                frame(COVERED, helper_bounds, |out| inspect::put_covered(out, cover))
+            }
         }
     }
 }
 
+// A flag byte, then the hint's length and bytes when there is one.
+pub(super) fn put_hint(out: &mut Vec<u8>, hint: Option<&str>) -> Result<(), WireError> {
+    match hint {
+        Some(hint) => {
+            if hint.len() > HINT_MAX {
+                return Err(WireError::HintTooLong(hint.len()));
+            }
+            out.extend([1, hint.len() as u8]);
+            out.extend(hint.as_bytes());
+        }
+        None => out.push(0),
+    }
+    Ok(())
+}
+
 // A flag byte, then the value when there is one.
-fn push_option(out: &mut Vec<u8>, value: Option<[u8; 8]>) {
+pub(super) fn push_option(out: &mut Vec<u8>, value: Option<[u8; 8]>) {
     match value {
         Some(bytes) => {
             out.push(1);

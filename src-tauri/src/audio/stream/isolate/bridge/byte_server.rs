@@ -4,7 +4,7 @@
  */
 
 // -- Library Imports --
-use std::io::{self, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -54,24 +54,35 @@ impl ByteServer {
 
     // One read at `pos`, as the helper's answer.
     fn read_at(&mut self, pos: u64, buf: &mut [u8]) -> MainFrame {
-        if pos != self.at {
-            match self.source.seek(SeekFrom::Start(pos)) {
-                Ok(at) => self.at = at,
-                // A finished body that stopped short of the target.
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return MainFrame::Eof,
-                Err(_) => return MainFrame::Broken,
-            }
+        read_at(&mut *self.source, &mut self.at, pos, buf)
+    }
+}
+
+/// One read of `source` at `pos`, as the helper's answer. `at` is where the source's next read
+/// starts, and is moved past what is read.
+pub(super) fn read_at<S: Read + Seek + ?Sized>(
+    source: &mut S,
+    at: &mut u64,
+    pos: u64,
+    buf: &mut [u8],
+) -> MainFrame {
+    if pos != *at {
+        match source.seek(SeekFrom::Start(pos)) {
+            Ok(moved) => *at = moved,
+            // A finished body that stopped short of the target.
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return MainFrame::Eof,
+            Err(_) => return MainFrame::Broken,
         }
-        loop {
-            match self.source.read(buf) {
-                Ok(0) => return MainFrame::Eof,
-                Ok(n) => {
-                    self.at += n as u64;
-                    return MainFrame::Data(buf[..n].to_vec());
-                }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(_) => return MainFrame::Broken,
+    }
+    loop {
+        match source.read(buf) {
+            Ok(0) => return MainFrame::Eof,
+            Ok(n) => {
+                *at += n as u64;
+                return MainFrame::Data(buf[..n].to_vec());
             }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return MainFrame::Broken,
         }
     }
 }

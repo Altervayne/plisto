@@ -13,10 +13,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 
-use image::DynamicImage;
+use image::{DynamicImage, ImageError, RgbImage};
 
 // -- Local Imports --
-use super::thumbnail::{encode_thumb, thumbnail};
+use super::thumbnail::{encode_rgb, encode_thumb, thumbnail};
 
 /// Serializes generation of identical thumbnails. A key is held while its thumbnail decodes and
 /// writes; other callers for the same key wait until it is released and then find a warm file.
@@ -146,6 +146,34 @@ pub fn ensure_thumbs_from(
     edges: &[u32],
     guard: &InFlightGuard,
 ) -> Result<(), String> {
+    ensure_each(covers_dir, content_hash, edges, guard, |max_edge| {
+        encode_thumb(decoded, max_edge)
+    })
+}
+
+/// `ensure_thumbs_from` for pixels already scaled to each edge, given as `(edge, pixels)`.
+pub fn ensure_scaled_thumbs(
+    covers_dir: &Path,
+    content_hash: &str,
+    scaled: &[(u32, RgbImage)],
+    guard: &InFlightGuard,
+) -> Result<(), String> {
+    for (max_edge, rgb) in scaled {
+        ensure_each(covers_dir, content_hash, &[*max_edge], guard, |_| {
+            encode_rgb(rgb)
+        })?;
+    }
+    Ok(())
+}
+
+// Writes the thumbnail `encode` makes for each of `edges` that is not warm yet.
+fn ensure_each(
+    covers_dir: &Path,
+    content_hash: &str,
+    edges: &[u32],
+    guard: &InFlightGuard,
+    encode: impl Fn(u32) -> Result<Vec<u8>, ImageError>,
+) -> Result<(), String> {
     for &max_edge in edges {
         let path = thumb_cache_path(covers_dir, content_hash, max_edge);
         if path.exists() {
@@ -156,7 +184,7 @@ pub fn ensure_thumbs_from(
         if path.exists() {
             continue;
         }
-        let encoded = encode_thumb(decoded, max_edge).map_err(|e| e.to_string())?;
+        let encoded = encode(max_edge).map_err(|e| e.to_string())?;
         write_atomic(&path, &encoded)?;
     }
     Ok(())

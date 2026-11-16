@@ -43,7 +43,7 @@ use issues::{classify, describe, IssueDraft, IssueKind};
 use progress::ProgressThrottle;
 use tags::read_tags_detailed;
 // Re-exported so ad-hoc playback reads a lone file's tags through the same reader the scan uses.
-pub(crate) use tags::read_tags;
+pub(crate) use tags::{raw_from_art, read_tags};
 
 // Rows committed per transaction. A batch keeps each transaction short so a reader is never
 // blocked for long, without paying a commit per file.
