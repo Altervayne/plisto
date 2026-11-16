@@ -35,6 +35,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin-right: -8px;
   padding: 0 6px 8px 10px;
 }
 
@@ -44,6 +45,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-right: -8px;
   padding: 0 6px 8px 10px;
 }
 
@@ -105,22 +107,27 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Runs out to the glass card's right edge so the overlay scrollbar rides in the card's gutter. The header,
+ * stream card and footer take the same -8px so every trailing edge lines up with the rows. */
 .scroll {
   flex: 1;
   min-height: 0;
+  margin-right: -20px;
 }
 
-/* Right inset clears the overlay scrollbar so a row's hover veil stops short of the bar. */
+/* The 12px right inset leaves the card's gutter to the overlay scrollbar, so a row's hover veil stops
+ * short of the bar. With the 4px left inset, rows sit 12px from both card edges. */
 .rows {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0 16px 8px 4px;
+  padding: 0 12px 8px 4px;
 }
 
 /* Clear-queue trails to the right edge, under the rows, rather than sitting adrift on the left. */
 .footer {
   display: flex;
   justify-content: flex-end;
-  padding: 10px 16px 0 10px;
+  margin-right: -8px;
+  padding: 10px 6px 0 10px;
 }
