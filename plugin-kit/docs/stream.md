@@ -155,8 +155,10 @@ flags at any time with `stream.update(item, { skip })`.
 - A live item has no end and no seek. A finite item whose length is known and at most 128 MiB is kept whole
   as it arrives, so the user can seek in it; a seek ahead of the download waits for the bytes. A longer file plays
   forward only.
-- For a finite item, the player shows a scrubber only when Plisto knows the length. Do not promise the user
-  a duration, and do not wait for `duration_secs` in `stream.state`: it is always `null` today.
+- For a finite item, the player shows a scrubber only when Plisto knows the length. Plisto learns it from the
+  file itself once decoding starts, when the file's header states it; some files never do (an MP3 without a
+  length header, for one). Until then, and for those files always, `duration_secs` in `stream.state` is `null`,
+  so do not wait for it. A live item never has a length.
 
 ## Methods
 
@@ -202,7 +204,7 @@ Arguments: none. Result, for your plugin's own item:
 | `state` | `connecting`, `buffering`, `playing`, `paused` or `reconnecting`; `null` with no item. |
 | `live`, `seekable` | Booleans, `null` with no item. |
 | `position_secs` | Listened time for a live item, the play head for a finite one. |
-| `duration_secs` | Always `null` today. Do not wait for it. |
+| `duration_secs` | A finite item's length in seconds once its file's header gives one; `null` until then, for files that never give one, and for a live item. |
 | `buffered_ms` | Decoded audio waiting to play. |
 | `last_end` | `{ reason, detail }` of your previous item's end, or `null`. Kept for 60 seconds. |
 

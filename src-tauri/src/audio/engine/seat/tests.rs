@@ -1722,6 +1722,31 @@ fn an_epoch_while_playing_cuts_the_old_queue_at_once() {
 }
 
 #[test]
+fn a_late_length_lands_without_moving_the_play_head() {
+    let mut r = rig();
+    let (seated, mut p) = item(ID, false, None);
+    r.start(seated, &mut p);
+    r.pull(4_000);
+    let before = r.status();
+    assert_eq!(before.duration_secs, 0.0);
+    r.handle(PlayerCmd::StreamFacts {
+        id: ID,
+        live: false,
+        seekable: true,
+        duration_secs: Some(42.0),
+    });
+    let after = r.status();
+    assert_eq!(after.duration_secs, 42.0);
+    assert!(r.attached());
+    assert_eq!(r.stream().phase, StreamPhase::Playing);
+    assert!((after.position_secs - before.position_secs).abs() < SLACK);
+    assert_eq!(
+        (after.start_seq, after.seek_seq),
+        (before.start_seq, before.seek_seq)
+    );
+}
+
+#[test]
 fn finite_seek_reattaches() {
     let mut r = rig();
     let feed = r.hub.attach(false).expect("attaches");

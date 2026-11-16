@@ -213,7 +213,15 @@ pub struct StreamControl {
     source_closed: AtomicBool,
     // Chunks ever queued. Never decreases, so a watcher tells whether audio arrived since it looked.
     chunks_queued: AtomicU64,
+    // Set once the decoder opened the media.
+    media_reported: AtomicBool,
+    // The media's length in seconds as its container states it, as f64 bits; `NO_LENGTH` when
+    // unknown. Unchecked: whoever shows it checks it.
+    media_secs: AtomicU64,
 }
+
+// `media_secs` before a length is known, or when the container states none.
+const NO_LENGTH: u64 = u64::MAX;
 
 impl Default for StreamControl {
     fn default() -> Self {
@@ -228,6 +236,8 @@ impl Default for StreamControl {
             boundaries: AtomicU32::new(0),
             source_closed: AtomicBool::new(false),
             chunks_queued: AtomicU64::new(0),
+            media_reported: AtomicBool::new(false),
+            media_secs: AtomicU64::new(NO_LENGTH),
         }
     }
 }
@@ -303,6 +313,24 @@ impl StreamControl {
     /// How many chunks of decoded audio have entered the queue since the stream began.
     pub fn chunks_queued(&self) -> u64 {
         self.chunks_queued.load(Ordering::Acquire)
+    }
+
+    /// Records what the decoder learned when it opened the media: its length when the container
+    /// states one. False when it was already reported; the first report stands.
+    pub fn report_media(&self, duration_secs: Option<f64>) -> bool {
+        if self.media_reported.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        if let Some(secs) = duration_secs {
+            self.media_secs.store(secs.to_bits(), Ordering::Release);
+        }
+        true
+    }
+
+    /// The media's length as reported, unchecked; None while unknown.
+    pub fn media_secs(&self) -> Option<f64> {
+        let bits = self.media_secs.load(Ordering::Acquire);
+        (bits != NO_LENGTH).then(|| f64::from_bits(bits))
     }
 
     /// Whether the decode thread has ended, by any path. An empty queue then never refills.

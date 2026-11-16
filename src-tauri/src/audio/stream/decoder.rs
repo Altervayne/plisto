@@ -192,6 +192,10 @@ pub(super) trait SeekGate: Send + 'static {
 }
 
 impl SeekGate for Arc<StreamControl> {
+    fn opened(&self, _spec: AudioSpec, duration_secs: Option<f64>) {
+        self.report_media(duration_secs);
+    }
+
     fn open_seeks(&self) {
         StreamControl::open_seeks(self);
     }

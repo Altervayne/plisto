@@ -209,8 +209,13 @@ impl<R: Read> Pump<R> {
                     },
                     duration_secs,
                 };
-                // Only an opened file's helper reports its media, and only once.
-                if !self.file.as_ref().is_some_and(|file| file.open(info)) {
+                // A helper reports its media once. A stream item's length goes to its control,
+                // where its owner reads it and checks it.
+                let reported = match &self.file {
+                    Some(file) => file.open(info),
+                    None => self.control.report_media(duration_secs),
+                };
+                if !reported {
                     return Some(Outcome::Protocol);
                 }
             }

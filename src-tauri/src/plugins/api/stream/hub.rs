@@ -266,6 +266,7 @@ impl StreamHub {
             meta: play.meta,
             live: play.live,
             seekable: false,
+            duration: None,
             state: NowState::Connecting,
             cover: None,
             art: ArtSlot::default(),

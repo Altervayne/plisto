@@ -41,6 +41,8 @@ mod tests_ends;
 #[cfg(test)]
 mod tests_epoch;
 #[cfg(test)]
+mod tests_length;
+#[cfg(test)]
 mod tests_limits;
 #[cfg(test)]
 mod tests_pull;
@@ -107,6 +109,9 @@ pub struct StreamNow {
     pub now: Option<String>,
     pub live: bool,
     pub seekable: bool,
+    /// A finite item's length once its file states one; null until then, and for some files
+    /// always.
+    pub duration_secs: Option<f64>,
     pub state: NowState,
     pub skip: Skip,
     /// Bumps when the artwork changes; 0 means none yet.

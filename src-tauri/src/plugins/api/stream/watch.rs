@@ -21,13 +21,16 @@ use crossbeam_channel::RecvTimeoutError;
 
 // -- Local Imports --
 use super::hub::{Feed, Item, StreamHub, Teller};
+use super::link::StreamLink;
 use super::{NowState, StreamEvent, DECODER, FORMAT};
 use crate::audio::stream::{DecodeEnd, Fault, Unsupported, LIVE_RING, NO_AUDIO_MS, STALL_MS};
-use crate::audio::{StreamEndReason, StreamSignal};
+use crate::audio::{PlayerCmd, StreamEndReason, StreamSignal};
 use crate::plugins::api::net::CLOSED;
 
 /// How often the limits are checked.
 const TICK: Duration = Duration::from_millis(200);
+/// The longest length a stream item may show: seven days.
+pub const DURATION_MAX_SECS: f64 = 7.0 * 24.0 * 3_600.0;
 /// How long a plugin can read its previous item's end.
 pub(super) const LAST_END_HOLD: Duration = Duration::from_secs(60);
 
@@ -153,8 +156,9 @@ impl StreamHub {
         }
     }
 
-    /// Checks the seated item's limits, tells a waiting pusher there is room again, starts a waiting
-    /// artwork decode and drops ends no plugin can read any more.
+    /// Checks the seated item's limits, tells a waiting pusher there is room again, takes a length
+    /// the decoder reported, starts a waiting artwork decode and drops ends no plugin can read any
+    /// more.
     pub(super) fn tick(&self, now: Instant) {
         let Some(link) = self.link() else {
             return;
@@ -182,6 +186,7 @@ impl StreamHub {
                 link.owner(&item.plugin_id, StreamEvent::Room { item: id, room });
             }
         }
+        take_length(item, &*link);
         self.pump_art(&mut session, &link, now);
     }
 
@@ -193,6 +198,33 @@ impl StreamHub {
         }
         self.tick(now);
     }
+}
+
+/// A length the decoder reported, as a finite pull item shows it: finite, above zero and at most
+/// `DURATION_MAX_SECS`. Anything else reads as unknown.
+pub(super) fn usable_length(secs: f64) -> Option<f64> {
+    (secs.is_finite() && secs > 0.0 && secs <= DURATION_MAX_SECS).then_some(secs)
+}
+
+/// Takes the length the current epoch's decoder reported for a finite pull item, once: the item
+/// shows it and the engine gets it in a second `StreamFacts`. A live item and an unusable length
+/// are left as they are.
+fn take_length(item: &mut Item, link: &dyn StreamLink) {
+    if item.live || item.duration.is_some() || item.is_push() {
+        return;
+    }
+    let Some(secs) = item.control.media_secs().and_then(usable_length) else {
+        return;
+    };
+    item.duration = Some(secs);
+    item.rev += 1;
+    link.send(PlayerCmd::StreamFacts {
+        id: item.id,
+        live: false,
+        seekable: item.seekable,
+        duration_secs: Some(secs),
+    });
+    link.now(Some(&item.snapshot()));
 }
 
 /// The limit the item has run into, if any.

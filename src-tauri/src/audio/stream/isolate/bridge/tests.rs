@@ -227,12 +227,16 @@ fn frames_out_of_order_are_protocol() {
         rig(true).pump.take(HelperFrame::Ready),
         Some(Outcome::Protocol)
     );
-    let opened = HelperFrame::Opened {
+    // A stream helper reports its media once; the length lands on the control.
+    let opened = || HelperFrame::Opened {
         rate: 8_000,
         channels: 1,
-        duration_secs: None,
+        duration_secs: Some(12.5),
     };
-    assert_eq!(rig(true).pump.take(opened), Some(Outcome::Protocol));
+    let mut r = rig(true);
+    assert_eq!(r.pump.take(opened()), None);
+    assert_eq!(r.pump.control.media_secs(), Some(12.5));
+    assert_eq!(r.pump.take(opened()), Some(Outcome::Protocol));
     let image = HelperFrame::Read {
         source: ReadSource::Image,
         pos: 0,

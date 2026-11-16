@@ -157,7 +157,7 @@ impl StreamHub {
                 "live": item.live,
                 "seekable": item.seekable,
                 "position_secs": link.and_then(|link| link.position(item.id)),
-                "duration_secs": Value::Null,
+                "duration_secs": item.duration,
                 "buffered_ms": item.control.buffered_ms(),
                 "last_end": last_end,
             }),

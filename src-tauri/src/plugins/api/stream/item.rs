@@ -53,6 +53,8 @@ pub(super) struct Item {
     pub meta: Meta,
     pub live: bool,
     pub seekable: bool,
+    // A finite item's length once its container stated a usable one.
+    pub duration: Option<f64>,
     pub state: NowState,
     pub cover: Option<AdHocCover>,
     pub art: ArtSlot,
@@ -98,6 +100,7 @@ impl Item {
             now: self.meta.now.clone(),
             live: self.live,
             seekable: self.seekable,
+            duration_secs: self.duration,
             state: self.shown(),
             skip: self.skip,
             art_rev: self.art_rev,

@@ -2,10 +2,10 @@
  * The decode helper: `plisto.exe --plisto-decode-helper`, run inside its AppContainer and job. It
  * reads the `Open` frame, runs the stream decode thread unchanged on a control and queue of its own,
  * and sends what lands in that queue to the main process. A guarded `Open` is a stream item; an
- * unguarded one is a local file the user opened, probed as library playback opens a file, and main
- * is told its spec and length in an `Opened` frame before its first chunk. An `Inspect` as the first
- * frame makes it an inspecting helper instead (`inspect`). Its bytes come from main a read at a time
- * through `RemoteSource`, so it holds no byte buffer and opens no file.
+ * unguarded one is a local file the user opened, probed as library playback opens a file. Either
+ * way main is told the spec and length in an `Opened` frame before the first chunk. An `Inspect` as
+ * the first frame makes it an inspecting helper instead (`inspect`). Its bytes come from main a read
+ * at a time through `RemoteSource`, so it holds no byte buffer and opens no file.
  *
  * Three threads. The demux owns the one reader of main's frames for the helper's whole life and
  * routes each frame. The decode thread closes seeks through `Gate`, a round trip to main's control.
@@ -127,7 +127,6 @@ pub(super) fn serve_with(
         control: Arc::clone(&control),
         closed,
         mirror,
-        file: !guarded,
     };
     let (source, hint) = (wrap(source), known_hint(hint));
     let input = if guarded {
@@ -201,15 +200,11 @@ struct Gate {
     control: Arc<StreamControl>,
     closed: Receiver<Option<(f64, u64)>>,
     mirror: Arc<Mirror>,
-    // A local file: main is told its spec and length before its first chunk.
-    file: bool,
 }
 
 impl SeekGate for Gate {
+    /// Main is told the spec and length before the first chunk, for a stream item as for a file.
     fn opened(&self, spec: AudioSpec, duration_secs: Option<f64>) {
-        if !self.file {
-            return;
-        }
         let opened = HelperFrame::Opened {
             rate: spec.sample_rate,
             channels: spec.channels,

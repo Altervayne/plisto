@@ -185,8 +185,9 @@ pub enum PlayerCmd {
         id: i64,
         pause: bool,
     },
-    // What a fetched stream's response head says about it, learned after its seat. Ignored for any
-    // other id.
+    // What a fetched stream's producer learned about it after its seat: its response head, then its
+    // length once the decoder opened it. Applies whether or not a source is attached and leaves
+    // the play head alone. Ignored for any other id.
     StreamFacts {
         id: i64,
         live: bool,
