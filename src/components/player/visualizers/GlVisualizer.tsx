@@ -17,7 +17,13 @@ import {
   smoothBands,
 } from "../../../state/player/spectrum";
 import { createSignalFollower, restSignal } from "../../../state/player/visualSignal";
-import { needsFineSpectrum, type GlKind, type Reactivity } from "../../../state/player/visualizerKind";
+import {
+  needsFineSpectrum,
+  sceneChanged,
+  sceneLight,
+  type GlKind,
+  type Reactivity,
+} from "../../../state/player/visualizerKind";
 
 // -- Utils Imports --
 import { isDarkTheme } from "../../../theme";
@@ -152,7 +158,11 @@ export function GlVisualizer({
       ground = tokenRgb(slot, ambient ? "--bg" : "--surface");
     };
 
-    let light = !isDarkTheme();
+    // The kind the measurements below were taken for, and whether the app's theme is light. `light` is
+    // the scene's own: a dark-only kind draws dark in a light theme.
+    let measuredKind = live.current.kind;
+    let rootLight = !isDarkTheme();
+    let light = sceneLight(measuredKind, rootLight);
     let backing: [number, number, number] = [0, 0, 0];
     let ground: [number, number, number] = [0, 0, 0];
     // The blend sits on the slot, not the canvas: the slot's z-index makes it an isolated group, so a
@@ -172,13 +182,20 @@ export function GlVisualizer({
       const { position_secs, duration_secs } = usePlayerStore.getState().status;
       return duration_secs > 0 ? clamp01(position_secs / duration_secs) : null;
     };
-    const frameOf = (t: number, dt: number, still: boolean, fine: number[] | null): Omit<Frame, "sig"> => ({
+    const frameOf = (
+      t: number,
+      dt: number,
+      still: boolean,
+      playing: boolean,
+      fine: number[] | null,
+    ): Omit<Frame, "sig"> => ({
       t,
       dt,
       palette: live.current.palette,
       light,
       ambient,
       still,
+      playing,
       fine,
       cover: live.current.pixels,
       mirrored: live.current.mirrored,
@@ -195,10 +212,13 @@ export function GlVisualizer({
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const still = () => {
-        light = !isDarkTheme();
+        measuredKind = live.current.kind;
+        rootLight = !isDarkTheme();
+        light = sceneLight(measuredKind, rootLight);
         measure();
         applyBlend();
-        draw(() => r.still(live.current.kind, { ...frameOf(14, 1 / 60, true, null), sig: restSignal() }));
+        // A still is drawn as if playing, whatever the player is doing.
+        draw(() => r.still(live.current.kind, { ...frameOf(14, 1 / 60, true, true, null), sig: restSignal() }));
       };
       repaintRef.current = still;
       still();
@@ -232,9 +252,13 @@ export function GlVisualizer({
       raf = requestAnimationFrame(frame);
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60;
       last = now;
-      // The cover can move without the stage resizing, and the theme can flip, so both are polled.
-      if (tick++ % REMEASURE_EVERY === 0) {
-        light = !isDarkTheme();
+      // The cover can move without the stage resizing, and the theme can flip, so both are polled. A new
+      // kind or scene light is measured at once, so a dark-only scene never draws against the old ground.
+      const shown = live.current.kind;
+      if (tick++ % REMEASURE_EVERY === 0 || sceneChanged(measuredKind, light, shown, rootLight)) {
+        measuredKind = shown;
+        rootLight = !isDarkTheme();
+        light = sceneLight(shown, rootLight);
         measure();
       }
       const playing = usePlayerStore.getState().status.playing;
@@ -247,7 +271,7 @@ export function GlVisualizer({
       const rawFine = needsFineSpectrum(live.current.kind) ? getLatestFineSpectrum() : null;
       fine = rawFine ? smoothBands(fine ?? [], rawFine, FINE_ATTACK, FINE_DECAY) : null;
       applyBlend();
-      draw(() => r.render(live.current.kind, { ...frameOf(now / 1000, dt, false, fine), sig }));
+      draw(() => r.render(live.current.kind, { ...frameOf(now / 1000, dt, false, playing, fine), sig }));
       if (failed) cancelAnimationFrame(raf);
     };
     raf = requestAnimationFrame(frame);

@@ -50,6 +50,8 @@ export interface VisualizerDescriptor {
   };
   // Paints an opaque image across the whole stage, ignoring the Player's mask.
   fillsStage: boolean;
+  // Has no light variant: it draws its dark look in either theme.
+  darkOnly: boolean;
   blend: { light: BlendMode; dark: BlendMode };
   prefs?: readonly VisualizerPref[];
 }
@@ -62,6 +64,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "canvas2d",
     needs: { fine: false, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "soft-light", dark: "soft-light" },
   },
   {
@@ -70,6 +73,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: true, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "multiply", dark: "screen" },
   },
   {
@@ -78,6 +82,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "multiply", dark: "screen" },
   },
   {
@@ -86,6 +91,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "multiply", dark: "screen" },
   },
   {
@@ -94,6 +100,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "multiply", dark: "screen" },
   },
   // The dot kinds paint their own ink on a light ground, so they composite straight there.
@@ -103,6 +110,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "normal", dark: "screen" },
   },
   {
@@ -111,6 +119,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: true, cover: false },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "normal", dark: "screen" },
     prefs: ["spectrumLayout"],
   },
@@ -120,6 +129,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: false,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -128,6 +138,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -136,6 +147,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -144,6 +156,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -152,6 +165,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: false },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -160,6 +174,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   // The cozy kinds are whole-stage scenes built around the cover's pixels.
@@ -169,6 +184,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -177,6 +193,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -185,6 +202,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -193,6 +211,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -201,6 +220,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -209,6 +229,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -217,6 +238,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
   {
@@ -225,6 +247,7 @@ export const VISUALIZER_DESCRIPTORS = [
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
+    darkOnly: false,
     blend: { light: "normal", dark: "normal" },
   },
 ] as const satisfies readonly VisualizerDescriptor[];

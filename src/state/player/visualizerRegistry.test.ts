@@ -75,6 +75,16 @@ describe("fillsStage", () => {
   });
 });
 
+describe("darkOnly", () => {
+  it("is a boolean on every descriptor", () => {
+    for (const d of VISUALIZER_DESCRIPTORS) expect(typeof d.darkOnly).toBe("boolean");
+  });
+
+  it("gives a dark-only kind the same blend in both themes", () => {
+    for (const d of VISUALIZER_DESCRIPTORS.filter((k) => k.darkOnly)) expect(d.blend.light).toBe(d.blend.dark);
+  });
+});
+
 describe("descriptorOf", () => {
   it("returns each kind's own descriptor", () => {
     for (const d of VISUALIZER_DESCRIPTORS) expect(descriptorOf(d.id)).toBe(d);

@@ -34,6 +34,9 @@ export interface Frame {
   light: boolean;
   ambient: boolean;
   still: boolean;
+  // Whether the track is playing. Paused, the signal's drive keeps its gain, so a scene that must hold
+  // still when paused reads this rather than the drive.
+  playing: boolean;
   // The smoothed 128-band spectrum, or null to fall back on the 24 bands.
   fine: number[] | null;
   // The cover's pixels, flipped for GL, or null when there are none.

@@ -177,6 +177,11 @@ export function applyTheme(theme: LabTheme): void {
   document.documentElement.dataset.theme = theme;
 }
 
+/** The theme a kind draws in: a dark-only kind takes the dark one whichever was asked for. */
+export function sceneTheme(darkOnly: boolean, theme: LabTheme): LabTheme {
+  return darkOnly ? "dark" : theme;
+}
+
 /** The theme's ground as an sRGB triple, for the layout: the base ground in ambient, the panel in the Player. */
 export function groundOf(layout: LabLayoutId): [number, number, number] {
   return tokenRgb(layout === "ambient" ? "--bg" : "--surface");
@@ -192,6 +197,7 @@ export function labFrame(theme: LabTheme, layout: LabLayoutId, cover: ImageBitma
     light: theme === "light",
     ambient: layout === "ambient",
     still: true,
+    playing: true,
     fine: null,
     cover,
     mirrored: false,

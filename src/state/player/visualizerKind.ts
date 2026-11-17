@@ -66,6 +66,31 @@ export function fillsStage(kind: VisualizerKind): boolean {
   return kind !== "off" && descriptorOf(kind).fillsStage;
 }
 
+/** Whether a kind has no light variant and draws its dark look in either theme. */
+export function isDarkOnly(kind: VisualizerKind): boolean {
+  return kind !== "off" && descriptorOf(kind).darkOnly;
+}
+
+/** Whether a scene draws its light look: the theme is light and the scene has a light variant. */
+export function lightLook(darkOnly: boolean, light: boolean): boolean {
+  return light && !darkOnly;
+}
+
+/** Whether a kind draws its light look in a theme. */
+export function sceneLight(kind: VisualizerKind, light: boolean): boolean {
+  return lightLook(isDarkOnly(kind), light);
+}
+
+/** Whether the shown kind or its scene light differs from what was last measured, so it is measured again. */
+export function sceneChanged(
+  measuredKind: VisualizerKind,
+  measuredLight: boolean,
+  kind: VisualizerKind,
+  light: boolean,
+): boolean {
+  return kind !== measuredKind || sceneLight(kind, light) !== measuredLight;
+}
+
 /** What a surface can draw right now. */
 export interface VisualizerSupport {
   // The WebGL2 renderer failed for the picked kind: no context, a lost context, or a shader error.

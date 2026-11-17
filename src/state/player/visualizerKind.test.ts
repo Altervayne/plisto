@@ -7,12 +7,16 @@ import {
   VISUALIZER_KINDS,
   effectiveVisualizerKind,
   fillsStage,
+  isDarkOnly,
+  lightLook,
   needsCoverPixels,
   needsFineSpectrum,
   normalizeReactivity,
   normalizeSpectrumLayout,
   normalizeVisualizerKind,
   REACTIVITY_LEVELS,
+  sceneChanged,
+  sceneLight,
   SPECTRUM_LAYOUTS,
   type VisualizerKind,
 } from "./visualizerKind";
@@ -20,29 +24,29 @@ import { ALL_OFFERED, nextOfferedKind } from "./visualizerCatalog";
 import { VISUALIZER_DESCRIPTORS, type BlendMode, type VisualizerDescriptor } from "./visualizerRegistry";
 
 describe("visualizer descriptors", () => {
-  // kind, group, engine, needs.fine, needs.cover, fillsStage, blend light, blend dark
-  const rows: [string, string, string, boolean, boolean, boolean, BlendMode, BlendMode][] = [
-    ["ridge", "classic", "canvas2d", false, false, false, "soft-light", "soft-light"],
-    ["terrain", "classic", "gl", true, false, false, "multiply", "screen"],
-    ["warp", "classic", "gl", false, false, false, "multiply", "screen"],
-    ["nebula", "classic", "gl", false, false, false, "multiply", "screen"],
-    ["bloom", "classic", "gl", false, false, false, "multiply", "screen"],
-    ["halftone", "dots", "gl", false, false, false, "normal", "screen"],
-    ["dot-spectrum", "dots", "gl", true, false, false, "normal", "screen"],
-    ["dot-cover", "dots", "gl", false, true, false, "normal", "normal"],
-    ["liquid", "fluid", "gl", false, true, true, "normal", "normal"],
-    ["ink", "fluid", "gl", false, true, true, "normal", "normal"],
-    ["mercury", "fluid", "gl", false, true, true, "normal", "normal"],
-    ["silk", "fluid", "gl", false, false, true, "normal", "normal"],
-    ["pond", "fluid", "gl", false, true, true, "normal", "normal"],
-    ["glass", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["train", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["record", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["snowfall", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["latte", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["fireflies", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["window", "cozy", "gl", false, true, true, "normal", "normal"],
-    ["lake", "cozy", "gl", false, true, true, "normal", "normal"],
+  // kind, group, engine, needs.fine, needs.cover, fillsStage, blend light, blend dark, darkOnly
+  const rows: [string, string, string, boolean, boolean, boolean, BlendMode, BlendMode, boolean][] = [
+    ["ridge", "classic", "canvas2d", false, false, false, "soft-light", "soft-light", false],
+    ["terrain", "classic", "gl", true, false, false, "multiply", "screen", false],
+    ["warp", "classic", "gl", false, false, false, "multiply", "screen", false],
+    ["nebula", "classic", "gl", false, false, false, "multiply", "screen", false],
+    ["bloom", "classic", "gl", false, false, false, "multiply", "screen", false],
+    ["halftone", "dots", "gl", false, false, false, "normal", "screen", false],
+    ["dot-spectrum", "dots", "gl", true, false, false, "normal", "screen", false],
+    ["dot-cover", "dots", "gl", false, true, false, "normal", "normal", false],
+    ["liquid", "fluid", "gl", false, true, true, "normal", "normal", false],
+    ["ink", "fluid", "gl", false, true, true, "normal", "normal", false],
+    ["mercury", "fluid", "gl", false, true, true, "normal", "normal", false],
+    ["silk", "fluid", "gl", false, false, true, "normal", "normal", false],
+    ["pond", "fluid", "gl", false, true, true, "normal", "normal", false],
+    ["glass", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["train", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["record", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["snowfall", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["latte", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["fireflies", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["window", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["lake", "cozy", "gl", false, true, true, "normal", "normal", false],
   ];
 
   it("holds every kind's traits, in picker order", () => {
@@ -56,20 +60,46 @@ describe("visualizer descriptors", () => {
         d.fillsStage,
         d.blend.light,
         d.blend.dark,
+        d.darkOnly,
       ]),
     ).toEqual(rows);
   });
 
   it("drives the predicates from the same rows", () => {
-    for (const [kind, , , fine, cover, fills] of rows) {
+    for (const [kind, , , fine, cover, fills, , , dark] of rows) {
       const k = kind as VisualizerKind;
       expect(needsFineSpectrum(k)).toBe(fine);
       expect(needsCoverPixels(k)).toBe(cover);
       expect(fillsStage(k)).toBe(fills);
+      expect(isDarkOnly(k)).toBe(dark);
     }
     expect(needsFineSpectrum("off")).toBe(false);
     expect(needsCoverPixels("off")).toBe(false);
     expect(fillsStage("off")).toBe(false);
+    expect(isDarkOnly("off")).toBe(false);
+  });
+
+  it("draws light only when the theme is light and the scene has a light variant", () => {
+    expect(lightLook(false, true)).toBe(true);
+    expect(lightLook(false, false)).toBe(false);
+    expect(lightLook(true, true)).toBe(false);
+    expect(lightLook(true, false)).toBe(false);
+  });
+
+  it("measures again for a new kind or a new scene light, and not otherwise", () => {
+    expect(sceneChanged("lake", true, "lake", true)).toBe(false);
+    expect(sceneChanged("lake", true, "train", true)).toBe(true);
+    expect(sceneChanged("lake", true, "lake", false)).toBe(true);
+    expect(sceneChanged("lake", false, "lake", false)).toBe(false);
+  });
+
+  it("keeps a kind's own scene light in a light theme and takes the dark look otherwise", () => {
+    for (const d of VISUALIZER_DESCRIPTORS) {
+      expect(sceneLight(d.id, true)).toBe(!d.darkOnly);
+      expect(sceneLight(d.id, false)).toBe(false);
+    }
+    expect(sceneLight("off", true)).toBe(true);
+    expect(sceneLight("off", false)).toBe(false);
   });
 
   it("gives only Dot spectrum a pref of its own", () => {

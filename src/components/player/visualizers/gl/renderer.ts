@@ -8,7 +8,14 @@
  */
 
 // -- Local Imports --
-import { createKit, type Candidate, type Frame, type Rect, type Target } from "./kit";
+import {
+  createKit,
+  type Candidate,
+  type Frame,
+  type Kit,
+  type Rect,
+  type Target,
+} from "./kit";
 import { BLUR_PROGRAM, COMPOSITE_PROGRAM, DOWN_PROGRAM, TRAIL_PROGRAM } from "./shaders";
 import { VISUALIZER_VIEWS } from "../visualizerViews";
 
@@ -18,6 +25,34 @@ import type { GlKind } from "../../../../state/player/visualizerKind";
 
 /** The CSS blend the canvas takes over the stage for a kind and theme. */
 export { blendFor as blendModeFor };
+
+/** What the renderer reads from a kind's descriptor. */
+export interface SceneTraits {
+  fillsStage: boolean;
+  blend: { light: GlBlendMode; dark: GlBlendMode };
+}
+
+/** A kind's factory and traits. */
+export interface SceneSource {
+  factory: (kit: Kit) => Candidate;
+  descriptor: SceneTraits;
+}
+
+/** Looks a kind up. The default reads the registry; a caller can resolve kinds the registry does not hold. */
+export type SceneResolver<K extends string> = (kind: K) => SceneSource;
+
+/** The default resolver: a kind's factory and traits from the registry. */
+export function registryScene(kind: GlKind): SceneSource {
+  const view = VISUALIZER_VIEWS[kind];
+  if (!view.factory) throw new Error(`no GL factory for ${kind}`);
+  return {
+    factory: view.factory,
+    descriptor: {
+      fillsStage: descriptorOf(kind).fillsStage,
+      blend: { light: blendFor(kind, true), dark: blendFor(kind, false) },
+    },
+  };
+}
 
 /** Where the canvas and the cover sit, in CSS pixels with a top-left origin, relative to the canvas. */
 export interface Layout {
@@ -32,11 +67,11 @@ export interface Layout {
   hush: Rect[];
 }
 
-export interface Renderer {
+export interface Renderer<K extends string = GlKind> {
   fit: (layout: Layout) => void;
-  render: (kind: GlKind, frame: Frame) => void;
+  render: (kind: K, frame: Frame) => void;
   // One static frame for reduced motion: pre-rolls a trail candidate on the given signal, then stops.
-  still: (kind: GlKind, frame: Frame) => void;
+  still: (kind: K, frame: Frame) => void;
   dispose: () => void;
 }
 
@@ -57,13 +92,24 @@ const MAX_DPR = 2;
 // The corner darkening ambient applies unless a candidate sets its own.
 const AMBIENT_VIGNETTE = 0.35;
 
-/** Opens a WebGL2 context on `canvas`, or returns null when WebGL2 is unavailable. */
-export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
+/**
+ * Opens a WebGL2 context on `canvas`, or returns null when WebGL2 is unavailable. Kinds resolve through
+ * the registry unless a resolver is given.
+ */
+export function createRenderer(canvas: HTMLCanvasElement): Renderer | null;
+export function createRenderer<K extends string>(
+  canvas: HTMLCanvasElement,
+  resolve: SceneResolver<K>,
+): Renderer<K> | null;
+export function createRenderer(
+  canvas: HTMLCanvasElement,
+  resolve: SceneResolver<string> = registryScene as SceneResolver<string>,
+): Renderer<string> | null {
   const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
   if (!gl) return null;
   const kit = createKit(gl);
   let targets: Targets | null = null;
-  let current: { kind: GlKind; candidate: Candidate } | null = null;
+  let current: { kind: string; candidate: Candidate; traits: SceneTraits } | null = null;
   let flip = 0;
 
   const freeTargets = () => {
@@ -143,7 +189,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const composite = (
     T: Targets,
     src: Target,
-    kind: GlKind,
+    traits: SceneTraits,
     mode: GlBlendMode,
     bloom: number,
     c: Candidate,
@@ -162,31 +208,30 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     // Ink on a light ground needs more gain than light on a dark one to read at the same weight.
     kit.set1(p, "uExposure", f.light && c.mode === "glow" ? c.exposure * c.inkGain : c.exposure);
     kit.set2(p, "uRes", kit.size.w, kit.size.h);
-    kit.set1(p, "uMaskOn", kit.geo.mask && !descriptorOf(kind).fillsStage ? 1 : 0);
+    kit.set1(p, "uMaskOn", kit.geo.mask && !traits.fillsStage ? 1 : 0);
     kit.set4(p, "uMask", kit.geo.mask ?? [0, 0, kit.size.w, kit.size.h]);
     kit.set1(p, "uFeather", 90 * kit.size.dpr);
     kit.set1(p, "uVignette", f.ambient ? (c.vignette ?? AMBIENT_VIGNETTE) : 0);
     kit.drawQuad();
   };
 
-  const candidateFor = (T: Targets, kind: GlKind): Candidate => {
-    if (current?.kind === kind) return current.candidate;
+  const candidateFor = (T: Targets, kind: string): { candidate: Candidate; traits: SceneTraits } => {
+    if (current?.kind === kind) return current;
     current?.candidate.dispose();
-    const factory = VISUALIZER_VIEWS[kind].factory;
-    if (!factory) throw new Error(`no GL factory for ${kind}`);
-    current = { kind, candidate: factory(kit) };
+    const { factory, descriptor } = resolve(kind);
+    current = { kind, candidate: factory(kit), traits: descriptor };
     for (const target of [T.scene0, T.scene1]) {
       kit.bindTarget(target);
       kit.gl.clearColor(0, 0, 0, 0);
       kit.gl.clear(kit.gl.COLOR_BUFFER_BIT);
     }
-    return current.candidate;
+    return current;
   };
 
-  const render = (kind: GlKind, f: Frame) => {
+  const render = (kind: string, f: Frame) => {
     const T = targets;
     if (!T || gl.isContextLost()) return;
-    const c = candidateFor(T, kind);
+    const { candidate: c, traits } = candidateFor(T, kind);
     const dst = flip ? T.scene1 : T.scene0;
     const src = flip ? T.scene0 : T.scene1;
     kit.bindTarget(dst);
@@ -209,19 +254,19 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
     c.draw(f);
-    const mode = blendFor(kind, f.light);
+    const mode = f.light ? traits.blend.light : traits.blend.dark;
     // A glow composited straight is ink painted by the candidate itself, which takes no bloom.
     const bloom = mode === "normal" && c.mode === "glow" ? 0 : c.bloom;
     if (bloom > 0) bloomChain(T, dst, c.mode === "image" ? 0.55 : 0.0);
-    composite(T, dst, kind, mode, bloom, c, f);
+    composite(T, dst, traits, mode, bloom, c, f);
   };
 
-  const still = (kind: GlKind, f: Frame) => {
+  const still = (kind: string, f: Frame) => {
     if (!targets || gl.isContextLost()) return;
     // A fresh candidate, so the still frame never inherits trails from an earlier one.
     current?.candidate.dispose();
     current = null;
-    const rolls = candidateFor(targets, kind).trail ? 40 : 1;
+    const rolls = candidateFor(targets, kind).candidate.trail ? 40 : 1;
     for (let i = 0; i < rolls; i++) render(kind, { ...f, t: 14 + i / 60, dt: 1 / 60, still: true });
   };
 
