@@ -15,7 +15,7 @@ use rusqlite::Connection;
 
 // -- Local Imports --
 use crate::adhoc::AdHocTrack;
-use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus};
+use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus, QueueMirror};
 use crate::covers::InFlightGuard;
 use crate::dto::{ExportStatus, LibrarySyncStatus};
 use crate::library_sync::SyncCmd;
@@ -67,8 +67,9 @@ pub struct AppState {
     pub player: crossbeam_channel::Sender<PlayerCmd>,
     /// The live playback snapshot the engine writes and commands read.
     pub player_status: Arc<Mutex<PlayerStatus>>,
-    /// The ordered queue ids, rewritten only when the queue changes, never on the status tick.
-    pub player_queue: Arc<Mutex<Vec<i64>>>,
+    /// The ordered queue ids and block spans, rewritten only when the queue changes, never on the
+    /// status tick. One lock, so a reader never sees ids and spans from two different queues.
+    pub player_queue: Arc<Mutex<QueueMirror>>,
     /// Tracks played off disk with no library row, keyed by the negative id the engine reports back.
     pub ad_hoc: Mutex<HashMap<i64, AdHocTrack>>,
     /// Atomic so the window-close handler reads it without taking the db Mutex.
@@ -128,7 +129,7 @@ impl AppState {
             })),
             player,
             player_status: Arc::new(Mutex::new(PlayerStatus::default())),
-            player_queue: Arc::new(Mutex::new(Vec::new())),
+            player_queue: Arc::new(Mutex::new(QueueMirror::default())),
             ad_hoc: Mutex::new(HashMap::new()),
             close_to_tray: AtomicBool::new(false),
             startup_file: Mutex::new(None),

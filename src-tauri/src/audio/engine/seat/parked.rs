@@ -7,7 +7,8 @@
 use super::{Engine, Parked, SourceHandles};
 use crate::audio::feed::FeedCause;
 use crate::audio::queue::{
-    clamp_index, enqueue_tracks, index_of_id, insert_after_current, remove_queue_item,
+    clamp_index, enqueue_tracks, index_after_remove, index_of_copy, insert_after_current,
+    remove_queue_item,
 };
 use crate::audio::source;
 use crate::audio::QueueTrack;
@@ -16,9 +17,10 @@ impl Engine {
     /// Re-seats the parked track paused at its position. False when it left the queue or its file
     /// does not open; the end of a stream reports no notice for it.
     pub(super) fn reseat_parked(&mut self, parked: Parked) -> bool {
+        let copy = (parked.track_id, parked.block);
         let i = match self.queue.get(self.index) {
-            Some(t) if t.id == parked.track_id => self.index,
-            _ => match index_of_id(&self.queue, parked.track_id) {
+            Some(t) if (t.id, t.block) == copy => self.index,
+            _ => match index_of_copy(&self.queue, copy) {
                 Some(i) => i,
                 None => return false,
             },
@@ -51,6 +53,7 @@ impl Engine {
         let i = clamp_index(index, queue.len());
         self.seating.parked = Some(Parked {
             track_id: queue[i].id,
+            block: queue[i].block,
             secs: secs.max(0.0),
         });
         self.queue = queue;
@@ -61,8 +64,9 @@ impl Engine {
         self.emit(true);
     }
 
-    /// Adds tracks to the parked queue, after the parked track with `next`. Into an empty parked
-    /// queue the first of them becomes the parked track, at its start.
+    /// Adds tracks to the parked queue, after the parked track or the end of its block with `next`.
+    /// Into an empty parked queue the first of them becomes the parked track, at its start; otherwise
+    /// they land behind the cursor, which stays on its row.
     pub(super) fn park_tracks(&mut self, tracks: Vec<QueueTrack>, next: bool) {
         if tracks.is_empty() {
             return;
@@ -85,11 +89,10 @@ impl Engine {
             self.index = first;
             self.seating.parked = Some(Parked {
                 track_id: self.queue[first].id,
+                block: self.queue[first].block,
                 secs: 0.0,
             });
             self.seating.parked_cleared = false;
-        } else {
-            self.reseat_cursor();
         }
         self.emit_queue();
         self.emit(true);
@@ -113,10 +116,11 @@ impl Engine {
             self.index = clamp_index(index, self.queue.len());
             self.seating.parked = self.queue.get(self.index).map(|t| Parked {
                 track_id: t.id,
+                block: t.block,
                 secs: 0.0,
             });
         } else {
-            self.reseat_cursor();
+            self.index = index_after_remove(self.index, index, self.queue.len());
         }
         self.emit_queue();
         self.emit(true);

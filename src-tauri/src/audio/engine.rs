@@ -21,9 +21,9 @@ use tauri::Emitter;
 use super::dsp::{DspParams, DspShared};
 use super::feed::{self, DeviceReport, FeedCause, FeedHub, FeedSource, FeedState, Transport};
 use super::queue::{
-    advance_index, clamp_index, enqueue_tracks, insert_after_current, move_queue_item, on_track_end, pending_slot,
-    preload_target, prev_index, remove_queue_item, reseat_index, shuffle_order, EndAction,
-    Xorshift,
+    advance_index, block_spans, clamp_index, enqueue_tracks, index_after_move, index_after_remove,
+    insert_after_current, mint_blocks, move_queue_item, on_track_end, pending_slot, preload_target,
+    prev_index, remove_queue_item, reseat_index, unit_shuffle_order, EndAction, Xorshift,
 };
 use super::source::{
     self, Arrival, Cut, DecoderSource, Entry, Packets, SpectrumTap, TrackSource, BAND_COUNT,
@@ -31,8 +31,8 @@ use super::source::{
 };
 use super::tap::{TapSlot, TapWriter};
 use super::{
-    feed_hub, spectrum, AudioSpec, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueTrack,
-    RepeatMode,
+    feed_hub, spectrum, AudioSpec, LevelFrame, PlayReport, PlayerCmd, PlayerNotice, PlayerStatus, QueueMirror,
+    QueueTrack, RepeatMode,
 };
 use crate::adhoc::is_ad_hoc;
 use crate::scan::progress::ProgressThrottle;
@@ -100,6 +100,8 @@ struct Engine {
     shuffle: bool,
     // One instance for the whole thread's life, seeded once at spawn. Only shuffle draws from it.
     rng: Xorshift,
+    // The next block token. Every token in the queue comes from here, so two intakes never share one.
+    next_block: u64,
     repeat: RepeatMode,
     paused: bool,
     playing: bool,
@@ -129,6 +131,8 @@ struct Engine {
     cur_channels: u16,
     cur_duration: f64,
     cur_track_id: Option<i64>,
+    // The block token of the queue row playing, which tells apart two copies of the same track.
+    cur_block: Option<u64>,
     // The current source's drained flag. Once set with a preload queued, the sink is already playing
     // the preload and the engine promotes it.
     cur_ended: Option<Arc<AtomicBool>>,
@@ -149,10 +153,9 @@ struct Engine {
     // track's natural end and advances the queue.
     stop_at_frame: Option<u64>,
     status: Arc<Mutex<PlayerStatus>>,
-    // The ordered queue track ids, written only when the queue changes (a Play or a shuffle toggle),
-    // never on the tick. Mirrors `status` but stays off the frequent snapshot since the id list can
-    // run long.
-    queue_ids: Arc<Mutex<Vec<i64>>>,
+    // The ordered queue track ids and block spans, written only when the queue changes, never on the
+    // tick. Mirrors `status` but stays off the frequent snapshot since the id list can run long.
+    queue_mirror: Arc<Mutex<QueueMirror>>,
     app: AppEvents,
     throttle: ProgressThrottle,
     // The user's output choice: None follows the system default, Some(name) pins that device.
@@ -222,16 +225,20 @@ impl Engine {
         }
     }
 
-    /// Mirrors the current queue's ordered track ids into shared state and emits `player:queue`.
-    /// Called only when the queue's contents or order change - a Play or a shuffle toggle - so the id
-    /// list, which can run long, never rides the frequent status snapshot. Unthrottled: queue changes
-    /// are rare.
+    /// Mirrors the current queue's ordered track ids and block spans into shared state, then emits
+    /// `player:queue` with the ids and `player:queue_state` with both, once the lock is dropped.
+    /// Called only when the queue's contents or order change, so the id list, which can run long,
+    /// never rides the frequent status snapshot. Unthrottled: queue changes are rare.
     fn emit_queue(&mut self) {
-        let ids: Vec<i64> = self.queue.iter().map(|t| t.id).collect();
-        if let Ok(mut guard) = self.queue_ids.lock() {
-            *guard = ids.clone();
+        let mirror = QueueMirror {
+            ids: self.queue.iter().map(|t| t.id).collect(),
+            blocks: block_spans(&self.queue),
+        };
+        if let Ok(mut guard) = self.queue_mirror.lock() {
+            *guard = mirror.clone();
         }
-        let _ = self.app.emit("player:queue", &ids);
+        let _ = self.app.emit("player:queue", &mirror.ids);
+        let _ = self.app.emit("player:queue_state", &mirror);
     }
 
     /// Whether the engine is actively producing sound right now: a loaded track that is not paused.
@@ -435,6 +442,7 @@ impl Engine {
         self.seating.forget_library();
         self.index = i;
         self.cur_track_id = Some(id);
+        self.cur_block = self.queue.get(i).and_then(|t| t.block);
         self.stop_at_frame = None;
         self.played_half = false;
         self.listen_recorded = false;
@@ -858,33 +866,36 @@ impl Engine {
         }
     }
 
-    /// Reorders the queue into a shuffled order with the track at `pin` fixed at the front, then
-    /// seats the cursor on it. Touches the queue Vec and cursor only - never the sink - so the live
-    /// source plays on across the reorder.
+    /// Reorders the queue into a shuffled order with the unit holding `pin` fixed at the front, then
+    /// seats the cursor on `pin`'s new slot inside it. Touches the queue Vec and cursor only - never
+    /// the sink - so the live source plays on across the reorder.
     fn shuffle_queue(&mut self, pin: usize) {
-        let order = shuffle_order(self.queue.len(), pin, &mut self.rng);
+        let (order, cursor) = unit_shuffle_order(&self.queue, pin, &mut self.rng);
         let reordered: Vec<QueueTrack> = order.into_iter().map(|i| self.queue[i].clone()).collect();
         self.queue = reordered;
-        self.index = 0;
+        self.index = cursor;
     }
 
-    /// Restores the pristine Play-time order and re-seats the cursor onto the currently-playing track
-    /// by id, so the live source plays on untouched. Falls back to a clamped index when nothing plays
-    /// or the track is no longer in the queue.
+    /// Restores the pristine Play-time order and re-seats the cursor onto the currently-playing copy
+    /// by id and block token, so the live source plays on untouched. Under a stream it follows the
+    /// parked copy. Falls back to a clamped index when nothing plays or the copy is no longer in the
+    /// queue.
     fn restore_order(&mut self) {
         self.queue = self.original_order.clone();
-        self.reseat_cursor();
-    }
-
-    /// Re-seats the play cursor onto the currently playing track after a queue mutation, so advance/
-    /// prev/on_track_end keep stepping from the right slot without touching the sink. Under a stream
-    /// it follows the parked track.
-    fn reseat_cursor(&mut self) {
         self.index = reseat_index(&self.queue, self.queue_anchor(), self.index);
     }
 
     /// Applies one transport command, then emits a forced status since every command changes state.
-    fn handle(&mut self, cmd: PlayerCmd) {
+    fn handle(&mut self, mut cmd: PlayerCmd) {
+        // Tokens are minted here, before a seated stream routes a queue to the parked code, so every
+        // intake draws from the one counter.
+        if let PlayerCmd::Play { queue, .. }
+        | PlayerCmd::Load { queue, .. }
+        | PlayerCmd::Enqueue(queue)
+        | PlayerCmd::InsertNext(queue) = &mut cmd
+        {
+            mint_blocks(queue, &mut self.next_block);
+        }
         // A boundary crossed since the last tick is promoted first, so the command acts on the track
         // actually playing.
         self.promote();
@@ -903,7 +914,7 @@ impl Engine {
                 self.original_order = self.queue.clone();
                 if self.shuffle {
                     self.shuffle_queue(start);
-                    start = 0;
+                    start = self.index;
                 }
                 self.emit_queue();
                 // play_at emits its own forced status on success or exhaustion.
@@ -997,50 +1008,57 @@ impl Engine {
                 if tracks.is_empty() {
                     return;
                 }
+                let anchor = self.queue_anchor();
                 let first_new = insert_after_current(
                     &mut self.queue,
                     &mut self.original_order,
                     self.shuffle,
                     self.index,
-                    self.cur_track_id,
+                    anchor,
                     tracks,
                 );
                 self.emit_queue();
                 if self.cur_track_id.is_none() {
                     self.play_at(first_new, Arrival::User);
                 } else {
-                    // The sink is untouched; a preload armed for the old next track is dropped so
-                    // the inserted one plays.
+                    // The sink is untouched. A preload stays only while its track still plays next:
+                    // an insert behind a loose track or a block's last member drops it, one after the
+                    // end of the playing block keeps the next member's.
                     self.revalidate_pending();
                     self.emit(true);
                 }
             }
             PlayerCmd::MoveQueueItem { from, to } => {
-                if !move_queue_item(
+                let Some(dest) = move_queue_item(
                     &mut self.queue,
                     &mut self.original_order,
                     self.shuffle,
                     from,
                     to,
-                ) {
+                ) else {
                     return;
-                }
-                self.reseat_cursor();
+                };
+                // The cursor follows its row by index, so a loose copy of the playing track
+                // elsewhere in the queue never takes it.
+                self.index = clamp_index(index_after_move(self.index, from, dest), self.queue.len());
                 self.revalidate_pending();
                 self.emit_queue();
                 self.emit(true);
             }
             PlayerCmd::RemoveQueueItem { index } => {
-                let removed_id = match remove_queue_item(
+                // The playing row is the one under the cursor; another copy of its track is not.
+                let playing_row = self.cur_track_id.is_some() && index == self.index;
+                if remove_queue_item(
                     &mut self.queue,
                     &mut self.original_order,
                     self.shuffle,
                     index,
-                ) {
-                    Some(id) => id,
-                    None => return,
-                };
-                if self.cur_track_id == Some(removed_id) {
+                )
+                .is_none()
+                {
+                    return;
+                }
+                if playing_row {
                     // Removing the current track ends its listen by hand: count it if it passed half.
                     self.record_manual_end();
                     // The sink still renders the removed source, so this is a skip: advance onto
@@ -1055,7 +1073,7 @@ impl Engine {
                     }
                 } else {
                     // Removing an up-next or played track: the sink plays on, only the cursor moves.
-                    self.reseat_cursor();
+                    self.index = index_after_remove(self.index, index, self.queue.len());
                     self.revalidate_pending();
                     self.emit_queue();
                     self.emit(true);
@@ -1081,8 +1099,9 @@ impl Engine {
                 if on != self.shuffle {
                     self.shuffle = on;
                     if on {
-                        // Pin the current track to the front and shuffle the rest. The Vec and cursor
-                        // change; the sink is untouched, so the current source plays on.
+                        // Pin the current track's block, or the track alone, to the front and shuffle
+                        // the rest. The Vec and cursor change before the preload is revalidated, so
+                        // one armed for the next member of the block stays; the sink is untouched.
                         self.shuffle_queue(self.index);
                     } else {
                         self.restore_order();
@@ -1193,12 +1212,12 @@ impl Engine {
 pub fn spawn(
     rx: Receiver<PlayerCmd>,
     status: Arc<Mutex<PlayerStatus>>,
-    queue_ids: Arc<Mutex<Vec<i64>>>,
+    queue_mirror: Arc<Mutex<QueueMirror>>,
     app: tauri::AppHandle,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name("plisto-player".to_string())
-        .spawn(move || run(rx, status, queue_ids, app))
+        .spawn(move || run(rx, status, queue_mirror, app))
         .expect("player thread spawns")
 }
 
@@ -1208,7 +1227,7 @@ pub fn spawn(
 fn run(
     rx: Receiver<PlayerCmd>,
     status: Arc<Mutex<PlayerStatus>>,
-    queue_ids: Arc<Mutex<Vec<i64>>>,
+    queue_mirror: Arc<Mutex<QueueMirror>>,
     app: tauri::AppHandle,
 ) {
     let (stream, sink) = match OutputStream::try_default() {
@@ -1242,6 +1261,7 @@ fn run(
         original_order: Vec::new(),
         shuffle: false,
         rng: Xorshift::new(now_ms()),
+        next_block: 0,
         repeat: RepeatMode::Off,
         paused: false,
         playing: false,
@@ -1259,6 +1279,7 @@ fn run(
         cur_channels: 0,
         cur_duration: 0.0,
         cur_track_id: None,
+        cur_block: None,
         cur_ended: None,
         cut: None,
         pending: None,
@@ -1267,7 +1288,7 @@ fn run(
         listen_recorded: false,
         stop_at_frame: None,
         status,
-        queue_ids,
+        queue_mirror,
         app: AppEvents::of(app),
         throttle: ProgressThrottle::new(200),
         device_pref: None,

@@ -13,13 +13,13 @@ use super::*;
 use crate::audio::dsp::{DspShared, DspStage};
 use crate::audio::engine::AppEvents;
 use crate::audio::feed::{FeedEvent, FeedHub, Transport};
-use crate::audio::queue::Xorshift;
+use crate::audio::queue::{block_spans, Xorshift};
 use crate::audio::source::tests::{write_wav, TempDir};
 use crate::audio::source::{DecoderSource, StreamPackets, BAND_COUNT};
 use crate::audio::stream::{pcm_queue, PcmQueue, Seam, Segment, StreamControl};
 use crate::audio::tap::tests::tapped;
 use crate::audio::tap::{HeapRegion, TapSlot};
-use crate::audio::{AudioSpec, PcmChunk, QueueTrack, RepeatMode};
+use crate::audio::{AudioSpec, PcmChunk, QueueMirror, QueueTrack, RepeatMode};
 use crate::scan::progress::ProgressThrottle;
 
 const RATE: u32 = 8_000;
@@ -130,6 +130,7 @@ fn rig() -> Rig {
         original_order: Vec::new(),
         shuffle: false,
         rng: Xorshift::new(1),
+        next_block: 0,
         repeat: RepeatMode::Off,
         paused: false,
         playing: false,
@@ -147,6 +148,7 @@ fn rig() -> Rig {
         cur_channels: 0,
         cur_duration: 0.0,
         cur_track_id: None,
+        cur_block: None,
         cur_ended: None,
         cut: None,
         pending: None,
@@ -155,7 +157,7 @@ fn rig() -> Rig {
         listen_recorded: false,
         stop_at_frame: None,
         status: Arc::default(),
-        queue_ids: Arc::default(),
+        queue_mirror: Arc::default(),
         app: AppEvents::Log(Arc::clone(&log)),
         throttle: ProgressThrottle::new(200),
         // Pinned, so the tick never polls the system default and rebuilds a real device.
@@ -222,7 +224,24 @@ impl Rig {
             id,
             path,
             gain_db: 0.0,
+            block: None,
+            detached: false,
         }
+    }
+
+    /// Tracks `ids` sent as one block, under a batch-local mark the engine swaps for a token.
+    fn album(&self, ids: &[i64]) -> Vec<QueueTrack> {
+        ids.iter()
+            .map(|&id| QueueTrack {
+                block: Some(0),
+                ..self.track(id)
+            })
+            .collect()
+    }
+
+    /// The queue's (id, token) copies.
+    fn copies(&self) -> Vec<(i64, Option<u64>)> {
+        self.engine.queue.iter().map(|t| (t.id, t.block)).collect()
     }
 
     fn sink(&self) -> &Sink {
@@ -2186,6 +2205,277 @@ fn a_stream_seek_reattach_leaves_start_seq_flat() {
     assert!(r.attached());
     assert_eq!(start_seq(&r), before);
     assert_eq!(r.status().seek_seq, 1);
+}
+
+// ---- Blocks ----
+
+// Loose 1, the album 2-3-4 sent as one block, loose 5 and 6.
+fn album_queue(r: &Rig) -> Vec<QueueTrack> {
+    let mut queue = vec![r.track(1)];
+    queue.extend(r.album(&[2, 3, 4]));
+    queue.extend([r.track(5), r.track(6)]);
+    queue
+}
+
+fn mirror(r: &Rig) -> QueueMirror {
+    r.engine.queue_mirror.lock().unwrap().clone()
+}
+
+#[test]
+fn shuffle_on_mid_block_pins_the_block_and_keeps_the_next_members_preload() {
+    let mut r = rig();
+    let queue = album_queue(&r);
+    r.handle(PlayerCmd::Play { queue, index: 2 });
+    // Paused near the end, so the preload for id 4 is armed and nothing plays out meanwhile.
+    r.handle(PlayerCmd::Pause);
+    r.handle(PlayerCmd::Seek(9.5));
+    r.tick();
+    assert_eq!(r.engine.pending.as_ref().map(|p| p.id), Some(4));
+    let started = r.status().start_seq;
+
+    r.handle(PlayerCmd::SetShuffle(true));
+    assert_eq!(r.queue_ids()[..3], [2, 3, 4]);
+    let status = r.status();
+    assert_eq!(status.queue_index, 1);
+    assert_eq!(status.track_id, Some(3));
+    assert_eq!(status.start_seq, started, "the sink is untouched");
+    let pending = r.engine.pending.as_ref().expect("the preload survives");
+    assert_eq!((pending.slot, pending.id), (2, 4));
+    assert_eq!(mirror(&r).blocks, vec![[0, 3]]);
+}
+
+#[test]
+fn load_with_spans_keeps_the_block_for_a_later_shuffle() {
+    let mut r = rig();
+    let queue = album_queue(&r);
+    r.handle(PlayerCmd::Load {
+        queue,
+        index: 2,
+        secs: 1.0,
+    });
+    assert_eq!(mirror(&r).blocks, vec![[1, 3]]);
+    r.handle(PlayerCmd::SetShuffle(true));
+    assert_eq!(r.queue_ids()[..3], [2, 3, 4]);
+    assert_eq!(r.status().queue_index, 1);
+    assert_eq!(r.status().track_id, Some(3));
+    r.handle(PlayerCmd::SetShuffle(false));
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(r.status().queue_index, 2);
+}
+
+#[test]
+fn the_parked_queue_keeps_blocks() {
+    // Insert next lands after the parked track's block.
+    let mut r = rig();
+    let mut queue = r.album(&[1, 2, 3]);
+    queue.push(r.track(4));
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    let (item, mut p) = live();
+    r.start(item, &mut p);
+    let track = r.track(9);
+    r.handle(PlayerCmd::InsertNext(vec![track]));
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 9, 4]);
+    assert_eq!(r.stream().parked.map(|p| p.track_id), Some(1));
+    assert_eq!(r.status().queue_index, 0);
+
+    // Clear empties the mirror, blocks included.
+    r.handle(PlayerCmd::ClearParked);
+    assert_eq!(mirror(&r), QueueMirror::default());
+    // An empty queue shuffles without a panic.
+    r.handle(PlayerCmd::SetShuffle(true));
+    r.handle(PlayerCmd::SetShuffle(false));
+    assert!(r.queue_ids().is_empty());
+
+    // The boot restore into an empty parked slot keeps its blocks.
+    let mut r = rig();
+    let (item, _p) = live();
+    r.handle(PlayerCmd::StreamStart(item));
+    let mut queue = r.album(&[1, 2, 3]);
+    queue.push(r.track(4));
+    r.handle(PlayerCmd::Load {
+        queue,
+        index: 1,
+        secs: 2.0,
+    });
+    assert_eq!(mirror(&r).blocks, vec![[0, 3]]);
+    assert_eq!(r.stream().parked.map(|p| p.track_id), Some(2));
+    let track = r.track(9);
+    r.handle(PlayerCmd::InsertNext(vec![track]));
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 9, 4]);
+}
+
+#[test]
+fn an_album_queued_twice_reseats_on_the_playing_copy() {
+    let mut r = rig();
+    let first = r.album(&[1, 2]);
+    r.handle(PlayerCmd::Play {
+        queue: first,
+        index: 0,
+    });
+    let second = r.album(&[1, 2]);
+    r.handle(PlayerCmd::Enqueue(second));
+    assert_eq!(mirror(&r).blocks, vec![[0, 2], [2, 2]], "two intakes are two blocks");
+    r.handle(PlayerCmd::Jump(2));
+    r.handle(PlayerCmd::SetShuffle(true));
+    r.handle(PlayerCmd::SetShuffle(false));
+    assert_eq!(r.status().queue_index, 2);
+    assert_eq!(r.status().track_id, Some(1));
+
+    // Removing the other copy of the playing id leaves playback alone.
+    let started = r.status().start_seq;
+    r.handle(PlayerCmd::RemoveQueueItem { index: 0 });
+    let status = r.status();
+    assert_eq!((status.track_id, status.queue_index), (Some(1), 1));
+    assert_eq!(status.start_seq, started);
+}
+
+#[test]
+fn removing_another_loose_copy_of_the_playing_track_plays_on() {
+    let mut r = rig();
+    let queue = vec![r.track(1), r.track(2), r.track(1), r.track(3), r.track(1)];
+    r.handle(PlayerCmd::Play { queue, index: 2 });
+    let started = r.status().start_seq;
+    // The copy before the cursor, then the copy after it.
+    r.handle(PlayerCmd::RemoveQueueItem { index: 0 });
+    assert_eq!(r.status().queue_index, 1);
+    r.handle(PlayerCmd::RemoveQueueItem { index: 3 });
+    let status = r.status();
+    assert_eq!(r.queue_ids(), vec![2, 1, 3]);
+    assert_eq!((status.track_id, status.queue_index), (Some(1), 1));
+    assert_eq!(status.start_seq, started, "nothing was skipped");
+}
+
+#[test]
+fn moving_an_unrelated_row_keeps_the_cursor_on_its_row() {
+    // The later loose copy of id 1 plays, with an earlier copy ahead of it.
+    let mut r = rig();
+    let queue = vec![r.track(1), r.track(2), r.track(3), r.track(1)];
+    r.handle(PlayerCmd::Play { queue, index: 3 });
+    // Id 2 moves from before the cursor to after it, then back to the front.
+    r.handle(PlayerCmd::MoveQueueItem { from: 1, to: 3 });
+    assert_eq!(r.queue_ids(), vec![1, 3, 1, 2]);
+    assert_eq!(r.status().queue_index, 2);
+    r.handle(PlayerCmd::MoveQueueItem { from: 3, to: 0 });
+    assert_eq!(r.queue_ids(), vec![2, 1, 3, 1]);
+    assert_eq!(r.status().queue_index, 3);
+    assert_eq!(r.status().track_id, Some(1));
+}
+
+#[test]
+fn moving_the_playing_row_keeps_the_cursor_on_it() {
+    // After each move: the cursor holds the playing row, the mirror matches and nothing restarted.
+    fn assert_on(r: &Rig, id: i64, started: u64, at: &str) {
+        let status = r.status();
+        assert_eq!(r.engine.queue[status.queue_index].id, id, "{at}");
+        assert_eq!(status.track_id, Some(id), "{at}");
+        assert_eq!(status.start_seq, started, "{at}");
+        let want = QueueMirror {
+            ids: r.queue_ids(),
+            blocks: block_spans(&r.engine.queue),
+        };
+        assert_eq!(mirror(r), want, "{at}");
+    }
+
+    // A loose row, shuffle off: later, earlier, and dropped inside a block, where it lands after.
+    let mut r = rig();
+    let queue = album_queue(&r);
+    r.handle(PlayerCmd::Play { queue, index: 0 });
+    let started = r.status().start_seq;
+    r.handle(PlayerCmd::MoveQueueItem { from: 0, to: 5 });
+    assert_eq!(r.queue_ids(), vec![2, 3, 4, 5, 6, 1]);
+    assert_on(&r, 1, started, "later");
+    r.handle(PlayerCmd::MoveQueueItem { from: 5, to: 0 });
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 4, 5, 6]);
+    assert_on(&r, 1, started, "earlier");
+    r.handle(PlayerCmd::MoveQueueItem { from: 0, to: 2 });
+    assert_eq!(r.queue_ids(), vec![2, 3, 4, 1, 5, 6]);
+    assert_on(&r, 1, started, "into a block");
+
+    // A member, shuffle off: out of its block, then back in.
+    let mut r = rig();
+    let queue = album_queue(&r);
+    r.handle(PlayerCmd::Play { queue, index: 2 });
+    let started = r.status().start_seq;
+    r.handle(PlayerCmd::MoveQueueItem { from: 2, to: 5 });
+    assert_eq!(r.queue_ids(), vec![1, 2, 4, 5, 6, 3]);
+    assert_eq!(mirror(&r).blocks, vec![[1, 2]]);
+    assert_on(&r, 3, started, "out of its block");
+    r.handle(PlayerCmd::MoveQueueItem { from: 5, to: 2 });
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(mirror(&r).blocks, vec![[1, 3]]);
+    assert_on(&r, 3, started, "back into its block");
+
+    // The same member under shuffle: out to a later slot, back in at the block's start.
+    r.handle(PlayerCmd::SetShuffle(true));
+    assert_on(&r, 3, started, "shuffled");
+    r.handle(PlayerCmd::MoveQueueItem { from: 1, to: 4 });
+    assert_eq!(r.status().queue_index, 4);
+    assert_eq!(mirror(&r).blocks, vec![[0, 2]]);
+    assert_on(&r, 3, started, "out under shuffle");
+    r.handle(PlayerCmd::MoveQueueItem { from: 4, to: 0 });
+    assert_eq!(r.status().queue_index, 0);
+    assert_eq!(mirror(&r).blocks, vec![[0, 3]]);
+    assert_on(&r, 3, started, "back in under shuffle");
+    r.handle(PlayerCmd::SetShuffle(false));
+    assert_eq!(r.queue_ids(), vec![1, 2, 3, 4, 5, 6]);
+    assert_on(&r, 3, started, "shuffle off");
+}
+
+#[test]
+fn the_mirror_matches_the_queue_after_every_command() {
+    let mut r = rig();
+    let queue = album_queue(&r);
+    let album = r.album(&[7, 8]);
+    let next = vec![r.track(9)];
+    let reload = album_queue(&r);
+    // Each command, and whether it changes the queue.
+    let commands = vec![
+        (PlayerCmd::Play { queue, index: 2 }, true),
+        (PlayerCmd::Enqueue(album), true),
+        (PlayerCmd::InsertNext(next), true),
+        (PlayerCmd::MoveQueueItem { from: 0, to: 6 }, true),
+        (PlayerCmd::RemoveQueueItem { index: 1 }, true),
+        (PlayerCmd::SetShuffle(true), true),
+        (PlayerCmd::MoveQueueItem { from: 0, to: 4 }, true),
+        (PlayerCmd::SetShuffle(false), true),
+        (PlayerCmd::SetRepeat(RepeatMode::All), false),
+        (
+            PlayerCmd::Load {
+                queue: reload,
+                index: 3,
+                secs: 0.0,
+            },
+            true,
+        ),
+    ];
+    for (cmd, changes_queue) in commands {
+        r.log.lock().unwrap().clear();
+        r.handle(cmd);
+        let want = QueueMirror {
+            ids: r.queue_ids(),
+            blocks: block_spans(&r.engine.queue),
+        };
+        assert_eq!(mirror(&r), want);
+        let log = r.log.lock().unwrap();
+        let queue_events: Vec<&(String, serde_json::Value)> = log
+            .iter()
+            .filter(|(e, _)| e.starts_with("player:queue"))
+            .collect();
+        if !changes_queue {
+            assert!(queue_events.is_empty());
+            continue;
+        }
+        let [(ids_event, ids), (state_event, state)] = queue_events.as_slice() else {
+            panic!("a queue change emits the pair once: {queue_events:?}");
+        };
+        assert_eq!(ids_event, "player:queue");
+        assert_eq!(*ids, serde_json::to_value(&want.ids).unwrap());
+        assert_eq!(state_event, "player:queue_state");
+        assert_eq!(*state, serde_json::to_value(&want).unwrap());
+    }
+    assert_eq!(mirror(&r).blocks, vec![[1, 3]]);
+    let tokens: Vec<Option<u64>> = r.copies()[1..4].iter().map(|c| c.1).collect();
+    assert!(tokens[0].is_some() && tokens.iter().all(|t| *t == tokens[0]));
 }
 
 // Opened files decoded in helpers, on the same rig.

@@ -100,6 +100,21 @@ pub struct QueueTrack {
     pub id: i64,
     pub path: PathBuf,
     pub gain_db: f32,
+    // Tracks sharing a token play together and in order, through shuffle and queue edits. A command
+    // carries batch-local marks; the engine swaps them for tokens unique in its queue on intake. The
+    // token never changes after that: with the id it names this copy of the track.
+    pub block: Option<u64>,
+    // Set on a member dragged out of its block in this order. It keeps its token, but plays and
+    // shuffles as a loose track.
+    pub detached: bool,
+}
+
+/// The queue as the windows read it: track ids in play order, and each block as a `[start, length]`
+/// span over `ids`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct QueueMirror {
+    pub ids: Vec<i64>,
+    pub blocks: Vec<[usize; 2]>,
 }
 
 /// A transport instruction sent to the resident engine thread over the command channel. The engine
@@ -125,12 +140,13 @@ pub enum PlayerCmd {
     // Appends tracks to the end of the queue. New tracks land last in up-next whether shuffled or
     // not; the live source plays on across the append.
     Enqueue(Vec<QueueTrack>),
-    // Inserts tracks right after the playing track, in order; shuffled, they also follow it in the
-    // pristine order. Cancels a stale preload so the inserted track plays next. Starts playing when
-    // nothing is.
+    // Inserts tracks right after the playing track, or after the end of its block, in order;
+    // shuffled, they land the same way in the pristine order. Cancels a stale preload so the inserted
+    // track plays next. Starts playing when nothing is.
     InsertNext(Vec<QueueTrack>),
-    // Moves the queue item at `from` to `to`, reindexing the rest. Never touches the sink; the
-    // current track keeps playing under a new cursor.
+    // Moves the queue item at `from` to `to`, reindexing the rest. A block member dropped outside its
+    // block leaves it, and a track dropped inside another block lands after it. Never touches the
+    // sink; the current track keeps playing under a new cursor.
     MoveQueueItem { from: usize, to: usize },
     // Removes the queue item at `index`. Removing an up-next track leaves playback alone; removing
     // the current track skips to whatever slid into its slot.

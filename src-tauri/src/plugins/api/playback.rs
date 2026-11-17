@@ -110,6 +110,7 @@ fn read_queue(ctx: &CallCtx<'_>) -> Result<Value, ApiError> {
         .player_queue
         .lock()
         .map_err(|_| ApiError::unavailable())?
+        .ids
         .iter()
         .map(|&id| library_id(id))
         .collect();
@@ -518,7 +519,7 @@ mod tests {
             status.queue_index = 1;
             status.queue_len = 3;
             status.output_device = Some("Speakers (C:\\Device)".into());
-            *rig.state().player_queue.lock().unwrap() = vec![t[0], t[1], -4];
+            rig.state().player_queue.lock().unwrap().ids = vec![t[0], t[1], -4];
         }
         let state = rig.call("playback.state", json!({})).unwrap();
         assert_eq!(state["track_id"], t[1]);

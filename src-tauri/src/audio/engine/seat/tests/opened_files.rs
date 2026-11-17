@@ -34,6 +34,8 @@ impl Rig {
             id,
             path,
             gain_db: 0.0,
+            block: None,
+            detached: false,
         }
     }
 
@@ -271,6 +273,8 @@ fn a_forged_opened_file_is_skipped_with_the_file_notice_and_the_host_lives() {
             id: -1,
             path: forged.clone(),
             gain_db: 0.0,
+            block: None,
+            detached: false,
         },
         r.opened(-2),
     ];
@@ -377,6 +381,8 @@ fn an_opened_file_with_no_audio_played_by_the_user_gives_the_notice_once() {
         id: -1,
         path,
         gain_db: 0.0,
+        block: None,
+        detached: false,
     }];
     r.handle(PlayerCmd::Play { queue, index: 0 });
     assert_eq!(r.status().track_id, None);

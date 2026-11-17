@@ -22,7 +22,7 @@ use crossbeam_channel::Sender;
 // -- Local Imports --
 use super::{Engine, SourceHandles};
 use crate::audio::feed::{FeedCause, FeedSource};
-use crate::audio::queue::index_of_id;
+use crate::audio::queue::Anchor;
 use crate::audio::source::{self, EdgeCell};
 use crate::audio::stream::{PcmReader, StreamControl};
 use crate::audio::{
@@ -139,6 +139,7 @@ impl Drop for Seat {
 #[derive(Clone, Copy)]
 struct Parked {
     track_id: i64,
+    block: Option<u64>,
     secs: f64,
 }
 
@@ -176,12 +177,12 @@ impl Seating {
 }
 
 impl Engine {
-    /// The track the queue cursor follows: the parked one while a stream is seated.
-    pub(super) fn queue_anchor(&self) -> Option<i64> {
+    /// The copy the queue cursor follows, as (id, block): the parked one while a stream is seated.
+    pub(super) fn queue_anchor(&self) -> Option<Anchor> {
         if self.seating.is_seated() {
-            self.seating.parked.map(|p| p.track_id)
+            self.seating.parked.map(|p| (p.track_id, p.block))
         } else {
-            self.cur_track_id
+            self.cur_track_id.map(|id| (id, self.cur_block))
         }
     }
 
@@ -357,6 +358,7 @@ impl Engine {
                 self.seating.parked = if self.has_library_track() {
                     self.cur_track_id.map(|id| Parked {
                         track_id: id,
+                        block: self.cur_block,
                         secs: self.position_secs(),
                     })
                 } else {
@@ -365,7 +367,7 @@ impl Engine {
                     library.filter(|p| {
                         self.queue
                             .get(self.index)
-                            .is_some_and(|t| t.id == p.track_id)
+                            .is_some_and(|t| (t.id, t.block) == (p.track_id, p.block))
                     })
                 };
                 if !previewing {

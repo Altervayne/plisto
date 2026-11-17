@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::adhoc::{next_ad_hoc_id, AdHocTrack};
 use crate::audio::{
     index_of_id, track_gain_db, GainInputs, OutputDeviceInfo, PlayerCmd, PlayerNotice,
-    PlayerStatus, QueueTrack, RepeatMode,
+    PlayerStatus, QueueMirror, QueueTrack, RepeatMode,
 };
 use crate::covers::InFlightGuard;
 use crate::db;
@@ -30,66 +30,140 @@ mod staging;
 
 use staging::read_ad_hoc_tracks;
 
-/// Resolves track ids to a DB-free queue with each track's levelling gain, keeping the caller's order
-/// and dropping ids that no longer resolve (a deleted row). `load_queue_tracks` returns only present
-/// ids in an arbitrary order, so index them by id and rebuild along the requested sequence. The only
-/// DB work the player does; the engine never sees a connection. Returns an empty queue when the lock
-/// is poisoned.
-pub(crate) fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
+/// The file path and levelling gain of each id that still resolves (a deleted row does not). Empty
+/// when the lock is poisoned. The only DB work the player does; the engine never sees a connection.
+fn resolve_rows(track_ids: &[i64], state: &AppState) -> HashMap<i64, (String, f32)> {
     let resolved: Vec<(i64, String, f32)> = match state.db.lock() {
         Ok(conn) => db::load_queue_tracks(&conn, track_ids).unwrap_or_default(),
-        Err(_) => return Vec::new(),
+        Err(_) => return HashMap::new(),
     };
-    let by_id: HashMap<i64, (String, f32)> =
-        resolved.into_iter().map(|(id, p, g)| (id, (p, g))).collect();
-    track_ids
-        .iter()
-        .filter_map(|id| {
-            by_id.get(id).map(|(p, gain_db)| QueueTrack {
-                id: *id,
-                path: PathBuf::from(p),
-                gain_db: *gain_db,
-            })
-        })
-        .collect()
+    resolved.into_iter().map(|(id, p, g)| (id, (p, g))).collect()
+}
+
+/// Builds the queue along `track_ids` from the rows that resolved, each track carrying its mark
+/// from `marks`, and returns where `start` lands in it: a start on a row left out moves to the next
+/// row kept. Marks are read by request position before any row drops, so a block keeps whatever
+/// of it survives.
+fn marked_queue(
+    track_ids: &[i64],
+    marks: &[Option<u64>],
+    rows: &HashMap<i64, (String, f32)>,
+    start: usize,
+) -> (Vec<QueueTrack>, usize) {
+    let mut queue = Vec::with_capacity(track_ids.len());
+    let mut kept_before = 0;
+    for (i, id) in track_ids.iter().enumerate() {
+        let Some((path, gain_db)) = rows.get(id) else {
+            continue;
+        };
+        if i < start {
+            kept_before += 1;
+        }
+        queue.push(QueueTrack {
+            id: *id,
+            path: PathBuf::from(path),
+            gain_db: *gain_db,
+            block: marks.get(i).copied().flatten(),
+            detached: false,
+        });
+    }
+    (queue, kept_before)
+}
+
+/// One mark per requested row from the frontend's `[start, length]` block spans: the span's ordinal
+/// on its rows, None elsewhere. An empty span, one past the end of `len` rows, or one overlapping an
+/// earlier span is dropped.
+pub(crate) fn marks_from_spans(len: usize, spans: &[[usize; 2]]) -> Vec<Option<u64>> {
+    let mut marks = vec![None; len];
+    for (ordinal, &[start, length]) in spans.iter().enumerate() {
+        let Some(end) = start.checked_add(length).filter(|&end| length > 0 && end <= len) else {
+            continue;
+        };
+        if marks[start..end].iter().any(Option::is_some) {
+            continue;
+        }
+        marks[start..end].fill(Some(ordinal as u64));
+    }
+    marks
+}
+
+/// Resolves track ids to a DB-free queue with each track's levelling gain, keeping the caller's order
+/// and dropping ids that no longer resolve (a deleted row). No track is in a block. Returns an empty
+/// queue when the lock is poisoned.
+pub(crate) fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
+    marked_queue(track_ids, &[], &resolve_rows(track_ids, state), 0).0
+}
+
+/// `resolve_queue` with the frontend's block spans, and where `start` lands in the result.
+fn resolve_with_blocks(
+    track_ids: &[i64],
+    blocks: Option<Vec<[usize; 2]>>,
+    start: usize,
+    state: &AppState,
+) -> (Vec<QueueTrack>, usize) {
+    let marks = marks_from_spans(track_ids.len(), blocks.as_deref().unwrap_or_default());
+    marked_queue(track_ids, &marks, &resolve_rows(track_ids, state), start)
+}
+
+/// The slot `player_load` seats: `index` when that row holds `current_id`, else its first copy.
+fn seat_index(queue: &[QueueTrack], current_id: i64, index: Option<usize>) -> Option<usize> {
+    index
+        .filter(|&i| queue.get(i).is_some_and(|t| t.id == current_id))
+        .or_else(|| index_of_id(queue, current_id))
 }
 
 /// Resolves the given track ids to their files and starts playback at `index`. Ids that no longer
-/// resolve (a deleted row) drop out of the queue, so `index` is clamped to what remains. An empty
+/// resolve (a deleted row) drop out of the queue, and `index` moves with the rows kept before it.
+/// `blocks` are `[start, length]` spans over `track_ids` whose tracks play together. An empty
 /// resolution is a no-op.
 #[tauri::command]
 pub fn player_play_tracks(
     track_ids: Vec<i64>,
     index: usize,
+    blocks: Option<Vec<[usize; 2]>>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let queue = resolve_queue(&track_ids, &state);
+    let (queue, index) = resolve_with_blocks(&track_ids, blocks, index, &state);
     if queue.is_empty() {
         return Ok(());
     }
-    // Resolution may have dropped rows before `index`, so clamp to the surviving queue.
     let index = index.min(queue.len() - 1);
     let _ = state.player.send(PlayerCmd::Play { queue, index });
     Ok(())
 }
 
-/// Seats the saved queue paused on `current_id` at `secs`, never playing. The cursor is found by id
-/// after resolution, since a deleted row drops out of the queue and shifts every slot behind it.
-/// Returns false, loading nothing, when the current track no longer resolves.
+/// Seats the saved queue paused on `current_id` at `secs`, never playing. `index` names the saved
+/// row of the current track, which tells apart two copies of it; when that row no longer holds it
+/// after resolution, the first copy is seated. Returns false, loading nothing, when the current track
+/// no longer resolves.
 #[tauri::command]
 pub fn player_load(
     track_ids: Vec<i64>,
     current_id: i64,
     secs: f64,
+    index: Option<usize>,
+    blocks: Option<Vec<[usize; 2]>>,
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    let queue = resolve_queue(&track_ids, &state);
-    let index = match index_of_id(&queue, current_id) {
-        Some(i) => i,
-        None => return Ok(false),
+    let Some(cmd) = load_command(&track_ids, current_id, secs, index, blocks, &state) else {
+        return Ok(false);
     };
-    let _ = state.player.send(PlayerCmd::Load { queue, index, secs });
+    let _ = state.player.send(cmd);
     Ok(true)
+}
+
+/// The `Load` that `player_load` sends, or None when the current track no longer resolves.
+fn load_command(
+    track_ids: &[i64],
+    current_id: i64,
+    secs: f64,
+    index: Option<usize>,
+    blocks: Option<Vec<[usize; 2]>>,
+    state: &AppState,
+) -> Option<PlayerCmd> {
+    let (queue, row) = resolve_with_blocks(track_ids, blocks, index.unwrap_or(0), state);
+    let index = seat_index(&queue, current_id, index.map(|_| row))?;
+    Some(PlayerCmd::Load { queue, index, secs })
 }
 
 /// Plays one or more files straight off disk, with no library rows behind them. Reads each file's tags
@@ -177,6 +251,8 @@ fn build_ad_hoc_queue(
             id,
             path: path.into(),
             gain_db,
+            block: None,
+            detached: false,
         });
     }
     (entries, queue)
@@ -287,11 +363,16 @@ fn filename_stem(filename: &str) -> String {
         .unwrap_or_else(|| filename.to_string())
 }
 
-/// Resolves the given track ids to their files and appends them to the end of the queue. An empty
-/// resolution is a no-op. Fire-and-forget like the other transport commands.
+/// Resolves the given track ids to their files and appends them to the end of the queue, `blocks`
+/// as in `player_play_tracks`. An empty resolution is a no-op. Fire-and-forget like the other
+/// transport commands.
 #[tauri::command]
-pub fn player_enqueue(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
-    let queue = resolve_queue(&track_ids, &state);
+pub fn player_enqueue(
+    track_ids: Vec<i64>,
+    blocks: Option<Vec<[usize; 2]>>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (queue, _) = resolve_with_blocks(&track_ids, blocks, 0, &state);
     if queue.is_empty() {
         return Ok(());
     }
@@ -299,11 +380,16 @@ pub fn player_enqueue(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result
     Ok(())
 }
 
-/// Resolves the given track ids and inserts them right after the playing track. An empty
-/// resolution is a no-op. Fire-and-forget like the other transport commands.
+/// Resolves the given track ids and inserts them right after the playing track, or after the end of
+/// its block, `blocks` as in `player_play_tracks`. An empty resolution is a no-op. Fire-and-forget
+/// like the other transport commands.
 #[tauri::command]
-pub fn player_play_next(track_ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
-    let queue = resolve_queue(&track_ids, &state);
+pub fn player_play_next(
+    track_ids: Vec<i64>,
+    blocks: Option<Vec<[usize; 2]>>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (queue, _) = resolve_with_blocks(&track_ids, blocks, 0, &state);
     if queue.is_empty() {
         return Ok(());
     }
@@ -507,6 +593,18 @@ pub fn get_player_queue(state: State<'_, AppState>) -> Result<Vec<i64>, String> 
         .player_queue
         .lock()
         .map_err(|_| "player queue is unavailable".to_string())?;
+    Ok(queue.ids.clone())
+}
+
+/// The ordered queue track ids with the block spans over them, from the same mirror as
+/// `get_player_queue`, so the two never come from different queues. What `player:queue_state`
+/// carries.
+#[tauri::command]
+pub fn get_player_queue_state(state: State<'_, AppState>) -> Result<QueueMirror, String> {
+    let queue = state
+        .player_queue
+        .lock()
+        .map_err(|_| "player queue is unavailable".to_string())?;
     Ok(queue.clone())
 }
 
@@ -575,6 +673,85 @@ mod tests {
         // The paths keep the caller's order.
         let paths: Vec<_> = queue.iter().map(|q| q.path.to_string_lossy().into_owned()).collect();
         assert_eq!(paths, vec!["/music/a.mp3", "/music/b.flac", "/music/c.wav"]);
+    }
+
+    // ---- Block spans ----
+
+    // Resolved rows for `ids`, as `resolve_rows` returns them.
+    fn rows(ids: &[i64]) -> HashMap<i64, (String, f32)> {
+        ids.iter().map(|&id| (id, (format!("/music/{id}.flac"), 0.0))).collect()
+    }
+
+    fn copies(queue: &[QueueTrack]) -> Vec<(i64, Option<u64>)> {
+        queue.iter().map(|t| (t.id, t.block)).collect()
+    }
+
+    #[test]
+    fn marks_from_spans_drops_empty_overlapping_and_out_of_range_spans() {
+        let spans = [[0, 2], [1, 2], [4, 0], [5, 3], [3, 3], [usize::MAX, 2]];
+        let marks = marks_from_spans(6, &spans);
+        assert_eq!(marks, vec![Some(0), Some(0), None, Some(4), Some(4), Some(4)]);
+        assert_eq!(marks_from_spans(2, &[]), vec![None, None]);
+    }
+
+    #[test]
+    fn a_dropped_row_shrinks_its_block_and_moves_the_start() {
+        let ids = [10, 11, 12, 13, 14];
+        let marks = marks_from_spans(ids.len(), &[[1, 3]]);
+        // Ids 10 and 12 no longer resolve.
+        let rows = rows(&[11, 13, 14]);
+        let (queue, start) = marked_queue(&ids, &marks, &rows, 3);
+        assert_eq!(copies(&queue), vec![(11, Some(0)), (13, Some(0)), (14, None)]);
+        assert_eq!(queue[start].id, 13);
+        // A start on a dropped row moves to the next row kept.
+        let (_, start) = marked_queue(&ids, &marks, &rows, 2);
+        assert_eq!(start, 1);
+    }
+
+    #[test]
+    fn player_load_seats_the_saved_copy_or_falls_back_to_the_first() {
+        // Id 5 no longer resolves; the album 1-2 is queued twice behind it.
+        let ids = [5, 1, 2, 1, 2];
+        let marks = marks_from_spans(ids.len(), &[[1, 2], [3, 2]]);
+        let rows = rows(&[1, 2]);
+        let (queue, row) = marked_queue(&ids, &marks, &rows, 3);
+        assert_eq!(copies(&queue), vec![(1, Some(0)), (2, Some(0)), (1, Some(1)), (2, Some(1))]);
+        assert_eq!(seat_index(&queue, 1, Some(row)), Some(2));
+        // A saved row that holds another track falls back to the first copy.
+        assert_eq!(seat_index(&queue, 1, Some(1)), Some(0));
+        assert_eq!(seat_index(&queue, 1, Some(9)), Some(0));
+        assert_eq!(seat_index(&queue, 1, None), Some(0));
+        assert_eq!(seat_index(&queue, 7, Some(0)), None);
+    }
+
+    #[test]
+    fn player_load_resolves_marks_and_seats_the_saved_copy() {
+        let conn = db::open_in_memory().unwrap();
+        let insert = |path: &str| {
+            conn.execute(
+                "INSERT INTO tracks (source_path, filename, ext, size_bytes, mtime, has_embedded_cover, scanned_at)
+                 VALUES (?1, 'song.mp3', 'mp3', 10, 20, 0, 30)",
+                [path],
+            )
+            .unwrap();
+            conn.last_insert_rowid()
+        };
+        let (a, b) = (insert("/music/a.mp3"), insert("/music/b.mp3"));
+        let state = AppState::for_test(conn, PathBuf::new());
+        // A row that no longer resolves sits first; the album a-b is queued twice behind it.
+        let ids = [999, a, b, a, b];
+        let spans = Some(vec![[1, 2], [3, 2]]);
+        let load = |index| load_command(&ids, a, 4.0, index, spans.clone(), &state);
+        let seated = |cmd: Option<PlayerCmd>| match cmd {
+            Some(PlayerCmd::Load { queue, index, secs }) => (copies(&queue), index, secs),
+            _ => panic!("not a load"),
+        };
+        let (queue, index, secs) = seated(load(Some(3)));
+        assert_eq!(queue, vec![(a, Some(0)), (b, Some(0)), (a, Some(1)), (b, Some(1))]);
+        assert_eq!((index, secs), (2, 4.0));
+        // A saved row holding another track seats the first copy.
+        assert_eq!(seated(load(Some(2))).1, 0);
+        assert!(load_command(&[999], a, 0.0, None, None, &state).is_none());
     }
 
     #[test]

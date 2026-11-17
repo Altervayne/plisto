@@ -206,9 +206,9 @@ pub fn run() {
             // ends the thread, so it must never be cloned elsewhere.
             let (player_tx, player_rx) = crossbeam_channel::unbounded::<audio::PlayerCmd>();
             let player_status = Arc::new(Mutex::new(audio::PlayerStatus::default()));
-            // Mirrors the ordered queue track ids, written by the engine only on a queue change so
-            // the id list stays off the frequent status snapshot.
-            let player_queue = Arc::new(Mutex::new(Vec::<i64>::new()));
+            // Mirrors the ordered queue track ids and block spans, written by the engine only on a
+            // queue change so the id list stays off the frequent status snapshot.
+            let player_queue = Arc::new(Mutex::new(audio::QueueMirror::default()));
             audio::engine::spawn(
                 player_rx,
                 Arc::clone(&player_status),
@@ -562,6 +562,7 @@ pub fn run() {
             commands::player::player_set_shuffle,
             commands::player::get_player_status,
             commands::player::get_player_queue,
+            commands::player::get_player_queue_state,
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
             commands::player::player_set_fine_spectrum,

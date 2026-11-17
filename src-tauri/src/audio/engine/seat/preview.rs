@@ -28,6 +28,7 @@ impl Engine {
             .then(|| {
                 self.cur_track_id.map(|track_id| Parked {
                     track_id,
+                    block: self.cur_block,
                     secs: self.position_secs(),
                 })
             })
