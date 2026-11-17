@@ -727,10 +727,33 @@ export interface PlaylistTrackRow {
   missing_at: number | null;
 }
 
-/** The load-all playlists payload: every playlist and every slot across them. Mirrors PlaylistSnapshot. */
+/**
+ * One album entry in a playlist: a live reference to an album, not a copy of its tracks. `id` is the slot
+ * identity shared with the track slots, so both kinds order and reorder together. `keep_order` plays the
+ * album's tracks as one block. Mirrors PlaylistAlbumEntryRow in dto.rs.
+ */
+export interface PlaylistAlbumEntryRow {
+  id: number;
+  playlist_id: number;
+  album_id: number;
+  position: number;
+  keep_order: boolean;
+}
+
+/** The load-all playlists payload: every playlist, track slot and album entry across them. Mirrors PlaylistSnapshot. */
 export interface PlaylistSnapshot {
   playlists: PlaylistRow[];
   tracks: PlaylistTrackRow[];
+  album_entries: PlaylistAlbumEntryRow[];
+}
+
+/** A run of queue rows that play together, as `[start, length]` over the queue's ids. */
+export type QueueBlock = [number, number];
+
+/** The engine's queue as the windows read it: ids in play order and the blocks over them. Mirrors QueueMirror. */
+export interface QueueState {
+  ids: number[];
+  blocks: QueueBlock[];
 }
 
 /**

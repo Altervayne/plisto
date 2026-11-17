@@ -45,7 +45,13 @@ export async function restoreResume(): Promise<void> {
   // Volume and repeat first, so the load emits the status the UI should show.
   actions.setVolume(saved.volume);
   actions.setRepeat(saved.repeat);
-  const loaded = await playerLoad(saved.ids, saved.currentId, saved.secs).catch(() => false);
+  const loaded = await playerLoad(
+    saved.ids,
+    saved.currentId,
+    saved.secs,
+    saved.index,
+    saved.blocks,
+  ).catch(() => false);
   if (!loaded) return;
 
   const meta = snapshotQueueMeta(saved.ids, useAppStore.getState().tracks);

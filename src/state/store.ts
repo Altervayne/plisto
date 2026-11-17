@@ -408,6 +408,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       await removeRootCmd(id);
       await get().loadRoots();
       await get().loadTracks();
+      // The removal sweeps emptied albums, the entries that referenced them, and the removed tracks' slots.
+      await useOrganizeStore.getState().refreshOrganization();
+      await usePlaylistsStore.getState().load();
     },
 
     // The gate's retry after a failed blocking scan, so it stays blocking. Every other rescan is quiet.

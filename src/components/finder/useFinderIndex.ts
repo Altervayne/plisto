@@ -6,7 +6,7 @@ import { useAppStore } from "../../state/store";
 import { useProbe } from "../../state/plugins/sandboxStore";
 import { usePlugins } from "../../state/plugins/store";
 import { tagKind } from "../../state/plugins/trust";
-import { useOrganizeStore } from "../../state/organize/store";
+import { useOrgReady, useOrganizeStore } from "../../state/organize/store";
 import { usePlaylistsStore } from "../../state/playlists/store";
 import { useAppMode } from "../../state/player/store";
 
@@ -69,6 +69,8 @@ export function useFinderIndex(): {
   const genres = useOrganizeStore((s) => s.genres);
   const playlists = usePlaylistsStore((s) => s.playlists);
   const slots = usePlaylistsStore((s) => s.tracks);
+  const albumEntries = usePlaylistsStore((s) => s.albumEntries);
+  const orgReady = useOrgReady();
   const appMode = useAppMode();
   const locale = useLocale();
   const t = useMemo(() => createT(locale), [locale]);
@@ -83,11 +85,24 @@ export function useFinderIndex(): {
         membership,
         playlists,
         slots,
+        albumEntries,
+        orgReady,
         genres,
         untitledAlbum,
         untitledPlaylist,
       }),
-    [tracks, albums, membership, playlists, slots, genres, untitledAlbum, untitledPlaylist],
+    [
+      tracks,
+      albums,
+      membership,
+      playlists,
+      slots,
+      albumEntries,
+      orgReady,
+      genres,
+      untitledAlbum,
+      untitledPlaylist,
+    ],
   );
 
   const destinations = useMemo(

@@ -11,7 +11,14 @@ import type { LibrarySnapshot } from "./libraryWatch";
 import type { TrackRow } from "../../types";
 
 const track = (id: number): TrackRow => ({ id }) as TrackRow;
-const EMPTY: LibrarySnapshot = { tracks: [], albums: [], membership: [], playlists: [], slots: [] };
+const EMPTY: LibrarySnapshot = {
+  tracks: [],
+  albums: [],
+  membership: [],
+  playlists: [],
+  slots: [],
+  albumEntries: [],
+};
 
 function setup(initial: TrackRow[]) {
   let snapshot: LibrarySnapshot = { ...EMPTY, tracks: initial };

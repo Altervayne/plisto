@@ -73,6 +73,38 @@ describe("normalizeResume", () => {
     expect(normalizeResume(blob({ volume: undefined }))?.volume).toBe(1);
   });
 
+  it("restores a blob written before blocks existed with neither field", () => {
+    const state = normalizeResume(blob());
+    expect(state).not.toHaveProperty("blocks");
+    expect(state).not.toHaveProperty("index");
+  });
+
+  it("restores saved blocks and the current row", () => {
+    const state = normalizeResume(blob({ blocks: [[0, 2]], index: 1 }));
+    expect(state?.blocks).toEqual([[0, 2]]);
+    expect(state?.index).toBe(1);
+  });
+
+  it("drops a bad span on its own and keeps the sound ones", () => {
+    const bad = [[0, 1], [2, 5], [-1, 2], [0.5, 2], "x", [1], [1, 2], [2, 1]];
+    expect(normalizeResume(blob({ blocks: bad }))?.blocks).toEqual([[1, 2]]);
+    expect(normalizeResume(blob({ blocks: [[0, 2], [1, 2]] }))?.blocks).toEqual([[0, 2]]);
+    expect(normalizeResume(blob({ blocks: "nope" }))).not.toHaveProperty("blocks");
+  });
+
+  it("drops a row that does not hold the current track", () => {
+    expect(normalizeResume(blob({ index: 0 }))).not.toHaveProperty("index");
+    expect(normalizeResume(blob({ index: 9 }))).not.toHaveProperty("index");
+    expect(normalizeResume(blob({ index: 1.5 }))).not.toHaveProperty("index");
+  });
+
+  it("discards blocks and the row, not remaps them, when an id was dropped", () => {
+    const state = normalizeResume(blob({ ids: [-1, 3, 5, 8], blocks: [[1, 2]], index: 2 }));
+    expect(state?.ids).toEqual([3, 5, 8]);
+    expect(state).not.toHaveProperty("blocks");
+    expect(state).not.toHaveProperty("index");
+  });
+
   it("reads an unknown repeat as off", () => {
     expect(normalizeResume(blob({ repeat: "loop" }))?.repeat).toBe("off");
     expect(normalizeResume(blob({ repeat: undefined }))?.repeat).toBe("off");
@@ -84,11 +116,37 @@ describe("buildResumeBlob", () => {
     expect(buildResumeBlob(status(), [3, 5, 8])).toEqual({
       v: 1,
       ids: [3, 5, 8],
+      index: 1,
       current_id: 5,
       secs: 61.5,
       volume: 0.4,
       repeat: "all",
     });
+  });
+
+  it("saves the blocks over the saved ids and the row of the current track", () => {
+    const out = buildResumeBlob(status({ queue_index: 3 }), [9, 3, 5, 5, 8], [[1, 2]]);
+    expect(out?.blocks).toEqual([[1, 2]]);
+    expect(out?.index).toBe(3);
+  });
+
+  it("remaps blocks and the row where ad-hoc rows leave, and drops a block left with one row", () => {
+    const out = buildResumeBlob(status({ queue_index: 4 }), [-1, 3, 4, -2, 5, 6], [[1, 3], [4, 2]]);
+    expect(out?.ids).toEqual([3, 4, 5, 6]);
+    expect(out?.blocks).toEqual([[0, 2], [2, 2]]);
+    expect(out?.index).toBe(2);
+    const lone = buildResumeBlob(status({ queue_index: 2 }), [-1, 3, 5], [[0, 2]]);
+    expect(lone).not.toHaveProperty("blocks");
+  });
+
+  it("leaves out the row when the cursor does not sit on the current track", () => {
+    expect(buildResumeBlob(status({ queue_index: 0 }), [3, 5, 8])?.index).toBeUndefined();
+  });
+
+  it("leaves out blocks and the row an older build never wrote", () => {
+    const out = buildResumeBlob(status({ queue_index: 9 }), [3, 5, 8]);
+    expect(out).not.toHaveProperty("blocks");
+    expect(out).not.toHaveProperty("index");
   });
 
   it("skips an ad-hoc current track", () => {

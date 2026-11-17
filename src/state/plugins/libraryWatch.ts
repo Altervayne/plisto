@@ -5,7 +5,15 @@
  */
 
 // -- Type Imports --
-import type { AlbumRow, AlbumTrackRow, LibraryChange, PlaylistRow, PlaylistTrackRow, TrackRow } from "../../types";
+import type {
+  AlbumRow,
+  AlbumTrackRow,
+  LibraryChange,
+  PlaylistAlbumEntryRow,
+  PlaylistRow,
+  PlaylistTrackRow,
+  TrackRow,
+} from "../../types";
 
 /** The rows the three stores hold that a plugin can see change. */
 export interface LibrarySnapshot {
@@ -14,6 +22,7 @@ export interface LibrarySnapshot {
   membership: AlbumTrackRow[];
   playlists: PlaylistRow[];
   slots: PlaylistTrackRow[];
+  albumEntries: PlaylistAlbumEntryRow[];
 }
 
 /** The most ids one change names; past it the change reports null and the plugin re-reads. */
@@ -52,8 +61,31 @@ export function sameSnapshot(prev: LibrarySnapshot, next: LibrarySnapshot): bool
     prev.albums === next.albums &&
     prev.membership === next.membership &&
     prev.playlists === next.playlists &&
-    prev.slots === next.slots
+    prev.slots === next.slots &&
+    prev.albumEntries === next.albumEntries
   );
+}
+
+/**
+ * Whether a changed album, a changed member or a changed member track belongs to an album some playlist
+ * entry references, so that playlist's expanded tracks changed without any playlist row being replaced.
+ * `trackIds` are the tracks whose row or membership changed.
+ */
+function touchesReferencedAlbum(
+  prev: LibrarySnapshot,
+  next: LibrarySnapshot,
+  albumIds: Set<number>,
+  trackIds: Set<number>,
+): boolean {
+  const referenced = new Set<number>();
+  for (const entry of prev.albumEntries) referenced.add(entry.album_id);
+  for (const entry of next.albumEntries) referenced.add(entry.album_id);
+  if (referenced.size === 0) return false;
+  for (const id of albumIds) if (referenced.has(id)) return true;
+  if (trackIds.size === 0) return false;
+  // A membership row of either side: a track that left or joined a referenced album counts.
+  const inReferenced = (row: AlbumTrackRow) => referenced.has(row.album_id) && trackIds.has(row.track_id);
+  return prev.membership.some(inReferenced) || next.membership.some(inReferenced);
 }
 
 /**
@@ -73,9 +105,12 @@ export function diffLibrary(prev: LibrarySnapshot, next: LibrarySnapshot): Libra
     for (const row of prev.membership) if (albumIds.has(row.album_id)) memberIds.add(row.track_id);
   }
   const albums = albumIds.size > 0 || memberIds.size > 0;
-  const playlists = differs(prev.playlists, next.playlists) || differs(prev.slots, next.slots);
-
   for (const id of memberIds) ids.add(id);
+  const playlists =
+    differs(prev.playlists, next.playlists) ||
+    differs(prev.slots, next.slots) ||
+    differs(prev.albumEntries, next.albumEntries) ||
+    touchesReferencedAlbum(prev, next, albumIds, ids);
   if (ids.size === 0 && !albums && !playlists) return null;
   const many = reloaded || ids.size > MAX_CHANGE_IDS;
   return { track_ids: many ? null : [...ids].sort((a, b) => a - b), albums, playlists };
@@ -99,12 +134,23 @@ export function unbindLibrarySink(mine: (change: LibraryChange) => void): void {
   if (sink === mine) sink = null;
 }
 
-/** What the album projection changed between two states, or null when nothing did. */
+/**
+ * What the album projection changed between two states, or null when nothing did. `albumEntries` are the
+ * playlists' album entries now, which decide whether the change reaches a playlist's tracks.
+ */
 export function diffOrg(
   prev: { albums: AlbumRow[]; membership: AlbumTrackRow[] },
   next: { albums: AlbumRow[]; membership: AlbumTrackRow[] },
+  albumEntries: PlaylistAlbumEntryRow[] = [],
 ): LibraryChange | null {
-  const none: LibrarySnapshot = { tracks: [], albums: [], membership: [], playlists: [], slots: [] };
+  const none: LibrarySnapshot = {
+    tracks: [],
+    albums: [],
+    membership: [],
+    playlists: [],
+    slots: [],
+    albumEntries,
+  };
   return diffLibrary({ ...none, ...prev }, { ...none, ...next });
 }
 

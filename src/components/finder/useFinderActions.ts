@@ -143,19 +143,22 @@ export function useFinderActions(nav: FinderNav): FinderActions {
     }
   };
 
+  // Only a container carries blocks; an entry that does not has none to send.
+  const blocksOf = (entry: FinderEntry) => ("blocks" in entry ? entry.blocks : undefined);
+
   return {
     open,
     play: (entry) => {
       const source = sourceOf(entry);
-      if (source && entry.trackIds.length > 0) play(entry.trackIds, 0, source);
+      if (source && entry.trackIds.length > 0) play(entry.trackIds, 0, source, blocksOf(entry));
     },
     playNext: (entry) => {
       const source = sourceOf(entry);
-      if (source && entry.trackIds.length > 0) playNext(entry.trackIds, source);
+      if (source && entry.trackIds.length > 0) playNext(entry.trackIds, source, blocksOf(entry));
     },
     enqueue: (entry) => {
       const source = sourceOf(entry);
-      if (source && entry.trackIds.length > 0) addToQueue(entry.trackIds, source);
+      if (source && entry.trackIds.length > 0) addToQueue(entry.trackIds, source, blocksOf(entry));
     },
     showAllTracks: (query) => allTracks([], query),
   };

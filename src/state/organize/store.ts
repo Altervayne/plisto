@@ -18,6 +18,7 @@ import { useShallow } from "zustand/react/shallow";
 // -- State Imports --
 import { useAppStore } from "../store";
 import { refreshAfterMerge } from "../duplicates/store";
+import { usePlaylistsStore } from "../playlists/store";
 import { diffOrg, hasLibrarySink, reportLibraryChange } from "../plugins/libraryWatch";
 
 // -- Engine Imports --
@@ -28,6 +29,7 @@ import { inPlayOrder } from "./groupByAlbumTags";
 // -- Utils Imports --
 import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
 import { compareMemberOrder } from "../../components/albums/albumLayout";
+import { withRetry } from "../../lib/withRetry";
 
 // -- IPC Imports --
 import {
@@ -70,6 +72,9 @@ import type { Command, DuplicateMerge, OrgState, Placement, TagBatch } from "./o
 
 interface OrganizeStore {
   org: OrgState;
+  // True once a projection read has landed. An album entry in a playlist reads as loading until then,
+  // since an empty projection is indistinguishable from a failed read.
+  orgReady: boolean;
   // The genre vocabulary sits outside the undoable projection: a rename or a merge is not an undo step.
   genres: GenreRow[];
   past: Command[];
@@ -146,17 +151,30 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // True while a batch undo or redo is on the wire, so a second keypress cannot replay out of order.
   let replaying = false;
 
+  // A write that dissolves album entries into track slots changes playlists the stores cannot diff on
+  // their own: reload them and tell plugins their playlist tracks moved.
+  const reloadPlaylistsAfterDissolve = async (): Promise<void> => {
+    await usePlaylistsStore.getState().load();
+    reportLibraryChange({ track_ids: [], albums: false, playlists: true });
+  };
+
   // Replays one side of an albums-from-tags batch, then reloads: its rows live in the backend, so the
   // projection is never patched locally. A stale receipt means the library moved on underneath it, so the
   // history resets with the reload; any other failure left the library as it was, so `restore` puts the
   // entry back on the side it came from.
   const replayTagBatch = async (cmd: TagBatch, restore: () => void): Promise<void> => {
     replaying = true;
+    // A revert dissolves the entries of the albums it removes, win or lose. Playlists reload first, so no
+    // entry is read against a projection that already lost its album.
+    const reload = async (): Promise<void> => {
+      if (!cmd.applied) await reloadPlaylistsAfterDissolve();
+      await get().loadOrganization();
+    };
     try {
       await commandToIpc(cmd);
-      await get().loadOrganization();
+      await reload();
     } catch (e) {
-      await get().loadOrganization();
+      await reload();
       if (isStaleProposal(e)) set({ past: [], future: [] });
       else restore();
       set({ error: SAVE_ERROR });
@@ -192,6 +210,21 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     }
   };
 
+  // Reads the snapshot into the store; false when the read failed and nothing was touched.
+  const readOrganization = async (retry: boolean): Promise<boolean> => {
+    try {
+      const snapshot = await (retry ? withRetry(ipcLoadOrganization) : ipcLoadOrganization());
+      set({
+        org: { albums: snapshot.albums, membership: snapshot.membership },
+        orgReady: true,
+        genres: snapshot.genres,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Fires a command's write, and on a failed persist resyncs from the DB and surfaces a quiet error.
   const persist = (cmd: Command, before: OrgState): void => {
     const write = commandToIpc(cmd);
@@ -208,7 +241,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     const after = get().org;
     write.then(
       () => {
-        const change = diffOrg(before, after);
+        const change = diffOrg(before, after, usePlaylistsStore.getState().albumEntries);
         if (change) reportLibraryChange(change);
       },
       () => {},
@@ -251,29 +284,22 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
   return {
     org: emptyOrg,
+    orgReady: false,
     genres: [],
     past: [],
     future: [],
     selection: new Set<number>(),
     error: null,
 
+    // Retried: an early boot read can reject before managed state is ready. A failed reload keeps a
+    // projection already loaded; a failed first load leaves it empty and not ready, so a playlist's album
+    // entries read as loading.
     loadOrganization: async () => {
-      if (!(await get().refreshOrganization())) set({ org: emptyOrg });
+      if (!(await readOrganization(true)) && !get().orgReady) set({ org: emptyOrg });
     },
 
     // The keep-on-error read: a failed snapshot leaves the current projection in place.
-    refreshOrganization: async () => {
-      try {
-        const snapshot = await ipcLoadOrganization();
-        set({
-          org: { albums: snapshot.albums, membership: snapshot.membership },
-          genres: snapshot.genres,
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    refreshOrganization: () => readOrganization(false),
 
     // A light vocabulary-only refresh, for a surface that opens without a full org load.
     loadGenres: async () => {
@@ -476,6 +502,9 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
     deleteAlbum: async (albumId) => {
       await ipcDeleteAlbum(albumId);
+      // The delete dissolved the album's entries into track slots in every playlist; they reload first
+      // so no entry points at a gone album.
+      await reloadPlaylistsAfterDissolve();
       await get().loadOrganization();
       // A gone album could leave the stack pointing at absent rows, so clear the whole history.
       set({ past: [], future: [] });
@@ -492,6 +521,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       } catch {
         set({ error: "Some items could not be deleted." });
       } finally {
+        await reloadPlaylistsAfterDissolve();
         await get().loadOrganization();
         set({ past: [], future: [] });
       }
@@ -711,6 +741,9 @@ export const useAlbumIndex = (): Map<number, AlbumRow> => {
   const albums = useOrganizeStore(useShallow((s) => s.org.albums));
   return useMemo(() => buildAlbumIndex(membership, albums), [membership, albums]);
 };
+
+/** Whether the projection has loaded at least once since launch or since its last failed read. */
+export const useOrgReady = (): boolean => useOrganizeStore((s) => s.orgReady);
 
 export const useGenres = (): GenreRow[] => useOrganizeStore(useShallow((s) => s.genres));
 

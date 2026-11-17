@@ -14,17 +14,18 @@ vi.mock("../../lib/ipc", () => ({
 }));
 vi.mock("../store", () => ({ useAppStore: { getState: () => ({ tracks: [] }) } }));
 
-const SAVED = JSON.stringify({ v: 1, ids: [3, 5, 8], current_id: 5, secs: 12, volume: 0.5, repeat: "off" });
+const savedBlob = (over: Record<string, unknown> = {}) =>
+  JSON.stringify({ v: 1, ids: [3, 5, 8], current_id: 5, secs: 12, volume: 0.5, repeat: "off", ...over });
 
 /**
  * Runs the restore against an engine reporting `status`, on a fresh module graph: the restore runs once
- * per session behind a module flag. Resolves the ipc mocks the run used.
+ * per session behind a module flag. `blob` adds fields to the saved blob. Resolves the ipc mocks the run used.
  */
-async function restore(status: Partial<PlayerStatus>) {
+async function restore(status: Partial<PlayerStatus>, blob: Record<string, unknown> = {}) {
   vi.resetModules();
   const ipc = vi.mocked(await import("../../lib/ipc"));
   vi.clearAllMocks();
-  ipc.getSetting.mockResolvedValue(SAVED);
+  ipc.getSetting.mockResolvedValue(savedBlob(blob));
   ipc.getPlayerStatus.mockResolvedValue({
     playing: false,
     track_id: null,
@@ -55,7 +56,17 @@ const seated = (parked: { track_id: number; secs: number } | null, parked_cleare
 describe("boot restore", () => {
   it("loads the saved queue when nothing plays", async () => {
     const ipc = await restore({});
-    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12);
+    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12, undefined, undefined);
+  });
+
+  it("hands the saved blocks and current row to the load", async () => {
+    const ipc = await restore({}, { blocks: [[1, 2]], index: 1 });
+    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12, 1, [[1, 2]]);
+  });
+
+  it("sends a blob without blocks or a row as an older build wrote it", async () => {
+    const ipc = await restore({}, { blocks: undefined, index: undefined });
+    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12, undefined, undefined);
   });
 
   it("leaves a playing library track alone", async () => {
@@ -65,7 +76,7 @@ describe("boot restore", () => {
 
   it("loads into the parked slot when a stream is seated with nothing parked and nothing cleared", async () => {
     const ipc = await restore(seated(null, false));
-    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12);
+    expect(ipc.playerLoad).toHaveBeenCalledWith([3, 5, 8], 5, 12, undefined, undefined);
   });
 
   it("skips when a stream is seated and a track is already parked", async () => {

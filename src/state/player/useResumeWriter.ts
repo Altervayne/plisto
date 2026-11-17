@@ -50,8 +50,8 @@ export function startResumeWriter(): () => void {
     if (timer) clearTimeout(timer);
     timer = null;
     if (held) return;
-    const { status, queue } = usePlayerStore.getState();
-    const blob = buildResumeBlob(status, queue);
+    const { status, queue, queueBlocks } = usePlayerStore.getState();
+    const blob = buildResumeBlob(status, queue, queueBlocks);
     if (!blob) return;
     const json = JSON.stringify(blob);
     if (json === lastWritten) return;

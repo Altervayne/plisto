@@ -66,6 +66,8 @@ import type {
   PlaylistRow,
   PlaylistSnapshot,
   PurgeSummary,
+  QueueBlock,
+  QueueState,
   RelinkCandidate,
   RelocateOutcome,
   RelocatePreview,
@@ -743,6 +745,28 @@ export function addTracksToPlaylist(playlistId: number, trackIds: number[]): Pro
   return invoke("add_tracks_to_playlist", { playlistId, trackIds });
 }
 
+/**
+ * Appends albums as album entries after the playlist's last position, kept in order or not. A single is
+ * appended as a track slot of its member.
+ */
+export function addAlbumsToPlaylist(
+  playlistId: number,
+  albumIds: number[],
+  keepOrder: boolean,
+): Promise<void> {
+  return invoke("add_albums_to_playlist", { playlistId, albumIds, keepOrder });
+}
+
+/** Sets whether an album entry plays its tracks as one block. */
+export function setPlaylistEntryKeepOrder(slotId: number, keepOrder: boolean): Promise<void> {
+  return invoke("set_playlist_entry_keep_order", { slotId, keepOrder });
+}
+
+/** Replaces an album entry by its tracks as slots, in album order and at the entry's place. */
+export function unpackPlaylistAlbumEntry(slotId: number): Promise<void> {
+  return invoke("unpack_playlist_album_entry", { slotId });
+}
+
 /** Removes slots by their slot id, not their track id, so a repeated track drops one copy at a time. */
 export function removePlaylistSlots(slotIds: number[]): Promise<void> {
   return invoke("remove_playlist_slots", { slotIds });
@@ -855,15 +879,36 @@ export function getPlayerQueue(): Promise<number[]> {
   return invoke<number[]>("get_player_queue");
 }
 
-/** Replaces the queue with `trackIds` and starts playback at `index` (default the first). */
-export function playerPlayTracks(trackIds: number[], index = 0): Promise<void> {
-  return invoke("player_play_tracks", { trackIds, index });
+/** The queue ids in play order with the block spans over them, read from one mirror so the two never disagree. */
+export function getPlayerQueueState(): Promise<QueueState> {
+  return invoke<QueueState>("get_player_queue_state");
 }
 
-/** Seats the saved queue paused on `currentId` at `secs`, never playing. Resolves false when the
- * current track no longer exists, in which case nothing is loaded. */
-export function playerLoad(trackIds: number[], currentId: number, secs: number): Promise<boolean> {
-  return invoke<boolean>("player_load", { trackIds, currentId, secs });
+/**
+ * Replaces the queue with `trackIds` and starts playback at `index` (default the first). `blocks` are
+ * `[start, length]` spans over `trackIds` whose tracks play together.
+ */
+export function playerPlayTracks(
+  trackIds: number[],
+  index = 0,
+  blocks?: QueueBlock[],
+): Promise<void> {
+  return invoke("player_play_tracks", { trackIds, index, blocks });
+}
+
+/**
+ * Seats the saved queue paused on `currentId` at `secs`, never playing. `index` names the saved row of the
+ * current track, which tells apart two copies of it. Resolves false when the current track no longer
+ * exists, in which case nothing is loaded.
+ */
+export function playerLoad(
+  trackIds: number[],
+  currentId: number,
+  secs: number,
+  index?: number,
+  blocks?: QueueBlock[],
+): Promise<boolean> {
+  return invoke<boolean>("player_load", { trackIds, currentId, secs, index, blocks });
 }
 
 /** Plays a file straight off disk, with no library row, naming it from its own tags. Rejects when the
@@ -941,14 +986,14 @@ export function playerJump(index: number): Promise<void> {
   return invoke("player_jump", { index });
 }
 
-/** Appends `trackIds` to the end of the queue, resolved to files on the backend. */
-export function playerEnqueue(trackIds: number[]): Promise<void> {
-  return invoke("player_enqueue", { trackIds });
+/** Appends `trackIds` to the end of the queue, resolved to files on the backend. `blocks` as in a play. */
+export function playerEnqueue(trackIds: number[], blocks?: QueueBlock[]): Promise<void> {
+  return invoke("player_enqueue", { trackIds, blocks });
 }
 
-/** Inserts `trackIds` right after the playing track, resolved to files on the backend. */
-export function playerPlayNext(trackIds: number[]): Promise<void> {
-  return invoke("player_play_next", { trackIds });
+/** Inserts `trackIds` right after the playing track (or its block), resolved to files on the backend. */
+export function playerPlayNext(trackIds: number[], blocks?: QueueBlock[]): Promise<void> {
+  return invoke("player_play_next", { trackIds, blocks });
 }
 
 /** Moves the queue item at `from` to `to`, like a drag in the up-next list. */

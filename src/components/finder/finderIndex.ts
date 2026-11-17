@@ -8,7 +8,7 @@
 // -- Utils Imports --
 import { searchFold } from "../../lib/fold";
 import { compareMemberOrder } from "../albums/albumLayout";
-import { playlistQueue } from "../playlists/playlistPlayback";
+import { expandPlaylist, groupMembers } from "../playlists/playlistExpand";
 import { buildAlbumIndex, resolveTrackAlbum } from "../tracks/trackAlbum";
 import { NAV_ORDER, isDestinationVisible } from "../shell/navVisibility";
 import { visibleSegments } from "../collection/collectionSegments";
@@ -24,8 +24,10 @@ import type {
   AlbumRow,
   AlbumTrackRow,
   GenreRow,
+  PlaylistAlbumEntryRow,
   PlaylistRow,
   PlaylistTrackRow,
+  QueueBlock,
   TrackRow,
 } from "../../types";
 
@@ -66,6 +68,8 @@ export interface ContainerEntry extends EntryBase {
   kind: "album" | "single" | "playlist" | "genre";
   id: number;
   count: number;
+  // Spans over `trackIds` that play together, set for a playlist's kept album entries.
+  blocks?: QueueBlock[];
 }
 
 export interface TrackEntry extends EntryBase {
@@ -122,6 +126,9 @@ export interface FinderSource {
   membership: AlbumTrackRow[];
   playlists: PlaylistRow[];
   slots: PlaylistTrackRow[];
+  albumEntries: PlaylistAlbumEntryRow[];
+  // Whether the album projection is loaded; a playlist's album entries expand only once it is.
+  orgReady: boolean;
   genres: GenreRow[];
   untitledAlbum: string;
   untitledPlaylist: string;
@@ -248,23 +255,41 @@ function albumEntries(src: FinderSource): ContainerEntry[] {
   });
 }
 
-/** Playlists, each queueing its slots in order. */
-function playlistEntries(src: FinderSource): ContainerEntry[] {
-  const slots = new Map<number, PlaylistTrackRow[]>();
-  for (const slot of src.slots) {
-    const list = slots.get(slot.playlist_id);
-    if (list) list.push(slot);
-    else slots.set(slot.playlist_id, [slot]);
+/** Rows grouped by playlist id. */
+function byPlaylist<T extends { playlist_id: number }>(rows: T[]): Map<number, T[]> {
+  const grouped = new Map<number, T[]>();
+  for (const row of rows) {
+    const list = grouped.get(row.playlist_id);
+    if (list) list.push(row);
+    else grouped.set(row.playlist_id, [row]);
   }
+  return grouped;
+}
+
+/**
+ * Playlists, each queueing its expansion: slots and album entries in order, a kept entry as a block.
+ * A playlist whose album entries cannot be expanded yet queues nothing and keeps the loaded count.
+ */
+function playlistEntries(src: FinderSource): ContainerEntry[] {
+  const slots = byPlaylist(src.slots);
+  const entries = byPlaylist(src.albumEntries);
+  const members = groupMembers(src.membership);
   return src.playlists.map((playlist) => {
     const label = playlist.name ?? src.untitledPlaylist;
+    const expansion = expandPlaylist(
+      slots.get(playlist.id) ?? [],
+      entries.get(playlist.id) ?? [],
+      members,
+      { orgReady: src.orgReady },
+    );
     return {
       kind: "playlist",
       id: playlist.id,
       label,
       fields: foldFields(label),
-      trackIds: playlistQueue(slots.get(playlist.id) ?? []),
-      count: playlist.track_count,
+      trackIds: expansion.ids,
+      blocks: expansion.blocks,
+      count: expansion.count ?? playlist.track_count,
     };
   });
 }

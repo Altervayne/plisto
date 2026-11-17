@@ -13,6 +13,7 @@ import { useShallow } from "zustand/react/shallow";
 
 // -- IPC Imports --
 import {
+  addAlbumsToPlaylist as ipcAddAlbumsToPlaylist,
   addTracksToPlaylist as ipcAddTracksToPlaylist,
   createPlaylist as ipcCreatePlaylist,
   deletePlaylist as ipcDeletePlaylist,
@@ -22,7 +23,9 @@ import {
   renamePlaylist as ipcRenamePlaylist,
   setPlaylistCover as ipcSetPlaylistCover,
   setPlaylistDescription as ipcSetPlaylistDescription,
+  setPlaylistEntryKeepOrder as ipcSetPlaylistEntryKeepOrder,
   setPlaylistOrder as ipcSetPlaylistOrder,
+  unpackPlaylistAlbumEntry as ipcUnpackPlaylistAlbumEntry,
 } from "../../lib/ipc";
 
 // -- Utils Imports --
@@ -32,11 +35,13 @@ import { withRetry } from "../../lib/withRetry";
 import { reportLibraryChange } from "../plugins/libraryWatch";
 
 // -- Type Imports --
-import type { PlaylistRow, PlaylistTrackRow } from "../../types";
+import type { PlaylistAlbumEntryRow, PlaylistRow, PlaylistTrackRow } from "../../types";
 
 interface PlaylistsStore {
   playlists: PlaylistRow[];
   tracks: PlaylistTrackRow[];
+  // Album entries share the slot id space with `tracks`: both kinds order and reorder together.
+  albumEntries: PlaylistAlbumEntryRow[];
 
   load: () => Promise<void>;
   create: (name: string | null) => Promise<number>;
@@ -46,6 +51,9 @@ interface PlaylistsStore {
   setCover: (id: number, srcPath: string) => Promise<void>;
   removeCover: (id: number) => Promise<void>;
   addTracks: (playlistId: number, trackIds: number[]) => Promise<void>;
+  addAlbums: (playlistId: number, albumIds: number[], keepOrder: boolean) => Promise<void>;
+  setKeepOrder: (slotId: number, keepOrder: boolean) => Promise<void>;
+  unpack: (slotId: number) => Promise<void>;
   removeSlots: (slotIds: number[]) => Promise<void>;
   reorder: (playlistId: number, orderedSlotIds: number[]) => void;
 }
@@ -53,13 +61,18 @@ interface PlaylistsStore {
 export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
   playlists: [],
   tracks: [],
+  albumEntries: [],
 
   load: async () => {
     try {
       // Retried: an early boot read can reject before managed state is ready. A read that still fails
       // keeps the rows already held; an error never reads as "no playlists".
       const snapshot = await withRetry(ipcLoadPlaylists);
-      set({ playlists: snapshot.playlists, tracks: snapshot.tracks });
+      set({
+        playlists: snapshot.playlists,
+        tracks: snapshot.tracks,
+        albumEntries: snapshot.album_entries,
+      });
     } catch (error) {
       console.warn("Playlists failed to load; keeping the current rows.", error);
     }
@@ -103,6 +116,21 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
     await get().load();
   },
 
+  addAlbums: async (playlistId, albumIds, keepOrder) => {
+    await ipcAddAlbumsToPlaylist(playlistId, albumIds, keepOrder);
+    await get().load();
+  },
+
+  setKeepOrder: async (slotId, keepOrder) => {
+    await ipcSetPlaylistEntryKeepOrder(slotId, keepOrder);
+    await get().load();
+  },
+
+  unpack: async (slotId) => {
+    await ipcUnpackPlaylistAlbumEntry(slotId);
+    await get().load();
+  },
+
   removeSlots: async (slotIds) => {
     await ipcRemovePlaylistSlots(slotIds);
     await get().load();
@@ -112,13 +140,15 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
   // with no reload flicker; a failed write reloads from truth to drop the optimistic order.
   reorder: (playlistId, orderedSlotIds) => {
     const position = new Map(orderedSlotIds.map((id, i) => [id, i + 1]));
-    set((s) => ({
-      tracks: s.tracks.map((slot) =>
-        slot.playlist_id === playlistId && position.has(slot.id)
-          ? { ...slot, position: position.get(slot.id) ?? slot.position }
-          : slot,
-      ),
-    }));
+    const renumber = <T extends { id: number; playlist_id: number; position: number }>(
+      rows: T[],
+    ): T[] =>
+      rows.map((row) =>
+        row.playlist_id === playlistId && position.has(row.id)
+          ? { ...row, position: position.get(row.id) ?? row.position }
+          : row,
+      );
+    set((s) => ({ tracks: renumber(s.tracks), albumEntries: renumber(s.albumEntries) }));
     ipcSetPlaylistOrder(playlistId, orderedSlotIds).then(
       () => reportLibraryChange({ track_ids: [], albums: false, playlists: true }),
       () => {
@@ -153,7 +183,19 @@ export const usePlaylistTracks = (playlistId: number): PlaylistTrackRow[] => {
   );
 };
 
-export const useLoadPlaylists = () => usePlaylistsStore((s) => s.load);
+/** One playlist's album entries, sorted by position then slot id. */
+export const usePlaylistAlbumEntries = (playlistId: number): PlaylistAlbumEntryRow[] => {
+  const entries = usePlaylistsStore(useShallow((s) => s.albumEntries));
+  return useMemo(
+    () =>
+      entries
+        .filter((entry) => entry.playlist_id === playlistId)
+        .sort((a, b) => a.position - b.position || a.id - b.id),
+    [entries, playlistId],
+  );
+};
+
+export const useLoadPlaylists = () =>usePlaylistsStore((s) => s.load);
 export const useCreatePlaylist = () => usePlaylistsStore((s) => s.create);
 export const useRenamePlaylist = () => usePlaylistsStore((s) => s.rename);
 export const useRemovePlaylist = () => usePlaylistsStore((s) => s.remove);
@@ -161,5 +203,8 @@ export const useSetPlaylistDescription = () => usePlaylistsStore((s) => s.setDes
 export const useSetPlaylistCover = () => usePlaylistsStore((s) => s.setCover);
 export const useRemovePlaylistCover = () => usePlaylistsStore((s) => s.removeCover);
 export const useAddTracksToPlaylist = () => usePlaylistsStore((s) => s.addTracks);
+export const useAddAlbumsToPlaylist = () => usePlaylistsStore((s) => s.addAlbums);
+export const useSetEntryKeepOrder = () => usePlaylistsStore((s) => s.setKeepOrder);
+export const useUnpackAlbumEntry = () => usePlaylistsStore((s) => s.unpack);
 export const useRemovePlaylistSlots = () => usePlaylistsStore((s) => s.removeSlots);
 export const useReorderPlaylist = () => usePlaylistsStore((s) => s.reorder);

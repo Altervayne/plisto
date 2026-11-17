@@ -103,6 +103,8 @@ function finderCount(query: string): number {
     membership,
     playlists: [],
     slots: [],
+    albumEntries: [],
+    orgReady: true,
     genres: [],
     untitledAlbum: "Untitled",
     untitledPlaylist: "Untitled playlist",

@@ -100,6 +100,7 @@ export function browserLibraryWatchDeps(): LibraryWatchDeps {
         membership: org.membership,
         playlists: playlists.playlists,
         slots: playlists.tracks,
+        albumEntries: playlists.albumEntries,
       };
     },
     subscribe: subscribeAll,

@@ -25,6 +25,7 @@ vi.mock("../lib/ipc", () => ({
   loadPlaylists: vi.fn(),
   relinkCandidates: vi.fn(),
   relocateRoot: vi.fn(),
+  removeRoot: vi.fn(async () => {}),
   rescanAll: vi.fn(),
   rescanLibrary: vi.fn(async () => {}),
 }));
@@ -391,9 +392,26 @@ describe("the relink prompt", () => {
   });
 });
 
+describe("removing a root", () => {
+  it("reloads roots, tracks, organization and playlists", async () => {
+    mocked.listRoots.mockResolvedValue([]);
+    mocked.listTracks.mockResolvedValue({ rows: [] } as never);
+    mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [] });
+    vi.mocked(mocked.loadOrganization).mockClear();
+    mocked.loadPlaylists.mockClear();
+
+    await settle(useAppStore.getState().removeRoot(1));
+    expect(mocked.removeRoot).toHaveBeenCalledWith(1);
+    expect(mocked.listRoots).toHaveBeenCalled();
+    expect(mocked.listTracks).toHaveBeenCalled();
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);
+    expect(mocked.loadPlaylists).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("relocating a root", () => {
   beforeEach(() => {
-    mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [] });
+    mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [] });
   });
 
   it("reloads roots, tracks, organization and playlists when done", async () => {

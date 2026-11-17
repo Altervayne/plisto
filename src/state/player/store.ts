@@ -18,7 +18,7 @@ import { listen } from "@tauri-apps/api/event";
 
 // -- IPC Imports --
 import {
-  getPlayerQueue,
+  getPlayerQueueState,
   getPlayerStatus,
   getStreamNow,
   getTrackDisplay,
@@ -46,6 +46,9 @@ import { useAppStore } from "../store";
 import { PREF_KEYS, usePreference, useSetPreference } from "../preferences/store";
 
 // -- Local Imports --
+import { blockAt, moveInQueue, removeFromQueueView, spansOfRows } from "./queueBlocks";
+import type { QueueRows } from "./queueBlocks";
+import { createSeedGuard } from "./seedGuard";
 import { snapshotQueueMeta } from "./queueMeta";
 import { added, playsAfter } from "./queueToast";
 import { nextStreamEnd } from "./streamEnd";
@@ -56,6 +59,8 @@ import type {
   PlaybackSource,
   PlayerNotice,
   PlayerStatus,
+  QueueBlock,
+  QueueState,
   RepeatMode,
   StreamEndNotice,
   StreamNow,
@@ -80,9 +85,28 @@ const STOPPED: PlayerStatus = {
   seek_seq: 0,
 };
 
-/** The transport actions, poking the engine and letting its event drive `status` back. */
+/** Whether two number lists hold the same values in order. */
+function sameList(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+/** What `playNext` tells its caller about where the tracks went. */
+export interface PlayNextOutcome {
+  // True when the playing row sits inside a kept block, so the engine placed the tracks after the block.
+  afterBlock: boolean;
+}
+
+/**
+ * The transport actions, poking the engine and letting its event drive `status` back. `blocks` on a play
+ * or an append are `[start, length]` spans over `trackIds` whose tracks stay together.
+ */
 interface PlayerActions {
-  play: (trackIds: number[], index: number, source: PlaybackSource) => void;
+  play: (
+    trackIds: number[],
+    index: number,
+    source: PlaybackSource,
+    blocks?: QueueBlock[],
+  ) => void;
   toggle: () => void;
   pause: () => void;
   resume: () => void;
@@ -91,9 +115,14 @@ interface PlayerActions {
   prev: () => void;
   jump: (index: number) => void;
   // Appends tracks to the queue, or starts a fresh play from `source` when nothing is loaded.
-  addToQueue: (trackIds: number[], source: PlaybackSource) => void;
-  // Inserts tracks right after the playing one, or starts a fresh play from `source` when nothing is loaded.
-  playNext: (trackIds: number[], source: PlaybackSource) => void;
+  addToQueue: (trackIds: number[], source: PlaybackSource, blocks?: QueueBlock[]) => void;
+  // Inserts tracks right after the playing one (after its block when it is inside one), or starts a fresh
+  // play from `source` when nothing is loaded.
+  playNext: (
+    trackIds: number[],
+    source: PlaybackSource,
+    blocks?: QueueBlock[],
+  ) => PlayNextOutcome;
   // Moves an up-next row, optimistically reordering the local queue ahead of the engine echo.
   reorderQueue: (from: number, to: number) => void;
   // Drops an up-next row, optimistically shrinking the local queue ahead of the engine echo.
@@ -106,14 +135,6 @@ interface PlayerActions {
   clearParked: () => void;
 }
 
-/** Returns `list` with the item at `from` moved to `to`, leaving the input untouched. */
-function arrayMove<T>(list: T[], from: number, to: number): T[] {
-  const next = list.slice();
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
-  return next;
-}
-
 export interface PlayerStore {
   status: PlayerStatus;
   // Bumped on each `plays:changed` event. The play-history reads depend on it, so a recorded play
@@ -122,6 +143,10 @@ export interface PlayerStore {
   // The engine's queue ids in play order, shuffle reflected. Its own slice so the status-tick subtree
   // never pulls it; changes only on a play or shuffle toggle.
   queue: number[];
+  // The kept blocks over `queue` as `[start, length]` spans, from the same engine mirror as the ids.
+  queueBlocks: QueueBlock[];
+  // The hidden row state (tokens, detached flags) of local queue edits, or null once the engine echoes.
+  queueRows: QueueRows | null;
   // The display snapshot for the queue's tracks, captured at play-time so the up-next view renders after
   // the launching view is gone. Keyed by track id.
   queueMeta: Record<number, QueueTrackMeta>;
@@ -135,7 +160,7 @@ export interface PlayerStore {
   // The last stream end the toast has not shown yet, or null.
   streamEnd: StreamEndNotice | null;
   setStatus: (status: PlayerStatus) => void;
-  setQueue: (queue: number[]) => void;
+  setQueue: (queue: number[], blocks?: QueueBlock[]) => void;
   setError: (error: PlayerNotice | null) => void;
   setStreamNow: (now: StreamNow | null) => void;
   setStreamEnd: (end: StreamEndNotice | null) => void;
@@ -191,6 +216,8 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   status: STOPPED,
   playsVersion: 0,
   queue: [],
+  queueBlocks: [],
+  queueRows: null,
   queueMeta: {},
   playingFrom: null,
   error: null,
@@ -199,9 +226,20 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   setStatus: (status) => set({ status }),
   // Set the queue, then fill any ad-hoc row's display the play-time snapshot could not reach. A queue
   // of opened files only was launched from no library source, so the source is dropped with it.
-  setQueue: (queue) => {
+  // The hidden row state of local edits survives only an echo that agrees with it.
+  setQueue: (queue, blocks = []) => {
     const openedFiles = queue.length > 0 && queue.every((id) => id < 0);
-    set(openedFiles ? { queue, playingFrom: null } : { queue });
+    const held = get().queueRows;
+    const agrees =
+      held != null &&
+      sameList(get().queue, queue) &&
+      sameList(spansOfRows(held).flat(), blocks.flat());
+    set({
+      queue,
+      queueBlocks: blocks,
+      queueRows: agrees ? held : null,
+      ...(openedFiles ? { playingFrom: null } : {}),
+    });
     fillAdHocQueueMeta(get, set, queue);
   },
   setError: (error) => set({ error }),
@@ -211,12 +249,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   actions: {
     // Play records the frontend-only bits the engine cannot know: the source and a metadata snapshot of
     // the queued rows, resolved from the library cache.
-    play: (trackIds, index, source) => {
+    play: (trackIds, index, source, blocks) => {
       set({
         playingFrom: source,
         queueMeta: snapshotQueueMeta(trackIds, useAppStore.getState().tracks),
       });
-      void playerPlayTracks(trackIds, index).catch(() => {});
+      void playerPlayTracks(trackIds, index, blocks).catch(() => {});
     },
     toggle: () => void playerToggle().catch(() => {}),
     pause: () => void playerPause().catch(() => {}),
@@ -227,40 +265,56 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
     jump: (index) => void playerJump(index).catch(() => {}),
     // Merge the appended rows' metadata so up-next has it, then start a fresh play when nothing is loaded
     // or append otherwise.
-    addToQueue: (trackIds, source) => {
+    addToQueue: (trackIds, source, blocks) => {
       const meta = snapshotQueueMeta(trackIds, useAppStore.getState().tracks);
       set((s) => ({ queueMeta: { ...s.queueMeta, ...meta } }));
       if (get().status.track_id == null) {
-        get().actions.play(trackIds, 0, source);
+        get().actions.play(trackIds, 0, source, blocks);
       } else {
-        void playerEnqueue(trackIds).catch(() => {});
+        void playerEnqueue(trackIds, blocks).catch(() => {});
         // The append is silent otherwise; a cold start shows the mini-player instead, its own feedback.
         added(trackIds.length);
       }
     },
-    playNext: (trackIds, source) => {
+    playNext: (trackIds, source, blocks) => {
       const meta = snapshotQueueMeta(trackIds, useAppStore.getState().tracks);
       set((s) => ({ queueMeta: { ...s.queueMeta, ...meta } }));
       if (get().status.track_id == null) {
-        get().actions.play(trackIds, 0, source);
-      } else {
-        void playerPlayNext(trackIds).catch(() => {});
-        // With a stream seated nothing starts: say where the tracks sit, when a parked track is named.
-        const parkedTitle = parkedTrackTitle(get());
-        if (parkedTitle) playsAfter(parkedTitle);
-        else added(trackIds.length);
+        get().actions.play(trackIds, 0, source, blocks);
+        return { afterBlock: false };
       }
+      // The engine lands the tracks after the playing row's block, so a playing row inside one is the fact.
+      const afterBlock = blockAt(get().queueBlocks, get().status.queue_index) >= 0;
+      void playerPlayNext(trackIds, blocks).catch(() => {});
+      // With a stream seated nothing starts: say where the tracks sit, when a parked track is named.
+      const parkedTitle = parkedTrackTitle(get());
+      if (parkedTitle) playsAfter(parkedTitle);
+      else added(trackIds.length);
+      return { afterBlock };
     },
-    // Reorder locally first so the drop does not snap back for a frame; the `player:queue` echo
+    // Reorder locally first so the drop does not snap back for a frame; the `player:queue_state` echo
     // reconciles to the engine's authoritative order.
     reorderQueue: (from, to) => {
-      set((s) => ({ queue: arrayMove(s.queue, from, to) }));
+      set((s) => {
+        const next = moveInQueue(
+          { ids: s.queue, blocks: s.queueBlocks, rows: s.queueRows ?? undefined },
+          from,
+          to,
+        );
+        return { queue: next.ids, queueBlocks: next.blocks, queueRows: next.rows ?? null };
+      });
       void playerMoveQueueItem(from, to).catch(() => {});
     },
     // Remove locally first for the same reason; the echo reconciles. queueMeta keeps the stale entry
     // harmlessly.
     removeFromQueue: (index) => {
-      set((s) => ({ queue: s.queue.filter((_, i) => i !== index) }));
+      set((s) => {
+        const next = removeFromQueueView(
+          { ids: s.queue, blocks: s.queueBlocks, rows: s.queueRows ?? undefined },
+          index,
+        );
+        return { queue: next.ids, queueBlocks: next.blocks, queueRows: next.rows ?? null };
+      });
       void playerRemoveQueueItem(index).catch(() => {});
     },
     seek: (secs) => void playerSeek(secs).catch(() => {}),
@@ -323,6 +377,7 @@ export const useSetPlayerError = (): ((error: PlayerNotice | null) => void) =>
 // The queue slices sit apart from `status` so the up-next list never re-renders on a position tick, and
 // the ticking transport never pulls the queue.
 export const usePlayerQueue = (): number[] => usePlayerStore((s) => s.queue);
+export const usePlayerQueueBlocks = (): QueueBlock[] => usePlayerStore((s) => s.queueBlocks);
 export const usePlayerQueueMeta = (): Record<number, QueueTrackMeta> =>
   usePlayerStore((s) => s.queueMeta);
 // The play cursor, read as a bare primitive so the up-next list re-renders on a track change, not on a
@@ -373,7 +428,7 @@ export const useOrganizeEnabled = (): boolean => useAppMode() !== "player";
 
 /**
  * Wires the store to the engine for the app's life: seeds the snapshot once, then follows the
- * `player:status`, `player:queue`, `player:error`, `player:stream` and `player:stream_end` events. Mount
+ * `player:status`, `player:queue_state`, `player:error`, `player:stream` and `player:stream_end` events. Mount
  * once high in the tree.
  */
 export function usePlayerSync(): void {
@@ -387,6 +442,7 @@ export function usePlayerSync(): void {
   useEffect(() => {
     let alive = true;
     const unlisteners: Array<() => void> = [];
+    const queueGuard = createSeedGuard();
 
     // Pull the current snapshot and queue, on mount and on each return to visible: a satellite window is
     // created hidden and can miss events fired while hidden, so it re-seeds when shown.
@@ -396,9 +452,11 @@ export function usePlayerSync(): void {
           if (alive) setStatus(s);
         })
         .catch(() => {});
-      void getPlayerQueue()
-        .then((ids) => {
-          if (alive) setQueue(ids);
+      // A queue event that lands before this reply is newer than it: the reply is dropped.
+      const current = queueGuard.begin();
+      void getPlayerQueueState()
+        .then((state) => {
+          if (alive && current()) setQueue(state.ids, state.blocks);
         })
         .catch(() => {});
       void getStreamNow()
@@ -418,7 +476,12 @@ export function usePlayerSync(): void {
       unlisteners.push(
         await listen<PlayerStatus>("player:status", (e) => setStatus(e.payload)),
       );
-      unlisteners.push(await listen<number[]>("player:queue", (e) => setQueue(e.payload)));
+      unlisteners.push(
+        await listen<QueueState>("player:queue_state", (e) => {
+          queueGuard.event();
+          setQueue(e.payload.ids, e.payload.blocks);
+        }),
+      );
       unlisteners.push(await listen<PlayerNotice>("player:error", (e) => setError(e.payload)));
       unlisteners.push(await listen("plays:changed", () => bumpPlaysVersion()));
       unlisteners.push(

@@ -11,7 +11,14 @@ import {
 
 // -- Type Imports --
 import type { ArtistEntry, FinderSource } from "./finderIndex";
-import type { AlbumRow, AlbumTrackRow, TrackRow } from "../../types";
+import type {
+  AlbumRow,
+  AlbumTrackRow,
+  PlaylistAlbumEntryRow,
+  PlaylistRow,
+  PlaylistTrackRow,
+  TrackRow,
+} from "../../types";
 
 // A minimal row with only the fields the index reads; the rest carry inert defaults.
 function track(over: Partial<TrackRow>): TrackRow {
@@ -89,12 +96,71 @@ function source(over: Partial<FinderSource>): FinderSource {
     membership: [],
     playlists: [],
     slots: [],
+    albumEntries: [],
+    orgReady: true,
     genres: [],
     untitledAlbum: "Untitled",
     untitledPlaylist: "Untitled playlist",
     ...over,
   };
 }
+
+describe("playlist entries", () => {
+  const playlist = (id: number, track_count: number): PlaylistRow =>
+    ({ id, name: `P${id}`, track_count }) as PlaylistRow;
+  const slot = (id: number, position: number, track_id: number): PlaylistTrackRow =>
+    ({ id, playlist_id: 1, position, track_id }) as PlaylistTrackRow;
+  const entry = (keep_order: boolean): PlaylistAlbumEntryRow => ({
+    id: 2,
+    playlist_id: 1,
+    album_id: 10,
+    position: 2,
+    keep_order,
+  });
+  const membership: AlbumTrackRow[] = [member(10, 2), member(10, 1)];
+  const playlistOf = (src: FinderSource) => {
+    const found = buildFinderIndex(src).entries.find((e) => e.kind === "playlist");
+    if (found?.kind !== "playlist") throw new Error("no playlist entry");
+    return found;
+  };
+
+  it("queues a kept album entry as a block with the album's tracks in order", () => {
+    const out = playlistOf(
+      source({
+        playlists: [playlist(1, 3)],
+        slots: [slot(1, 1, 99)],
+        albumEntries: [entry(true)],
+        membership,
+      }),
+    );
+    expect(out.trackIds).toEqual([99, 1, 2]);
+    expect(out.blocks).toEqual([[1, 2]]);
+    expect(out.count).toBe(3);
+  });
+
+  it("gives an unflagged entry no block", () => {
+    const out = playlistOf(
+      source({ playlists: [playlist(1, 2)], albumEntries: [entry(false)], membership }),
+    );
+    expect(out.trackIds).toEqual([1, 2]);
+    expect(out.blocks).toEqual([]);
+  });
+
+  it("queues nothing and keeps the loaded count while the album projection is loading", () => {
+    const out = playlistOf(
+      source({
+        playlists: [playlist(1, 5)],
+        slots: [slot(1, 1, 99)],
+        albumEntries: [entry(true)],
+        membership: [],
+        orgReady: false,
+      }),
+    );
+    expect(out.trackIds).toEqual([]);
+    expect(out.blocks).toEqual([]);
+    expect(out.count).toBe(5);
+  });
+});
 
 function artists(src: FinderSource): ArtistEntry[] {
   return buildFinderIndex(src).entries.filter((e): e is ArtistEntry => e.kind === "artist");

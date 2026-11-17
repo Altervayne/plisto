@@ -31,7 +31,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  usePlaylistsStore.setState({ playlists: [], tracks: [] });
+  usePlaylistsStore.setState({ playlists: [], tracks: [], albumEntries: [] });
 });
 
 afterEach(() => {
@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("playlists store load", () => {
   it("keeps the earlier playlists when the read keeps rejecting", async () => {
-    loadPlaylists.mockResolvedValueOnce({ playlists: [row(1)], tracks: [slot(5, 1)] });
+    loadPlaylists.mockResolvedValueOnce({ playlists: [row(1)], tracks: [slot(5, 1)], album_entries: [] });
     await usePlaylistsStore.getState().load();
     loadPlaylists.mockRejectedValue(new Error("not ready"));
     await settle(usePlaylistsStore.getState().load());
@@ -54,7 +54,7 @@ describe("playlists store load", () => {
     loadPlaylists
       .mockRejectedValueOnce(new Error("early"))
       .mockRejectedValueOnce(new Error("early"))
-      .mockResolvedValue({ playlists: [row(2)], tracks: [] });
+      .mockResolvedValue({ playlists: [row(2)], tracks: [], album_entries: [] });
     await settle(usePlaylistsStore.getState().load());
     expect(loadPlaylists).toHaveBeenCalledTimes(3);
     expect(usePlaylistsStore.getState().playlists).toEqual([row(2)]);
@@ -73,8 +73,39 @@ describe("playlists store load", () => {
 
   it("still shows a genuinely empty read as empty", async () => {
     usePlaylistsStore.setState({ playlists: [row(1)] });
-    loadPlaylists.mockResolvedValue({ playlists: [], tracks: [] });
+    loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [] });
     await usePlaylistsStore.getState().load();
     expect(usePlaylistsStore.getState().playlists).toEqual([]);
+  });
+
+  it("keeps the album entries the read carried", async () => {
+    const entry = { id: 9, playlist_id: 1, album_id: 4, position: 2, keep_order: true };
+    loadPlaylists.mockResolvedValue({ playlists: [row(1)], tracks: [], album_entries: [entry] });
+    await usePlaylistsStore.getState().load();
+    expect(usePlaylistsStore.getState().albumEntries).toEqual([entry]);
+  });
+});
+
+describe("playlists store album entry writes", () => {
+  const entry = { id: 9, playlist_id: 1, album_id: 4, position: 2, keep_order: true };
+
+  it("renumbers an album entry with the track slots on reorder", () => {
+    usePlaylistsStore.setState({
+      playlists: [row(1)],
+      tracks: [slot(5, 1)],
+      albumEntries: [entry],
+    });
+    vi.spyOn(ipc, "setPlaylistOrder").mockResolvedValue(undefined);
+    usePlaylistsStore.getState().reorder(1, [9, 5]);
+    expect(usePlaylistsStore.getState().albumEntries[0].position).toBe(1);
+    expect(usePlaylistsStore.getState().tracks[0].position).toBe(2);
+  });
+
+  it("reloads after adding albums", async () => {
+    const add = vi.spyOn(ipc, "addAlbumsToPlaylist").mockResolvedValue(undefined);
+    loadPlaylists.mockResolvedValue({ playlists: [row(1)], tracks: [], album_entries: [entry] });
+    await usePlaylistsStore.getState().addAlbums(1, [4], true);
+    expect(add).toHaveBeenCalledWith(1, [4], true);
+    expect(usePlaylistsStore.getState().albumEntries).toEqual([entry]);
   });
 });
