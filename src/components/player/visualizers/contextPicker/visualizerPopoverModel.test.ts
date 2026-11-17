@@ -2,7 +2,14 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { visualizerPopoverModel, type PopoverSubject } from "./visualizerPopoverModel";
+import { visualizerPopoverModel as buildModel, type PopoverStored, type PopoverSubject } from "./visualizerPopoverModel";
+import { ALL_OFFERED, buildCatalog, serializeCatalog, type Catalog } from "../../../../state/player/visualizerCatalog";
+
+const visualizerPopoverModel = (subject: PopoverSubject, stored: PopoverStored, catalog: Catalog = ALL_OFFERED) =>
+  buildModel(subject, stored, catalog);
+
+/** A catalog with the given kinds and families turned off. */
+const without = (kinds: string[], groups: string[] = []) => buildCatalog(serializeCatalog({ kinds, groups }), false);
 
 const album: PopoverSubject = { kind: "album", albumId: 7 };
 const track: PopoverSubject = { kind: "track", place: { kind: "album", trackId: 3, albumId: 7 } };
@@ -145,5 +152,64 @@ describe("visualizerPopoverModel", () => {
     expect(m.topLabel).toEqual({ form: "albumDefault", kind: "off" });
     expect(m.setAside).toBe("off");
     expect(Object.values(m.markers).every((x) => !x.setAside)).toBe(true);
+  });
+});
+
+describe("visualizerPopoverModel over a catalog", () => {
+  it("tabs and markers cover the offered families only", () => {
+    const m = visualizerPopoverModel(album, none, without([], ["dots"]));
+    expect(m.groups.map((g) => g.id)).toEqual(["classic", "fluid", "cozy"]);
+    expect(Object.keys(m.markers)).toEqual(["classic", "fluid", "cozy"]);
+  });
+
+  it("a family with every kind off loses its tab", () => {
+    const m = visualizerPopoverModel(album, none, without(["halftone", "dot-spectrum", "dot-cover"]));
+    expect(m.groups.map((g) => g.id)).not.toContain("dots");
+  });
+
+  it("a turned-off stored kind reads as no default: top row checked, nothing marked, line data set", () => {
+    const m = visualizerPopoverModel(album, { trackDefault: null, albumDefault: "train" }, without(["train"]));
+    expect(m.stored).toBeNull();
+    expect(m.topChecked).toBe(true);
+    expect(m.turnedOff).toEqual({ kind: "train", tier: "album" });
+    expect(Object.values(m.markers).every((x) => !x.active)).toBe(true);
+    expect(m.openTab).toBe("classic");
+  });
+
+  it("a turned-off track default is reported on the track tier", () => {
+    const m = visualizerPopoverModel(track, { trackDefault: "train", albumDefault: null }, without(["train"]));
+    expect(m.turnedOff).toEqual({ kind: "train", tier: "track" });
+  });
+
+  it("a turned-off album default is not offered to a track, and is reported apart", () => {
+    const m = visualizerPopoverModel(track, { trackDefault: null, albumDefault: "train" }, without(["train"]));
+    expect(m.albumDefault).toBeNull();
+    expect(m.albumDefaultOff).toBe("train");
+    expect(m.turnedOff).toBeNull();
+    expect(m.topLabel).toEqual({ form: "global" });
+    expect(m.setAside).toBeNull();
+  });
+
+  it("an offered default leaves nothing turned off", () => {
+    const m = visualizerPopoverModel(track, { trackDefault: "train", albumDefault: "glass" });
+    expect(m.turnedOff).toBeNull();
+    expect(m.albumDefaultOff).toBeNull();
+  });
+
+  it("opens on the first offered family when nothing is stored", () => {
+    const m = visualizerPopoverModel(album, none, without([], ["classic"]));
+    expect(m.openTab).toBe("dots");
+  });
+
+  it("a family turned off by switch hides a stored kind inside it", () => {
+    const m = visualizerPopoverModel(album, { trackDefault: null, albumDefault: "glass" }, without([], ["cozy"]));
+    expect(m.stored).toBeNull();
+    expect(m.turnedOff).toEqual({ kind: "glass", tier: "album" });
+  });
+
+  it("Off stays offered under any catalog", () => {
+    const m = visualizerPopoverModel(album, { trackDefault: null, albumDefault: "off" }, without(["ridge"]));
+    expect(m.stored).toBe("off");
+    expect(m.turnedOff).toBeNull();
   });
 });

@@ -37,18 +37,27 @@ export function DefaultsAside({
 }) {
   const t = useT();
   const status = useVisualizerDefaultsStatus();
-  const { place, input, resolution } = resolved;
+  const { place, resolution } = resolved;
+  const { skipped } = resolution;
   const actions = defaultActions(place, resolution, status);
   const { setAlbumDefault, setTrackDefault } = useVisualizerDefaults.getState();
 
   const ridge = t(VISUALIZER_VIEWS.ridge.label);
   let line: string | null = null;
+  const skippedName = skipped ? t(VISUALIZER_VIEWS[skipped.kind].label) : "";
   if (resolution.source === "override") line = t((d) => d.player.visualizerFootOverride);
+  else if (skipped?.tier === "track") line = t((d) => d.player.visualizerSkippedTrack, { name: skippedName });
+  else if (skipped?.tier === "album") line = t((d) => d.player.visualizerSkippedAlbum, { name: skippedName });
   else if (resolution.source === "album") line = t((d) => d.player.visualizerFootAlbum);
   else if (resolution.source === "track") line = t((d) => d.player.visualizerFootTrack);
   let fallbackLine: string | null = null;
   if (fallback === "cover") fallbackLine = t((d) => d.player.visualizerFallbackCover, { ridge });
   else if (fallback === "gl") fallbackLine = t((d) => d.player.visualizerFallbackGl, { ridge });
+
+  // The pill names its tier when it removes a turned-off default, which the line above names too.
+  let clearLabel = t((d) => d.player.visualizerClearDefault);
+  if (skipped?.tier === "track") clearLabel = t((d) => d.player.visualizerClearTrackDefault);
+  else if (skipped?.tier === "album") clearLabel = t((d) => d.player.visualizerClearAlbumDefault);
 
   const useAlbum = () => {
     if (place.kind === "album" || place.kind === "single") void setAlbumDefault(place.albumId, resolution.picked);
@@ -57,7 +66,7 @@ export function DefaultsAside({
     if (place.kind === "album" || place.kind === "loose") void setTrackDefault(place.trackId, resolution.picked);
   };
   const clear = () => {
-    const tier = clearDefaultTier(input);
+    const tier = clearDefaultTier(resolution);
     if (tier === "track" && (place.kind === "album" || place.kind === "loose")) void setTrackDefault(place.trackId, null);
     if (tier === "album" && (place.kind === "album" || place.kind === "single")) void setAlbumDefault(place.albumId, null);
   };
@@ -100,7 +109,7 @@ export function DefaultsAside({
       <div className={styles.actions}>
         {pill(actions.useAlbum, t((d) => d.player.visualizerUseAlbum), <Disc size={14} strokeWidth={1.8} />, useAlbum)}
         {pill(actions.useTrack, t((d) => d.player.visualizerUseTrack), <Music size={14} strokeWidth={1.8} />, useTrack)}
-        {pill(actions.clear, t((d) => d.player.visualizerClearDefault), <X size={14} strokeWidth={1.8} />, clear, true)}
+        {pill(actions.clear, clearLabel, <X size={14} strokeWidth={1.8} />, clear, true)}
       </div>
     </>
   );

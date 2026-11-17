@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { markersOf, tagOf } from "./useSheetDefaults";
+import { sheetGroupsOf } from "./sheetGroups";
+import { markersOf as markersIn, tagOf } from "./useSheetDefaults";
+import { ALL_OFFERED } from "../../../../state/player/visualizerCatalog";
 import type { Resolution } from "../../../../state/player/visualizerResolve";
+
+const markersOf = (r: Resolution) => markersIn(r, sheetGroupsOf(ALL_OFFERED));
 
 const res = (over: Partial<Resolution>): Resolution => ({
   picked: "glass",

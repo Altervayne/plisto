@@ -13,13 +13,12 @@ import { VisualizerGlyph } from "../../player/visualizers/VisualizerGlyph";
 import { VISUALIZER_VIEWS, thumbFor } from "../../player/visualizers/visualizerViews";
 
 // -- State Imports --
-import { GROUP_LABELS, GROUP_ORDER } from "../../../state/player/visualizerRegistry";
+import { GROUP_ORDER } from "../../../state/player/visualizerRegistry";
 
 // -- Type Imports --
 import type { Dict } from "../../../i18n/en";
 import type { Catalog } from "../../../state/player/visualizerCatalog";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
-import type { VisualizerGroupId } from "../../../state/player/visualizerRegistry";
 
 export interface CatalogRow {
   id: string;
@@ -34,7 +33,6 @@ export interface CatalogRow {
 
 export interface CatalogFamily {
   id: string;
-  label: (d: Dict) => string;
   rows: readonly CatalogRow[];
 }
 
@@ -56,8 +54,7 @@ export function catalogFamilies(catalog: Catalog): CatalogFamily[] {
             glyph: createElement(VisualizerGlyph, { kind, size: 26 }),
           };
         });
-      const label = GROUP_LABELS[group as VisualizerGroupId] ?? (() => group);
-      return { id: group, label, rows };
+      return { id: group, rows };
     })
     .filter((family) => family.rows.length > 0);
 }

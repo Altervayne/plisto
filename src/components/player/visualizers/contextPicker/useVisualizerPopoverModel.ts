@@ -7,6 +7,7 @@ import { useShallow } from "zustand/react/shallow";
 // -- State Imports --
 import { useAlbum, useAlbumIndex } from "../../../../state/organize/store";
 import { useTrack } from "../../../../state/store";
+import { useVisualizerCatalog } from "../../../../state/preferences/store";
 import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../../state/player/visualizerDefaults";
 import { placeOf, storedDefaultsOf } from "../../../../state/player/visualizerResolve";
 
@@ -58,7 +59,8 @@ export function useVisualizerPopoverModel(scope: VisualizerScope, close: () => v
           : storedDefaultsOf(subject.place, s.albums, s.tracks),
     ),
   );
-  const model = useMemo(() => visualizerPopoverModel(subject, stored), [subject, stored]);
+  const catalog = useVisualizerCatalog();
+  const model = useMemo(() => visualizerPopoverModel(subject, stored, catalog), [subject, stored, catalog]);
 
   let title: string;
   let subtitle: string | null;

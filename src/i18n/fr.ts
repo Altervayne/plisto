@@ -1214,6 +1214,10 @@ export const fr: Dict = {
     visualizerUseGlobal: "Utiliser le choix global",
     visualizerUseAlbumDefault: "Utiliser le défaut de l'album ({name})",
     visualizerAlbumDefaultLine: "Défaut de l'album : {name}",
+    visualizerSkippedAlbum: "Défaut de l'album : {name}, désactivé",
+    visualizerSkippedTrack: "Défaut du titre : {name}, désactivé",
+    visualizerClearAlbumDefault: "Effacer le défaut de l'album",
+    visualizerClearTrackDefault: "Effacer le défaut du titre",
     stream: {
       streamingFrom: "Flux de",
       listened: "{time} d'écoute",

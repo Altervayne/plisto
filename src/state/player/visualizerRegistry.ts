@@ -5,6 +5,7 @@
  */
 
 // -- Type Imports --
+import type { Translate } from "../../i18n";
 import type { Dict } from "../../i18n/en";
 
 /** The picker's labelled sections, in order. */
@@ -19,6 +20,11 @@ export const GROUP_LABELS: Record<VisualizerGroupId, (d: Dict) => string> = {
   fluid: (d) => d.player.visualizerGroupFluid,
   cozy: (d) => d.player.visualizerGroupCozy,
 };
+
+/** A family's localized name. An id the registry does not name reads as itself. */
+export function groupLabel(id: string, t: Translate): string {
+  return Object.prototype.hasOwnProperty.call(GROUP_LABELS, id) ? t(GROUP_LABELS[id as VisualizerGroupId]) : id;
+}
 
 /**
  * The CSS blend a kind's layer takes over the stage. The GL renderer composites screen, multiply or

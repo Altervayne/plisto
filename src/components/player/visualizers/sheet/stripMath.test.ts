@@ -113,6 +113,27 @@ describe("chipAt", () => {
   it("falls back to the first group with no offsets", () => {
     expect(chipAt(100, [], 3200)).toBe(0);
   });
+
+  it("reads the only run, and the right one of two, in a strip that does not scroll", () => {
+    expect(chipAt(0, [4], 0)).toBe(0);
+    // With nothing to scroll the first run reads as current.
+    expect(chipAt(0, [4, 540], 0)).toBe(0);
+    expect(chipAt(0, [4, 540, 700], 0)).toBe(0);
+    expect(chipAt(0, [4, 540], 600)).toBe(0);
+    expect(chipAt(598, [4, 540], 600)).toBe(1);
+  });
+});
+
+describe("a short strip", () => {
+  it("shows no fade when everything fits", () => {
+    expect(fadeState(0, 0)).toEqual({ left: 0, right: 0 });
+  });
+
+  it("opens at the start when one or two runs fit the viewport", () => {
+    const geometry = { tileLeft: 4, groupLeft: 4, groupWidth: 540, viewport: 1000, max: 0 };
+    expect(openScrollTarget(geometry)).toBe(0);
+    expect(openScrollTarget({ ...geometry, tileLeft: 560, groupLeft: 548, groupWidth: 180 })).toBe(0);
+  });
 });
 
 describe("groupScroll", () => {

@@ -21,7 +21,9 @@ import { VisualizerGlyph } from "../VisualizerGlyph";
 import { useVisualizerPopoverModel, type VisualizerScope } from "./useVisualizerPopoverModel";
 
 // -- State Imports --
-import { VISUALIZER_GROUPS, type VisualizerGroupId, type VisualizerKind } from "../../../../state/player/visualizerKind";
+import { groupLabel } from "../../../../state/player/visualizerRegistry";
+import type { VisualizerKind } from "../../../../state/player/visualizerKind";
+import type { SkippedDefault } from "../../../../state/player/visualizerResolve";
 
 // -- Utils Imports --
 import { nextFocus, type NavDirection } from "../tiles/focusNav";
@@ -48,7 +50,9 @@ const NAV_KEYS: readonly string[] = ["ArrowLeft", "ArrowRight", "ArrowUp", "Arro
 export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } & MenuPanelApi) {
   const t = useT();
   const { model, title, subtitle, ready, pick } = useVisualizerPopoverModel(scope, close);
-  const [tab, setTab] = useState<VisualizerGroupId>(model.openTab);
+  const [tabPicked, setTab] = useState<string>(model.openTab);
+  // A family turned off while the popover is open leaves its tab with nothing to show.
+  const tab = model.groups.some((g) => g.id === tabPicked) ? tabPicked : model.openTab;
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -71,19 +75,28 @@ export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } &
     if (next != null) items[next].focus();
   };
 
-  const groupLabels: Record<VisualizerGroupId, string> = {
-    classic: t((d) => d.player.visualizerGroupClassic),
-    dots: t((d) => d.player.visualizerGroupDots),
-    fluid: t((d) => d.player.visualizerGroupFluid),
-    cozy: t((d) => d.player.visualizerGroupCozy),
-  };
   const kindName = (kind: VisualizerKind) => t(VISUALIZER_VIEWS[kind].label);
   const topLabel =
     model.topLabel.form === "albumDefault"
       ? t((d) => d.player.visualizerUseAlbumDefault, { name: kindName(model.topLabel.kind) })
       : t((d) => d.player.visualizerUseGlobal);
   const disabled = ready ? undefined : true;
-  const kinds = VISUALIZER_GROUPS.find((g) => g.id === tab)?.kinds ?? [];
+  const kinds = model.groups.find((g) => g.id === tab)?.kinds ?? [];
+  // One quiet line: the stored kind the catalog turns off, else the album default it turns off, else the
+  // album default a track follows.
+  const { albumDefault, albumDefaultOff } = model;
+  const skipped: SkippedDefault | null =
+    model.turnedOff ?? (albumDefaultOff ? { kind: albumDefaultOff, tier: "album" } : null);
+  let quiet: string | null = null;
+  if (skipped) {
+    const name = kindName(skipped.kind);
+    quiet =
+      skipped.tier === "track"
+        ? t((d) => d.player.visualizerSkippedTrack, { name })
+        : t((d) => d.player.visualizerSkippedAlbum, { name });
+  } else if (albumDefault) {
+    quiet = t((d) => d.player.visualizerAlbumDefaultLine, { name: kindName(albumDefault) });
+  }
   // With no checked tile on this tab, its first tile is the grid's tab stop.
   const hasChecked = kinds.some((k) => k === model.stored);
 
@@ -119,7 +132,7 @@ export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } &
       {row(null, model.topChecked, <Waves size={16} strokeWidth={1.8} />, topLabel)}
       <div className={menuStyles.sep} />
       <div className={`${segmentStyles.control} ${styles.tabs}`} role="tablist">
-        {VISUALIZER_GROUPS.map((group) => {
+        {model.groups.map((group) => {
           const active = group.id === tab;
           return (
             <button
@@ -132,13 +145,13 @@ export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } &
               className={`${segmentStyles.segment} ${styles.tab} ${active ? segmentStyles.active : ""}`}
               onClick={() => setTab(group.id)}
             >
-              {groupLabels[group.id]}
+              {groupLabel(group.id, t)}
               <GroupMarkers active={model.markers[group.id].active} setAside={model.markers[group.id].setAside} />
             </button>
           );
         })}
       </div>
-      <div className={styles.grid} role="radiogroup" aria-label={groupLabels[tab]}>
+      <div className={styles.grid} role="radiogroup" aria-label={groupLabel(tab, t)}>
         {kinds.map((kind, i) => {
           const checked = kind === model.stored;
           return (
@@ -160,11 +173,7 @@ export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } &
       </div>
       <div className={menuStyles.sep} />
       {row("off", model.stored === "off", <VisualizerGlyph kind="off" />, kindName("off"))}
-      {model.albumDefault ? (
-        <div className={styles.quiet}>
-          {t((d) => d.player.visualizerAlbumDefaultLine, { name: kindName(model.albumDefault) })}
-        </div>
-      ) : null}
+      {quiet ? <div className={styles.quiet}>{quiet}</div> : null}
     </div>
   );
 }

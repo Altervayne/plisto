@@ -1208,6 +1208,10 @@ export const en = {
     visualizerUseGlobal: "Use global pick",
     visualizerUseAlbumDefault: "Use album default ({name})",
     visualizerAlbumDefaultLine: "Album default: {name}",
+    visualizerSkippedAlbum: "Album default: {name}, turned off",
+    visualizerSkippedTrack: "Track default: {name}, turned off",
+    visualizerClearAlbumDefault: "Clear album default",
+    visualizerClearTrackDefault: "Clear track default",
     stream: {
       streamingFrom: "Streaming from",
       listened: "{time} listened",

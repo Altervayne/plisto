@@ -5,6 +5,7 @@ import { CatalogTile } from "./CatalogTile";
 // -- State Imports --
 import { useT } from "../../../i18n";
 import { canTurnOff, familyState, toggleGroup, toggleKind } from "../../../state/player/visualizerCatalog";
+import { groupLabel } from "../../../state/player/visualizerRegistry";
 
 // -- Type Imports --
 import type { Catalog, CatalogState } from "../../../state/player/visualizerCatalog";
@@ -36,7 +37,7 @@ export function FamilyBlock({
   const count = familyOn
     ? t((d) => d.settings.visualizersOnCount, { n: offered, total: family.rows.length })
     : t((d) => d.settings.visualizersFamilyOff);
-  const name = t(family.label);
+  const name = groupLabel(family.id, t);
   const familyGuarded = familyOn && !canTurnOff(catalog, "group", family.id);
 
   return (

@@ -20,9 +20,10 @@ import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 // -- Local Imports --
 import type { VisualizerFallback } from "../visualizerTarget";
 import { nextFocus, type NavDirection } from "../tiles/focusNav";
-import { SHEET_GROUPS, type SheetGroupId } from "./sheetGroups";
+import { currentGroup, showsChips, type SheetGroupId } from "./sheetGroups";
 import { groupScroll } from "./stripMath";
 import { useSheetDefaults } from "./useSheetDefaults";
+import { useSheetGroups } from "./useSheetGroups";
 
 // -- i18n Imports --
 import { useT } from "../../../../i18n";
@@ -70,11 +71,14 @@ function SheetBody({
   const resolved = useVisualizerResolution(trackId);
   const { picked } = resolved.resolution;
   useWarmSheetKinds(resolved);
-  const { tagFor, markers } = useSheetDefaults(resolved.resolution);
+  const groups = useSheetGroups();
+  const { tagFor, markers } = useSheetDefaults(resolved.resolution, groups);
   const pick = useVisualizerPick(trackId);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
-  const [group, setGroup] = useState<SheetGroupId>(SHEET_GROUPS[0].id);
+  const [groupPicked, setGroup] = useState<SheetGroupId>(groups[0].id);
+  // A family turned off while the sheet is open leaves the current chip with nothing to read.
+  const group = currentGroup(groups, groupPicked);
 
   // A press outside dismisses the sheet. The control that opened it toggles it instead.
   useEffect(() => {
@@ -148,10 +152,12 @@ function SheetBody({
       aria-label={t((d) => d.player.visualizer)}
       onKeyDown={onKeyDown}
     >
-      <div className={styles.head}>
-        <GroupChips current={group} onJump={onJump} markers={markers} />
-      </div>
-      <KindStrip checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
+      {showsChips(groups) ? (
+        <div className={styles.head}>
+          <GroupChips groups={groups} current={group} onJump={onJump} markers={markers} />
+        </div>
+      ) : null}
+      <KindStrip groups={groups} checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
       <SheetFooter picked={picked} aside={<DefaultsAside resolved={resolved} fallback={fallback} />} />
     </div>
   );

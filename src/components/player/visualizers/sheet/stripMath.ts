@@ -75,7 +75,7 @@ export function fadeState(scroll: number, max: number): { left: number; right: n
 
 /** The index of the group whose chip reads as current, from the groups' left offsets in strip order. */
 export function chipAt(scroll: number, groupOffsets: readonly number[], max: number): number {
-  if (groupOffsets.length === 0) return 0;
+  if (groupOffsets.length === 0 || max <= 0) return 0;
   if (scroll >= max - CHIP_END_SLACK) return groupOffsets.length - 1;
   let current = 0;
   groupOffsets.forEach((left, i) => {

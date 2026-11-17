@@ -295,32 +295,45 @@ describe("applyManualPick", () => {
 });
 
 describe("clearDefaultTier", () => {
+  const clearOf = (patch: Partial<ResolveInput>) => clearDefaultTier(resolveVisualizer(input(patch)));
+
   it("clears the track tier first, then the album tier", () => {
-    expect(clearDefaultTier({ trackDefault: "terrain", albumDefault: "nebula" })).toBe("track");
-    expect(clearDefaultTier({ trackDefault: null, albumDefault: "nebula" })).toBe("album");
-    expect(clearDefaultTier({ trackDefault: null, albumDefault: null })).toBeNull();
+    expect(clearOf({ trackDefault: "terrain", albumDefault: "nebula" })).toBe("track");
+    expect(clearOf({ albumDefault: "nebula" })).toBe("album");
+    expect(clearOf({})).toBeNull();
   });
 
   it("skips a tier whose stored string names no kind", () => {
-    expect(clearDefaultTier({ trackDefault: "aurora-x", albumDefault: "nebula" })).toBe("album");
+    expect(clearOf({ trackDefault: "aurora-x", albumDefault: "nebula" })).toBe("album");
   });
 
-  it("clears a turned-off track default first, over an offered album default", () => {
-    const stored = input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain"]) });
-    expect(clearDefaultTier(stored)).toBe("track");
-    expect(clearDefaultTier({ ...stored, trackDefault: null })).toBe("album");
+  it("names the turned-off track default, the one the aside shows, over an offered album default", () => {
+    const stored = { trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain"]) };
+    const res = resolveVisualizer(input(stored));
+    expect(res.skipped).toEqual({ kind: "terrain", tier: "track" });
+    expect(res.defaultTier).toBe("album");
+    expect(clearDefaultTier(res)).toBe("track");
+    expect(clearOf({ ...stored, trackDefault: null })).toBe("album");
+  });
+
+  it("clears a turned-off album default when nothing outranks it", () => {
+    expect(clearOf({ albumDefault: "nebula", catalog: without(["nebula"]) })).toBe("album");
   });
 
   it("clears the track tier, then the album tier, when both defaults are turned off", () => {
-    const stored = input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain", "nebula"]) });
-    expect(clearDefaultTier(stored)).toBe("track");
-    expect(clearDefaultTier({ ...stored, trackDefault: null })).toBe("album");
+    const stored = { trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain", "nebula"]) };
+    expect(clearOf(stored)).toBe("track");
+    expect(clearOf({ ...stored, trackDefault: null })).toBe("album");
+  });
+
+  it("clears the track tier of an offered track default, leaving a turned-off album default alone", () => {
+    expect(clearOf({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["nebula"]) })).toBe("track");
   });
 
   it("keeps a temporary pick: clearing during an override still shows the pick", () => {
     const override = { kind: "bloom", albumKey: ALBUM_KEY } as const;
     const before = input({ albumDefault: "nebula", override });
-    expect(clearDefaultTier(before)).toBe("album");
+    expect(clearDefaultTier(resolveVisualizer(before))).toBe("album");
     expect(resolveVisualizer({ ...before, albumDefault: null }).picked).toBe("bloom");
   });
 });

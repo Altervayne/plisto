@@ -11,7 +11,7 @@ import type { DefaultTier, Resolution } from "../../../../state/player/visualize
 import type { ChipMarkers } from "./GroupChips";
 
 // -- Local Imports --
-import { SHEET_GROUPS, type SheetGroupId } from "./sheetGroups";
+import type { SheetGroup, SheetGroupId } from "./sheetGroups";
 
 // -- i18n Imports --
 import { useT } from "../../../../i18n";
@@ -30,22 +30,22 @@ export function tagOf(res: Resolution, kind: VisualizerKind): SheetTag | null {
   return kind === res.picked ? { form: "filled", tier: res.defaultTier } : null;
 }
 
-function groupOf(kind: VisualizerKind): SheetGroupId | undefined {
-  return SHEET_GROUPS.find((g) => g.kinds.includes(kind))?.id;
+function groupOf(groups: readonly SheetGroup[], kind: VisualizerKind): SheetGroupId | undefined {
+  return groups.find((g) => g.kinds.includes(kind))?.id;
 }
 
 /** The chip dots: filled on the picked kind's group, ringed on the set-aside default's group. */
-export function markersOf(res: Resolution): ChipMarkers {
+export function markersOf(res: Resolution, groups: readonly SheetGroup[]): ChipMarkers {
   const markers: ChipMarkers = {};
-  const active = groupOf(res.picked);
+  const active = groupOf(groups, res.picked);
   if (active) markers[active] = { active: true };
-  const aside = res.source === "override" && res.defaultKind ? groupOf(res.defaultKind) : undefined;
+  const aside = res.source === "override" && res.defaultKind ? groupOf(groups, res.defaultKind) : undefined;
   if (aside) markers[aside] = { ...markers[aside], setAside: true };
   return markers;
 }
 
 /** The strip's tag renderer and the chips' markers for a resolution, both updating in place. */
-export function useSheetDefaults(res: Resolution): {
+export function useSheetDefaults(res: Resolution, groups: readonly SheetGroup[]): {
   tagFor: (kind: VisualizerKind) => ReactNode;
   markers: ChipMarkers;
 } {
@@ -59,6 +59,6 @@ export function useSheetDefaults(res: Resolution): {
     },
     [res, t],
   );
-  const markers = useMemo(() => markersOf(res), [res]);
+  const markers = useMemo(() => markersOf(res, groups), [res, groups]);
   return { tagFor, markers };
 }

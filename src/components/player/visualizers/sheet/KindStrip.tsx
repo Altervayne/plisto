@@ -18,7 +18,7 @@ import { useVisualizerPreview, useVisualizerSheet } from "../../../../state/play
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 
 // -- Local Imports --
-import { SHEET_GROUPS, SHEET_GROUP_LABELS, type SheetGroupId } from "./sheetGroups";
+import { sheetGroupLabel, type SheetGroup, type SheetGroupId } from "./sheetGroups";
 import { CHEVRON_STEP, FADE_RIGHT, TILE_WIDTH, chipAt, fadeState, openScrollTarget } from "./stripMath";
 
 // -- i18n Imports --
@@ -28,6 +28,8 @@ import { useT } from "../../../../i18n";
 import styles from "./KindStrip.module.css";
 
 interface KindStripProps {
+  // The runs, in order. The checked kind is always in one of them.
+  groups: readonly SheetGroup[];
   checked: VisualizerKind;
   // The scroller, shared with the group chips that jump along it.
   stripRef: RefObject<HTMLDivElement | null>;
@@ -52,7 +54,7 @@ function kindOf(target: EventTarget | null): VisualizerKind | null {
  * rather than bound per tile. The strip opens on the checked tile once, on mount; a later pick leaves the
  * scroll where it is.
  */
-export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: KindStripProps) {
+export function KindStrip({ groups, checked, stripRef, onPick, onGroupChange, tagFor }: KindStripProps) {
   const t = useT();
   const [fades, setFades] = useState({ left: 0, right: FADE_RIGHT });
   const hovered = useRef<VisualizerKind | null>(null);
@@ -67,8 +69,9 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
     const next = fadeState(strip.scrollLeft, max);
     setFades((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
     const offsets = [...strip.querySelectorAll<HTMLElement>("[data-group]")].map((g) => g.offsetLeft);
-    onGroupChange(SHEET_GROUPS[chipAt(strip.scrollLeft, offsets, max)].id);
-  }, [stripRef, onGroupChange]);
+    const current = groups[chipAt(strip.scrollLeft, offsets, max)];
+    if (current) onGroupChange(current.id);
+  }, [stripRef, groups, onGroupChange]);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
@@ -150,12 +153,12 @@ export function KindStrip({ checked, stripRef, onPick, onGroupChange, tagFor }: 
           if (!stripRef.current?.contains(e.relatedTarget as Node | null)) preview(hovered.current);
         }}
       >
-        {SHEET_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.id} className={styles.group} data-group={group.id}>
             <span className={styles.heading} aria-hidden="true">
-              {group.id === "off" ? <>&nbsp;</> : t(SHEET_GROUP_LABELS[group.id])}
+              {group.id === "off" ? <>&nbsp;</> : sheetGroupLabel(group.id, t)}
             </span>
-            <div className={styles.row} role="radiogroup" aria-label={t(SHEET_GROUP_LABELS[group.id])}>
+            <div className={styles.row} role="radiogroup" aria-label={sheetGroupLabel(group.id, t)}>
               {group.kinds.map((kind) => (
                 <KindTile
                   key={kind}

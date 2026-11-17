@@ -181,11 +181,12 @@ export function applyManualPick(input: ResolveInput, kind: VisualizerKind): Manu
   return { override: kind === defaultKind ? null : { kind, albumKey: input.albumKey }, global: null };
 }
 
-/** The tier Clear default removes: the track tier first. A temporary pick stays. */
-export function clearDefaultTier(input: Pick<ResolveInput, "trackDefault" | "albumDefault">): DefaultTier | null {
-  if (knownKind(input.trackDefault)) return "track";
-  if (knownKind(input.albumDefault)) return "album";
-  return null;
+/**
+ * The tier Clear default removes: the one the aside names, a turned-off default before the one in play,
+ * the track tier before the album. A temporary pick stays.
+ */
+export function clearDefaultTier(res: Pick<Resolution, "skipped" | "defaultTier">): DefaultTier | null {
+  return res.skipped?.tier ?? res.defaultTier;
 }
 
 /**
