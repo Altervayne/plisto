@@ -1,6 +1,9 @@
 // -- Framework Imports --
 import type { ReactNode } from "react";
 
+// -- Icon Imports --
+import { SlidersHorizontal } from "lucide-react";
+
 // -- Component Imports --
 import { SegmentedControl } from "../../../common/SegmentedControl";
 
@@ -32,9 +35,18 @@ import styles from "./SheetFooter.module.css";
 
 /**
  * The sheet's footer: the reactivity row, and the dot spectrum's layout row beside it while that kind is
- * picked, so the sheet never grows when it appears. Both persist as prefs. `aside` sits at the trailing edge.
+ * picked, so the sheet never grows when it appears. Both persist as prefs. `onManage` adds a quiet link after
+ * them in the same row; `aside` sits at the trailing edge.
  */
-export function SheetFooter({ picked, aside }: { picked: VisualizerKind; aside?: ReactNode }) {
+export function SheetFooter({
+  picked,
+  aside,
+  onManage,
+}: {
+  picked: VisualizerKind;
+  aside?: ReactNode;
+  onManage?: () => void;
+}) {
   const reactivity = usePlayerVisualizerReactivity();
   const setReactivity = useSetPlayerVisualizerReactivity();
   const layout = usePlayerSpectrumLayout();
@@ -83,6 +95,12 @@ export function SheetFooter({ picked, aside }: { picked: VisualizerKind; aside?:
             />
           </div>
         </div>
+      ) : null}
+      {onManage ? (
+        <button type="button" className={styles.manage} onClick={onManage}>
+          <SlidersHorizontal size={15} aria-hidden="true" />
+          {t((d) => d.player.manageVisualizers)}
+        </button>
       ) : null}
       <div className={styles.grow} />
       {aside != null ? <div className={styles.aside}>{aside}</div> : null}

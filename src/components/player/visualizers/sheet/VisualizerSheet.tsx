@@ -16,6 +16,7 @@ import { useVisualizerResolution } from "../useVisualizerResolution";
 // -- State Imports --
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../../state/player/visualizerSheet";
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
+import { useOpenSettings } from "../../../../state/shell/store";
 
 // -- Local Imports --
 import type { VisualizerFallback } from "../visualizerTarget";
@@ -68,6 +69,7 @@ function SheetBody({
   fallback: VisualizerFallback | null;
 }) {
   const t = useT();
+  const openSettings = useOpenSettings();
   const resolved = useVisualizerResolution(trackId);
   const { picked } = resolved.resolution;
   useWarmSheetKinds(resolved);
@@ -119,6 +121,12 @@ function SheetBody({
     });
   };
 
+  // Only the Player offers it: the ambient view makes the app inert, so Settings could not take focus there.
+  const onManage = () => {
+    useVisualizerSheet.getState().close();
+    openSettings({ target: "visualizerCatalog" });
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.stopPropagation();
@@ -158,7 +166,11 @@ function SheetBody({
         </div>
       ) : null}
       <KindStrip groups={groups} checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
-      <SheetFooter picked={picked} aside={<DefaultsAside resolved={resolved} fallback={fallback} />} />
+      <SheetFooter
+        picked={picked}
+        aside={<DefaultsAside resolved={resolved} fallback={fallback} />}
+        onManage={place === "player" ? onManage : undefined}
+      />
     </div>
   );
 }

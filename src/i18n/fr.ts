@@ -1175,6 +1175,7 @@ export const fr: Dict = {
     visualizerGroupDots: "Points",
     visualizerGroupFluid: "Fluides",
     visualizerReactivity: "Réactivité",
+    manageVisualizers: "Gérer les visualiseurs",
     reactivityCalm: "Calme",
     reactivityBalanced: "Équilibrée",
     reactivityLively: "Vive",

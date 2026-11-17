@@ -1169,6 +1169,7 @@ export const en = {
     visualizerGroupDots: "Dots",
     visualizerGroupFluid: "Fluid",
     visualizerReactivity: "Reactivity",
+    manageVisualizers: "Manage visualizers",
     reactivityCalm: "Calm",
     reactivityBalanced: "Balanced",
     reactivityLively: "Lively",

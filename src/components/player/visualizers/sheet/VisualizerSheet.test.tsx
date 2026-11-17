@@ -92,6 +92,21 @@ describe("VisualizerSheet chips", () => {
   });
 });
 
+describe("VisualizerSheet manage link", () => {
+  it("is offered in the Player", () => {
+    const html = renderSheet("ridge", [], []);
+    expect(html).toContain("Manage visualizers");
+  });
+
+  it("is absent in the ambient view", () => {
+    setCatalog([], []);
+    resolve("ridge", catalogOf([], []));
+    useVisualizerSheet.setState({ isOpen: true });
+    const html = renderToStaticMarkup(<VisualizerSheet place="ambient" trackId={3} />);
+    expect(html).not.toContain("Manage visualizers");
+  });
+});
+
 describe("VisualizerSheet checked tile", () => {
   it("renders the resolved kind checked in the strip", () => {
     const html = renderSheet("glass", [], []);
