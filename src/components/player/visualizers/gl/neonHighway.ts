@@ -455,6 +455,8 @@ export interface NeonHighwayState {
   gateHue: number;
   lastGate: number;
   glitch: number;
+  // The running glitch's amplitude in px, latched at launch so it finishes its curve whatever the drive does.
+  glitchPeak: number;
   glitchSeed: number;
   lastGlitch: number;
   wasHigh: boolean;
@@ -486,6 +488,7 @@ export function createNeonHighwayState(): NeonHighwayState {
     gateHue: 0,
     lastGate: -99,
     glitch: 9,
+    glitchPeak: 0,
     glitchSeed: 1,
     lastGlitch: -99,
     wasHigh: false,
@@ -592,12 +595,13 @@ export function stepNeonHighway(st: NeonHighwayState, s: VisualSignal, dt: numbe
   if (drive > 0 && high && !st.wasHigh && now - st.lastGlitch > H.GLITCH_EVERY) {
     st.glitch = 0;
     st.lastGlitch = now;
+    st.glitchPeak = 22 * Math.min(1.3, drive);
     st.glitchSeed = 1 + rng() * 50;
   }
   st.wasHigh = high;
   st.glitch += dt;
   const ga = st.glitch / H.GLITCH_LIFE;
-  st.glitchAmt = ga < 1 ? Math.sin(Math.PI * Math.min(1, ga * 2.5)) ** 2 * (1 - ga) * 22 * Math.min(1.3, drive) : 0;
+  st.glitchAmt = ga < 1 ? Math.sin(Math.PI * Math.min(1, ga * 2.5)) ** 2 * (1 - ga) * st.glitchPeak : 0;
   st.shownSpeed = (st.speed + st.surge) * (1 + st.nudge);
   st.shownPulse = st.pulse[1] * Math.max(0, 1 - st.pulse[0] / 1.4);
   cyberBands(st.bands, s, drive, dt);

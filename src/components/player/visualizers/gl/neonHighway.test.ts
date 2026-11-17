@@ -178,6 +178,38 @@ describe("stepNeonHighway", () => {
     for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(GLITCH_CAP);
   });
 
+  it("finishes a running glitch on its own curve when paused or switched to Calm", () => {
+    /** The glitch amount per frame from its launch, with the gain dropping to `after` 0.15 s in. */
+    const curve = (after: number, sigDrive: number): number[] => {
+      const st = createNeonHighwayState();
+      const rng = createRng(9);
+      const amts: number[] = [];
+      let since = -1;
+      for (let i = 0; i * DT < 40 && amts.length < 70; i++) {
+        const level = i * DT < 20 ? 0.1 : 0.9;
+        const late = since >= 0 && since * DT >= 0.15;
+        stepNeonHighway(st, { ...restSignal(), level, drive: late ? sigDrive : LIVELY }, DT, late ? after : LIVELY, rng);
+        if (since < 0 && st.glitchAmt > 0) since = 0;
+        if (since >= 0) {
+          amts.push(st.glitchAmt);
+          since++;
+        }
+      }
+      return amts;
+    };
+    const playing = curve(LIVELY, LIVELY);
+    const paused = curve(cyberGain({ ...restSignal(), drive: LIVELY }, false), LIVELY);
+    const calm = curve(0, 0);
+    const largest = (a: number[]) => Math.max(...a.slice(1).map((v, i) => Math.abs(v - a[i])));
+    expect(Math.max(...playing)).toBeGreaterThan(10);
+    expect(playing[playing.length - 1]).toBe(0);
+    for (const run of [paused, calm]) {
+      expect(run.length).toBe(playing.length);
+      run.forEach((v, i) => expect(v).toBeCloseTo(playing[i], 9));
+      expect(largest(run)).toBeLessThanOrEqual(largest(playing) + 1e-9);
+    }
+  });
+
   it("replays the same glitch from the same seed", () => {
     const a = dropRun(7, 40);
     const b = dropRun(7, 40);
