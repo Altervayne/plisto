@@ -623,6 +623,22 @@ pub fn run() {
             commands::plugin_ui::plugin_frame_event,
             commands::sandbox_check::sandbox_check_open,
             commands::sandbox_check::sandbox_check_close,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::capture::probe_capture,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::processes::probe_processes,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::processes::probe_cpu,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::processes::probe_memory,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::processes::probe_terminate,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::processes::probe_gpu_crash,
+            #[cfg(all(windows, debug_assertions))]
+            commands::probes::emit::probe_emit_burst,
+            #[cfg(debug_assertions)]
+            commands::probes::probe_host_log,
             #[cfg(windows)]
             commands::plugin_status::plugin_statuses,
             #[cfg(windows)]

@@ -31,6 +31,8 @@ pub mod plugin_fetch;
 pub mod plugin_status;
 pub mod plugin_ui;
 pub mod plugins;
+#[cfg(debug_assertions)]
+pub mod probes;
 pub mod relocate;
 pub mod roots;
 pub mod sandbox_check;
