@@ -16,9 +16,25 @@ import "./styles/base.css";
 // the pop-out now-playing widget each get their own root; anything else is the main app.
 const target = new URLSearchParams(location.search).get("window");
 
+// Dev builds only: the main window opens the probes page on Ctrl+Alt+Shift+P. Both the key and the page
+// sit behind the DEV flag, so a production build carries neither.
+if (import.meta.env.DEV && target === null) {
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.altKey && e.shiftKey && e.code === "KeyP") location.search = "?window=probes";
+  });
+}
+
 function root() {
   if (target === "tray") return <TrayStatus />;
   if (target === "nowplaying") return <NowPlayingWidget />;
+  if (import.meta.env.DEV && target === "probes") {
+    const ProbesPage = React.lazy(() => import("./dev/probes/ProbesPage"));
+    return (
+      <React.Suspense fallback={null}>
+        <ProbesPage />
+      </React.Suspense>
+    );
+  }
   return <App />;
 }
 

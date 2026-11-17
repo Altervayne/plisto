@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>vis-solid-canvas</title>
+    <style>
+      :root {
+        color-scheme: normal;
+      }
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+      }
+      canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+    <canvas id="c2d"></canvas>
+    <script src="common.js"></script>
+    <script src="vis-solid-canvas.js"></script>
+  </body>
+</html>

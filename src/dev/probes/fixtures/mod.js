@@ -1,0 +1,1 @@
+globalThis.probeModLoaded = "js";

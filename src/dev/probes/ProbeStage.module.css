@@ -1,0 +1,21 @@
+/* One stage of the replica with its caption. The group wraps the slot so a probe can isolate it; with no
+ * isolation it paints no group of its own, so the slot blends against the layers beneath as in the player. */
+.figure {
+  /* Offset from the script that puts the slot on a device pixel; relative with no z-index forms no group. */
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--ink-3);
+}
