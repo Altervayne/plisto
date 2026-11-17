@@ -2590,7 +2590,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 21);
+        assert_eq!(version, 22);
 
         for table in [
             "tracks",
@@ -2659,6 +2659,18 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_keep, 1, "album_tracks.keep_own_cover should exist");
+
+        // A playlist slot holds a track or an album entry.
+        for col in ["album_id", "keep_order"] {
+            let has_col: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('playlist_tracks') WHERE name = ?1",
+                    params![col],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(has_col, 1, "playlist_tracks.{col} should exist");
+        }
     }
 
     #[test]
@@ -2669,7 +2681,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 21);
+        assert_eq!(version, 22);
     }
 
     #[test]

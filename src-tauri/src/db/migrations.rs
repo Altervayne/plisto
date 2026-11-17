@@ -2,15 +2,18 @@
  * The schema migration runner, keyed on PRAGMA user_version. Each step bumps the version once
  * its statements land, so migrate() is idempotent: an already-current DB runs nothing. Steps are
  * additive - columns and tables are added - save for the deliberate retirement of a dead column
- * once nothing reads it (v8) and the per-disc renumbering repair (v14), which both still preserve
- * every row. So a running index survives an upgrade with its rows intact.
+ * once nothing reads it (v8), the per-disc renumbering repair (v14) and the `playlist_tracks`
+ * rebuild (v22), which all still preserve every row. So a running index survives an upgrade with its
+ * rows intact.
  */
 
 // -- Library Imports --
-use rusqlite::Connection;
+use std::path::Path;
+
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 21;
+const LATEST_VERSION: i64 = 22;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -429,6 +432,46 @@ CREATE INDEX idx_scan_issues_root ON scan_issues(root_id);
 CREATE INDEX idx_scan_issues_track ON scan_issues(track_id);
 ";
 
+// Version 22: a playlist slot holds either a track or a whole album. Exactly one of `track_id` and
+// `album_id` is set, and `keep_order` marks an album entry whose tracks play as one unbroken block. The
+// album FK CASCADEs like the other two. SQLite cannot drop NOT NULL from `track_id`, so the table is
+// rebuilt: every row is copied with its id kept, since merge receipts name slots by id, and becomes a
+// track slot with `album_id` NULL and `keep_order` 0, the true prior state. The copy is checked
+// against the old table before the old table is dropped. See `migrate_v22` for the transaction.
+const MIGRATION_V22_COPY: &str = "
+CREATE TABLE playlist_tracks_v22 (
+    id          INTEGER PRIMARY KEY,
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id    INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    album_id    INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+    keep_order  INTEGER NOT NULL DEFAULT 0 CHECK (keep_order IN (0, 1)),
+    position    INTEGER NOT NULL,
+    CHECK ((track_id IS NULL) <> (album_id IS NULL))
+);
+INSERT INTO playlist_tracks_v22 (id, playlist_id, track_id, album_id, keep_order, position)
+SELECT id, playlist_id, track_id, NULL, 0, position FROM playlist_tracks;
+";
+
+// Every old row with an identical copy in the new table.
+const MIGRATION_V22_MATCHED: &str = "
+SELECT COUNT(*) FROM playlist_tracks o
+JOIN playlist_tracks_v22 n
+  ON n.id = o.id AND n.playlist_id = o.playlist_id AND n.track_id = o.track_id
+ AND n.position = o.position
+";
+
+// The track and album indexes keep the delete cascades from scanning the whole table.
+const MIGRATION_V22_SWAP: &str = "
+DROP TABLE playlist_tracks;
+ALTER TABLE playlist_tracks_v22 RENAME TO playlist_tracks;
+CREATE INDEX idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
+CREATE INDEX idx_playlist_tracks_album ON playlist_tracks(album_id);
+CREATE INDEX idx_playlist_tracks_track ON playlist_tracks(track_id);
+";
+
+// The copy written beside the database file before the v22 rebuild.
+const PRE_V22_BACKUP: &str = "plisto.pre-v22-backup.sqlite";
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
 /// needs. Safe to call on every open: a current DB does no work and returns Ok.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -457,6 +500,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             18 => conn.execute_batch(MIGRATION_V19)?,
             19 => conn.execute_batch(MIGRATION_V20)?,
             20 => conn.execute_batch(MIGRATION_V21)?,
+            21 => migrate_v22(conn)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -464,6 +508,81 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     }
 
     Ok(())
+}
+
+/// Rebuilds `playlist_tracks` in one transaction with foreign keys off, as SQLite's table rebuild
+/// requires. Any error rolls the whole step back, the version with it, and leaves foreign keys as they
+/// were.
+fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
+    backup_before_v22(conn);
+
+    let prior: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+    // Declared before the transaction so it drops after the commit or rollback: the pragma is a no-op
+    // while a transaction is open.
+    let _restore = ForeignKeysRestore { conn, prior };
+    conn.pragma_update(None, "foreign_keys", false)?;
+
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let count = |sql: &str| -> rusqlite::Result<i64> { tx.query_row(sql, [], |r| r.get(0)) };
+    let before = count("SELECT COUNT(*) FROM playlist_tracks")?;
+    tx.execute_batch(MIGRATION_V22_COPY)?;
+    let copied = count("SELECT COUNT(*) FROM playlist_tracks_v22")?;
+    let matched = count(MIGRATION_V22_MATCHED)?;
+    if copied != before || matched != before {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ABORT),
+            Some(format!(
+                "playlist_tracks copy mismatch: {before} rows, {copied} copied, {matched} identical"
+            )),
+        ));
+    }
+    tx.execute_batch(MIGRATION_V22_SWAP)?;
+
+    // A hit is a row copied verbatim that already pointed nowhere before the rebuild, so it is
+    // reported and kept.
+    let dangling = tx
+        .prepare("PRAGMA foreign_key_check(playlist_tracks)")?
+        .query_map([], |_| Ok(()))?
+        .count();
+    if dangling > 0 {
+        eprintln!("migration v22: {dangling} playlist slots fail the foreign key check");
+    }
+
+    tx.pragma_update(None, "user_version", 22)?;
+    tx.commit()
+}
+
+/// Writes a copy of a file-backed database that holds playlist slots beside it. A failure is logged,
+/// its partial copy removed, and the upgrade goes on: a backup that failed on every launch would keep
+/// the app from opening, and the rebuild's transaction and row check already guard the slots.
+fn backup_before_v22(conn: &Connection) {
+    let Some(path) = conn.path().filter(|p| !p.is_empty()) else {
+        return;
+    };
+    let slots: i64 = conn
+        .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |r| r.get(0))
+        .unwrap_or(0);
+    if slots == 0 {
+        return;
+    }
+    let dest = Path::new(path).with_file_name(PRE_V22_BACKUP);
+    if let Err(e) = super::backup_to(conn, &dest) {
+        eprintln!("migration v22: no backup written to {}: {e}", dest.display());
+        // `backup_to` stages through this sibling; a failed rename leaves a full copy behind.
+        let _ = std::fs::remove_file(dest.with_extension("tmp"));
+    }
+}
+
+/// Sets `foreign_keys` back to its prior value when dropped, on success, error and panic alike.
+struct ForeignKeysRestore<'a> {
+    conn: &'a Connection,
+    prior: bool,
+}
+
+impl Drop for ForeignKeysRestore<'_> {
+    fn drop(&mut self) {
+        let _ = self.conn.pragma_update(None, "foreign_keys", self.prior);
+    }
 }
 
 #[cfg(test)]
@@ -1507,6 +1626,369 @@ mod tests {
             ),
             2
         );
+    }
+
+    // ---- v22 playlist_tracks rebuild ----
+
+    // Brings a blank connection to v21 with foreign keys on, the state of a library before v22.
+    fn to_v21(conn: &Connection) {
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for step in [
+            MIGRATION_V1,
+            MIGRATION_V2,
+            MIGRATION_V3,
+            MIGRATION_V4,
+            MIGRATION_V5,
+            MIGRATION_V6,
+            MIGRATION_V7,
+            MIGRATION_V8,
+            MIGRATION_V9,
+            MIGRATION_V10,
+            MIGRATION_V11,
+            MIGRATION_V12,
+            MIGRATION_V13,
+            MIGRATION_V14,
+            MIGRATION_V15,
+            MIGRATION_V16,
+            MIGRATION_V17,
+            MIGRATION_V18,
+            MIGRATION_V19,
+            MIGRATION_V20,
+            MIGRATION_V21,
+        ] {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 21).unwrap();
+    }
+
+    fn v21_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        to_v21(&conn);
+        conn
+    }
+
+    // Two playlists over four tracks: track 1 held twice in one playlist and once in the other,
+    // positions with a gap and a repeat, track 3 a member of album 1, track 4 missing on disk, plus
+    // plays. Slot ids are sparse, topping out at 9.
+    fn seed_playlists(conn: &Connection) {
+        for id in 1..=4 {
+            insert_track(conn, id, None);
+        }
+        conn.execute_batch(
+            "UPDATE tracks SET missing_at = 50 WHERE id = 4;
+             INSERT INTO albums (id, title, created_at, updated_at) VALUES (1, 'Keep', 0, 0);
+             INSERT INTO album_tracks (album_id, track_id, track_no) VALUES (1, 3, 1);
+             INSERT INTO playlists (id, name, created_at, updated_at)
+             VALUES (1, 'One', 0, 0), (2, 'Two', 0, 0);
+             INSERT INTO playlist_tracks (id, playlist_id, track_id, position)
+             VALUES (1, 1, 1, 1), (2, 1, 2, 3), (3, 1, 1, 3), (5, 1, 3, 7),
+                    (7, 2, 1, 2), (9, 2, 4, 1);
+             INSERT INTO plays (track_id, played_at, completed) VALUES (1, 100, 1), (2, 200, 0);",
+        )
+        .unwrap();
+    }
+
+    // Every slot as (id, playlist_id, track_id, position), ordered by id.
+    fn slot_dump(conn: &Connection) -> Vec<(i64, i64, i64, i64)> {
+        let mut stmt = conn
+            .prepare("SELECT id, playlist_id, track_id, position FROM playlist_tracks ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn user_version(conn: &Connection) -> i64 {
+        conn.pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap()
+    }
+
+    fn foreign_keys(conn: &Connection) -> i64 {
+        conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))
+            .unwrap()
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    // A fresh, empty directory of its own under the system temp directory.
+    fn fresh_temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("plisto_v22_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A v21 library with playlists rebuilds to v22 with every slot identical, the new columns at
+    /// their prior state, the three indexes and a sound database. A second run changes nothing.
+    #[test]
+    fn v21_db_with_playlists_rebuilds_with_nothing_lost() {
+        let conn = v21_db();
+        seed_playlists(&conn);
+        let before = slot_dump(&conn);
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(user_version(&conn), 22);
+        assert_eq!(slot_dump(&conn), before, "every slot keeps its id and values");
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM playlist_tracks WHERE album_id IS NULL AND keep_order = 0"
+            ),
+            6,
+            "every slot is a track slot"
+        );
+        let indexes: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM sqlite_master
+                 WHERE type = 'index' AND tbl_name = 'playlist_tracks' ORDER BY name",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            indexes,
+            vec![
+                "idx_playlist_tracks_album",
+                "idx_playlist_tracks_playlist",
+                "idx_playlist_tracks_track",
+            ]
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'playlist_tracks_v22'"
+            ),
+            0
+        );
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM pragma_foreign_key_check"), 0);
+        assert_eq!(foreign_keys(&conn), 1);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM plays"), 2, "plays survive");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM playlists"), 2);
+
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 2, 8)",
+            [],
+        )
+        .unwrap();
+        assert!(conn.last_insert_rowid() > 9, "a new slot id never reuses a copied one");
+        conn.execute("DELETE FROM playlist_tracks WHERE id > 9", [])
+            .unwrap();
+
+        let schema = |c: &Connection| -> String {
+            c.query_row(
+                "SELECT group_concat(sql, ';') FROM (SELECT sql FROM sqlite_master ORDER BY name)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let after_first = schema(&conn);
+        migrate(&conn).unwrap();
+        assert_eq!(user_version(&conn), 22);
+        assert_eq!(schema(&conn), after_first, "a second run changes no schema");
+        assert_eq!(slot_dump(&conn), before, "a second run changes no slot");
+    }
+
+    /// Deleting a track, an album or a playlist drops the v22 slots that point at it.
+    #[test]
+    fn v22_cascades_still_hold() {
+        let conn = v21_db();
+        seed_playlists(&conn);
+        migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO playlist_tracks (id, playlist_id, album_id, keep_order, position)
+             VALUES (20, 2, 1, 1, 3)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM tracks WHERE id = 1", []).unwrap();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM playlist_tracks WHERE id IN (1, 3, 7)"),
+            0,
+            "a track delete drops its slots"
+        );
+
+        conn.execute("DELETE FROM albums WHERE id = 1", []).unwrap();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM playlist_tracks WHERE id = 20"),
+            0,
+            "an album delete drops its entries"
+        );
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM playlist_tracks WHERE id = 5"),
+            1,
+            "a member track's slot outlives its album"
+        );
+
+        conn.execute("DELETE FROM playlists WHERE id = 1", [])
+            .unwrap();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = 1"),
+            0,
+            "a playlist delete drops its slots"
+        );
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM playlist_tracks"), 1);
+    }
+
+    /// A slot names exactly one of a track and an album, and `keep_order` is 0 or 1.
+    #[test]
+    fn v22_check_refuses_both_or_neither_id() {
+        let conn = v21_db();
+        seed_playlists(&conn);
+        migrate(&conn).unwrap();
+        let insert = |track: Option<i64>, album: Option<i64>, keep: i64| {
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, album_id, keep_order, position)
+                 VALUES (1, ?1, ?2, ?3, 9)",
+                rusqlite::params![track, album, keep],
+            )
+        };
+
+        assert!(insert(Some(1), Some(1), 0).is_err(), "both ids are refused");
+        assert!(insert(None, None, 0).is_err(), "neither id is refused");
+        assert!(insert(None, Some(1), 2).is_err(), "keep_order 2 is refused");
+        assert!(insert(None, Some(1), 1).is_ok(), "an album entry is accepted");
+        assert!(insert(Some(2), None, 0).is_ok(), "a track slot is accepted");
+    }
+
+    /// A rebuild that fails after the drop and rename rolls back whole: the v21 table, its rows and
+    /// its index are back, the version stays 21 and foreign keys are on again.
+    #[test]
+    fn v22_failure_leaves_v21_intact() {
+        let conn = v21_db();
+        seed_playlists(&conn);
+        // Takes the name the rebuild's album index needs, so its last index fails.
+        conn.execute_batch("CREATE INDEX idx_playlist_tracks_album ON tracks(id);")
+            .unwrap();
+        let before = slot_dump(&conn);
+
+        let err = migrate(&conn).unwrap_err();
+        assert!(
+            err.to_string().contains("idx_playlist_tracks_album"),
+            "the album index fails: {err}"
+        );
+
+        assert_eq!(user_version(&conn), 21);
+        let columns: Vec<(String, i64)> = conn
+            .prepare("SELECT name, \"notnull\" FROM pragma_table_info('playlist_tracks') ORDER BY cid")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            columns,
+            vec![
+                ("id".to_string(), 0),
+                ("playlist_id".to_string(), 1),
+                ("track_id".to_string(), 1),
+                ("position".to_string(), 1),
+            ],
+            "the v21 table is back"
+        );
+        assert_eq!(slot_dump(&conn), before, "every slot is back");
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'playlist_tracks_v22'"
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'
+                 AND name = 'idx_playlist_tracks_playlist' AND tbl_name = 'playlist_tracks'"
+            ),
+            1
+        );
+        assert_eq!(foreign_keys(&conn), 1);
+    }
+
+    /// A file-backed library with slots gets a backup beside it holding the v21 rows.
+    #[test]
+    fn v22_backs_up_a_library_with_slots() {
+        let dir = fresh_temp_dir("backup");
+        let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
+        // WAL as the app runs it, so the backup must copy rows still in the WAL file.
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode, "wal");
+        to_v21(&conn);
+        seed_playlists(&conn);
+        let before = slot_dump(&conn);
+
+        migrate(&conn).unwrap();
+        assert_eq!(user_version(&conn), 22);
+        drop(conn);
+
+        let backup = Connection::open(dir.join(PRE_V22_BACKUP)).unwrap();
+        assert_eq!(user_version(&backup), 21);
+        assert_eq!(slot_dump(&backup), before);
+        assert_eq!(
+            count(
+                &backup,
+                "SELECT COUNT(*) FROM pragma_table_info('playlist_tracks') WHERE name = 'album_id'"
+            ),
+            0,
+            "the backup holds the v21 table"
+        );
+        drop(backup);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file-backed library with no slots writes no backup.
+    #[test]
+    fn v22_skips_the_backup_without_slots() {
+        let dir = fresh_temp_dir("empty");
+        let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
+        to_v21(&conn);
+
+        migrate(&conn).unwrap();
+        assert_eq!(user_version(&conn), 22);
+        drop(conn);
+
+        assert!(!dir.join(PRE_V22_BACKUP).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A backup that cannot be written does not stop the upgrade.
+    #[test]
+    fn v22_migrates_when_the_backup_fails() {
+        let dir = fresh_temp_dir("blocked");
+        std::fs::create_dir(dir.join(PRE_V22_BACKUP)).unwrap();
+        let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
+        to_v21(&conn);
+        seed_playlists(&conn);
+        let before = slot_dump(&conn);
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(user_version(&conn), 22);
+        assert_eq!(slot_dump(&conn), before);
+        assert_eq!(foreign_keys(&conn), 1);
+        assert!(
+            dir.join(PRE_V22_BACKUP).is_dir(),
+            "the backup path is still the directory"
+        );
+        assert!(
+            !dir.join(PRE_V22_BACKUP).with_extension("tmp").exists(),
+            "no partial copy is left beside the database"
+        );
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A v16 DB upgrades to v17 by clearing only `has_embedded_cover` on MP4-family rows: every row
