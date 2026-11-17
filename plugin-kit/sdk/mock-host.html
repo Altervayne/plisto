@@ -246,7 +246,7 @@ progress { width: 120px; }
   needs("ui.sidebar", ["ui.sidebar.update"]);
   needs("library.read", [
     "library.tracks", "library.tracks_by_id", "library.albums", "library.album", "library.album_tracks",
-    "library.playlists", "library.playlist", "library.playlist_tracks", "library.cover"
+    "library.playlists", "library.playlist", "library.playlist_tracks", "library.playlist_entries", "library.cover"
   ]);
   needs("playback.read", ["playback.state", "playback.queue"]);
   needs("playback.control", [
@@ -338,9 +338,20 @@ progress { width: 120px; }
     { id: 2, kind: "album", title: "Paper Maps", album_artist: "The Lanterns", year: 2021, color: "#c7742b" },
     { id: 3, kind: "single", title: "Glass Hour", album_artist: "Mira Voss", year: 2023, color: "#3aa57a" }
   ];
+  // Entries: entry id, "track" or "album", the track or album id, keep order (albums only).
   var PLAYLIST_ROWS = [
-    { id: 1, name: "Late drive", description: "A track listed twice counts twice.", track_ids: [3, 8, 11, 3], color: "#8a4fd0" },
-    { id: 2, name: "Quiet", description: "", track_ids: [2, 5, 9, 12, 14], color: null }
+    {
+      id: 1, name: "Late drive", description: "A track listed twice counts twice.", color: "#8a4fd0",
+      entries: [[1, "track", 3, false], [2, "track", 8, false], [3, "track", 11, false], [4, "track", 3, false]]
+    },
+    {
+      id: 2, name: "Quiet", description: "", color: null,
+      entries: [[5, "track", 2, false], [6, "track", 5, false], [7, "track", 9, false], [8, "track", 12, false], [9, "track", 14, false]]
+    },
+    {
+      id: 3, name: "Whole albums", description: "Album entries: the first keeps its order.", color: null,
+      entries: [[10, "album", 1, true], [11, "track", 13, false], [12, "album", 2, false]]
+    }
   ];
 
   function albumById(id) {
@@ -373,7 +384,7 @@ progress { width: 120px; }
     return { id: a.id, kind: a.kind, title: a.title, album_artist: a.album_artist, year: a.year, track_count: n };
   }
   function playlistObj(p) {
-    return { id: p.id, name: p.name, description: p.description, track_count: p.track_ids.length };
+    return { id: p.id, name: p.name, description: p.description, track_count: playlistPlay(p).ids.length };
   }
   function playlistById(id) {
     for (var i = 0; i < PLAYLIST_ROWS.length; i++) if (PLAYLIST_ROWS[i].id === id) return PLAYLIST_ROWS[i];
@@ -384,8 +395,27 @@ progress { width: 120px; }
       .filter(function (t) { return t.album_id === id; })
       .sort(function (a, b) { return a.disc_no - b.disc_no || a.track_no - b.track_no; });
   }
+  // The tracks a playlist plays, album entries expanded in album order, and a { start, length } block
+  // for each keep-order entry of more than one track, as the real host queues and reports them.
+  function playlistPlay(p) {
+    var ids = [];
+    var blocks = [];
+    p.entries.forEach(function (e) {
+      var members = e[1] === "album"
+        ? albumTrackList(e[2]).map(function (t) { return t.id; })
+        : [e[2]].filter(function (id) { return trackById(id) !== null; });
+      if (e[1] === "album" && e[3] && members.length > 1) blocks.push({ start: ids.length, length: members.length });
+      ids = ids.concat(members);
+    });
+    return { ids: ids, blocks: blocks };
+  }
   function playlistTrackList(p) {
-    return p.track_ids.map(trackById);
+    return playlistPlay(p).ids.map(trackById);
+  }
+  function playlistEntryList(p) {
+    return p.entries
+      .filter(function (e) { return e[1] === "album" || trackById(e[2]) !== null; })
+      .map(function (e) { return { entry_id: e[0], kind: e[1], id: e[2], keep_order: e[1] === "album" && e[3] }; });
   }
 
   // A square cover as an SVG data URL. The real host sends a JPEG.
@@ -445,6 +475,8 @@ progress { width: 120px; }
 
   var transport = {
     queue: TRACK_ROWS.map(function (r) { return r[0]; }),
+    // { start, length } spans over `queue` that play together.
+    blocks: [],
     index: 0,
     playing: false,
     pos: 0,
@@ -508,24 +540,30 @@ progress { width: 120px; }
     publishPlayer();
   }
 
-  // The tracks a queue.* source names, in play order. Exactly one source is required.
+  // The tracks a queue.* source names, in play order, as { ids, blocks }: only a playlist's keep-order
+  // album entries make blocks. Exactly one source is required.
   function sourceTracks(args) {
     var n = ["track_ids", "album_id", "playlist_id"].filter(function (k) { return args[k] !== undefined; }).length;
     if (n !== 1) fail("invalid_args", "Give exactly one of track_ids, album_id or playlist_id.");
     if (args.track_ids !== undefined) {
       if (!Array.isArray(args.track_ids) || !args.track_ids.every(isInt)) fail("invalid_args", "track_ids must be integers.");
       if (args.track_ids.length > 500) fail("too_large", "At most 500 track ids.");
-      return args.track_ids.filter(function (id) { return trackById(id) !== null; });
+      return { ids: args.track_ids.filter(function (id) { return trackById(id) !== null; }), blocks: [] };
     }
     if (args.album_id !== undefined) {
       if (!isInt(args.album_id)) fail("invalid_args", "album_id must be an integer.");
       if (!albumById(args.album_id)) fail("not_found", "No such album.");
-      return albumTrackList(args.album_id).map(function (t) { return t.id; });
+      return { ids: albumTrackList(args.album_id).map(function (t) { return t.id; }), blocks: [] };
     }
     if (!isInt(args.playlist_id)) fail("invalid_args", "playlist_id must be an integer.");
     var p = playlistById(args.playlist_id);
     if (!p) fail("not_found", "No such playlist.");
-    return p.track_ids.filter(function (id) { return trackById(id) !== null; });
+    return playlistPlay(p);
+  }
+
+  // Blocks moved by `by` places.
+  function shiftBlocks(blocks, by) {
+    return blocks.map(function (b) { return { start: b.start + by, length: b.length }; });
   }
 
   // -- Gestures --
@@ -795,6 +833,12 @@ progress { width: 120px; }
     if (!p) fail("not_found", "No such playlist.");
     return page(playlistTrackList(p), "playlist_tracks:" + id, "position", a, null);
   });
+  h("library.playlist_entries", function (a) {
+    var id = idArg(a);
+    var p = playlistById(id);
+    if (!p) fail("not_found", "No such playlist.");
+    return page(playlistEntryList(p), "playlist_entries:" + id, "position", a, null);
+  });
   h("library.cover", function (a) {
     if (["track", "album", "playlist"].indexOf(a.kind) < 0) fail("invalid_args", "Unknown kind.");
     if (!isInt(a.id)) fail("invalid_args", "id must be an integer.");
@@ -835,7 +879,11 @@ progress { width: 120px; }
         : null
     };
   });
-  h("playback.queue", function () { return { track_ids: transport.queue.slice(), index: transport.index }; });
+  h("playback.queue", function () {
+    var reply = { track_ids: transport.queue.slice(), index: transport.index };
+    if (transport.blocks.length > 0) reply.blocks = shiftBlocks(transport.blocks, 0);
+    return reply;
+  });
   h("playback.toggle", function () { setPlaying(!transport.playing); return {}; });
   h("playback.pause", function () { setPlaying(false); return {}; });
   h("playback.resume", function () { setPlaying(true); return {}; });
@@ -850,11 +898,13 @@ progress { width: 120px; }
     return {};
   });
   h("queue.play", function (a) {
-    var ids = sourceTracks(a);
+    var source = sourceTracks(a);
+    var ids = source.ids;
     var start = a.start === undefined ? 0 : a.start;
     if (!isInt(start) || start < 0 || (ids.length > 0 && start >= ids.length)) fail("invalid_args", "Bad start.");
     if (ids.length === 0) return { queued: 0 };
     transport.queue = ids;
+    transport.blocks = source.blocks;
     transport.index = start;
     transport.pos = 0;
     transport.playing = true;
@@ -864,9 +914,11 @@ progress { width: 120px; }
     return { queued: ids.length };
   });
   h("queue.add", function (a) {
-    var ids = sourceTracks(a);
+    var source = sourceTracks(a);
+    var ids = source.ids;
     if (ids.length === 0) return { queued: 0 };
     var wasEmpty = transport.queue.length === 0;
+    transport.blocks = transport.blocks.concat(shiftBlocks(source.blocks, transport.queue.length));
     transport.queue = transport.queue.concat(ids);
     transport.rev += 1;
     if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; transport.startSeq += 1; }
@@ -874,10 +926,19 @@ progress { width: 120px; }
     return { queued: ids.length };
   });
   h("queue.play_next", function (a) {
-    var ids = sourceTracks(a);
+    var source = sourceTracks(a);
+    var ids = source.ids;
     if (ids.length === 0) return { queued: 0 };
     var wasEmpty = transport.queue.length === 0;
     var at = wasEmpty ? 0 : transport.index + 1;
+    // Inside a block, the new tracks land after its end.
+    transport.blocks.forEach(function (b) {
+      if (!wasEmpty && b.start <= transport.index && transport.index < b.start + b.length) at = b.start + b.length;
+    });
+    transport.blocks = transport.blocks
+      .map(function (b) { return b.start >= at ? { start: b.start + ids.length, length: b.length } : b; })
+      .concat(shiftBlocks(source.blocks, at))
+      .sort(function (x, y) { return x.start - y.start; });
     transport.queue = transport.queue.slice(0, at).concat(ids, transport.queue.slice(at));
     transport.rev += 1;
     if (wasEmpty) { transport.index = 0; transport.pos = 0; transport.playing = true; transport.startSeq += 1; }

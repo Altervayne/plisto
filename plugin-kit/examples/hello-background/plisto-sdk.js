@@ -47,7 +47,7 @@
   var resolveReady = null;
 
   var plisto = {
-    sdkVersion: "1.5.0",
+    sdkVersion: "1.6.0",
     info: null,
     pageOpen: false,
     route: null,
@@ -466,9 +466,13 @@
     playlist: function (id) {
       return plisto.call("library.playlist", { id: id });
     },
-    /** A page of a playlist's tracks in playlist order; options { cursor, limit }. */
+    /** A page of a playlist's tracks in play order, album entries expanded; options { cursor, limit }. */
     playlistTracks: function (id, options) {
       return plisto.call("library.playlist_tracks", pageArgs({ id: id }, options));
+    },
+    /** A page of a playlist's entries, tracks and albums, in playlist order; options { cursor, limit }. */
+    playlistEntries: function (id, options) {
+      return plisto.call("library.playlist_entries", pageArgs({ id: id }, options));
     },
     /** Resolves a data: URL for an <img>, or null when there is no cover. */
     cover: function (kind, id, size) {

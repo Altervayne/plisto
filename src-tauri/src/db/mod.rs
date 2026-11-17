@@ -24,8 +24,8 @@ pub use export_ledger::{
     clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
 };
 pub use playlist_albums::{
-    add_albums_to_playlist, playlist_expanded, set_entry_keep_order, unpack_album_entry,
-    ALBUM_MEMBER_KEY,
+    add_albums_to_playlist, expanded_queue, playlist_expanded, set_entry_keep_order,
+    unpack_album_entry, ALBUM_MEMBER_KEY,
 };
 pub use relocate::{
     backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,

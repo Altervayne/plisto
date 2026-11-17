@@ -29,6 +29,10 @@ pub struct ExpandedRow {
     pub album_id: Option<i64>,
     pub keep_order: bool,
     pub missing: bool,
+    /// The slot's position, and the member's `ALBUM_MEMBER_KEY` (0 for a track slot): with the slot id
+    /// and the track id, the row's place in the order.
+    pub position: i64,
+    pub member_key: i64,
 }
 
 /// Appends each album in `album_ids` as an album entry after the playlist's last position, in the given
@@ -196,6 +200,8 @@ pub fn playlist_expanded(
                 album_id: r.get(2)?,
                 keep_order: r.get(3)?,
                 missing: r.get(4)?,
+                position: r.get(5)?,
+                member_key: r.get(6)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -206,7 +212,6 @@ pub fn playlist_expanded(
 /// keep-order entry. With `present_only`, missing tracks drop out before the spans are counted, so an
 /// entry with no present member has no span. An entry with one row gives `[i, 1]`; the engine takes it
 /// and leaves it off the wire.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn expanded_queue(rows: &[ExpandedRow], present_only: bool) -> (Vec<i64>, Vec<[usize; 2]>) {
     let mut ids = Vec::with_capacity(rows.len());
     let mut spans: Vec<[usize; 2]> = Vec::new();

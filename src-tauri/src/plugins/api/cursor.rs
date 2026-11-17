@@ -5,6 +5,10 @@
  * for an album or playlist, its id; the key is hex-encoded for a text sort, decimal for a numeric one
  * and empty when the sort is the id itself. It carries no path and is checked against the scope and
  * sort it is used with; anything that does not parse or does not match is `invalid_args`.
+ *
+ * A playlist's tracks page by a composite key (see `Key::Composite`), so a page can end inside an album
+ * entry. Its key is digits only and of one fixed width no integer key reaches, so a cursor made before
+ * the composite key existed (an integer key naming a slot) still reads, and continues after that slot.
  */
 
 // -- Library Imports --
@@ -19,12 +23,20 @@ pub const MAX_LIMIT: usize = 200;
 const MAX_CURSOR_BYTES: usize = 1024;
 const VERSION: &str = "v1";
 
-/// How a sort orders its rows: by the id alone, or by an integer or text key and then the id.
+// The zero-padded widths of a composite key's parts: any non-negative i64 for the position and the
+// slot id, and 11 digits for the member key, whose largest value is 99999999999.
+const COMPOSITE_WIDTHS: [usize; 3] = [19, 19, 11];
+/// The length of a composite key, past the 19 digits of any integer key.
+pub const COMPOSITE_DIGITS: usize = 49;
+
+/// How a sort orders its rows: by the id alone, by an integer or text key and then the id, or by a
+/// composite key and then the id. A composite sort pages in memory through `follows`, never in SQL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyKind {
     Id,
     Int,
     Text,
+    Composite,
 }
 
 /// One sort a list offers: its wire name, the SQL of its key and of its tie-breaking id. Text keys
@@ -43,6 +55,9 @@ pub enum Key {
     None,
     Int(i64),
     Text(String),
+    /// A row of a playlist's expanded order: its slot's position, the slot id and the member key, with
+    /// the track id as the cursor's id. Never negative.
+    Composite([i64; 3]),
 }
 
 /// The last row of a page.
@@ -82,8 +97,25 @@ pub fn encode(scope: &str, sort: &Sort, cursor: &Cursor) -> String {
         Key::None => String::new(),
         Key::Int(n) => n.to_string(),
         Key::Text(text) => hex(text),
+        Key::Composite([position, slot, member]) => {
+            format!("{position:019}{slot:019}{member:011}")
+        }
     };
     format!("{VERSION}:{scope}:{}:{key}:{}", sort.name, cursor.id)
+}
+
+/// Reads a composite key: exactly `COMPOSITE_DIGITS` ASCII digits, each part within an i64.
+fn composite_key(text: &str) -> Option<Key> {
+    if text.len() != COMPOSITE_DIGITS || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut parts = [0i64; 3];
+    let mut at = 0;
+    for (part, width) in parts.iter_mut().zip(COMPOSITE_WIDTHS) {
+        *part = text.get(at..at + width)?.parse().ok()?;
+        at += width;
+    }
+    Some(Key::Composite(parts))
 }
 
 /// Reads a cursor made by `encode` for the same scope and sort.
@@ -104,9 +136,27 @@ pub fn decode(scope: &str, sort: &Sort, text: &str) -> Result<Cursor, ApiError> 
         KeyKind::Id if key.is_empty() => Key::None,
         KeyKind::Int => Key::Int(key.parse::<i64>().map_err(|_| invalid())?),
         KeyKind::Text => Key::Text(unhex(key).ok_or_else(invalid)?),
+        // Anything but a composite key reads as an integer key whose id is a slot id.
+        KeyKind::Composite => composite_key(key)
+            .or_else(|| key.parse::<i64>().ok().map(Key::Int))
+            .ok_or_else(invalid)?,
         KeyKind::Id => return Err(invalid()),
     };
     Ok(Cursor { key, id })
+}
+
+/// Whether `row`, a row of a composite sort, comes after `after`. A composite cursor names one row; an
+/// integer cursor names a whole slot by its position and slot id, so every row of that slot is behind it.
+pub fn follows(after: Option<&Cursor>, row: &Cursor) -> bool {
+    let Key::Composite(place) = &row.key else {
+        return false;
+    };
+    match after.map(|c| (&c.key, c.id)) {
+        None => true,
+        Some((Key::Composite(last), id)) => (place, row.id) > (last, id),
+        Some((Key::Int(position), slot)) => (place[0], place[1]) > (*position, slot),
+        Some((Key::None | Key::Text(_), _)) => false,
+    }
 }
 
 /// Reads `sort`, `cursor` and `limit` for the list named `scope`. `sort` must name one of `sorts`;
@@ -169,6 +219,7 @@ pub fn after_clause(sort: &Sort, after: Option<&Cursor>) -> (String, Vec<SqlValu
                 id_value,
             ],
         ),
+        Key::Composite(_) => unreachable!("a composite key pages in memory through follows"),
     }
 }
 
@@ -192,6 +243,7 @@ pub fn key_from(sort: &Sort, row: &rusqlite::Row<'_>, index: usize) -> rusqlite:
         KeyKind::Id => Key::None,
         KeyKind::Int => Key::Int(row.get(index)?),
         KeyKind::Text => Key::Text(row.get(index)?),
+        KeyKind::Composite => unreachable!("a composite key pages in memory through follows"),
     })
 }
 
@@ -360,6 +412,106 @@ mod tests {
             let error = page_args(&args(bad.clone()), &sorts, "tracks").unwrap_err();
             assert_eq!(error.code, ApiCode::InvalidArgs, "{bad}");
         }
+    }
+
+    const BY_ENTRY: Sort = Sort {
+        name: "position",
+        kind: KeyKind::Composite,
+        key_sql: "pt.position",
+        id_sql: "pt.id",
+    };
+
+    fn row(place: [i64; 3], id: i64) -> Cursor {
+        Cursor {
+            key: Key::Composite(place),
+            id,
+        }
+    }
+
+    #[test]
+    fn a_composite_key_is_fixed_width_digits_and_round_trips() {
+        let max = 99_999 * 1_000_000 + 999_999;
+        for place in [[1, 7, 0], [3, 12, 2_000_004], [i64::MAX, i64::MAX, max]] {
+            let cursor = row(place, 41);
+            let text = encode("playlist_tracks.2", &BY_ENTRY, &cursor);
+            let key = text.split(':').nth(3).unwrap();
+            assert_eq!(key.len(), COMPOSITE_DIGITS, "{text}");
+            assert!(key.bytes().all(|b| b.is_ascii_digit()), "{text}");
+            assert_eq!(decode("playlist_tracks.2", &BY_ENTRY, &text), Ok(cursor));
+        }
+        assert_eq!(
+            encode("playlist_tracks.2", &BY_ENTRY, &row([3, 12, 2_000_004], 41)),
+            format!(
+                "v1:playlist_tracks.2:position:{}{}{}:41",
+                "0000000000000000003", "0000000000000000012", "00002000004"
+            )
+        );
+    }
+
+    #[test]
+    fn an_integer_key_on_a_composite_sort_reads_as_a_slot() {
+        let old = "v1:playlist_tracks.2:position:3:12";
+        assert_eq!(
+            decode("playlist_tracks.2", &BY_ENTRY, old),
+            Ok(Cursor {
+                key: Key::Int(3),
+                id: 12
+            })
+        );
+        // A composite key never reads on an integer sort.
+        let text = encode("playlist_tracks.2", &BY_ENTRY, &row([3, 12, 0], 5));
+        assert!(decode("playlist_tracks.2", &BY_POSITION, &text).is_err());
+    }
+
+    #[test]
+    fn a_tampered_composite_key_is_invalid() {
+        let digits = "1".repeat(COMPOSITE_DIGITS);
+        let overflow = format!("{}{}", "9".repeat(19), "0".repeat(30));
+        for key in [
+            digits[1..].to_string(),
+            format!("{digits}1"),
+            format!("+{}", &digits[1..]),
+            format!("-{}", &digits[1..]),
+            format!("{}a", &digits[1..]),
+            format!("{}:1", &digits[2..]),
+            overflow,
+            "99999999999999999999".to_string(),
+            "1.5".to_string(),
+            String::new(),
+        ] {
+            let text = format!("v1:playlist_tracks.2:position:{key}:5");
+            let error = decode("playlist_tracks.2", &BY_ENTRY, &text).unwrap_err();
+            assert_eq!(error.code, ApiCode::InvalidArgs, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn follows_orders_composite_rows_and_skips_a_whole_slot_for_an_integer_cursor() {
+        let rows = [
+            row([1, 4, 0], 10),
+            row([2, 6, 1_000_001], 11),
+            row([2, 6, 1_000_002], 12),
+            row([2, 9, 0], 10),
+            row([3, 5, 0], 13),
+        ];
+        let after = |cursor: Option<&Cursor>| -> Vec<usize> {
+            (0..rows.len())
+                .filter(|&i| follows(cursor, &rows[i]))
+                .collect()
+        };
+        assert_eq!(after(None), [0, 1, 2, 3, 4]);
+        assert_eq!(after(Some(&rows[1])), [2, 3, 4]);
+        assert_eq!(after(Some(&rows[4])), Vec::<usize>::new());
+        let slot = |position, id| Cursor {
+            key: Key::Int(position),
+            id,
+        };
+        // Slot 6 is the album entry at position 2: its rows are behind a cursor naming it.
+        assert_eq!(after(Some(&slot(2, 6))), [3, 4]);
+        assert_eq!(after(Some(&slot(1, 4))), [1, 2, 3, 4]);
+        assert_eq!(after(Some(&slot(2, 7))), [3, 4]);
+        // A row without a composite key never follows.
+        assert!(!follows(None, &slot(1, 1)));
     }
 
     #[test]

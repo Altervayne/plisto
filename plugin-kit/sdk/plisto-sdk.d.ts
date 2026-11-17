@@ -212,8 +212,19 @@ export interface PlistoPlaylist {
   id: number;
   name: string | null;
   description: string | null;
-  /** Slots whose track is present on disk. */
+  /** Present tracks it plays: its track slots and the members of its album entries. */
   track_count: number;
+}
+
+/** One entry of a playlist: a track, or an album that plays its members in album order. */
+export interface PlistoPlaylistEntry {
+  /** Stable while the entry stays in the playlist. */
+  entry_id: number;
+  kind: "track" | "album";
+  /** The track id or the album id. */
+  id: number;
+  /** An album entry whose tracks play together, in album order, also under shuffle. Always false for a track. */
+  keep_order: boolean;
 }
 
 /** One page of a list. Pass `next_cursor` as `cursor` for the next page; null means this was the last. */
@@ -290,6 +301,12 @@ export interface PlaybackQueueResult {
   /** In play order; null for a track opened straight from a file. */
   track_ids: (number | null)[];
   index: number;
+  /** Runs of tracks that play together, as spans over `track_ids` (nulls counted). Absent when the queue holds none, and always from a Plisto before 2.7.1; when `plisto.has("library.playlist_entries")` is true, absent means none. */
+  blocks?: PlaybackQueueBlock[];
+}
+export interface PlaybackQueueBlock {
+  start: number;
+  length: number;
 }
 export interface PlaybackSeekArgs {
   /** At least 0. */
@@ -773,6 +790,7 @@ export interface PlistoMethods {
   "library.playlists": { args: LibraryPlaylistsArgs; result: PlistoPage<PlistoPlaylist> };
   "library.playlist": { args: LibraryIdArgs; result: PlistoPlaylist };
   "library.playlist_tracks": { args: LibraryContainerTracksArgs; result: PlistoPage<PlistoTrack> };
+  "library.playlist_entries": { args: LibraryContainerTracksArgs; result: PlistoPage<PlistoPlaylistEntry> };
   "library.cover": { args: LibraryCoverArgs; result: LibraryCoverResult };
   "playback.state": { args: {}; result: PlaybackState };
   "playback.queue": { args: {}; result: PlaybackQueueResult };
@@ -832,6 +850,7 @@ export interface PlistoEvents {
 }
 
 export interface Plisto {
+  /** "1.6.0" for this file. */
   readonly sdkVersion: string;
   /** Resolves with the app info once Plisto has initialised this page. */
   readonly ready: Promise<AppInfo>;
@@ -918,7 +937,10 @@ export interface Plisto {
     albumTracks(id: number, options?: PageArgs<"position">): Promise<PlistoPage<PlistoTrack>>;
     playlists(options?: LibraryPlaylistsArgs): Promise<PlistoPage<PlistoPlaylist>>;
     playlist(id: number): Promise<PlistoPlaylist>;
+    /** Album entries come as their members, in album order. */
     playlistTracks(id: number, options?: PageArgs<"position">): Promise<PlistoPage<PlistoTrack>>;
+    /** Plisto 2.7.1 or newer; check `plisto.has("library.playlist_entries")`. */
+    playlistEntries(id: number, options?: PageArgs<"position">): Promise<PlistoPage<PlistoPlaylistEntry>>;
     /** Resolves a data: URL, or null when there is no cover. `size` defaults to "thumb". */
     cover(kind: LibraryCoverArgs["kind"], id: number, size?: LibraryCoverArgs["size"]): Promise<string | null>;
   };

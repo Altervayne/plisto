@@ -339,7 +339,16 @@ A track object:
 | `album_id` | number or `null` | The album or single the track is filed into. |
 
 An album object: `{ id, kind, title, album_artist, year, track_count }`, where `kind` is `"album"` or
-`"single"`. A playlist object: `{ id, name, description, track_count }`; a track listed twice counts twice.
+`"single"`. A playlist object: `{ id, name, description, track_count }`, where `track_count` is the
+number of tracks the playlist plays; a track listed twice counts twice.
+
+#### Album entries
+
+From Plisto 2.7.1, a playlist holds entries: a track, or a whole album. An album entry plays the album's
+tracks in album order and follows the album as the user edits it. It can keep its order: its tracks then
+play together, in album order, also under shuffle. Every method that reads a playlist's tracks sees an
+album entry as its tracks, in place: `library.playlist_tracks`, `track_count` and the `queue.*` methods.
+`library.playlist_entries` lists the entries themselves.
 
 #### Paging
 
@@ -350,8 +359,17 @@ with the same `sort`, to get the next page. `next_cursor` is `null` on the last 
 - Each page continues after the last row of the previous one, in the sort's order. A track added or
   removed between two calls does not make a page repeat or skip the other rows.
 - Treat a cursor as an opaque string. A cursor is valid only for the same list, sort and container (the
-  album or playlist) it came from. A cursor that is changed, or used anywhere else, is `invalid_args`. A cursor is not tied to the session; a stale one simply starts after the row it
-  names.
+  album or playlist) it came from. A cursor that is changed, or used anywhere else, is `invalid_args`. A
+  cursor is not tied to the session; a stale one starts after the place of the row it names, which is
+  not always the same row (see below).
+- A page of `library.playlist_tracks` can end inside an album entry, and the next page goes on from that
+  track. A cursor from Plisto 2.7.0 still works: it goes on after the whole entry it names.
+- In a playlist, what stays stable between two calls is a track added to or removed from the playlist,
+  and a track added to or removed from an album the playlist holds as an entry. A change that renumbers
+  the playlist is not: the user reordering it or unpacking an album entry into tracks, or an album
+  entry turning into tracks because its album was deleted. After one, the next page may repeat or skip
+  tracks; it is still a valid page. To read a playlist consistently, start again from the first page
+  when a `library_changed` event reports `playlists` while you page.
 
 ```js
 let cursor = null;
@@ -406,8 +424,34 @@ Needs: `library.read`. Class: library read. Helpers: `plisto.library.albumTracks
 
 Arguments: `{ id, cursor?, limit? }`. Result: a page of tracks in the album's or playlist's own order (an
 album: disc, then track number). The only sort is `"position"`. A track listed twice in a playlist appears twice.
+A playlist's album entry appears as its tracks, in album order, at the entry's place.
 
 Errors: `invalid_args`, `not_found` (no such album or playlist).
+
+### `library.playlist_entries`
+
+Needs: `library.read`. Class: library read. Helper: `plisto.library.playlistEntries(id, options?)`.
+Plisto 2.7.1 or newer: check `plisto.has("library.playlist_entries")`.
+
+Arguments: `{ id, cursor?, limit? }`. Result: a page of the playlist's entries in playlist order. The only
+sort is `"position"`. An entry:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `entry_id` | number | The entry's id, stable while it stays in the playlist. |
+| `kind` | string | `"track"` or `"album"`. |
+| `id` | number | The track id or the album id. |
+| `keep_order` | boolean | The album's tracks play together, in album order, also under shuffle. Always `false` for a track. |
+
+A track entry whose track is missing on disk is left out. An album entry is always listed; read its tracks
+with `library.album_tracks`.
+
+Errors: `invalid_args`, `not_found` (no such playlist).
+
+```js
+const { items } = await plisto.library.playlistEntries(playlist.id);
+const albums = items.filter((e) => e.kind === "album");
+```
 
 ### `library.playlists`
 
@@ -467,8 +511,18 @@ position out between events (see [events](events.md#following-the-play-head)).
 
 Needs: `playback.read`. Class: playback read. Helper: `plisto.playback.queue()`.
 
-Arguments: none. Result: `{ track_ids, index }`: the queue's ids in play order (shuffled when shuffle is
-on), `null` for a track opened from a file, and the current track's index.
+Arguments: none. Result: `{ track_ids, index, blocks? }`: the queue's ids in play order (shuffled when
+shuffle is on), `null` for a track opened from a file, and the current track's index.
+
+`blocks` lists the runs of tracks that play together, such as an album entry that keeps its order, as
+`{ start, length }` spans over `track_ids`; the `null` entries count. A block holds at least two tracks.
+It is left out when the queue holds none, and always by a Plisto before 2.7.1, which has no blocks. To
+tell the two apart, check `plisto.has("library.playlist_entries")`: when it is `true`, Plisto reports
+blocks, and a missing `blocks` means the queue has none.
+
+Shuffle moves a block as a whole and keeps its tracks in album order. So under shuffle, a play that starts
+inside a block starts with that block and its earlier tracks count as played: `index`, and the `queue`
+event's `index`, can be above 0 right after the play.
 
 ### `playback.toggle`, `playback.pause`, `playback.resume`, `playback.next`, `playback.prev`
 
@@ -499,10 +553,14 @@ player. When it is 0, nothing changes.
 - `queue.play` replaces the queue and plays from `start`, an index into the source as given (default 0).
   If that track is left out, playback starts at the next one.
 - `queue.add` appends to the end of the queue, and starts playing when nothing is.
-- `queue.play_next` inserts right after the current track, and starts playing when nothing is.
+- `queue.play_next` inserts right after the current track, and starts playing when nothing is. When the
+  current track is in a block, the tracks go after the end of the block, whatever the source, a track
+  list included. `{ queued }` counts the tracks sent, as for any source.
 
 An album plays in album order, a playlist in playlist order. Tracks missing on disk, and ids that are not
-library tracks, are left out.
+library tracks, are left out. A playlist's album entries play as their tracks, and `start` counts those
+tracks. An album entry that keeps its order goes to the player as a block (see `playback.queue`); an
+`album_id` source or a track list makes no block.
 
 Errors: `denied` (`playback.control` or `library.read` is not held), `invalid_args` (no source, more than one, or a bad id or start), `too_large` (more than 500
 `track_ids`), `not_found` (no such album or playlist).
@@ -664,7 +722,7 @@ lists the fields. Do not use the topic `stream` for your own program's page even
 ## The SDK
 
 `plisto-sdk.js` defines `window.plisto` and answers Plisto's heartbeat from the moment it loads. Its
-version is `plisto.sdkVersion` (`1.5.0`).
+version is `plisto.sdkVersion` (`1.6.0`).
 
 | Member | Meaning |
 | --- | --- |
@@ -687,7 +745,7 @@ version is `plisto.sdkVersion` (`1.5.0`).
 | `log.debug/info/warn/error` | Helpers for `log.write`. |
 | `ui.toast/confirm/chips/openPage` | Helpers for the UI methods. |
 | `ui.sidebar.update(itemId, state)` | Helper for `ui.sidebar.update`. |
-| `library.tracks/tracksById/albums/album/albumTracks/playlists/playlist/playlistTracks/cover` | Helpers for the `library.*` methods. |
+| `library.tracks/tracksById/albums/album/albumTracks/playlists/playlist/playlistTracks/playlistEntries/cover` | Helpers for the `library.*` methods. |
 | `playback.state/queue/toggle/pause/resume/next/prev/seek` | Helpers for the `playback.*` methods. |
 | `queue.play/add/playNext` | Helpers for the `queue.*` methods. |
 | `stream.play/update/push/pushFrom/end/pause/resume/stop/state` | Helpers for the `stream.*` methods. Need `playback.stream`. See the [stream guide](stream.md). |

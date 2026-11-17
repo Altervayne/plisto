@@ -322,7 +322,7 @@ Six numbers are in play. This is the whole policy.
 | `api_version` | `app.info().api_version`, and `hello` | `1`. Within a version, methods and result fields are only added, never removed or changed in meaning. Ignore result fields you do not know. A removal or a change of meaning raises `api_version`. |
 | `hello.protocol`, `ready.protocol` | The native wire protocol | `1`. Adding a message type or a field does not raise it: both sides ignore what they do not know. A change to the frame format or to what a message means would. A program answers `ready` with the protocol it speaks. If it speaks another one than Plisto's, Plisto kills it and the start fails. A program that finds a `hello.protocol` or a `--plisto-protocol` argument other than the one it speaks should exit without sending `ready`, as tap-meter does for the argument. |
 | `layout_version` | The audio tap header | `1`. A change to the header, the records or the sample ring would be a new layout version. A reader must refuse a mapping whose version, capacity or segment count it does not know. |
-| `sdkVersion` | `plisto.sdkVersion` | The SDK's own number, currently `1.5.0`. A newer SDK is a drop-in replacement: copy the new `plisto-sdk.js` over yours. It does not depend on a Plisto version: it calls only what Plisto lists, and `plisto.has` tells you what that is. |
+| `sdkVersion` | `plisto.sdkVersion` | The SDK's own number, currently `1.6.0`. A newer SDK is a drop-in replacement: copy the new `plisto-sdk.js` over yours. It does not depend on a Plisto version: it calls only what Plisto lists, and `plisto.has` tells you what that is. |
 | Your `version` | `plugin.json` | Semantic versioning. Raise it for every release, or Plisto cannot tell an update from a reinstall. |
 
 - `min_plisto` says which Plisto you need. Plisto refuses to install or turn on a plugin that needs a newer
@@ -353,3 +353,7 @@ them: compare behaviour with `plisto.has` and not with the version string.
   file for any plugin that uses `plisto.net.socket`.
 - **1.5.0.** The SDK styles the page's scrollbars to match Plisto (see
   [UI surfaces](ui-surfaces.md#scrollbars)). It includes everything listed above.
+- **1.6.0.** `library.playlistEntries` for the new `library.playlist_entries` method (Plisto 2.7.1), and
+  the types of album entries: `PlistoPlaylistEntry` and the optional `blocks` of `playback.queue`. Since
+  Plisto 2.7.1, a playlist's tracks, its `track_count` and the `queue.*` methods include the tracks of its
+  album entries, whatever the SDK version.

@@ -485,8 +485,16 @@ test("socket: opens, queues early messages until a handler is set, sends text an
   assert.deepEqual(JSON.parse(close.msg.args), { socket: "s1", code: 1000, reason: "done" });
 });
 
-test("sdk version is 1.5.0", () => {
-  assert.equal(plisto.sdkVersion, "1.5.0");
+test("sdk version is 1.6.0", () => {
+  assert.equal(plisto.sdkVersion, "1.6.0");
+});
+
+test("playlistEntries pages library.playlist_entries with the given options only", async () => {
+  const page = { items: [{ entry_id: 4, kind: "album", id: 2, keep_order: true }], next_cursor: null };
+  const read = plisto.library.playlistEntries(7, { cursor: "c", limit: 1 });
+  const call = await answer("library.playlist_entries", page);
+  assert.deepEqual(JSON.parse(call.msg.args), { id: 7, cursor: "c", limit: 1 });
+  assert.deepEqual(await read, page);
 });
 
 // -- Review fixes --

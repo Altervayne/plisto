@@ -12,8 +12,8 @@ use serde_json::{json, Map, Value};
 use super::cursor::{page_args, KeyKind, Sort, MAX_LIMIT};
 use super::error::ApiError;
 use super::library_rows::{
-    album, album_page, playlist, playlist_page, track_page, tracks_by_id, TrackSource,
-    ALBUM_MEMBER_KEY,
+    album, album_page, playlist, playlist_entry_page, playlist_page, track_page, tracks_by_id,
+    TrackSource, ALBUM_MEMBER_KEY,
 };
 use super::rate::RateClass;
 use super::{CallCtx, MethodSpec, Need, Outcome};
@@ -72,6 +72,12 @@ pub(super) const METHODS: &[MethodSpec] = &[
         class: RateClass::LibraryRead,
         run: playlist_tracks,
     },
+    MethodSpec {
+        name: "library.playlist_entries",
+        need: NEED,
+        class: RateClass::LibraryRead,
+        run: playlist_entries,
+    },
 ];
 
 const fn by_id(id_sql: &'static str) -> Sort {
@@ -125,7 +131,16 @@ const ALBUM_ORDER: &[Sort] = &[Sort {
     id_sql: "t.id",
 }];
 
+// A playlist's tracks page by the composite key of its expansion; an integer key reads as
+// `pt.position`, `pt.id`.
 const PLAYLIST_ORDER: &[Sort] = &[Sort {
+    name: "position",
+    kind: KeyKind::Composite,
+    key_sql: "pt.position",
+    id_sql: "pt.id",
+}];
+
+const ENTRY_ORDER: &[Sort] = &[Sort {
     name: "position",
     kind: KeyKind::Int,
     key_sql: "pt.position",
@@ -206,6 +221,22 @@ fn track_list(
         }
         let source = source.unwrap_or(TrackSource::All);
         let (items, next) = db(track_page(conn, &source, &page))?;
+        Ok(page_result(items, next))
+    })
+}
+
+fn playlist_entries(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
+    Outcome::Done(id_arg(args).and_then(|id| entry_list(ctx, args, id)))
+}
+
+/// A page of one playlist's entries, which must exist.
+fn entry_list(ctx: &CallCtx<'_>, args: &Map<String, Value>, id: i64) -> Result<Value, ApiError> {
+    let page = page_args(args, ENTRY_ORDER, &format!("playlist_entries.{id}"))?;
+    with_conn(ctx, |conn| {
+        if db(playlist(conn, id))?.is_none() {
+            return Err(ApiError::not_found());
+        }
+        let (items, next) = db(playlist_entry_page(conn, id, &page))?;
         Ok(page_result(items, next))
     })
 }
@@ -896,3 +927,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod playlist_tests;

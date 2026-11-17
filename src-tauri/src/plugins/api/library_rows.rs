@@ -13,9 +13,11 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Serialize;
 
 // -- Local Imports --
-use super::cursor::{after_clause, finish_page, key_from, order_clause, Cursor, PageArgs};
+use super::cursor::{
+    after_clause, finish_page, follows, key_from, order_clause, Cursor, Key, PageArgs,
+};
 pub use crate::db::ALBUM_MEMBER_KEY;
-use crate::db::SINGLE_KIND;
+use crate::db::{expanded_queue, playlist_expanded, SINGLE_KIND};
 use crate::resolve::{
     effective_album_fields, effective_artist, effective_title, AlbumFields, Filing,
 };
@@ -57,8 +59,22 @@ pub struct PluginPlaylist {
     pub id: i64,
     pub name: Option<String>,
     pub description: Option<String>,
-    /// Slots whose track is present on disk; a track listed twice counts twice.
+    /// The present tracks it plays: track slots and the members of its album entries; a track listed
+    /// twice counts twice.
     pub track_count: i64,
+}
+
+/// One entry of a playlist: a track slot, or an album that plays its members.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PluginPlaylistEntry {
+    /// The slot id; stable while the entry stays in the playlist.
+    pub entry_id: i64,
+    /// `"track"` or `"album"`.
+    pub kind: &'static str,
+    /// The track id or the album id.
+    pub id: i64,
+    /// An album entry whose tracks play together, in album order, also under shuffle.
+    pub keep_order: bool,
 }
 
 /// Where a track page draws its rows from: the whole library, one album, or one playlist.
@@ -85,9 +101,13 @@ const ALBUM_COLUMNS: &str = "a.id, a.kind, a.title, a.album_artist, a.year, \
       WHERE m.album_id = a.id AND mt.missing_at IS NULL)";
 const ALBUM_COLUMN_COUNT: usize = 6;
 
+// The count is the present track slots plus the present members of every album entry.
 const PLAYLIST_COLUMNS: &str = "p.id, p.name, p.description, \
      (SELECT COUNT(*) FROM playlist_tracks s JOIN tracks st ON st.id = s.track_id \
-      WHERE s.playlist_id = p.id AND st.missing_at IS NULL)";
+      WHERE s.playlist_id = p.id AND st.missing_at IS NULL) \
+     + (SELECT COUNT(*) FROM playlist_tracks s JOIN album_tracks sm ON sm.album_id = s.album_id \
+        JOIN tracks st ON st.id = sm.track_id \
+        WHERE s.playlist_id = p.id AND st.missing_at IS NULL)";
 const PLAYLIST_COLUMN_COUNT: usize = 4;
 
 fn track_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<PluginTrack> {
@@ -191,18 +211,13 @@ pub fn track_page(
     source: &TrackSource,
     page: &PageArgs,
 ) -> rusqlite::Result<(Vec<PluginTrack>, Option<String>)> {
-    let (from, filter, mut values) = match source {
-        TrackSource::All => ("tracks t", String::new(), Vec::new()),
+    let (filter, mut values) = match source {
+        TrackSource::All => (String::new(), Vec::new()),
         TrackSource::Album(id) => (
-            "tracks t",
             " AND at.album_id = ?".to_string(),
             vec![SqlValue::Integer(*id)],
         ),
-        TrackSource::Playlist(id) => (
-            "playlist_tracks pt JOIN tracks t ON t.id = pt.track_id",
-            " AND pt.playlist_id = ?".to_string(),
-            vec![SqlValue::Integer(*id)],
-        ),
+        TrackSource::Playlist(id) => return playlist_track_page(conn, *id, page),
     };
     let sort = &page.sort;
     let (after, after_values) = after_clause(sort, page.after.as_ref());
@@ -213,7 +228,7 @@ pub fn track_page(
         sort.key_sql
     };
     let sql = format!(
-        "SELECT {TRACK_COLUMNS}, {key_column}, {id} FROM {from} {TRACK_JOINS} \
+        "SELECT {TRACK_COLUMNS}, {key_column}, {id} FROM tracks t {TRACK_JOINS} \
          WHERE {PRESENT}{filter}{after}{order}",
         id = sort.id_sql,
         order = order_clause(page),
@@ -231,6 +246,31 @@ pub fn track_page(
     let (mut tracks, next) = finish_page(page, rows);
     attach_genres(conn, &mut tracks)?;
     Ok((tracks, next))
+}
+
+/// One page of a playlist's present tracks in the order it plays: track slots, and each album entry's
+/// members in album order. Each row's cursor is a composite key, so a page can end inside an entry.
+fn playlist_track_page(
+    conn: &Connection,
+    id: i64,
+    page: &PageArgs,
+) -> rusqlite::Result<(Vec<PluginTrack>, Option<String>)> {
+    let rows: Vec<(i64, Cursor)> = playlist_expanded(conn, id)?
+        .into_iter()
+        .filter(|row| !row.missing)
+        .map(|row| {
+            let key = Key::Composite([row.position, row.slot_id, row.member_key]);
+            let cursor = Cursor {
+                key,
+                id: row.track_id,
+            };
+            (row.track_id, cursor)
+        })
+        .filter(|(_, cursor)| follows(page.after.as_ref(), cursor))
+        .take(page.limit + 1)
+        .collect();
+    let (ids, next) = finish_page(page, rows);
+    Ok((tracks_by_id(conn, &ids)?, next))
 }
 
 /// The present tracks among `ids`, in the order asked; an id that is unknown or gone is left out.
@@ -352,17 +392,63 @@ pub fn album_track_ids(conn: &Connection, id: i64) -> rusqlite::Result<Option<Ve
     ids_of(conn, &sql, id).map(Some)
 }
 
-/// The present tracks of a playlist in slot order, a track listed twice appearing twice, or None
-/// when there is no such playlist.
-pub fn playlist_track_ids(conn: &Connection, id: i64) -> rusqlite::Result<Option<Vec<i64>>> {
+/// One page of a playlist's entries in (position, slot id) order. A track slot whose track is missing
+/// on disk is left out; an album entry always shows.
+pub fn playlist_entry_page(
+    conn: &Connection,
+    id: i64,
+    page: &PageArgs,
+) -> rusqlite::Result<(Vec<PluginPlaylistEntry>, Option<String>)> {
+    let sort = &page.sort;
+    let (after, after_values) = after_clause(sort, page.after.as_ref());
+    let mut values = vec![SqlValue::Integer(id)];
+    values.extend(after_values);
+    let sql = format!(
+        "SELECT pt.id, pt.track_id, pt.album_id, pt.keep_order, {key}, {slot} \
+         FROM playlist_tracks pt LEFT JOIN tracks t ON t.id = pt.track_id \
+         WHERE pt.playlist_id = ? AND (pt.album_id IS NOT NULL OR {PRESENT}){after}{order}",
+        key = sort.key_sql,
+        slot = sort.id_sql,
+        order = order_clause(page),
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(params_from_iter(values.iter()), |r| {
+            let entry_id = r.get(0)?;
+            let entry = match r.get::<_, Option<i64>>(2)? {
+                Some(album_id) => PluginPlaylistEntry {
+                    entry_id,
+                    kind: "album",
+                    id: album_id,
+                    keep_order: r.get(3)?,
+                },
+                None => PluginPlaylistEntry {
+                    entry_id,
+                    kind: "track",
+                    id: r.get(1)?,
+                    keep_order: false,
+                },
+            };
+            let cursor = Cursor {
+                key: key_from(sort, r, 4)?,
+                id: r.get(5)?,
+            };
+            Ok((entry, cursor))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(finish_page(page, rows))
+}
+
+/// The present tracks a playlist plays, in that order, with a `[start, length]` span over them for each
+/// keep-order album entry; None when there is no such playlist.
+pub fn playlist_track_ids(
+    conn: &Connection,
+    id: i64,
+) -> rusqlite::Result<Option<(Vec<i64>, Vec<[usize; 2]>)>> {
     if playlist(conn, id)?.is_none() {
         return Ok(None);
     }
-    let sql = format!(
-        "SELECT t.id FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id \
-         WHERE pt.playlist_id = ?1 AND {PRESENT} ORDER BY pt.position, pt.id"
-    );
-    ids_of(conn, &sql, id).map(Some)
+    Ok(Some(expanded_queue(&playlist_expanded(conn, id)?, true)))
 }
 
 /// Which of `ids` are present library tracks.

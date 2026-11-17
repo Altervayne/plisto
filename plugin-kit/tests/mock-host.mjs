@@ -1,6 +1,7 @@
 /*
  * Keeps sdk/mock-host.html in step with plisto-sdk.js: every method name the SDK sends has a handler in the
- * mock, or is listed there as not implemented. Both files are read as text; no browser runs. Run:
+ * mock, or is listed there as not implemented. Both files are read as text, and the mock's canned
+ * library runs on its own in a VM context; no browser runs. Run:
  * node --test plugin-kit/tests/mock-host.mjs. The file name avoids the .test suffix so the app's Vitest run
  * does not collect it.
  */
@@ -9,6 +10,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import vm from "node:vm";
 
 const sdk = readFileSync(new URL("../sdk/plisto-sdk.js", import.meta.url), "utf8");
 const mock = readFileSync(new URL("../sdk/mock-host.html", import.meta.url), "utf8");
@@ -153,6 +155,58 @@ test("the mock refuses a queue change without both playback.control and library.
   // Every capability a method needs must be held: the check lists the missing ones.
   assert.match(mock, /\(NEEDS\[method\] \|\| \[\]\)\.filter\(/);
   assert.match(mock, /missing\.length/);
+});
+
+test("the mock models album entries: expanded tracks, the entries list and queue blocks", () => {
+  assert.ok(quotedList('needs("library.read"').includes("library.playlist_entries"));
+  // Tracks, counts, entries and queue changes all read the one expansion.
+  assert.match(mock, /track_count: playlistPlay\(p\)\.ids\.length/);
+  assert.match(mock, /return playlistPlay\(p\)\.ids\.map\(trackById\);/);
+  assert.match(mock, /return playlistPlay\(p\);/);
+  // Blocks are reported only when there is one, as the host does.
+  assert.match(mock, /if \(transport\.blocks\.length > 0\) reply\.blocks = /);
+  const types = readFileSync(new URL("../sdk/plisto-sdk.d.ts", import.meta.url), "utf8");
+  assert.match(types, /blocks\?: PlaybackQueueBlock\[\];/);
+  assert.match(types, /"library\.playlist_entries": \{ args: LibraryContainerTracksArgs; result: PlistoPage<PlistoPlaylistEntry> \};/);
+});
+
+/** The mock's canned library and its helpers, run on their own in a fresh context. */
+function cannedLibrary() {
+  const from = mock.indexOf("  // -- Canned library --");
+  const to = mock.indexOf("  // -- Paging --");
+  assert.ok(from >= 0 && to > from, "mock-host.html has no canned library section");
+  const context = vm.createContext({ btoa });
+  vm.runInContext(mock.slice(from, to), context);
+  return context;
+}
+
+test("the mock's playlistPlay expands album entries and blocks keep-order ones of two or more", () => {
+  const lib = cannedLibrary();
+  const whole = lib.playlistById(3);
+  // Values from the VM context are copied, so deepEqual compares data and not realms.
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const played = plain(lib.playlistPlay(whole));
+  // Album 1 kept (tracks 1-5), track 13, album 2 not kept (disc 1: 6-8, disc 2: 9-10).
+  assert.deepEqual(played.ids, [1, 2, 3, 4, 5, 13, 6, 7, 8, 9, 10]);
+  assert.deepEqual(played.blocks, [{ start: 0, length: 5 }]);
+  assert.equal(lib.playlistObj(whole).track_count, 11);
+  assert.deepEqual(
+    plain(lib.playlistTrackList(whole)).map((t) => t.id),
+    played.ids,
+  );
+  // A kept entry of one track plays it but makes no block, as on the host's wire.
+  const one = plain(lib.playlistPlay({ entries: [[1, "track", 13, false], [2, "album", 3, true]] }));
+  assert.deepEqual(one.ids, [13, 11]);
+  assert.equal(one.blocks.length, 0);
+  // An entry list keeps the album entries whole.
+  assert.deepEqual(
+    plain(lib.playlistEntryList(whole)),
+    [
+      { entry_id: 10, kind: "album", id: 1, keep_order: true },
+      { entry_id: 11, kind: "track", id: 13, keep_order: false },
+      { entry_id: 12, kind: "album", id: 2, keep_order: false },
+    ],
+  );
 });
 
 test("the mock mirrors the frame message budget and the one open toast of a plugin", () => {

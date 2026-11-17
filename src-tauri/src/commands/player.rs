@@ -88,14 +88,10 @@ pub(crate) fn marks_from_spans(len: usize, spans: &[[usize; 2]]) -> Vec<Option<u
 }
 
 /// Resolves track ids to a DB-free queue with each track's levelling gain, keeping the caller's order
-/// and dropping ids that no longer resolve (a deleted row). No track is in a block. Returns an empty
+/// and dropping ids that no longer resolve (a deleted row), and returns where `start` lands in it.
+/// `blocks` are `[start, length]` spans over `track_ids` whose tracks play together. Returns an empty
 /// queue when the lock is poisoned.
-pub(crate) fn resolve_queue(track_ids: &[i64], state: &AppState) -> Vec<QueueTrack> {
-    marked_queue(track_ids, &[], &resolve_rows(track_ids, state), 0).0
-}
-
-/// `resolve_queue` with the frontend's block spans, and where `start` lands in the result.
-fn resolve_with_blocks(
+pub(crate) fn resolve_with_blocks(
     track_ids: &[i64],
     blocks: Option<Vec<[usize; 2]>>,
     start: usize,

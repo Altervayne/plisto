@@ -114,7 +114,8 @@ Needs `playback.read`.
 | `parked` | boolean | `true` while a stream is seated over the user's queue. |
 
 The event carries no ids, so it stays small: read them with `playback.queue` when `rev` changed. It fires on
-a change of contents or order, of `index` or `length`, or of `parked`. A `rev` you saw before a gap in your
+a change of contents or order, of `index` or `length`, or of `parked`. Under shuffle, `index` can be above 0
+right after a play that starts inside a block (see `playback.queue` in the [API reference](api.md)). A `rev` you saw before a gap in your
 subscription says nothing about the gap: read the queue again after you subscribe.
 
 ### `library_changed`
@@ -125,7 +126,7 @@ Needs `library.read`. It reports changes only, so it has no `current`.
 | --- | --- | --- |
 | `track_ids` | number[] or `null` | The ids of the tracks that changed or were removed, sorted, at most 500. `null` means many or unknown. |
 | `albums` | boolean | An album, a single or an album's members changed. |
-| `playlists` | boolean | A playlist, or the tracks in one, changed. |
+| `playlists` | boolean | A playlist, or the tracks in one, changed. That includes an edit of an album a playlist holds as an album entry. |
 
 The rules:
 

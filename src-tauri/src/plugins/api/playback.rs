@@ -1,10 +1,11 @@
 /*
  * The playback methods: what is playing and the queue, read from the engine's shared snapshots, and
  * the player commands a plugin may send. Queue changes take library track ids, an album or a playlist,
- * need `library.read` beside `playback.control`, and go through the same `resolve_queue` the app's own
- * play commands use, so a plugin queues exactly what a click would. Tracks missing on disk are left
- * out. A track played straight off disk, or a plugin stream, has no library id and reads as null, so
- * its file is never named; a stream is described by its cleaned title and artist only.
+ * need `library.read` beside `playback.control`, and go through the same resolution the app's own
+ * play commands use, so a plugin queues exactly what a click would: a playlist's keep-order album
+ * entries go as blocks. Tracks missing on disk are left out. A track played straight off disk, or a
+ * plugin stream, has no library id and reads as null, so its file is never named; a stream is
+ * described by its cleaned title and artist only.
  */
 
 // -- Library Imports --
@@ -18,7 +19,7 @@ use super::rate::RateClass;
 use super::{CallCtx, MethodSpec, Need, Outcome};
 use crate::adhoc::is_ad_hoc;
 use crate::audio::PlayerCmd;
-use crate::commands::player::resolve_queue;
+use crate::commands::player::resolve_with_blocks;
 use crate::plugins::manifest::Capability;
 use crate::state::AppState;
 
@@ -104,22 +105,32 @@ fn queue(ctx: &CallCtx<'_>, _args: &Map<String, Value>) -> Outcome {
     Outcome::Done(read_queue(ctx))
 }
 
+/// The queue's ids and current index, plus `blocks` when the queue holds tracks that play together:
+/// each a `{ start, length }` span over `track_ids`, as the engine holds it.
 fn read_queue(ctx: &CallCtx<'_>) -> Result<Value, ApiError> {
     let app = app_state(ctx)?;
-    let ids: Vec<Option<i64>> = app
-        .player_queue
-        .lock()
-        .map_err(|_| ApiError::unavailable())?
-        .ids
-        .iter()
-        .map(|&id| library_id(id))
-        .collect();
+    let (ids, blocks) = {
+        let mirror = app
+            .player_queue
+            .lock()
+            .map_err(|_| ApiError::unavailable())?;
+        let ids: Vec<Option<i64>> = mirror.ids.iter().map(|&id| library_id(id)).collect();
+        (ids, mirror.blocks.clone())
+    };
     let index = app
         .player_status
         .lock()
         .map_err(|_| ApiError::unavailable())?
         .queue_index;
-    Ok(json!({ "track_ids": ids, "index": index }))
+    let mut reply = json!({ "track_ids": ids, "index": index });
+    if !blocks.is_empty() {
+        let spans: Vec<Value> = blocks
+            .iter()
+            .map(|&[start, length]| json!({ "start": start, "length": length }))
+            .collect();
+        reply["blocks"] = Value::Array(spans);
+    }
+    Ok(reply)
 }
 
 /// Sends one command to the engine. A closed channel means the player is gone.
@@ -226,13 +237,14 @@ fn start_arg(args: &Map<String, Value>) -> Result<usize, ApiError> {
     }
 }
 
-/// The present track ids `source` names, in its order, and where `start` lands among them: a start
-/// on a track left out moves to the next one kept.
+/// The present track ids `source` names, in its order, where `start` lands among them (a start on a
+/// track left out moves to the next one kept), and the `[start, length]` spans of a playlist's
+/// keep-order album entries.
 fn source_ids(
     ctx: &CallCtx<'_>,
     source: Source,
     start: usize,
-) -> Result<(Vec<i64>, usize), ApiError> {
+) -> Result<(Vec<i64>, usize, Vec<[usize; 2]>), ApiError> {
     with_conn(ctx, |conn| match source {
         Source::Tracks(ids) => {
             let present = db(present_ids(conn, &ids))?;
@@ -242,13 +254,13 @@ fn source_ids(
                 .filter(|id| present.contains(id))
                 .count();
             let kept = ids.into_iter().filter(|id| present.contains(id)).collect();
-            Ok((kept, start))
+            Ok((kept, start, Vec::new()))
         }
         Source::Album(id) => db(album_track_ids(conn, id))?
-            .map(|ids| (ids, start))
+            .map(|ids| (ids, start, Vec::new()))
             .ok_or_else(ApiError::not_found),
         Source::Playlist(id) => db(playlist_track_ids(conn, id))?
-            .map(|ids| (ids, start))
+            .map(|(ids, spans)| (ids, start, spans))
             .ok_or_else(ApiError::not_found),
     })
 }
@@ -263,10 +275,11 @@ fn change_queue(
         QueueOp::Play => start_arg(args)?,
         QueueOp::Add | QueueOp::PlayNext => 0,
     };
-    let (ids, start) = source_ids(ctx, source, start)?;
+    let (ids, start, spans) = source_ids(ctx, source, start)?;
     let app = app_state(ctx)?;
-    // Takes the database lock itself, so none may be held here.
-    let queue = resolve_queue(&ids, app);
+    // Takes the database lock itself, so none may be held here. A row that no longer resolves drops
+    // out, and `start` and the block marks move with the rows kept.
+    let (queue, start) = resolve_with_blocks(&ids, Some(spans), start, app);
     let queued = queue.len();
     if queued == 0 {
         return Ok(json!({ "queued": 0 }));
@@ -696,3 +709,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod block_tests;
