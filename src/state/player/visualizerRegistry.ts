@@ -4,10 +4,21 @@
  * glyph and GL factory live in a second table keyed by the same ids, in the visualizers folder.
  */
 
+// -- Type Imports --
+import type { Dict } from "../../i18n/en";
+
 /** The picker's labelled sections, in order. */
 export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy"] as const;
 
 export type VisualizerGroupId = (typeof GROUP_ORDER)[number];
+
+/** Each section's localized name, as an accessor for `t`. */
+export const GROUP_LABELS: Record<VisualizerGroupId, (d: Dict) => string> = {
+  classic: (d) => d.player.visualizerGroupClassic,
+  dots: (d) => d.player.visualizerGroupDots,
+  fluid: (d) => d.player.visualizerGroupFluid,
+  cozy: (d) => d.player.visualizerGroupCozy,
+};
 
 /**
  * The CSS blend a kind's layer takes over the stage. The GL renderer composites screen, multiply or

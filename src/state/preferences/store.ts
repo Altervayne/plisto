@@ -21,6 +21,7 @@ import {
   type SpectrumLayout,
   type VisualizerKind,
 } from "../player/visualizerKind";
+import { catalogOf, serializeCatalog, type Catalog, type CatalogState } from "../player/visualizerCatalog";
 
 /** The persisted preference keys, mapped to their kv-table column names. */
 export const PREF_KEYS = {
@@ -52,6 +53,8 @@ export const PREF_KEYS = {
   // The EQ, preamp and levelling blob. The backend parses and applies this same key by name.
   sound: "sound",
   playerVisualizer: "player_visualizer",
+  // The visualizer kinds and families turned off, a JSON blob.
+  playerVisualizerCatalog: "player_visualizer_catalog",
   playerVisualizerReactivity: "player_visualizer_reactivity",
   playerSpectrumLayout: "player_spectrum_layout",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
@@ -81,6 +84,8 @@ interface PreferencesStore {
   loaded: boolean;
 
   loadPreferences: () => Promise<void>;
+  /** Re-reads one key. Success clears it from `failedKeys`; failure leaves it failed. */
+  retryPreference: (key: string) => Promise<void>;
   getPreference: (key: string) => string | undefined;
   setPreference: (key: string, value: string) => void;
 }
@@ -111,6 +116,25 @@ export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
     set({ values, failedKeys, loaded: true });
   },
 
+  retryPreference: async (key) => {
+    let value: string | null;
+    try {
+      value = await withRetry(() => getSetting(key));
+    } catch {
+      return;
+    }
+    set((s) => {
+      // A key that left failedKeys meanwhile holds a newer value than this read.
+      if (!s.failedKeys.has(key)) return s;
+      const failedKeys = new Set(s.failedKeys);
+      failedKeys.delete(key);
+      const values = { ...s.values };
+      if (value != null) values[key] = value;
+      else delete values[key];
+      return { values, failedKeys };
+    });
+  },
+
   getPreference: (key) => get().values[key],
 
   setPreference: (key, value) => {
@@ -128,6 +152,7 @@ export const usePreference = (key: string): string | undefined =>
 
 export const useLoadPreferences = () => usePreferencesStore((s) => s.loadPreferences);
 export const useSetPreference = () => usePreferencesStore((s) => s.setPreference);
+export const useRetryPreference = () => usePreferencesStore((s) => s.retryPreference);
 
 /** Whether the trim-bar hint is still due: prefs have loaded and no drag has retired it. */
 export const useTrimHintDue = (): boolean => {
@@ -187,6 +212,27 @@ export const useSetPlayerVisualizer = (): ((kind: VisualizerKind) => void) => {
   const setPreference = useSetPreference();
   return (kind) => setPreference(PREF_KEYS.playerVisualizer, kind);
 };
+
+/** Whether the catalog key is unreadable: not loaded yet, or its boot read failed. */
+export const selectCatalogUnreadable = (s: { loaded: boolean; failedKeys: ReadonlySet<string> }): boolean =>
+  !s.loaded || s.failedKeys.has(PREF_KEYS.playerVisualizerCatalog);
+
+/**
+ * The visualizer catalog. Before the read lands, and after it failed, every kind is offered and every
+ * write is refused, so an unread value is never overwritten.
+ */
+export const useVisualizerCatalog = (): Catalog => {
+  const raw = usePreference(PREF_KEYS.playerVisualizerCatalog);
+  const unreadable = usePreferencesStore(selectCatalogUnreadable);
+  return catalogOf(raw, unreadable);
+};
+
+/** Persists a catalog state from `toggleKind` or `toggleGroup`. A null state, a refused toggle, writes nothing. */
+export function persistVisualizerCatalog(next: CatalogState | null): void {
+  if (next) usePreferencesStore.getState().setPreference(PREF_KEYS.playerVisualizerCatalog, serializeCatalog(next));
+}
+
+export const useSetVisualizerCatalog = (): ((next: CatalogState | null) => void) => persistVisualizerCatalog;
 
 /** How hard the visualizers move with the music. An absent or unknown pref reads Balanced. */
 export const usePlayerVisualizerReactivity = (): Reactivity =>
