@@ -19,6 +19,7 @@ use super::duplicates::{
     insert_membership, insert_pairs, list_duplicate_dismissals, member_count, membership_row,
     repoint, PLAYS, SLOTS,
 };
+use super::playlist_albums::{dissolve_entries_into, referenced_album_members};
 use super::tag_albums::set_updated_at;
 use super::{
     all_folder_cover_paths, delete_emptied_albums, get_setting, membership_album,
@@ -220,7 +221,8 @@ pub fn plan_merge(
 /// absorbed root's path. Each pair folds onto the kept track: its user data wins and the absorbed
 /// track fills the gaps, plays and playlist slots union onto it, and it takes the absorbed track's
 /// scan columns. Absorbed-only tracks move to the kept root with their ids. Kept-only tracks are
-/// rewritten to the new path. Albums left with no member are deleted and counted.
+/// rewritten to the new path. Albums left with no member are deleted and counted; a playlist entry of
+/// one becomes the kept tracks its members folded onto, in the album's order.
 pub fn merge_root(
     conn: &mut Connection,
     keep_root: i64,
@@ -234,6 +236,8 @@ pub fn merge_root(
     let (keep, keep_rows) = read_side(&tx, keep_root)?;
     let (absorb, absorb_rows) = read_side(&tx, absorb_root)?;
     let plan = plan_rows(&tx, &keep_rows, &absorb_rows)?;
+    // Read before the carry empties any album, while every member is still in its place.
+    let referenced = referenced_album_members(&tx)?;
 
     carry_dismissals(&tx, &plan.pairs, now)?;
     let mut scans = Vec::with_capacity(plan.pairs.len());
@@ -281,6 +285,17 @@ pub fn merge_root(
     }
     rebase_folder_covers(&tx, &keep.key, new_root)?;
     record_move(&tx, keep.id, &keep.path, &absorb.path, Some(absorb.id))?;
+    // An album the carry emptied lives on as the kept tracks, so its playlist entries become them.
+    let twin: HashMap<i64, i64> = plan.pairs.iter().map(|&(o, n)| (n, o)).collect();
+    for (album_id, members) in &referenced {
+        if member_count(&tx, *album_id)? == 0 {
+            let kept: Vec<i64> = members
+                .iter()
+                .map(|id| twin.get(id).copied().unwrap_or(*id))
+                .collect();
+            dissolve_entries_into(&tx, *album_id, &kept)?;
+        }
+    }
     let albums_emptied = delete_emptied_albums(&tx)? as i64;
 
     tx.commit()?;
@@ -1241,6 +1256,97 @@ mod tests {
         assert_eq!(plan.albums_emptied, 1);
         assert_eq!(report.albums_emptied, plan.albums_emptied);
         assert_eq!((report.moved, report.merged, report.carried), (1, 3, 1));
+    }
+
+    #[test]
+    fn merge_leaves_an_entry_of_an_album_it_does_not_empty_live() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        // The kept album keeps its members; the loose kept twin joins the new album in n[0]'s place.
+        for (album_id, position) in [(fx.old_album, 4), (fx.new_album, 5)] {
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, album_id, keep_order, position)
+                 VALUES (?1, ?2, 1, ?3)",
+                params![fx.playlist, album_id, position],
+            )
+            .unwrap();
+        }
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        assert_eq!(
+            ids(
+                &conn,
+                "SELECT album_id FROM playlist_tracks
+                 WHERE playlist_id = ?1 AND album_id IS NOT NULL ORDER BY position",
+                fx.playlist
+            ),
+            vec![fx.old_album, fx.new_album],
+            "both entries stay entries"
+        );
+        assert_eq!(
+            ids(
+                &conn,
+                "SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?1",
+                fx.playlist
+            ),
+            vec![5]
+        );
+        let played: Vec<i64> = db::playlist_expanded(&conn, fx.playlist)
+            .unwrap()
+            .iter()
+            .map(|r| r.track_id)
+            .collect();
+        assert_eq!(
+            played,
+            vec![
+                fx.o[0],
+                fx.o[0],
+                fx.absorb_only,
+                fx.o[1],
+                fx.o[2],
+                fx.keep_only,
+                fx.o[0],
+                fx.absorb_only,
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_turns_an_entry_of_an_emptied_album_into_the_kept_tracks_in_place() {
+        let mut conn = db::open_in_memory().unwrap();
+        let fx = merge_fixture(&mut conn);
+        // The entry ties the first slot's position and sorts after it by id.
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, album_id, keep_order, position)
+             VALUES (?1, ?2, 1, 1)",
+            params![fx.playlist, fx.since_album],
+        )
+        .unwrap();
+
+        merge_root(&mut conn, fx.keep, fx.absorb, 50).unwrap();
+
+        assert!(db::get_album(&conn, fx.since_album).unwrap().is_none());
+        let slots: Vec<(i64, i64)> = conn
+            .prepare(
+                "SELECT track_id, position FROM playlist_tracks
+                 WHERE playlist_id = ?1 ORDER BY position, id",
+            )
+            .unwrap()
+            .query_map(params![fx.playlist], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            slots,
+            vec![
+                (fx.o[0], 1),
+                (fx.o[1], 2),
+                (fx.o[2], 3),
+                (fx.o[0], 4),
+                (fx.absorb_only, 5),
+            ]
+        );
     }
 
     #[test]

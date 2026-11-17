@@ -14,6 +14,7 @@ use serde::Serialize;
 
 // -- Local Imports --
 use super::cursor::{after_clause, finish_page, key_from, order_clause, Cursor, PageArgs};
+pub use crate::db::ALBUM_MEMBER_KEY;
 use crate::db::SINGLE_KIND;
 use crate::resolve::{
     effective_album_fields, effective_artist, effective_title, AlbumFields, Filing,
@@ -78,13 +79,6 @@ const TRACK_JOINS: &str = "LEFT JOIN track_edits te ON te.track_id = t.id \
      LEFT JOIN album_tracks at ON at.track_id = t.id \
      LEFT JOIN albums a ON a.id = at.album_id";
 const PRESENT: &str = "t.missing_at IS NULL";
-
-/// An album member's place in the album: disc, then track number, as one integer. The disc follows the
-/// edit over the raw tag with an unset disc reading as disc 1; an unset track number reads as 0 and
-/// leads its disc. Disc clamps to 0..=99999 and track to 0..=999999, so each pair maps to its own key
-/// and the key orders like the pair. Needs the `te` and `at` joins.
-pub const ALBUM_MEMBER_KEY: &str = "(MIN(MAX(COALESCE(te.disc_no, t.raw_disc_no, 1), 0), 99999) \
-     * 1000000 + MIN(MAX(COALESCE(at.track_no, 0), 0), 999999))";
 
 const ALBUM_COLUMNS: &str = "a.id, a.kind, a.title, a.album_artist, a.year, \
      (SELECT COUNT(*) FROM album_tracks m JOIN tracks mt ON mt.id = m.track_id \

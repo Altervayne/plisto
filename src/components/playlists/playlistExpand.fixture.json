@@ -1,0 +1,73 @@
+{
+  "description": "One playlist expanded into the queue it plays. Slots order by position, then slot id. An album entry plays its members by disc (unset reads as 1), then track number (unset reads as 0 and leads its disc), then track id, missing members included. A keep-order entry is a block [start, length] over the ids; with present_only, missing tracks drop out before blocks are counted, so a kept entry with one present member is a block of length 1 and one with none has no block. track_count is the playlist's count: track slots plus the members of every album entry, missing included.",
+  "albums": [
+    {
+      "id": 10,
+      "kind": "album",
+      "members": [
+        { "track_id": 101, "disc_no": 2, "track_no": 1, "missing": false },
+        { "track_id": 102, "disc_no": 1, "track_no": 2, "missing": false },
+        { "track_id": 103, "disc_no": 1, "track_no": 1, "missing": false },
+        { "track_id": 104, "disc_no": null, "track_no": 3, "missing": false },
+        { "track_id": 105, "disc_no": 2, "track_no": null, "missing": false },
+        { "track_id": 106, "disc_no": 1, "track_no": 2, "missing": true }
+      ]
+    },
+    {
+      "id": 20,
+      "kind": "album",
+      "members": [
+        { "track_id": 202, "disc_no": 1, "track_no": 1, "missing": false },
+        { "track_id": 201, "disc_no": null, "track_no": null, "missing": false }
+      ]
+    },
+    {
+      "id": 30,
+      "kind": "album",
+      "members": [
+        { "track_id": 301, "disc_no": 1, "track_no": 1, "missing": true },
+        { "track_id": 302, "disc_no": 1, "track_no": 2, "missing": true }
+      ]
+    },
+    {
+      "id": 40,
+      "kind": "album",
+      "members": [
+        { "track_id": 403, "disc_no": 1, "track_no": 3, "missing": true },
+        { "track_id": 401, "disc_no": 1, "track_no": 1, "missing": true },
+        { "track_id": 402, "disc_no": 1, "track_no": 2, "missing": false }
+      ]
+    }
+  ],
+  "loose_tracks": [
+    { "track_id": 1, "missing": false },
+    { "track_id": 2, "missing": true }
+  ],
+  "playlist": {
+    "id": 1,
+    "slots": [
+      { "id": 1, "position": 1, "track_id": 1 },
+      { "id": 2, "position": 2, "album_id": 10, "keep_order": true },
+      { "id": 3, "position": 3, "track_id": 102 },
+      { "id": 5, "position": 4, "album_id": 20, "keep_order": false },
+      { "id": 4, "position": 4, "track_id": 2 },
+      { "id": 6, "position": 5, "album_id": 10, "keep_order": true },
+      { "id": 7, "position": 6, "album_id": 30, "keep_order": true },
+      { "id": 9, "position": 6, "album_id": 40, "keep_order": true },
+      { "id": 8, "position": 7, "track_id": 1 }
+    ]
+  },
+  "track_count": 23,
+  "expected": [
+    {
+      "present_only": false,
+      "ids": [1, 103, 102, 106, 104, 105, 101, 102, 2, 201, 202, 103, 102, 106, 104, 105, 101, 301, 302, 401, 402, 403, 1],
+      "blocks": [[1, 6], [11, 6], [17, 2], [19, 3]]
+    },
+    {
+      "present_only": true,
+      "ids": [1, 103, 102, 104, 105, 101, 102, 201, 202, 103, 102, 104, 105, 101, 402, 1],
+      "blocks": [[1, 5], [9, 5], [14, 1]]
+    }
+  ]
+}

@@ -13,6 +13,7 @@ use rusqlite::{params, Connection};
 
 // -- Local Imports --
 use super::album_numbering::{disc_highest, number_per_disc, read_incoming, Incoming};
+use super::playlist_albums::dissolve_album_entries;
 use super::{album_kind, insert_album_track, membership_album, WriteError, ALBUM_KIND};
 use crate::dto::{
     TagAlbumCreated, TagAlbumExtended, TagAlbumPlan, TagAlbumReceipt, TagAlbumTarget,
@@ -122,9 +123,10 @@ pub fn create_albums_from_tags(
     Ok(receipt)
 }
 
-/// Undoes a batch from its receipt: deletes the albums it created and pulls the tracks it appended out
-/// of existing albums, restoring their prior updated_at. Rejected with StaleProposal, nothing changed,
-/// when a created album no longer holds exactly its receipt members or an appended track has moved.
+/// Undoes a batch from its receipt: deletes the albums it created, each playlist entry of one turning
+/// into its tracks first, and pulls the tracks it appended out of existing albums, restoring their
+/// prior updated_at. Rejected with StaleProposal, nothing changed, when a created album no longer
+/// holds exactly its receipt members or an appended track has moved.
 pub fn revert_albums_from_tags(
     conn: &mut Connection,
     receipt: &TagAlbumReceipt,
@@ -149,6 +151,7 @@ pub fn revert_albums_from_tags(
     }
 
     for album in &receipt.created {
+        dissolve_album_entries(&tx, album.id)?;
         tx.execute("DELETE FROM albums WHERE id = ?1", params![album.id])?;
     }
     for entry in &receipt.extended {

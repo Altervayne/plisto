@@ -440,10 +440,11 @@ pub(super) fn repoint(
         .collect())
 }
 
-/// The track a row of `table` points at, or None when the row is gone.
+/// The track a row of `table` points at, or None when the row is gone or holds no track (a slot id
+/// reused by a playlist album entry).
 fn row_track(conn: &Connection, table: &str, id: i64) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
-        &format!("SELECT track_id FROM {table} WHERE id = ?1"),
+        &format!("SELECT track_id FROM {table} WHERE id = ?1 AND track_id IS NOT NULL"),
         params![id],
         |r| r.get(0),
     )
@@ -996,6 +997,84 @@ mod tests {
             undo_merge_duplicates(&mut conn, &receipt),
             Err(MergeError::Stale)
         ));
+        assert_eq!(index_state(&conn), before);
+    }
+
+    #[test]
+    fn repoint_never_touches_an_album_entry() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        let pad = insert_track(&conn, "/m/p.mp3", false);
+        let album = insert_album(&conn, Some("A"), 5, &[dup, pad]);
+        let list = insert_playlist(&conn, &[dup]);
+        db::add_albums_to_playlist(&mut conn, list, &[album], true, 10).unwrap();
+
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+
+        assert_eq!(receipt.moved_slots.len(), 1, "only the track slot moves");
+        let entries: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE album_id = ?1 AND track_id IS NULL",
+                params![album],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(entries, 1);
+    }
+
+    #[test]
+    fn undo_reads_a_slot_id_reused_by_an_album_entry_as_stale() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        let album = insert_album(&conn, Some("A"), 5, &[keeper]);
+        let list = insert_playlist(&conn, &[dup]);
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+        let slot = receipt.moved_slots[0].id;
+
+        // The moved slot goes and an album entry takes its id.
+        conn.execute("DELETE FROM playlist_tracks WHERE id = ?1", params![slot])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO playlist_tracks (id, playlist_id, album_id, position) VALUES (?1, ?2, ?3, 1)",
+            params![slot, list, album],
+        )
+        .unwrap();
+        let before = index_state(&conn);
+
+        assert!(matches!(
+            undo_merge_duplicates(&mut conn, &receipt),
+            Err(MergeError::Stale)
+        ));
+        assert_eq!(index_state(&conn), before);
+    }
+
+    #[test]
+    fn a_merge_through_a_referenced_album_and_its_undo_keep_the_entry_live() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keeper = insert_track(&conn, "/m/k.mp3", false);
+        let dup = insert_track(&conn, "/m/d.mp3", false);
+        let pad = insert_track(&conn, "/m/p.mp3", false);
+        let album = insert_album(&conn, Some("A"), 5, &[dup, pad]);
+        let list = insert_playlist(&conn, &[]);
+        db::add_albums_to_playlist(&mut conn, list, &[album], true, 10).unwrap();
+        let tracks = |conn: &Connection| -> Vec<i64> {
+            db::playlist_expanded(conn, list)
+                .unwrap()
+                .iter()
+                .map(|r| r.track_id)
+                .collect()
+        };
+        assert_eq!(tracks(&conn), vec![dup, pad]);
+        let before = index_state(&conn);
+
+        // The loose keeper takes the duplicate's place in the album, so the entry plays it there.
+        let receipt = merge_duplicates(&mut conn, keeper, &[dup], 50).unwrap();
+        assert_eq!(tracks(&conn), vec![keeper, pad]);
+
+        undo_merge_duplicates(&mut conn, &receipt).unwrap();
+        assert_eq!(tracks(&conn), vec![dup, pad]);
         assert_eq!(index_state(&conn), before);
     }
 }

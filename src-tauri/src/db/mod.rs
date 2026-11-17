@@ -10,6 +10,7 @@ mod album_numbering;
 mod duplicates;
 mod export_ledger;
 mod migrations;
+mod playlist_albums;
 mod relocate;
 pub(crate) mod scan_issues;
 mod tag_albums;
@@ -21,6 +22,10 @@ pub use duplicates::{
 };
 pub use export_ledger::{
     clear_export_ledger, export_ledger, export_ledger_last, record_export_files,
+};
+pub use playlist_albums::{
+    add_albums_to_playlist, playlist_expanded, set_entry_keep_order, unpack_album_entry,
+    ALBUM_MEMBER_KEY,
 };
 pub use relocate::{
     backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,
@@ -43,9 +48,9 @@ use album_numbering::{disc_highest, next_on_disc, number_per_disc, read_incoming
 // -- Type Imports --
 use crate::audio::{track_gain_db, GainInputs};
 use crate::dto::{
-    AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistRow, PlaylistSnapshot,
-    PlaylistTrackRow, PurgeSummary, Root, RootRemovalImpact, TrackDisplay, TrackEdit,
-    TrackPlacement,
+    AlbumRow, AlbumTrackRow, GenreRow, HistoryRow, PlayEvent, PlaylistAlbumEntryRow, PlaylistRow,
+    PlaylistSnapshot, PlaylistTrackRow, PurgeSummary, Root, RootRemovalImpact, TrackDisplay,
+    TrackEdit, TrackPlacement,
 };
 use crate::model::{ArtKey, CoverRecord, TrackRecord};
 use crate::normalize::{clean_text, normalize_genre_key, normalize_path_key};
@@ -671,8 +676,9 @@ fn delete_emptied_albums(conn: &Connection) -> rusqlite::Result<usize> {
 
 /// The blast radius of removing `root_id`, for the counted confirm: how many indexed tracks the root
 /// holds; how many albums are built partly from it (>=1 member under it and >=1 not - they shrink);
-/// how many are built entirely from it (every member under it - they get deleted); and how many
-/// playlist slots and plays its tracks carry. Read-only.
+/// how many are built entirely from it (every member under it - they get deleted); how many playlist
+/// slots go, its tracks' slots and the album entries of the deleted albums; and how many plays its
+/// tracks carry. Read-only.
 pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<RootRemovalImpact> {
     let tracks: i64 = conn.query_row(
         "SELECT COUNT(*) FROM tracks WHERE root_id = ?1",
@@ -706,9 +712,17 @@ pub fn root_removal_impact(conn: &Connection, root_id: i64) -> rusqlite::Result<
         |r| r.get(0),
     )?;
 
+    // Track slots of its tracks, plus album entries whose album the removal empties.
     let playlist_entries: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id
-         WHERE t.root_id = ?1",
+        "SELECT (SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id
+                 WHERE t.root_id = ?1)
+              + (SELECT COUNT(*) FROM playlist_tracks pt
+                 WHERE EXISTS (
+                     SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+                     WHERE at.album_id = pt.album_id AND t.root_id = ?1)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM album_tracks at JOIN tracks t ON t.id = at.track_id
+                     WHERE at.album_id = pt.album_id AND t.root_id IS NOT ?1))",
         params![root_id],
         |r| r.get(0),
     )?;
@@ -1509,11 +1523,14 @@ fn filename_stem(filename: &str) -> String {
         .unwrap_or_else(|| filename.to_string())
 }
 
-/// Deletes an album. The membership foreign keys CASCADE, so the assignment rows go with it while
+/// Deletes an album in one transaction. Each playlist entry of it first becomes its tracks at the
+/// entry's place; then the membership foreign keys CASCADE, so the assignment rows go with it while
 /// the track rows themselves stay.
-pub fn delete_album(conn: &Connection, album_id: i64) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
-    Ok(())
+pub fn delete_album(conn: &mut Connection, album_id: i64) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    playlist_albums::dissolve_album_entries(&tx, album_id)?;
+    tx.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
+    tx.commit()
 }
 
 /// Bumps an album's `updated_at` to now, so a membership or layout change surfaces it in the
@@ -1928,26 +1945,30 @@ fn remove_membership(conn: &Connection, track_id: i64) -> rusqlite::Result<bool>
 
 // ---- Playlists ----
 
-// The playlist projection with its live slot count. LEFT JOIN so an empty playlist still returns a
-// row with a zero count. Callers append the GROUP BY and, for a single playlist, a WHERE.
+// The playlist projection with its live track count: its track slots plus the members of every album
+// entry, missing files included. One row per playlist with no GROUP BY; callers append a WHERE for a
+// single playlist or the ORDER BY.
 const PLAYLIST_SELECT: &str = "
     SELECT p.id, p.name, p.description, p.cover_id, p.created_at, p.updated_at,
-           COUNT(pt.id) AS track_count
-    FROM playlists p
-    LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id";
+           (SELECT COUNT(*) FROM playlist_tracks s
+            WHERE s.playlist_id = p.id AND s.track_id IS NOT NULL)
+         + (SELECT COUNT(*) FROM playlist_tracks s JOIN album_tracks m ON m.album_id = s.album_id
+            WHERE s.playlist_id = p.id) AS track_count
+    FROM playlists p";
 
 // The slot projection: the source fields joined from `tracks` beside the edit-layer title/artist from
 // `track_edits`, keyed on the track, plus the slot id and its position. The slot `id` is the row's
-// identity, not the track_id, so a track sitting in the playlist twice is two rows here. Mirrors
-// ALBUM_TRACK_SELECT minus the album fields, plus the slot id, playlist_id and position. Callers
-// append the ORDER BY.
+// identity, not the track_id, so a track sitting in the playlist twice is two rows here. Album entries
+// are left out. Mirrors ALBUM_TRACK_SELECT minus the album fields, plus the slot id, playlist_id and
+// position. Callers append the ORDER BY.
 const PLAYLIST_TRACK_SELECT: &str = "
     SELECT pt.id, pt.playlist_id, pt.track_id, pt.position,
            t.source_path, t.display_path, t.filename, t.duration_secs,
            t.raw_title, t.raw_artist, te.title, te.artist, t.missing_at
     FROM playlist_tracks pt
     JOIN tracks t ON t.id = pt.track_id
-    LEFT JOIN track_edits te ON te.track_id = pt.track_id";
+    LEFT JOIN track_edits te ON te.track_id = pt.track_id
+    WHERE pt.track_id IS NOT NULL";
 
 /// Maps one result row into a PlaylistRow. The column order matches PLAYLIST_SELECT.
 fn playlist_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaylistRow> {
@@ -1981,10 +2002,10 @@ fn playlist_track_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<Playli
     })
 }
 
-/// One playlist with its slot count, or None when the id is absent. The single-row twin of
+/// One playlist with its track count, or None when the id is absent. The single-row twin of
 /// load_playlists, so a writer can hand back the full row it just created.
 fn get_playlist(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Option<PlaylistRow>> {
-    let sql = format!("{PLAYLIST_SELECT} WHERE p.id = ?1 GROUP BY p.id");
+    let sql = format!("{PLAYLIST_SELECT} WHERE p.id = ?1");
     conn.query_row(&sql, params![playlist_id], playlist_row_from_sql)
         .map(Some)
         .or_else(|e| match e {
@@ -1993,12 +2014,13 @@ fn get_playlist(conn: &Connection, playlist_id: i64) -> rusqlite::Result<Option<
         })
 }
 
-/// The load-all playlist snapshot: every playlist with its slot count, ordered by creation, and every
-/// slot across them via PLAYLIST_TRACK_SELECT, ordered by playlist then position so a playlist's slots
-/// arrive in play order. The frontend hydrates its playlist state from this in one call.
+/// The load-all playlist snapshot: every playlist with its track count, ordered by creation, every
+/// track slot across them via PLAYLIST_TRACK_SELECT, and every album entry. Slots and entries are
+/// ordered by playlist, position, then slot id, the order a playlist plays in. The frontend hydrates
+/// its playlist state from this in one call.
 pub fn load_playlists(conn: &Connection) -> rusqlite::Result<PlaylistSnapshot> {
     let playlists = {
-        let sql = format!("{PLAYLIST_SELECT} GROUP BY p.id ORDER BY p.created_at, p.id");
+        let sql = format!("{PLAYLIST_SELECT} ORDER BY p.created_at, p.id");
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map([], playlist_row_from_sql)?
@@ -2006,24 +2028,46 @@ pub fn load_playlists(conn: &Connection) -> rusqlite::Result<PlaylistSnapshot> {
         rows
     };
     let tracks = {
-        let sql = format!("{PLAYLIST_TRACK_SELECT} ORDER BY pt.playlist_id, pt.position");
+        let sql = format!("{PLAYLIST_TRACK_SELECT} ORDER BY pt.playlist_id, pt.position, pt.id");
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map([], playlist_track_row_from_sql)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         rows
     };
-    Ok(PlaylistSnapshot { playlists, tracks })
+    let album_entries = {
+        let mut stmt = conn.prepare(
+            "SELECT id, playlist_id, album_id, position, keep_order FROM playlist_tracks
+             WHERE album_id IS NOT NULL ORDER BY playlist_id, position, id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(PlaylistAlbumEntryRow {
+                    id: r.get(0)?,
+                    playlist_id: r.get(1)?,
+                    album_id: r.get(2)?,
+                    position: r.get(3)?,
+                    keep_order: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    Ok(PlaylistSnapshot {
+        playlists,
+        tracks,
+        album_entries,
+    })
 }
 
-/// One playlist slot shaped for export: the real-case source and extension, the duration for the
-/// #EXTINF line, the presence stamp, and the fields the m3u snapshot and the Unsorted container read.
-/// The title/artist edits land in the override slots and resolve through `resolve.rs`, exactly as the
-/// album export does. The album/album_artist/year edits ride along beside the track's own raw scan
-/// value, so a loose slot dropped into the Unsorted bag keeps its resolved release tags. `in_album`
-/// says whether the slot belongs to an album (a LEFT JOIN, so a loose slot reads false): a member is
-/// exported through the library plan, a loose slot through the Unsorted container. Purpose-built
-/// because a slot is not scoped to an album the way ExportTrackRow is.
+/// One track a playlist plays, shaped for export: the real-case source and extension, the duration for
+/// the #EXTINF line, the presence stamp, and the fields the m3u snapshot and the Unsorted container
+/// read. The title/artist edits land in the override fields and resolve through `resolve.rs`, exactly
+/// as the album export does. The album/album_artist/year edits ride along beside the track's own raw
+/// scan value, so a loose track dropped into the Unsorted bag keeps its resolved release tags.
+/// `in_album` says whether the track belongs to an album (a LEFT JOIN, so a loose track reads false): a
+/// member is exported through the library plan, a loose track through the Unsorted container.
+/// Purpose-built because a playlist track is not scoped to an album the way ExportTrackRow is.
 #[derive(Debug, Clone)]
 pub struct PlaylistExportRow {
     pub track_id: i64,
@@ -2048,24 +2092,21 @@ pub struct PlaylistExportRow {
     pub has_embedded: bool,
 }
 
-// The playlist export projection: every slot joined to its track's source cache and edit layer, plus
-// a LEFT JOIN to its album so `a.id IS NOT NULL` flags membership - a member routes through the
-// library plan, a loose slot into the Unsorted bag. Ordered by slot position so the snapshot and the
-// #EXTINF list arrive in play order.
+// The playlist export projection of one track: its source cache and edit layer, plus a LEFT JOIN to
+// its album so `a.id IS NOT NULL` flags membership - a member routes through the library plan, a
+// loose track into the Unsorted bag.
 const PLAYLIST_EXPORT_SELECT: &str = "
-    SELECT pt.track_id,
+    SELECT t.id,
            t.display_path, t.source_path, t.ext, t.duration_secs, t.missing_at,
            t.raw_title, t.raw_artist,
            te.title, te.artist, te.album, te.album_artist, te.year,
            t.raw_album, t.raw_album_artist, t.raw_year,
            a.id IS NOT NULL, t.has_embedded_cover, t.size_bytes, t.mtime
-    FROM playlist_tracks pt
-    JOIN tracks t ON t.id = pt.track_id
-    LEFT JOIN track_edits te ON te.track_id = pt.track_id
-    LEFT JOIN album_tracks am ON am.track_id = pt.track_id
+    FROM tracks t
+    LEFT JOIN track_edits te ON te.track_id = t.id
+    LEFT JOIN album_tracks am ON am.track_id = t.id
     LEFT JOIN albums a ON a.id = am.album_id
-    WHERE pt.playlist_id = ?1
-    ORDER BY pt.position";
+    WHERE t.id = ?1";
 
 /// Maps one result row into a PlaylistExportRow. The column order matches PLAYLIST_EXPORT_SELECT.
 fn playlist_export_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<PlaylistExportRow> {
@@ -2093,16 +2134,27 @@ fn playlist_export_row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<Playl
     })
 }
 
-/// Every slot of one playlist, shaped for export and ordered by position. The playlist export plan
-/// resolves each slot's tags from these rows.
+/// Every track one playlist plays, shaped for export and in play order: the playlist_expanded order,
+/// so an album entry exports as its members. The playlist export plan resolves each track's tags from
+/// these rows.
 pub fn load_playlist_export_tracks(
     conn: &Connection,
     playlist_id: i64,
 ) -> rusqlite::Result<Vec<PlaylistExportRow>> {
     let mut stmt = conn.prepare(PLAYLIST_EXPORT_SELECT)?;
-    let rows = stmt
-        .query_map(params![playlist_id], playlist_export_row_from_sql)?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut by_track: HashMap<i64, PlaylistExportRow> = HashMap::new();
+    let mut rows = Vec::new();
+    for slot in playlist_expanded(conn, playlist_id)? {
+        let row = match by_track.get(&slot.track_id) {
+            Some(row) => row.clone(),
+            None => {
+                let row = stmt.query_row(params![slot.track_id], playlist_export_row_from_sql)?;
+                by_track.insert(slot.track_id, row.clone());
+                row
+            }
+        };
+        rows.push(row);
+    }
     Ok(rows)
 }
 

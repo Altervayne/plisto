@@ -1,10 +1,10 @@
 /*
  * The IPC command surface for playlists: create, rename and delete a playlist, set its description
- * and cover, append tracks as new slots, remove slots by their synthetic id, and reorder. The cover
- * reuses the album cover pipeline: decode and cache off the runtime thread, then write the manifest
- * row and the binding together, exactly as set_album_cover does. A playlist is the one multi-membership
- * container - the same track may sit in it more than once - so every membership op keys on the slot
- * id, not the track_id. Every write takes the shared read connection's Mutex, the same single writer
+ * and cover, append tracks as new slots and albums as album entries, unpack an entry, remove slots by
+ * their synthetic id, and reorder. The cover reuses the album cover pipeline: decode and cache off the
+ * runtime thread, then write the manifest row and the binding together, exactly as set_album_cover
+ * does. A playlist is the one multi-membership container - the same track may sit in it more than
+ * once - so every membership op keys on the slot id, not the track_id. Every write takes the shared read connection's Mutex, the same single writer
  * the album and cover commands use, and each multi-statement command runs in one transaction.
  * load_playlists is the load-all snapshot the frontend hydrates its playlist state from.
  */
@@ -81,6 +81,57 @@ pub fn add_tracks_to_playlist(
         .map_err(|_| "index is unavailable".to_string())?;
     db::add_tracks_to_playlist(&mut conn, playlist_id, &track_ids, super::now_unix())
         .map_err(|e| e.to_string())
+}
+
+/// Appends albums to a playlist as album entries after its current last position. A single is
+/// appended as a track slot of its member.
+#[tauri::command]
+pub fn add_albums_to_playlist(
+    playlist_id: i64,
+    album_ids: Vec<i64>,
+    keep_order: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::add_albums_to_playlist(
+        &mut conn,
+        playlist_id,
+        &album_ids,
+        keep_order,
+        super::now_unix(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Sets whether an album entry keeps its album's tracks together in the queue.
+#[tauri::command]
+pub fn set_playlist_entry_keep_order(
+    slot_id: i64,
+    keep_order: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::set_entry_keep_order(&mut conn, slot_id, keep_order, super::now_unix())
+        .map_err(|e| e.to_string())
+}
+
+/// Replaces an album entry by its tracks as slots, in album order and at the entry's place.
+#[tauri::command]
+pub fn unpack_playlist_album_entry(
+    slot_id: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    db::unpack_album_entry(&mut conn, slot_id, super::now_unix()).map_err(|e| e.to_string())
 }
 
 /// Removes slots from their playlist by slot id. The remaining slots keep their positions; gaps are

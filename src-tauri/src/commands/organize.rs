@@ -130,15 +130,16 @@ pub fn create_single(track_id: i64, state: State<'_, AppState>) -> Result<AlbumR
     db::create_single(&mut conn, track_id, super::now_unix()).map_err(|e| e.to_string())
 }
 
-/// Deletes an album. Membership cascades away; the tracks themselves stay and fall back to loose.
-/// A single is a plain album row, so this un-singles it too: its one member falls back to loose.
+/// Deletes an album. Its playlist entries become its tracks, membership cascades away, and the
+/// tracks themselves stay and fall back to loose. A single is a plain album row, so this un-singles
+/// it too: its one member falls back to loose.
 #[tauri::command]
 pub fn delete_album(album_id: i64, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state
+    let mut conn = state
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::delete_album(&conn, album_id).map_err(|e| e.to_string())
+    db::delete_album(&mut conn, album_id).map_err(|e| e.to_string())
 }
 
 /// Assigns tracks to an album under single membership: a track already elsewhere moves here, a
@@ -814,7 +815,7 @@ mod tests {
         let album =
             db::create_album(&mut conn, None, None, None, None, None, &[t], "album", 1).unwrap();
 
-        db::delete_album(&conn, album.id).unwrap();
+        db::delete_album(&mut conn, album.id).unwrap();
 
         assert!(db::load_album_tracks(&conn).unwrap().is_empty());
         let tracks: i64 = conn
@@ -871,7 +872,7 @@ mod tests {
         let single = db::create_single(&mut conn, t, 1).unwrap();
         assert_eq!(single.kind, "single");
 
-        db::delete_album(&conn, single.id).unwrap();
+        db::delete_album(&mut conn, single.id).unwrap();
 
         assert!(
             db::load_album_tracks(&conn).unwrap().is_empty(),

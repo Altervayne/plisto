@@ -738,7 +738,8 @@ pub struct OrganizationSnapshot {
     pub genres: Vec<GenreRow>,
 }
 
-/// One playlist shaped for the frontend, with `track_count` from a COUNT join over its slots. `name`
+/// One playlist shaped for the frontend, with `track_count` the tracks it plays: its track slots plus
+/// the members of its album entries. `name`
 /// is nullable (NULL = unset, resolved to a display default in the UI like albums.title, never an
 /// empty string); `description` is the same, its optional blurb. `cover_id` points into the shared
 /// `covers` manifest or is None, the way `albums.cover_id` does. Mirrors PlaylistRow in types.ts.
@@ -776,13 +777,28 @@ pub struct PlaylistTrackRow {
     pub missing_at: Option<i64>,
 }
 
-/// The load-all playlist payload: every playlist (each with its slot count) and every slot across
-/// them in playlist-then-position order. The frontend hydrates its playlist state from this in one
-/// call, the way OrganizationSnapshot feeds the organize view. Mirrors PlaylistSnapshot in types.ts.
+/// One album entry of a playlist: a slot that plays the album's live member list in album order. `id`
+/// is the slot id, shared with track slots, and `position` orders it among them, ties broken by slot
+/// id. `keep_order` keeps the album's tracks together in the queue. Sent to the frontend inside
+/// PlaylistSnapshot.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaylistAlbumEntryRow {
+    pub id: i64,
+    pub playlist_id: i64,
+    pub album_id: i64,
+    pub position: i64,
+    pub keep_order: bool,
+}
+
+/// The load-all playlist payload: every playlist (each with its track count), every track slot and
+/// every album entry across them, each list in playlist, position, slot id order. The frontend
+/// hydrates its playlist state from this in one call, the way OrganizationSnapshot feeds the organize
+/// view.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlaylistSnapshot {
     pub playlists: Vec<PlaylistRow>,
     pub tracks: Vec<PlaylistTrackRow>,
+    pub album_entries: Vec<PlaylistAlbumEntryRow>,
 }
 
 /// The result of writing an in-place playlist `.m3u8`: `written` is how many slots the file lists,
