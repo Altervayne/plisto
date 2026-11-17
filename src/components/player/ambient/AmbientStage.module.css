@@ -156,11 +156,11 @@
 }
 
 /* Dark gives the secondary lines a step more ink so they read over a bright bloom. */
-:root[data-theme="dark"] .artist {
+[data-theme="dark"] .artist {
   color: var(--ink);
 }
 
-:root[data-theme="dark"] .albumLine {
+[data-theme="dark"] .albumLine {
   color: var(--ink-2);
 }
 

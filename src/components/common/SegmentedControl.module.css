@@ -90,7 +90,7 @@
 }
 
 /* Dark drops the raised surface for a veil fill: a lift by shadow reads wrong on the dark ground. */
-:root[data-theme="dark"] .active {
+[data-theme="dark"] .active {
   background: var(--veil-2);
   box-shadow: none;
 }

@@ -9,6 +9,7 @@ import { MenuSidePanel } from "./MenuSidePanel";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../../hooks/useMountTransition";
+import { schemeStamp, usePanelScheme } from "../../../theme/scheme";
 
 // -- Utils Imports --
 import { placeMenu } from "./menuGeometry";
@@ -68,6 +69,7 @@ export function ContextMenu({
   /** Grows an axis back from (x, y) even when there is room: a menu hung from a trigger's edge. */
   forceFlip?: { x?: boolean; y?: boolean };
 }) {
+  const scheme = usePanelScheme();
   const top = topActions ?? [];
   const list = items ?? [];
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -352,6 +354,7 @@ export function ContextMenu({
       role="menu"
       aria-label={ariaLabel}
       className={styles.menu}
+      {...schemeStamp(scheme)}
       data-ready={coords ? "" : undefined}
       data-state={menu.state}
       style={{ left: coords?.left ?? 0, top: coords?.top ?? 0, transformOrigin: coords?.origin }}

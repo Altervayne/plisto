@@ -33,10 +33,12 @@ import { useVisualizerCatalog } from "../../../state/preferences/store";
 import { usePlayerActions, usePlayerStatus, useSeatedStream } from "../../../state/player/store";
 import { showsScrubber, waitingPhase } from "../../../state/player/streamView";
 import { nextOfferedKind } from "../../../state/player/visualizerCatalog";
-import type { VisualizerKind } from "../../../state/player/visualizerKind";
+import { isDarkOnly, type VisualizerKind } from "../../../state/player/visualizerKind";
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
 
 // -- Local Imports --
+import { panelScheme, useSchemeSwap } from "../panelScheme";
+import { PanelSchemeContext, schemeStamp } from "../../../theme/scheme";
 import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
 import { useIsWarm } from "../visualizers/gl/warmState";
 import { waitWord } from "../streamWords";
@@ -126,107 +128,114 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   useAmbientKeys({ stage: stageRef, onExit, onCycle: cycle, onTogglePlay: actions.toggle, onWake: wake });
 
   const fade = faded ? "" : undefined;
+  // A dark-only kind makes the stage a dark island in either theme.
+  const darkOnly = isDarkOnly(shown);
+  const scheme = panelScheme(darkOnly);
+  const swap = useSchemeSwap(darkOnly);
   // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.
   let drawnTile: string | null = null;
   if (shown === "liquid") drawnTile = styles.liquidTile;
   else if (shown === "dot-cover") drawnTile = styles.dotTile;
 
   return createPortal(
-    <div
-      ref={stageRef}
-      className={styles.stage}
-      tabIndex={-1}
-      role="region"
-      aria-label={t((d) => d.player.ambientMode)}
-      data-faded={fade}
-      data-legible={shown !== "off" ? "" : undefined}
-      onPointerMove={wake}
-      onPointerDown={wake}
-    >
-      <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} eased />
-      <Visualizer
-        choice={choice}
-        trackId={trackId}
-        ambient
-        coverRef={coverRef}
-        floorRef={seekRef}
-        hushRefs={hushRefs}
-      />
-      <LegibilityScrim active={shown !== "off"} floorRef={seekRef} ambient faded={faded} />
+    <PanelSchemeContext.Provider value={scheme}>
+      <div
+        ref={stageRef}
+        className={swap ? `${styles.stage} ${swap}` : styles.stage}
+        tabIndex={-1}
+        role="region"
+        aria-label={t((d) => d.player.ambientMode)}
+        {...schemeStamp(scheme)}
+        data-faded={fade}
+        data-legible={shown !== "off" ? "" : undefined}
+        onPointerMove={wake}
+        onPointerDown={wake}
+      >
+        <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} eased />
+        <Visualizer
+          choice={choice}
+          trackId={trackId}
+          ambient
+          coverRef={coverRef}
+          floorRef={seekRef}
+          hushRefs={hushRefs}
+        />
+        <LegibilityScrim active={shown !== "off"} floorRef={seekRef} ambient faded={faded} />
 
-      <div className={styles.body} data-lifted={sheetOpen ? "" : undefined}>
-        <span ref={coverRef} className={styles.cover}>
-          <span className={styles.coverArt} data-drawn={drawnTile ? "" : undefined}>
-            {coverSrc ? (
-              <Cover src={coverSrc} alt="" />
-            ) : (
-              <span className={styles.noCover} aria-hidden="true">
-                <Music size={72} strokeWidth={1.2} />
-              </span>
-            )}
+        <div className={styles.body} data-lifted={sheetOpen ? "" : undefined}>
+          <span ref={coverRef} className={styles.cover}>
+            <span className={styles.coverArt} data-drawn={drawnTile ? "" : undefined}>
+              {coverSrc ? (
+                <Cover src={coverSrc} alt="" />
+              ) : (
+                <span className={styles.noCover} aria-hidden="true">
+                  <Music size={72} strokeWidth={1.2} />
+                </span>
+              )}
+            </span>
+            {drawnTile ? <span className={drawnTile} aria-hidden="true" /> : null}
           </span>
-          {drawnTile ? <span className={drawnTile} aria-hidden="true" /> : null}
-        </span>
-        <AmbientText trackId={trackId} faded={faded} textRef={textRef} />
-      </div>
-
-      <div className={styles.pill} data-place="hint" data-gone={hint ? undefined : ""} aria-hidden={!hint}>
-        <kbd className={styles.kbd}>{t((d) => d.shortcuts.keys.esc)}</kbd>
-        {t((d) => d.player.ambientExitHint)}
-      </div>
-      {toast ? (
-        <div
-          key={toast.id}
-          className={styles.pill}
-          data-place="toast"
-          data-gone={toast.gone ? "" : undefined}
-          role="status"
-        >
-          <Waves size={15} strokeWidth={1.8} aria-hidden="true" />
-          <span>
-            {toastLoading
-              ? t((d) => d.player.visualizerToastLoading, { name: toast.name })
-              : t((d) => d.player.visualizerToast, { name: toast.label })}
-          </span>
+          <AmbientText trackId={trackId} faded={faded} textRef={textRef} />
         </div>
-      ) : null}
 
-      <div className={styles.exit} data-faded={fade}>
-        <kbd className={styles.kbd}>{t((d) => d.shortcuts.keys.esc)}</kbd>
-        <IconButton aria-label={t((d) => d.player.exitAmbient)} onClick={onExit}>
-          <Minimize2 size={20} strokeWidth={1.8} />
-        </IconButton>
-      </div>
-
-      <VisualizerSheet place="ambient" trackId={trackId} fallback={choice.fallback} />
-
-      <div className={styles.chrome} data-faded={fade}>
-        <div ref={seekRef} className={styles.seek}>
-          <SeekBar
-            position={status.position_secs}
-            duration={status.duration_secs}
-            onSeek={actions.seek}
-            listenedOnly={stream != null && !showsScrubber(stream, status.duration_secs)}
-            note={wait ? waitWord(t, wait) : null}
-          />
+        <div className={styles.pill} data-place="hint" data-gone={hint ? undefined : ""} aria-hidden={!hint}>
+          <kbd className={styles.kbd}>{t((d) => d.shortcuts.keys.esc)}</kbd>
+          {t((d) => d.player.ambientExitHint)}
         </div>
-        <div className={styles.row}>
-          <UpNextGlance active={status.track_id != null && stream == null} />
-          <AmbientTransport />
-          <div className={styles.right}>
-            <IconButton
-              aria-label={t((d) => d.player.visualizer)}
-              onClick={(e) => useVisualizerSheet.getState().toggle(e.currentTarget)}
-              aria-haspopup="menu"
-              aria-expanded={sheetOpen}
-            >
-              <Waves size={20} strokeWidth={1.8} />
-            </IconButton>
-            <Volume volume={status.volume} />
+        {toast ? (
+          <div
+            key={toast.id}
+            className={styles.pill}
+            data-place="toast"
+            data-gone={toast.gone ? "" : undefined}
+            role="status"
+          >
+            <Waves size={15} strokeWidth={1.8} aria-hidden="true" />
+            <span>
+              {toastLoading
+                ? t((d) => d.player.visualizerToastLoading, { name: toast.name })
+                : t((d) => d.player.visualizerToast, { name: toast.label })}
+            </span>
+          </div>
+        ) : null}
+
+        <div className={styles.exit} data-faded={fade}>
+          <kbd className={styles.kbd}>{t((d) => d.shortcuts.keys.esc)}</kbd>
+          <IconButton aria-label={t((d) => d.player.exitAmbient)} onClick={onExit}>
+            <Minimize2 size={20} strokeWidth={1.8} />
+          </IconButton>
+        </div>
+
+        <VisualizerSheet place="ambient" trackId={trackId} fallback={choice.fallback} />
+
+        <div className={styles.chrome} data-faded={fade}>
+          <div ref={seekRef} className={styles.seek}>
+            <SeekBar
+              position={status.position_secs}
+              duration={status.duration_secs}
+              onSeek={actions.seek}
+              listenedOnly={stream != null && !showsScrubber(stream, status.duration_secs)}
+              note={wait ? waitWord(t, wait) : null}
+            />
+          </div>
+          <div className={styles.row}>
+            <UpNextGlance active={status.track_id != null && stream == null} />
+            <AmbientTransport />
+            <div className={styles.right}>
+              <IconButton
+                aria-label={t((d) => d.player.visualizer)}
+                onClick={(e) => useVisualizerSheet.getState().toggle(e.currentTarget)}
+                aria-haspopup="menu"
+                aria-expanded={sheetOpen}
+              >
+                <Waves size={20} strokeWidth={1.8} />
+              </IconButton>
+              <Volume volume={status.volume} />
+            </div>
           </div>
         </div>
       </div>
-    </div>,
+    </PanelSchemeContext.Provider>,
     document.body,
   );
 }

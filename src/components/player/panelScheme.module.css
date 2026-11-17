@@ -1,0 +1,19 @@
+/* Softens the flip of a dark island: while a panel or stage carries this class, its colours ease over 0.3s
+ * instead of cutting. :where() keeps the specificity at zero, so any element with its own transition keeps it. */
+:where(.swap, .swap *) {
+  transition:
+    color 0.3s var(--ease-standard),
+    background-color 0.3s var(--ease-standard),
+    border-color 0.3s var(--ease-standard),
+    outline-color 0.3s var(--ease-standard),
+    text-decoration-color 0.3s var(--ease-standard),
+    fill 0.3s var(--ease-standard),
+    stroke 0.3s var(--ease-standard),
+    box-shadow 0.3s var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.swap, .swap *) {
+    transition: none;
+  }
+}

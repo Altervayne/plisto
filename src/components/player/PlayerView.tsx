@@ -21,6 +21,11 @@ import { useVisualizerChoice } from "./visualizers/useVisualizerChoice";
 
 // -- State Imports --
 import { useCurrentTrackId, useStreamArtRev } from "../../state/player/store";
+import { isDarkOnly } from "../../state/player/visualizerKind";
+
+// -- Local Imports --
+import { panelScheme, useSchemeSwap } from "./panelScheme";
+import { PanelSchemeContext, schemeStamp } from "../../theme/scheme";
 
 // -- Type Imports --
 import type { Ref } from "react";
@@ -141,39 +146,49 @@ function PlayerStage({
   else if (!ambient && shown === "dot-cover") drawnArt = "dots";
   // Any drawn visualizer sits behind the labels, so they take the legible treatment while one runs.
   const legible = !ambient && shown !== "off";
+  // A dark-only kind makes the panel a dark island in either theme.
+  const darkOnly = isDarkOnly(shown);
+  const scheme = panelScheme(darkOnly);
+  const swap = useSchemeSwap(darkOnly);
 
   return (
-    <div ref={panelRef} className={`${styles.panel} ${styles.view}`}>
-      <CoverBackdrop src={coverSrc} className={styles.glow} />
-      {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} />}
-      {ambient ? null : (
-        <Visualizer
-          choice={choice}
-          trackId={trackId}
-          coverRef={coverRef}
-          maskRef={heroRef}
-          floorRef={seekRef}
-          hushRefs={hushRefs}
-        />
-      )}
-      <LegibilityScrim active={legible} floorRef={seekRef} />
-      <div className={styles.content}>
-        <PlayerHero
-          trackId={trackId}
-          onNavigate={onNavigate}
-          coverRef={coverRef}
-          heroRef={heroRef}
-          seekRef={seekRef}
-          sourceRef={sourceRef}
-          textRef={textRef}
-          drawnArt={drawnArt}
-          legible={legible}
-          onEnterAmbient={onEnterAmbient}
-          ambientRef={entryRef}
-        />
-        <QueueList />
+    <PanelSchemeContext.Provider value={scheme}>
+      <div
+        ref={panelRef}
+        className={swap ? `${styles.panel} ${styles.view} ${swap}` : `${styles.panel} ${styles.view}`}
+        {...schemeStamp(scheme)}
+      >
+        <CoverBackdrop src={coverSrc} className={styles.glow} />
+        {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} />}
+        {ambient ? null : (
+          <Visualizer
+            choice={choice}
+            trackId={trackId}
+            coverRef={coverRef}
+            maskRef={heroRef}
+            floorRef={seekRef}
+            hushRefs={hushRefs}
+          />
+        )}
+        <LegibilityScrim active={legible} floorRef={seekRef} />
+        <div className={styles.content}>
+          <PlayerHero
+            trackId={trackId}
+            onNavigate={onNavigate}
+            coverRef={coverRef}
+            heroRef={heroRef}
+            seekRef={seekRef}
+            sourceRef={sourceRef}
+            textRef={textRef}
+            drawnArt={drawnArt}
+            legible={legible}
+            onEnterAmbient={onEnterAmbient}
+            ambientRef={entryRef}
+          />
+          <QueueList />
+        </div>
+        {ambient ? null : <VisualizerSheet place="player" trackId={trackId} fallback={choice.fallback} />}
       </div>
-      {ambient ? null : <VisualizerSheet place="player" trackId={trackId} fallback={choice.fallback} />}
-    </div>
+    </PanelSchemeContext.Provider>
   );
 }

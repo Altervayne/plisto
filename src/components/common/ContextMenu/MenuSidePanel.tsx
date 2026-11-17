@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../../hooks/useMountTransition";
+import { schemeStamp, usePanelScheme } from "../../../theme/scheme";
 
 // -- Utils Imports --
 import { placeBeside } from "./menuGeometry";
@@ -48,6 +49,7 @@ export function MenuSidePanel({
   onBack: () => void;
   children: ReactNode;
 }) {
+  const scheme = usePanelScheme();
   const [coords, setCoords] = useState<Point | null>(null);
   const panel = useMountTransition(open, EXIT_MS);
 
@@ -99,6 +101,7 @@ export function MenuSidePanel({
       aria-label={label}
       tabIndex={-1}
       className={styles.panel}
+      {...schemeStamp(scheme)}
       data-ready={coords ? "" : undefined}
       data-state={panel.state}
       style={{ left: coords?.x ?? 0, top: coords?.y ?? 0 }}

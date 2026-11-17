@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 // -- Unit Imports --
 import { ContextMenu } from "./ContextMenu";
+import { PanelSchemeContext } from "../../../theme/scheme";
 
 vi.mock("react-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-dom")>()),
@@ -23,6 +24,24 @@ const render = (checked?: boolean) =>
       items={[{ label: "Keep", onSelect: () => {}, checked }]}
     />,
   );
+
+describe("ContextMenu colour scheme", () => {
+  const html = (scheme: "dark" | null) =>
+    renderToStaticMarkup(
+      <PanelSchemeContext.Provider value={scheme}>
+        <ContextMenu open x={0} y={0} onClose={() => {}} items={[{ label: "Keep", onSelect: () => {} }]} />
+      </PanelSchemeContext.Provider>,
+    );
+
+  it("stamps its root dark inside a dark island", () => {
+    expect(html("dark")).toMatch(/<div[^>]*role="menu"[^>]*data-theme="dark"/);
+  });
+
+  it("carries no stamp without an island", () => {
+    expect(html(null)).not.toContain("data-theme");
+    expect(render()).not.toContain("data-theme");
+  });
+});
 
 describe("ContextMenu setting row", () => {
   it("is a checkbox item whose state follows the prop", () => {

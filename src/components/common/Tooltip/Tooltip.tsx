@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../../hooks/useMountTransition";
+import { schemeStamp, usePanelScheme } from "../../../theme/scheme";
 
 // -- Utils Imports --
 import { placeTooltip } from "./tooltipGeometry";
@@ -56,6 +57,7 @@ export function Tooltip({
   children: ReactElement<TriggerProps>;
 }) {
   const id = useId();
+  const scheme = usePanelScheme();
   const triggerRef = useRef<HTMLElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const timer = useRef<number | null>(null);
@@ -161,6 +163,7 @@ export function Tooltip({
             id={id}
             role="tooltip"
             className={styles.bubble}
+            {...schemeStamp(scheme)}
             data-ready={coords ? "" : undefined}
             data-state={bubble.state}
             style={{ left: coords?.left ?? 0, top: coords?.top ?? 0 }}

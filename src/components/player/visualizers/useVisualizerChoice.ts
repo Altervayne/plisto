@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { RefObject } from "react";
 
 // -- Hook Imports --
@@ -16,7 +16,9 @@ import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../sta
 import { useVisualizerPreview } from "../../../state/player/visualizerSheet";
 import type { DipReason } from "../../../state/player/visualizerDip";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
+import { isDarkTheme, subscribeTheme } from "../../../theme";
 import {
+  isDarkOnly,
   needsCoverPixels,
   type Reactivity,
   type SpectrumLayout,
@@ -102,7 +104,9 @@ export function useVisualizerChoice(
   const wantsCover = needsCoverPixels(aimed) || needsCoverPixels(picked) || needsCoverPixels(shown);
   const cover = useCoverPixels(wantsCover ? coverSrc : null);
   const seedWanted = wantsCover && (status === "coverless" || (status === "present" && cover.state === "absent"));
-  const seed = useCoverSeed(seedWanted ? trackId : null);
+  // Keyed on the aimed kind, so the seed a dark-only kind needs builds before the swap.
+  const rootDark = useSyncExternalStore(subscribeTheme, isDarkTheme);
+  const seed = useCoverSeed(seedWanted ? trackId : null, rootDark || isDarkOnly(aimed));
   const composed = wantsCover ? composePixels(cover, seed, status) : cover;
   // The cover kinds draw nothing without pixels, so a pending switch between cover and seed keeps the
   // last art on screen until the next lands.

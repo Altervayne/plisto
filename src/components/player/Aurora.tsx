@@ -15,6 +15,7 @@ import type { PaletteTone } from "../covers/paletteTone";
 // -- Hook Imports --
 import { useCoverPalette, type Palette } from "../covers/useCoverPalette";
 import { seedPalette } from "./visualizers/coverSeed";
+import { isDarkScheme, usePanelScheme } from "../../theme/scheme";
 
 // -- Type Imports --
 import { BAND_COUNT } from "../../types";
@@ -144,6 +145,11 @@ export function Aurora({
 }) {
   const easedRef = useRef(eased);
   easedRef.current = eased;
+  // A dark island blends as dark whatever the root theme is.
+  const scheme = usePanelScheme();
+  const schemeRef = useRef(scheme);
+  schemeRef.current = scheme;
+  const sceneDark = () => isDarkScheme(schemeRef.current, isDarkTheme());
   const coverPalette = useCoverPalette(trackId, useStreamArtRev());
   // Memoized: the paint loop crossfades on a palette identity change.
   const seeded = useMemo(() => (coverless ? seedPalette(trackId) : null), [coverless, trackId]);
@@ -188,7 +194,7 @@ export function Aurora({
     canvas.height = BACK_H;
     canvas.style.filter = `blur(${AURORA_BLUR_PX}px)`;
 
-    let isDark = isDarkTheme();
+    let isDark = sceneDark();
 
     // Paints the field at a given drift time, energy and crossfade mix, then sets the layer's blend
     // and opacity. The blooms add under "lighter" so they build one continuous wash.
@@ -241,7 +247,7 @@ export function Aurora({
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       // One still frame: base composition, base radii, no breath. Repaint only on the seams.
       const still = () => {
-        isDark = isDarkTheme();
+        isDark = sceneDark();
         const d = derivePaletteTone(paletteRef.current, isDark, BLOOMS.length);
         paint(0, 0, d, d, 1);
       };
@@ -273,6 +279,7 @@ export function Aurora({
     let consumed = paletteRef.current;
 
     let tick = 0;
+    let seenScheme = schemeRef.current;
     let raf = 0;
     let lastDraw = performance.now();
     const frameInterval = 1000 / AURORA_FPS;
@@ -283,9 +290,11 @@ export function Aurora({
       const dt = (now - lastDraw) / 1000;
       lastDraw = now;
 
-      // Re-read the theme now and then so a swap retints without a matchMedia every frame.
-      if (tick++ % 30 === 0) {
-        const nextDark = isDarkTheme();
+      // Re-read the theme now and then so a swap retints without a matchMedia every frame, and at once
+      // when the panel's scheme flips.
+      if (tick++ % 30 === 0 || seenScheme !== schemeRef.current) {
+        seenScheme = schemeRef.current;
+        const nextDark = sceneDark();
         if (nextDark !== isDark) {
           isDark = nextDark;
           to = derivePaletteTone(consumed, isDark, BLOOMS.length);
@@ -319,10 +328,11 @@ export function Aurora({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Reduced motion repaints its still frame when the palette changes; a no-op while animating.
+  // Reduced motion repaints its still frame when the palette or the panel's scheme changes; a no-op
+  // while animating.
   useEffect(() => {
     repaintRef.current?.();
-  }, [palette]);
+  }, [palette, scheme]);
 
   return <canvas ref={canvasRef} className={styles.aurora} aria-hidden="true" />;
 }

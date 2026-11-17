@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 // -- Local Imports --
+import { isDarkScheme, usePanelScheme } from "../../../../theme/scheme";
 import { VisualizerGlyph } from "../VisualizerGlyph";
 import { VISUALIZER_VIEWS, thumbFor } from "../visualizerViews";
 
@@ -35,9 +36,10 @@ interface KindTileProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "r
  */
 export function KindTile({ kind, checked, width, tag, loading, style, ...rest }: KindTileProps) {
   const t = useT();
-  // Subscribed so the still follows a theme change; isDarkTheme resolves "system".
+  // Subscribed so the still follows a theme change; isDarkTheme resolves "system". A dark island reads dark either way.
   useTheme();
-  const src = thumbFor(kind, isDarkTheme() ? "dark" : "light");
+  const scheme = usePanelScheme();
+  const src = thumbFor(kind, isDarkScheme(scheme, isDarkTheme()) ? "dark" : "light");
   return (
     <button
       {...rest}

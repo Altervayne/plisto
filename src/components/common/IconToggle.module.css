@@ -57,8 +57,8 @@
   }
 }
 
-:root[data-theme="dark"] .toggle[aria-pressed="true"],
-:root[data-theme="dark"] .toggle[aria-pressed="true"]:hover {
+[data-theme="dark"] .toggle[aria-pressed="true"],
+[data-theme="dark"] .toggle[aria-pressed="true"]:hover {
   background: var(--veil-2);
   box-shadow: none;
 }

@@ -192,9 +192,9 @@
 }
 
 /* Dark gives the secondary lines full ink so they read over a bright bloom; size and weight hold the hierarchy. */
-:root[data-theme="dark"] .artist,
-:root[data-theme="dark"] .sourceName,
-:root[data-theme="dark"] .sourceNamePlain {
+[data-theme="dark"] .artist,
+[data-theme="dark"] .sourceName,
+[data-theme="dark"] .sourceNamePlain {
   color: var(--ink);
 }
 

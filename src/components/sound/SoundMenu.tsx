@@ -8,6 +8,9 @@ import { IconToggle } from "../common/IconToggle";
 import { EqIndicator } from "./EqIndicator";
 import { SoundPopover } from "./SoundPopover";
 
+// -- Utils Imports --
+import { schemeStamp, usePanelScheme } from "../../theme/scheme";
+
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
@@ -51,6 +54,7 @@ export function SoundMenu({
   alignRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
+  const scheme = usePanelScheme();
   const wrapRef = useRef<HTMLSpanElement | null>(null);
   const buttonRef = useRef<HTMLSpanElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -130,6 +134,7 @@ export function SoundMenu({
             <div
               ref={layerRef}
               className={styles.layer}
+              {...schemeStamp(scheme)}
               style={{ bottom: spot.bottom, left: spot.left }}
             >
               <SoundPopover onClose={() => setOpen(false)} />

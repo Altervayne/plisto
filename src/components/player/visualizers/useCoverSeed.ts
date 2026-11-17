@@ -1,8 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useState, useSyncExternalStore } from "react";
-
-// -- Utils Imports --
-import { isDarkTheme, subscribeTheme } from "../../../theme";
+import { useEffect, useState } from "react";
 
 // -- Local Imports --
 import { seedLayout } from "./coverSeed";
@@ -16,7 +13,7 @@ const SIDE = 512;
 const CACHE_SIZE = 6;
 const cache = new Map<string, ImageBitmap>();
 
-function seedKey(trackId: number, dark: boolean): string {
+export function seedKey(trackId: number, dark: boolean): string {
   return `${trackId}:${dark ? "dark" : "light"}`;
 }
 
@@ -48,12 +45,12 @@ export function seedPixelState(
 }
 
 /**
- * The generated image of track `trackId` as a texture source; absent while it is null. A new track or
- * theme keeps the previous pixels until its own arrive, reported as pending. A failed build reports absent
- * and is retried the next time it is asked for.
+ * The generated image of track `trackId` as a texture source, painted for the dark or the light look
+ * according to `dark`; absent while the track is null. A new track or look keeps the previous pixels until
+ * its own arrive, reported as pending. A failed build reports absent and is retried the next time it is
+ * asked for.
  */
-export function useCoverSeed(trackId: number | null): CoverPixels {
-  const dark = useSyncExternalStore(subscribeTheme, isDarkTheme);
+export function useCoverSeed(trackId: number | null, dark: boolean): CoverPixels {
   const [loaded, setLoaded] = useState<{ key: string; bitmap: ImageBitmap } | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const key = trackId == null ? null : seedKey(trackId, dark);

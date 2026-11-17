@@ -208,8 +208,9 @@
   }
 }
 
-/* Dark via explicit stamp, so a manual toggle wins regardless of system setting. */
-:root[data-theme="dark"] {
+/* Dark via explicit stamp, so a manual toggle wins regardless of system setting. Matches any element, so a
+ * stamped subtree (a dark island inside the light shell) re-roots every token below it. */
+[data-theme="dark"] {
   --bg: #0c0c10;
   --surface: #17171d;
   --surface-2: #1c1c24;
@@ -292,4 +293,11 @@
     radial-gradient(70% 55% at 104% 2%, rgba(74, 142, 190, 0.12), transparent 52%),
     radial-gradient(74% 66% at 96% 106%, rgba(56, 150, 170, 0.11), transparent 56%),
     var(--bg);
+}
+
+/* An island re-roots the tokens, but inherited color holds the outer theme's resolved value, and the
+ * native controls follow color-scheme, so both are set here. The root is left as it was. */
+:not(:root)[data-theme="dark"] {
+  color: var(--ink);
+  color-scheme: dark;
 }
