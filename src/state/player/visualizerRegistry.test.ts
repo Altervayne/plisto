@@ -39,6 +39,8 @@ describe("blendFor", () => {
     "circuit-board": ["normal", "normal"],
     oscilloscope: ["normal", "normal"],
     hologram: ["normal", "normal"],
+    "gravitational-waves": ["normal", "normal"],
+    "ringed-planet": ["normal", "normal"],
   };
 
   it("gives every GL kind the blend the renderer composites in each theme", () => {
@@ -81,6 +83,8 @@ describe("fillsStage", () => {
       "circuit-board",
       "oscilloscope",
       "hologram",
+      "gravitational-waves",
+      "ringed-planet",
     ]);
   });
 });
@@ -92,6 +96,13 @@ describe("darkOnly", () => {
 
   it("gives a dark-only kind the same blend in both themes", () => {
     for (const d of VISUALIZER_DESCRIPTORS.filter((k) => k.darkOnly)) expect(d.blend.light).toBe(d.blend.dark);
+  });
+
+  it("holds for the cosmic kinds and no others", () => {
+    expect(VISUALIZER_DESCRIPTORS.filter((d) => d.darkOnly).map((d) => d.id)).toEqual([
+      "gravitational-waves",
+      "ringed-planet",
+    ]);
   });
 });
 

@@ -140,6 +140,8 @@ describe("VisualizersSection", () => {
     expect(html).toContain(`aria-label="${en.player.visualizerGroupCozy}"`);
     expect(html).toContain(`aria-label="${en.player.visualizerGroupCyber}"`);
     expect(html).toContain(`aria-label="${en.player.visualizerHologram}"`);
+    expect(html).toContain(`aria-label="${en.player.visualizerGroupCosmic}"`);
+    expect(html).toContain(`aria-label="${en.player.visualizerRingedPlanet}"`);
   });
 
   it("disables every switch and says it is reading before the preferences load", () => {

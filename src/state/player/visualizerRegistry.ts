@@ -9,7 +9,7 @@ import type { Translate } from "../../i18n";
 import type { Dict } from "../../i18n/en";
 
 /** The picker's labelled sections, in order. */
-export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy", "cyber"] as const;
+export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy", "cyber", "cosmic"] as const;
 
 export type VisualizerGroupId = (typeof GROUP_ORDER)[number];
 
@@ -20,6 +20,7 @@ export const GROUP_LABELS: Record<VisualizerGroupId, (d: Dict) => string> = {
   fluid: (d) => d.player.visualizerGroupFluid,
   cozy: (d) => d.player.visualizerGroupCozy,
   cyber: (d) => d.player.visualizerGroupCyber,
+  cosmic: (d) => d.player.visualizerGroupCosmic,
 };
 
 /** A family's localized name. An id the registry does not name reads as itself. */
@@ -295,6 +296,25 @@ export const VISUALIZER_DESCRIPTORS = [
     needs: { fine: false, cover: true },
     fillsStage: true,
     darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  // The cosmic kinds are dark-only whole-stage scenes: in the light theme they draw their dark look.
+  {
+    id: "gravitational-waves",
+    group: "cosmic",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "ringed-planet",
+    group: "cosmic",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: true,
     blend: { light: "normal", dark: "normal" },
   },
 ] as const satisfies readonly VisualizerDescriptor[];

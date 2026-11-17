@@ -52,6 +52,8 @@ describe("visualizer descriptors", () => {
     ["circuit-board", "cyber", "gl", false, true, true, "normal", "normal", false],
     ["oscilloscope", "cyber", "gl", false, true, true, "normal", "normal", false],
     ["hologram", "cyber", "gl", false, true, true, "normal", "normal", false],
+    ["gravitational-waves", "cosmic", "gl", false, true, true, "normal", "normal", true],
+    ["ringed-planet", "cosmic", "gl", false, true, true, "normal", "normal", true],
   ];
 
   it("holds every kind's traits, in picker order", () => {
@@ -174,7 +176,7 @@ describe("effectiveVisualizerKind", () => {
     expect(effectiveVisualizerKind("neon-highway", noPixels)).toBe("neon-highway");
   });
 
-  it("falls back to Ridge without cover pixels for Pond, every cozy kind and the cyber kinds that draw the art", () => {
+  it("falls back to Ridge without cover pixels for Pond, every cozy kind and the cyber and cosmic kinds that draw the art", () => {
     const noPixels = { ...ok, coverPixels: false };
     const kinds = [
       "pond",
@@ -190,6 +192,8 @@ describe("effectiveVisualizerKind", () => {
       "circuit-board",
       "oscilloscope",
       "hologram",
+      "gravitational-waves",
+      "ringed-planet",
     ] as const;
     for (const kind of kinds) {
       expect(effectiveVisualizerKind(kind, noPixels)).toBe("ridge");
@@ -248,12 +252,14 @@ describe("needsCoverPixels", () => {
       "circuit-board",
       "oscilloscope",
       "hologram",
+      "gravitational-waves",
+      "ringed-planet",
     ]);
   });
 });
 
 describe("fillsStage", () => {
-  it("holds for the fluid, cozy and cyber kinds, which paint the whole stage", () => {
+  it("holds for the fluid, cozy, cyber and cosmic kinds, which paint the whole stage", () => {
     expect(VISUALIZER_KINDS.filter(fillsStage)).toEqual([
       "liquid",
       "ink",
@@ -273,6 +279,8 @@ describe("fillsStage", () => {
       "circuit-board",
       "oscilloscope",
       "hologram",
+      "gravitational-waves",
+      "ringed-planet",
     ]);
   });
 });

@@ -73,26 +73,31 @@ beforeEach(() => {
 
 describe("VisualizerSheet chips", () => {
   it("has no chip row with one family and Off", () => {
-    const html = renderSheet("train", [], ["classic", "dots", "fluid", "cyber"]);
+    const html = renderSheet("train", [], ["classic", "dots", "fluid", "cyber", "cosmic"]);
     expect(chipLabels(html)).toEqual([]);
     expect(html).toContain('data-group="cozy"');
     expect(html).toContain('data-group="off"');
   });
 
   it("has a chip row with two families and Off", () => {
-    const html = renderSheet("ridge", [], ["dots", "fluid", "cyber"]);
+    const html = renderSheet("ridge", [], ["dots", "fluid", "cyber", "cosmic"]);
     expect(chipLabels(html)).toEqual(["Classic", "Cozy", "Off"]);
   });
 
   it("lists the Cyber family after Cozy when it is on", () => {
-    const html = renderSheet("ridge", [], ["dots", "fluid"]);
+    const html = renderSheet("ridge", [], ["dots", "fluid", "cosmic"]);
     expect(chipLabels(html)).toEqual(["Classic", "Cozy", "Cyber", "Off"]);
+  });
+
+  it("lists the Cosmic family after Cyber when it is on", () => {
+    const html = renderSheet("ridge", [], ["dots", "fluid"]);
+    expect(chipLabels(html)).toEqual(["Classic", "Cozy", "Cyber", "Cosmic", "Off"]);
   });
 
   it("runs the strip over the offered families only, Off last", () => {
     const html = renderSheet("ridge", ["train"], ["dots"]);
     const groups = [...html.matchAll(/data-group="([^"]+)"/g)].map((m) => m[1]);
-    expect(groups).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
+    expect(groups).toEqual(["classic", "fluid", "cozy", "cyber", "cosmic", "off"]);
     expect(html).not.toContain('data-kind="train"');
   });
 });
@@ -173,6 +178,6 @@ describe("useSheetGroups", () => {
     const first = probe();
     setCatalog([], ["dots"]);
     expect(probe()).not.toBe(first);
-    expect(probe().map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
+    expect(probe().map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber", "cosmic", "off"]);
   });
 });

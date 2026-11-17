@@ -14,6 +14,7 @@ import { createDotCover, DOT_COVER_PROGRAMS } from "./gl/dotCover";
 import { createDotSpectrum, DOT_SPECTRUM_PROGRAMS } from "./gl/dotSpectrum";
 import { createFireflies, FIREFLIES_PROGRAMS } from "./gl/fireflies";
 import { createGlass, GLASS_PROGRAMS } from "./gl/glass";
+import { createGravitationalWaves, GRAVITATIONAL_WAVES_PROGRAMS } from "./gl/gravitationalWaves";
 import { createHalftone, HALFTONE_PROGRAMS } from "./gl/halftone";
 import { createHologram, HOLOGRAM_PROGRAMS } from "./gl/hologram";
 import { createInk, INK_PROGRAMS } from "./gl/ink";
@@ -26,6 +27,7 @@ import { createNeonHighway, NEON_HIGHWAY_PROGRAMS } from "./gl/neonHighway";
 import { createOscilloscope, OSCILLOSCOPE_PROGRAMS } from "./gl/oscilloscope";
 import { createPond, POND_PROGRAMS } from "./gl/pond";
 import { createRecord, RECORD_PROGRAMS } from "./gl/record";
+import { createRingedPlanet, RINGED_PLANET_PROGRAMS } from "./gl/ringedPlanet";
 import { createServerRoom, SERVER_ROOM_PROGRAMS } from "./gl/serverRoom";
 import { createSilk, SILK_PROGRAMS } from "./gl/silk";
 import { createSnowfall, SNOWFALL_PROGRAMS } from "./gl/snowfall";
@@ -390,6 +392,32 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
     factory: createHologram,
     programs: HOLOGRAM_PROGRAMS,
+  },
+  "gravitational-waves": {
+    label: (d) => d.player.visualizerGravitationalWaves,
+    glyph: (
+      <>
+        <g fill="currentColor" stroke="none">
+          <circle cx="10" cy="12" r="1.5" />
+          <circle cx="14" cy="12" r="1.5" />
+        </g>
+        <path d="M17.5 8.5a5 5 0 0 1 0 7M6.5 8.5a5 5 0 0 0 0 7" />
+        <path d="M19.8 6a8.5 8.5 0 0 1 0 12M4.2 6a8.5 8.5 0 0 0 0 12" opacity={0.6} />
+      </>
+    ),
+    factory: createGravitationalWaves,
+    programs: GRAVITATIONAL_WAVES_PROGRAMS,
+  },
+  "ringed-planet": {
+    label: (d) => d.player.visualizerRingedPlanet,
+    glyph: (
+      <>
+        <circle cx="12" cy="12" r="5.5" />
+        <ellipse cx="12" cy="12" rx="10" ry="3.2" transform="rotate(-20 12 12)" opacity={0.6} />
+      </>
+    ),
+    factory: createRingedPlanet,
+    programs: RINGED_PLANET_PROGRAMS,
   },
   off: {
     label: (d) => d.player.visualizerOff,

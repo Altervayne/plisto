@@ -69,7 +69,7 @@ describe("VisualizerPopover quiet line", () => {
 
 describe("VisualizerPopover tabs", () => {
   it("lists the offered families only", () => {
-    expect(tabs(render(album, none, off([], ["dots"])))).toEqual(["Classic", "Fluid", "Cozy", "Cyber"]);
+    expect(tabs(render(album, none, off([], ["dots"])))).toEqual(["Classic", "Fluid", "Cozy", "Cyber", "Cosmic"]);
   });
 
   it("drops a family with no offered kind", () => {
@@ -82,7 +82,7 @@ describe("VisualizerPopover tabs", () => {
   });
 
   it("opens on the first offered family when the stored kind's family is off", () => {
-    const html = render(album, { trackDefault: null, albumDefault: "glass" }, off([], ["classic", "cozy", "cyber"]));
+    const html = render(album, { trackDefault: null, albumDefault: "glass" }, off([], ["classic", "cozy", "cyber", "cosmic"]));
     expect(tabs(html)).toEqual(["Dots", "Fluid"]);
     expect(selected(html)).toBe("Dots");
   });

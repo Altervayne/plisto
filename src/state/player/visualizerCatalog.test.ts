@@ -205,7 +205,7 @@ describe("families", () => {
 
   it("offeredGroups drops a family with no offered kind and keeps registry order", () => {
     const c = catalog(kindsOf("dots"), ["fluid"]);
-    expect(offeredGroups(c).map((g) => g.id)).toEqual(["classic", "cozy", "cyber"]);
+    expect(offeredGroups(c).map((g) => g.id)).toEqual(["classic", "cozy", "cyber", "cosmic"]);
     expect(offeredGroups(c)[0].kinds).toEqual(kindsOf("classic"));
   });
 });
@@ -217,13 +217,33 @@ describe("a stored value from before the cyber family", () => {
   it("offers the cyber kinds, on and in registry order after the cozy kinds", () => {
     for (const id of cyber) expect(isOffered(older, id)).toBe(true);
     expect(kindsOf("cyber")).toEqual(cyber);
-    expect(older.offeredKinds.slice(-cyber.length)).toEqual(cyber);
-    expect(offeredGroups(older).map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber"]);
+    const cozyEnd = older.offeredKinds.indexOf("lake") + 1;
+    expect(older.offeredKinds.slice(cozyEnd, cozyEnd + cyber.length)).toEqual(cyber);
+    expect(offeredGroups(older).map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber", "cosmic"]);
     expect(familyState(older, "cyber")).toEqual({ state: "on", offered: cyber.length, total: cyber.length });
   });
 
   it("keeps the stored choices when written back", () => {
     expect(serializeCatalog(toggleKind(older, "hologram")!)).toBe('{"v":1,"kinds":["ink","hologram"],"groups":["dots"]}');
+  });
+});
+
+describe("a stored value from before the cosmic family", () => {
+  const cosmic = ["gravitational-waves", "ringed-planet"];
+  const older = catalog(["ink"], ["dots"]);
+
+  it("offers the cosmic kinds, on and in registry order after the cyber kinds", () => {
+    for (const id of cosmic) expect(isOffered(older, id)).toBe(true);
+    expect(kindsOf("cosmic")).toEqual(cosmic);
+    expect(older.offeredKinds.slice(-cosmic.length)).toEqual(cosmic);
+    expect(older.offeredKinds.indexOf("hologram")).toBe(older.offeredKinds.indexOf("gravitational-waves") - 1);
+    expect(familyState(older, "cosmic")).toEqual({ state: "on", offered: cosmic.length, total: cosmic.length });
+  });
+
+  it("keeps the stored choices when written back", () => {
+    expect(serializeCatalog(toggleKind(older, "ringed-planet")!)).toBe(
+      '{"v":1,"kinds":["ink","ringed-planet"],"groups":["dots"]}',
+    );
   });
 });
 
@@ -237,7 +257,7 @@ describe("last-on guard", () => {
 
   it("refuses to turn off the family holding the last kinds", () => {
     expect(toggleGroup(onlyRidge, "classic")).toBeNull();
-    const onlyCozy = catalog([], ["classic", "dots", "fluid", "cyber"]);
+    const onlyCozy = catalog([], ["classic", "dots", "fluid", "cyber", "cosmic"]);
     expect(toggleGroup(onlyCozy, "cozy")).toBeNull();
     expect(canTurnOff(onlyCozy, "group", "cozy")).toBe(false);
     expect(canTurnOff(onlyCozy, "kind", "train")).toBe(true);
@@ -282,7 +302,7 @@ describe("nextOfferedKind", () => {
   });
 
   it("ends at off and wraps", () => {
-    expect(nextOfferedKind(c, "hologram")).toBe("off");
+    expect(nextOfferedKind(c, "ringed-planet")).toBe("off");
     expect(nextOfferedKind(c, "off")).toBe("ridge");
   });
 

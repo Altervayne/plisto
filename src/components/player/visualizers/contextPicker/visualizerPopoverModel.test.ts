@@ -158,8 +158,14 @@ describe("visualizerPopoverModel", () => {
 describe("visualizerPopoverModel over a catalog", () => {
   it("tabs and markers cover the offered families only", () => {
     const m = visualizerPopoverModel(album, none, without([], ["dots"]));
-    expect(m.groups.map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber"]);
-    expect(Object.keys(m.markers)).toEqual(["classic", "fluid", "cozy", "cyber"]);
+    expect(m.groups.map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber", "cosmic"]);
+    expect(Object.keys(m.markers)).toEqual(["classic", "fluid", "cozy", "cyber", "cosmic"]);
+  });
+
+  it("opens the Cosmic tab for a stored cosmic kind", () => {
+    const m = visualizerPopoverModel(album, { trackDefault: null, albumDefault: "ringed-planet" });
+    expect(m.openTab).toBe("cosmic");
+    expect(m.markers.cosmic).toEqual({ active: true, setAside: false });
   });
 
   it("opens the Cyber tab for a stored cyber kind", () => {

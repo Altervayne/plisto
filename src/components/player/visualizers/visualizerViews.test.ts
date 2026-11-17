@@ -9,6 +9,7 @@ import { createDotCover } from "./gl/dotCover";
 import { createDotSpectrum } from "./gl/dotSpectrum";
 import { createFireflies } from "./gl/fireflies";
 import { createGlass } from "./gl/glass";
+import { createGravitationalWaves } from "./gl/gravitationalWaves";
 import { createHalftone } from "./gl/halftone";
 import { createHologram } from "./gl/hologram";
 import { createInk } from "./gl/ink";
@@ -22,6 +23,7 @@ import { createOscilloscope } from "./gl/oscilloscope";
 import { createPond } from "./gl/pond";
 import { createRecord } from "./gl/record";
 import { createServerRoom } from "./gl/serverRoom";
+import { createRingedPlanet } from "./gl/ringedPlanet";
 import { createSilk } from "./gl/silk";
 import { createSnowfall } from "./gl/snowfall";
 import { createTerrain } from "./gl/terrain";
@@ -61,6 +63,8 @@ describe("VISUALIZER_VIEWS", () => {
       "circuit-board": createCircuitBoard,
       oscilloscope: createOscilloscope,
       hologram: createHologram,
+      "gravitational-waves": createGravitationalWaves,
+      "ringed-planet": createRingedPlanet,
     };
     for (const [kind, create] of Object.entries(factories) as [GlVisualizerId, unknown][]) {
       expect(VISUALIZER_VIEWS[kind].factory).toBe(create);
