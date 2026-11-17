@@ -7,6 +7,7 @@ import {
   useSetLibrarySearch,
 } from "../../state/store";
 import { usePlayerActions } from "../../state/player/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 import { openPluginHub, useOpenDuplicates, useOpenSettings } from "../../state/shell/store";
 
 // -- Utils Imports --
@@ -154,7 +155,9 @@ export function useFinderActions(nav: FinderNav): FinderActions {
     },
     playNext: (entry) => {
       const source = sourceOf(entry);
-      if (source && entry.trackIds.length > 0) playNext(entry.trackIds, source, blocksOf(entry));
+      if (source && entry.trackIds.length > 0) {
+        announceAfterBlock(playNext(entry.trackIds, source, blocksOf(entry)));
+      }
     },
     enqueue: (entry) => {
       const source = sourceOf(entry);

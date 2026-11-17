@@ -56,6 +56,7 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 import { useSetOpenTool } from "../../state/shell/store";
 import { useViewKeys } from "../../state/shell/viewKeys";
 
@@ -382,7 +383,7 @@ export function TrackGrid({
             {
               icon: <ListStart size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.playNext),
-              onSelect: () => playNext([track.id], source),
+              onSelect: () => announceAfterBlock(playNext([track.id], source)),
               disabled: track.missing_at != null,
               tooltip: track.missing_at != null ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,

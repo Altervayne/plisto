@@ -2,7 +2,56 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { queueRowState, resolveQueueReorder, upNextCount } from "./queueRowState";
+import {
+  blockPlace,
+  queueRowState,
+  queueSegments,
+  resolveQueueReorder,
+  upNextCount,
+} from "./queueRowState";
+
+describe("queueSegments", () => {
+  it("leaves a queue with no blocks as loose rows", () => {
+    expect(queueSegments(2, [])).toEqual([
+      { kind: "row", index: 0 },
+      { kind: "row", index: 1 },
+    ]);
+  });
+
+  it("cuts a block out of the rows around it", () => {
+    expect(queueSegments(5, [[1, 3]])).toEqual([
+      { kind: "row", index: 0 },
+      { kind: "block", start: 1, length: 3 },
+      { kind: "row", index: 4 },
+    ]);
+  });
+
+  it("gives a run of one row no band", () => {
+    expect(queueSegments(3, [[1, 1]]).every((s) => s.kind === "row")).toBe(true);
+  });
+
+  it("orders blocks by start and skips an overlapping or out-of-range span", () => {
+    const segments = queueSegments(6, [[3, 3], [0, 2], [1, 2], [5, 4]]);
+    expect(segments).toEqual([
+      { kind: "block", start: 0, length: 2 },
+      { kind: "row", index: 2 },
+      { kind: "block", start: 3, length: 3 },
+    ]);
+  });
+});
+
+describe("blockPlace", () => {
+  it("is the cursor's 1-based place inside the block", () => {
+    expect(blockPlace(2, 9, 6)).toBe(5);
+    expect(blockPlace(2, 9, 2)).toBe(1);
+    expect(blockPlace(2, 9, 10)).toBe(9);
+  });
+
+  it("is null with the cursor outside the block", () => {
+    expect(blockPlace(2, 9, 1)).toBeNull();
+    expect(blockPlace(2, 9, 11)).toBeNull();
+  });
+});
 
 describe("queueRowState", () => {
   it("marks rows behind the cursor as played", () => {

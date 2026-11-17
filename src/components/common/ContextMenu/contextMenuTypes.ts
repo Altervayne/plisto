@@ -25,6 +25,8 @@ export interface MenuItem {
   tooltip?: string;
   disabled?: boolean;
   style?: MenuActionStyle;
+  /** Makes the row a setting: a switch on its trailing edge shows this state, and selecting flips it. */
+  checked?: boolean;
   /**
    * Turns the row into the opener of a side panel beside the menu, whose content this returns; the row
    * then opens the panel instead of calling `onSelect`. `close` dismisses the panel and the menu; `back`

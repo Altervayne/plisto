@@ -44,6 +44,7 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -223,7 +224,7 @@ export function AlbumTrackList({
 
   // Same selection and order, inserted after the playing track.
   const playSelectedNext = () => {
-    playNext(ids.filter((id) => selected.has(id)), source);
+    announceAfterBlock(playNext(ids.filter((id) => selected.has(id)), source));
   };
 
   // The undoable remove-from-album, then clears.
@@ -293,7 +294,7 @@ export function AlbumTrackList({
             {
               icon: <ListStart size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.playNext),
-              onSelect: () => playNext([row.track_id], source),
+              onSelect: () => announceAfterBlock(playNext([row.track_id], source)),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,

@@ -47,4 +47,21 @@ describe("QueueToast", () => {
     h.notice = { kind: "playsAfter", title: "Harbor Lights" };
     expect(render()).toContain("Plays after Harbor Lights");
   });
+
+  it("says a play next inside a kept album lands after the album", () => {
+    h.notice = { kind: "playsAfterAlbum" };
+    expect(render()).toContain("Plays after this album");
+  });
+
+  it("names the playlist an album entry was added to, and the default", () => {
+    h.notice = { kind: "albumAdded", name: "Night Drive" };
+    expect(render()).toContain("Added to Night Drive. Kept in the same order.");
+  });
+
+  it("counts the tracks an entry unpacked into", () => {
+    h.notice = { kind: "unpacked", count: 9 };
+    expect(render()).toContain("Unpacked into 9 tracks");
+    h.notice = { kind: "unpacked", count: 1 };
+    expect(render()).toContain("Unpacked into 1 track<");
+  });
 });

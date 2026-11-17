@@ -1,0 +1,88 @@
+/*
+ * A kept block: a band over the block's rows, and a 2px rule down their left edge. The rule is neutral
+ * and turns accent only on the block holding the cursor. Under a plugin stream the band takes the quieter
+ * ink and the rule a fainter neutral, never an opacity fade, so contrast holds. --q-sub comes from the
+ * queue column.
+ */
+.block {
+  position: relative;
+  margin: 3px 0;
+}
+
+.band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px 4px;
+}
+
+/* The small cover: a tighter corner and no shadow, so it sits on the band like a glyph. */
+.cover {
+  --cover-radius: 5px;
+  --cover-shadow: none;
+  flex: none;
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+/* The name truncates; the "kept together" label and the progress never shrink. */
+.name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.block[data-dim] .name {
+  color: var(--q-sub);
+}
+
+.kept {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--q-sub);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.progress {
+  flex: none;
+  margin-left: auto;
+  color: var(--q-sub);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rows {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rows::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink-3) 45%, transparent);
+}
+
+.block[data-now] .rows::before {
+  background: var(--accent);
+}
+
+.block[data-dim] .rows::before {
+  background: color-mix(in srgb, var(--ink-3) 32%, transparent);
+}

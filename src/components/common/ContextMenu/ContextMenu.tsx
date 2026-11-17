@@ -291,7 +291,8 @@ export function ContextMenu({
       <button
         key={`item-${index}`}
         type="button"
-        role="menuitem"
+        role={entry.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+        aria-checked={entry.checked}
         className={cls}
         aria-disabled={entry.disabled || undefined}
         aria-haspopup={entry.panel ? "dialog" : undefined}
@@ -314,6 +315,11 @@ export function ContextMenu({
           {entry.icon}
         </span>
         <span className={styles.label}>{entry.label}</span>
+        {entry.checked === undefined ? null : (
+          <span className={styles.pill} data-on={entry.checked ? "" : undefined} aria-hidden="true">
+            <span className={styles.pillKnob} />
+          </span>
+        )}
       </button>
     );
     return entry.tooltip ? (

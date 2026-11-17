@@ -38,3 +38,8 @@
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
+
+/* The albums tail rides in the quiet ink beside the count. */
+.tail {
+  color: var(--ink-3);
+}

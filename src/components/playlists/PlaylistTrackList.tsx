@@ -22,23 +22,28 @@ import { ListEnd, ListStart, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { PlaylistTrackRow } from "./PlaylistTrackRow";
+import { PlaylistAlbumRow } from "./PlaylistAlbumRow";
 
 // -- State Imports --
 import {
   usePlaylist,
-  usePlaylistTracks,
   useRemovePlaylistSlots,
   useReorderPlaylist,
+  useSetEntryKeepOrder,
+  useUnpackAlbumEntry,
 } from "../../state/playlists/store";
+import { usePlaylistExpansion } from "../../state/playlists/expansion";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { announceAfterBlock, unpacked } from "../../state/player/queueToast";
 
 // -- Utils Imports --
 import { reorderSlots } from "./playlistOrder";
+import { entryQueue } from "./albumEntryPlay";
 import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
-import type { PlaybackSource } from "../../types";
+import type { PlaybackSource, PlaylistTrackRow as PlaylistSlot } from "../../types";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -47,25 +52,31 @@ import { useT } from "../../i18n";
 import styles from "./PlaylistTrackList.module.css";
 
 /**
- * The playlist's slots as one flat sortable list, keyed by slot id - a repeated track carries a distinct
- * slot, so each copy reorders and removes on its own. One context spans the whole list; a drop resolves
- * against live row geometry, then the store optimistically renumbers positions so the drag never
- * flickers. Passing `onOpenSlot` puts the rows in browse mode: a row click opens the track peek, and
- * `openSlotId` marks the peeked one.
+ * The playlist's rows as one flat sortable list, track slots and album entries together, keyed by slot id
+ * - a repeated track carries a distinct slot, so each copy reorders and removes on its own, and an album
+ * entry drags as one item. One context spans the whole list; a drop resolves against live row geometry,
+ * then the store optimistically renumbers positions so the drag never flickers. A play starts at the
+ * row's index in the expansion, so an album entry's members are in the queue before and after it. Passing
+ * `onOpenSlot` puts the track rows in browse mode: a row click opens the track peek, and `openSlotId`
+ * marks the peeked one. An album row unfolds instead; the peek is for tracks only.
  */
 export function PlaylistTrackList({
   playlistId,
   onOpenSlot,
   openSlotId,
+  onOpenAlbum,
 }: {
   playlistId: number;
   onOpenSlot: (slotId: number) => void;
   openSlotId: number | null;
+  onOpenAlbum: (albumId: number) => void;
 }) {
-  const tracks = usePlaylistTracks(playlistId);
+  const { entries, ids: queueIds, blocks, ready } = usePlaylistExpansion(playlistId);
   const playlist = usePlaylist(playlistId);
   const reorder = useReorderPlaylist();
   const removeSlots = useRemovePlaylistSlots();
+  const setKeepOrder = useSetEntryKeepOrder();
+  const unpack = useUnpackAlbumEntry();
   const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const t = useT();
@@ -84,19 +95,16 @@ export function PlaylistTrackList({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const ids = useMemo(() => tracks.map((slot) => slot.id), [tracks]);
-  // The queue reads track ids, not slot ids: a repeated track legitimately appears twice, so the cursor
-  // resolves by the slot's own index, computed at the call site below.
-  const trackIds = useMemo(() => tracks.map((slot) => slot.track_id), [tracks]);
+  const slotIds = useMemo(() => entries.map((entry) => entry.id), [entries]);
 
-  if (tracks.length === 0) {
+  if (entries.length === 0) {
     return <p className={styles.empty}>{t((d) => d.playlists.noTracks)}</p>;
   }
 
   // The row's right-click menu: Play (the keyboard route the hover triangle cannot be) over Remove.
   // A gone source greys Play out with the reason. Play rides only while the player is on; Remove is
   // not a play affordance, so it stays either way and the menu never empties.
-  const buildMenu = (slot: (typeof tracks)[number], index: number): MenuEntry[] => {
+  const buildMenu = (slot: PlaylistSlot, first: number): MenuEntry[] => {
     const unplayable = slot.missing_at != null;
     // Its own group after the play rows; both ride only while the player is on.
     const visualizerItem = playerEnabled ? visualizerMenuItem({ track: slot.track_id }, t) : null;
@@ -109,14 +117,14 @@ export function PlaylistTrackList({
             {
               icon: <Play size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.play),
-              onSelect: () => play(trackIds, index, source),
-              disabled: unplayable,
+              onSelect: () => play(queueIds, first, source, blocks),
+              disabled: unplayable || !ready,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
             {
               icon: <ListStart size={16} strokeWidth={1.8} />,
               label: t((d) => d.player.playNext),
-              onSelect: () => playNext([slot.track_id], source),
+              onSelect: () => announceAfterBlock(playNext([slot.track_id], source)),
               disabled: unplayable,
               tooltip: unplayable ? t((d) => d.player.fileMissing) : undefined,
             } satisfies MenuEntry,
@@ -134,7 +142,7 @@ export function PlaylistTrackList({
         icon: <X size={16} strokeWidth={1.8} />,
         label: t((d) => d.playlists.removeTrack),
         style: "destructive",
-        onSelect: () => void removeSlots([slot.id]),
+        onSelect: () => void removeSlots([slot.id]).catch(() => {}),
       },
     ];
   };
@@ -144,8 +152,8 @@ export function PlaylistTrackList({
     if (!over || over.id === active.id) return;
     const movedId = Number(active.id);
     const overId = Number(over.id);
-    if (!tracks.some((slot) => slot.id === overId)) return;
-    reorder(playlistId, reorderSlots(ids, movedId, overId));
+    if (!slotIds.includes(overId)) return;
+    reorder(playlistId, reorderSlots(slotIds, movedId, overId));
   };
 
   return (
@@ -156,20 +164,53 @@ export function PlaylistTrackList({
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragEnd={onDragEnd}
     >
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+      <SortableContext items={slotIds} strategy={verticalListSortingStrategy}>
         <div className={styles.list}>
-          {tracks.map((slot, i) => (
-            <PlaylistTrackRow
-              key={slot.id}
-              slot={slot}
-              displayNo={i + 1}
-              peeked={slot.id === openSlotId}
-              onOpen={() => onOpenSlot(slot.id)}
-              onRemove={() => void removeSlots([slot.id])}
-              onPlay={playerEnabled ? () => play(trackIds, i, source) : undefined}
-              buildMenu={() => buildMenu(slot, i)}
-            />
-          ))}
+          {entries.map((entry, i) =>
+            entry.kind === "track" ? (
+              <PlaylistTrackRow
+                key={entry.id}
+                slot={entry.slot}
+                displayNo={i + 1}
+                peeked={entry.id === openSlotId}
+                onOpen={() => onOpenSlot(entry.id)}
+                onRemove={() => void removeSlots([entry.id]).catch(() => {})}
+                onPlay={
+                  playerEnabled && ready ? () => play(queueIds, entry.first, source, blocks) : undefined
+                }
+                buildMenu={() => buildMenu(entry.slot, entry.first)}
+              />
+            ) : (
+              <PlaylistAlbumRow
+                key={entry.id}
+                entry={entry}
+                displayNo={i + 1}
+                ready={ready}
+                playerEnabled={playerEnabled}
+                onPlayFrom={(member) => play(queueIds, entry.first + member, source, blocks)}
+                onPlayNext={() => {
+                  const queue = entryQueue(entry);
+                  announceAfterBlock(playNext(queue.ids, source, queue.blocks));
+                }}
+                onAddToQueue={() => {
+                  const queue = entryQueue(entry);
+                  addToQueue(queue.ids, source, queue.blocks);
+                }}
+                onOpenAlbum={() => onOpenAlbum(entry.entry.album_id)}
+                onSetKeep={(keep) => void setKeepOrder(entry.id, keep).catch(() => {})}
+                onUnpack={() => {
+                  const count = entry.members.length;
+                  // The pill only follows a write that went through.
+                  void unpack(entry.id)
+                    .then(() => {
+                      if (count > 0) unpacked(count);
+                    })
+                    .catch(() => {});
+                }}
+                onRemove={() => void removeSlots([entry.id]).catch(() => {})}
+              />
+            ),
+          )}
         </div>
       </SortableContext>
     </DndContext>

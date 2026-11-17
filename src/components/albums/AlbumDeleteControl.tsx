@@ -6,6 +6,10 @@ import { QuietButton } from "../common/QuietButton";
 
 // -- State Imports --
 import { useDeleteAlbum } from "../../state/organize/store";
+import { usePlaylistsStore } from "../../state/playlists/store";
+
+// -- Utils Imports --
+import { playlistsHoldingAlbum } from "./albumPlaylists";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -16,8 +20,9 @@ import styles from "./AlbumDeleteControl.module.css";
 /**
  * A two-step delete on the surface: the first press arms a confirm, the second removes the album and
  * closes the drawer. No browser dialog - the confirm is quiet controls on the ground. The tracks stay;
- * only the album and its membership go, so the members fall back to loose. The single variant reads
- * "Remove single" - the same delete, its lone member returning to unsorted.
+ * only the album and its membership go, so the members fall back to loose. An album that sits in
+ * playlists says so on a line under the confirm: those entries turn into plain tracks. The single variant
+ * reads "Remove single" - the same delete, its lone member returning to unsorted.
  */
 export function AlbumDeleteControl({
   albumId,
@@ -30,6 +35,8 @@ export function AlbumDeleteControl({
 }) {
   const deleteAlbum = useDeleteAlbum();
   const [confirming, setConfirming] = useState(false);
+  // The playlists holding the album, counted as the confirm arms.
+  const [inPlaylists, setInPlaylists] = useState(0);
   const t = useT();
 
   const onDelete = async () => {
@@ -44,7 +51,14 @@ export function AlbumDeleteControl({
   if (!confirming) {
     return (
       <div className={styles.wrap}>
-        <QuietButton onClick={() => setConfirming(true)}>
+        <QuietButton
+          onClick={() => {
+            setInPlaylists(
+              single ? 0 : playlistsHoldingAlbum(usePlaylistsStore.getState().albumEntries, albumId),
+            );
+            setConfirming(true);
+          }}
+        >
           {single ? t((d) => d.singles.remove) : t((d) => d.albums.delete)}
         </QuietButton>
       </div>
@@ -60,6 +74,9 @@ export function AlbumDeleteControl({
         {single ? t((d) => d.singles.removeAction) : t((d) => d.albums.deleteAction)}
       </QuietButton>
       <QuietButton onClick={() => setConfirming(false)}>{t((d) => d.common.cancel)}</QuietButton>
+      {inPlaylists > 0 ? (
+        <span className={styles.note}>{t((d) => d.albums.deleteInPlaylists, { n: inPlaylists })}</span>
+      ) : null}
     </div>
   );
 }

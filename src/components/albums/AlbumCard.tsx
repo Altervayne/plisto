@@ -11,7 +11,7 @@ import { CoverBadge } from "../common/CoverBadge/CoverBadge";
 import { StaffSpinner } from "../scan/StaffSpinner";
 import { CardMeta } from "./CardMeta";
 import { ContextMenu, useContextMenu } from "../common/ContextMenu";
-import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
+import { AlbumDeleteConfirm } from "./AlbumDeleteConfirm";
 
 // -- Hook Imports --
 import { useAlbumCover } from "./useAlbumCover";
@@ -19,13 +19,17 @@ import { useAlbumCover } from "./useAlbumCover";
 // -- State Imports --
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
 import { useOrganizeEnabled, usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { usePlaylistsStore } from "../../state/playlists/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 
 // -- Utils Imports --
 import { sourceForContainer } from "./playbackSource";
+import { playlistsHoldingAlbum } from "./albumPlaylists";
 import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
 import type { MenuEntry } from "../common/ContextMenu";
+import type { PlaylistAdd } from "../playlists/usePlaylistAdd";
 import type { AlbumRow } from "../../types";
 
 // -- i18n Imports --
@@ -76,15 +80,17 @@ export const AlbumCard = memo(function AlbumCard({
   onOpenFull?: (albumId: number) => void;
   onToggleSelect: (albumId: number, mods: { meta: boolean; shift: boolean }) => void;
   onExport: (albumId: number) => void;
-  onAddToPlaylist?: (trackIds: number[]) => void;
+  onAddToPlaylist?: (add: PlaylistAdd) => void;
 }) {
   const deleteAlbum = useDeleteAlbum();
   const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const organize = useOrganizeEnabled();
   const menu = useContextMenu();
-  // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm.
+  // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm. The
+  // playlists holding the album are counted as the confirm opens, so the line is read once, not tracked.
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [inPlaylists, setInPlaylists] = useState(0);
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // A modified click drives multi-select rather than opening: ctrl/cmd toggles this card, shift
@@ -141,7 +147,7 @@ export const AlbumCard = memo(function AlbumCard({
         {
           icon: <ListStart size={16} strokeWidth={1.8} />,
           label: t((d) => d.player.playNext),
-          onSelect: () => playNext(tracks.map((track) => track.track_id), source),
+          onSelect: () => announceAfterBlock(playNext(tracks.map((track) => track.track_id), source)),
         },
         {
           icon: <ListEnd size={16} strokeWidth={1.8} />,
@@ -179,8 +185,14 @@ export const AlbumCard = memo(function AlbumCard({
         { separator: true },
         {
           icon: <ListPlus size={16} strokeWidth={1.8} />,
-          label: t((d) => d.playlists.addTo),
-          onSelect: () => onAddToPlaylist(tracks.map((track) => track.track_id)),
+          label: single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo),
+          // An album goes in as one entry; a single stays a track.
+          onSelect: () =>
+            onAddToPlaylist(
+              single
+                ? { kind: "tracks", trackIds: tracks.map((track) => track.track_id) }
+                : { kind: "albums", albumIds: [album.id] },
+            ),
         },
       );
     }
@@ -192,7 +204,12 @@ export const AlbumCard = memo(function AlbumCard({
         icon: <Trash2 size={16} strokeWidth={1.8} />,
         label: single ? t((d) => d.singles.remove) : t((d) => d.albums.delete),
         style: "destructive",
-        onSelect: () => setConfirmDelete(true),
+        onSelect: () => {
+          setInPlaylists(
+            single ? 0 : playlistsHoldingAlbum(usePlaylistsStore.getState().albumEntries, album.id),
+          );
+          setConfirmDelete(true);
+        },
       },
     );
     return items;
@@ -262,14 +279,14 @@ export const AlbumCard = memo(function AlbumCard({
         ariaLabel={album.title ?? t((d) => d.albums.untitled)}
       />
 
-      <ConfirmDialog
+      <AlbumDeleteConfirm
         open={confirmDelete}
-        prompt={single ? t((d) => d.singles.removeConfirm) : t((d) => d.albums.deleteConfirm)}
-        confirmLabel={single ? t((d) => d.singles.removeAction) : t((d) => d.albums.deleteAction)}
-        cancelLabel={t((d) => d.common.cancel)}
+        single={single}
+        bulk={false}
+        count={1}
+        inPlaylists={inPlaylists}
         onConfirm={() => void deleteAlbum(album.id)}
         onClose={() => setConfirmDelete(false)}
-        destructive
       />
     </button>
   );

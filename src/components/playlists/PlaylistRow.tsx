@@ -16,6 +16,7 @@ import { usePlayPlaylist } from "./usePlayPlaylist";
 
 // -- State Imports --
 import { useRemovePlaylist, useRenamePlaylist } from "../../state/playlists/store";
+import { usePlaylistTrackCount } from "../../state/playlists/expansion";
 import { usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
@@ -46,6 +47,7 @@ export function PlaylistRow({
   const remove = useRemovePlaylist();
   const { src: cover } = usePlaylistCover(playlist.id, "thumb");
   const playback = usePlayPlaylist(playlist.id);
+  const trackCount = usePlaylistTrackCount(playlist.id);
   const playerEnabled = usePlayerEnabled();
   const menu = useContextMenu();
   const t = useT();
@@ -159,7 +161,7 @@ export function PlaylistRow({
             </button>
           )}
           <span className={styles.count}>
-            {t((d) => d.playlists.trackCount, { n: playlist.track_count })}
+            {t((d) => d.playlists.trackCount, { n: trackCount })}
           </span>
         </div>
 

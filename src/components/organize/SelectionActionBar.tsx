@@ -32,6 +32,7 @@ import {
   usePlaylists,
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 
 // -- Type Imports --
 import type { FoldAction } from "../common/ActionFold/FoldedActions";
@@ -174,9 +175,11 @@ export function SelectionActionBar({
 
   // The same selection and order, inserted after the playing track.
   const onPlayNext = () => {
-    playNext(
-      tracks.filter((track) => selection.has(track.id)).map((track) => track.id),
-      { kind: "files" },
+    announceAfterBlock(
+      playNext(
+        tracks.filter((track) => selection.has(track.id)).map((track) => track.id),
+        { kind: "files" },
+      ),
     );
   };
 

@@ -148,6 +148,38 @@
   text-overflow: ellipsis;
 }
 
+/* A setting row's switch, drawn as the shared Switch is (36 x 20, cyan when on) but inert: the row is the
+ * control. */
+.pill {
+  flex: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: var(--pill);
+  background: color-mix(in srgb, var(--ink-3) 80%, var(--bg));
+  transition: background var(--dur-fast) var(--ease-cover);
+}
+
+.pill[data-on] {
+  background: var(--accent);
+}
+
+.pillKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  transition: transform var(--dur-fast) var(--ease-cover);
+}
+
+.pill[data-on] .pillKnob {
+  transform: translateX(16px);
+}
+
 /* Destructive intent: danger-red label and icon; hover fills a faint red so the risk reads on approach. */
 .destructive {
   color: var(--danger-text);

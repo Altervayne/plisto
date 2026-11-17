@@ -17,7 +17,12 @@ import { Play, Share } from "lucide-react";
 import { usePlayPlaylist } from "./usePlayPlaylist";
 
 // -- State Imports --
-import { useRenamePlaylist, useSetPlaylistDescription } from "../../state/playlists/store";
+import {
+  usePlaylistAlbumEntries,
+  useRenamePlaylist,
+  useSetPlaylistDescription,
+} from "../../state/playlists/store";
+import { usePlaylistTrackCount } from "../../state/playlists/expansion";
 import { usePlayerEnabled } from "../../state/player/store";
 
 // -- Type Imports --
@@ -33,7 +38,8 @@ import styles from "./PlaylistHeader.module.css";
  * The playlist header for the full-pane view: the cover on the left, the big editable name over its
  * description and meta line on the right - laid wide like the album folder header. The name commits a
  * rename and the description its blurb, a null on either clearing it back to the default. The meta line
- * leads with Play, the view's one solid-accent action, then the slot count, export, and delete.
+ * leads with Play, the view's one solid-accent action, then the track count (albums included, with a
+ * quiet tail naming how many albums), export, and delete.
  */
 export function PlaylistHeader({
   playlist,
@@ -45,6 +51,8 @@ export function PlaylistHeader({
   const rename = useRenamePlaylist();
   const setDescription = useSetPlaylistDescription();
   const playback = usePlayPlaylist(playlist.id);
+  const trackCount = usePlaylistTrackCount(playlist.id);
+  const albumCount = usePlaylistAlbumEntries(playlist.id).length;
   const playerEnabled = usePlayerEnabled();
   const t = useT();
 
@@ -77,7 +85,12 @@ export function PlaylistHeader({
             </PrimaryButton>
           ) : null}
           <span className={styles.count}>
-            {t((d) => d.playlists.trackCount, { n: playlist.track_count })}
+            {t((d) => d.playlists.trackCount, { n: trackCount })}
+            {albumCount > 0 ? (
+              <span className={styles.tail}>
+                {t((d) => d.playlists.albumsTail, { n: albumCount })}
+              </span>
+            ) : null}
           </span>
           <QuietButton onClick={() => setExporting(true)}>
             <Share size={15} strokeWidth={1.8} aria-hidden="true" />

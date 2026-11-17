@@ -10,11 +10,10 @@ import { ContextMenu } from "../../common/ContextMenu";
 import { PlaylistPicker } from "../../playlists/PlaylistPicker";
 
 // -- State Imports --
-import {
-  useAddTracksToPlaylist,
-  useCreatePlaylist,
-  usePlaylists,
-} from "../../../state/playlists/store";
+import { useCreatePlaylist, usePlaylists } from "../../../state/playlists/store";
+
+// -- Hook Imports --
+import { usePlaylistAdd } from "../../playlists/usePlaylistAdd";
 
 // -- Utils Imports --
 import { browseMenuSlots } from "./browseMenu";
@@ -22,6 +21,7 @@ import { visualizerMenuItem } from "../../player/visualizers/contextPicker/visua
 
 // -- Type Imports --
 import type { MenuEntry } from "../../common/ContextMenu";
+import type { PlaylistAdd } from "../../playlists/usePlaylistAdd";
 import type { BrowseMenuId } from "./browseMenu";
 import type { RecordActions } from "./useRecordActions";
 import type { AlbumRow } from "../../../types";
@@ -33,7 +33,8 @@ const icon = (Glyph: typeof Play): ReactNode => <Glyph size={16} strokeWidth={1.
 
 /**
  * The focused record's context menu, opened at a viewport point, plus the playlist picker its Add to
- * playlist opens. The picker outlives the menu, so it holds the record's tracks while it is up.
+ * playlist opens. The picker outlives the menu, so it holds what to add while it is up: an album goes in
+ * as one entry, a single as its track.
  */
 export function BrowseRecordMenu({
   album,
@@ -54,9 +55,10 @@ export function BrowseRecordMenu({
 }) {
   const t = useT();
   const playlists = usePlaylists();
-  const addTracksToPlaylist = useAddTracksToPlaylist();
+  const addToPlaylist = usePlaylistAdd();
   const createPlaylist = useCreatePlaylist();
-  const [picking, setPicking] = useState<number[] | null>(null);
+  const [picking, setPicking] = useState<PlaylistAdd | null>(null);
+  const single = album.kind === "single";
 
   const entry = (id: BrowseMenuId): MenuEntry | null => {
     switch (id) {
@@ -69,8 +71,13 @@ export function BrowseRecordMenu({
       case "playlist":
         return {
           icon: icon(ListPlus),
-          label: t((d) => d.playlists.addTo),
-          onSelect: () => setPicking(actions.tracks.map((track) => track.track_id)),
+          label: single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo),
+          onSelect: () =>
+            setPicking(
+              single
+                ? { kind: "tracks", trackIds: actions.tracks.map((track) => track.track_id) }
+                : { kind: "albums", albumIds: [album.id] },
+            ),
         };
       case "visualizer":
         return visualizerMenuItem({ album: album.id }, t);
@@ -107,14 +114,14 @@ export function BrowseRecordMenu({
         <PlaylistPicker
           playlists={playlists}
           onChoose={(playlistId) => {
-            void addTracksToPlaylist(playlistId, picking);
+            void addToPlaylist(playlistId, picking);
             setPicking(null);
           }}
           onCreate={(name) => {
-            const targets = picking;
+            const target = picking;
             void (async () => {
               const playlistId = await createPlaylist(name);
-              await addTracksToPlaylist(playlistId, targets);
+              await addToPlaylist(playlistId, target);
             })();
             setPicking(null);
           }}

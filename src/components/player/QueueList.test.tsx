@@ -15,8 +15,18 @@ const h = vi.hoisted(() => ({
   queue: [11, 12, 13] as number[],
   queueIndex: 1,
   hasParked: true,
+  blocks: [] as Array<[number, number]>,
+  albums: new Map<number, { id: number; title: string | null }>(),
   buttons: [] as Array<{ label: string; disabled?: boolean; onClick?: () => void }>,
   rows: [] as Array<{ state: string; dim?: boolean }>,
+  bands: [] as Array<{
+    albumId: number | null;
+    title: string | null;
+    length: number;
+    place: number | null;
+    now: boolean;
+    dim: boolean;
+  }>,
   actions: { stop: vi.fn(), clearParked: vi.fn(), jump: vi.fn(), reorderQueue: vi.fn(), removeFromQueue: vi.fn() },
   createPlaylist: vi.fn(async () => 5),
   addTracks: vi.fn(async () => {}),
@@ -27,11 +37,13 @@ const h = vi.hoisted(() => ({
 vi.mock("../../state/player/store", () => ({
   usePlayerActions: () => h.actions,
   usePlayerQueue: () => h.queue,
+  usePlayerQueueBlocks: () => h.blocks,
   usePlayerQueueIndex: () => h.queueIndex,
   usePlayerQueueMeta: () => ({}),
   useSeatedStream: () => h.stream,
   useHasParked: () => h.hasParked,
 }));
+vi.mock("../../state/organize/store", () => ({ useAlbumIndex: () => h.albums }));
 vi.mock("../../state/player/useResumeWriter", () => ({ clearSavedResume: h.clearSaved }));
 vi.mock("../../state/player/queueToast", () => ({ cleared: h.cleared }));
 vi.mock("../../state/playlists/store", () => ({
@@ -54,11 +66,33 @@ vi.mock("./QueueRow", () => ({
     return <i data-row={p.state} />;
   },
 }));
+vi.mock("./QueueBand", () => ({
+  QueueBand: (p: {
+    albumId: number | null;
+    title: string | null;
+    length: number;
+    place: number | null;
+    now: boolean;
+    dim: boolean;
+    children: ReactNode;
+  }) => {
+    h.bands.push({
+      albumId: p.albumId,
+      title: p.title,
+      length: p.length,
+      place: p.place,
+      now: p.now,
+      dim: p.dim,
+    });
+    return <section data-band="">{p.children}</section>;
+  },
+}));
 vi.mock("./QueueStreamCard", () => ({ QueueStreamCard: () => <div data-card="" /> }));
 
 const render = () => {
   h.buttons = [];
   h.rows = [];
+  h.bands = [];
   return renderToStaticMarkup(<QueueList />);
 };
 const button = (label: string) => h.buttons.find((b) => b.label === label);
@@ -69,6 +103,8 @@ beforeEach(() => {
   h.queue = [11, 12, 13];
   h.queueIndex = 1;
   h.hasParked = true;
+  h.blocks = [];
+  h.albums = new Map();
 });
 
 describe("QueueList with a stream seated", () => {
@@ -160,5 +196,54 @@ describe("QueueList with no stream", () => {
     render();
     button("Clear queue")?.onClick?.();
     expect(h.clearSaved).not.toHaveBeenCalled();
+  });
+});
+
+describe("QueueList with a kept block", () => {
+  beforeEach(() => {
+    h.stream = null;
+    h.queue = [10, 11, 12, 13, 14];
+    h.blocks = [[1, 3]];
+    h.queueIndex = 2;
+    h.albums = new Map([[11, { id: 7, title: "Low Tide Radio" }]]);
+  });
+
+  it("draws the block's rows under one band naming the album, with the cursor's place", () => {
+    const html = render();
+    expect(h.bands).toEqual([
+      { albumId: 7, title: "Low Tide Radio", length: 3, place: 2, now: true, dim: false },
+    ]);
+    // Every row stays in the list: the block's three sit inside the band, the others outside.
+    expect(h.rows).toHaveLength(5);
+    const band = html.slice(html.indexOf("<section"), html.indexOf("</section>"));
+    expect(band.match(/data-row=/g)).toHaveLength(3);
+  });
+
+  it("counts the tracks while the cursor is outside the block", () => {
+    h.queueIndex = 0;
+    render();
+    expect(h.bands[0]).toMatchObject({ place: null, now: false });
+  });
+
+  it("gives a run of one row no band", () => {
+    h.blocks = [[1, 1]];
+    render();
+    expect(h.bands).toEqual([]);
+    expect(h.rows).toHaveLength(5);
+  });
+
+  it("drops the band's name when the album cannot be resolved", () => {
+    h.albums = new Map();
+    render();
+    expect(h.bands[0]).toMatchObject({ albumId: null, title: null });
+  });
+
+  it("dims the band under a stream and marks it live only with a track parked", () => {
+    h.stream = streamNowFixture();
+    render();
+    expect(h.bands[0]).toMatchObject({ dim: true, now: true, place: 2 });
+    h.hasParked = false;
+    render();
+    expect(h.bands[0]).toMatchObject({ dim: true, now: false, place: null });
   });
 });

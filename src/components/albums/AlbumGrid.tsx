@@ -13,7 +13,7 @@ import { EmptyState } from "../common/EmptyState";
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { DateRangePicker } from "../common/DateRangePicker/DateRangePicker";
-import { ConfirmDialog } from "../common/ConfirmDialog/ConfirmDialog";
+import { AlbumDeleteConfirm } from "./AlbumDeleteConfirm";
 import { AlbumCard } from "./AlbumCard";
 import { AlbumExportDialog } from "./AlbumExportDialog";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
@@ -21,20 +21,21 @@ import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 
 // -- State Imports --
-import {
-  useAddTracksToPlaylist,
-  useCreatePlaylist,
-  usePlaylists,
-} from "../../state/playlists/store";
+import { useCreatePlaylist, usePlaylists, usePlaylistsStore } from "../../state/playlists/store";
 import { useDeleteAlbums, useOrganizeStore } from "../../state/organize/store";
 import { useViewKeys } from "../../state/shell/viewKeys";
 import { useClearCollectionHandoff, useCollectionHandoff } from "../../state/collection/store";
 import { useOrganizeEnabled } from "../../state/player/store";
 
+// -- Hook Imports --
+import { usePlaylistAdd } from "../playlists/usePlaylistAdd";
+
 // -- Utils Imports --
 import { planLanding } from "./handoffLanding";
+import { albumsInPlaylists, pickedAlbumIds } from "./albumPlaylists";
 
 // -- Type Imports --
+import type { PlaylistAdd } from "../playlists/usePlaylistAdd";
 import type { AlbumRow } from "../../types";
 import type { DateRange } from "../common/DateRangePicker/DateRangePicker";
 
@@ -94,12 +95,13 @@ export function AlbumGrid({
     });
   }, [albums, dateField, range]);
 
-  // The add-to-playlist picker is shared by every card here: a card's right-click hands up its track
-  // ids, which hold while the picker is open so a choose or create lands on that album's tracks.
+  // The add-to-playlist picker is shared by every card here: a card's right-click hands up what to add
+  // (the album, or a single's track), which holds while the picker is open so a choose or create lands
+  // on it.
   const playlists = usePlaylists();
-  const addTracksToPlaylist = useAddTracksToPlaylist();
+  const addToPlaylist = usePlaylistAdd();
   const createPlaylist = useCreatePlaylist();
-  const [playlistTarget, setPlaylistTarget] = useState<number[] | null>(null);
+  const [playlistTarget, setPlaylistTarget] = useState<PlaylistAdd | null>(null);
 
   // The ids a selection export is opened over: the whole picked set from the bar, or one album from a
   // card's own Export. Null keeps the modal closed.
@@ -205,8 +207,27 @@ export function AlbumGrid({
   // The bar is one component across both walls; its delete copy follows the wall kind. A wall holds one
   // kind, so the first row names it.
   const single = albums[0]?.kind === "single";
+
+  // What the bar's add hands the picker: the picked albums as entries in wall order, or a single wall's
+  // member tracks.
+  const pickedAdd = (): PlaylistAdd | null => {
+    if (single) {
+      const trackIds = gatherSelectedTrackIds();
+      return trackIds.length > 0 ? { kind: "tracks", trackIds } : null;
+    }
+    const albumIds = pickedAlbumIds(albums, selected);
+    return albumIds.length > 0 ? { kind: "albums", albumIds } : null;
+  };
   const deleteAlbums = useDeleteAlbums();
   const [confirmBulk, setConfirmBulk] = useState(false);
+  // How many picked albums sit in playlists, counted as the confirm opens.
+  const [bulkInPlaylists, setBulkInPlaylists] = useState(0);
+  const openBulkConfirm = () => {
+    setBulkInPlaylists(
+      single ? 0 : albumsInPlaylists(usePlaylistsStore.getState().albumEntries, [...selected]),
+    );
+    setConfirmBulk(true);
+  };
 
   // Hold the bar through its exit after the set empties, keeping the last count so the fade shows the
   // tally it had rather than a bare zero.
@@ -341,13 +362,13 @@ export function AlbumGrid({
             </PrimaryButton>
             <QuietButton
               onClick={() => {
-                const ids = gatherSelectedTrackIds();
-                if (ids.length > 0) setPlaylistTarget(ids);
+                const target = pickedAdd();
+                if (target) setPlaylistTarget(target);
               }}
             >
-              {t((d) => d.playlists.addTo)}
+              {single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo)}
             </QuietButton>
-            <QuietButton onClick={() => setConfirmBulk(true)}>
+            <QuietButton onClick={openBulkConfirm}>
               {single ? t((d) => d.singles.removeSelected) : t((d) => d.albums.deleteSelected)}
             </QuietButton>
             <QuietButton onClick={() => setSelected(new Set())}>
@@ -361,14 +382,14 @@ export function AlbumGrid({
         <PlaylistPicker
           playlists={playlists}
           onChoose={(playlistId) => {
-            void addTracksToPlaylist(playlistId, playlistTarget);
+            void addToPlaylist(playlistId, playlistTarget);
             setPlaylistTarget(null);
           }}
           onCreate={(name) => {
-            const targets = playlistTarget;
+            const target = playlistTarget;
             void (async () => {
               const playlistId = await createPlaylist(name);
-              await addTracksToPlaylist(playlistId, targets);
+              await addToPlaylist(playlistId, target);
             })();
             setPlaylistTarget(null);
           }}
@@ -380,21 +401,17 @@ export function AlbumGrid({
         <AlbumExportDialog albumIds={exportIds} onClose={() => setExportIds(null)} />
       ) : null}
 
-      <ConfirmDialog
+      <AlbumDeleteConfirm
         open={confirmBulk}
-        prompt={
-          single
-            ? t((d) => d.singles.removeSelectedConfirm, { n: selected.size })
-            : t((d) => d.albums.deleteSelectedConfirm, { n: selected.size })
-        }
-        confirmLabel={single ? t((d) => d.singles.removeAction) : t((d) => d.albums.deleteAction)}
-        cancelLabel={t((d) => d.common.cancel)}
+        single={single}
+        bulk
+        count={selected.size}
+        inPlaylists={bulkInPlaylists}
         onConfirm={() => {
           void deleteAlbums([...selected]);
           setSelected(new Set());
         }}
         onClose={() => setConfirmBulk(false)}
-        destructive
       />
     </>
   );

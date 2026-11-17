@@ -28,6 +28,12 @@ function noticeText(t: Translate, notice: QueueNotice): string {
       return t((d) => d.player.stream.clearedPlain);
     case "playsAfter":
       return t((d) => d.player.stream.playsAfter, { title: notice.title });
+    case "playsAfterAlbum":
+      return t((d) => d.player.playsAfterAlbum);
+    case "albumAdded":
+      return t((d) => d.playlists.albumAdded, { name: notice.name });
+    case "unpacked":
+      return t((d) => d.playlists.albumEntry.unpacked, { n: notice.count });
   }
 }
 

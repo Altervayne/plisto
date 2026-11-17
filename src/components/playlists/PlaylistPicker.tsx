@@ -8,6 +8,9 @@ import { SearchField } from "../common/SearchField";
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
 
+// -- State Imports --
+import { usePlaylistTrackCount } from "../../state/playlists/expansion";
+
 // -- Type Imports --
 import type { PlaylistRow } from "../../types";
 
@@ -23,6 +26,13 @@ const EXIT_MS = 120;
 /** The playlist's display name, folding a null name to the same untitled default the list shows. */
 function playlistName(playlist: PlaylistRow, untitled: string): string {
   return playlist.name ?? untitled;
+}
+
+/** One option's track count, albums included; its own component so each option subscribes to its playlist. */
+function TrackCount({ playlistId }: { playlistId: number }) {
+  const t = useT();
+  const count = usePlaylistTrackCount(playlistId);
+  return <>{t((d) => d.playlists.trackCount, { n: count })}</>;
 }
 
 /**
@@ -92,7 +102,7 @@ export function PlaylistPicker({
                 >
                   <span className={styles.name}>{playlistName(playlist, untitled)}</span>
                   <span className={styles.count}>
-                    {t((d) => d.playlists.trackCount, { n: playlist.track_count })}
+                    <TrackCount playlistId={playlist.id} />
                   </span>
                 </button>
               </li>

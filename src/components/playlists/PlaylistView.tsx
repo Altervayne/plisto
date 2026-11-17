@@ -28,20 +28,23 @@ import styles from "./PlaylistView.module.css";
 
 /**
  * A playlist opened like a folder: a breadcrumb back to the list, the editable header, and the ordered
- * slot list, with a resizable track peek on the right - mirroring the album full-pane view, but flat
+ * row list, with a resizable track peek on the right - mirroring the album full-pane view, but flat
  * and slot-keyed.
  *
  * The peek needs a real library `TrackRow`, not the playlist slot, so it resolves the open slot's
- * `track_id` against the store. No `albumFallback`: a playlist is not an album container. `openSlotId`
- * keys on the slot, not the track, so a repeated track opens its own row; a sentinel keeps the hook order
- * stable when nothing is open.
+ * `track_id` against the store; an album entry has no peek, it unfolds in the list. No `albumFallback`: a
+ * playlist is not an album container. `openSlotId` keys on the slot, not the track, so a repeated track
+ * opens its own row; a sentinel keeps the hook order stable when nothing is open. `onOpenAlbum` routes an
+ * entry's Open album to the Collection.
  */
 export function PlaylistView({
   playlistId,
   onBack,
+  onOpenAlbum,
 }: {
   playlistId: number;
   onBack: () => void;
+  onOpenAlbum: (albumId: number) => void;
 }) {
   const t = useT();
   const { width, containerRef, resizer } = useDrawerResize();
@@ -91,6 +94,7 @@ export function PlaylistView({
               playlistId={playlistId}
               onOpenSlot={setOpenSlotId}
               openSlotId={openSlotId}
+              onOpenAlbum={onOpenAlbum}
             />
           </div>
         </ScrollArea>

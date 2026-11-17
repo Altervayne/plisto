@@ -2,6 +2,7 @@
 import { usePlaylist } from "../../state/playlists/store";
 import { usePlaylistExpansion } from "../../state/playlists/expansion";
 import { usePlayerActions } from "../../state/player/store";
+import { announceAfterBlock } from "../../state/player/queueToast";
 
 // -- Utils Imports --
 import { hasPlayableSlot } from "./playlistPlayback";
@@ -33,7 +34,7 @@ export function playbackOf(
       if (ready) actions.play(ids, 0, source, blocks);
     },
     playNext: () => {
-      if (ready) actions.playNext(ids, source, blocks);
+      if (ready) announceAfterBlock(actions.playNext(ids, source, blocks));
     },
     addToQueue: () => {
       if (ready) actions.addToQueue(ids, source, blocks);

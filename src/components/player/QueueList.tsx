@@ -23,17 +23,20 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip";
 import { QueueRow } from "./QueueRow";
+import { QueueBand } from "./QueueBand";
 import { QueueStreamCard } from "./QueueStreamCard";
 
 // -- State Imports --
 import {
   usePlayerActions,
   usePlayerQueue,
+  usePlayerQueueBlocks,
   usePlayerQueueIndex,
   usePlayerQueueMeta,
   useHasParked,
   useSeatedStream,
 } from "../../state/player/store";
+import { useAlbumIndex } from "../../state/organize/store";
 import { cleared } from "../../state/player/queueToast";
 import { clearSavedResume } from "../../state/player/useResumeWriter";
 
@@ -44,7 +47,13 @@ import { queuePlaylistName, queuePlaylistTrackIds } from "../../state/player/que
 import { formatCount } from "../../lib/format";
 
 // -- Local Imports --
-import { queueRowState, resolveQueueReorder, upNextCount } from "./queueRowState";
+import {
+  blockPlace,
+  queueRowState,
+  queueSegments,
+  resolveQueueReorder,
+  upNextCount,
+} from "./queueRowState";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -66,10 +75,13 @@ const SAVED_MS = 2000;
  * pause glyph only when the engine holds a parked track), Save as playlist saves the
  * parked queue, and Clear queue empties only that queue: it never stops the stream, so it moves into the
  * header beside Save and the footer goes.
- * The column sits on a glass backing (`.queue::before`).
+ * The column sits on a glass backing (`.queue::before`). A kept block draws as its track rows under an
+ * album band; the rows stay in the one sortable list, so jump, drag and remove work per track.
  */
 export function QueueList() {
   const queue = usePlayerQueue();
+  const blocks = usePlayerQueueBlocks();
+  const albumOfTrack = useAlbumIndex();
   const meta = usePlayerQueueMeta();
   const queueIndex = usePlayerQueueIndex();
   const actions = usePlayerActions();
@@ -100,6 +112,8 @@ export function QueueList() {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  const segments = useMemo(() => queueSegments(queue.length, blocks), [queue.length, blocks]);
 
   const libraryIds = useMemo(() => queuePlaylistTrackIds(queue), [queue]);
 
@@ -148,6 +162,27 @@ export function QueueList() {
     if (move) actions.reorderQueue(move.from, move.to);
   };
 
+  const renderRow = (i: number) => {
+    const m = meta[queue[i]];
+    return (
+      <QueueRow
+        key={items[i]}
+        id={items[i]}
+        state={queueRowState(i, queueIndex, stream ? { parked: hasParked } : null)}
+        dim={stream != null}
+        displayNo={i + 1}
+        title={m?.title ?? ""}
+        artist={m?.artist ?? null}
+        durationSecs={m?.durationSecs ?? null}
+        unknownLabel={t((d) => d.player.unknownTrack)}
+        reorderLabel={t((d) => d.player.reorderQueue)}
+        removeLabel={t((d) => d.player.removeFromQueue)}
+        onJump={() => actions.jump(i)}
+        onRemove={() => actions.removeFromQueue(i)}
+      />
+    );
+  };
+
   return (
     <div className={styles.queue}>
       {stream ? <QueueStreamCard stream={stream} /> : null}
@@ -189,24 +224,25 @@ export function QueueList() {
               {stream && queue.length === 0 ? (
                 <p className={styles.empty}>{t((d) => d.player.stream.parkedEmpty)}</p>
               ) : null}
-              {queue.map((id, i) => {
-                const m = meta[id];
+              {segments.map((segment) => {
+                if (segment.kind === "row") return renderRow(segment.index);
+                const { start, length } = segment;
+                const album = albumOfTrack.get(queue[start]);
+                const place = blockPlace(start, length, queueIndex);
+                // The cursor row of a stream's parked queue only marks the block when a track is parked.
+                const live = place != null && (!stream || hasParked);
                 return (
-                  <QueueRow
-                    key={items[i]}
-                    id={items[i]}
-                    state={queueRowState(i, queueIndex, stream ? { parked: hasParked } : null)}
+                  <QueueBand
+                    key={`band:${items[start]}`}
+                    albumId={album?.id ?? null}
+                    title={album ? (album.title ?? t((d) => d.albums.untitled)) : null}
+                    length={length}
+                    place={live ? place : null}
+                    now={live}
                     dim={stream != null}
-                    displayNo={i + 1}
-                    title={m?.title ?? ""}
-                    artist={m?.artist ?? null}
-                    durationSecs={m?.durationSecs ?? null}
-                    unknownLabel={t((d) => d.player.unknownTrack)}
-                    reorderLabel={t((d) => d.player.reorderQueue)}
-                    removeLabel={t((d) => d.player.removeFromQueue)}
-                    onJump={() => actions.jump(i)}
-                    onRemove={() => actions.removeFromQueue(i)}
-                  />
+                  >
+                    {Array.from({ length }, (_, k) => renderRow(start + k))}
+                  </QueueBand>
                 );
               })}
             </div>

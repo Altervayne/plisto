@@ -544,6 +544,7 @@ export function AppShell({
             <PlaylistView
               playlistId={openPlaylist.id}
               onBack={() => setOpenPlaylistId(null)}
+              onOpenAlbum={(albumId) => navigate({ segment: "albums", full: albumId })}
             />
           ) : (
             <PlaylistsView onOpen={setOpenPlaylistId} />

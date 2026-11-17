@@ -2,6 +2,7 @@
 import { useAlbumTracks } from "../../../state/organize/store";
 import { usePlayerActions, usePlayerEnabled } from "../../../state/player/store";
 import { useRouteCollection } from "../../../state/collection/store";
+import { announceAfterBlock } from "../../../state/player/queueToast";
 
 // -- Utils Imports --
 import { sourceForContainer } from "../../albums/playbackSource";
@@ -59,7 +60,7 @@ export function useRecordActions(album: AlbumRow | null): RecordActions {
     play: playRecord,
     playFrom,
     playNext: () => {
-      if (source && trackIds.length > 0) playNext(trackIds, source);
+      if (source && trackIds.length > 0) announceAfterBlock(playNext(trackIds, source));
     },
     addToQueue: () => {
       if (source && trackIds.length > 0) addToQueue(trackIds, source);
