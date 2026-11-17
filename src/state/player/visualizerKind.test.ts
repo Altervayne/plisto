@@ -7,7 +7,6 @@ import {
   VISUALIZER_KINDS,
   effectiveVisualizerKind,
   fillsStage,
-  nextVisualizerKind,
   needsCoverPixels,
   needsFineSpectrum,
   normalizeReactivity,
@@ -17,6 +16,7 @@ import {
   SPECTRUM_LAYOUTS,
   type VisualizerKind,
 } from "./visualizerKind";
+import { ALL_OFFERED, nextOfferedKind } from "./visualizerCatalog";
 import { VISUALIZER_DESCRIPTORS, type BlendMode, type VisualizerDescriptor } from "./visualizerRegistry";
 
 describe("visualizer descriptors", () => {
@@ -97,47 +97,21 @@ describe("normalizeVisualizerKind", () => {
   });
 });
 
-describe("nextVisualizerKind", () => {
-  it("cycles the classic, dot, fluid and cozy sections in picker order, then Off", () => {
-    const seen: VisualizerKind[] = [];
-    let kind: VisualizerKind = "ridge";
-    for (let i = 0; i < 22; i++) {
+describe("the V cycle", () => {
+  it("walks every kind in picker order, then Off, and wraps", () => {
+    const seen: string[] = [];
+    let kind: string = VISUALIZER_DESCRIPTORS[0].id;
+    for (let i = 0; i < VISUALIZER_KINDS.length; i++) {
       seen.push(kind);
-      kind = nextVisualizerKind(kind);
+      kind = nextOfferedKind(ALL_OFFERED, kind);
     }
-    expect(seen).toEqual([
-      "ridge",
-      "terrain",
-      "warp",
-      "nebula",
-      "bloom",
-      "halftone",
-      "dot-spectrum",
-      "dot-cover",
-      "liquid",
-      "ink",
-      "mercury",
-      "silk",
-      "pond",
-      "glass",
-      "train",
-      "record",
-      "snowfall",
-      "latte",
-      "fireflies",
-      "window",
-      "lake",
-      "off",
-    ]);
+    expect(seen).toEqual([...VISUALIZER_KINDS]);
+    expect(kind).toBe(VISUALIZER_DESCRIPTORS[0].id);
   });
 
   it("walks the same order the picker renders from its sections", () => {
     const pickerOrder = [...VISUALIZER_GROUPS.flatMap((group) => group.kinds), "off"];
     expect([...VISUALIZER_KINDS]).toEqual(pickerOrder);
-  });
-
-  it("wraps from Off back to Ridge", () => {
-    expect(nextVisualizerKind("off")).toBe("ridge");
   });
 });
 

@@ -14,6 +14,8 @@ import {
   type ResolveInput,
   type TrackPlace,
 } from "./visualizerResolve";
+import { ALL_OFFERED, buildCatalog, serializeCatalog } from "./visualizerCatalog";
+import { VISUALIZER_DESCRIPTORS } from "./visualizerRegistry";
 
 const ALBUM_KEY = "album:7";
 const filed: TrackPlace = { kind: "album", trackId: 3, albumId: 7 };
@@ -22,7 +24,20 @@ const loose: TrackPlace = { kind: "loose", trackId: 5 };
 const adhoc: TrackPlace = { kind: "adhoc" };
 
 function input(patch: Partial<ResolveInput> = {}): ResolveInput {
-  return { global: "ridge", trackDefault: null, albumDefault: null, override: null, albumKey: ALBUM_KEY, ...patch };
+  return {
+    global: "ridge",
+    trackDefault: null,
+    albumDefault: null,
+    override: null,
+    albumKey: ALBUM_KEY,
+    catalog: ALL_OFFERED,
+    ...patch,
+  };
+}
+
+/** A catalog with the given kinds (and families) turned off. */
+function without(kinds: string[], groups: string[] = []) {
+  return buildCatalog(serializeCatalog({ kinds, groups }), false);
 }
 
 describe("resolveVisualizer", () => {
@@ -32,6 +47,7 @@ describe("resolveVisualizer", () => {
       source: "global",
       defaultKind: null,
       defaultTier: null,
+      skipped: null,
     });
   });
 
@@ -41,6 +57,7 @@ describe("resolveVisualizer", () => {
       source: "album",
       defaultKind: "nebula",
       defaultTier: "album",
+      skipped: null,
     });
   });
 
@@ -50,12 +67,19 @@ describe("resolveVisualizer", () => {
       source: "track",
       defaultKind: "terrain",
       defaultTier: "track",
+      skipped: null,
     });
   });
 
   it("draws an override over the album default and reports the default set aside", () => {
     const res = resolveVisualizer(input({ albumDefault: "nebula", override: { kind: "bloom", albumKey: ALBUM_KEY } }));
-    expect(res).toEqual({ picked: "bloom", source: "override", defaultKind: "nebula", defaultTier: "album" });
+    expect(res).toEqual({
+      picked: "bloom",
+      source: "override",
+      defaultKind: "nebula",
+      defaultTier: "album",
+      skipped: null,
+    });
   });
 
   it("falls through an unknown or empty stored string to the next tier", () => {
@@ -66,6 +90,7 @@ describe("resolveVisualizer", () => {
       source: "global",
       defaultKind: null,
       defaultTier: null,
+      skipped: null,
     });
   });
 
@@ -75,6 +100,7 @@ describe("resolveVisualizer", () => {
       source: "album",
       defaultKind: "off",
       defaultTier: "album",
+      skipped: null,
     });
   });
 
@@ -82,7 +108,13 @@ describe("resolveVisualizer", () => {
     const override = { kind: "bloom", albumKey: ALBUM_KEY } as const;
     expect(resolveVisualizer(input({ albumDefault: "nebula", override })).picked).toBe("bloom");
     const next = resolveVisualizer(input({ albumDefault: "glass", override, albumKey: "album:9" }));
-    expect(next).toEqual({ picked: "glass", source: "album", defaultKind: "glass", defaultTier: "album" });
+    expect(next).toEqual({
+      picked: "glass",
+      source: "album",
+      defaultKind: "glass",
+      defaultTier: "album",
+      skipped: null,
+    });
   });
 
   it("never applies an override outside the library", () => {
@@ -92,11 +124,144 @@ describe("resolveVisualizer", () => {
 
   it("keeps a temporary pick showing once the last default is cleared", () => {
     const res = resolveVisualizer(input({ override: { kind: "bloom", albumKey: ALBUM_KEY } }));
-    expect(res).toEqual({ picked: "bloom", source: "global", defaultKind: null, defaultTier: null });
+    expect(res).toEqual({ picked: "bloom", source: "global", defaultKind: null, defaultTier: null, skipped: null });
+  });
+});
+
+describe("resolveVisualizer with a catalog", () => {
+  it("skips a turned-off track default and falls to the album default", () => {
+    const res = resolveVisualizer(
+      input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain"]) }),
+    );
+    expect(res).toEqual({
+      picked: "nebula",
+      source: "album",
+      defaultKind: "nebula",
+      defaultTier: "album",
+      skipped: { kind: "terrain", tier: "track" },
+    });
+  });
+
+  it("falls to the global pick when both defaults are turned off, reporting the track one", () => {
+    const res = resolveVisualizer(
+      input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain", "nebula"]) }),
+    );
+    expect(res).toEqual({
+      picked: "ridge",
+      source: "global",
+      defaultKind: null,
+      defaultTier: null,
+      skipped: { kind: "terrain", tier: "track" },
+    });
+  });
+
+  it("skips a turned-off album default and reports it when nothing higher is in play", () => {
+    const res = resolveVisualizer(input({ albumDefault: "nebula", catalog: without(["nebula"]) }));
+    expect(res.picked).toBe("ridge");
+    expect(res.source).toBe("global");
+    expect(res.skipped).toEqual({ kind: "nebula", tier: "album" });
+  });
+
+  it("reports nothing for an off album default under an offered track default", () => {
+    const res = resolveVisualizer(
+      input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["nebula"]) }),
+    );
+    expect(res.picked).toBe("terrain");
+    expect(res.skipped).toBeNull();
+  });
+
+  it("reports the album default when the track default names no known kind", () => {
+    const res = resolveVisualizer(
+      input({ trackDefault: "aurora-x", albumDefault: "nebula", catalog: without(["nebula"]) }),
+    );
+    expect(res).toMatchObject({ source: "global", defaultTier: null, skipped: { kind: "nebula", tier: "album" } });
+  });
+
+  it("plays an Off track default and reports nothing for a turned-off album default", () => {
+    const res = resolveVisualizer(input({ trackDefault: "off", albumDefault: "nebula", catalog: without(["nebula"]) }));
+    expect(res).toMatchObject({ picked: "off", defaultTier: "track", skipped: null });
+  });
+
+  it("skips a default whose family is turned off", () => {
+    const res = resolveVisualizer(input({ albumDefault: "glass", catalog: without([], ["cozy"]) }));
+    expect(res.defaultKind).toBeNull();
+    expect(res.skipped).toEqual({ kind: "glass", tier: "album" });
+  });
+
+  it("resolves a turned-off global pick to the fallback", () => {
+    expect(resolveVisualizer(input({ global: "ridge", catalog: ALL_OFFERED })).picked).toBe("ridge");
+    const noRidge = without(["ridge"]);
+    expect(resolveVisualizer(input({ global: "ridge", catalog: noRidge })).picked).toBe(noRidge.fallback);
+    expect(noRidge.fallback).not.toBe("ridge");
+  });
+
+  it("lands on the first offered kind when Ridge's family is turned off", () => {
+    const catalog = without([], ["classic"]);
+    const res = resolveVisualizer(input({ global: "warp", catalog }));
+    expect(res.picked).toBe(catalog.fallback);
+    expect(res.source).toBe("global");
+  });
+
+  it("always honours Off, as a global pick and as a default", () => {
+    const oneFamily = without([], VISUALIZER_DESCRIPTORS.map((d) => d.group).filter((g) => g !== "cozy"));
+    expect(resolveVisualizer(input({ global: "off", catalog: oneFamily })).picked).toBe("off");
+    const res = resolveVisualizer(input({ albumDefault: "off", catalog: oneFamily }));
+    expect(res).toMatchObject({ picked: "off", source: "album", skipped: null });
+  });
+
+  it("drops an override naming a turned-off kind and falls through to the default", () => {
+    const res = resolveVisualizer(
+      input({
+        albumDefault: "nebula",
+        override: { kind: "bloom", albumKey: ALBUM_KEY },
+        catalog: without(["bloom"]),
+      }),
+    );
+    expect(res.picked).toBe("nebula");
+    expect(res.source).toBe("album");
+  });
+
+  it("keeps an override on an offered kind", () => {
+    const res = resolveVisualizer(
+      input({ albumDefault: "nebula", override: { kind: "bloom", albumKey: ALBUM_KEY }, catalog: without(["warp"]) }),
+    );
+    expect(res).toMatchObject({ picked: "bloom", source: "override" });
+  });
+
+  it("offers everything when the catalog could not be read", () => {
+    const unreadable = buildCatalog(serializeCatalog({ kinds: ["terrain"], groups: [] }), true);
+    const res = resolveVisualizer(input({ trackDefault: "terrain", catalog: unreadable }));
+    expect(res).toMatchObject({ picked: "terrain", source: "track", skipped: null });
+  });
+
+  it("only ever picks an offered kind or Off", () => {
+    const catalogs = [
+      ALL_OFFERED,
+      without(["ridge"]),
+      without(["terrain", "nebula", "glass"]),
+      without([], ["classic", "dots"]),
+      without(["train"], ["fluid", "cozy"]),
+    ];
+    const stored = [null, "terrain", "nebula", "glass", "off", "unknown"];
+    for (const catalog of catalogs) {
+      for (const trackDefault of stored) {
+        for (const albumDefault of stored) {
+          for (const global of ["ridge", "glass", "off"] as const) {
+            const { picked } = resolveVisualizer(input({ trackDefault, albumDefault, global, catalog }));
+            expect(picked === "off" || catalog.offeredKinds.includes(picked)).toBe(true);
+          }
+        }
+      }
+    }
   });
 });
 
 describe("applyManualPick", () => {
+  it("writes the global pref over a skipped default, with no override", () => {
+    const skipped = input({ albumDefault: "nebula", catalog: without(["nebula"]) });
+    expect(applyManualPick(skipped, "bloom")).toEqual({ override: null, global: "bloom" });
+  });
+
   it("writes the global pref with no default", () => {
     expect(applyManualPick(input(), "terrain")).toEqual({ override: null, global: "terrain" });
   });
@@ -138,6 +303,18 @@ describe("clearDefaultTier", () => {
 
   it("skips a tier whose stored string names no kind", () => {
     expect(clearDefaultTier({ trackDefault: "aurora-x", albumDefault: "nebula" })).toBe("album");
+  });
+
+  it("clears a turned-off track default first, over an offered album default", () => {
+    const stored = input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain"]) });
+    expect(clearDefaultTier(stored)).toBe("track");
+    expect(clearDefaultTier({ ...stored, trackDefault: null })).toBe("album");
+  });
+
+  it("clears the track tier, then the album tier, when both defaults are turned off", () => {
+    const stored = input({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain", "nebula"]) });
+    expect(clearDefaultTier(stored)).toBe("track");
+    expect(clearDefaultTier({ ...stored, trackDefault: null })).toBe("album");
   });
 
   it("keeps a temporary pick: clearing during an override still shows the pick", () => {
@@ -220,6 +397,12 @@ describe("defaultActions", () => {
     expect(a.useAlbum.disabled).toBe(false);
     expect(a.useTrack.disabled).toBe(false);
     expect(a.clear.visible).toBe(true);
+  });
+
+  it("keeps Clear default visible while a default is skipped", () => {
+    const a = flags(filed, { albumDefault: "nebula", catalog: without(["nebula"]) });
+    expect(a.clear).toEqual({ visible: true, disabled: false });
+    expect(a.useAlbum.disabled).toBe(false);
   });
 
   it("offers a single the album tier only", () => {

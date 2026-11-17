@@ -8,6 +8,7 @@ const res = (over: Partial<Resolution>): Resolution => ({
   source: "global",
   defaultKind: null,
   defaultTier: null,
+  skipped: null,
   ...over,
 });
 

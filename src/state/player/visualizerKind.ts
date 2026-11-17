@@ -1,5 +1,5 @@
 /*
- * The visualizer choice: the persisted kinds, the order the ambient V key cycles them, the kind a
+ * The visualizer choice: the persisted kinds, their registry order, the kind a
  * surface actually draws once its fallbacks apply, the reactivity level and the dot spectrum's layout.
  * Pure, so the pref reads, the cycle and the fallback are tested apart from the renderer.
  */
@@ -18,7 +18,7 @@ export type { VisualizerGroupId };
 
 /**
  * The picker's labelled sections, in order. This is the one source of the visualizer order: the picker
- * renders it and the V cycle walks it, so they cannot drift. Ridge is the default.
+ * renders it and the catalog's V cycle walks it, so they cannot drift. Ridge is the default.
  */
 export const VISUALIZER_GROUPS: readonly { id: VisualizerGroupId; kinds: readonly VisualizerId[] }[] =
   GROUP_ORDER.map((id) => ({
@@ -29,7 +29,7 @@ export const VISUALIZER_GROUPS: readonly { id: VisualizerGroupId; kinds: readonl
 /** Off draws nothing; it closes the order after the sections and carries no label. */
 export type VisualizerKind = VisualizerId | "off";
 
-/** Every visualizer, in picker and cycle order. */
+/** Every visualizer in registry order, offered or not. A surface that lists kinds reads the catalog instead. */
 export const VISUALIZER_KINDS: readonly VisualizerKind[] = [
   ...VISUALIZER_GROUPS.flatMap((group): VisualizerKind[] => [...group.kinds]),
   "off",
@@ -45,12 +45,6 @@ export function normalizeVisualizerKind(raw: string | null | undefined): Visuali
   return (VISUALIZER_KINDS as readonly string[]).includes(raw ?? "")
     ? (raw as VisualizerKind)
     : DEFAULT_VISUALIZER;
-}
-
-/** The kind after `kind` in cycle order, wrapping from Off back to Ridge. */
-export function nextVisualizerKind(kind: VisualizerKind): VisualizerKind {
-  const i = VISUALIZER_KINDS.indexOf(kind);
-  return VISUALIZER_KINDS[(Math.max(0, i) + 1) % VISUALIZER_KINDS.length];
 }
 
 export function isGlKind(kind: VisualizerKind): kind is GlKind {

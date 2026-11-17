@@ -9,6 +9,7 @@
  */
 
 // -- State Imports --
+import { isOffered, type Catalog } from "./visualizerCatalog";
 import { isVisualizerKind } from "./visualizerRegistry";
 
 // -- Type Imports --
@@ -38,6 +39,14 @@ export interface ResolveInput {
   albumDefault: string | null;
   override: VisualizerOverride | null;
   albumKey: string | null;
+  // Which kinds are offered. A tier naming a kind it turns off is skipped; nothing stored is rewritten.
+  catalog: Catalog;
+}
+
+/** A stored default the catalog turns off, so it is not in play. */
+export interface SkippedDefault {
+  kind: VisualizerKind;
+  tier: DefaultTier;
 }
 
 export interface Resolution {
@@ -46,6 +55,8 @@ export interface Resolution {
   // The default in play, still reported while an override sets it aside.
   defaultKind: VisualizerKind | null;
   defaultTier: DefaultTier | null;
+  // The turned-off default that outranks the one in play, or the highest one when none is in play.
+  skipped: SkippedDefault | null;
 }
 
 /** What a manual pick writes: the override, and the global pref when no default is in play. */
@@ -112,20 +123,52 @@ function knownKind(raw: string | null): VisualizerKind | null {
   return isVisualizerKind(raw) ? raw : null;
 }
 
-// An override holds only while playback stays on the album key it was picked on.
-function liveOverride(override: VisualizerOverride | null, albumKey: string | null): VisualizerKind | null {
-  return override && albumKey != null && override.albumKey === albumKey ? override.kind : null;
+// A stored default in play: a kind the registry knows and the catalog offers.
+function offeredKindOf(raw: string | null, catalog: Catalog): VisualizerKind | null {
+  const kind = knownKind(raw);
+  return kind && isOffered(catalog, kind) ? kind : null;
+}
+
+// An override holds only while playback stays on the album key it was picked on, and only on an offered kind.
+function liveOverride(
+  override: VisualizerOverride | null,
+  albumKey: string | null,
+  catalog: Catalog,
+): VisualizerKind | null {
+  return override && albumKey != null && override.albumKey === albumKey && isOffered(catalog, override.kind)
+    ? override.kind
+    : null;
+}
+
+// The global pick when it is offered, else the catalog's fallback. Off is always offered.
+function globalKind(global: VisualizerKind, catalog: Catalog): VisualizerKind {
+  return isOffered(catalog, global) ? global : (catalog.fallback as VisualizerKind);
+}
+
+// The known default a turned-off kind keeps out of play, when it outranks the one in play.
+function skippedDefault(input: ResolveInput, played: DefaultTier | null): SkippedDefault | null {
+  const track = knownKind(input.trackDefault);
+  if (track && played !== "track") return { kind: track, tier: "track" };
+  const album = knownKind(input.albumDefault);
+  if (album && played == null) return { kind: album, tier: "album" };
+  return null;
 }
 
 export function resolveVisualizer(input: ResolveInput): Resolution {
-  const track = knownKind(input.trackDefault);
-  const album = knownKind(input.albumDefault);
+  const track = offeredKindOf(input.trackDefault, input.catalog);
+  const album = offeredKindOf(input.albumDefault, input.catalog);
   const defaultKind = track ?? album;
   const defaultTier: DefaultTier | null = track ? "track" : album ? "album" : null;
-  const override = liveOverride(input.override, input.albumKey);
+  const override = liveOverride(input.override, input.albumKey, input.catalog);
   // Clearing the last default during an override keeps the pick showing, with nothing left to set aside.
   const source: VisualizerSource = override && defaultKind ? "override" : defaultTier ?? "global";
-  return { picked: override ?? defaultKind ?? input.global, source, defaultKind, defaultTier };
+  return {
+    picked: override ?? defaultKind ?? globalKind(input.global, input.catalog),
+    source,
+    defaultKind,
+    defaultTier,
+    skipped: skippedDefault(input, defaultTier),
+  };
 }
 
 /**
@@ -178,6 +221,7 @@ export function defaultActions(place: TrackPlace, res: Resolution, status: Defau
       visible: place.kind === "album" || place.kind === "loose",
       disabled: off || (trackTier === res.picked && !overridden),
     },
-    clear: { visible: res.defaultTier != null, disabled: off },
+    // A skipped default stays removable.
+    clear: { visible: res.defaultTier != null || res.skipped != null, disabled: off },
   };
 }

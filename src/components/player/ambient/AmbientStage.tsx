@@ -29,9 +29,11 @@ import { useLoadingCue } from "../visualizers/useLoadingCue";
 import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 
 // -- State Imports --
+import { useVisualizerCatalog } from "../../../state/preferences/store";
 import { usePlayerActions, usePlayerStatus, useSeatedStream } from "../../../state/player/store";
 import { showsScrubber, waitingPhase } from "../../../state/player/streamView";
-import { nextVisualizerKind, type VisualizerKind } from "../../../state/player/visualizerKind";
+import { nextOfferedKind } from "../../../state/player/visualizerCatalog";
+import type { VisualizerKind } from "../../../state/player/visualizerKind";
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
 
 // -- Local Imports --
@@ -70,6 +72,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const choice = useVisualizerChoice(coverSrc, artStatus, trackId, stageRef);
   const { shown, picked } = choice;
   const pick = useVisualizerPick(trackId);
+  const catalog = useVisualizerCatalog();
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const sheetOpen = useVisualizerSheetOpen();
@@ -111,7 +114,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   }, [toast, toastWarm]);
 
   const cycle = () => {
-    const next = nextVisualizerKind(picked);
+    const next = nextOfferedKind(catalog, picked) as VisualizerKind;
     // The suffix says the pick holds for this album only, which is true when it set a default aside.
     const setAside = pick(next).override != null;
     const name = t(VISUALIZER_VIEWS[next].label);

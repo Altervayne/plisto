@@ -3,7 +3,7 @@ import { useEffect, useMemo } from "react";
 
 // -- State Imports --
 import { useAlbumIndex } from "../../../state/organize/store";
-import { usePlayerVisualizer } from "../../../state/preferences/store";
+import { usePlayerVisualizer, useVisualizerCatalog } from "../../../state/preferences/store";
 import {
   useStoredDefaults,
   useVisualizerDefaults,
@@ -26,10 +26,12 @@ export interface VisualizerResolution {
 
 /**
  * What track `trackId` resolves to: the global pick, then its album and track defaults, then the session
- * override. The override ends as soon as the album key it was picked on is no longer the playing one.
+ * override, each held to the kinds the catalog offers. The override ends as soon as the album key it was
+ * picked on is no longer the playing one.
  */
 export function useVisualizerResolution(trackId: number): VisualizerResolution {
   const global = usePlayerVisualizer();
+  const catalog = useVisualizerCatalog();
   const albumIndex = useAlbumIndex();
   const place = useMemo(() => placeOf(trackId, albumIndex), [trackId, albumIndex]);
   const { trackDefault, albumDefault } = useStoredDefaults(place);
@@ -42,7 +44,7 @@ export function useVisualizerResolution(trackId: number): VisualizerResolution {
   }, [albumKey]);
 
   return useMemo(() => {
-    const input: ResolveInput = { global, trackDefault, albumDefault, override, albumKey };
+    const input: ResolveInput = { global, trackDefault, albumDefault, override, albumKey, catalog };
     return { place, input, resolution: resolveVisualizer(input) };
-  }, [global, trackDefault, albumDefault, override, albumKey, place]);
+  }, [global, trackDefault, albumDefault, override, albumKey, catalog, place]);
 }
