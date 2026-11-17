@@ -12,6 +12,8 @@
 pub(crate) mod api;
 pub(crate) mod copy_in;
 pub(crate) mod data_size;
+#[cfg(test)]
+mod debug_only_guards;
 pub(crate) mod dev_mode;
 pub(crate) mod extract;
 pub(crate) mod frame_host;

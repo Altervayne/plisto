@@ -29,6 +29,9 @@ use windows62::Win32::UI::Shell::SHCreateMemStream;
 use super::frame_host::{self, ResourceKind};
 use super::state::EnabledSet;
 
+#[cfg(debug_assertions)]
+mod probe;
+
 struct Pending {
     args: ICoreWebView2WebResourceRequestedEventArgs,
     deferral: ICoreWebView2Deferral,
@@ -69,6 +72,8 @@ pub fn install<R: Runtime>(
     app_data: PathBuf,
     enabled: EnabledSet,
 ) -> Result<()> {
+    #[cfg(debug_assertions)]
+    probe::install(pw, app.clone());
     let env = pw.environment();
     let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
         if let Some(args) = args {

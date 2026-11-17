@@ -482,3 +482,6 @@ pub fn diagnostic(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(debug_assertions)]
+pub(crate) mod probe;
