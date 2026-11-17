@@ -18,6 +18,7 @@ import { SettingRow } from "./SettingRow";
 import { SectionsMenu, SettingsRail } from "./SettingsRail";
 import { PluginsSection } from "./plugins/PluginsSection";
 import { SoundSection } from "./SoundSection";
+import { VisualizersSection } from "./visualizers/VisualizersSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { ScanSummaryLine } from "../tracks/ScanSummaryLine";
 import { ProgressLine } from "../scan/ProgressLine";
@@ -307,6 +308,10 @@ export function SettingsView({
 
           <Page id="sound" shown={section}>
             <SoundSection />
+          </Page>
+
+          <Page id="visualizers" shown={section}>
+            <VisualizersSection />
           </Page>
 
           <Page id="appearance" shown={section}>

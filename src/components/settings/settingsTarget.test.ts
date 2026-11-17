@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { landingScrollTop, resolveLanding } from "./settingsTarget";
+import { landingScrollTop, resolveLanding, sectionForTarget } from "./settingsTarget";
 import { hubSettingId, settingAnchorId } from "./settingsRegistry";
 
 const none = () => false;
@@ -35,6 +35,19 @@ describe("resolveLanding", () => {
 
   it("returns null for an unknown id", () => {
     expect(resolveLanding("nope", none)).toBeNull();
+  });
+});
+
+describe("the visualizer catalog target", () => {
+  it("lands on its row and files it under the Visualizers section", () => {
+    const domId = settingAnchorId("visualizerCatalog");
+    expect(resolveLanding("visualizerCatalog", (id) => id === domId)).toEqual({ kind: "row", domId });
+    expect(sectionForTarget("visualizerCatalog")).toBe("visualizers");
+    expect(resolveLanding("visualizers", none)).toEqual({ kind: "section", section: "visualizers" });
+  });
+
+  it("falls back to the section while the row is not on the page", () => {
+    expect(resolveLanding("visualizerCatalog", none)).toEqual({ kind: "section", section: "visualizers" });
   });
 });
 

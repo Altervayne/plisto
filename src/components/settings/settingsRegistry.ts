@@ -20,6 +20,7 @@ export type SettingId =
   | "preset"
   | "preamp"
   | "levelLoudness"
+  | "visualizerCatalog"
   | "theme"
   | "language"
   | "closeBehavior"
@@ -127,6 +128,13 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     label: (d) => d.sound.levelLoudness,
     sublabel: (d) => d.sound.levellingHelper,
     synonyms: (d) => d.settingsIndex.levelLoudness,
+  },
+  {
+    id: "visualizerCatalog",
+    section: "visualizers",
+    label: (d) => d.settings.visualizerCatalog,
+    sublabel: (d) => d.settings.visualizersHelper,
+    synonyms: (d) => d.settingsIndex.visualizerCatalog,
   },
   {
     id: "theme",

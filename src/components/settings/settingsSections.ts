@@ -11,6 +11,7 @@ export type SettingsSectionId =
   | "genres"
   | "playback"
   | "sound"
+  | "visualizers"
   | "appearance"
   | "system"
   | "plugins"
@@ -26,6 +27,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "genres", label: (d) => d.settings.sectionGenres },
   { id: "playback", label: (d) => d.settings.sectionPlayback },
   { id: "sound", label: (d) => d.settings.sectionSound },
+  { id: "visualizers", label: (d) => d.settings.sectionVisualizers },
   { id: "appearance", label: (d) => d.settings.sectionAppearance },
   { id: "system", label: (d) => d.settings.sectionSystem },
   { id: "plugins", label: (d) => d.plugins.section },

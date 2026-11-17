@@ -7,6 +7,11 @@ vi.mock("./plugins/useOperationLock", async () => {
   const { createLock } = await import("../../state/plugins/operationLock");
   return { useOperationLock: () => createLock() };
 });
+// A static render has no document, which the stills read to pick a theme.
+vi.mock("../../theme", async (original) => ({
+  ...(await original<typeof import("../../theme")>()),
+  isDarkTheme: () => false,
+}));
 let installed: PluginRow[] = [];
 vi.mock("../../state/plugins/store", async (original) => ({
   ...(await original<typeof import("../../state/plugins/store")>()),
@@ -108,6 +113,7 @@ describe("settings registry", () => {
       "genres",
       "playback",
       "sound",
+      "visualizers",
       "appearance",
       "system",
       "plugins",

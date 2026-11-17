@@ -13,6 +13,7 @@ const SECTIONS = {
   genres: 400,
   playback: 800,
   sound: 1100,
+  visualizers: 1500,
   appearance: 1700,
   system: 2000,
   plugins: 2400,
