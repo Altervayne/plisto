@@ -564,7 +564,6 @@ pub fn run() {
             commands::player::player_set_repeat,
             commands::player::player_set_shuffle,
             commands::player::get_player_status,
-            commands::player::get_player_queue,
             commands::player::get_player_queue_state,
             commands::player::list_output_devices,
             commands::player::player_set_output_device,

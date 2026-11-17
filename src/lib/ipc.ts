@@ -874,11 +874,6 @@ export function getPlayerStatus(): Promise<PlayerStatus> {
   return invoke<PlayerStatus>("get_player_status");
 }
 
-/** The ordered queue track ids in the active play order, shuffled or not, for the up-next list. */
-export function getPlayerQueue(): Promise<number[]> {
-  return invoke<number[]>("get_player_queue");
-}
-
 /** The queue ids in play order with the block spans over them, read from one mirror so the two never disagree. */
 export function getPlayerQueueState(): Promise<QueueState> {
   return invoke<QueueState>("get_player_queue_state");

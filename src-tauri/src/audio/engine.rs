@@ -226,7 +226,7 @@ impl Engine {
     }
 
     /// Mirrors the current queue's ordered track ids and block spans into shared state, then emits
-    /// `player:queue` with the ids and `player:queue_state` with both, once the lock is dropped.
+    /// `player:queue_state` with both, once the lock is dropped.
     /// Called only when the queue's contents or order change, so the id list, which can run long,
     /// never rides the frequent status snapshot. Unthrottled: queue changes are rare.
     fn emit_queue(&mut self) {
@@ -237,7 +237,6 @@ impl Engine {
         if let Ok(mut guard) = self.queue_mirror.lock() {
             *guard = mirror.clone();
         }
-        let _ = self.app.emit("player:queue", &mirror.ids);
         let _ = self.app.emit("player:queue_state", &mirror);
     }
 

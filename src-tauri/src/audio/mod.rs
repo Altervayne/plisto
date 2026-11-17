@@ -360,7 +360,7 @@ pub struct PlayerStatus {
     pub queue_index: usize,
     pub queue_len: usize,
     // Whether the queue is playing in a shuffled order. The order itself lives in the engine's queue
-    // and the separate `player:queue` mirror; this is only the toggle state for the UI.
+    // and the separate `player:queue_state` mirror; this is only the toggle state for the UI.
     pub shuffle: bool,
     // The name of the device actually rendering, or None while output is following the system
     // default before a device is resolved / when no device is open.

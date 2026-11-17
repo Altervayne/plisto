@@ -115,7 +115,7 @@ fn bits(topics: &[Topic]) -> u8 {
 pub enum Input {
     /// `player:status`.
     Status,
-    /// `player:queue`.
+    /// `player:queue_state`.
     Queue,
     /// `player:stream`.
     Stream,

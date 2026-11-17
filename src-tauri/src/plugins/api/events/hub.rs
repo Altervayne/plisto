@@ -303,7 +303,7 @@ fn listen(app: &AppHandle, api: &ApiState) {
         move |_: tauri::Event| api.events().feed(input())
     };
     app.listen("player:status", feed(|| Input::Status));
-    app.listen("player:queue", feed(|| Input::Queue));
+    app.listen("player:queue_state", feed(|| Input::Queue));
     app.listen("player:stream", feed(|| Input::Stream));
 }
 

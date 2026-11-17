@@ -2,8 +2,8 @@
  * Who listens to which topic: per plugin, the topics its frames subscribed to and the ones its child
  * did, each with its delivery lane. The mask of every subscribed topic is mirrored in an atomic, so
  * an app event nobody listens to costs its listener one load and nothing else. The queue's revision
- * lives here too: it counts every `player:queue` while anyone listens to `queue`, and moves once when
- * the last listener leaves, so a value read after a quiet stretch never equals one read before it.
+ * lives here too: it counts every `player:queue_state` while anyone listens to `queue`, and moves once
+ * when the last listener leaves, so a value read after a quiet stretch never equals one read before it.
  *
  * Every delivery carries a sequence number and every subscribe leaves a mark on its side, both from
  * one counter that never goes back. The answer to a subscribe reaches its receiver on a channel not

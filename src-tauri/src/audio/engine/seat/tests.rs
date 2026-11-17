@@ -2465,11 +2465,9 @@ fn the_mirror_matches_the_queue_after_every_command() {
             assert!(queue_events.is_empty());
             continue;
         }
-        let [(ids_event, ids), (state_event, state)] = queue_events.as_slice() else {
-            panic!("a queue change emits the pair once: {queue_events:?}");
+        let [(state_event, state)] = queue_events.as_slice() else {
+            panic!("a queue change emits once: {queue_events:?}");
         };
-        assert_eq!(ids_event, "player:queue");
-        assert_eq!(*ids, serde_json::to_value(&want.ids).unwrap());
         assert_eq!(state_event, "player:queue_state");
         assert_eq!(*state, serde_json::to_value(&want).unwrap());
     }

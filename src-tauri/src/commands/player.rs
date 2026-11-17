@@ -580,21 +580,9 @@ pub fn get_player_status(state: State<'_, AppState>) -> Result<PlayerStatus, Str
     Ok(status.clone())
 }
 
-/// The ordered queue track ids, for a UI building its up-next list on open or reconnect. Reads the
-/// shared mirror the engine writes on every queue change, so it never waits on the `player:queue`
-/// event. In the active play order, shuffled or not.
-#[tauri::command]
-pub fn get_player_queue(state: State<'_, AppState>) -> Result<Vec<i64>, String> {
-    let queue = state
-        .player_queue
-        .lock()
-        .map_err(|_| "player queue is unavailable".to_string())?;
-    Ok(queue.ids.clone())
-}
-
-/// The ordered queue track ids with the block spans over them, from the same mirror as
-/// `get_player_queue`, so the two never come from different queues. What `player:queue_state`
-/// carries.
+/// The ordered queue track ids in the active play order (shuffled or not) with the block spans over
+/// them, for a UI building its up-next list on open or reconnect. Reads the shared mirror the engine
+/// writes on every queue change, so it never waits on the `player:queue_state` event.
 #[tauri::command]
 pub fn get_player_queue_state(state: State<'_, AppState>) -> Result<QueueMirror, String> {
     let queue = state
