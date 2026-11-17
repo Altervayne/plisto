@@ -47,6 +47,11 @@ describe("visualizer descriptors", () => {
     ["fireflies", "cozy", "gl", false, true, true, "normal", "normal", false],
     ["window", "cozy", "gl", false, true, true, "normal", "normal", false],
     ["lake", "cozy", "gl", false, true, true, "normal", "normal", false],
+    ["neon-highway", "cyber", "gl", false, false, true, "normal", "normal", false],
+    ["server-room", "cyber", "gl", false, true, true, "normal", "normal", false],
+    ["circuit-board", "cyber", "gl", false, true, true, "normal", "normal", false],
+    ["oscilloscope", "cyber", "gl", false, true, true, "normal", "normal", false],
+    ["hologram", "cyber", "gl", false, true, true, "normal", "normal", false],
   ];
 
   it("holds every kind's traits, in picker order", () => {
@@ -166,11 +171,26 @@ describe("effectiveVisualizerKind", () => {
     expect(effectiveVisualizerKind("halftone", noPixels)).toBe("halftone");
     expect(effectiveVisualizerKind("dot-spectrum", noPixels)).toBe("dot-spectrum");
     expect(effectiveVisualizerKind("silk", noPixels)).toBe("silk");
+    expect(effectiveVisualizerKind("neon-highway", noPixels)).toBe("neon-highway");
   });
 
-  it("falls back to Ridge without cover pixels for Pond and every cozy kind", () => {
+  it("falls back to Ridge without cover pixels for Pond, every cozy kind and the cyber kinds that draw the art", () => {
     const noPixels = { ...ok, coverPixels: false };
-    const kinds = ["pond", "glass", "train", "record", "snowfall", "latte", "fireflies", "window", "lake"] as const;
+    const kinds = [
+      "pond",
+      "glass",
+      "train",
+      "record",
+      "snowfall",
+      "latte",
+      "fireflies",
+      "window",
+      "lake",
+      "server-room",
+      "circuit-board",
+      "oscilloscope",
+      "hologram",
+    ] as const;
     for (const kind of kinds) {
       expect(effectiveVisualizerKind(kind, noPixels)).toBe("ridge");
     }
@@ -224,12 +244,16 @@ describe("needsCoverPixels", () => {
       "fireflies",
       "window",
       "lake",
+      "server-room",
+      "circuit-board",
+      "oscilloscope",
+      "hologram",
     ]);
   });
 });
 
 describe("fillsStage", () => {
-  it("holds for the fluid and cozy kinds, which paint the whole stage", () => {
+  it("holds for the fluid, cozy and cyber kinds, which paint the whole stage", () => {
     expect(VISUALIZER_KINDS.filter(fillsStage)).toEqual([
       "liquid",
       "ink",
@@ -244,6 +268,11 @@ describe("fillsStage", () => {
       "fireflies",
       "window",
       "lake",
+      "neon-highway",
+      "server-room",
+      "circuit-board",
+      "oscilloscope",
+      "hologram",
     ]);
   });
 });

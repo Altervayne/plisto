@@ -73,21 +73,26 @@ beforeEach(() => {
 
 describe("VisualizerSheet chips", () => {
   it("has no chip row with one family and Off", () => {
-    const html = renderSheet("train", [], ["classic", "dots", "fluid"]);
+    const html = renderSheet("train", [], ["classic", "dots", "fluid", "cyber"]);
     expect(chipLabels(html)).toEqual([]);
     expect(html).toContain('data-group="cozy"');
     expect(html).toContain('data-group="off"');
   });
 
   it("has a chip row with two families and Off", () => {
-    const html = renderSheet("ridge", [], ["dots", "fluid"]);
+    const html = renderSheet("ridge", [], ["dots", "fluid", "cyber"]);
     expect(chipLabels(html)).toEqual(["Classic", "Cozy", "Off"]);
+  });
+
+  it("lists the Cyber family after Cozy when it is on", () => {
+    const html = renderSheet("ridge", [], ["dots", "fluid"]);
+    expect(chipLabels(html)).toEqual(["Classic", "Cozy", "Cyber", "Off"]);
   });
 
   it("runs the strip over the offered families only, Off last", () => {
     const html = renderSheet("ridge", ["train"], ["dots"]);
     const groups = [...html.matchAll(/data-group="([^"]+)"/g)].map((m) => m[1]);
-    expect(groups).toEqual(["classic", "fluid", "cozy", "off"]);
+    expect(groups).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
     expect(html).not.toContain('data-kind="train"');
   });
 });
@@ -168,6 +173,6 @@ describe("useSheetGroups", () => {
     const first = probe();
     setCatalog([], ["dots"]);
     expect(probe()).not.toBe(first);
-    expect(probe().map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "off"]);
+    expect(probe().map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
   });
 });

@@ -158,8 +158,14 @@ describe("visualizerPopoverModel", () => {
 describe("visualizerPopoverModel over a catalog", () => {
   it("tabs and markers cover the offered families only", () => {
     const m = visualizerPopoverModel(album, none, without([], ["dots"]));
-    expect(m.groups.map((g) => g.id)).toEqual(["classic", "fluid", "cozy"]);
-    expect(Object.keys(m.markers)).toEqual(["classic", "fluid", "cozy"]);
+    expect(m.groups.map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber"]);
+    expect(Object.keys(m.markers)).toEqual(["classic", "fluid", "cozy", "cyber"]);
+  });
+
+  it("opens the Cyber tab for a stored cyber kind", () => {
+    const m = visualizerPopoverModel(album, { trackDefault: null, albumDefault: "hologram" });
+    expect(m.openTab).toBe("cyber");
+    expect(m.markers.cyber).toEqual({ active: true, setAside: false });
   });
 
   it("a family with every kind off loses its tab", () => {

@@ -13,15 +13,15 @@ const without = (kinds: string[], groups: string[] = []) =>
 
 describe("sheetGroupsOf", () => {
   it("lists every family in registry order, Off last", () => {
-    expect(sheetGroupsOf(ALL_OFFERED).map((g) => g.id)).toEqual(["classic", "dots", "fluid", "cozy", "off"]);
+    expect(sheetGroupsOf(ALL_OFFERED).map((g) => g.id)).toEqual(["classic", "dots", "fluid", "cozy", "cyber", "off"]);
     const groups = sheetGroupsOf(ALL_OFFERED);
     expect(groups[groups.length - 1].kinds).toEqual(["off"]);
   });
 
   it("drops a turned-off family and a family with no offered kind", () => {
     const ids = (c: ReturnType<typeof without>) => sheetGroupsOf(c).map((g) => g.id);
-    expect(ids(without([], ["dots"]))).toEqual(["classic", "fluid", "cozy", "off"]);
-    expect(ids(without(["halftone", "dot-spectrum", "dot-cover"]))).toEqual(["classic", "fluid", "cozy", "off"]);
+    expect(ids(without([], ["dots"]))).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
+    expect(ids(without(["halftone", "dot-spectrum", "dot-cover"]))).toEqual(["classic", "fluid", "cozy", "cyber", "off"]);
   });
 
   it("drops a turned-off kind from its run", () => {
@@ -31,19 +31,19 @@ describe("sheetGroupsOf", () => {
   });
 
   it("keeps Off alone when one family is left", () => {
-    const groups = sheetGroupsOf(without([], ["classic", "dots", "fluid"]));
+    const groups = sheetGroupsOf(without([], ["classic", "dots", "fluid", "cyber"]));
     expect(groups.map((g) => g.id)).toEqual(["cozy", "off"]);
     expect(showsChips(groups)).toBe(false);
   });
 
   it("shows chips from two families up", () => {
     expect(showsChips(sheetGroupsOf(ALL_OFFERED))).toBe(true);
-    expect(showsChips(sheetGroupsOf(without([], ["fluid", "cozy"])))).toBe(true);
+    expect(showsChips(sheetGroupsOf(without([], ["fluid", "cozy", "cyber"])))).toBe(true);
   });
 
   it("holds the resolved kind in a run under any catalog (seeded)", () => {
     const ids = VISUALIZER_DESCRIPTORS.map((d) => d.id);
-    const families = ["classic", "dots", "fluid", "cozy"];
+    const families = ["classic", "dots", "fluid", "cozy", "cyber"];
     let seed = 7;
     const rand = () => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -75,11 +75,13 @@ describe("sheetGroupLabel", () => {
     const fr = createT("fr");
     expect(sheetGroupLabel("cozy", en)).toBe("Cozy");
     expect(sheetGroupLabel("cozy", fr)).toBe("Cosy");
+    expect(sheetGroupLabel("cyber", en)).toBe("Cyber");
+    expect(sheetGroupLabel("cyber", fr)).toBe("Cyber");
     expect(sheetGroupLabel("off", en)).toBe("Off");
   });
 
   it("reads an unknown family as its id", () => {
-    expect(sheetGroupLabel("cyber", createT("en"))).toBe("cyber");
+    expect(sheetGroupLabel("cosmic", createT("en"))).toBe("cosmic");
     expect(sheetGroupLabel("constructor", createT("en"))).toBe("constructor");
   });
 });

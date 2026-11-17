@@ -9,19 +9,24 @@ import type { ReactNode } from "react";
 
 // -- Local Imports --
 import { createBloom, BLOOM_PROGRAMS } from "./gl/bloom";
+import { createCircuitBoard, CIRCUIT_BOARD_PROGRAMS } from "./gl/circuitBoard";
 import { createDotCover, DOT_COVER_PROGRAMS } from "./gl/dotCover";
 import { createDotSpectrum, DOT_SPECTRUM_PROGRAMS } from "./gl/dotSpectrum";
 import { createFireflies, FIREFLIES_PROGRAMS } from "./gl/fireflies";
 import { createGlass, GLASS_PROGRAMS } from "./gl/glass";
 import { createHalftone, HALFTONE_PROGRAMS } from "./gl/halftone";
+import { createHologram, HOLOGRAM_PROGRAMS } from "./gl/hologram";
 import { createInk, INK_PROGRAMS } from "./gl/ink";
 import { createLake, LAKE_PROGRAMS } from "./gl/lake";
 import { createLatte, LATTE_PROGRAMS } from "./gl/latte";
 import { createLiquid, LIQUID_PROGRAMS } from "./gl/liquid";
 import { createMercury, MERCURY_PROGRAMS } from "./gl/mercury";
 import { createNebula, NEBULA_PROGRAMS } from "./gl/nebula";
+import { createNeonHighway, NEON_HIGHWAY_PROGRAMS } from "./gl/neonHighway";
+import { createOscilloscope, OSCILLOSCOPE_PROGRAMS } from "./gl/oscilloscope";
 import { createPond, POND_PROGRAMS } from "./gl/pond";
 import { createRecord, RECORD_PROGRAMS } from "./gl/record";
+import { createServerRoom, SERVER_ROOM_PROGRAMS } from "./gl/serverRoom";
 import { createSilk, SILK_PROGRAMS } from "./gl/silk";
 import { createSnowfall, SNOWFALL_PROGRAMS } from "./gl/snowfall";
 import { createTerrain, TERRAIN_PROGRAMS } from "./gl/terrain";
@@ -323,6 +328,68 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
     factory: createLake,
     programs: LAKE_PROGRAMS,
+  },
+  "neon-highway": {
+    label: (d) => d.player.visualizerNeonHighway,
+    glyph: (
+      <>
+        <path d="M2 11h20" />
+        <path d="M10 11 3 21M14 11l7 10" />
+        <path d="M12 14v1.5M12 18v3" opacity={0.6} />
+      </>
+    ),
+    factory: createNeonHighway,
+    programs: NEON_HIGHWAY_PROGRAMS,
+  },
+  "server-room": {
+    label: (d) => d.player.visualizerServerRoom,
+    glyph: (
+      <>
+        <rect x="5" y="2.5" width="14" height="19" rx="1.5" />
+        <path d="M5 8.8h14M5 15.2h14" />
+        <g fill="currentColor" stroke="none">
+          <circle cx="8.5" cy="5.7" r="0.9" />
+          <circle cx="8.5" cy="12" r="0.9" />
+          <circle cx="8.5" cy="18.4" r="0.9" />
+        </g>
+      </>
+    ),
+    factory: createServerRoom,
+    programs: SERVER_ROOM_PROGRAMS,
+  },
+  "circuit-board": {
+    label: (d) => d.player.visualizerCircuitBoard,
+    glyph: (
+      <>
+        <rect x="7" y="7" width="10" height="10" rx="1.5" />
+        <path d="M10 7V3M14 7V3M10 21v-4M14 21v-4M3 10h4M3 14h4M17 10h4M17 14h4" opacity={0.6} />
+      </>
+    ),
+    factory: createCircuitBoard,
+    programs: CIRCUIT_BOARD_PROGRAMS,
+  },
+  oscilloscope: {
+    label: (d) => d.player.visualizerOscilloscope,
+    glyph: (
+      <>
+        <rect x="2" y="4" width="20" height="16" rx="3" opacity={0.6} />
+        <path d="M5 13c1.8-6 3.2-6 4.5 0s2.7 6 4.5 0 2.5-4 5-2" />
+      </>
+    ),
+    factory: createOscilloscope,
+    programs: OSCILLOSCOPE_PROGRAMS,
+  },
+  hologram: {
+    label: (d) => d.player.visualizerHologram,
+    glyph: (
+      <>
+        <path d="M12 2.5 18 5.5v6L12 14.5 6 11.5v-6z" />
+        <path d="M6 5.5l6 3 6-3M12 8.5v6" opacity={0.6} />
+        <path d="M4 18.5c0-1.2 3.6-2 8-2s8 .8 8 2-3.6 2-8 2-8-.8-8-2z" />
+      </>
+    ),
+    factory: createHologram,
+    programs: HOLOGRAM_PROGRAMS,
   },
   off: {
     label: (d) => d.player.visualizerOff,

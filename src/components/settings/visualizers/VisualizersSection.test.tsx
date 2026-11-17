@@ -138,6 +138,8 @@ describe("VisualizersSection", () => {
     const html = renderToStaticMarkup(<VisualizersSection />);
     expect(html).toContain(`aria-label="${en.player.visualizerRidge}"`);
     expect(html).toContain(`aria-label="${en.player.visualizerGroupCozy}"`);
+    expect(html).toContain(`aria-label="${en.player.visualizerGroupCyber}"`);
+    expect(html).toContain(`aria-label="${en.player.visualizerHologram}"`);
   });
 
   it("disables every switch and says it is reading before the preferences load", () => {

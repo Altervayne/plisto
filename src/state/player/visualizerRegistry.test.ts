@@ -34,6 +34,11 @@ describe("blendFor", () => {
     fireflies: ["normal", "normal"],
     window: ["normal", "normal"],
     lake: ["normal", "normal"],
+    "neon-highway": ["normal", "normal"],
+    "server-room": ["normal", "normal"],
+    "circuit-board": ["normal", "normal"],
+    oscilloscope: ["normal", "normal"],
+    hologram: ["normal", "normal"],
   };
 
   it("gives every GL kind the blend the renderer composites in each theme", () => {
@@ -71,6 +76,11 @@ describe("fillsStage", () => {
       "fireflies",
       "window",
       "lake",
+      "neon-highway",
+      "server-room",
+      "circuit-board",
+      "oscilloscope",
+      "hologram",
     ]);
   });
 });

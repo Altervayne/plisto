@@ -205,8 +205,25 @@ describe("families", () => {
 
   it("offeredGroups drops a family with no offered kind and keeps registry order", () => {
     const c = catalog(kindsOf("dots"), ["fluid"]);
-    expect(offeredGroups(c).map((g) => g.id)).toEqual(["classic", "cozy"]);
+    expect(offeredGroups(c).map((g) => g.id)).toEqual(["classic", "cozy", "cyber"]);
     expect(offeredGroups(c)[0].kinds).toEqual(kindsOf("classic"));
+  });
+});
+
+describe("a stored value from before the cyber family", () => {
+  const cyber = ["neon-highway", "server-room", "circuit-board", "oscilloscope", "hologram"];
+  const older = catalog(["ink"], ["dots"]);
+
+  it("offers the cyber kinds, on and in registry order after the cozy kinds", () => {
+    for (const id of cyber) expect(isOffered(older, id)).toBe(true);
+    expect(kindsOf("cyber")).toEqual(cyber);
+    expect(older.offeredKinds.slice(-cyber.length)).toEqual(cyber);
+    expect(offeredGroups(older).map((g) => g.id)).toEqual(["classic", "fluid", "cozy", "cyber"]);
+    expect(familyState(older, "cyber")).toEqual({ state: "on", offered: cyber.length, total: cyber.length });
+  });
+
+  it("keeps the stored choices when written back", () => {
+    expect(serializeCatalog(toggleKind(older, "hologram")!)).toBe('{"v":1,"kinds":["ink","hologram"],"groups":["dots"]}');
   });
 });
 
@@ -220,7 +237,7 @@ describe("last-on guard", () => {
 
   it("refuses to turn off the family holding the last kinds", () => {
     expect(toggleGroup(onlyRidge, "classic")).toBeNull();
-    const onlyCozy = catalog([], ["classic", "dots", "fluid"]);
+    const onlyCozy = catalog([], ["classic", "dots", "fluid", "cyber"]);
     expect(toggleGroup(onlyCozy, "cozy")).toBeNull();
     expect(canTurnOff(onlyCozy, "group", "cozy")).toBe(false);
     expect(canTurnOff(onlyCozy, "kind", "train")).toBe(true);
@@ -265,7 +282,7 @@ describe("nextOfferedKind", () => {
   });
 
   it("ends at off and wraps", () => {
-    expect(nextOfferedKind(c, "lake")).toBe("off");
+    expect(nextOfferedKind(c, "hologram")).toBe("off");
     expect(nextOfferedKind(c, "off")).toBe("ridge");
   });
 

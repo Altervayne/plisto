@@ -4,19 +4,24 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import { VISUALIZER_VIEWS, thumbFor } from "./visualizerViews";
 import { createBloom } from "./gl/bloom";
+import { createCircuitBoard } from "./gl/circuitBoard";
 import { createDotCover } from "./gl/dotCover";
 import { createDotSpectrum } from "./gl/dotSpectrum";
 import { createFireflies } from "./gl/fireflies";
 import { createGlass } from "./gl/glass";
 import { createHalftone } from "./gl/halftone";
+import { createHologram } from "./gl/hologram";
 import { createInk } from "./gl/ink";
 import { createLake } from "./gl/lake";
 import { createLatte } from "./gl/latte";
 import { createLiquid } from "./gl/liquid";
 import { createMercury } from "./gl/mercury";
 import { createNebula } from "./gl/nebula";
+import { createNeonHighway } from "./gl/neonHighway";
+import { createOscilloscope } from "./gl/oscilloscope";
 import { createPond } from "./gl/pond";
 import { createRecord } from "./gl/record";
+import { createServerRoom } from "./gl/serverRoom";
 import { createSilk } from "./gl/silk";
 import { createSnowfall } from "./gl/snowfall";
 import { createTerrain } from "./gl/terrain";
@@ -51,6 +56,11 @@ describe("VISUALIZER_VIEWS", () => {
       fireflies: createFireflies,
       window: createWindow,
       lake: createLake,
+      "neon-highway": createNeonHighway,
+      "server-room": createServerRoom,
+      "circuit-board": createCircuitBoard,
+      oscilloscope: createOscilloscope,
+      hologram: createHologram,
     };
     for (const [kind, create] of Object.entries(factories) as [GlVisualizerId, unknown][]) {
       expect(VISUALIZER_VIEWS[kind].factory).toBe(create);

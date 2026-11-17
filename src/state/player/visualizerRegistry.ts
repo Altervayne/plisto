@@ -9,7 +9,7 @@ import type { Translate } from "../../i18n";
 import type { Dict } from "../../i18n/en";
 
 /** The picker's labelled sections, in order. */
-export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy"] as const;
+export const GROUP_ORDER = ["classic", "dots", "fluid", "cozy", "cyber"] as const;
 
 export type VisualizerGroupId = (typeof GROUP_ORDER)[number];
 
@@ -19,6 +19,7 @@ export const GROUP_LABELS: Record<VisualizerGroupId, (d: Dict) => string> = {
   dots: (d) => d.player.visualizerGroupDots,
   fluid: (d) => d.player.visualizerGroupFluid,
   cozy: (d) => d.player.visualizerGroupCozy,
+  cyber: (d) => d.player.visualizerGroupCyber,
 };
 
 /** A family's localized name. An id the registry does not name reads as itself. */
@@ -244,6 +245,52 @@ export const VISUALIZER_DESCRIPTORS = [
   {
     id: "lake",
     group: "cozy",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  // The cyber kinds are whole-stage scenes. All but Neon Highway draw the cover's pixels into the picture.
+  {
+    id: "neon-highway",
+    group: "cyber",
+    engine: "gl",
+    needs: { fine: false, cover: false },
+    fillsStage: true,
+    darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "server-room",
+    group: "cyber",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "circuit-board",
+    group: "cyber",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "oscilloscope",
+    group: "cyber",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: false,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "hologram",
+    group: "cyber",
     engine: "gl",
     needs: { fine: false, cover: true },
     fillsStage: true,
