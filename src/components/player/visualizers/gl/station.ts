@@ -411,7 +411,10 @@ vec3 puff(vec3 d, vec4 P, float lit) {
   float rad = 0.02 + 0.22 * t;
   float body = exp(-pow(dist / rad, 2.0)) * (1.0 - t / max(len, 1e-3) * 0.6);
   float fade = smoothstep(0.0, 0.12, age) * exp(-age / 0.45);
-  vec3 c = vec3(0.75, 0.85, 1.0) * body * fade * P.z * (0.25 + 0.75 * lit) * 0.8 * occl(far, rad);
+  // The occlusion loop is skipped where the puff is too faint to show through it.
+  float pw = body * fade * P.z * (0.25 + 0.75 * lit) * 0.8;
+  vec3 c = vec3(0.75, 0.85, 1.0) * pw;
+  if (pw > 1e-4) c *= occl(far, rad);
   // Ice crystals: a handful of grains thrown along the plume, glinting while the station is in sunlight.
   for (int i = 0; i < 8; i++) {
     float fi = float(i) + P.w * 13.0;
@@ -419,7 +422,8 @@ vec3 puff(vec3 d, vec4 P, float lit) {
     vec3 gp = q0 + normalize(dir + jit * 0.9) * (0.25 + 0.5 * hash21(vec2(fi, 2.2))) * age;
     float gz = dot(gp, d);
     float px = length(gp - d * gz) / max(gz, 0.1) * gFoc;
-    c += vec3(1.0, 0.92, 0.8) * exp(-px * px / 1.6) * exp(-age / 1.1) * smoothstep(0.0, 0.2, age) * P.z * (0.15 + 0.85 * lit) * 0.8 * occl(gz, 0.01);
+    float gw = exp(-px * px / 1.6) * exp(-age / 1.1) * smoothstep(0.0, 0.2, age) * P.z * (0.15 + 0.85 * lit) * 0.8;
+    if (gw > 1e-4) c += vec3(1.0, 0.92, 0.8) * gw * occl(gz, 0.01);
   }
   return c;
 }
