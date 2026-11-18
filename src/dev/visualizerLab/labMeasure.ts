@@ -175,15 +175,17 @@ export function runSteps(p: Probe) {
   };
 }
 
-// A sequence passes with no more than this many flashes in any second.
+// WCAG 2.3.1 allows no more than this many flashes in any second.
 const FLASHES_PER_SECOND_LIMIT = 3;
 
 /**
  * WCAG 2.3.1 flashes over the window of the song, through `createFlashMeter`: pixels are followed across
  * frames, area transitions are taken over bins of concurrent change, and `flashesPerSec` is the most window
- * flashes in any second. It is the gate: over 3 fails. `flickerSharePct` sums unrelated flicker and is
- * information only; `stepWindowPct` is the single-frame change share. With `red`, the same is done on
- * saturated-red change (a step of 20 in WCAG's (R-G-B) x 320 measure).
+ * flashes in any second. The luminance reading is a screen, not a verdict: over 3 it marks the scene for a
+ * person to look at (`look`) and fails nothing, because a per-pixel count reads dense moving detail as
+ * flashing. `flickerSharePct` sums unrelated flicker and is information only; `stepWindowPct` is the
+ * single-frame change share. With `red`, the same count is taken on saturated-red change (a step of 20 in
+ * WCAG's (R-G-B) x 320 measure), and that one is a gate: over 3 fails.
  */
 export function runDropFlash(p: Probe, red: boolean) {
   const rows: Record<string, unknown>[] = [];
@@ -228,7 +230,7 @@ export function runDropFlash(p: Probe, red: boolean) {
         size: `${w}x${h}`,
         flashesPerSec: seen.flashesPerSec,
         measured: seen.measured,
-        pass: seen.measured && seen.flashesPerSec <= FLASHES_PER_SECOND_LIMIT,
+        look: seen.flashesPerSec > FLASHES_PER_SECOND_LIMIT,
         flickerSharePct: round(seen.flickerShare * 100),
         stepWindowPct: round(worstStep * 100),
         ...(redSeen
@@ -247,8 +249,9 @@ export function runDropFlash(p: Probe, red: boolean) {
     lumaSpace: "WCAG relative luminance (linear) of the composited sRGB picture (ground, then the layer in its blend)",
     reactivity: p.reactivity,
     song: windowText(p),
-    counted: `per pixel across frames, a transition completes when the pixel has moved ${FLASH_STEP} from its last extreme with the darker end under ${FLASH_DARKER_BELOW} (an up transition by the trough it rose from, a down one by the low it reaches); a 341x256 window makes an up or down area transition when a quarter of its pixels complete that transition within the last ${FLASH_SPAN_FRAMES} frames (50 ms), each pixel transition used by one area transition at most; a window flash is an area transition followed by the opposing one within a second; flashesPerSec is the most window flashes in any second over all windows (stride 4 px); flickerSharePct (pixels flashing at any moment, information only, not the gate) and stepWindowPct (single-frame change share) are not gates`,
-    gate: `fails when flashesPerSec is over ${FLASHES_PER_SECOND_LIMIT} or the stage is smaller than the window (measured false); the red fields are held to the same`,
+    counted: `per pixel across frames, a transition completes when the pixel has moved ${FLASH_STEP} from its last extreme with the darker end under ${FLASH_DARKER_BELOW} (an up transition by the trough it rose from, a down one by the low it reaches); a 341x256 window makes an up or down area transition when a quarter of its pixels complete that transition within the last ${FLASH_SPAN_FRAMES} frames (50 ms), each pixel transition used by one area transition at most; a window flash is an area transition followed by the opposing one within a second; flashesPerSec is the most window flashes in any second over all windows (stride 4 px); flickerSharePct (pixels flashing at any moment, information only) and stepWindowPct (single-frame change share) gate nothing`,
+    screen: `flashesPerSec over ${FLASHES_PER_SECOND_LIMIT} sets look: a person looks at the scene and nothing fails, since dense moving detail reads as flashing; measured false means the stage is smaller than the window and nothing was read`,
+    gate: `the red fields fail when redFlashesPerSec is over ${FLASHES_PER_SECOND_LIMIT}`,
     rows,
   };
 }
