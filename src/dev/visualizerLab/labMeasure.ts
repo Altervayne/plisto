@@ -1,11 +1,13 @@
 /*
- * The lab's measurement modes for one scene: brightness steps over the song's drop, WCAG flashes over the
- * same drop, the brightness a motion signal at its cap may add, and the Calm rule. Each run draws through
- * the real renderer at pixel ratio 1 with the scene's own theme, so a dark-only scene is measured dark.
- * Every result names the theme, layout and luma space it was taken in.
+ * The lab's song measures for one scene: brightness steps and WCAG flashes over a window of the song, and
+ * Fireflies' worst-case flash. Each run draws through the real renderer at pixel ratio 1 with the scene's own
+ * theme, so a dark-only scene is measured dark, and reads the composited picture: the layout's ground with
+ * the layer over it in the kind's blend. Every result names the theme, layout and luma space it was taken in.
  */
 
 // -- Local Imports --
+import { fireflyProbe } from "../../components/player/visualizers/gl/fireflies";
+import { createComposer } from "./labCompose";
 import {
   LAB_LAYOUTS,
   applyTheme,
@@ -20,25 +22,32 @@ import {
   FLASH_SPAN_FRAMES,
   createFlashMeter,
   meanLuma709,
-  readPixels,
   redness,
   relativeLuminance,
   round,
-  sha256,
   worstWindow,
 } from "./labPixels";
 
 // -- State Imports --
-import { restSignal, type VisualSignal } from "../../state/player/visualSignal";
+import type { Reactivity } from "../../state/player/visualizerKind";
 
 // -- Type Imports --
 import type { Renderer } from "../../components/player/visualizers/gl/renderer";
 import type { Frame } from "../../components/player/visualizers/gl/kit";
+import type { ReadWindow } from "./labParams";
+import type { GlBlendMode } from "../../state/player/visualizerRegistry";
 
 /** A scene to measure, with the cover, the themes and layouts a run covers and a way to open a renderer. */
 export interface Probe {
   kind: string;
   darkOnly: boolean;
+  // Whether the scene draws from the 128-band spectrum, which the song then supplies.
+  needsFine: boolean;
+  // The song seconds a steps or flash run reads, and the reactivity the song is followed at.
+  window: ReadWindow;
+  reactivity: Reactivity;
+  // The blend the layer takes over the stage in the scene's light.
+  blend: (light: boolean) => GlBlendMode;
   cover: ImageBitmap;
   themes: LabTheme[];
   layouts: LabLayoutId[];
@@ -46,9 +55,10 @@ export interface Probe {
 }
 
 const DT = 1 / 60;
-// The song is followed from its start to two seconds into the drop, then read for ten seconds.
+// The default window: from two seconds into the song's drop, for ten seconds.
 const LEAD_IN = 2;
 const READ_SECONDS = 10;
+export const DEFAULT_WINDOW: ReadWindow = { from: DROP_START + LEAD_IN, length: READ_SECONDS };
 // A third of a second of 60 fps frames: the window the largest brightness swing is taken over.
 const SWING_FRAMES = 20;
 
@@ -60,36 +70,38 @@ const FLASH_DARKER_BELOW = 0.8;
 // The red check: a change of this much in the saturated-red measure counts.
 const RED_STEP = 20;
 
-// A held run: its length, the frames that settle before the mean is taken, and the motion cap and beat rate.
-const HOLD_FRAMES = 360;
-const HOLD_SETTLE = 120;
-const MOTION_CAP = 1.6;
-const BEATS_PER_SECOND = 3;
-// The brightness a motion signal may add to the motionless mean, in percentage points.
-const LEVEL_TOLERANCE_PTS = 1.5;
-const HOLD_SWELL = 0.32;
-
-const CALM_FRAMES = 120;
-const CALM_SAMPLE_EVERY = 10;
+const PICTURE = "Rec. 709 luma of the composited sRGB picture (ground, then the layer in its blend)";
 
 /** The themes a probe covers: a dark-only scene has just the one. */
-function themesOf(p: Probe): LabTheme[] {
+export function themesOf(p: Probe): LabTheme[] {
   return p.darkOnly ? ["dark"] : p.themes;
 }
 
-/** A fresh renderer and the frame template for one theme and layout, the random stream restarted. */
-function begin(p: Probe, theme: LabTheme, layout: LabLayoutId) {
-  applyTheme(sceneTheme(p.darkOnly, theme));
+/**
+ * A fresh renderer and the frame template for one theme and layout, the random stream restarted. `read`
+ * returns the composited picture in `readPixels` byte order; its array is reused by the next call.
+ */
+export function begin(p: Probe, theme: LabTheme, layout: LabLayoutId) {
+  const drawn = sceneTheme(p.darkOnly, theme);
+  applyTheme(drawn);
   const { canvas, renderer } = p.open(layout);
   reseed();
-  const base: Frame = { ...labFrame(sceneTheme(p.darkOnly, theme), layout, p.cover), still: false };
-  return { canvas, renderer, base };
+  const base: Frame = { ...labFrame(drawn, layout, p.cover), still: false };
+  const { width, height } = LAB_LAYOUTS[layout];
+  const compose = createComposer(width, height, base.ground, p.blend(base.light));
+  return { canvas, renderer, base, read: () => compose(canvas) };
+}
+
+/** The song's window as text, for a result. */
+function windowText(p: Probe): string {
+  const { from, length } = p.window;
+  return `song time ${from} s to ${round(from + length)} s (${length} s) at 60 fps, pixel ratio 1`;
 }
 
 /**
- * Plays the song at Lively through a fresh renderer and hands each frame of the read window to `onFrame`
- * with the seconds since the window opened. The frames before it are drawn too, so a stateful scene is
- * settled when the reading starts.
+ * Plays the song through a fresh renderer and hands each frame of the read window to `onFrame` with the
+ * seconds since the window opened. The frames before it are drawn too, so a stateful scene is settled when
+ * the reading starts.
  */
 function playDrop(
   p: Probe,
@@ -97,20 +109,25 @@ function playDrop(
   layout: LabLayoutId,
   onFrame: (bytes: Uint8Array, since: number) => void,
 ): void {
-  const { canvas, renderer, base } = begin(p, theme, layout);
-  const song = createLabSong(0, "lively");
-  const start = DROP_START + LEAD_IN;
-  for (let t = 0; t < start + READ_SECONDS; t += DT) {
+  const { renderer, base, read } = begin(p, theme, layout);
+  const song = createLabSong(0, p.reactivity);
+  const { from, length } = p.window;
+  let framesRead = 0;
+  for (let t = 0; t < from + length; t += DT) {
     const m = song.step(DT);
-    renderer.render(p.kind, { ...base, sig: m.sig, t, dt: DT });
-    if (t >= start) onFrame(readPixels(canvas), t - start);
+    renderer.render(p.kind, { ...base, sig: m.sig, fine: p.needsFine ? m.fine : null, t, dt: DT });
+    if (t >= from) {
+      onFrame(read(), t - from);
+      framesRead++;
+    }
   }
   renderer.dispose();
+  if (framesRead === 0) throw new Error(`the window ${from} s for ${length} s holds no frame`);
 }
 
 /**
  * Brightness steps: the largest frame-to-frame change of the stage's mean brightness, the largest swing
- * inside any third of a second, and the mean, over ten seconds of the drop at Lively.
+ * inside any third of a second, and the mean, over the window of the song.
  */
 export function runSteps(p: Probe) {
   const rows: Record<string, unknown>[] = [];
@@ -133,6 +150,7 @@ export function runSteps(p: Probe) {
         const win = means.slice(i, i + SWING_FRAMES);
         swing = Math.max(swing, Math.max(...win) - Math.min(...win));
       }
+      const swung = means.length >= SWING_FRAMES;
       const { width, height } = LAB_LAYOUTS[layout];
       rows.push({
         theme: sceneTheme(p.darkOnly, theme),
@@ -140,7 +158,8 @@ export function runSteps(p: Probe) {
         size: `${width}x${height}`,
         maxStepPct: round(maxStep * 100),
         atS: round(at),
-        swingPct: round(swing * 100),
+        atSongS: round(p.window.from + at),
+        swingPct: swung ? round(swing * 100) : null,
         meanPct: round((means.reduce((a, b) => a + b, 0) / means.length) * 100),
       });
     }
@@ -148,9 +167,10 @@ export function runSteps(p: Probe) {
   return {
     mode: "steps",
     kind: p.kind,
-    lumaSpace: "Rec. 709 luma of sRGB bytes",
-    reactivity: "lively",
-    song: `drop +${LEAD_IN} s for ${READ_SECONDS} s at 60 fps, pixel ratio 1`,
+    lumaSpace: PICTURE,
+    reactivity: p.reactivity,
+    song: windowText(p),
+    swing: `swingPct is null when the window holds fewer than ${SWING_FRAMES} frames, the span a swing is taken over`,
     rows,
   };
 }
@@ -159,11 +179,11 @@ export function runSteps(p: Probe) {
 const FLASHES_PER_SECOND_LIMIT = 3;
 
 /**
- * WCAG 2.3.1 flashes over ten seconds of the drop at Lively, through `createFlashMeter`: pixels are
- * followed across frames, area transitions are taken over bins of concurrent change, and `flashesPerSec`
- * is the most window flashes in any second. It is the gate: over 3 fails. `flickerSharePct` sums unrelated
- * flicker and is information only; `stepWindowPct` is the single-frame change share. With `red`, the same
- * is done on saturated-red change (a step of 20 in WCAG's (R-G-B) x 320 measure).
+ * WCAG 2.3.1 flashes over the window of the song, through `createFlashMeter`: pixels are followed across
+ * frames, area transitions are taken over bins of concurrent change, and `flashesPerSec` is the most window
+ * flashes in any second. It is the gate: over 3 fails. `flickerSharePct` sums unrelated flicker and is
+ * information only; `stepWindowPct` is the single-frame change share. With `red`, the same is done on
+ * saturated-red change (a step of 20 in WCAG's (R-G-B) x 320 measure).
  */
 export function runDropFlash(p: Probe, red: boolean) {
   const rows: Record<string, unknown>[] = [];
@@ -224,134 +244,67 @@ export function runDropFlash(p: Probe, red: boolean) {
   return {
     mode: "flash",
     kind: p.kind,
-    lumaSpace: "WCAG relative luminance (linear)",
-    reactivity: "lively",
-    song: `drop +${LEAD_IN} s for ${READ_SECONDS} s at 60 fps, pixel ratio 1`,
+    lumaSpace: "WCAG relative luminance (linear) of the composited sRGB picture (ground, then the layer in its blend)",
+    reactivity: p.reactivity,
+    song: windowText(p),
     counted: `per pixel across frames, a transition completes when the pixel has moved ${FLASH_STEP} from its last extreme with the darker end under ${FLASH_DARKER_BELOW} (an up transition by the trough it rose from, a down one by the low it reaches); a 341x256 window makes an up or down area transition when a quarter of its pixels complete that transition within the last ${FLASH_SPAN_FRAMES} frames (50 ms), each pixel transition used by one area transition at most; a window flash is an area transition followed by the opposing one within a second; flashesPerSec is the most window flashes in any second over all windows (stride 4 px); flickerSharePct (pixels flashing at any moment, information only, not the gate) and stepWindowPct (single-frame change share) are not gates`,
     gate: `fails when flashesPerSec is over ${FLASHES_PER_SECOND_LIMIT} or the stage is smaller than the window (measured false); the red fields are held to the same`,
     rows,
   };
 }
 
-/** A fixed level and swell with the motion signals at `motion`, a beat every third of a second at that cap. */
-function heldSignal(level: number, motion: number, beat: boolean, frame: number): VisualSignal {
-  const sinceBeat = frame % Math.round(60 / BEATS_PER_SECOND);
-  const base = restSignal();
-  // The capped run also drives the raw channels high: loud bands and band groups, peak, and flux and kick
-  // pulsing with each beat, so a scene whose light follows any of them shows it.
-  const bands = beat ? Float32Array.from({ length: 24 }, (_, i) => Math.min(1, 0.95 - i * 0.015 + 0.05 * Math.sin(i + frame))) : base.bands;
-  const mean = (from: number, to: number) => bands.slice(from, to).reduce((a, b) => a + b, 0) / (to - from);
-  return {
-    ...base,
-    bands,
-    rms: level,
-    level,
-    peak: beat ? 1 : base.peak,
-    bass: beat ? mean(0, 5) : base.bass,
-    mid: beat ? mean(5, 15) : base.mid,
-    high: beat ? mean(15, 24) : base.high,
-    flux: beat ? Math.exp(-sinceBeat * DT * 8) : 0,
-    swell: HOLD_SWELL,
-    bassMotion: motion,
-    midMotion: motion,
-    highMotion: motion,
-    drive: motion,
-    beat: beat && sinceBeat === 0 ? motion : 0,
-    kick: beat ? Math.exp(-sinceBeat * DT * 5.5) : 0,
-  };
-}
+// The frames each of Fireflies' two shots runs, and the share of a window that may change (WCAG's quarter).
+const FIREFLY_FRAMES = 31;
+const FIREFLY_LIMIT_PCT = 25;
 
 /**
- * The brightness a motion signal at its cap adds. Level and swell are held; one run has no motion and no
- * beats, the other has every envelope at the cap, beats at the rate limit and the bands, band groups,
- * peak, flux and kick high. The means over the settled frames must stay within the tolerance of each other.
+ * Fireflies' worst case through the real renderer: every light at its blink floor, the level at maximum, once
+ * with no swell and once with the group at full swell. Reports the share of the composited stage that changes
+ * by 0.1 relative luminance or more, and the most inside any 341 x 256 window. `p` is a probe of Fireflies.
  */
-export function runLevel(p: Probe, level: number) {
-  const rows: Record<string, unknown>[] = [];
-  for (const theme of themesOf(p)) {
+export function runFireflyFlash(p: Probe, theme: LabTheme) {
+  const rows: { layout: string; theme: string; stagePct: number; windowPct: number }[] = [];
+  fireflyProbe.floor = true;
+  try {
     for (const layout of p.layouts) {
-      const means = [0, 0];
-      for (const moving of [false, true]) {
-        const { canvas, renderer, base } = begin(p, theme, layout);
-        let sum = 0;
-        for (let i = 0; i < HOLD_FRAMES; i++) {
-          const sig = heldSignal(level, moving ? MOTION_CAP : 0, moving, i);
-          renderer.render(p.kind, { ...base, sig, t: 14 + i * DT, dt: DT });
-          if (i >= HOLD_SETTLE) sum += meanLuma709(readPixels(canvas));
+      const shot = (swell: boolean): Uint8Array => {
+        const { renderer, base, read } = begin(p, theme, layout);
+        for (let i = 0; i < FIREFLY_FRAMES; i++) {
+          const sig = { ...base.sig, level: 1, drive: 1.5, beat: swell && i === 0 ? 1 : 0 };
+          renderer.render(p.kind, { ...base, sig, t: 14 + i / 60, still: false });
         }
-        means[moving ? 1 : 0] = sum / (HOLD_FRAMES - HOLD_SETTLE);
+        const bytes = read().slice();
         renderer.dispose();
+        return bytes;
+      };
+      const rest = shot(false);
+      const full = shot(true);
+      const w = LAB_LAYOUTS[layout].width;
+      const h = LAB_LAYOUTS[layout].height;
+      const mask = new Uint8Array(w * h);
+      let changed = 0;
+      for (let i = 0; i < w * h; i++) {
+        const hit = Math.abs(relativeLuminance(full, i * 4) - relativeLuminance(rest, i * 4)) >= FLASH_STEP ? 1 : 0;
+        mask[i] = hit;
+        changed += hit;
       }
-      const dev = (means[1] - means[0]) * 100;
+      const worst = worstWindow(mask, w, h, FLASH_WINDOW_W, FLASH_WINDOW_H);
       rows.push({
-        theme: sceneTheme(p.darkOnly, theme),
         layout,
-        restPct: round(means[0] * 100),
-        cappedPct: round(means[1] * 100),
-        devPts: round(dev),
-        ok: Math.abs(dev) <= LEVEL_TOLERANCE_PTS,
+        theme,
+        stagePct: round((100 * changed) / (w * h)),
+        windowPct: round((100 * worst) / (FLASH_WINDOW_W * FLASH_WINDOW_H)),
       });
     }
+  } finally {
+    fireflyProbe.floor = false;
   }
   return {
-    mode: "level",
+    mode: "flash",
     kind: p.kind,
-    lumaSpace: "Rec. 709 luma of sRGB bytes",
-    held: `level ${level}, swell ${HOLD_SWELL}; capped run: envelopes ${MOTION_CAP}, beats ${BEATS_PER_SECOND} per second, bands, bass/mid/high, peak, flux and kick high`,
-    tolerancePts: LEVEL_TOLERANCE_PTS,
-    frames: `${HOLD_FRAMES} at 60 fps, mean over the last ${HOLD_FRAMES - HOLD_SETTLE}, pixel ratio 1`,
-    rows,
-  };
-}
-
-/** A signal under Calm: the level and swell are shared; the bands, the band groups, kick and flux are `varied`. */
-function calmSignal(frame: number, varied: boolean): VisualSignal {
-  const level = 0.4 + 0.1 * Math.sin(frame * 0.05);
-  const bands = Float32Array.from({ length: 24 }, (_, i) => (varied ? 0.15 + 0.8 * Math.abs(Math.sin(i * 2.3 + frame * 0.7)) : 0.1));
-  const mean = (from: number, to: number) => bands.slice(from, to).reduce((a, b) => a + b, 0) / (to - from);
-  return {
-    ...restSignal(),
-    bands,
-    rms: level,
-    level,
-    swell: HOLD_SWELL,
-    bass: mean(0, 5),
-    mid: mean(5, 15),
-    high: mean(15, 24),
-    kick: varied ? 0.9 : 0,
-    flux: varied ? 0.8 : 0,
-  };
-}
-
-/**
- * The Calm rule: two runs with the same level and swell but different bands, band groups, kick and flux,
- * and every motion channel at zero, must draw identical frames.
- */
-export async function runCalm(p: Probe) {
-  const rows: Record<string, unknown>[] = [];
-  for (const theme of themesOf(p)) {
-    for (const layout of p.layouts) {
-      const runs: string[][] = [];
-      for (const varied of [false, true]) {
-        const { canvas, renderer, base } = begin(p, theme, layout);
-        const hashes: string[] = [];
-        for (let i = 0; i < CALM_FRAMES; i++) {
-          renderer.render(p.kind, { ...base, sig: calmSignal(i, varied), t: 14 + i * DT, dt: DT });
-          if ((i + 1) % CALM_SAMPLE_EVERY === 0) hashes.push(await sha256(readPixels(canvas)));
-        }
-        renderer.dispose();
-        runs.push(hashes);
-      }
-      const differing = runs[0].flatMap((h, i) => (h === runs[1][i] ? [] : [(i + 1) * CALM_SAMPLE_EVERY]));
-      rows.push({ theme: sceneTheme(p.darkOnly, theme), layout, identical: differing.length === 0, differingFrames: differing });
-    }
-  }
-  return {
-    mode: "calm",
-    kind: p.kind,
-    varied:
-      "bands, bass/mid/high, kick and flux, on purpose: under Calm a scene must take no motion from them; held: level, swell, rms, peak and every motion channel at 0",
-    frames: `${CALM_FRAMES} at 60 fps, sampled every ${CALM_SAMPLE_EVERY}, pixel ratio 1`,
+    lumaSpace: "WCAG relative luminance (linear) of the composited sRGB picture (ground, then the layer in its blend)",
+    worstCase: "every light at its blink floor, level at maximum, once with no swell and once with the group at full swell",
+    limitPct: FIREFLY_LIMIT_PCT,
     rows,
   };
 }

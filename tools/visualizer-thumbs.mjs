@@ -16,21 +16,20 @@ const DIR = join(ROOT, "src/assets/visualizer-thumbs");
 const MANIFEST = join(DIR, "manifest.json");
 const VIS = "src/components/player/visualizers";
 
-// Files every kind's still depends on.
-const SHARED = [
-  `${VIS}/gl/renderer.ts`,
-  `${VIS}/visualizerPalette.ts`,
+// Files every GL kind's still depends on beyond its own module.
+const GL_ONLY = [`${VIS}/gl/renderer.ts`, `${VIS}/visualizerPalette.ts`];
+
+// Files every still depends on, Ridge's included: the lab scene, the groove, and the modules that compose a still.
+const LAB_SHARED = [
   "src/dev/visualizerLab/labScene.ts",
   "src/dev/visualizerLab/labMusic.ts",
+  "src/dev/visualizerLab/labThumbs.tsx",
+  "src/dev/visualizerLab/labCompose.ts",
   "src/styles/tokens.css",
 ];
 
-// Ridge is composed by the lab page itself, so the page is part of its source.
-const RIDGE_FILES = [
-  "src/components/player/SpectrumRidge.tsx",
-  "src/components/player/SpectrumRidge.module.css",
-  "src/dev/visualizerLab/main.tsx",
-];
+// Ridge is a Canvas 2D component composed by the lab, so its own files add to the shared ones.
+const RIDGE_FILES = ["src/components/player/SpectrumRidge.tsx", "src/components/player/SpectrumRidge.module.css"];
 
 /** Every kind id, read from the registry source so the list has one owner. */
 function kindIds() {
@@ -56,9 +55,9 @@ function closure(entry, seen = new Set()) {
 }
 
 function sourceFiles(kind) {
-  if (kind === "ridge") return new Set([...RIDGE_FILES, ...SHARED.slice(2)]);
+  if (kind === "ridge") return new Set([...RIDGE_FILES, ...LAB_SHARED]);
   const files = closure(`${VIS}/gl/${camel(kind)}.ts`);
-  for (const f of SHARED) files.add(f);
+  for (const f of [...GL_ONLY, ...LAB_SHARED]) files.add(f);
   return files;
 }
 

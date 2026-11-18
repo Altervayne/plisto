@@ -16,8 +16,8 @@ const FEED_HZ = 30;
 const STEP = 60 / 120 / 4;
 const LOOP_BARS = 16;
 // The fine spectrum's ballistics, matching the 24 bands'.
-const FINE_ATTACK = 0.5;
-const FINE_DECAY = 0.15;
+export const FINE_ATTACK = 0.5;
+export const FINE_DECAY = 0.15;
 
 function hash(n: number): number {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -127,7 +127,7 @@ function synth(t: number, out: number[]): void {
 }
 
 /** The 24 bands spread over 128 with a little fine ripple, so the spectrum reads as detail rather than steps. */
-function widen(bands: readonly number[], t: number): number[] {
+export function widen(bands: readonly number[], t: number): number[] {
   return Array.from({ length: FINE_BAND_COUNT }, (_, i) => {
     const pos = (i / (FINE_BAND_COUNT - 1)) * (BAND_COUNT - 1);
     const lo = Math.floor(pos);

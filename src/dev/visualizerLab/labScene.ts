@@ -15,7 +15,15 @@ import { restSignal } from "../../state/player/visualSignal";
 import { paletteFloats } from "../../components/player/visualizers/visualizerPalette";
 
 export type LabTheme = "light" | "dark";
-export type LabLayoutId = "player" | "ambient";
+export type LabLayoutId = "player" | "ambient" | "ambient-side";
+
+/** Every layout id, in the order a run lists them. */
+export const LAB_LAYOUT_IDS: readonly LabLayoutId[] = ["player", "ambient", "ambient-side"];
+
+/** Whether a layout is an ambient stage, which sits on the base ground and draws the visualizer full-bleed. */
+export function isAmbientLayout(id: LabLayoutId): boolean {
+  return id !== "player";
+}
 
 /** The stage size of a layout, in CSS pixels. */
 export interface LabLayout extends Layout {
@@ -96,6 +104,28 @@ const AMBIENT: LabLayout = {
   ],
 };
 
+/*
+ * The app's ambient stage at 1280 x 800, from its CSS. The body is the stage less the 150 px chrome below
+ * and 20 px of right padding, a centred row of the cover, an 80 px gap (10vh) and the text column.
+ * - Cover: 400 px square (50vh), 20 px radius; row width 400 + 80 + 440 = 920 in a 1260 px box, so it
+ *   starts at x 170, and is centred in the 650 px body at y 125.
+ * - Hush: the text column starts at x 650, is 440 px wide (55vh) and about 171 px tall (source line, a
+ *   two-line 46 px title, artist, album line), centred in the body at y 239.
+ * - Floor: the seek bar's top edge, 143 px above the foot (35 px bar, 14 gap, 56 px play row, 38 padding).
+ * Approximations: the text column is sized for a two-line title (the real one follows the title's length),
+ * and the ground is the flat base ground where the app's stage adds faint colour washes over it.
+ */
+const AMBIENT_SIDE: LabLayout = {
+  id: "ambient-side",
+  width: 1280,
+  height: 800,
+  cover: [170, 125, 400, 400],
+  radius: 20,
+  mask: null,
+  floor: 657,
+  hush: [[650, 239, 440, 171]],
+};
+
 // The thumbnail stage: the ambient stage scaled to 680 x 424 (twice the 340 x 212 still), with the cover
 // shrunk to 30% of the height around the ambient cover's centre, so the visualizer carries the picture.
 const THUMB_SCALE = 680 / 1280;
@@ -116,7 +146,7 @@ export const THUMB_LAYOUT: LabLayout = {
   hush: AMBIENT.hush.map(([x, y, w, h]): LabLayout["cover"] => [x * THUMB_SCALE, y * THUMB_SCALE, w * THUMB_SCALE, h * THUMB_SCALE]),
 };
 
-export const LAB_LAYOUTS: Record<LabLayoutId, LabLayout> = { player: PLAYER, ambient: AMBIENT };
+export const LAB_LAYOUTS: Record<LabLayoutId, LabLayout> = { player: PLAYER, ambient: AMBIENT, "ambient-side": AMBIENT_SIDE };
 
 /** Paints the reference cover, a sunset gradient with a sun disc, onto a square canvas. */
 export function paintCover(size: number): HTMLCanvasElement {
@@ -184,7 +214,7 @@ export function sceneTheme(darkOnly: boolean, theme: LabTheme): LabTheme {
 
 /** The theme's ground as an sRGB triple, for the layout: the base ground in ambient, the panel in the Player. */
 export function groundOf(layout: LabLayoutId): [number, number, number] {
-  return tokenRgb(layout === "ambient" ? "--bg" : "--surface");
+  return tokenRgb(isAmbientLayout(layout) ? "--bg" : "--surface");
 }
 
 /** The frame a still render takes: the rest signal, the reference cover and palette, and the theme grounds. */
@@ -195,7 +225,7 @@ export function labFrame(theme: LabTheme, layout: LabLayoutId, cover: ImageBitma
     sig: restSignal(),
     palette: paletteFloats(COVER_PALETTE),
     light: theme === "light",
-    ambient: layout === "ambient",
+    ambient: isAmbientLayout(layout),
     still: true,
     playing: true,
     fine: null,

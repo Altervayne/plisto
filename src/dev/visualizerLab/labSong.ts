@@ -7,10 +7,14 @@
 
 // -- State Imports --
 import { createSignalFollower, type VisualSignal } from "../../state/player/visualSignal";
+import { smoothBands } from "../../state/player/spectrum";
 import type { Reactivity } from "../../state/player/visualizerKind";
 
+// -- Local Imports --
+import { FINE_ATTACK, FINE_DECAY, widen } from "./labMusic";
+
 // -- Type Imports --
-import { BAND_COUNT, type LevelFrame } from "../../types";
+import { BAND_COUNT, FINE_BAND_COUNT, type LevelFrame } from "../../types";
 
 const FEED_HZ = 30;
 const STEP = 60 / 120 / 4;
@@ -29,6 +33,9 @@ const SONG_BARS = 40;
 
 /** Where the drop starts, in song seconds. */
 export const DROP_START = (PARTS.find(([name]) => name === "drop")?.[1] ?? 0) * BAR;
+
+/** The song's length in seconds; past it the arrangement loops. */
+export const SONG_SECONDS = SONG_BARS * BAR;
 
 function hash(n: number): number {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -149,6 +156,8 @@ function synth(t: number, out: number[]): void {
 /** One display frame of the song. The signal is the follower's own object, rewritten on each step. */
 export interface SongFrame {
   sig: VisualSignal;
+  // The 128-band spectrum, eased the way the app eases it, for the kinds that draw from it.
+  fine: number[];
   bands: number[];
   level: LevelFrame;
 }
@@ -164,6 +173,8 @@ export function createLabSong(startAt: number, reactivity: Reactivity): LabSong 
   let acc = 0;
   let bands: number[] = new Array(BAND_COUNT).fill(0);
   let level: LevelFrame = { rms: 0, peak: 0, flux: 0 };
+  let fineRaw: number[] = new Array(FINE_BAND_COUNT).fill(0);
+  let fine: number[] = [];
 
   const feed = () => {
     const next = new Array<number>(BAND_COUNT).fill(0);
@@ -179,6 +190,7 @@ export function createLabSong(startAt: number, reactivity: Reactivity): LabSong 
     }
     level = { rms: Math.min(1, Math.sqrt(sq / BAND_COUNT) * 1.35), peak: Math.min(1, max * 0.92), flux: Math.min(1, flux / 2.2) };
     bands = next;
+    fineRaw = widen(next, clock);
   };
 
   return {
@@ -190,7 +202,8 @@ export function createLabSong(startAt: number, reactivity: Reactivity): LabSong 
         feed();
       }
       const sig = follower.step(dt, { bands, level, playing: true, reactivity });
-      return { sig, bands, level };
+      fine = smoothBands(fine, fineRaw, FINE_ATTACK, FINE_DECAY);
+      return { sig, fine, bands, level };
     },
   };
 }
