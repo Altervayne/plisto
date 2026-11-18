@@ -37,6 +37,19 @@ export const DROP_START = (PARTS.find(([name]) => name === "drop")?.[1] ?? 0) * 
 /** The song's length in seconds; past it the arrangement loops. */
 export const SONG_SECONDS = SONG_BARS * BAR;
 
+// The song's unit rms is far flatter than a real master's. Its dBFS is the rms in dB expanded by this slope
+// around the offset, so the intro lands near -27 dBFS, the breakdown near -21 and the drop near -9, with
+// the loudest hits clamped at 0.
+const RMS_DB_SLOPE = 2.5;
+const RMS_DB_OFFSET = 13.5;
+const RMS_DB_FLOOR = -60;
+
+/** The song's rms in dBFS: monotonic in the unit rms, within -60..0. */
+function rmsToDb(rms: number): number {
+  const db = RMS_DB_OFFSET + RMS_DB_SLOPE * 20 * Math.log10(Math.max(rms, 1e-6));
+  return Math.min(0, Math.max(RMS_DB_FLOOR, db));
+}
+
 function hash(n: number): number {
   const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return s - Math.floor(s);
@@ -188,7 +201,8 @@ export function createLabSong(startAt: number, reactivity: Reactivity): LabSong 
       sq += next[i] * next[i];
       max = Math.max(max, next[i]);
     }
-    level = { rms: Math.min(1, Math.sqrt(sq / BAND_COUNT) * 1.35), peak: Math.min(1, max * 0.92), flux: Math.min(1, flux / 2.2) };
+    const rms = Math.min(1, Math.sqrt(sq / BAND_COUNT) * 1.35);
+    level = { rms, peak: Math.min(1, max * 0.92), flux: Math.min(1, flux / 2.2), rmsDb: rmsToDb(rms) };
     bands = next;
     fineRaw = widen(next, clock);
   };

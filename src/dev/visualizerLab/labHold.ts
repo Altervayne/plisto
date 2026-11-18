@@ -1,6 +1,6 @@
 /*
  * The lab's held-signal measures: the brightness a motion signal at its cap adds to a motionless run at the
- * same drive, and the Calm rule. Each holds level and swell fixed and varies only what the rule is about.
+ * same drive, and the Calm rule. Each holds level, loudness and swell fixed and varies only what the rule is about.
  */
 
 // -- Local Imports --
@@ -18,6 +18,9 @@ const HOLD_FRAMES = 360;
 const HOLD_SETTLE = 120;
 export const MOTION_CAP = 1.6;
 const BEATS_PER_SECOND = 3;
+// The frames inside the measured part of the capped run on which the loudness shifts fire, once each.
+const SURGE_FRAME = 200;
+const CUT_FRAME = 260;
 // The brightness a motion signal may add to the motionless mean, in percentage points.
 const LEVEL_TOLERANCE_PTS = 1.5;
 export const HOLD_SWELL = 0.32;
@@ -32,7 +35,11 @@ const CALM_SAMPLE_EVERY = 10;
  */
 export type HeldRun = "capped" | "rest" | "calmRest";
 
-/** A fixed level and swell for one held run, a beat every third of a second in the capped run. */
+/**
+ * A fixed level, loudness and swell for one held run, a beat every third of a second in the capped run.
+ * Loudness is a steady brightness driver, so it equals the level in every run. The capped run also holds
+ * the three hit envelopes at the cap, weights each beat at the cap and fires one surge and one cut.
+ */
 export function heldSignal(level: number, run: HeldRun, frame: number): VisualSignal {
   const capped = run === "capped";
   const motion = capped ? MOTION_CAP : 0;
@@ -59,6 +66,13 @@ export function heldSignal(level: number, run: HeldRun, frame: number): VisualSi
     drive: run === "calmRest" ? 0 : MOTION_CAP,
     beat: capped && sinceBeat === 0 ? MOTION_CAP : 0,
     kick: capped ? Math.exp(-sinceBeat * DT * 5.5) : 0,
+    loudness: level,
+    bassHit: motion,
+    midHit: motion,
+    highHit: motion,
+    beatWeight: capped && sinceBeat === 0 ? MOTION_CAP : 0,
+    surge: capped && frame === SURGE_FRAME ? MOTION_CAP : 0,
+    cut: capped && frame === CUT_FRAME ? MOTION_CAP : 0,
   };
 }
 
@@ -104,7 +118,7 @@ export function runLevel(p: Probe, level: number) {
     mode: "level",
     kind: p.kind,
     lumaSpace: "Rec. 709 luma of the composited sRGB picture (ground, then the layer in its blend)",
-    held: `level ${level}, swell ${HOLD_SWELL}; capped run: drive and envelopes ${MOTION_CAP}, beats ${BEATS_PER_SECOND} per second, bands, bass/mid/high, peak, flux and kick high; rest run: drive ${MOTION_CAP}, envelopes 0, no beats, bands at rest; calm rest run: the rest run with drive 0`,
+    held: `level ${level}, loudness ${level}, swell ${HOLD_SWELL}; capped run: drive and envelopes ${MOTION_CAP}, hits (bassHit/midHit/highHit) ${MOTION_CAP}, beats ${BEATS_PER_SECOND} per second each with beatWeight ${MOTION_CAP}, one surge and one cut at ${MOTION_CAP} (frames ${SURGE_FRAME} and ${CUT_FRAME}), bands, bass/mid/high, peak, flux and kick high; rest run: drive ${MOTION_CAP}, envelopes, hits, beats, beatWeight, surge and cut 0, bands at rest; calm rest run: the rest run with drive 0`,
     gate: `devPts (capped minus rest, both at drive ${MOTION_CAP}) is the gate: ok when its size is within tolerancePts; calmRestPct and calmDevPts compare against the drive 0 run and are information only`,
     tolerancePts: LEVEL_TOLERANCE_PTS,
     frames: `${HOLD_FRAMES} at 60 fps, mean over the last ${HOLD_FRAMES - HOLD_SETTLE}, pixel ratio 1`,
@@ -112,7 +126,7 @@ export function runLevel(p: Probe, level: number) {
   };
 }
 
-/** A signal under Calm: the level and swell are shared; the bands, the band groups, kick and flux are `varied`. */
+/** A signal under Calm: the level, loudness and swell are shared; the bands, the band groups, kick and flux are `varied`. */
 function calmSignal(frame: number, varied: boolean): VisualSignal {
   const level = 0.4 + 0.1 * Math.sin(frame * 0.05);
   const bands = Float32Array.from({ length: 24 }, (_, i) => (varied ? 0.15 + 0.8 * Math.abs(Math.sin(i * 2.3 + frame * 0.7)) : 0.1));
@@ -123,6 +137,7 @@ function calmSignal(frame: number, varied: boolean): VisualSignal {
     rms: level,
     level,
     swell: HOLD_SWELL,
+    loudness: level,
     bass: mean(0, 5),
     mid: mean(5, 15),
     high: mean(15, 24),
@@ -132,7 +147,7 @@ function calmSignal(frame: number, varied: boolean): VisualSignal {
 }
 
 /**
- * The Calm rule: two runs with the same level and swell but different bands, band groups, kick and flux,
+ * The Calm rule: two runs with the same level, loudness and swell but different bands, band groups, kick and flux,
  * and every motion channel at zero, must draw identical frames. The raw framebuffer is hashed.
  */
 export async function runCalm(p: Probe) {
@@ -158,7 +173,7 @@ export async function runCalm(p: Probe) {
     mode: "calm",
     kind: p.kind,
     varied:
-      "bands, bass/mid/high, kick and flux, on purpose: under Calm a scene must take no motion from them; held: level, swell, rms, peak and every motion channel at 0",
+      "bands, bass/mid/high, kick and flux, on purpose: under Calm a scene must take no motion from them; held: level, loudness (live under Calm, like level), swell, rms, peak and every motion channel at 0, including bassHit, midHit, highHit, beatWeight, surge and cut",
     frames: `${CALM_FRAMES} at 60 fps, sampled every ${CALM_SAMPLE_EVERY}, pixel ratio 1`,
     rows,
   };
