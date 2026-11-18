@@ -13,9 +13,11 @@
  * window, red=0|1 to force the red check; with neither: Fireflies' worst case), level (level=0..1, the
  * brightness a motion signal at its cap adds) and calm (the Calm rule, on the raw framebuffer). steps and
  * flash take from=<s> and for=<s>, the song seconds read (default: the drop from 34 s, for 10 s), and
- * react=calm|balanced|lively (default lively). fine=1 marks a scene= module as drawing from the 128-band
- * spectrum, which the registry cannot say for it. bench takes ref=<kind> to time the kinds under the song's
- * drop with the track playing, as a ratio to that kind.
+ * react=calm|balanced|lively (default lively). track=<name> plays a dumped real track
+ * (.ai/lab-tracks/<name>.json) in place of the song: from and for then read track seconds, and the animated
+ * view (anim=1) plays it from its start. fine=1 marks a scene= module as drawing from the 128-band spectrum,
+ * which the registry cannot say for it. bench takes ref=<kind> to time the kinds under the song's drop with
+ * the track playing, as a ratio to that kind.
  */
 
 // -- Local Imports --
@@ -39,6 +41,7 @@ import { DEFAULT_WINDOW, runDropFlash, runFireflyFlash, runSteps, type Probe } f
 import { parseReadWindow, pickLayoutIds, pickReactivity } from "./labParams";
 import { rgbCss } from "./labCompose";
 import { SONG_SECONDS, createLabSong } from "./labSong";
+import { createLabReplay, loadTrack, type LoadedTrack } from "./labReplay";
 import { blendOf, darkOnlyOf, loadScene, openLab, type LabScene } from "./labSceneModule";
 import { runThumb } from "./labThumbs";
 import { readPixels, sha256 } from "./labPixels";
@@ -134,8 +137,11 @@ async function runView() {
 
   reseed();
   if (params.get("anim") === "1") {
-    // song=1 plays the song from its start at the reactivity in react=; otherwise the frame holds the rest signal.
-    const song = params.get("song") === "1" ? createLabSong(0, pickReactivity(params.get("react"), "balanced")) : null;
+    // song=1 plays the song, or track= the real track, from its start at the reactivity in react=; otherwise
+    // the frame holds the rest signal.
+    const reactivity = pickReactivity(params.get("react"), "balanced");
+    const track = await pickTrack();
+    const song = track ? createLabReplay(track.dump, reactivity) : params.get("song") === "1" ? createLabSong(0, reactivity) : null;
     let last = 0;
     const loop = (now: number) => {
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60;
@@ -160,15 +166,28 @@ function needsFineOf(kind: string): boolean {
   return scene && kind === scene.id ? params.get("fine") === "1" : needsFineSpectrum(kind as VisualizerKind);
 }
 
+/** The real track track= names, or null when it is absent. */
+async function pickTrack(): Promise<LoadedTrack | null> {
+  const name = params.get("track");
+  return name ? loadTrack(name) : null;
+}
+
+// The window a track run reads when from= and for= are absent: its first ten seconds.
+const TRACK_WINDOW = { from: 0, length: 10 };
+
 /** The scene a measure runs on, with the themes, layouts and song window the query asks for. */
 async function probeOf(kind: string, windowed = true): Promise<Probe> {
   setDpr(1);
+  const track = await pickTrack();
+  const defaults = track ? TRACK_WINDOW : DEFAULT_WINDOW;
+  const end = track ? track.dump.durationSecs : SONG_SECONDS;
   return {
     kind,
     darkOnly: darkOnlyOf(scene, kind),
     needsFine: needsFineOf(kind),
-    window: windowed ? parseReadWindow(params.get("from"), params.get("for"), DEFAULT_WINDOW, SONG_SECONDS) : DEFAULT_WINDOW,
+    window: windowed ? parseReadWindow(params.get("from"), params.get("for"), defaults, end) : defaults,
     reactivity: pickReactivity(params.get("react"), "lively"),
+    track,
     blend: (light) => blendOf(scene, kind, light),
     cover: await coverPixels(),
     themes: pickThemes(),

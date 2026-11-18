@@ -45,6 +45,9 @@ mod seat;
 use events::AppEvents;
 use opened::OpenedSource;
 
+// The engine's tick period while audible, the cadence of the spectrum and level frames.
+const AUDIBLE_TICK: Duration = Duration::from_millis(33);
+
 // How close to its end the current track gets before the next one is opened and queued behind it.
 const PRELOAD_SECS: f64 = 10.0;
 
@@ -313,32 +316,18 @@ impl Engine {
             Some(tap) if self.is_audible() => tap,
             _ => return,
         };
-        let w = tap.written.load(Ordering::Relaxed);
-        if w < SPECTRUM_WINDOW as u64 {
+        let Some(a) = analyze(tap, self.cur_rate, &self.prev_bands) else {
             return;
-        }
-        let mut window = [0.0f32; SPECTRUM_WINDOW];
-        for (i, out) in window.iter_mut().enumerate() {
-            let slot = ((w - SPECTRUM_WINDOW as u64 + i as u64) as usize) & (SPECTRUM_RING - 1);
-            *out = f32::from_bits(tap.ring[slot].load(Ordering::Relaxed));
-        }
-        let bins = spectrum::Bins::of(&window, self.cur_rate);
-        let bands = bins.bands(BAND_COUNT);
-        let level = spectrum::level(&window);
-        let frame = LevelFrame {
-            rms: level.rms,
-            peak: level.peak,
-            flux: spectrum::flux(&self.prev_bands, &bands),
         };
-        for (prev, cur) in self.prev_bands.iter_mut().zip(&bands) {
+        for (prev, cur) in self.prev_bands.iter_mut().zip(&a.bands) {
             *prev = *cur;
         }
-        let _ = self.app.emit("player:spectrum", &bands);
-        let _ = self.app.emit("player:level", frame);
+        let _ = self.app.emit("player:spectrum", &a.bands);
+        let _ = self.app.emit("player:level", a.frame);
         if self.fine_spectrum {
             let _ = self
                 .app
-                .emit("player:spectrum_fine", &bins.bands(FINE_BAND_COUNT));
+                .emit("player:spectrum_fine", &a.bins.bands(FINE_BAND_COUNT));
         }
     }
 
@@ -1205,6 +1194,38 @@ impl Engine {
     }
 }
 
+/// One analysis of the tap's trailing window: the regular bands, the level frame, and the transform the
+/// fine bands read.
+struct Analysis {
+    bins: spectrum::Bins,
+    bands: Vec<f32>,
+    frame: LevelFrame,
+}
+
+/// Analyzes the trailing SPECTRUM_WINDOW samples of `tap` at `rate`, with flux measured against
+/// `prev_bands`. None until a full window has been written.
+fn analyze(tap: &SpectrumTap, rate: u32, prev_bands: &[f32]) -> Option<Analysis> {
+    let w = tap.written.load(Ordering::Relaxed);
+    if w < SPECTRUM_WINDOW as u64 {
+        return None;
+    }
+    let mut window = [0.0f32; SPECTRUM_WINDOW];
+    for (i, out) in window.iter_mut().enumerate() {
+        let slot = ((w - SPECTRUM_WINDOW as u64 + i as u64) as usize) & (SPECTRUM_RING - 1);
+        *out = f32::from_bits(tap.ring[slot].load(Ordering::Relaxed));
+    }
+    let bins = spectrum::Bins::of(&window, rate);
+    let bands = bins.bands(BAND_COUNT);
+    let level = spectrum::level(&window);
+    let frame = LevelFrame {
+        rms: level.rms,
+        peak: level.peak,
+        flux: spectrum::flux(prev_bands, &bands),
+        rms_db: level.rms_db,
+    };
+    Some(Analysis { bins, bands, frame })
+}
+
 /// Spawns the resident player thread and returns its handle. The thread builds the output device,
 /// then loops on the command channel until every Sender drops at app exit, when it breaks and the
 /// device drops with it. Not meant to be joined - it is a daemon that dies with the channel.
@@ -1304,7 +1325,7 @@ fn run(
         // Tick at about 30fps while audible so the spectrum feed is smooth, idling back to a slow poll
         // when nothing plays. Only the timeout changes: the status throttle and track-end checks hold.
         let timeout = if engine.is_audible() {
-            Duration::from_millis(33)
+            AUDIBLE_TICK
         } else {
             Duration::from_millis(120)
         };
@@ -1484,3 +1505,7 @@ mod tests {
         assert_eq!(json["volume"], serde_json::json!(1.0));
     }
 }
+
+// Declared after the tests module: the volume-site test reads the source above the first cfg(test).
+#[cfg(test)]
+mod dump;

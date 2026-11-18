@@ -409,12 +409,27 @@ pub struct PlayReport {
 
 /// The loudness of the playing audio, the payload on `player:level`, read from the same window as the
 /// spectrum. `rms` and `peak` are in 0..1 through the spectrum's dB window. `flux` is the positive
-/// change across the spectrum bands since the previous frame, in 0..1: an onset signal.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+/// change across the spectrum bands since the previous frame, in 0..1: an onset signal. `rms_db` is the
+/// RMS in dBFS, not clamped to that window, with a finite floor for silence.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct LevelFrame {
     pub rms: f32,
     pub peak: f32,
     pub flux: f32,
+    #[serde(rename = "rmsDb")]
+    pub rms_db: f32,
+}
+
+impl Default for LevelFrame {
+    /// The rest frame: every figure at silence.
+    fn default() -> Self {
+        Self {
+            rms: 0.0,
+            peak: 0.0,
+            flux: 0.0,
+            rms_db: spectrum::RMS_DB_FLOOR,
+        }
+    }
 }
 
 /// The sample format of a decoded stream: the rate in Hz and the interleaved channel count.

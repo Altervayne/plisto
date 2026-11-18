@@ -18,6 +18,7 @@ import {
   type LabTheme,
 } from "./labScene";
 import { DROP_START, createLabSong } from "./labSong";
+import { createLabReplay, type LoadedTrack } from "./labReplay";
 import {
   FLASH_SPAN_FRAMES,
   createFlashMeter,
@@ -46,6 +47,8 @@ export interface Probe {
   // The song seconds a steps or flash run reads, and the reactivity the song is followed at.
   window: ReadWindow;
   reactivity: Reactivity;
+  // A real track replayed in place of the synthetic song, and the window then reads track seconds.
+  track: LoadedTrack | null;
   // The blend the layer takes over the stage in the scene's light.
   blend: (light: boolean) => GlBlendMode;
   cover: ImageBitmap;
@@ -95,7 +98,8 @@ export function begin(p: Probe, theme: LabTheme, layout: LabLayoutId) {
 /** The song's window as text, for a result. */
 function windowText(p: Probe): string {
   const { from, length } = p.window;
-  return `song time ${from} s to ${round(from + length)} s (${length} s) at 60 fps, pixel ratio 1`;
+  const source = p.track ? `track ${p.track.name}` : "song";
+  return `${source} time ${from} s to ${round(from + length)} s (${length} s) at 60 fps, pixel ratio 1`;
 }
 
 /**
@@ -110,7 +114,7 @@ function playDrop(
   onFrame: (bytes: Uint8Array, since: number) => void,
 ): void {
   const { renderer, base, read } = begin(p, theme, layout);
-  const song = createLabSong(0, p.reactivity);
+  const song = p.track ? createLabReplay(p.track.dump, p.reactivity) : createLabSong(0, p.reactivity);
   const { from, length } = p.window;
   let framesRead = 0;
   for (let t = 0; t < from + length; t += DT) {

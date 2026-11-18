@@ -23,6 +23,9 @@ const DB_CEIL: f32 = -10.0;
 // negative infinity.
 const EPS: f32 = 1e-9;
 
+/// The RMS in dBFS a silent window reads, so the unclamped loudness stays finite.
+pub const RMS_DB_FLOOR: f32 = -120.0;
+
 /// Log-band levels in 0..1 for one mono window. Pure and deterministic: no clock, no state. A window
 /// under two samples, a zero sample rate, or a zero band count yields flat zeros. Uses the largest
 /// power-of-two prefix of `samples`, which in practice is the whole window.
@@ -104,11 +107,13 @@ impl Bins {
     }
 }
 
-/// The RMS and peak of one mono window, each in 0..1 through the same dB window as the bands.
+/// The RMS and peak of one mono window, each in 0..1 through the same dB window as the bands, plus the
+/// RMS in dBFS outside that window (floored at RMS_DB_FLOOR).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Level {
     pub rms: f32,
     pub peak: f32,
+    pub rms_db: f32,
 }
 
 /// The level of one mono window. An empty window reads as silence.
@@ -117,6 +122,7 @@ pub fn level(samples: &[f32]) -> Level {
         return Level {
             rms: 0.0,
             peak: 0.0,
+            rms_db: RMS_DB_FLOOR,
         };
     }
     let mut sum_sq = 0.0f32;
@@ -129,6 +135,7 @@ pub fn level(samples: &[f32]) -> Level {
     Level {
         rms: to_unit(rms),
         peak: to_unit(peak),
+        rms_db: (20.0 * (rms + EPS).log10()).max(RMS_DB_FLOOR),
     }
 }
 
@@ -344,10 +351,12 @@ mod tests {
             level(&[0.0; N]),
             Level {
                 rms: 0.0,
-                peak: 0.0
+                peak: 0.0,
+                rms_db: RMS_DB_FLOOR
             }
         );
         assert_eq!(level(&[]).rms, 0.0);
+        assert_eq!(level(&[]).rms_db, RMS_DB_FLOOR);
     }
 
     #[test]
@@ -365,6 +374,15 @@ mod tests {
         let rms_db = -30.0 - 20.0 * 2f32.sqrt().log10();
         assert!((l.peak - unit_of_db(-30.0)).abs() < 1e-3, "peak {}", l.peak);
         assert!((l.rms - unit_of_db(rms_db)).abs() < 1e-3, "rms {}", l.rms);
+        assert!((l.rms_db - rms_db).abs() < 1e-2, "rms_db {}", l.rms_db);
+    }
+
+    #[test]
+    fn rms_db_runs_past_the_unit_window() {
+        // -80 dBFS reads 0 in the unit window; the dB value keeps the real figure.
+        let l = level(&quarter_rate_sine(N, 10f32.powf(-80.0 / 20.0)));
+        assert_eq!(l.rms, 0.0);
+        assert!(l.rms_db < -80.0 && l.rms_db > -84.0, "rms_db {}", l.rms_db);
     }
 
     #[test]

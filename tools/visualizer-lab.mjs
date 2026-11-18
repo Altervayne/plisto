@@ -3,14 +3,16 @@
 //   node tools/visualizer-lab.mjs hash [OUT.json] [--kind K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs thumb [OUT_DIR] [--kind K]
 //   node tools/visualizer-lab.mjs bench [--kind K] [--ref K] [--theme T] [--layout L]
-//   node tools/visualizer-lab.mjs steps  --kind K [--theme T] [--layout L] [--from S] [--for S] [--react R]
-//   node tools/visualizer-lab.mjs flash [--kind K] [--red 0|1] [--theme T] [--layout L] [--from S] [--for S] [--react R]
+//   node tools/visualizer-lab.mjs steps  --kind K [--theme T] [--layout L] [--from S] [--for S] [--react R] [--track N]
+//   node tools/visualizer-lab.mjs flash [--kind K] [--red 0|1] [--theme T] [--layout L] [--from S] [--for S] [--react R] [--track N]
 //   node tools/visualizer-lab.mjs level  --kind K [--level 0..1] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs calm   --kind K [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs view [--kind K] [--theme T] [--layout L]    Prints the URL to open.
 // Measures take --scene ID (a scene module the registry does not hold; --dark marks it dark-only, --fine says it
 // draws from the 128-band spectrum) in place of --kind. Layouts are player, ambient and ambient-side; the measures default to player and ambient-side.
 // --from and --for set the song seconds a steps or flash run reads (default: the drop from 34 s, for 10 s).
+// --track N plays the dumped real track .ai/lab-tracks/N.json in place of the song (from and for then read
+// track seconds, default 0 s for 10 s).
 // flash with no kind runs Fireflies' worst case. --json prints the raw result instead of a table.
 // Shared flags: --url BASE (default http://localhost:1420), --edge PATH, --budget MS (virtual time; each
 // mode has a default sized for software GL), --gpu or --soft to force the real GPU or software GL. Bench
@@ -42,7 +44,7 @@ const useGpu = flags.gpu || (mode === "bench" && !flags.soft);
 const BUDGETS = { hash: 600000, thumb: 600000, bench: 600000, steps: 3600000, flash: 3600000, level: 3600000, calm: 1800000, view: 5000 };
 const BUDGET = flags.budget ?? String(BUDGETS[mode] ?? 60000);
 const TIMEOUT_MS = Number(flags.timeout ?? 1800) * 1000;
-const FORWARDED = ["kind", "scene", "theme", "layout", "ref", "red", "level", "from", "for", "react"];
+const FORWARDED = ["kind", "scene", "theme", "layout", "ref", "red", "level", "from", "for", "react", "track"];
 
 function labUrl() {
   const q = new URLSearchParams({ mode });

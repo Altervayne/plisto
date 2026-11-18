@@ -791,12 +791,14 @@ export const FINE_BAND_COUNT = 128;
 /**
  * The loudness of the playing audio, the `player:level` payload: `rms` and `peak` in 0..1 through the
  * spectrum's dB window, and `flux`, the positive band change since the previous frame, in 0..1.
+ * `rmsDb` is the rms in dBFS, outside that window; a synthetic source may leave it out.
  * Mirrors LevelFrame in audio/mod.rs.
  */
 export interface LevelFrame {
   rms: number;
   peak: number;
   flux: number;
+  rmsDb?: number;
 }
 
 /**
