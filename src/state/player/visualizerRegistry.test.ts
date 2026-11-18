@@ -41,6 +41,9 @@ describe("blendFor", () => {
     hologram: ["normal", "normal"],
     "gravitational-waves": ["normal", "normal"],
     "ringed-planet": ["normal", "normal"],
+    station: ["normal", "normal"],
+    "solar-flare": ["normal", "normal"],
+    "event-horizon": ["normal", "normal"],
   };
 
   it("gives every GL kind the blend the renderer composites in each theme", () => {
@@ -85,6 +88,9 @@ describe("fillsStage", () => {
       "hologram",
       "gravitational-waves",
       "ringed-planet",
+      "station",
+      "solar-flare",
+      "event-horizon",
     ]);
   });
 });
@@ -102,6 +108,9 @@ describe("darkOnly", () => {
     expect(VISUALIZER_DESCRIPTORS.filter((d) => d.darkOnly).map((d) => d.id)).toEqual([
       "gravitational-waves",
       "ringed-planet",
+      "station",
+      "solar-flare",
+      "event-horizon",
     ]);
   });
 });

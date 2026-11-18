@@ -12,6 +12,7 @@ import { createBloom, BLOOM_PROGRAMS } from "./gl/bloom";
 import { createCircuitBoard, CIRCUIT_BOARD_PROGRAMS } from "./gl/circuitBoard";
 import { createDotCover, DOT_COVER_PROGRAMS } from "./gl/dotCover";
 import { createDotSpectrum, DOT_SPECTRUM_PROGRAMS } from "./gl/dotSpectrum";
+import { createEventHorizon, EVENT_HORIZON_PROGRAMS } from "./gl/eventHorizon";
 import { createFireflies, FIREFLIES_PROGRAMS } from "./gl/fireflies";
 import { createGlass, GLASS_PROGRAMS } from "./gl/glass";
 import { createGravitationalWaves, GRAVITATIONAL_WAVES_PROGRAMS } from "./gl/gravitationalWaves";
@@ -31,6 +32,8 @@ import { createRingedPlanet, RINGED_PLANET_PROGRAMS } from "./gl/ringedPlanet";
 import { createServerRoom, SERVER_ROOM_PROGRAMS } from "./gl/serverRoom";
 import { createSilk, SILK_PROGRAMS } from "./gl/silk";
 import { createSnowfall, SNOWFALL_PROGRAMS } from "./gl/snowfall";
+import { createSolarFlare, SOLAR_FLARE_PROGRAMS } from "./gl/solarFlare";
+import { createStation, STATION_PROGRAMS } from "./gl/station";
 import { createTerrain, TERRAIN_PROGRAMS } from "./gl/terrain";
 import { createTrain, TRAIN_PROGRAMS } from "./gl/train";
 import { createWarp, WARP_PROGRAMS } from "./gl/warp";
@@ -418,6 +421,42 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
     ),
     factory: createRingedPlanet,
     programs: RINGED_PLANET_PROGRAMS,
+  },
+  station: {
+    label: (d) => d.player.visualizerStation,
+    glyph: (
+      <>
+        <circle cx="12" cy="12" r="2.2" />
+        <path d="M7 12h2.8M14.2 12H17" />
+        <rect x="2" y="7.5" width="5" height="9" rx="0.6" />
+        <rect x="17" y="7.5" width="5" height="9" rx="0.6" />
+      </>
+    ),
+    factory: createStation,
+    programs: STATION_PROGRAMS,
+  },
+  "solar-flare": {
+    label: (d) => d.player.visualizerSolarFlare,
+    glyph: (
+      <>
+        <path d="M1.5 8.1A13 13 0 0 1 15.9 22.5" />
+        <path d="M7.45 8.8A6.2 6.2 0 1 1 15.2 16.55" />
+      </>
+    ),
+    factory: createSolarFlare,
+    programs: SOLAR_FLARE_PROGRAMS,
+  },
+  "event-horizon": {
+    label: (d) => d.player.visualizerEventHorizon,
+    glyph: (
+      <>
+        <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+        <path d="M6 12A6 6 0 0 1 18 12" opacity={0.6} />
+        <ellipse cx="12" cy="12.6" rx="10.5" ry="2.4" />
+      </>
+    ),
+    factory: createEventHorizon,
+    programs: EVENT_HORIZON_PROGRAMS,
   },
   off: {
     label: (d) => d.player.visualizerOff,

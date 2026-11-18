@@ -229,7 +229,7 @@ describe("a stored value from before the cyber family", () => {
 });
 
 describe("a stored value from before the cosmic family", () => {
-  const cosmic = ["gravitational-waves", "ringed-planet"];
+  const cosmic = ["gravitational-waves", "ringed-planet", "station", "solar-flare", "event-horizon"];
   const older = catalog(["ink"], ["dots"]);
 
   it("offers the cosmic kinds, on and in registry order after the cyber kinds", () => {
@@ -243,6 +243,23 @@ describe("a stored value from before the cosmic family", () => {
   it("keeps the stored choices when written back", () => {
     expect(serializeCatalog(toggleKind(older, "ringed-planet")!)).toBe(
       '{"v":1,"kinds":["ink","ringed-planet"],"groups":["dots"]}',
+    );
+  });
+});
+
+describe("a stored value from before Station, Solar Flare and Event Horizon", () => {
+  const added = ["station", "solar-flare", "event-horizon"];
+  const older = catalog(["ink"], ["dots"]);
+
+  it("offers the three kinds, on and in registry order after Ringed Planet", () => {
+    for (const id of added) expect(isOffered(older, id)).toBe(true);
+    expect(older.offeredKinds.slice(-added.length)).toEqual(added);
+    expect(older.offeredKinds.indexOf("ringed-planet")).toBe(older.offeredKinds.indexOf("station") - 1);
+  });
+
+  it("keeps the stored choices when one is written back", () => {
+    expect(serializeCatalog(toggleKind(older, "solar-flare")!)).toBe(
+      '{"v":1,"kinds":["ink","solar-flare"],"groups":["dots"]}',
     );
   });
 });
@@ -302,7 +319,7 @@ describe("nextOfferedKind", () => {
   });
 
   it("ends at off and wraps", () => {
-    expect(nextOfferedKind(c, "ringed-planet")).toBe("off");
+    expect(nextOfferedKind(c, "event-horizon")).toBe("off");
     expect(nextOfferedKind(c, "off")).toBe("ridge");
   });
 

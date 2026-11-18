@@ -317,6 +317,33 @@ export const VISUALIZER_DESCRIPTORS = [
     darkOnly: true,
     blend: { light: "normal", dark: "normal" },
   },
+  {
+    id: "station",
+    group: "cosmic",
+    engine: "gl",
+    needs: { fine: false, cover: true },
+    fillsStage: true,
+    darkOnly: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "solar-flare",
+    group: "cosmic",
+    engine: "gl",
+    needs: { fine: false, cover: false },
+    fillsStage: true,
+    darkOnly: true,
+    blend: { light: "normal", dark: "normal" },
+  },
+  {
+    id: "event-horizon",
+    group: "cosmic",
+    engine: "gl",
+    needs: { fine: false, cover: false },
+    fillsStage: true,
+    darkOnly: true,
+    blend: { light: "normal", dark: "normal" },
+  },
 ] as const satisfies readonly VisualizerDescriptor[];
 
 /** A kind the registry describes: every kind but Off. */

@@ -54,6 +54,9 @@ describe("visualizer descriptors", () => {
     ["hologram", "cyber", "gl", false, true, true, "normal", "normal", false],
     ["gravitational-waves", "cosmic", "gl", false, true, true, "normal", "normal", true],
     ["ringed-planet", "cosmic", "gl", false, true, true, "normal", "normal", true],
+    ["station", "cosmic", "gl", false, true, true, "normal", "normal", true],
+    ["solar-flare", "cosmic", "gl", false, false, true, "normal", "normal", true],
+    ["event-horizon", "cosmic", "gl", false, false, true, "normal", "normal", true],
   ];
 
   it("holds every kind's traits, in picker order", () => {
@@ -194,10 +197,17 @@ describe("effectiveVisualizerKind", () => {
       "hologram",
       "gravitational-waves",
       "ringed-planet",
+      "station",
     ] as const;
     for (const kind of kinds) {
       expect(effectiveVisualizerKind(kind, noPixels)).toBe("ridge");
     }
+  });
+
+  it("keeps Solar Flare and Event Horizon without cover pixels, as they never sample the art", () => {
+    const noPixels = { ...ok, coverPixels: false };
+    expect(effectiveVisualizerKind("solar-flare", noPixels)).toBe("solar-flare");
+    expect(effectiveVisualizerKind("event-horizon", noPixels)).toBe("event-horizon");
   });
 
   it("falls back to Ridge for every fluid kind when the WebGL renderer failed", () => {
@@ -254,6 +264,7 @@ describe("needsCoverPixels", () => {
       "hologram",
       "gravitational-waves",
       "ringed-planet",
+      "station",
     ]);
   });
 });
@@ -281,6 +292,9 @@ describe("fillsStage", () => {
       "hologram",
       "gravitational-waves",
       "ringed-planet",
+      "station",
+      "solar-flare",
+      "event-horizon",
     ]);
   });
 });

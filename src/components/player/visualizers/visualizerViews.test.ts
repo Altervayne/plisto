@@ -7,6 +7,7 @@ import { createBloom } from "./gl/bloom";
 import { createCircuitBoard } from "./gl/circuitBoard";
 import { createDotCover } from "./gl/dotCover";
 import { createDotSpectrum } from "./gl/dotSpectrum";
+import { createEventHorizon } from "./gl/eventHorizon";
 import { createFireflies } from "./gl/fireflies";
 import { createGlass } from "./gl/glass";
 import { createGravitationalWaves } from "./gl/gravitationalWaves";
@@ -22,10 +23,12 @@ import { createNeonHighway } from "./gl/neonHighway";
 import { createOscilloscope } from "./gl/oscilloscope";
 import { createPond } from "./gl/pond";
 import { createRecord } from "./gl/record";
-import { createServerRoom } from "./gl/serverRoom";
 import { createRingedPlanet } from "./gl/ringedPlanet";
+import { createServerRoom } from "./gl/serverRoom";
 import { createSilk } from "./gl/silk";
 import { createSnowfall } from "./gl/snowfall";
+import { createSolarFlare } from "./gl/solarFlare";
+import { createStation } from "./gl/station";
 import { createTerrain } from "./gl/terrain";
 import { createTrain } from "./gl/train";
 import { createWarp } from "./gl/warp";
@@ -65,6 +68,9 @@ describe("VISUALIZER_VIEWS", () => {
       hologram: createHologram,
       "gravitational-waves": createGravitationalWaves,
       "ringed-planet": createRingedPlanet,
+      station: createStation,
+      "solar-flare": createSolarFlare,
+      "event-horizon": createEventHorizon,
     };
     for (const [kind, create] of Object.entries(factories) as [GlVisualizerId, unknown][]) {
       expect(VISUALIZER_VIEWS[kind].factory).toBe(create);
