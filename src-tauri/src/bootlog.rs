@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // -- Local Imports --
 use crate::applog::{append_line, sanitize};
+use crate::db::{CopyOutcome, MigrationReport};
 
 const LOG_FILE: &str = "boot.log";
 const LOG_OLD_FILE: &str = "boot.log.old";
@@ -46,6 +47,13 @@ impl BootLog {
         let uptime_ms = self.started.elapsed().as_millis() as u64;
         let line = read_line(now_ms(), read, outcome, attempt, elapsed_ms, uptime_ms, error);
         write_line(&self.dir, &line);
+    }
+
+    /// Writes the pre-migration copy line; nothing when no copy was attempted.
+    pub fn log_migrate(&self, report: &MigrationReport) {
+        if let Some(line) = migrate_line(now_ms(), report) {
+            write_line(&self.dir, &line);
+        }
     }
 
     /// Logs one finished command when the process is young or the index lock wait was long, so a
@@ -173,6 +181,26 @@ fn command_line(
     line
 }
 
+/// `<unix_ms> MIGRATE copy ok from=<v> to=<v> ms=<n> bytes=<n>` or
+/// `<unix_ms> MIGRATE copy failed from=<v> to=<v> ms=<n> | <error>`, newline last. `None` when no copy
+/// was attempted.
+fn migrate_line(now_ms: u64, report: &MigrationReport) -> Option<String> {
+    let (from, to) = (report.from, report.to);
+    let raw = match &report.copy {
+        CopyOutcome::None => return None,
+        CopyOutcome::Ok { ms, bytes } => {
+            format!("{now_ms} MIGRATE copy ok from={from} to={to} ms={ms} bytes={bytes}")
+        }
+        CopyOutcome::Failed { ms, error } => format!(
+            "{now_ms} MIGRATE copy failed from={from} to={to} ms={ms} | {}",
+            cap(error, MAX_ERROR_BYTES)
+        ),
+    };
+    let (mut line, _) = sanitize(&raw);
+    line.push('\n');
+    Some(line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,6 +323,28 @@ mod tests {
         assert_eq!(text.lines().count(), 2);
         assert!(text.contains(" CMD load_playlists err lock_wait_ms=1500 total_ms=1600 uptime_ms=300000 | boom"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_migrate_line_has_the_documented_layout() {
+        let report = |copy| MigrationReport {
+            from: 21,
+            to: 22,
+            copy,
+        };
+        assert_eq!(
+            migrate_line(5, &report(CopyOutcome::Ok { ms: 12, bytes: 4096 })).unwrap(),
+            "5 MIGRATE copy ok from=21 to=22 ms=12 bytes=4096\n"
+        );
+        let failed = CopyOutcome::Failed {
+            ms: 3,
+            error: "a\nb".to_string(),
+        };
+        assert_eq!(
+            migrate_line(5, &report(failed)).unwrap(),
+            "5 MIGRATE copy failed from=21 to=22 ms=3 | a b\n"
+        );
+        assert_eq!(migrate_line(5, &report(CopyOutcome::None)), None);
     }
 
     #[test]

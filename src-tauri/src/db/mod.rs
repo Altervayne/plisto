@@ -27,6 +27,7 @@ pub use playlist_albums::{
     add_albums_to_playlist, expanded_queue, playlist_expanded, set_entry_keep_order,
     unpack_album_entry, ALBUM_MEMBER_KEY,
 };
+pub use migrations::{CopyOutcome, MigrationReport};
 pub use relocate::{
     backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,
     RootMove, RootTrackPath,
@@ -58,10 +59,15 @@ use crate::normalize::{clean_text, normalize_genre_key, normalize_path_key};
 /// Opens (or creates) the database at `path`, applies the pragmas and brings the schema
 /// current. This is the connection the app owns in managed state.
 pub fn open_db(path: &Path) -> rusqlite::Result<Connection> {
+    open_db_reporting(path).map(|(conn, _)| conn)
+}
+
+/// `open_db`, also returning what the migration did, including the pre-bump copy.
+pub fn open_db_reporting(path: &Path) -> rusqlite::Result<(Connection, MigrationReport)> {
     let conn = Connection::open(path)?;
     apply_pragmas(&conn)?;
-    migrations::migrate(&conn)?;
-    Ok(conn)
+    let report = migrations::migrate(&conn)?;
+    Ok((conn, report))
 }
 
 /// A throwaway in-memory database with the same pragmas and schema, for tests only.

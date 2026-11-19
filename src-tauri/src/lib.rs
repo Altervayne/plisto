@@ -171,7 +171,8 @@ pub fn run() {
                 main.open_devtools();
             }
             let db_path = data_dir.join("plisto.sqlite");
-            let mut conn = db::open_db(&db_path)?;
+            let (mut conn, migration) = db::open_db_reporting(&db_path)?;
+            app.state::<bootlog::BootLog>().log_migrate(&migration);
 
             // Fill any root's folded key left NULL by the migration, using the real normalize (SQL
             // lower() is ASCII-only and would break fold-parity). Idempotent, and cheap enough to

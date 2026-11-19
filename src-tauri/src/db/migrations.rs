@@ -9,6 +9,7 @@
 
 // -- Library Imports --
 use std::path::Path;
+use std::time::Instant;
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
@@ -469,13 +470,40 @@ CREATE INDEX idx_playlist_tracks_album ON playlist_tracks(album_id);
 CREATE INDEX idx_playlist_tracks_track ON playlist_tracks(track_id);
 ";
 
-// The copy written beside the database file before the v22 rebuild.
+// The whole-database copy written beside the file before a schema bump.
+const PRE_MIGRATION_BACKUP: &str = "plisto.pre-migration-backup.sqlite";
+
+// A copy name the bump copy supersedes; deleted after a bump copy is written.
 const PRE_V22_BACKUP: &str = "plisto.pre-v22-backup.sqlite";
 
+/// What the pre-bump copy did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CopyOutcome {
+    /// No copy was attempted: in-memory, fresh or already current.
+    None,
+    Ok { ms: u64, bytes: u64 },
+    Failed { ms: u64, error: String },
+}
+
+/// What `migrate` did: the version it started at, the one it ended at, and the pre-bump copy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationReport {
+    pub from: i64,
+    pub to: i64,
+    pub copy: CopyOutcome,
+}
+
 /// Brings the connection's schema up to the latest version, running only the steps it still
-/// needs. Safe to call on every open: a current DB does no work and returns Ok.
-pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+/// needs. Safe to call on every open: a current DB does no work and reports no copy. A file-backed
+/// database that is behind and not fresh is copied once before the first step.
+pub fn migrate(conn: &Connection) -> rusqlite::Result<MigrationReport> {
     let mut version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let from = version;
+    let copy = if version > 0 && version < LATEST_VERSION {
+        backup_before_bump(conn)
+    } else {
+        CopyOutcome::None
+    };
 
     while version < LATEST_VERSION {
         match version {
@@ -507,15 +535,17 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         conn.pragma_update(None, "user_version", version)?;
     }
 
-    Ok(())
+    Ok(MigrationReport {
+        from,
+        to: version,
+        copy,
+    })
 }
 
 /// Rebuilds `playlist_tracks` in one transaction with foreign keys off, as SQLite's table rebuild
 /// requires. Any error rolls the whole step back, the version with it, and leaves foreign keys as they
 /// were.
 fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
-    backup_before_v22(conn);
-
     let prior: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
     // Declared before the transaction so it drops after the commit or rollback: the pragma is a no-op
     // while a transaction is open.
@@ -552,24 +582,33 @@ fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-/// Writes a copy of a file-backed database that holds playlist slots beside it. A failure is logged,
-/// its partial copy removed, and the upgrade goes on: a backup that failed on every launch would keep
-/// the app from opening, and the rebuild's transaction and row check already guard the slots.
-fn backup_before_v22(conn: &Connection) {
+/// Copies a file-backed database beside itself, replacing the previous copy, and drops the superseded
+/// pre-v22 file once the new copy is written. A failure is reported, its partial copy removed, and the
+/// upgrade goes on: a copy that failed on every launch would keep the app from opening, and the
+/// steps run in transactions of their own.
+fn backup_before_bump(conn: &Connection) -> CopyOutcome {
     let Some(path) = conn.path().filter(|p| !p.is_empty()) else {
-        return;
+        return CopyOutcome::None;
     };
-    let slots: i64 = conn
-        .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |r| r.get(0))
-        .unwrap_or(0);
-    if slots == 0 {
-        return;
-    }
-    let dest = Path::new(path).with_file_name(PRE_V22_BACKUP);
-    if let Err(e) = super::backup_to(conn, &dest) {
-        eprintln!("migration v22: no backup written to {}: {e}", dest.display());
-        // `backup_to` stages through this sibling; a failed rename leaves a full copy behind.
-        let _ = std::fs::remove_file(dest.with_extension("tmp"));
+    let dest = Path::new(path).with_file_name(PRE_MIGRATION_BACKUP);
+    let started = Instant::now();
+    let result = super::backup_to(conn, &dest);
+    let ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(()) => {
+            let _ = std::fs::remove_file(dest.with_file_name(PRE_V22_BACKUP));
+            let bytes = std::fs::metadata(&dest).map_or(0, |m| m.len());
+            CopyOutcome::Ok { ms, bytes }
+        }
+        Err(e) => {
+            eprintln!("migration: no copy written to {}: {e}", dest.display());
+            // `backup_to` stages through this sibling; a failed rename leaves a full copy behind.
+            let _ = std::fs::remove_file(dest.with_extension("tmp"));
+            CopyOutcome::Failed {
+                ms,
+                error: e.to_string(),
+            }
+        }
     }
 }
 
@@ -1916,9 +1955,9 @@ mod tests {
         assert_eq!(foreign_keys(&conn), 1);
     }
 
-    /// A file-backed library with slots gets a backup beside it holding the v21 rows.
+    /// A file-backed library behind the latest version gets a copy beside it holding the old rows.
     #[test]
-    fn v22_backs_up_a_library_with_slots() {
+    fn a_bump_copies_the_old_database() {
         let dir = fresh_temp_dir("backup");
         let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
         // WAL as the app runs it, so the backup must copy rows still in the WAL file.
@@ -1930,11 +1969,19 @@ mod tests {
         seed_playlists(&conn);
         let before = slot_dump(&conn);
 
-        migrate(&conn).unwrap();
+        let report = migrate(&conn).unwrap();
         assert_eq!(user_version(&conn), 22);
+        assert_eq!((report.from, report.to), (21, 22));
+        let CopyOutcome::Ok { bytes, .. } = report.copy else {
+            panic!("expected a copy, got {:?}", report.copy);
+        };
+        assert_eq!(
+            bytes,
+            std::fs::metadata(dir.join(PRE_MIGRATION_BACKUP)).unwrap().len()
+        );
         drop(conn);
 
-        let backup = Connection::open(dir.join(PRE_V22_BACKUP)).unwrap();
+        let backup = Connection::open(dir.join(PRE_MIGRATION_BACKUP)).unwrap();
         assert_eq!(user_version(&backup), 21);
         assert_eq!(slot_dump(&backup), before);
         assert_eq!(
@@ -1949,44 +1996,98 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A file-backed library with no slots writes no backup.
+    /// A fresh database and one already current write no copy.
     #[test]
-    fn v22_skips_the_backup_without_slots() {
-        let dir = fresh_temp_dir("empty");
+    fn no_copy_for_a_fresh_or_current_database() {
+        let dir = fresh_temp_dir("nocopy");
         let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
-        to_v21(&conn);
 
-        migrate(&conn).unwrap();
-        assert_eq!(user_version(&conn), 22);
+        let fresh = migrate(&conn).unwrap();
+        assert_eq!((fresh.from, fresh.to), (0, LATEST_VERSION));
+        assert_eq!(fresh.copy, CopyOutcome::None);
+
+        let current = migrate(&conn).unwrap();
+        assert_eq!((current.from, current.to), (LATEST_VERSION, LATEST_VERSION));
+        assert_eq!(current.copy, CopyOutcome::None);
         drop(conn);
 
-        assert!(!dir.join(PRE_V22_BACKUP).exists());
+        assert!(!dir.join(PRE_MIGRATION_BACKUP).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A backup that cannot be written does not stop the upgrade.
+    /// An in-memory database behind the latest version migrates without a copy.
     #[test]
-    fn v22_migrates_when_the_backup_fails() {
+    fn an_in_memory_bump_writes_no_copy() {
+        let conn = Connection::open_in_memory().unwrap();
+        to_v21(&conn);
+
+        let report = migrate(&conn).unwrap();
+
+        assert_eq!((report.from, report.to), (21, 22));
+        assert_eq!(report.copy, CopyOutcome::None);
+    }
+
+    /// A database newer than this build is left alone: no step runs and no copy is written.
+    #[test]
+    fn a_newer_database_writes_no_copy() {
+        let dir = fresh_temp_dir("newer");
+        let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
+        let newer = LATEST_VERSION + 3;
+        conn.pragma_update(None, "user_version", newer).unwrap();
+
+        let report = migrate(&conn).unwrap();
+
+        assert_eq!((report.from, report.to), (newer, newer));
+        assert_eq!(report.copy, CopyOutcome::None);
+        assert!(!dir.join(PRE_MIGRATION_BACKUP).exists());
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A copy that cannot be written does not stop the upgrade, leaves no partial file, and keeps
+    /// the pre-v22 file.
+    #[test]
+    fn a_failed_copy_does_not_block_the_bump() {
         let dir = fresh_temp_dir("blocked");
-        std::fs::create_dir(dir.join(PRE_V22_BACKUP)).unwrap();
+        std::fs::create_dir(dir.join(PRE_MIGRATION_BACKUP)).unwrap();
+        std::fs::write(dir.join(PRE_V22_BACKUP), b"old").unwrap();
         let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
         to_v21(&conn);
         seed_playlists(&conn);
         let before = slot_dump(&conn);
 
-        migrate(&conn).unwrap();
+        let report = migrate(&conn).unwrap();
 
+        assert!(matches!(report.copy, CopyOutcome::Failed { .. }));
         assert_eq!(user_version(&conn), 22);
         assert_eq!(slot_dump(&conn), before);
         assert_eq!(foreign_keys(&conn), 1);
         assert!(
-            dir.join(PRE_V22_BACKUP).is_dir(),
-            "the backup path is still the directory"
+            dir.join(PRE_MIGRATION_BACKUP).is_dir(),
+            "the copy path is still the directory"
         );
         assert!(
-            !dir.join(PRE_V22_BACKUP).with_extension("tmp").exists(),
+            !dir.join(PRE_MIGRATION_BACKUP).with_extension("tmp").exists(),
             "no partial copy is left beside the database"
         );
+        assert!(dir.join(PRE_V22_BACKUP).exists(), "the pre-v22 file stays");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A successful copy removes the superseded pre-v22 file.
+    #[test]
+    fn a_successful_copy_removes_the_pre_v22_file() {
+        let dir = fresh_temp_dir("superseded");
+        std::fs::write(dir.join(PRE_V22_BACKUP), b"old").unwrap();
+        let conn = Connection::open(dir.join("plisto.sqlite")).unwrap();
+        to_v21(&conn);
+
+        let report = migrate(&conn).unwrap();
+
+        assert!(matches!(report.copy, CopyOutcome::Ok { .. }));
+        assert!(dir.join(PRE_MIGRATION_BACKUP).exists());
+        assert!(!dir.join(PRE_V22_BACKUP).exists());
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
