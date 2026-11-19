@@ -62,6 +62,11 @@ impl BootLog {
         write_line(&self.dir, &point_line(now_ms(), reason, event));
     }
 
+    /// Writes one line for a restore from the point file `file`.
+    pub fn log_restore(&self, file: &str, event: &RestoreLine) {
+        write_line(&self.dir, &restore_line(now_ms(), file, event));
+    }
+
     /// Logs one finished command when the process is young or the index lock wait was long, so a
     /// reader can tell a call that never arrived from one that waited on the lock or whose answer was
     /// lost. `error` is the failure text, `None` for success.
@@ -279,6 +284,66 @@ fn point_line(now_ms: u64, reason: &str, event: &PointLine) -> String {
     }
 }
 
+/// One restore, as its boot.log line reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreLine<'a> {
+    Ok {
+        ms: u64,
+        albums: i64,
+        singles: i64,
+        playlists: i64,
+        unmatched: i64,
+        collapsed: i64,
+        dropped: i64,
+    },
+    /// `why` is `newer`, `unreadable`, `integrity`, `before_point` or `busy`.
+    Refused { why: &'a str },
+    Failed { ms: u64, error: &'a str },
+}
+
+/// `<unix_ms> RESTORE <file> ok ms=<n> albums=<n> singles=<n> playlists=<n> unmatched=<n>
+/// collapsed=<n> dropped=<n>`, `... refused why=<why>` or `... failed ms=<n> | <error>`, newline last.
+fn restore_line(now_ms: u64, file: &str, event: &RestoreLine) -> String {
+    match *event {
+        RestoreLine::Ok {
+            ms,
+            albums,
+            singles,
+            playlists,
+            unmatched,
+            collapsed,
+            dropped,
+        } => {
+            let fields = [
+                ("ms", ms.to_string()),
+                ("albums", albums.to_string()),
+                ("singles", singles.to_string()),
+                ("playlists", playlists.to_string()),
+                ("unmatched", unmatched.to_string()),
+                ("collapsed", collapsed.to_string()),
+                ("dropped", dropped.to_string()),
+            ];
+            event_line(now_ms, "RESTORE", file, "ok", &fields, None)
+        }
+        RestoreLine::Refused { why } => event_line(
+            now_ms,
+            "RESTORE",
+            file,
+            "refused",
+            &[("why", why.to_string())],
+            None,
+        ),
+        RestoreLine::Failed { ms, error } => event_line(
+            now_ms,
+            "RESTORE",
+            file,
+            "failed",
+            &[("ms", ms.to_string())],
+            Some(error),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +546,36 @@ mod tests {
         let text = fs::read_to_string(dir.join("boot.log")).unwrap();
         assert!(text.ends_with(" POINT daily skipped why=empty\n"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_lines_have_the_documented_layout() {
+        let ok = RestoreLine::Ok {
+            ms: 120,
+            albums: 3,
+            singles: 1,
+            playlists: 2,
+            unmatched: 4,
+            collapsed: 1,
+            dropped: 0,
+        };
+        assert_eq!(
+            restore_line(9, "rp-5-daily.sqlite", &ok),
+            "9 RESTORE rp-5-daily.sqlite ok ms=120 albums=3 singles=1 playlists=2 unmatched=4 \
+             collapsed=1 dropped=0\n"
+        );
+        assert_eq!(
+            restore_line(9, "rp-5-daily.sqlite", &RestoreLine::Refused { why: "busy" }),
+            "9 RESTORE rp-5-daily.sqlite refused why=busy\n"
+        );
+        let failed = RestoreLine::Failed {
+            ms: 7,
+            error: "disk\nfull",
+        };
+        assert_eq!(
+            restore_line(9, "rp-5-daily.sqlite", &failed),
+            "9 RESTORE rp-5-daily.sqlite failed ms=7 | disk full\n"
+        );
     }
 
     #[test]

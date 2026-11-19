@@ -51,14 +51,12 @@ pub fn prune(dir: &Path, reason: Reason) -> io::Result<Pruned> {
 }
 
 /// How many finished points the folder holds and their total size.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiskUse {
     pub points: usize,
     pub bytes: u64,
 }
 
-#[allow(dead_code)]
 pub fn disk_use(dir: &Path) -> io::Result<DiskUse> {
     let files = point_files(dir)?;
     Ok(DiskUse {

@@ -36,15 +36,17 @@ impl Drop for InFlight {
 }
 
 /// A written point.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Taken {
     pub file: String,
     /// Unix ms: the take's clock, or one past its ring's newest point when the clock reads earlier.
+    /// Read by the tests only, like `content_hash`.
+    #[allow(dead_code)]
     pub created_at: i64,
     pub bytes: u64,
     /// From the start of the take to the rename.
     pub ms: u64,
+    #[allow(dead_code)]
     pub content_hash: String,
     /// The ring's pruning after the write. A failure here leaves the point in place.
     pub pruned: Result<Pruned, String>,

@@ -35,6 +35,7 @@ pub mod plugins;
 #[cfg(debug_assertions)]
 pub mod probes;
 pub mod relocate;
+pub mod restore;
 pub mod restore_points;
 pub mod roots;
 pub mod sandbox_check;

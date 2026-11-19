@@ -12,7 +12,7 @@ use super::*;
 use crate::db;
 use crate::normalize::normalize_path_key;
 
-fn temp_dir(tag: &str) -> PathBuf {
+pub(super) fn temp_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir().join(format!(
         "plisto_rp_{tag}_{}_{}",
@@ -25,7 +25,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 // The names in `dir`, sorted.
-fn names_in(dir: &Path) -> Vec<String> {
+pub(super) fn names_in(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -38,7 +38,7 @@ fn open_point(path: &Path) -> Connection {
     Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap()
 }
 
-fn rows(conn: &Connection, sql: &str) -> Vec<Vec<Value>> {
+pub(super) fn rows(conn: &Connection, sql: &str) -> Vec<Vec<Value>> {
     let mut stmt = conn.prepare(sql).unwrap();
     let cols = stmt.column_count();
     stmt.query_map([], |r| (0..cols).map(|i| r.get::<_, Value>(i)).collect())
@@ -58,18 +58,18 @@ fn ids(conn: &Connection, sql: &str) -> Vec<i64> {
 }
 
 // Every captured table, every column as stored, in key order.
-fn whole_state(conn: &Connection) -> Vec<Vec<Vec<Value>>> {
+pub(super) fn whole_state(conn: &Connection) -> Vec<Vec<Vec<Value>>> {
     DATA_TABLES
         .iter()
         .map(|t| rows(conn, &format!("SELECT * FROM {} ORDER BY {}", t.name, t.key)))
         .collect()
 }
 
-const MAIN: &str = "/Music/Main";
-const ETE: &str = "/Musique/\u{c9}t\u{e9}";
+pub(super) const MAIN: &str = "/Music/Main";
+pub(super) const ETE: &str = "/Musique/\u{c9}t\u{e9}";
 
 // The real-case path a walk of `root` yields for the file at `parts` below it.
-fn walk(root: &str, parts: &[&str]) -> String {
+pub(super) fn walk(root: &str, parts: &[&str]) -> String {
     parts
         .iter()
         .fold(PathBuf::from(root), |p, c| p.join(c))
@@ -79,7 +79,7 @@ fn walk(root: &str, parts: &[&str]) -> String {
 
 // Inserts a track keyed the way a scan keys `display`; `display_kept` false leaves a legacy row with
 // no display path.
-fn add_track(conn: &Connection, id: i64, root_id: i64, display: &str, display_kept: bool) {
+pub(super) fn add_track(conn: &Connection, id: i64, root_id: i64, display: &str, display_kept: bool) {
     conn.execute(
         "INSERT INTO tracks (id, source_path, display_path, filename, ext, size_bytes, mtime,
                              duration_secs, has_embedded_cover, scanned_at, root_id)
@@ -99,7 +99,7 @@ fn add_track(conn: &Connection, id: i64, root_id: i64, display: &str, display_ke
 // A library with a row in every captured table and a value in every captured column, plus track 6
 // and cover 4, which nothing references. Track 3 has no display path and track 5 sits outside its
 // root.
-fn seed(conn: &Connection) {
+pub(super) fn seed(conn: &Connection) {
     conn.execute_batch(
         "INSERT INTO roots (id, root_key, path, added_at) VALUES
             (1, '/music/main', '/Music/Main', 1),
@@ -697,10 +697,12 @@ fn newer_truncated_and_foreign_files_are_flagged() {
 
 #[test]
 fn a_missing_folder_lists_nothing() {
-    let dir = temp_dir("missing").join("absent");
+    let parent = temp_dir("missing");
+    let dir = parent.join("absent");
     assert!(list(&dir).unwrap().is_empty());
     assert_eq!(disk_use(&dir).unwrap(), DiskUse { points: 0, bytes: 0 });
     assert_eq!(prune(&dir, Reason::Daily).unwrap(), Pruned { removed: 0, kept: 0 });
+    let _ = std::fs::remove_dir_all(&parent);
 }
 
 // ---- Retention ----

@@ -1143,3 +1143,127 @@ pub struct CueSheet {
     pub performer: Option<String>,
     pub tracks: Vec<CueTrack>,
 }
+
+/// Every restore point, newest first, with how many point files the folder holds and their total
+/// size. Mirrors RestorePointList in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestorePointList {
+    pub points: Vec<RestorePointRow>,
+    pub disk_points: u64,
+    pub disk_bytes: u64,
+}
+
+/// One restore point. `file` is the name a restore asks for; `reason` is `version`, `daily`, `action`
+/// or `restore`; `created_at` is unix ms. Mirrors RestorePointRow in types.ts.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestorePointRow {
+    pub file: String,
+    pub reason: String,
+    pub created_at: i64,
+    pub bytes: u64,
+    pub status: RestorePointStatus,
+}
+
+/// Whether a point can be restored. `detail` is the action key, the prior app version or the restored
+/// file name. Tagged on `kind`. Mirrors RestorePointStatus in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RestorePointStatus {
+    Ready {
+        app_version: String,
+        detail: Option<String>,
+        albums: i64,
+        singles: i64,
+        playlists: i64,
+        filed_tracks: i64,
+        edited_tracks: i64,
+        genre_tracks: i64,
+    },
+    Newer {
+        format: i64,
+    },
+    Unreadable {
+        error: String,
+    },
+}
+
+/// What restoring a point brings back and what it loses. `albums`, `singles`, `playlists` and
+/// `filed_tracks` are restored; `unmatched_tracks` are the point's tracks no longer in the library;
+/// `albums_not_recreated` had every member unmatched or merged away; `collapsed` counts memberships
+/// lost where several of the point's tracks are now one track; `dropped_entries` are playlist entries
+/// of albums not recreated; `cleared_tracks` are tracks the point holds nothing for, such as tracks
+/// added since, whose edits, genres, cover or visualizer go. Mirrors RestoreSummary in types.ts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RestoreSummary {
+    pub albums: i64,
+    pub singles: i64,
+    pub playlists: i64,
+    pub filed_tracks: i64,
+    pub unmatched_tracks: i64,
+    pub albums_not_recreated: i64,
+    pub collapsed: i64,
+    pub dropped_entries: i64,
+    pub cleared_tracks: i64,
+    pub unmatched: Vec<UnmatchedGroup>,
+}
+
+/// What an unmatched group belongs to in the point. `other` holds tracks in no album and no playlist,
+/// whose edits or genres are lost. Mirrors UnmatchedKind in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnmatchedKind {
+    Album,
+    Single,
+    Playlist,
+    Other,
+}
+
+/// The unmatched tracks of one album, single or playlist of the point, as real-case paths in the
+/// container's order. `id` and `title` are the point's; both are None for `other`. Mirrors
+/// UnmatchedGroup in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnmatchedGroup {
+    pub kind: UnmatchedKind,
+    pub id: Option<i64>,
+    pub title: Option<String>,
+    pub paths: Vec<String>,
+}
+
+/// Why a restore was refused before anything changed. Tagged on `code`. Mirrors RestoreRefusal in
+/// types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum RestoreRefusal {
+    /// Written by a later app version.
+    Newer { format: i64 },
+    Unreadable { message: String },
+    /// The file opens but its rows do not match its own record.
+    Integrity { message: String },
+    /// The point of the library as it is could not be saved.
+    BeforePoint { message: String },
+    /// A scan is running.
+    Busy,
+}
+
+/// A dry run of a restore. Tagged on `kind`. Mirrors RestorePreview in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RestorePreview {
+    Ready { summary: RestoreSummary },
+    Refused { reason: RestoreRefusal },
+}
+
+/// The result of a restore. `before_point` names the point of the library as it was just before,
+/// which restoring undoes this one; None when the library held nothing to save. Tagged on `kind`.
+/// Mirrors RestoreOutcome in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RestoreOutcome {
+    Done {
+        summary: RestoreSummary,
+        before_point: Option<String>,
+    },
+    Refused {
+        reason: RestoreRefusal,
+    },
+}

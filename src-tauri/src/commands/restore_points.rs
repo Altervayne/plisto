@@ -8,7 +8,7 @@
 
 // -- Library Imports --
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +19,7 @@ use tauri::State;
 use crate::bootlog::{BootLog, PointLine};
 use crate::db::{self, restore_points as points};
 use crate::state::AppState;
-use points::{PointEntry, Reason, Staged, Taken, DIR_NAME};
+use points::{points_dir, PointEntry, Reason, Staged, Taken};
 
 /// The settings key holding the app version that last ran against this library.
 const LAST_RUN_KEY: &str = "last_run_version";
@@ -356,7 +356,8 @@ fn finish_logged(
     }
 }
 
-fn log_taken(log: &BootLog, reason: Reason, detail: Option<&str>, taken: &Taken) {
+/// Logs a written point, then its ring's prune when it removed a point or failed.
+pub(super) fn log_taken(log: &BootLog, reason: Reason, detail: Option<&str>, taken: &Taken) {
     let name = reason.as_str();
     log.log_point(
         name,
@@ -380,12 +381,8 @@ fn log_taken(log: &BootLog, reason: Reason, detail: Option<&str>, taken: &Taken)
     }
 }
 
-fn log_failed(log: &BootLog, reason: Reason, ms: u64, error: &str) {
+pub(super) fn log_failed(log: &BootLog, reason: Reason, ms: u64, error: &str) {
     log.log_point(reason.as_str(), &PointLine::Failed { ms, error });
-}
-
-fn points_dir(db_path: &Path) -> PathBuf {
-    db_path.with_file_name(DIR_NAME)
 }
 
 fn spawn_worker(job: Job) {
@@ -404,8 +401,10 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use points::DIR_NAME;
     use std::cell::RefCell;
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // A fresh temp folder removed on drop. Declared before the connections and jobs that use it, it

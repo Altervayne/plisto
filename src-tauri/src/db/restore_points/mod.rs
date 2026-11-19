@@ -6,9 +6,15 @@
  */
 
 // -- Module Declarations --
+mod collapse;
 mod due;
 mod format;
 mod list;
+mod load;
+mod matching;
+mod restore;
+#[cfg(test)]
+mod restore_tests;
 mod retention;
 mod take;
 #[cfg(test)]
@@ -18,20 +24,33 @@ pub use due::{
     action_point_since, daily_due, newest_content_hash, version_point_due, BURST_WINDOW_MS,
 };
 pub use format::{Reason, DIR_NAME};
-pub use list::{list, PointEntry};
-pub use take::{finish, live_hash, stage, take, Staged, Taken};
+pub use list::{list, PointEntry, PointStatus};
+pub use restore::{apply_restore, load_point, plan_restore, Applied, LoadedPoint, RestoreError};
+pub use retention::disk_use;
+pub use take::{finish, live_hash, stage, take, PointError, Staged, Taken};
 
 // Read by the tests only.
 #[cfg(test)]
 pub use due::DAILY_INTERVAL_MS;
 #[cfg(test)]
-pub use list::{PointMeta, PointStatus};
+pub use list::PointMeta;
 #[cfg(test)]
-pub use retention::{disk_use, prune, ring_size, DiskUse, Pruned};
+pub use retention::{prune, ring_size, DiskUse, Pruned};
 
 // -- Library Imports --
 use std::io;
 use std::path::{Path, PathBuf};
+
+/// The points folder of the library at `db_path`.
+pub fn points_dir(db_path: &Path) -> PathBuf {
+    db_path.with_file_name(DIR_NAME)
+}
+
+/// Whether `name` is a finished point's file name, and so names a file directly inside the points
+/// folder.
+pub fn is_point_name(name: &str) -> bool {
+    format::parse_file_name(name).is_some()
+}
 
 /// A finished point file found in the folder, as its name and size describe it.
 struct PointFile {

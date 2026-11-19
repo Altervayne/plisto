@@ -78,9 +78,9 @@ fn read_status(path: &Path, bytes: u64) -> PointStatus {
     }
 }
 
-// A cut-short file can still open and show its meta, so its length is checked against the page count
-// its header records. The count is only trusted when the header marks it current.
-fn check_length(path: &Path, bytes: u64) -> Result<(), String> {
+/// A cut-short file can still open and show its meta, so its length is checked against the page count
+/// its header records. The count is only trusted when the header marks it current.
+pub(super) fn check_length(path: &Path, bytes: u64) -> Result<(), String> {
     let mut header = [0u8; 100];
     std::fs::File::open(path)
         .and_then(|mut f| f.read_exact(&mut header))
@@ -120,13 +120,18 @@ fn read_meta(path: &Path) -> rusqlite::Result<PointStatus> {
             error: format!("unknown format {format}"),
         });
     }
+    meta_row(&conn).map(PointStatus::Ready)
+}
+
+/// The meta row of an open point whose format this build reads.
+pub(super) fn meta_row(conn: &Connection) -> rusqlite::Result<PointMeta> {
     conn.query_row(
         "SELECT format, app_version, schema_version, created_at, reason, detail, albums, singles,
                 playlists, filed_tracks, edited_tracks, genre_tracks, content_hash
          FROM meta WHERE id = 1",
         [],
         |r| {
-            Ok(PointStatus::Ready(PointMeta {
+            Ok(PointMeta {
                 format: r.get(0)?,
                 app_version: r.get(1)?,
                 schema_version: r.get(2)?,
@@ -140,7 +145,7 @@ fn read_meta(path: &Path) -> rusqlite::Result<PointStatus> {
                 edited_tracks: r.get(10)?,
                 genre_tracks: r.get(11)?,
                 content_hash: r.get(12)?,
-            }))
+            })
         },
     )
 }
