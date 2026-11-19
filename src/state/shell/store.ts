@@ -8,11 +8,15 @@
 // -- Library Imports --
 import { create } from "zustand";
 
+// -- State Imports --
+import { ALL_GONE } from "../gone/goneGroups";
+
 // -- Utils Imports --
 import { hubSettingId } from "../../components/settings/settingsRegistry";
 import { sectionForTarget } from "../../components/settings/settingsTarget";
 
 // -- Type Imports --
+import type { GoneScope } from "../gone/goneGroups";
 import type { SettingsSectionId } from "../../components/settings/settingsSections";
 import type { SettingsTarget } from "../../components/settings/settingsTarget";
 
@@ -51,6 +55,11 @@ interface ShellStore {
   duplicatesOpen: boolean;
   openDuplicates: () => void;
   closeDuplicates: () => void;
+  // The gone-tracks sheet and the scope it opened on, mounted once in the shell. Opening always sets the scope.
+  goneOpen: boolean;
+  goneScope: GoneScope;
+  openGone: (scope?: GoneScope) => void;
+  closeGone: () => void;
   // Whether the keyboard shortcuts sheet is up. Settings and the shell's own key both open it.
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
@@ -108,6 +117,10 @@ const useShellStore = create<ShellStore>((set, get) => ({
   duplicatesOpen: false,
   openDuplicates: () => set({ duplicatesOpen: true }),
   closeDuplicates: () => set({ duplicatesOpen: false }),
+  goneOpen: false,
+  goneScope: ALL_GONE,
+  openGone: (scope = ALL_GONE) => set({ goneOpen: true, goneScope: scope }),
+  closeGone: () => set({ goneOpen: false }),
   shortcutsOpen: false,
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
   pluginRoute: null,
@@ -173,6 +186,11 @@ export function settingsSection(): SettingsSectionId {
 export const useDuplicatesOpen = (): boolean => useShellStore((s) => s.duplicatesOpen);
 export const useOpenDuplicates = (): (() => void) => useShellStore((s) => s.openDuplicates);
 export const useCloseDuplicates = (): (() => void) => useShellStore((s) => s.closeDuplicates);
+
+export const useGoneOpen = (): boolean => useShellStore((s) => s.goneOpen);
+export const useGoneScope = (): GoneScope => useShellStore((s) => s.goneScope);
+export const useOpenGone = (): ((scope?: GoneScope) => void) => useShellStore((s) => s.openGone);
+export const useCloseGone = (): (() => void) => useShellStore((s) => s.closeGone);
 
 export const useShortcutsOpen = (): boolean => useShellStore((s) => s.shortcutsOpen);
 export const useSetShortcutsOpen = (): ((open: boolean) => void) =>
