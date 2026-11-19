@@ -1,3 +1,6 @@
+// -- Component Imports --
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
+
 // -- State Imports --
 import { effectiveDisc } from "../../../state/organize/groupByAlbumTags";
 
@@ -30,9 +33,7 @@ export function ProposalTracks({ tracks, multiDisc }: { tracks: TrackRow[]; mult
             data-missing={track.missing_at != null ? "" : undefined}
           >
             <span className={styles.no}>{multiDisc ? `${effectiveDisc(track)}.${no}` : no}</span>
-            <span className={styles.trackTitle} title={title}>
-              {title}
-            </span>
+            <TruncatedText text={title} className={styles.trackTitle} />
             <span className={styles.folder}>{folderName(track)}</span>
           </li>
         );

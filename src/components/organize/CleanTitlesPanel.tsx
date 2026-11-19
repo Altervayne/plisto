@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 // -- Component Imports --
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
+import { TruncatedText } from "../common/TruncatedText/TruncatedText";
 
 // -- Icon Imports --
 import { ArrowRight } from "lucide-react";
@@ -159,13 +160,9 @@ export function CleanTitlesPanel({
                     onChange={() => toggle(row.id)}
                   />
                   <span className={styles.diff}>
-                    <span className={styles.before} title={row.before}>
-                      {row.before}
-                    </span>
+                    <TruncatedText text={row.before} className={styles.before} />
                     <ArrowRight className={styles.arrow} size={13} strokeWidth={2.5} />
-                    <span className={styles.after} title={row.after}>
-                      {row.after}
-                    </span>
+                    <TruncatedText text={row.after} className={styles.after} />
                   </span>
                 </label>
               ))}

@@ -1,3 +1,6 @@
+// -- Component Imports --
+import { TruncatedText } from "../common/TruncatedText/TruncatedText";
+
 // -- Utils Imports --
 import { formatCount } from "../../lib/format";
 
@@ -24,9 +27,7 @@ export function PluginChips({ chips }: { chips: readonly PluginChip[] }) {
         const shape = chip.text == null ? styles.count : "";
         const tone = chip.tone === "accent" ? styles.accent : chip.tone === "warn" ? styles.warn : "";
         return (
-          <span key={i} className={`${styles.chip} ${shape} ${tone}`} title={text}>
-            {text}
-          </span>
+          <TruncatedText key={i} text={text} className={`${styles.chip} ${shape} ${tone}`} />
         );
       })}
     </>

@@ -4,6 +4,9 @@ import type { ReactNode } from "react";
 // -- Icon Imports --
 import { Disc, Music, X } from "lucide-react";
 
+// -- Component Imports --
+import { TruncatedText } from "../../../common/TruncatedText/TruncatedText";
+
 // -- State Imports --
 import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../../state/player/visualizerDefaults";
 import {
@@ -107,14 +110,10 @@ export function DefaultsAside({
   return (
     <>
       {line ? (
-        <div className={styles.line} title={line}>
-          {line}
-        </div>
+        <TruncatedText text={line} className={styles.line} />
       ) : null}
       {fallbackLine ? (
-        <div className={styles.line} title={fallbackLine}>
-          {fallbackLine}
-        </div>
+        <TruncatedText text={fallbackLine} className={styles.line} />
       ) : null}
       <div className={styles.actions}>
         {pill(actions.useAlbum, t((d) => d.player.visualizerUseAlbum), <Disc size={14} strokeWidth={1.8} />, useAlbum)}

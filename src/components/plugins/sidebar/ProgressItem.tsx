@@ -1,4 +1,5 @@
 // -- Component Imports --
+import { Tooltip } from "../../common/Tooltip/Tooltip";
 import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- Hook Imports --
@@ -52,9 +53,11 @@ export function ProgressItem({ pluginId, item }: { pluginId: string; item: Plugi
   }
 
   return (
-    <div className={styles.progress} title={t((d) => d.plugins.itemUnavailable)}>
-      <span className={styles.label}>{item.label}</span>
-      <div className={styles.track} aria-hidden="true" />
-    </div>
+    <Tooltip label={t((d) => d.plugins.itemUnavailable)}>
+      <div className={styles.progress}>
+        <span className={styles.label}>{item.label}</span>
+        <div className={styles.track} aria-hidden="true" />
+      </div>
+    </Tooltip>
   );
 }

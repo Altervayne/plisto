@@ -1,6 +1,9 @@
 // -- Icon Imports --
 import { Trash2 } from "lucide-react";
 
+// -- Component Imports --
+import { Tooltip } from "../Tooltip/Tooltip";
+
 // -- Style Imports --
 import styles from "./CoverActions.module.css";
 
@@ -21,15 +24,11 @@ export function CoverActions({ actions, remove }: { actions: CoverAction[]; remo
   return (
     <div className={styles.overlay}>
       {remove ? (
-        <button
-          type="button"
-          className={styles.remove}
-          onClick={remove.onClick}
-          aria-label={remove.label}
-          title={remove.label}
-        >
-          <Trash2 size={15} strokeWidth={1.9} />
-        </button>
+        <Tooltip label={remove.label}>
+          <button type="button" className={styles.remove} onClick={remove.onClick} aria-label={remove.label}>
+            <Trash2 size={15} strokeWidth={1.9} />
+          </button>
+        </Tooltip>
       ) : null}
       <div className={styles.bar}>
         {actions.map((action) => (

@@ -1,5 +1,7 @@
 // -- Component Imports --
 import { Switch } from "../../common/Switch/Switch";
+import { Tooltip } from "../../common/Tooltip/Tooltip";
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- State Imports --
 import { useT } from "../../../i18n";
@@ -46,12 +48,12 @@ export function CatalogTile({
         )}
       </span>
       <span className={styles.row}>
-        <span className={styles.name} title={name}>
-          {name}
-        </span>
-        <span title={lockedNote}>
-          <Switch checked={on} onChange={onChange} label={name} disabled={disabled} />
-        </span>
+        <TruncatedText text={name} className={styles.name} />
+        <Tooltip label={lockedNote}>
+          <span>
+            <Switch checked={on} onChange={onChange} label={name} disabled={disabled} />
+          </span>
+        </Tooltip>
       </span>
     </div>
   );

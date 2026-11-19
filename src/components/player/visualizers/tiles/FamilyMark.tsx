@@ -1,6 +1,9 @@
 // -- Icon Imports --
 import { Feather, Zap } from "lucide-react";
 
+// -- Component Imports --
+import { Tooltip } from "../../../common/Tooltip/Tooltip";
+
 // -- State Imports --
 import { groupMark } from "../../../../state/player/visualizerRegistry";
 
@@ -30,9 +33,11 @@ export function FamilyMark({ id, iconOnly = false }: { id: string; iconOnly?: bo
   const icon = <Icon size={13} strokeWidth={1.8} aria-hidden="true" />;
   const className = mark === "flash" ? `${styles.mark} ${styles.flash}` : styles.mark;
   return iconOnly ? (
-    <span className={className} role="img" aria-label={label} title={label}>
-      {icon}
-    </span>
+    <Tooltip label={label}>
+      <span className={className} role="img" aria-label={label}>
+        {icon}
+      </span>
+    </Tooltip>
   ) : (
     <span className={className}>
       {icon}

@@ -1,4 +1,5 @@
 // -- Component Imports --
+import { Tooltip } from "../../common/Tooltip/Tooltip";
 import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- Hook Imports --
@@ -35,9 +36,11 @@ export function StatusLineItem({ pluginId, item }: { pluginId: string; item: Plu
   }
 
   return (
-    <div className={`${styles.row} ${styles.status}`} title={t((d) => d.plugins.itemUnavailable)}>
-      <span className={styles.slot} aria-hidden="true" />
-      <span className={styles.label}>{item.label}</span>
-    </div>
+    <Tooltip label={t((d) => d.plugins.itemUnavailable)}>
+      <div className={`${styles.row} ${styles.status}`}>
+        <span className={styles.slot} aria-hidden="true" />
+        <span className={styles.label}>{item.label}</span>
+      </div>
+    </Tooltip>
   );
 }

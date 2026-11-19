@@ -4,6 +4,7 @@ import { Minus, Plus } from "lucide-react";
 // -- Component Imports --
 import { IconButton } from "../common/IconButton";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip/Tooltip";
 
 // -- Local Imports --
 import { formatVisible } from "./zoomModel";
@@ -40,14 +41,11 @@ export function ZoomControl({
       <IconButton aria-label={t((d) => d.splice.zoomOut)} onClick={onZoomOut} disabled={!state.canOut}>
         <Minus size={15} strokeWidth={1.8} />
       </IconButton>
-      <QuietButton
-        aria-label={t((d) => d.splice.zoomFitTo)}
-        title={t((d) => d.splice.zoomFitTo)}
-        onClick={onFit}
-        disabled={state.atFit}
-      >
-        <span className={`${styles.readout} tabular`}>{readout}</span>
-      </QuietButton>
+      <Tooltip label={t((d) => d.splice.zoomFitTo)}>
+        <QuietButton aria-label={t((d) => d.splice.zoomFitTo)} onClick={onFit} disabled={state.atFit}>
+          <span className={`${styles.readout} tabular`}>{readout}</span>
+        </QuietButton>
+      </Tooltip>
       <IconButton aria-label={t((d) => d.splice.zoomIn)} onClick={onZoomIn} disabled={!state.canIn}>
         <Plus size={15} strokeWidth={1.8} />
       </IconButton>

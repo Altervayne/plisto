@@ -6,6 +6,7 @@ import { ChevronDown, EyeOff, Folder, FolderOpen, RotateCw } from "lucide-react"
 
 // -- Component Imports --
 import { Tooltip } from "../../common/Tooltip";
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- Utils Imports --
 import { openFolder, revealFile } from "../../../lib/opener";
@@ -63,12 +64,12 @@ export const IssueRow = memo(function IssueRow({
         <div className={styles.main}>
           <div className={styles.name}>
             {folder ? <Folder size={14} aria-hidden="true" /> : null}
-            <span title={name}>{name}</span>
+            <TruncatedText text={name} className={styles.nameText} />
             {folder ? <span className={styles.tag}>{t((d) => d.scan.issueKindFolder)}</span> : null}
           </div>
-          <div className={styles.path} title={dir}>
-            {shortenPath(dir)}
-          </div>
+          <Tooltip label={dir}>
+            <div className={styles.path}>{shortenPath(dir)}</div>
+          </Tooltip>
         </div>
         <span className={styles.reason}>{reasonLabel(t, issue.reason)}</span>
         <span className={styles.acts}>

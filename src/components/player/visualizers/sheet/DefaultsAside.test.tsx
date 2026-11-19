@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 // -- Unit Imports --
 import { DefaultsAside } from "./DefaultsAside";
+import { TruncatedText } from "../../../common/TruncatedText/TruncatedText";
 
 // -- State Imports --
 import { useVisualizerDefaults } from "../../../../state/player/visualizerDefaults";
@@ -79,7 +80,8 @@ const clearButton = (tree: Node[]) => {
   const all = buttons(tree);
   return all[all.length - 1];
 };
-const lines = (tree: Node[]) => tree.filter((e) => e.type === "div" && typeof e.props.children === "string");
+const lines = (tree: Node[]) =>
+  tree.filter((e) => e.type === TruncatedText).map((e) => e.props.text as string);
 
 /** A press on the clear pill; its handler only reads the event to find the checked tile. */
 function pressClear(tree: Node[]) {
@@ -96,28 +98,28 @@ beforeEach(() => {
 describe("DefaultsAside skipped line", () => {
   it("names a turned-off track default", () => {
     const tree = treeOf(resolvedOf({ trackDefault: "train", catalog: off("train") }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Track default: Train, turned off"]);
+    expect(lines(tree)).toEqual(["Track default: Train, turned off"]);
   });
 
   it("names a turned-off album default", () => {
     const tree = treeOf(resolvedOf({ albumDefault: "train", catalog: off("train") }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Album default: Train, turned off"]);
+    expect(lines(tree)).toEqual(["Album default: Train, turned off"]);
   });
 
   it("replaces the following line when a turned-off track default sits over a live album default", () => {
     const tree = treeOf(resolvedOf({ trackDefault: "train", albumDefault: "nebula", catalog: off("train") }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Track default: Train, turned off"]);
+    expect(lines(tree)).toEqual(["Track default: Train, turned off"]);
   });
 
   it("keeps the following line when the default is on", () => {
     const tree = treeOf(resolvedOf({ albumDefault: "nebula" }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Following this album's default"]);
+    expect(lines(tree)).toEqual(["Following this album's default"]);
   });
 
   it("keeps the override line while a skipped default is set aside", () => {
     const override = { kind: "bloom", albumKey: "album:7" } as const;
     const tree = treeOf(resolvedOf({ trackDefault: "train", albumDefault: "nebula", override, catalog: off("train") }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Set aside until the album changes"]);
+    expect(lines(tree)).toEqual(["Set aside until the album changes"]);
     expect(labelOf(clearButton(tree))).toBe("Clear track default");
   });
 });
@@ -125,21 +127,21 @@ describe("DefaultsAside skipped line", () => {
 describe("DefaultsAside while Off is the global pick", () => {
   it("names the waiting album default", () => {
     const tree = treeOf(resolvedOf({ global: "off", albumDefault: "nebula" }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual([
+    expect(lines(tree)).toEqual([
       "Album default: Nebula, waiting while visualizers are off",
     ]);
   });
 
   it("names the waiting track default", () => {
     const tree = treeOf(resolvedOf({ global: "off", albumDefault: "nebula", trackDefault: "train" }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual([
+    expect(lines(tree)).toEqual([
       "Track default: Train, waiting while visualizers are off",
     ]);
   });
 
   it("keeps the turned-off line for a skipped default", () => {
     const tree = treeOf(resolvedOf({ global: "off", albumDefault: "train", catalog: off("train") }));
-    expect(lines(tree).map((l) => l.props.children)).toEqual(["Album default: Train, turned off"]);
+    expect(lines(tree)).toEqual(["Album default: Train, turned off"]);
   });
 
   it("says nothing with no default", () => {

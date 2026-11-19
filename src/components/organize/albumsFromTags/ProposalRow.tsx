@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 // -- Component Imports --
+import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 import { ProposalChips } from "./ProposalChips";
 import { ProposalCover } from "./ProposalCover";
 import { ProposalTarget } from "./ProposalTarget";
@@ -69,9 +70,7 @@ export function ProposalRow({
           />
           <ProposalCover tracks={proposal.tracks} />
           <span className={styles.text}>
-            <span className={styles.title} title={title}>
-              {title}
-            </span>
+            <TruncatedText text={title} className={styles.title} />
             <span className={styles.meta}>{meta}</span>
             <ProposalChips
               warnings={checkFirst(proposal, choice)}

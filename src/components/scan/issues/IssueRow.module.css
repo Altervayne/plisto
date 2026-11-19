@@ -48,7 +48,7 @@
   color: var(--ink);
 }
 
-.name > span:first-of-type {
+.nameText {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;

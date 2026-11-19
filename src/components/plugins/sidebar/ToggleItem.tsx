@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Switch } from "../../common/Switch/Switch";
+import { Tooltip } from "../../common/Tooltip/Tooltip";
 import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- State Imports --
@@ -42,37 +43,38 @@ export function ToggleItem({
   if (view.kind === "toggle") {
     const Icon = navIconFor(item.icon);
     return (
-      <div
-        className={`${styles.row} ${styles.live}`}
-        title={view.enabled ? undefined : t((d) => d.plugins.ui.itemWaiting, { name: pluginName })}
-      >
-        <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-        <TruncatedText text={item.label} className={styles.label} />
-        <Switch
-          checked={view.on}
-          onChange={(next) => {
-            useSidebarState.getState().setPending(pluginId, item.id);
-            void sendInput(pluginId, item.id, next);
-          }}
-          label={item.label}
-          disabled={!view.enabled}
-          pending={view.pending}
-        />
-      </div>
+      <Tooltip label={view.enabled ? undefined : t((d) => d.plugins.ui.itemWaiting, { name: pluginName })}>
+        <div className={`${styles.row} ${styles.live}`}>
+          <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+          <TruncatedText text={item.label} className={styles.label} />
+          <Switch
+            checked={view.on}
+            onChange={(next) => {
+              useSidebarState.getState().setPending(pluginId, item.id);
+              void sendInput(pluginId, item.id, next);
+            }}
+            label={item.label}
+            disabled={!view.enabled}
+            pending={view.pending}
+          />
+        </div>
+      </Tooltip>
     );
   }
 
   const Icon = NEUTRAL_ICON;
   return (
-    <div className={styles.row} title={t((d) => d.plugins.itemUnavailable)}>
-      <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-      <span className={styles.label}>{item.label}</span>
-      <Switch
-        checked={false}
-        onChange={() => {}}
-        label={t((d) => d.plugins.itemUnavailableLabel, { label: item.label })}
-        disabled
-      />
-    </div>
+    <Tooltip label={t((d) => d.plugins.itemUnavailable)}>
+      <div className={styles.row}>
+        <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+        <span className={styles.label}>{item.label}</span>
+        <Switch
+          checked={false}
+          onChange={() => {}}
+          label={t((d) => d.plugins.itemUnavailableLabel, { label: item.label })}
+          disabled
+        />
+      </div>
+    </Tooltip>
   );
 }

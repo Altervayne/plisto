@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Switch } from "../../common/Switch/Switch";
+import { Tooltip } from "../../common/Tooltip/Tooltip";
 import { FamilyMark } from "../../player/visualizers/tiles/FamilyMark";
 import { CatalogTile } from "./CatalogTile";
 
@@ -49,14 +50,16 @@ export function FamilyBlock({
         <span className={styles.count}>{count}</span>
         {holdsLast ? <span className={styles.count}>{lastNote}</span> : null}
         <span className={styles.grow} />
-        <span title={familyGuarded && catalog.writable ? lastNote : undefined}>
-          <Switch
-            checked={familyOn}
-            onChange={() => onChange(toggleGroup(catalog, family.id))}
-            label={name}
-            disabled={!catalog.writable || familyGuarded}
-          />
-        </span>
+        <Tooltip label={familyGuarded && catalog.writable ? lastNote : undefined}>
+          <span>
+            <Switch
+              checked={familyOn}
+              onChange={() => onChange(toggleGroup(catalog, family.id))}
+              label={name}
+              disabled={!catalog.writable || familyGuarded}
+            />
+          </span>
+        </Tooltip>
       </div>
       <div className={styles.tiles}>
         {family.rows.map((row) => {
