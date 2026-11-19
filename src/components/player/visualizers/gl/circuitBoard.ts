@@ -1,36 +1,42 @@
 /*
  * Circuit Board: a close, top-down view of a printed circuit board. The cover is printed on the lid of the big
- * QFP chip in the middle; 128 leads break out into four buses of copper traces with 45 degree jogs and vias, and
- * a field of resistors, capacitors, electrolytics, small ICs, crystals, LEDs and headers sits around it under
- * silkscreen. In the four pockets between the buses sit a two-colour OLED, a backlit character LCD on a ribbon, a
- * seven-segment counter with a bar graph and status LEDs, and an I/O header with its activity LEDs. By day it is
- * the same board under bench light.
+ * QFP chip in the middle; 64 leads break out into four buses of copper traces with 45 degree jogs and vias that run
+ * out across the stage, each side's lanes fitted to the room on that side (circuitFit), and a field of resistors,
+ * capacitors, electrolytics, small ICs, crystals, LEDs and headers sits between and beyond them under silkscreen.
+ * In the pockets between the buses sit a two-colour OLED, a backlit character LCD on a ribbon, a seven-segment
+ * counter with a bar graph and status LEDs, and an I/O header with its activity LEDs; a lane running on under a
+ * module ends short of it. Everything is drawn in design pixels (circuitUnit), so the board scales with the cover;
+ * the modules scale less and step down where their pocket is tight. By day it is the same board under bench light.
  *
- * Every band is judged against its own 14 s mean, so the intro and the breakdown read near zero and the drop near
- * one. Bass surges the comets and climbs the LOW bar graph; mids drive TX, RX and the OLED trace; highs light the
- * part field's LEDs and tick the register dump; beats send ring fronts out along the buses, step the bar counter
- * and scroll the register rows; the whole mix sets the share of lanes carrying comets and fills the channel row.
+ * The board answers the beat. Each beat sends one burst out of the chip along a share of the lanes, sized and lit
+ * by its weight before the gain: a typical loud kick takes half to two thirds of the lanes, only the strongest take
+ * every lane and carry on as a front through the loose routing, a kickless onset takes a few, a quiet beat none.
+ * Lanes the weight adds as the kick's bass lands start at the leads. Between beats only a slow trickle runs, on a
+ * share of the lanes that grows with the loudness and is gone near silence. A surge sends one burst on every lane
+ * above any beat's light, with a wave over the whole board; a cut dims the board and stills the trickle for a
+ * moment. The field's LEDs and vias blink on the band hits. Bands judged against their own 14 s mean drive the
+ * screens and the LOW bar graph; the whole mix fills the channel row.
  *
- * Photosensitivity: at rest the overall brightness follows uGlow (the eased level). A beat's ring fronts are the one
- * place it adds light: local, travelling along the buses, eased in over 0.06 s, at most three alive, each fading
- * out over 1.6 s. Every LED eases over 0.35 s or more and at most one indicator changes state per quarter second;
- * CH0 stays lit once it has come on (hysteresis). Field LEDs and bar segments follow slew-limited values, the
- * comet share and the count of lit LEDs follow the music through those eases, and the screens keep their lit
- * area: content scrolls or reshapes, a panel never switches on or off. Nothing flashes. Calm and a paused track
- * start nothing from a motion signal; their ring fronts run on a timer, one every IDLE_EVERY seconds.
+ * Photosensitivity: the large-area light is uGlow (the eased loudness), the bursts and a full burst's front, the
+ * surge's all-lane burst and its wave, and the cut's dim of the whole board around the chip. The bursts and the
+ * surge share one launch budget of three a second; each travels outward from the chip and fades over BURST_LIFE,
+ * never lighting the board at once. The cut dims over CUT_IN and recovers over CUT_OUT, or with the surge's burst
+ * when one lands; by day it dims half as far. The hits light only single LEDs and via holes. Every indicator LED
+ * eases over 0.35 s or more and at most one changes state per quarter second; CH0 stays lit once it has come on
+ * (hysteresis). The screens keep their lit area: content scrolls or reshapes, a panel never switches on or off.
+ * Calm and a paused track start nothing from a motion signal; their trickle idles at IDLE_LANES and an idle burst
+ * runs on a timer, one every IDLE_EVERY seconds.
  */
 
 // -- Local Imports --
 import { clamp01 } from "./cozy";
 import { CYBER_KIT, cyberBands, cyberGain } from "./cyber";
 import { createCoverTexture } from "./coverTexture";
-import { createRings } from "./fluid";
 import { SCENE_PRELUDE, setScene } from "./scene";
 import { FS_VS } from "./shaders";
 import { easeEnvelope } from "../../../../state/player/visualSignal";
 
 // -- Type Imports --
-import type { Rings } from "./fluid";
 import type { Candidate, Frame, Geometry, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
@@ -57,15 +63,61 @@ export const CIRCUIT = {
   REG_EVERY: 0.4,
   SCROLL_GAP: 0.45,
   SEG_FADE: 0.4,
+  // The trickle between beats: the largest share of lanes it runs on, reached as the loudness climbs from
+  // TRICKLE_FROM to TRICKLE_FULL; the share a board with no motion gain idles at.
+  TRICKLE: 0.2,
+  TRICKLE_FROM: 0.08,
+  TRICKLE_FULL: 0.6,
+  IDLE_LANES: 0.4,
+  // A burst lives BURST_LIFE s and fades in over BURST_RISE; its weight keeps rising for WEIGHT_WINDOW s after the
+  // beat as the kick's bass lands. Burst light tops out at BURST_LIGHT, a surge's at SURGE_LIGHT.
+  BURST_LIFE: 0.7,
+  BURST_RISE: 0.03,
+  WEIGHT_WINDOW: 0.15,
+  BURST_LIGHT: 1.4,
+  SURGE_LIGHT: 1.9,
+  SURGE_LIFE: 1.3,
+  // The small parts' hit envelopes fall over HIT_TAU.
+  HIT_TAU: 0.15,
+  // A cut dims the board over CUT_IN, holds CUT_HOLD, recovers over CUT_OUT, or over CUT_LIFT when a surge lands.
+  CUT_IN: 0.3,
+  CUT_HOLD: 0.6,
+  CUT_OUT: 0.9,
+  CUT_LIFT: 0.12,
 } as const;
 
-// Beat rings: life, rise and height; the modules the board places.
-export const RING_LIFE = 1.6;
-// Seconds between the idle ring fronts of a board with no motion gain.
+// The bus geometry the shader draws and the layout keeps clear, in cover widths unless named: the chip's half
+// size; lanes per half side (a bus holds half of them); the lead length and the lane's end pad in design px; the
+// straight run before the jog (plus a hash of JOG_HASH); the run after the jog (plus a hash of LANE_SPAN).
+const CHIP_H = 0.6;
+const LANES = 8;
+const LEAD_L = 13;
+const LANE_PAD = 7;
+const BUS_A = 0.05;
+const JOG_HASH = 0.1;
+const LANE_MIN = 0.12;
+const LANE_SPAN = 0.4;
+// The shortest a side's lanes are fitted to, as a share of their full length.
+const MIN_FIT = 0.05;
+// A burst's share of lanes from its beat's weight before the gain: SHARE_TOP of the lanes just under SHARE_FULL,
+// every lane from there.
+const SHARE_TOP = 0.72;
+const SHARE_FULL = 0.97;
+
+// Burst slots; seconds between the idle bursts of a board with no motion gain; the modules the board places.
+const BURST_SLOTS = 4;
 const IDLE_EVERY = 5;
-const RING_RISE = 0.06;
-const RING_HEIGHT = 1;
 const MODULES = 4;
+// One design pixel of the board is 1/DESIGN_CW cover width, and never under 1/DESIGN_STAGE of the stage's short
+// side, so a small cover on a large stage does not shrink the board into a mosaic. Parts, modules and leads are
+// drawn in design pixels.
+const DESIGN_CW = 240;
+const DESIGN_STAGE = 560;
+
+/** One design pixel in css px for a cover `cw` wide on a `w` x `h` stage. */
+export function circuitUnit(cw: number, w: number, h: number): number {
+  return Math.max(cw / DESIGN_CW, Math.min(w, h) / DESIGN_STAGE);
+}
 
 // 3x5 glyphs for the screens and the silkscreen: '#' is a lit dot, rows top to bottom.
 const CIRCUIT_GLYPHS = "0123456789ABCDEFGHIKLMNOPRSTUVWXY:.- ";
@@ -95,29 +147,46 @@ const FS = `${SCENE_PRELUDE}${CYBER_KIT}
 uniform float uPk;
 uniform float uGlow;
 uniform float uSlow;
-uniform vec4 uMod[4];     // module centres, css px, y up: x, y, shown. DSP OLED, REG LCD, SYS, IO
+uniform vec4 uMod[4];     // module centres, css px, y up: x, y, shown, scale. DSP OLED, REG LCD, SYS, IO
 uniform vec4 uBars[4];    // 16 OLED spectrum bars, 0..1
 uniform vec4 uTrace[12];  // 48 samples of the OLED's level trace, oldest first
 uniform vec4 uInd[4];     // eased indicator states: PWR, SYNC, CLIP, ACT, TX, RX, CH0..CH7
 uniform vec3 uSeg;        // seven-segment counter: previous value, value, fade 0..1
 uniform float uLow;       // LOW bar graph value (bass against its mean)
 uniform float uField;     // field LED activity (highs against their mean)
-uniform float uLanes;     // share of bus lanes carrying comets (the whole mix against its mean)
+uniform float uLanes;     // share of bus lanes carrying the trickle
+uniform vec4 uFit;        // each side's lane length factor: right, left, top, bottom
+// Beat bursts: age s, light, lane seed, age of the second share step; the shares at their three steps and the
+// age of the third. A lane joins at the step whose share first covers it.
+uniform vec4 uBurst[${BURST_SLOTS}];
+uniform vec4 uBurstZ[${BURST_SLOTS}];
+uniform vec2 uSurge;      // the surge wave: age s, light
+uniform vec3 uHit;        // the small parts' hit envelopes: bass, mids, highs
+uniform float uDark;      // a cut's dimming, 0..1
+uniform float uLaunch;    // the leads' glow as a burst leaves the chip
 uniform vec4 uRegs;       // live register bytes 0..255: bass, mids, highs, level
 uniform float uTick;      // register dump clock
 uniform float uScroll;    // register rows scrolled by the beats
 uniform float uClock;     // uptime, seconds
 uniform float uBeatN;     // beat within the bar, 0..3
 // -- Tunables --
-const float CHIP_H = 0.56;     // chip half size, in cover widths
-const float LEAD_L = 13.0;     // lead length, px
-const float BUS_A = 0.05;      // straight run before the jog, cover widths (plus a hash of 0.10)
-const float COMP_FROM = 0.30;  // components start this far from the chip edge, cover widths
-const float CELL = 46.0;       // component cell, px
-const float PULSE_SPEED = 150.0;
-const float PULSE_WIDTH = 20.0;
-const float SCR_PX = 2.0;      // one OLED or LCD dot, css px
+const float CHIP_H = ${CHIP_H.toFixed(2)};
+const float LEAD_L = ${LEAD_L.toFixed(1)};
+const float LANES = ${LANES.toFixed(1)};
+const float BUS_A = ${BUS_A.toFixed(2)};
+const float JOG_HASH = ${JOG_HASH.toFixed(2)};
+const float LANE_MIN = ${LANE_MIN.toFixed(2)};
+const float LANE_SPAN = ${LANE_SPAN.toFixed(2)};
+const float BUS_REACH = 1.0;   // how far past the chip edge the bus is drawn, cover widths: past the longest lane
+const float COMP_FROM = 0.14;  // components start this far from the chip edge, cover widths
+const float CELL = 46.0;       // component cell, design px
+const float BURST_SPEED = 2.4; // cover widths a second
+const float BURST_TAIL = 0.10; // cover widths
+const float SURGE_SPEED = 1.5; // cover widths a second
+const float CUT_DIM = 0.6;
+const float SCR_PX = 2.0;      // one OLED or LCD dot, design px
 const vec2 MOD_HALF[4] = vec2[4](vec2(54.0, 33.0), vec2(54.0, 39.0), vec2(56.0, 30.0), vec2(56.0, 26.0));
+const vec3 C_LANE = vec3(0.10, 1.00, 1.00);
 const vec3 C_GRN = vec3(0.20, 1.00, 0.36);
 const vec3 C_AMB = vec3(1.00, 0.58, 0.06);
 const vec3 C_RED = vec3(1.00, 0.10, 0.06);
@@ -129,6 +198,10 @@ vec3 gEmit;
 vec4 gHalo;
 float gK;
 bool gDk;
+// The chip centre and half size, and one design px, in css px.
+vec2 gCC;
+float gH;
+float gU;
 
 // Plastic, metal and mask shading from a signed distance: lit from the top left.
 vec3 shade(vec3 base, vec2 l, float sd, float k) { return base * (0.82 + 0.22 * clamp(-(l.x * 0.5 - l.y * 0.8) / 14.0, -1.0, 1.0) * k) * (1.0 - 0.25 * smoothstep(-2.5, 0.0, sd)); }
@@ -167,10 +240,11 @@ void led(inout vec3 col, vec2 l, vec3 lc, float on) {
 
 // A field status LED at l (0603 along x) with its silk outline: lights when the highs run above their mean, each at
 // its own threshold. The threshold band is 0.12 wide and uField moves at most 0.3 a second, so a crossing eases
-// over 0.4 s. Returns colour + coverage; the light goes to gEmit and gHalo.
+// over 0.4 s. Each LED also belongs to one band group and blinks on its hits. Returns colour + coverage; the
+// light goes to gEmit and gHalo.
 vec4 ledPart(vec2 l, vec2 cell, vec3 lc, out float sil) {
   float th = 0.1 + 0.8 * hash21(cell + 31.0);
-  float on = smoothstep(th - 0.06, th + 0.06, uField);
+  float on = max(smoothstep(th - 0.06, th + 0.06, uField), uHit[int(hash21(cell + 12.7) * 2.999)]);
   float pad = soft(sdBox(vec2(abs(l.x) - 3.3, l.y), vec2(1.3, 1.9)), 0.6);
   float body = soft(sdRound(l, vec2(2.7, 1.7), 0.8), 0.6);
   sil = soft(abs(sdBox(l, vec2(6.5, 3.8))) - 0.45, 0.45) * (1.0 - pad) * (1.0 - body);
@@ -256,7 +330,7 @@ vec4 part(vec2 l, vec2 cell, out float sil) {
     return ledPart(l, cell, lc, sil);
   }
   if (h < 0.76) {
-    // Three vias in a row: tin ring, dark hole.
+    // Three vias in a row: tin ring, dark hole. The holes glow on the bass hits.
     vec3 c = vec3(0.0);
     float m = 0.0;
     for (int k = -1; k <= 1; k++) {
@@ -264,6 +338,9 @@ vec4 part(vec2 l, vec2 cell, out float sil) {
       float ring = soft(length(d) - 4.4, s);
       m = max(m, ring);
       c = mix(c, mix(gold * 0.9, vec3(0.02, 0.025, 0.03), soft(length(d) - 1.8, 0.5)), ring);
+      float r2 = dot(d, d);
+      gEmit += C_LANE * uHit.x * gK * exp(-r2 / 5.0);
+      gHalo += vec4(C_LANE, 1.0) * uHit.x * gK * exp(-r2 / 40.0) * 0.4 * (1.0 - ring);
     }
     return vec4(c, m);
   }
@@ -497,10 +574,56 @@ void ioGroup(inout vec3 col, inout float sil, vec2 l) {
   sil = max(sil, label(tl - vec2(-5.0, -11.0), tlab));
 }
 
+// The age at which burst i reached the lane with hash lh (the step whose share first covers the lane's rank), or
+// -1 when the burst never takes it. A lane joining late starts at the leads.
+float joinAge(float lh, vec4 b, vec4 z) {
+  float r = fract(lh + b.z);
+  return r < z.x ? 0.0 : r < z.y ? b.w : r < z.z ? z.w : -1.0;
+}
+
+// Lane L of chip side sd, from the chip edge: the jog's start a and size M, its direction sg and the lane's end E.
+// The side's fit shortens the whole lane past the leads, so the jog stays at 45 degrees; a module in the lane's
+// way ends it short of the module.
+vec4 laneGeom(float sd, float L, float dd0, float cw, float pitch) {
+  float k = uFit[int(sd)];
+  float b = floor((L + LANES) / (0.5 * LANES));
+  float ha = hash21(vec2(sd * 7.0 + b, 1.3)), hc = hash21(vec2(sd * 7.0 + b, 5.1));
+  float a = dd0 + k * (BUS_A * cw + JOG_HASH * cw * ha), M = k * pitch * (1.0 + 3.0 * hc);
+  float E = a + M + k * (LANE_MIN * cw + LANE_SPAN * cw * hash21(vec2(sd * 31.0 + L, 8.8)));
+  float sg = b < 2.0 ? 1.0 : -1.0;
+  float vE = (L + 0.5) * pitch + sg * M;
+  for (int i = 0; i < 4; i++) {
+    if (uMod[i].z < 0.5) continue;
+    vec2 m = uMod[i].xy - gCC, hb = MOD_HALF[i] * uMod[i].w;
+    bool hz = sd < 1.5;
+    float md = (hz ? m.x : m.y) * (sd == 1.0 || sd == 3.0 ? -1.0 : 1.0) - gH, mv = hz ? m.y : m.x;
+    float hd = hz ? hb.x : hb.y, hv = hz ? hb.y : hb.x;
+    if (abs(vE - mv) < hv + 0.5 * pitch && md - hd - 8.0 * gU < E && md + hd > a + M) E = max(md - hd - 8.0 * gU, a + M + 4.0 * gU);
+  }
+  return vec4(a, M, sg, E);
+}
+
+// Whether a component cell of half size hc, centred at c from the chip centre, would cover a bus lane.
+bool onLane(vec2 c, float hc, float H, float dd0, float cw, float pitch) {
+  vec2 ac = abs(c);
+  bool hz = ac.x > ac.y;
+  float dC = (hz ? ac.x : ac.y) - H, vC = hz ? c.y : c.x;
+  float sd = hz ? (c.x > 0.0 ? 0.0 : 1.0) : (c.y > 0.0 ? 2.0 : 3.0);
+  if (abs(vC) > H + hc) return false;
+  for (float L = -LANES; L < LANES; L += 1.0) {
+    vec4 g = laneGeom(sd, L, dd0, cw, pitch);
+    float vL = (L + 0.5) * pitch, vE = vL + g.z * g.y;
+    if (dC - hc < g.w + 0.3 * hc && vC + hc > min(vL, vE) - 0.4 * pitch && vC - hc < max(vL, vE) + 0.4 * pitch) return true;
+  }
+  return false;
+}
+
 void main() {
   vec2 fc = gl_FragCoord.xy;
   vec2 p = fc / uDpr, sz = uRes / uDpr, cc = coverCenter() / uDpr;
   float cw = uCover.z / uDpr;
+  // One design pixel in css px (circuitUnit): the board scales with the cover.
+  float u = max(cw / ${DESIGN_CW}.0, min(sz.x, sz.y) / ${DESIGN_STAGE}.0);
   float hu = hushAt(fc);
   float det = 1.0 - 0.8 * hu;
   bool dk = uLight < 0.5;
@@ -509,15 +632,18 @@ void main() {
   gHalo = vec4(0.0);
   float scale = 0.75 + 0.5 * uGlow;
   gK = 0.7 + 0.4 * uGlow;
-  float vis = smoothstep(2.6, 3.8, SCR_PX * uDpr);
+  float vis = 0.0;
   float H = CHIP_H * cw;
+  gCC = cc;
+  gH = H;
+  gU = u;
   vec2 q = p - cc;
   vec2 aq = abs(q);
   bool horiz = aq.x > aq.y;
   float d = (horiz ? aq.x : aq.y) - H;
   float v = horiz ? q.y : q.x;
   float side = horiz ? (q.x > 0.0 ? 0.0 : 1.0) : (q.y > 0.0 ? 2.0 : 3.0);
-  float pitch = (2.0 * H - 0.14 * cw) / 32.0;
+  float pitch = (2.0 * H - 0.14 * cw) / (2.0 * LANES);
   vec3 maskc = dk ? vec3(0.008, 0.035, 0.100) : vec3(0.020, 0.520, 0.300);
   vec3 copper = dk ? vec3(0.030, 0.230, 0.380) : vec3(0.050, 0.720, 0.440);
   vec3 silkc = dk ? vec3(0.62, 0.66, 0.64) : vec3(0.97, 0.98, 0.95);
@@ -526,24 +652,29 @@ void main() {
   vec3 pulseM = dk ? vec3(1.0, 0.10, 0.85) : vec3(1.0, 0.0, 0.55);
   if (!dk) pulseC = vec3(0.0, 0.35, 1.0);
   // Under the chip nothing of the board shows, so the board is drawn only around it.
-  float sdC = sdBox(q, vec2(H - 7.0)) - 7.0;
+  float sdC = sdBox(q, vec2(H - 7.0 * u)) - 7.0 * u;
   vec3 col = maskc;
+  // Where a module sits, kept for the mounting holes, which a module in a stage corner covers.
+  float modKeep = 0.0;
   if (sdC > -1.5) {
     // -- The module the pixel is in, if any, and whether this pixel's component cell is kept clear for one --
     int mk = -1;
     vec2 ml = vec2(0.0);
-    vec2 ci = floor(p / CELL);
-    vec2 cellP = (ci + 0.5) * CELL;
+    float cellW = CELL * u;
+    vec2 ci = floor(p / cellW);
+    vec2 cellP = (ci + 0.5) * cellW;
     float keep = 0.0;
     bool cellFree = true;
     for (int i = 0; i < 4; i++) {
       if (uMod[i].z < 0.5) continue;
+      // A module is drawn at its own scale, the one the layout found room for.
+      float ms = uMod[i].w;
       vec2 l = p - uMod[i].xy;
-      vec2 hb = MOD_HALF[i];
-      if (abs(l.x) < hb.x + 10.0 && abs(l.y) < hb.y + 10.0) { mk = i; ml = l; }
-      keep = max(keep, soft(sdBox(l, hb + 5.0), 2.5));
+      vec2 hb = MOD_HALF[i] * ms;
+      if (abs(l.x) < hb.x + 10.0 * ms && abs(l.y) < hb.y + 10.0 * ms) { mk = i; ml = l / ms; vis = smoothstep(2.6, 3.8, SCR_PX * ms * uDpr); }
+      keep = max(keep, soft(sdBox(l, hb + 5.0 * ms), 2.5 * ms));
       vec2 lc2 = abs(cellP - uMod[i].xy) - hb;
-      if (max(lc2.x, lc2.y) < 24.0) cellFree = false;
+      if (max(lc2.x, lc2.y) < 24.0 * u) cellFree = false;
     }
     // -- Board: mask with a faint weave, copper pour at the edges, a loose routing of traces --
     float weave = vnoise(p * 0.9) * 0.5 + vnoise(p * 0.21) * 0.5;
@@ -552,85 +683,122 @@ void main() {
     vec2 hp = vec2(p.x + p.y, p.x - p.y);
     float hatch = smoothstep(0.55, 0.30, abs(fract(hp.x / 4.2) - 0.5) * 1.0) * 0.5 + smoothstep(0.55, 0.30, abs(fract(hp.y / 4.2) - 0.5)) * 0.5;
     col = mix(col, copper * 0.75, pour * (0.35 + 0.35 * hatch) * det);
+    vec3 under = col;
     float away = smoothstep(COMP_FROM * 0.6 * cw, COMP_FROM * cw, max(aq.x, aq.y) - H);
-    float row = floor(p.y / 10.0), colm = floor(p.x / 10.0);
-    float seg = floor((p.x + hash11(row) * 190.0) / 170.0), segv = floor((p.y + hash11(colm + 40.0) * 190.0) / 170.0);
-    float tH = step(hash21(vec2(row, seg)), 0.22) * (1.0 - smoothstep(0.9, 1.7, abs(p.y - (row + 0.5) * 10.0)));
-    float tV = step(hash21(vec2(colm + 90.0, segv)), 0.18) * (1.0 - smoothstep(0.9, 1.7, abs(p.x - (colm + 0.5) * 10.0)));
+    float tp = 10.0 * u;
+    float row = floor(p.y / tp), colm = floor(p.x / tp);
+    float seg = floor((p.x + hash11(row) * 190.0 * u) / (170.0 * u)), segv = floor((p.y + hash11(colm + 40.0) * 190.0 * u) / (170.0 * u));
+    float tH = step(hash21(vec2(row, seg)), 0.22) * (1.0 - smoothstep(0.9 * u, 1.7 * u, abs(p.y - (row + 0.5) * tp)));
+    float tV = step(hash21(vec2(colm + 90.0, segv)), 0.18) * (1.0 - smoothstep(0.9 * u, 1.7 * u, abs(p.x - (colm + 0.5) * tp)));
+    modKeep = keep;
     float bgTrace = max(tH, tV) * away * (1.0 - keep);
     col = mix(col, copper, bgTrace);
-    // -- Components in cells beyond the bus zone, except where a module sits --
+    // -- Components in cells clear of the bus lanes, except where a module sits --
+    float dd0 = (LEAD_L + 5.0) * u;
     vec2 lc = p - cellP;
     vec2 cellc = cellP - cc;
     float distC = max(abs(cellc.x), abs(cellc.y)) - H;
     float sil = 0.0;
-    if (distC > COMP_FROM * cw && cellFree) {
+    if (distC > COMP_FROM * cw && cellFree && !onLane(cellc, 0.45 * cellW, H, dd0, cw, pitch)) {
       float s1;
       vec3 e0 = gEmit;
       vec4 h0 = gHalo;
-      vec4 pt = part(lc, ci, s1);
+      vec4 pt = part(lc / u, ci, s1);
       gEmit = mix(e0, gEmit, det);
       gHalo = mix(h0, gHalo, det);
       col = mix(col, pt.rgb * (dk ? 0.72 : 1.0), pt.a * det + pt.a * (1.0 - det) * 0.5);
+      bgTrace *= 1.0 - pt.a;
       sil = s1 * det;
-      float lab = silkText(p, cellP + vec2(-6.0, 11.0), 3.0, hash21(ci) * 90.0) * step(0.45, hash21(ci + 2.2)) * det;
+      float lab = silkText(p / u, cellP / u + vec2(-6.0, 11.0), 3.0, hash21(ci) * 90.0) * step(0.45, hash21(ci + 2.2)) * det;
       sil = max(sil, lab);
     }
-    // -- The bus: 32 leads a side fan out in four buses of eight, each with its own jog and end vias --
-    float pulse = 0.0;
+    // -- A full burst's front through the loose routing, and the surge's wave over the whole board --
+    // Each share step adds its part of the front from the leads at the age it was reached, so none pops in mid-way.
+    float dr = max(aq.x, aq.y) - H - dd0;
+    float wave = 0.0;
+    for (int i = 0; i < ${BURST_SLOTS}; i++) {
+      vec4 b = uBurst[i], z = uBurstZ[i];
+      if (b.y <= 0.0) continue;
+      vec3 f = smoothstep(0.9, 1.0, z.xyz);
+      vec3 x = (dr - (b.x - vec3(0.0, b.w, z.w)) * BURST_SPEED * cw) / (0.08 * cw);
+      vec3 g = exp(-x * x) * step(vec3(0.0, b.w, z.w), vec3(b.x));
+      wave += b.y * dot(vec3(f.x, f.y - f.x, f.z - f.y), g);
+    }
+    float sx = (dr - uSurge.x * SURGE_SPEED * cw) / (0.14 * cw);
+    float surgeF = uSurge.y * exp(-sx * sx);
+    // -- The bus: 16 leads a side fan out in four buses of four, each with its own jog and end vias --
     vec3 busAdd = vec3(0.0);
-    float dd0 = LEAD_L + 5.0;
-    if (d > 0.0 && d < 0.46 * cw) {
-      float Lf = clamp(floor(v / pitch), -16.0, 15.0);
+    if (d > 0.0 && d < BUS_REACH * cw) {
+      float Lf = clamp(floor(v / pitch), -LANES, LANES - 1.0);
       for (int it = 0; it < 2; it++) {
-        float b = floor((Lf + 16.0) / 8.0);
-        float ha = hash21(vec2(side * 7.0 + b, 1.3)), hb = hash21(vec2(side * 7.0 + b, 2.7)), hc = hash21(vec2(side * 7.0 + b, 5.1));
-        float a = dd0 + BUS_A * cw + 0.10 * cw * ha, M = pitch * (1.0 + 3.0 * hc);
-        float sg = b < 2.0 ? 1.0 : -1.0;
-        Lf = clamp(floor((v - sg * M * clamp((d - a) / M, 0.0, 1.0)) / pitch), -16.0, 15.0);
+        vec4 g = laneGeom(side, Lf, dd0, cw, pitch);
+        Lf = clamp(floor((v - g.z * g.y * clamp((d - g.x) / g.y, 0.0, 1.0)) / pitch), -LANES, LANES - 1.0);
       }
       float best = 1e3, bestV = 0.0, bestE = 100.0;
+      vec2 pp = vec2(d, v);
+      vec3 vias[3];
       for (int k = -1; k <= 1; k++) {
-        float L = clamp(Lf + float(k), -16.0, 15.0);
-        float b = floor((L + 16.0) / 8.0);
-        float ha = hash21(vec2(side * 7.0 + b, 1.3)), hc = hash21(vec2(side * 7.0 + b, 5.1));
-        float a = dd0 + BUS_A * cw + 0.10 * cw * ha, M = pitch * (1.0 + 3.0 * hc);
-        float sg = b < 2.0 ? 1.0 : -1.0;
+        float L = clamp(Lf + float(k), -LANES, LANES - 1.0);
+        vec4 g = laneGeom(side, L, dd0, cw, pitch);
+        float a = g.x, M = g.y, sg = g.z, E = g.w;
         float vL = (L + 0.5) * pitch;
-        float E = a + M + 0.06 * cw + 0.12 * cw * hash21(vec2(side * 31.0 + L, 8.8));
-        vec2 pp = vec2(d, v);
         float s1 = sdSeg(pp, vec2(dd0, vL), vec2(a, vL));
         float s2 = sdSeg(pp, vec2(a, vL), vec2(a + M, vL + sg * M));
         float s3 = sdSeg(pp, vec2(a + M, vL + sg * M), vec2(E, vL + sg * M));
         float dist = min(min(s1, s2), s3);
         if (dist < best) { best = dist; bestV = L; bestE = E; }
-        // The via at the end of this lane; it sparks as a comet lands, on the lanes that carry comets.
-        vec2 vc = vec2(E, vL + sg * M);
-        float vr = length(pp - vc);
+        vias[k + 1] = vec3(E, vL + sg * M, L);
+      }
+      // The loose routing passes under the bus lanes with a gap either side.
+      // Trace half width: legible at pixel ratio 1 on a small cover, never over a third of the pitch.
+      float tw = min(max(0.13 * pitch, 2.0 * u), 0.3 * pitch);
+      float erase = bgTrace * (1.0 - smoothstep(tw + 2.0 * u, tw + 4.0 * u, best)) * step(d, bestE + 6.0 * u);
+      col = mix(col, under, erase);
+      bgTrace *= 1.0 - erase;
+      // The via at the end of each lane: it sparks as a trickle comet or a burst lands.
+      for (int k = 0; k < 3; k++) {
+        float L = vias[k].z, E = vias[k].x;
+        float vr = length(pp - vias[k].xy) / u;
         float ring = soft(vr - 4.6, 0.7);
         vec3 vcol = mix(goldc, vec3(0.01, 0.02, 0.02), soft(vr - 1.8, 0.5));
         float hv = step(0.5, hash21(vec2(L + side * 40.0, 3.3)));
         col = mix(col, vcol, ring * hv);
         float lh = hash21(vec2(L, side * 9.0 + 2.0));
         float arrive = smoothstep(0.86, 1.0, fract(uPk + lh * 3.7)) * smoothstep(1.0 - uLanes, 1.08 - uLanes, lh);
-        col += mix(pulseC, pulseM, step(0.5, hash21(vec2(L, 7.7)))) * exp(-vr * vr / 14.0) * arrive * 1.3 * scale * hv * det;
+        float land = 0.0;
+        for (int i = 0; i < ${BURST_SLOTS}; i++) {
+          vec4 b = uBurst[i];
+          float ja = joinAge(lh, b, uBurstZ[i]);
+          if (b.y <= 0.0 || ja < 0.0) continue;
+          float head = dd0 + (b.x - ja) * BURST_SPEED * cw;
+          land += b.y * smoothstep(E - 12.0 * u, E, head) * exp(-max(head - E, 0.0) / (0.5 * cw));
+        }
+        col += mix(pulseC, pulseM, step(0.5, hash21(vec2(L, 7.7)))) * exp(-vr * vr / 14.0) * (arrive * 0.9 + land * 1.6) * scale * det;
       }
       float Lh = hash21(vec2(bestV, side * 9.0 + 2.0));
-      float tm = soft(best - 1.3, 0.7);
+      float tm = soft(best - tw, 0.7);
       col = mix(col, copper, tm);
-      col += (dk ? vec3(0.03, 0.10, 0.07) : vec3(0.05, 0.12, 0.08)) * soft(best - 0.5, 0.6) * tm;
-      pulse = rings(d + Lh * 28.0, PULSE_SPEED, PULSE_WIDTH) * exp(-d / (0.6 * cw));
+      col += (dk ? vec3(0.03, 0.10, 0.07) : vec3(0.05, 0.12, 0.08)) * soft(best - 0.4 * tw, 0.6) * tm;
       vec3 lanec = mix(pulseC, pulseM, step(0.5, hash21(vec2(bestV, 7.7))));
-      float ph = fract(uPk + Lh * 3.7);
-      float dp = ph * (bestE + 16.0);
-      // Comets run on a share of the lanes that grows as the whole mix climbs over its mean; a lane fades in or out.
-      float comet = (d <= dp ? exp(-(dp - d) / 26.0) : exp(-(d - dp) / 3.0)) * smoothstep(1.0 - uLanes, 1.08 - uLanes, Lh);
-      busAdd = lanec * (pulse * 1.5 + comet * 1.1) * (tm * 1.0 + 0.30 * exp(-best / 3.5)) * scale * (dk ? 1.2 : 1.0);
+      // The trickle: slow comets on a share of the lanes; a lane fades in or out as the share moves.
+      float dp = fract(uPk + Lh * 3.7) * (bestE + 16.0 * u);
+      float trickle = (d <= dp ? exp(-(dp - d) / (36.0 * u)) : exp(-(d - dp) / (3.0 * u))) * smoothstep(1.0 - uLanes, 1.08 - uLanes, Lh);
+      // The bursts: a head runs out from the leads with a tail behind it and stops at the lane's end.
+      float burst = 0.0;
+      for (int i = 0; i < ${BURST_SLOTS}; i++) {
+        vec4 b = uBurst[i];
+        float ja = joinAge(Lh, b, uBurstZ[i]);
+        if (b.y <= 0.0 || ja < 0.0) continue;
+        float head = min(dd0 + (b.x - ja) * BURST_SPEED * cw, bestE);
+        burst += b.y * (d <= head ? exp(-(head - d) / (BURST_TAIL * cw)) : exp(-(d - head) / (3.0 * u))) * step(d, bestE + 4.0 * u);
+      }
+      busAdd = lanec * (trickle * 0.8 + burst + surgeF * 1.2) * (tm + 0.30 * exp(-best / (3.5 * u))) * scale * (dk ? 1.2 : 1.0);
       // The lead pad where the lead lands on the board.
-      float lv = mod(v / pitch + 16.0, 1.0) - 0.5;
-      float pad = soft(max(abs(lv) * pitch - 0.30 * pitch, abs(d - (LEAD_L + 1.0)) - 4.0), 0.5);
+      float lv = mod(v / pitch + LANES, 1.0) - 0.5;
+      float pad = soft(max(abs(lv) * pitch - 0.30 * pitch, abs(d - (LEAD_L + 1.0) * u) - 4.0 * u), 0.5);
       col = mix(col, goldc, pad * 0.9);
     }
+    col += pulseC * (bgTrace * (wave * 0.9 + surgeF * 1.4) + surgeF * 0.08) * scale * det;
     col += busAdd;
     // -- Silkscreen, then the modules on top of the board --
     if (mk == 0) dspModule(col, sil, ml, vis);
@@ -645,19 +813,23 @@ void main() {
       col = mix(col, hc * 0.85 + 0.12, clamp(gHalo.a * 0.6, 0.0, 0.55));
       col += gEmit * 0.3;
     }
+    // A cut dims the board around the chip; less by day, where the pale board would swing much further.
+    col *= 1.0 - (dk ? CUT_DIM : 0.5 * CUT_DIM) * uDark;
   }
   // -- The chip: shadow, body, heat-spreader rim, the cover lid, leads, pin 1 --
-  col *= 1.0 - 0.5 * exp(-max(sdC, 0.0) / 9.0) * (1.0 - smoothstep(0.0, 1.0, -sdC));
+  col *= 1.0 - 0.5 * exp(-max(sdC, 0.0) / (9.0 * u)) * (1.0 - smoothstep(0.0, 1.0, -sdC));
   float chip = soft(sdC, 0.8);
-  // The leads: metal tongues along every side, drawn before the body so the body covers their roots.
-  float inLead = step(-5.0, d) * step(d, LEAD_L);
-  float lvl = mod(v / pitch + 16.0, 1.0) - 0.5;
-  float leadM = soft(abs(lvl) * pitch - 0.23 * pitch, 0.5) * soft(abs(d - (LEAD_L - 5.0) * 0.5 + 2.0) - (LEAD_L + 5.0) * 0.5, 0.5) * step(abs(v), H - 0.06 * cw);
+  // The leads: metal tongues along every side, drawn before the body so the body covers their roots. They glow
+  // as a burst leaves the chip.
+  float inLead = step(-5.0 * u, d) * step(d, LEAD_L * u);
+  float lvl = mod(v / pitch + LANES, 1.0) - 0.5;
+  float leadM = soft(abs(lvl) * pitch - 0.23 * pitch, 0.5) * soft(abs(d - ((LEAD_L - 5.0) * 0.5 - 2.0) * u) - (LEAD_L + 5.0) * 0.5 * u, 0.5) * step(abs(v), H - 0.06 * cw);
   vec3 leadc = (dk ? vec3(0.55, 0.57, 0.60) : vec3(0.80, 0.82, 0.85)) * (0.75 + 0.3 * smoothstep(0.25, 0.0, abs(lvl)));
   col = mix(col, leadc, leadM * (1.0 - chip) * inLead);
+  col += pulseC * leadM * (1.0 - chip) * inLead * uLaunch * scale;
   // The body, the rim and the cover lid, only where the chip is: the cover read and the rim text cost the most.
   if (sdC < 1.0) {
-    float pin1 = soft(length(q - vec2(-H + 22.0, H - 22.0)) - 4.0, 0.5);
+    float pin1 = soft(length(q - vec2(-H + 22.0 * u, H - 22.0 * u)) - 4.0 * u, 0.5);
     vec3 plastic = shade(vec3(0.030, 0.034, 0.040), q, sdC, 0.8) + 0.02;
     float lidSd = sdBox(q, vec2(0.5 * cw)) - 2.0;
     float lidM = soft(lidSd, 0.8);
@@ -665,22 +837,24 @@ void main() {
     vec3 rimc = plastic + (dk ? vec3(0.05, 0.055, 0.06) : vec3(0.10, 0.11, 0.12)) * smoothstep(8.0, 0.0, -sdC);
     rimc = mix(rimc, plastic * 0.55, soft(abs(lidSd) - 1.0, 0.7));
     vec3 chipc = mix(rimc, lid, lidM);
-    float rimTxt = silkText(p, cc + vec2(-0.5 * cw + 14.0, 0.5 * cw + 7.0), 18.0, 3.0) * 0.8 + silkText(p, cc + vec2(0.5 * cw - 88.0, -0.5 * cw - 14.0), 20.0, 8.0) * 0.8;
+    vec2 pu = p / u, cu = cc / u;
+    float cwu = cw / u;
+    float rimTxt = silkText(pu, cu + vec2(-0.5 * cwu + 14.0, 0.5 * cwu + 7.0), 18.0, 3.0) * 0.8 + silkText(pu, cu + vec2(0.5 * cwu - 88.0, -0.5 * cwu - 14.0), 20.0, 8.0) * 0.8;
     chipc = mix(chipc, silkc * 0.9, rimTxt * (1.0 - lidM) * chip);
     chipc = mix(chipc, silkc, pin1 * (1.0 - lidM));
     col = mix(col, chipc, chip);
   }
   // -- Mounting holes in the stage corners --
-  vec2 mh = min(p, sz - p) - 26.0;
+  vec2 mh = (min(p, sz - p) - 26.0 * u) / u;
   float hr = length(mh);
   float ringM = soft(hr - 13.0, 0.8);
-  col = mix(col, mix(goldc * 0.9, vec3(0.01, 0.015, 0.015), soft(hr - 7.0, 0.8)), ringM * step(max(mh.x, mh.y), 30.0) * step(mh.x, 8.0) * step(mh.y, 8.0));
+  col = mix(col, mix(goldc * 0.9, vec3(0.01, 0.015, 0.015), soft(hr - 7.0, 0.8)), ringM * step(max(mh.x, mh.y), 30.0) * step(mh.x, 8.0) * step(mh.y, 8.0) * (1.0 - modKeep));
   col = hushed(col, hu, 0.35);
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
 // The four modules: pocket (which corner of the chip), half size (the shader's MOD_HALF), and how far a designer
-// would set each one back from the chip when there is room.
+// would set each one back from the chip when there is room, in design px.
 const CIRCUIT_MODS = [
   // DSP OLED, top right
   { sx: 1, sy: 1, hw: 54, hh: 33, push: [10, 4] },
@@ -692,10 +866,60 @@ const CIRCUIT_MODS = [
   { sx: 1, sy: -1, hw: 56, hh: 26, push: [22, 8] },
 ] as const;
 
+/** The stage in css px around the chip: its centre, cover width, half size, lane pitch, lead run and design px. */
+function circuitFrame(geo: Geometry, size: { w: number; h: number; dpr: number }) {
+  const r = size.dpr;
+  const W = size.w / r;
+  const Ht = size.h / r;
+  const cw = geo.cover[2] / r;
+  const u = circuitUnit(cw, W, Ht);
+  const H = CHIP_H * cw;
+  return {
+    W,
+    Ht,
+    cw,
+    cx: (geo.cover[0] + geo.cover[2] / 2) / r,
+    cy: (geo.cover[1] + geo.cover[3] / 2) / r,
+    u,
+    H,
+    pitch: (2 * H - 0.14 * cw) / (2 * LANES),
+    dd0: (LEAD_L + 5) * u,
+    floor: (geo.floor ?? 0) / r + 16,
+  };
+}
+
+/** The longest a lane can run past its leads at full fit: the run before the jog, the jog, the run after it. */
+function laneSpan(cw: number, pitch: number): number {
+  return (BUS_A + JOG_HASH + LANE_MIN + LANE_SPAN) * cw + 4 * pitch;
+}
+
 /**
- * Places the modules in the pockets between the chip's buses into `out` as css px, y up, x, y, shown and 0 per
- * module: clear of the buses, the text, the transport and the Player's queue. A module that finds no room is left
- * out rather than crowded.
+ * Each side's lane length factor into `out` (right, left, top, bottom): a side's lanes are shortened, jogs and
+ * all, so the longest of them ends inside the stage, and below the chip above the transport. MIN_FIT is the floor
+ * for a side with next to no room.
+ */
+export function circuitFit(geo: Geometry, size: { w: number; h: number; dpr: number }, out: Float32Array): Float32Array {
+  const f = circuitFrame(geo, size);
+  const room = [f.W - (f.cx + f.H), f.cx - f.H, f.Ht - (f.cy + f.H), f.cy - f.H - f.floor];
+  const span = laneSpan(f.cw, f.pitch);
+  room.forEach((m, i) => {
+    out[i] = Math.min(1, Math.max(MIN_FIT, (m - f.dd0 - LANE_PAD * f.u) / span));
+  });
+  return out;
+}
+
+/** How far a side's lanes reach past the chip edge at fit `k`, the end pad included: an upper bound for any lane. */
+export function circuitReach(geo: Geometry, size: { w: number; h: number; dpr: number }, k: number): number {
+  const f = circuitFrame(geo, size);
+  return f.dd0 + k * laneSpan(f.cw, f.pitch) + LANE_PAD * f.u;
+}
+
+/**
+ * Places the modules in the pockets between the chip's buses into `out` as css px, y up, x, y, shown and scale
+ * per module: clear of the buses' fans, the text, the transport, the Player's queue and each other. A module
+ * scales with the square root of the design px, and steps down to its plain size or a little under where the
+ * pocket is tight; one that finds no room is left out rather than crowded. Lanes running on under a module end
+ * short of it.
  */
 export function layoutCircuitModules(
   geo: Geometry,
@@ -703,49 +927,53 @@ export function layoutCircuitModules(
   ambient: boolean,
   out: Float32Array,
 ): Float32Array {
-  const r = size.dpr;
-  const W = size.w / r;
-  const Ht = size.h / r;
+  const f = circuitFrame(geo, size);
+  const { W, Ht, cx, cy } = f;
   const M = 12;
-  const cw = geo.cover[2] / r;
-  const cx = (geo.cover[0] + geo.cover[2] / 2) / r;
-  const cy = (geo.cover[1] + geo.cover[3] / 2) / r;
-  const half = 0.56 * cw;
-  const lanes = half + 6;
-  const busLen = half + 0.46 * cw;
+  const fit = circuitFit(geo, size, new Float32Array(4));
+  // The fan of each side: the leads, the run before the jog and the jog itself (right, left, top, bottom).
+  const fan = [0, 1, 2, 3].map((i) => f.H + f.dd0 + fit[i] * ((BUS_A + JOG_HASH) * f.cw + 4 * f.pitch) + 6);
+  const lanes = f.H + 6;
   const right = ambient ? W - M : W - 342;
   // The transport: its top is the floor; its width is centred on the cover in the Player, on the stage in ambient.
   const ctrl = ambient ? [W / 2 - 330, W / 2 + 330] : [cx - 300, cx + 300];
-  const blocks = geo.hush.map(([x, y, w, h]) => [x / r - 16, y / r - 16, (x + w) / r + 16, (y + h) / r + 16]);
-  blocks.push([ctrl[0], -1e4, ctrl[1], (geo.floor ?? 0) / r + 16]);
-  blocks.push([cx - busLen, cy - lanes, cx + busLen, cy + lanes], [cx - lanes, cy - busLen, cx + lanes, cy + busLen]);
+  const blocks = geo.hush.map(([x, y, w, h]) => [x / size.dpr - 16, y / size.dpr - 16, (x + w) / size.dpr + 16, (y + h) / size.dpr + 16]);
+  blocks.push([ctrl[0], -1e4, ctrl[1], f.floor]);
+  blocks.push([cx - fan[1], cy - lanes, cx + fan[0], cy + lanes], [cx - lanes, cy - fan[3], cx + lanes, cy + fan[2]]);
   const fits = (x: number, y: number, hw: number, hh: number) =>
     x - hw >= M &&
     x + hw <= right &&
     y - hh >= M &&
     y + hh <= Ht - M &&
     !blocks.some(([x0, y0, x1, y1]) => x + hw > x0 && x - hw < x1 && y + hh > y0 && y - hh < y1);
+  const scales = [Math.sqrt(f.u), 1, 0.9].filter((s, i, a) => i === 0 || s < a[0]);
   out.fill(0);
   CIRCUIT_MODS.forEach((m, i) => {
-    const ix = cx + m.sx * (lanes + 8);
-    const iy = cy + m.sy * (lanes + 8);
-    const roomX = m.sx > 0 ? right - ix - 2 * m.hw : ix - M - 2 * m.hw;
-    const roomY = m.sy > 0 ? Ht - M - iy - 2 * m.hh : iy - M - 2 * m.hh;
-    const px = ix + m.sx * (m.hw + Math.max(0, Math.min(m.push[0], roomX)));
-    const py = iy + m.sy * (m.hh + Math.max(0, Math.min(m.push[1], roomY)));
-    const edgeY = m.sy > 0 ? Ht - M - m.hh : M + m.hh;
-    const cands = [
-      [px, py],
-      [ix + m.sx * m.hw, iy + m.sy * m.hh],
-      [px, edgeY],
-      [cx + m.sx * (busLen + 10 + m.hw), edgeY],
-    ];
-    for (const [a, b] of cands) {
-      const x = Math.round(a);
-      const y = Math.round(b);
-      if (fits(x, y, m.hw, m.hh)) {
-        out.set([x, y, 1, 0], i * 4);
-        return;
+    for (const s of scales) {
+      const hw = m.hw * s;
+      const hh = m.hh * s;
+      const ix = cx + m.sx * (lanes + 8);
+      const iy = cy + m.sy * (lanes + 8);
+      const roomX = m.sx > 0 ? right - ix - 2 * hw : ix - M - 2 * hw;
+      const roomY = m.sy > 0 ? Ht - M - iy - 2 * hh : iy - M - 2 * hh;
+      const px = ix + m.sx * (hw + Math.max(0, Math.min(m.push[0] * s, roomX)));
+      const py = iy + m.sy * (hh + Math.max(0, Math.min(m.push[1] * s, roomY)));
+      const edgeY = m.sy > 0 ? Ht - M - hh : M + hh;
+      const reach = m.sx > 0 ? fan[0] : fan[1];
+      const cands = [
+        [px, py],
+        [ix + m.sx * hw, iy + m.sy * hh],
+        [px, edgeY],
+        [cx + m.sx * (reach + 10 + hw), edgeY],
+      ];
+      for (const [a, b] of cands) {
+        const x = Math.round(a);
+        const y = Math.round(b);
+        if (fits(x, y, hw, hh)) {
+          out.set([x, y, 1, s], i * 4);
+          blocks.push([x - hw - 8, y - hh - 8, x + hw + 8, y + hh + 8]);
+          return;
+        }
       }
     }
   });
@@ -768,17 +996,49 @@ interface Activity {
 
 const ACTIVITY_KEYS = ["bass", "mid", "high", "all"] as const;
 
+/**
+ * One beat burst: its age, the beat's weight so far, whether a surge sent it, its lane seed, and its share of the
+ * lanes in up to three steps (`z`) with the ages the second and third were reached (`t`). A beat's weight rises in
+ * at most two steps after the first frame as its bass lands; a lane joins at the step that first covers it.
+ */
+export interface Burst {
+  age: number;
+  weight: number;
+  surge: boolean;
+  seed: number;
+  z: [number, number, number];
+  t: [number, number];
+  steps: number;
+}
+
 /** The scene's moving state. */
 export interface CircuitBoardState {
   slow: number;
   clock: number;
-  // The comets' phase.
+  // The trickle comets' phase.
   pk: number;
-  energy: number;
-  surge: number;
-  // Seconds until the next idle ring front.
+  // Seconds until the next idle burst.
   idle: number;
-  rings: Rings;
+  bursts: Burst[];
+  burstN: number;
+  // The beat burst whose weight is still being followed, and the clocks of the launches in the last second.
+  following: Burst | null;
+  launches: number[];
+  // The clock of the last beat burst on every lane.
+  lastFull: number;
+  // Per slot: age, light, lane seed, second step's age; then the three step shares and the third step's age.
+  burstPacked: Float32Array;
+  burstZ: Float32Array;
+  // The surge wave's age (negative when none runs) and strength; a surge waiting for the launch gap.
+  surgeAge: number;
+  surgeStr: number;
+  surgePending: number;
+  // The small parts' hit envelopes: bass, mids, highs.
+  hits: Float32Array;
+  // A cut's dimming, its target and how long the target holds.
+  dark: number;
+  darkTgt: number;
+  darkHold: number;
   mean: Record<keyof Activity, BandMean> | null;
   beatN: number;
   lastBeat: number;
@@ -814,10 +1074,21 @@ export function createCircuitBoardState(): CircuitBoardState {
     slow: 0,
     clock: 0,
     pk: 0,
-    energy: 0.3,
-    surge: 0,
     idle: 3.5,
-    rings: createRings(RING_LIFE, RING_RISE, RING_HEIGHT),
+    bursts: [],
+    burstN: 0,
+    following: null,
+    launches: [],
+    lastFull: -9,
+    burstPacked: new Float32Array(BURST_SLOTS * 4),
+    burstZ: new Float32Array(BURST_SLOTS * 4),
+    surgeAge: -1,
+    surgeStr: 0,
+    surgePending: 0,
+    hits: new Float32Array(3),
+    dark: 0,
+    darkTgt: 0,
+    darkHold: 0,
     mean: null,
     beatN: 0,
     lastBeat: -9,
@@ -829,7 +1100,7 @@ export function createCircuitBoardState(): CircuitBoardState {
     segMix: 1,
     field: 0,
     low: 0,
-    lanes: 0.5,
+    lanes: CIRCUIT.IDLE_LANES,
     tick: 0,
     regs: new Float32Array(4),
     regT: 0,
@@ -903,25 +1174,143 @@ function slew(cur: number, tgt: number, rate: number, dt: number): number {
   return cur + Math.max(-rate * dt, Math.min(rate * dt, tgt - cur));
 }
 
+/** A burst's light from its beat's weight: a quiet beat near nothing, a full kick at BURST_LIGHT. */
+export function burstLight(weight: number): number {
+  return Math.min(CIRCUIT.BURST_LIGHT, 1.1 * Math.max(0, weight));
+}
+
+/**
+ * The share of lanes a burst takes from its beat's weight at motion gain `gain`, judged before the gain so the
+ * share reads the same at every reactivity: none for a quiet beat, a few for a kickless onset, about half to two
+ * thirds for a typical loud kick, every lane only for the strongest.
+ */
+export function burstShare(weight: number, gain: number): number {
+  const raw = Math.max(0, weight) / Math.max(1, gain);
+  return raw >= SHARE_FULL ? 1 : SHARE_TOP * clamp01((raw - 0.05) / (SHARE_FULL - 0.05)) ** 1.2;
+}
+
+// The weight of an idle burst, sent on a timer when the board has no motion gain.
+const IDLE_WEIGHT = 0.4;
+// Loud masters pin many kicks at the top weight, so a kick takes every lane only when no burst has in the last
+// FULL_GAP seconds; the others stay at SHARE_TOP.
+const FULL_GAP = 3;
+
+/** A beat burst's share with the full-board gap applied; records a full burst's clock. */
+function shareNow(st: CircuitBoardState, weight: number, gain: number): number {
+  const z = burstShare(weight, gain);
+  if (z < 1) return z;
+  if (st.clock - st.lastFull < FULL_GAP) return SHARE_TOP;
+  st.lastFull = st.clock;
+  return 1;
+}
+
+/** Raises a beat burst's weight as the beat's bass lands; a larger share opens a new step, at most two after the first. */
+function followWeight(st: CircuitBoardState, b: Burst, weight: number, gain: number): void {
+  b.weight = Math.max(b.weight, weight);
+  if (b.steps >= 2 || b.z[b.steps] >= 1) return;
+  const z = shareNow(st, b.weight, gain);
+  if (z <= b.z[b.steps] + 1e-6) return;
+  b.steps += 1;
+  b.t[b.steps - 1] = b.age;
+  for (let k = b.steps; k < 3; k++) b.z[k] = z;
+}
+
+/**
+ * The beat bursts and the surge wave: a beat sends one burst whose weight follows the beat's as its bass lands; a
+ * surge sends one on every lane above any beat's light, the wave, and lifts a cut's dim. At most three bursts
+ * launch in any second: a surge with no slot free waits for one, and a beat with none free sends nothing. With no
+ * gain an idle burst runs on a timer that restarts while the gain is on, so a switch to Calm or pause waits a full
+ * interval for its first.
+ */
+function circuitBursts(st: CircuitBoardState, s: VisualSignal, dt: number, drive: number): void {
+  const C = CIRCUIT;
+  for (const b of st.bursts) b.age += dt;
+  while (st.bursts.length > 0 && st.bursts[0].age >= C.BURST_LIFE) st.bursts.shift();
+  if (st.following && (st.following.age >= C.WEIGHT_WINDOW || !st.bursts.includes(st.following))) st.following = null;
+  const launch = (weight: number, surge: boolean): Burst => {
+    if (st.bursts.length === BURST_SLOTS) st.bursts.shift();
+    st.burstN += 1;
+    st.launches.push(st.clock);
+    const z0 = surge ? 1 : drive > 0 ? shareNow(st, weight, drive) : burstShare(weight, drive);
+    const b: Burst = { age: 0, weight, surge, seed: (st.burstN * 0.618034) % 1, z: [z0, z0, z0], t: [0, 0], steps: 0 };
+    st.bursts.push(b);
+    return b;
+  };
+  while (st.launches.length > 0 && st.launches[0] <= st.clock - 1 + 1e-9) st.launches.shift();
+  const open = st.launches.length < 3;
+  if (st.surgeAge >= 0) st.surgeAge = st.surgeAge + dt < C.SURGE_LIFE ? st.surgeAge + dt : -1;
+  if (drive > 0) {
+    st.idle = IDLE_EVERY;
+    if (s.surge > 0) st.surgePending = Math.max(st.surgePending, s.surge);
+    if (st.surgePending > 0 && open) {
+      launch(0, true);
+      st.surgeAge = 0;
+      st.surgeStr = Math.min(1, 0.6 + 0.4 * st.surgePending);
+      st.surgePending = 0;
+      st.darkTgt = 0;
+      st.darkHold = 0;
+    } else if (s.beat > 0 && open) st.following = launch(s.beatWeight, false);
+    else if (st.following && s.beatWeight > 0) followWeight(st, st.following, s.beatWeight, drive);
+  } else {
+    st.surgePending = 0;
+    st.following = null;
+    st.idle -= dt;
+    if (st.idle <= 0) {
+      st.idle = IDLE_EVERY;
+      launch(IDLE_WEIGHT, false);
+    }
+  }
+  st.burstPacked.fill(0);
+  st.burstZ.fill(0);
+  st.bursts.forEach((b, i) => {
+    const t = b.age / C.BURST_LIFE;
+    const rise = Math.min(1, b.age / C.BURST_RISE);
+    const light = (b.surge ? C.SURGE_LIGHT : burstLight(b.weight)) * rise * rise * (3 - 2 * rise) * (1 - t * t) ** 2;
+    st.burstPacked.set([b.age, light * (1 - st.dark), b.seed, b.t[0]], i * 4);
+    st.burstZ.set([b.z[0], b.z[1], b.z[2], b.t[1]], i * 4);
+  });
+}
+
+/** The leads' glow as a burst leaves the chip: each share step's lanes glow over their first tenth of a second. */
+function circuitLaunch(st: CircuitBoardState): number {
+  let sum = 0;
+  st.bursts.forEach((b, i) => {
+    const light = st.burstPacked[i * 4 + 1];
+    const at = [0, b.t[0], b.t[1]];
+    for (let k = 0; k < 3; k++) {
+      const share = b.z[k] - (k > 0 ? b.z[k - 1] : 0);
+      if (share > 0 && b.age >= at[k]) sum += light * Math.min(1, 1.5 * share) * Math.exp(-(b.age - at[k]) / 0.1);
+    }
+  });
+  return Math.min(1.5, sum);
+}
+
+/** The surge wave's light this frame: fades in over 0.05 s and out over SURGE_LIFE. */
+function surgeLight(st: CircuitBoardState): number {
+  if (st.surgeAge < 0) return 0;
+  const t = st.surgeAge / CIRCUIT.SURGE_LIFE;
+  return 1.5 * st.surgeStr * Math.min(1, st.surgeAge / 0.05) * (1 - t) ** 2;
+}
+
 /** Advances the board by dt at motion gain `drive` (0 under Calm and while paused). */
 export function stepCircuitBoard(st: CircuitBoardState, s: VisualSignal, dt: number, drive: number): void {
   const C = CIRCUIT;
   st.slow += dt;
   st.clock += dt;
-  // Beats: a ring front out along the buses, the bar counter, the register scroll. With no gain an idle front runs
-  // on a timer that restarts while the gain is on, so a switch to Calm or pause waits a full interval for its first.
-  let beat = drive > 0 ? Math.min(1, s.beat * 0.8) : 0;
-  if (drive > 0) st.idle = IDLE_EVERY;
-  else {
-    st.idle -= dt;
-    if (st.idle <= 0) {
-      st.idle = IDLE_EVERY;
-      beat = 0.5;
-    }
+  // A cut dims the board and stills the trickle for a moment; a surge's burst lifts it at once (circuitBursts).
+  if (drive > 0 && s.cut > 0) {
+    st.darkTgt = Math.min(1, 0.4 + s.cut);
+    st.darkHold = C.CUT_HOLD;
   }
-  // The ring set holds three: a fourth beat drops the oldest, which by then has faded to about 14% of its peak
-  // at three beats a second; below about 1.9 a second it has already ended.
-  st.rings.step(dt, beat);
+  st.darkHold -= dt;
+  if (drive === 0 || st.darkHold <= 0) st.darkTgt = 0;
+  const lifted = st.darkTgt < st.dark && st.surgeAge >= 0;
+  st.dark = easeEnvelope(st.dark, st.darkTgt, dt, st.darkTgt > st.dark ? C.CUT_IN : lifted ? C.CUT_LIFT : C.CUT_OUT);
+  circuitBursts(st, s, dt, drive);
+  // The small parts' hits: each group's envelope jumps on a hit and falls over HIT_TAU.
+  const hit = [s.bassHit, s.midHit, s.highHit];
+  for (let k = 0; k < 3; k++) st.hits[k] = Math.max(st.hits[k] * Math.exp(-dt / C.HIT_TAU), drive > 0 ? Math.min(1, hit[k]) : 0);
+  // Beats: the bar counter and the register scroll.
   if (drive > 0 && s.beat > 0) {
     st.beatRun = st.clock - st.lastBeat < 1.2 ? st.beatRun + 1 : 1;
     st.lastBeat = st.clock;
@@ -941,11 +1330,11 @@ export function stepCircuitBoard(st: CircuitBoardState, s: VisualSignal, dt: num
   const act = circuitActivity(st, s, dt, drive);
   st.field = slew(st.field, act.high, C.SLEW_FIELD, dt);
   st.low = slew(st.low, act.bass, C.SLEW_BAR, dt);
-  st.lanes = slew(st.lanes, drive > 0 ? 0.25 + 0.75 * act.all : 0.5, C.SLEW_LANES, dt);
-  // Comet speed: the eased level, plus a bass surge.
-  st.energy = easeEnvelope(st.energy, clamp01(s.level * 1.1), dt, 1.2);
-  st.surge = easeEnvelope(st.surge, drive > 0 ? s.bassMotion * Math.min(1.3, drive) : 0, dt, 0.3);
-  st.pk += dt * (0.14 + 0.7 * st.energy + 1.4 * st.surge);
+  // The trickle between beats: a thin share of the lanes that grows with the loudness, none near silence; a board
+  // with no motion gain idles at IDLE_LANES. Its comets crawl, a lane in about ten seconds.
+  const loud = clamp01((s.loudness - C.TRICKLE_FROM) / (C.TRICKLE_FULL - C.TRICKLE_FROM));
+  st.lanes = slew(st.lanes, drive > 0 ? C.TRICKLE * loud * loud * (3 - 2 * loud) : C.IDLE_LANES, C.SLEW_LANES, dt);
+  st.pk += dt * (drive > 0 ? (0.06 + 0.12 * s.loudness) * (1 - st.dark) : 0.08);
   // The OLED: a level trace scrolling at TRACE_HZ (bass and mids), sixteen bars from the bands; idle drift under Calm.
   const tv =
     drive > 0
@@ -985,6 +1374,7 @@ export function createCircuitBoard(kit: Kit): Candidate {
   const art = createCoverTexture(gl);
   const st = createCircuitBoardState();
   const mods = new Float32Array(MODULES * 4);
+  const fit = new Float32Array(4);
 
   return {
     mode: "image",
@@ -999,10 +1389,18 @@ export function createCircuitBoard(kit: Kit): Candidate {
       const s = f.sig;
       stepCircuitBoard(st, s, f.dt, cyberGain(s, f.playing));
       layoutCircuitModules(kit.geo, kit.size, f.ambient, mods);
+      circuitFit(kit.geo, kit.size, fit);
       const p = kit.program(CIRCUIT_BOARD_PROGRAM);
-      setScene(kit, p, f, 0, st.rings.packed, art.tex);
+      setScene(kit, p, f, 0, null, art.tex);
       kit.set1(p, "uPk", st.pk);
-      kit.set1(p, "uGlow", clamp01(s.level * 1.5));
+      kit.set1(p, "uGlow", clamp01(0.25 + 0.9 * s.loudness));
+      gl.uniform4fv(kit.uniform(p, "uBurst"), st.burstPacked);
+      gl.uniform4fv(kit.uniform(p, "uBurstZ"), st.burstZ);
+      gl.uniform4fv(kit.uniform(p, "uFit"), fit);
+      gl.uniform2f(kit.uniform(p, "uSurge"), Math.max(0, st.surgeAge), surgeLight(st));
+      gl.uniform3fv(kit.uniform(p, "uHit"), st.hits);
+      kit.set1(p, "uDark", st.dark);
+      kit.set1(p, "uLaunch", circuitLaunch(st));
       kit.set1(p, "uSlow", st.slow);
       gl.uniform4fv(kit.uniform(p, "uMod"), mods);
       gl.uniform4fv(kit.uniform(p, "uBars"), st.bars);
@@ -1011,7 +1409,7 @@ export function createCircuitBoard(kit: Kit): Candidate {
       gl.uniform3f(kit.uniform(p, "uSeg"), st.segPrev, st.segCur, st.segMix);
       kit.set1(p, "uLow", st.low);
       kit.set1(p, "uField", st.field);
-      kit.set1(p, "uLanes", st.lanes);
+      kit.set1(p, "uLanes", st.lanes * (1 - st.dark));
       gl.uniform4fv(kit.uniform(p, "uRegs"), st.regs);
       kit.set1(p, "uTick", st.tick);
       kit.set1(p, "uScroll", st.scroll);

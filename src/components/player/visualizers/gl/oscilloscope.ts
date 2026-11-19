@@ -5,16 +5,19 @@
  * share of the period's time. The shader spreads that time along the segment, so the light per unit length is
  * 1/speed: turning points glow, fast strokes are faint, and the light on the glass is the same whatever the
  * figure. The same polyline from a tenth of a second earlier is drawn again, wide and dim, as the afterglow. The
- * cover sits on the glass as a paper label and the beam passes behind it.
+ * glass fills the stage inside a thin frame; the cover sits on it as a paper label wherever the stage puts it, and
+ * the beam passes behind it.
  *
- * Intensity against its 17 s mean sets the spin and the phase drift; its place in the range of the last 45 s
- * picks the pool of figures. A figure holds on a long timer or until the song changes section, then folds or
- * blooms into the next. Bass deepens the figure, mids set its harmonic, highs add fine detail, beats kick the
- * phase and re-strike the harmonograph.
+ * Loudness sets the figure's size and depth, the spin and the beam's power, so a near-silent passage is a small,
+ * slow, dim figure and a loud one fills the glass. Intensity's place in the range of the last 45 s picks the pool
+ * of figures. A figure holds on a long timer or until the song changes section, then folds or blooms into the
+ * next; a surge cuts to a new, larger figure, a cut squashes it toward a flat line for a moment. Bass deepens the
+ * figure, mids set its harmonic, highs add fine detail, hits push those shape terms at once. A beat kicks the
+ * phase, jumps the size and re-strikes the harmonograph by its weight.
  *
- * Photosensitivity: the beam's power and the glass's own glow follow only the eased level (uPower). Bands and
- * beats change the figure's ratio, phase, depth and spin, never the amount of light; a figure change is a morph
- * of the beam's path, so the light on the glass stays put. Calm and paused zero every band-driven term.
+ * Photosensitivity: the beam's power follows the eased loudness (uPower); the phosphor bloom (uBloom), large-area
+ * light, follows only the beat weight's envelope and a surge's slow lift, so it swells at most three times a
+ * second. Hits move the thin trace, never the amount of light. Calm and paused zero every beat, hit and shift term.
  */
 
 // -- Local Imports --
@@ -39,21 +42,24 @@ export const SCOPE = {
   FINE: 320,
   // Px of path a radian of turning is worth in the resampling, so tight curves get points.
   TURN_PX: 14,
-  // Coarse beam samples for the wide glow (two per vec4).
+  // Coarse beam samples for the wide glow (two per vec4), and how far they trail the beam, s.
   GLOW_N: 24,
-  // Px the halo and the afterglow reach beyond a segment; pads the culling boxes.
-  REACH: 20,
+  GLOW_TAU: 0.2,
+  // Px the halo and the afterglow reach beyond a segment at beam scale 1; pads the culling boxes.
+  REACH: 32,
+  // Glass half height at which the beam's widths are drawn as written, and the clamp on that scale.
+  BEAM_REF: 250,
+  BEAM_SCALE: [0.8, 1.2],
   // Seconds behind the beam the afterglow path is taken from.
   GHOST_AGE: 0.11,
-  // Share of the glass half size a unit figure spans.
+  // Share of the glass half size a unit figure spans, and the widest an X-Y figure is drawn against its height.
   FILL: 0.93,
-  // The glass: half size in cover widths, and room kept from the stage edge, the top and the floor, px.
-  HX: 0.98,
-  HY: 0.78,
-  BEZEL: 22,
-  EDGE: 30,
-  TOP_ROOM: 48,
-  FLOOR_ROOM: 72,
+  ASPECT: 2,
+  // The frame round the glass, px: the bezel, the gap to the stage sides, the top strip and the control row above the floor.
+  BEZEL: 14,
+  EDGE: 14,
+  TOP_ROOM: 26,
+  FLOOR_ROOM: 48,
   // Intensity against its 17 s mean, and the song's range held over about 45 s for the density.
   FAST_TAU: 1,
   SLOW_TAU: 17,
@@ -67,15 +73,37 @@ export const SCOPE = {
   MORPH: 2.8,
   MORPH_SECTION: 2.0,
   MORPH_CALM: 3.6,
-  // Motion caps: spin and phase drift in rad/s, beat kick per beat and its ease.
-  SPIN: [0.1, 0.42],
-  DRIFT: [0.1, 0.55],
-  KICK: 0.32,
+  // A surge cuts to a new figure once the current one has held this long, with this morph.
+  SURGE_HOLD: 2,
+  MORPH_SURGE: 1.1,
+  // Motion caps: spin and phase drift in rad/s, the phase kick per unit of beat weight and its ease.
+  SPIN: [0.06, 0.6],
+  DRIFT: [0.06, 0.75],
+  KICK: 0.75,
   KICK_TAU: 0.28,
-  // Harmonograph strike: decay time, resting scale, and the shortest gap between re-strikes.
+  // Figure size against the glass: near silence to loud, the jump a full-weight beat adds, and its fall.
+  // The quiet end keeps the figure round the label on the Player stage.
+  SIZE: [0.66, 0.86],
+  POP: 0.22,
+  POP_TAU: 0.3,
+  // Above this size the figure is eased toward 1, so a kick on a loud figure stays on the glass.
+  KNEE: 0.88,
+  // A surge's lift on the size and its fall; a cut's squash across and up, its rise and fall.
+  SURGE_SIZE: 0.25,
+  SURGE_TAU: 2.5,
+  CUT_X: 0.55,
+  CUT_Y: 0.94,
+  CUT_UP: 0.06,
+  CUT_TAU: 1,
+  // Hit envelopes' fall, and the phosphor bloom's fall after a beat.
+  HIT_TAU: 0.12,
+  BLOOM_TAU: 0.25,
+  // Beam power: at silence and the share loudness adds.
+  POWER: [0.25, 0.95],
+  // Harmonograph strike: decay time, resting scale, and the shortest gap between re-strikes (under the beat gap).
   STRIKE_TAU: 5,
   STRIKE_REST: 0.74,
-  STRIKE_GAP: 1.8,
+  STRIKE_GAP: 0.28,
 } as const;
 
 const RNG_SEED = 1234567;
@@ -117,6 +145,19 @@ export interface Drivers {
   mid: number;
   high: number;
   midSlow: number;
+  // Loudness 0..1, and the hit envelopes 0..1.
+  loud: number;
+  bh: number;
+  mh: number;
+  hh: number;
+  // The figure's size against the glass, the beat's jump on it, a surge's lift and a cut's squash.
+  size: number;
+  pop: number;
+  surge: number;
+  cut: number;
+  cutTo: number;
+  // The phosphor bloom after a beat.
+  bloom: number;
   spin: number;
   phase: number;
   spinV: number;
@@ -171,15 +212,15 @@ function wave(s: number, ch: number, P: Drivers): number {
   const w = P.wph;
   if (ch === 0) {
     return (
-      (0.1 + 0.2 * P.bass) * Math.sin(TAU * 1.5 * s + w[0]) +
-      (0.035 + 0.11 * P.mid) * (Math.sin(TAU * 5 * s + w[1]) + 0.5 * Math.sin(TAU * 7.5 * s - w[1] * 1.3)) +
-      (0.008 + 0.04 * P.high) * Math.sin(TAU * 19 * s + w[2])
+      (0.08 + 0.14 * P.bass + 0.1 * P.loud + 0.2 * P.bh) * Math.sin(TAU * 1.5 * s + w[0]) +
+      (0.03 + 0.08 * P.mid + 0.11 * P.mh) * (Math.sin(TAU * 5 * s + w[1]) + 0.5 * Math.sin(TAU * 7.5 * s - w[1] * 1.3)) +
+      (0.008 + 0.035 * P.high + 0.06 * P.hh) * Math.sin(TAU * 19 * s + w[2])
     );
   }
   return (
-    (0.15 + 0.17 * P.bass) * Math.sin(TAU * s + w[0] * 0.7 + 1.1) +
-    (0.03 + 0.08 * P.mid) * Math.sin(TAU * 3 * s - w[1] * 0.8) +
-    (0.006 + 0.03 * P.high) * Math.sin(TAU * 13 * s - w[2])
+    (0.12 + 0.12 * P.bass + 0.1 * P.loud + 0.2 * P.bh) * Math.sin(TAU * s + w[0] * 0.7 + 1.1) +
+    (0.03 + 0.07 * P.mid + 0.12 * P.mh) * Math.sin(TAU * 3 * s - w[1] * 0.8) +
+    (0.006 + 0.03 * P.high + 0.05 * P.hh) * Math.sin(TAU * 13 * s - w[2])
   );
 }
 
@@ -226,8 +267,9 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
     const a = P.la;
     const b = P.lb;
     const th = TAU * u;
-    o.x = Math.sin(a * th + P.phase) + 0.018 * P.high * Math.sin(31 * th);
-    o.y = Math.sin(b * th) * (1 - 0.1 * P.bass) + 0.1 * P.bass * Math.sin(2 * b * th + 0.6);
+    const lo = 0.1 * P.bass + 0.16 * P.bh;
+    o.x = Math.sin(a * th + P.phase) * (1 - 0.06 * P.mh) + 0.018 * P.high * Math.sin(31 * th) + 0.06 * P.mh * Math.sin(3 * a * th - P.phase);
+    o.y = Math.sin(b * th) * (1 - lo) + lo * Math.sin(2 * b * th + 0.6) + 0.03 * P.hh * Math.sin(23 * th);
     o.b = 1;
   },
   // Nested rings drawn as one stroke, each with its own ripple; they split from one another as the music fills.
@@ -238,12 +280,12 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
     const R = P.ringR;
     const rip = (j: number, th: number) =>
       j === 0
-        ? 0.05 * P.bass * Math.sin(3 * th + P.spin * 2)
+        ? (0.05 * P.bass + 0.12 * P.bh) * Math.sin(3 * th + P.spin * 2)
         : j === 1
-          ? 0.035 * P.mid * Math.sin(6 * th - P.phase)
+          ? (0.035 * P.mid + 0.08 * P.mh) * Math.sin(6 * th - P.phase)
           : j === 2
-            ? 0.02 * P.high * Math.sin(13 * th + P.phase * 1.5)
-            : 0.03 * Math.sin(2 * th + P.spin);
+            ? (0.02 * P.high + 0.05 * P.hh) * Math.sin(13 * th + P.phase * 1.5)
+            : (0.03 + 0.04 * P.loud) * Math.sin(2 * th + P.spin);
     const rot = (k & 1 ? -1 : 1) * P.spin * (0.6 + 0.2 * k);
     if (v < 0.9) {
       const th = (TAU * v) / 0.9 + rot;
@@ -266,23 +308,24 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
       o.b = k === K - 1 ? 0 : 1;
     }
   },
-  // A woven rose: two passes of petals, the second set between the first, the petals' depth from the bass.
+  // A woven rose: two passes of petals, the second set between the first, the petals' depth from the bass,
+  // the loudness and the bass hits.
   rose(u, I, P, o) {
     const pass = u < 0.5 ? 0 : 1;
     const th = TAU * (u * 2 - pass) + P.spin * 0.5;
-    const depth = 0.2 + 0.12 * P.bass;
-    const r = (pass ? 0.8 : 0.74) + depth * Math.cos(I.k * th + pass * Math.PI + P.phase * 0.5);
+    const depth = 0.13 + 0.08 * P.bass + 0.1 * P.loud + 0.16 * P.bh;
+    const r = (pass ? 0.78 : 0.72) + depth * Math.cos(I.k * th + pass * Math.PI + P.phase * 0.5 + 0.4 * P.mh);
     o.x = r * Math.cos(th);
     o.y = r * Math.sin(th);
     o.b = 1;
   },
   // A spirograph (epitrochoid): a wheel rolled round the outside of a ring, its pen past the rim so it loops; the
-  // wheel's ratio picked with the figure, the pen's reach from the bass.
+  // wheel's ratio picked with the figure, the pen's reach from the bass, the loudness and the bass hits.
   spiro(u, I, P, o) {
     const [p, q] = I.pq;
     const r = p / q;
     const R = 1 + r;
-    const d = r * (1.25 + 0.55 * P.bass);
+    const d = r * (1.1 + 0.4 * P.bass + 0.3 * P.loud + 0.6 * P.bh);
     const t = TAU * p * u;
     const n = 1 / (R + d);
     const rot = P.spin * 0.4;
@@ -298,21 +341,23 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
     const C = 8 / Math.max(fa, fb);
     const tau = TAU * C * u;
     const env = Math.exp(-1.0 * u) * P.strike * 1.08;
-    const det = 0.03 + 0.02 * Math.sin(P.slow * 0.05);
-    o.x = env * (0.62 * Math.sin(fa * tau + P.phase) + 0.38 * Math.sin((fb + det) * tau + P.hp));
-    o.y = env * (0.62 * Math.sin(fb * tau) + 0.38 * Math.sin((fa - det) * tau + P.hp * 0.7 + 1.3));
+    const det = 0.03 + 0.02 * Math.sin(P.slow * 0.05) + 0.04 * P.mh;
+    // A bass hit shifts weight onto the second pendulum.
+    const w2 = 0.38 + 0.16 * P.bh;
+    o.x = env * ((1 - w2) * Math.sin(fa * tau + P.phase) + w2 * Math.sin((fb + det) * tau + P.hp));
+    o.y = env * ((1 - w2) * Math.sin(fb * tau) + w2 * Math.sin((fa - det) * tau + P.hp * 0.7 + 1.3));
     o.b = 1;
   },
   // A rotating wireframe torus coil, one continuous stroke round the tube as it goes round the ring.
   coil(u, I, P, o) {
     const phi = TAU * u;
     const psi = TAU * I.w * u + P.phase;
-    const rt = 0.22 + 0.04 * P.high;
+    const rt = 0.18 + 0.04 * P.high + 0.06 * P.loud + 0.1 * P.mh;
     const rm = 0.74;
     const x = (rm + rt * Math.cos(psi)) * Math.cos(phi);
     const y = (rm + rt * Math.cos(psi)) * Math.sin(phi);
     const z = rt * Math.sin(psi);
-    project(x, y, z, P.spin * 0.5, 0.78 + 0.22 * P.bass + 0.15 * Math.sin(P.slow * 0.11), o);
+    project(x, y, z, P.spin * 0.5, 0.78 + 0.22 * P.bass + 0.3 * P.bh + 0.15 * Math.sin(P.slow * 0.11), o);
     o.b = 1;
   },
   // A rotating octahedron drawn edge after edge on its Euler circuit; the beam slows into each corner.
@@ -322,13 +367,13 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
     const s = s0 + 0.7 * (s0 * s0 * (3 - 2 * s0) - s0);
     const a = OCTA_V[OCTA[e]];
     const b = OCTA_V[OCTA[e + 1]];
-    const k = 0.98 + 0.08 * P.bass;
+    const k = 0.9 + 0.06 * P.bass + 0.18 * P.bh;
     project(
       (a[0] + (b[0] - a[0]) * s) * k,
       (a[1] + (b[1] - a[1]) * s) * k,
       (a[2] + (b[2] - a[2]) * s) * k,
       P.spin * 0.7,
-      0.55 + 0.25 * Math.sin(P.slow * 0.09),
+      0.55 + 0.25 * Math.sin(P.slow * 0.09) + 0.25 * P.mh,
       o,
     );
     o.b = 1;
@@ -336,7 +381,7 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
   // A stereo vectorscope: mid up, side across. Five partials at odd ratios wind a ball of wool; highs widen the stereo.
   wool(u, _I, P, o) {
     const tau = TAU * 5 * u;
-    const w = 1.3 + 1.1 * P.high;
+    const w = 1.3 + 1.1 * P.high + 0.8 * P.hh;
     let L = 0;
     let R = 0;
     for (let k = 0; k < 5; k++) {
@@ -347,7 +392,7 @@ const FIG: { [K in Instance["fig"]]: FigureFn<Extract<Instance, { fig: K }>> } =
       R += a * Math.sin(om * tau + ph + w * (0.5 + 0.35 * k));
     }
     // The strands are drawn out toward a sphere's rim, so the ball shows round the label.
-    const m = (L + R) * 0.5 * (0.85 + 0.25 * P.bass);
+    const m = (L + R) * 0.5 * (0.85 + 0.25 * P.bass + 0.35 * P.bh);
     const sd = (L - R) * 0.5;
     const rr = Math.sqrt(m * m + sd * sd) + 1e-6;
     const k = Math.tanh(1.0 * rr) / rr;
@@ -373,31 +418,37 @@ uniform vec4 uP[${SCOPE.NSEG + 1}];  // beam path, css px from the glass centre:
 uniform vec4 uD[${SCOPE.NSEG / 2}];  // each segment's share of the beam's time: now, then; two segments per entry
 uniform vec4 uBox[${SCOPE.NSEG / SCOPE.CHUNK}];  // culling box of each chunk of segments, padded by the reach
 uniform vec4 uGlowP[${SCOPE.GLOW_N / 2}];  // coarse beam samples for the wide glow, two per entry
-uniform float uPower;         // beam power: the eased level, the only brightness input
+uniform float uPower;         // beam power: the eased loudness
+uniform float uBloom;         // phosphor bloom: the beat envelope and a surge's lift, eased
 uniform float uMode;          // 0 Y-T, 1 X-Y: the mode switch
 uniform vec4 uKnobA;          // knob angles: X, Y, phase, time base
 uniform vec2 uKnobB;          // intensity, programme
 uniform float uSlow;          // seconds, for the lamps
 // -- Tunables --
-const float BEZEL = 22.0;     // bezel width, px
-const float SIG = 0.8;        // beam core sigma at the centre of the glass, px
-const float FOCUS = 0.9;      // core sigma growth toward the glass edge
-const float HALO = 5.5;       // halo half width, px
-const float HCUT = 0.08;      // halo floor removed so it ends at the reach (19 px)
-const float GHO = 6.5;        // afterglow half width, px
-const float GCUT = 0.10;      // (20 px)
-const float GLOW_R = 70.0;    // reach of the wide glow that lights the glass and the graticule, px
-const float K_CORE = 9.0;     // light of the core per unit of beam time per px
-const float K_HALO = 1.2;
-const float K_GHOST = 0.55;
-const float K_GLOW = 0.05;
+const float BEZEL = ${SCOPE.BEZEL.toFixed(1)};     // bezel width, px
+const float TOP_ROOM = ${SCOPE.TOP_ROOM.toFixed(1)};  // the nameplate strip above the bezel, px
+const float FLOOR_ROOM = ${SCOPE.FLOOR_ROOM.toFixed(1)};  // the control row below the bezel, px
+const float BEAM_REF = ${SCOPE.BEAM_REF.toFixed(1)};  // glass half height at which the widths below hold
+const vec2 BEAM_SCALE = vec2(${SCOPE.BEAM_SCALE[0].toFixed(2)}, ${SCOPE.BEAM_SCALE[1].toFixed(2)});
+const float SIG = 1.3;        // beam core sigma at the centre of the glass, px
+const float FOCUS = 0.6;      // core sigma growth toward the glass edge
+const float HALO = 9.0;       // halo half width, px
+const float HCUT = 0.08;      // halo floor removed so it ends at the reach (30 px)
+const float GHO = 10.0;       // afterglow half width, px
+const float GCUT = 0.10;      // (30 px)
+const float GLOW_R = 120.0;   // reach of the wide glow that lights the glass and the graticule, px
+const float K_CORE = 16.0;    // light of the core per unit of beam time per px
+const float K_HALO = 2.6;
+const float K_GHOST = 1.1;
+const float K_GLOW = 0.075;
 float edge(float x) { return x * inversesqrt(1.0 + x * x); }
 // A cheaper end for the wide terms: linear over a width either side.
 float ramp(float x) { return clamp(x, -1.0, 1.0); }
 // The beam's light at q: the core, the halo and the afterglow, each spread along its segments as 1/speed.
-vec3 beam(vec2 q, float sc) {
+vec3 beam(vec2 q, float sc, float bs) {
   float core = 0.0, halo = 0.0, ghost = 0.0;
-  float kc = 0.5 / (sc * sc), ic = 0.9 / sc, kh = 1.0 / (HALO * HALO), ih = 0.6 / HALO, kg = 1.0 / (GHO * GHO), ig = 0.6 / GHO;
+  float hw = HALO * bs, gw = GHO * bs;
+  float kc = 0.5 / (sc * sc), ic = 0.9 / sc, kh = 1.0 / (hw * hw), ih = 0.6 / hw, kg = 1.0 / (gw * gw), ig = 0.6 / gw;
   for (int c = 0; c < NC; c++) {
     vec4 bb = uBox[c];
     if (q.x < bb.x || q.y < bb.y || q.x > bb.z || q.y > bb.w) continue;
@@ -499,25 +550,31 @@ void main() {
     vec3 bm = vec3(0.0);
     float wide = 0.0;
     if (lsd > -2.0) {
-      float sig = SIG * (1.0 + FOCUS * rr);
-      bm = beam(lp, sig);
-      bm.x *= SIG / sig;
+      float bs = clamp(hs.y / BEAM_REF, BEAM_SCALE.x, BEAM_SCALE.y);
+      float sig0 = SIG * bs;
+      float sig = sig0 * (1.0 + FOCUS * rr);
+      bm = beam(lp, sig, bs);
+      bm.x *= sig0 / sig;
+      float gr = GLOW_R * bs;
       for (int k = 0; k < NG; k++) {
         vec4 gp = uGlowP[k];
-        vec2 d1 = (lp - gp.xy) / GLOW_R, d2 = (lp - gp.zw) / GLOW_R;
+        vec2 d1 = (lp - gp.xy) / gr, d2 = (lp - gp.zw) / gr;
         wide += 1.0 / (1.0 + dot(d1, d1) * 4.0) + 1.0 / (1.0 + dot(d2, d2) * 4.0);
       }
     }
+    // The bloom swells the halo and the wide glow, the phosphor's large-area light.
     float pw = uPower * det;
-    float eCore = bm.x * K_CORE * pw, eHalo = bm.y * K_HALO * pw, eGhost = bm.z * K_GHOST * pw, eWide = wide * K_GLOW * pw;
+    float eCore = bm.x * K_CORE * pw, eHalo = bm.y * K_HALO * pw * (1.0 + 0.7 * uBloom), eGhost = bm.z * K_GHOST * pw, eWide = wide * K_GLOW * pw * (1.0 + 1.4 * uBloom);
     vec3 glass = dk ? vec3(0.007, 0.013, 0.010) : vec3(0.90, 0.94, 0.91);
     // Under the middle of the label only the paper shows, so the glass is not shaded there.
     if (lsd > -7.0) {
     glass += (dk ? vec3(0.006, 0.034, 0.018) : vec3(-0.02, 0.0, -0.02)) * (1.0 - 0.7 * rr) * (0.6 + 0.8 * uPower);
     glass *= 1.0 - 0.35 * smoothstep(0.55, 1.1, rr * 0.8 + 0.1 * abs(u.x));
-    // Graticule: ten by eight divisions, brighter centre axes with fine ticks, lit a little by the trace nearby.
-    vec2 pdv = hs * 2.0 / vec2(10.0, 8.0);
-    vec2 gp = (g * 0.5 + 0.5) * vec2(10.0, 8.0);
+    // Graticule: eight divisions high and an even count across that keeps them near square, brighter centre
+    // axes with fine ticks, lit a little by the trace nearby.
+    vec2 ndv = vec2(2.0 * floor(4.0 * hs.x / hs.y + 0.5), 8.0);
+    vec2 pdv = hs * 2.0 / ndv;
+    vec2 gp = (g * 0.5 + 0.5) * ndv;
     float vline = 1.0 - smoothstep(0.35, 1.0, abs(fract(gp.x + 0.5) - 0.5) * pdv.x);
     float hline = 1.0 - smoothstep(0.35, 1.0, abs(fract(gp.y + 0.5) - 0.5) * pdv.y);
     float dotsV = step(0.5, fract(gp.y * 5.0));
@@ -557,7 +614,7 @@ void main() {
     col = mix(col, glass, soft(gd + 2.0, 0.8));
   }
   // -- Top strip: nameplate and three lamps --
-  float topY = sc.y + hs.y + BEZEL + 15.0;
+  float topY = sc.y + hs.y + BEZEL + TOP_ROOM * 0.5;
   if (p.y > topY - 20.0) {
     vec2 np = vec2(sc.x - hs.x + 12.0, topY);
     float plate = soft(sdBox(p - (np + vec2(74.0, 0.0)), vec2(78.0, 10.0)) - 2.0, 0.7);
@@ -574,7 +631,7 @@ void main() {
     }
   }
   // -- Bottom strip: two BNC sockets (X and Y), six knobs, the Y-T / X-Y switch --
-  float rowY = sc.y - hs.y - BEZEL - 24.0;
+  float rowY = sc.y - hs.y - BEZEL - FLOOR_ROOM * 0.5;
   if (p.y < rowY + 26.0 && p.y > rowY - 26.0) {
     float x0 = sc.x - hs.x;
     for (int k = 0; k < 2; k++) {
@@ -657,6 +714,9 @@ export interface OscilloscopeState {
   knobTo: Float32Array;
   mode: number;
   power: number;
+  bloom: number;
+  // The current beat's weight so far, 0 between beats; its rises are what a beat adds to the figure.
+  bw: number;
 }
 
 export function createOscilloscopeState(): OscilloscopeState {
@@ -670,7 +730,8 @@ export function createOscilloscopeState(): OscilloscopeState {
     rel: 0,
     density: 0,
     densNow: 0,
-    recent: [],
+    // The opening figure counts as shown, so the first pick moves off it.
+    recent: ["trace"],
     sinceStrike: 9,
     ratioIdx: 1,
     ratioAge: 9,
@@ -679,6 +740,16 @@ export function createOscilloscopeState(): OscilloscopeState {
       mid: 0,
       high: 0,
       midSlow: 0,
+      loud: 0.3,
+      bh: 0,
+      mh: 0,
+      hh: 0,
+      size: SCOPE.SIZE[0],
+      pop: 0,
+      surge: 0,
+      cut: 0,
+      cutTo: 0,
+      bloom: 0,
       spin: 0,
       phase: 0,
       spinV: 0.15,
@@ -724,27 +795,26 @@ export function createOscilloscopeState(): OscilloscopeState {
     knobTo: new Float32Array(6),
     mode: 0,
     power: 0.6,
+    bloom: 0,
+    bw: 0,
   };
 }
 
 /**
- * Fits the glass to the stage into `out` (centre x and y, half width and half height, css px): centred on the
- * cover so the label sits in its middle, as wide as the stage edges allow, above the floor.
+ * Fits the glass to the stage into `out` (centre x and y, half width and half height, css px): the whole stage
+ * less a frame of bezel, the nameplate strip on top and the control row above the floor. The cover stays where
+ * the stage puts it and sits on the glass as a label, wherever that falls.
  */
 export function fitGlass(geo: Geometry, size: { w: number; h: number; dpr: number }, out: Float32Array): void {
   const S = SCOPE;
   const d = size.dpr;
   const W = size.w / d;
   const H = size.h / d;
-  const cw = geo.cover[2] / d;
-  const cx = (geo.cover[0] + geo.cover[2] / 2) / d;
-  const cy = (geo.cover[1] + geo.cover[3] / 2) / d;
-  const half = Math.min(S.HX * cw, cx - S.EDGE - S.BEZEL, W - S.EDGE - S.BEZEL - cx);
-  const top = Math.min(cy + S.HY * cw, H - S.TOP_ROOM - S.BEZEL);
-  const bottom = Math.max(cy - S.HY * cw, (geo.floor ?? 0) / d + S.FLOOR_ROOM + S.BEZEL);
-  out[0] = cx;
+  const top = H - S.TOP_ROOM - S.BEZEL;
+  const bottom = (geo.floor ?? 0) / d + S.FLOOR_ROOM + S.BEZEL;
+  out[0] = W / 2;
   out[1] = (top + bottom) / 2;
-  out[2] = half;
+  out[2] = W / 2 - S.EDGE - S.BEZEL;
   out[3] = (top - bottom) / 2;
 }
 
@@ -796,11 +866,19 @@ function holdFor(st: OscilloscopeState, rng: () => number, calm: boolean): numbe
 }
 
 // The programme: a figure holds on a long timer or until the song changes section, then morphs into the next.
-function stepProgramme(st: OscilloscopeState, dt: number, drive: number, rng: () => number): void {
+// A surge cuts straight to a new figure with a short bloom.
+function stepProgramme(st: OscilloscopeState, dt: number, drive: number, rng: () => number, surge: number): void {
   const S = SCOPE;
   const calm = drive === 0;
   const pr = st.prog;
   pr.held += dt;
+  if (!calm && surge > 0 && !pr.next && pr.held > S.SURGE_HOLD) {
+    pr.next = pick(st, rng);
+    pr.kind = "bloom";
+    pr.dur = S.MORPH_SURGE;
+    pr.s = 0;
+    return;
+  }
   if (pr.next) {
     pr.s += dt / pr.dur;
     if (pr.s >= 1) {
@@ -825,7 +903,7 @@ function stepProgramme(st: OscilloscopeState, dt: number, drive: number, rng: ()
   }
 }
 
-// Eased drivers: each band has one job; the spin and phase drift follow the intensity against its mean.
+// Eased drivers: each band has one job; loudness sets the size and the pace; beats, hits and shifts act on top.
 function stepDrivers(st: OscilloscopeState, s: VisualSignal, dt: number, drive: number): void {
   const S = SCOPE;
   const P = st.P;
@@ -835,13 +913,34 @@ function stepDrivers(st: OscilloscopeState, s: VisualSignal, dt: number, drive: 
   P.mid = ease2(P.mid, on ? clamp01(s.midMotion) : 0, 0.25, 0.8);
   P.high = ease2(P.high, on ? clamp01(s.highMotion) : 0, 0.2, 0.7);
   P.midSlow = easeEnvelope(P.midSlow, P.mid, dt, 1.5);
-  const rel = on ? (st.rel + 1) / 2 : 0.3;
+  P.loud = clamp01(s.loudness);
+  // Hits push the figure's shape at once and fall on their own decay.
+  const fall = Math.exp(-dt / S.HIT_TAU);
+  P.bh = Math.max(on ? Math.min(1, s.bassHit) : 0, P.bh * fall);
+  P.mh = Math.max(on ? Math.min(1, s.midHit) : 0, P.mh * fall);
+  P.hh = Math.max(on ? Math.min(1, s.highHit) : 0, P.hh * fall);
+  // Spin and drift: mostly the loudness, partly the intensity against its mean; a fixed idle under Calm.
+  const rel = on ? 0.7 * P.loud + 0.15 * (st.rel + 1) : 0.3;
   const spinRate = S.SPIN[0] + (S.SPIN[1] - S.SPIN[0]) * rel;
   const driftRate = S.DRIFT[0] + (S.DRIFT[1] - S.DRIFT[0]) * rel;
   P.spinV = easeEnvelope(P.spinV, spinRate, dt, 1.2);
   P.driftV = easeEnvelope(P.driftV, driftRate, dt, 1.2);
-  // A beat kicks the phase forward, eased so the figure turns over and never jumps.
-  if (on && s.beat > 0) P.kickTo += S.KICK * Math.min(1, 0.5 + s.beat * 0.5);
+  // A beat's weight rises over its first frames; each rise kicks the phase, jumps the size and strikes the
+  // harmonograph by that much, so a loud kick turns the figure over and a soft onset barely moves it.
+  const w = on ? s.beatWeight : 0;
+  const first = w > 0 && st.bw === 0;
+  const rise = Math.max(0, w - st.bw);
+  st.bw = w > 0 ? Math.max(st.bw, w) : 0;
+  P.kickTo += S.KICK * rise;
+  P.pop = Math.max(S.POP * Math.min(1.2, st.bw), P.pop * Math.exp(-dt / S.POP_TAU));
+  P.bloom = Math.max(Math.min(1, st.bw), P.bloom * Math.exp(-dt / S.BLOOM_TAU));
+  // A surge lifts the figure and the bloom for a few seconds; a cut squashes it toward a flat line for a moment.
+  if (on && s.surge > 0) P.surge = Math.max(P.surge, Math.min(1, s.surge));
+  P.surge *= Math.exp(-dt / S.SURGE_TAU);
+  P.cutTo = Math.max(on ? Math.min(1, s.cut) : 0, P.cutTo * Math.exp(-dt / S.CUT_TAU));
+  P.cut = ease2(P.cut, P.cutTo, S.CUT_UP, S.CUT_TAU);
+  const grow = (S.SIZE[0] + (S.SIZE[1] - S.SIZE[0]) * P.loud) * (1 + P.pop + S.SURGE_SIZE * P.surge);
+  P.size = grow <= S.KNEE ? grow : S.KNEE + (1 - S.KNEE) * Math.tanh((grow - S.KNEE) / (1 - S.KNEE));
   const k0 = P.kick;
   P.kick = easeEnvelope(P.kick, P.kickTo, dt, S.KICK_TAU);
   P.spin += dt * P.spinV;
@@ -850,11 +949,13 @@ function stepDrivers(st: OscilloscopeState, s: VisualSignal, dt: number, drive: 
   P.slow += dt;
   P.cs3 = Math.cos(P.spin * 0.3);
   P.sn3 = Math.sin(P.spin * 0.3);
-  // The harmonograph's strike: it decays toward rest and a beat strikes it again, then its second pendulum moves on.
+  // The harmonograph's strike: it decays toward rest and a beat strikes it again by its weight, then its second
+  // pendulum moves on. A surge strikes it in full.
   st.sinceStrike += dt;
   P.strikeTo = easeEnvelope(P.strikeTo, S.STRIKE_REST, dt, S.STRIKE_TAU);
-  if (on && s.beat > 0 && st.sinceStrike > S.STRIKE_GAP) {
-    P.strikeTo = 1;
+  if (rise > 0) P.strikeTo = Math.max(P.strikeTo, Math.min(1, S.STRIKE_REST + 0.3 * st.bw));
+  if (on && s.surge > 0) P.strikeTo = 1;
+  if (first && st.sinceStrike > S.STRIKE_GAP) {
     st.sinceStrike = 0;
     P.hpTo += 0.6;
   }
@@ -937,7 +1038,7 @@ function beamAt(st: OscilloscopeState, u: number, o: BeamPoint): void {
 
 // Samples the beam's path finely, then resamples it to NSEG segments spaced by length plus turning, each carrying
 // its share of the beam's time (blanked spans carry none).
-function traceBeam(st: OscilloscopeState, sx: number, sy: number): void {
+function traceBeam(st: OscilloscopeState, sx: number, sy: number, dt: number): void {
   const S = SCOPE;
   const M = S.FINE;
   const N = S.NSEG;
@@ -983,17 +1084,29 @@ function traceBeam(st: OscilloscopeState, sx: number, sy: number): void {
     const jm = Math.min(M, Math.round(um * M));
     out.w[k] = (out.u[k + 1] - out.u[k]) * N * f.b[jm];
   }
-  // The wide glow: coarse samples at equal beam time; blanked ones are moved off the glass.
+  // The wide glow: coarse samples at equal beam time; blanked ones are moved off the glass. It is large-area
+  // light, so its samples trail the beam by GLOW_TAU and a hit's jump in the trace never moves it at once.
+  const g = st.glow;
+  const k1 = st.ready ? 1 - Math.exp(-dt / S.GLOW_TAU) : 1;
   for (let k = 0; k < S.GLOW_N; k++) {
     const jj = Math.round((k * M) / S.GLOW_N);
     const on = f.b[jj] > 0.5;
-    st.glow[k * 2] = on ? f.x[jj] : 1e5;
-    st.glow[k * 2 + 1] = on ? f.y[jj] : 1e5;
+    const i = k * 2;
+    if (!on) {
+      g[i] = 1e5;
+      g[i + 1] = 1e5;
+    } else if (g[i] > 1e4) {
+      g[i] = f.x[jj];
+      g[i + 1] = f.y[jj];
+    } else {
+      g[i] += (f.x[jj] - g[i]) * k1;
+      g[i + 1] += (f.y[jj] - g[i + 1]) * k1;
+    }
   }
 }
 
 // Packs the path now and a moment ago, each segment's beam time, and the culling box of each chunk of segments.
-function packBeam(st: OscilloscopeState): void {
+function packBeam(st: OscilloscopeState, reach: number): void {
   const S = SCOPE;
   const N = S.NSEG;
   const now = st.now;
@@ -1054,17 +1167,17 @@ function packBeam(st: OscilloscopeState): void {
       if (by > y1) y1 = by;
     }
     const i = c * 4;
-    uBox[i] = x0 - S.REACH;
-    uBox[i + 1] = y0 - S.REACH;
-    uBox[i + 2] = x1 + S.REACH;
-    uBox[i + 3] = y1 + S.REACH;
+    uBox[i] = x0 - reach;
+    uBox[i + 1] = y0 - reach;
+    uBox[i + 2] = x1 + reach;
+    uBox[i + 3] = y1 + reach;
   }
 }
 
 const isXY = (fig: Figure) => (fig === "trace" ? 0 : 1);
 
 // The panel follows the beam: the mode switch, and knobs for X, Y, phase, time base, intensity and programme.
-function stepPanel(st: OscilloscopeState, s: VisualSignal, dt: number): void {
+function stepPanel(st: OscilloscopeState, dt: number): void {
   const pr = st.prog;
   const P = st.P;
   const cur = pr.next && pr.s > 0.5 ? pr.next : pr.cur;
@@ -1075,7 +1188,7 @@ function stepPanel(st: OscilloscopeState, s: VisualSignal, dt: number): void {
   kt[1] = (P.lb - 3.5) * 0.4 + P.mid * 0.4;
   kt[2] = Math.sin(P.phase * 0.25) * 2.0;
   kt[3] = cur.fig === "trace" ? -1.4 : 0.9 + 0.3 * P.high;
-  kt[4] = -2.0 + 3.2 * clamp01(s.level * 1.4);
+  kt[4] = -2.0 + 3.2 * P.loud;
   kt[5] = -2.1 + (4.2 * FIGURES.indexOf(cur.fig)) / (FIGURES.length - 1);
   for (let i = 0; i < 6; i++) st.knob[i] = easeEnvelope(st.knob[i], kt[i] - Math.PI / 2 + Math.PI, dt, 0.35);
 }
@@ -1097,12 +1210,21 @@ export function stepOscilloscope(
   st.glass.set(glass);
   st.clock += dt;
   stepEnergy(st, s, dt, drive);
-  stepProgramme(st, dt, drive, rng);
+  stepProgramme(st, dt, drive, rng, drive > 0 ? s.surge : 0);
   stepDrivers(st, s, dt, drive);
-  traceBeam(st, st.glass[2] * SCOPE.FILL, st.glass[3] * SCOPE.FILL);
-  packBeam(st);
-  stepPanel(st, s, dt);
-  st.power = 0.6 + 0.55 * clamp01(s.level * 1.5);
+  const S = SCOPE;
+  const P = st.P;
+  const [, , hx, hy] = st.glass;
+  // Y-T sweeps the full width at any size; an X-Y figure is held to ASPECT and scales with the size both ways.
+  const m = st.mode;
+  const fx = (1 - m + m * P.size) * (1 - S.CUT_X * P.cut);
+  const fy = P.size * (1 - S.CUT_Y * P.cut);
+  const ax = hx * (1 - m) + Math.min(hx, hy * S.ASPECT) * m;
+  traceBeam(st, ax * S.FILL * fx, hy * S.FILL * fy, dt);
+  packBeam(st, S.REACH * Math.min(S.BEAM_SCALE[1], Math.max(S.BEAM_SCALE[0], hy / S.BEAM_REF)));
+  stepPanel(st, dt);
+  st.power = S.POWER[0] + S.POWER[1] * P.loud;
+  st.bloom = Math.max(P.bloom, 0.8 * P.surge);
   st.ready = true;
 }
 
@@ -1137,6 +1259,7 @@ export function createOscilloscope(kit: Kit): Candidate {
       gl.uniform4fv(kit.uniform(p, "uBox"), st.uBox);
       gl.uniform4fv(kit.uniform(p, "uGlowP"), st.glow);
       kit.set1(p, "uPower", st.power);
+      kit.set1(p, "uBloom", st.bloom);
       kit.set1(p, "uMode", st.mode);
       gl.uniform4f(kit.uniform(p, "uKnobA"), st.knob[0], st.knob[1], st.knob[2], st.knob[3]);
       kit.set2(p, "uKnobB", st.knob[4], st.knob[5]);

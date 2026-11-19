@@ -17,7 +17,7 @@ const SLOTS = SERVER_COLS.SLOTS;
 function capped(i: number, level = 0.6): VisualSignal {
   const on = i % 20 === 0;
   const bands = new Float32Array(24).fill(i % 40 < 20 ? 1 : 0.2);
-  return { ...restSignal(), bands, level, bassMotion: on ? 1.6 : 0, midMotion: 1.6, highMotion: i % 30 < 15 ? 1.6 : 0, beat: on ? 1.5 : 0, drive: LIVELY };
+  return { ...restSignal(), bands, level, bassMotion: on ? 1.6 : 0, midMotion: 1.6, highMotion: i % 30 < 15 ? 1.6 : 0, beat: on ? 1.5 : 0, beatWeight: on ? 1.2 : 0, drive: LIVELY };
 }
 
 /** The largest level (even slots of the packed pairs) and peak (odd) across every rack column. */
@@ -180,7 +180,7 @@ describe("stepServerRoom", () => {
       const slot = st.rr % 3;
       const was = st.fronts[slot].a;
       const before = st.rr;
-      stepServerRoom(st, { ...restSignal(), level: 0.5, beat: i % period === 0 ? 1.5 : 0, drive: LIVELY }, DT, LIVELY, rng);
+      stepServerRoom(st, { ...restSignal(), level: 0.5, beat: i % period === 0 ? 1.5 : 0, beatWeight: i % period === 0 ? 1.2 : 0, drive: LIVELY }, DT, LIVELY, rng);
       if (st.rr !== before) out.push({ slot, was });
     }
     return out;
@@ -279,6 +279,185 @@ describe("stepServerRoom", () => {
     expect(columnMax(st).peak).toBeLessThan(1e-3);
     expect(st.beatEnv).toBeLessThan(1e-3);
     expect(waveMax(st)).toBeLessThan(1e-3);
+  });
+
+  /** The strongest wave a single beat with this weight sends (nothing else in the signal). */
+  function beatWaveFor(weight: number, drive = LIVELY): number {
+    const st = createServerRoomState();
+    const rng = createRng(11);
+    let top = 0;
+    for (let i = 0; i < 30; i++) {
+      const sig = { ...restSignal(), beat: i === 0 ? 1.5 : 0, beatWeight: i < 6 ? weight : 0, drive };
+      stepServerRoom(st, sig, DT, drive, rng);
+      top = Math.max(top, waveMax(st));
+    }
+    return top;
+  }
+
+  it("sizes a beat's wave by its weight, and sends none at Calm", () => {
+    const kick = beatWaveFor(1);
+    const kickless = beatWaveFor(0.25);
+    const quiet = beatWaveFor(0);
+    expect(kick).toBeGreaterThan(0.95);
+    expect(kickless).toBeLessThan(kick - 0.4);
+    expect(quiet).toBeLessThan(kickless);
+    expect(quiet).toBeGreaterThan(0);
+    expect(beatWaveFor(1, 0)).toBe(0);
+  });
+
+  it("takes the weight as it rises after the beat, not the provisional value", () => {
+    const st = createServerRoomState();
+    const rng = createRng(12);
+    stepServerRoom(st, { ...restSignal(), beat: 1, beatWeight: 0.1, drive: LIVELY }, DT, LIVELY, rng);
+    const first = waveMax(st);
+    for (let i = 0; i < 4; i++) stepServerRoom(st, { ...restSignal(), beatWeight: 0.9, drive: LIVELY }, DT, LIVELY, rng);
+    expect(waveMax(st)).toBeGreaterThan(first + 0.4);
+  });
+
+  /** The lamp and ambient levels over a run: `at` frames mapped to an overriding signal. */
+  function lightRun(frames: number, events: Record<number, Partial<VisualSignal>>, base: Partial<VisualSignal> = {}, drive = LIVELY) {
+    const st = createServerRoomState();
+    const rng = createRng(13);
+    const lamp: number[] = [];
+    const amb: number[] = [];
+    for (let i = 0; i < frames; i++) {
+      stepServerRoom(st, { ...restSignal(), drive, ...base, ...events[i] }, DT, drive, rng);
+      lamp.push(st.lamp);
+      amb.push(st.amb);
+    }
+    return { st, lamp, amb };
+  }
+
+  it("reads 1 for the tubes and the room at the rest loudness", () => {
+    const { st } = lightRun(60 * 5, {});
+    expect(st.lamp).toBeCloseTo(1, 6);
+    expect(st.amb).toBeCloseTo(1, 6);
+  });
+
+  it("lights the room by loudness: dim when near silent, fully lit when loud", () => {
+    const quiet = lightRun(60 * 6, {}, { loudness: 0.02 }).st;
+    const loud = lightRun(60 * 6, {}, { loudness: 0.9 }).st;
+    expect(quiet.lamp).toBeLessThan(0.6);
+    expect(quiet.amb).toBeLessThan(0.8);
+    expect(loud.lamp).toBeGreaterThan(1.1);
+    expect(loud.amb).toBeGreaterThan(1.0);
+    // Loudness is live at Calm.
+    const calm = lightRun(60 * 6, {}, { loudness: 0.02 }, 0).st;
+    expect(calm.lamp).toBeCloseTo(quiet.lamp, 6);
+  });
+
+  it("makes the tubes stutter in at most three dips a second and sink toward dark after a cut", () => {
+    const { lamp, st } = lightRun(60 * 4, { 30: { cut: 1 } });
+    const from = 30;
+    // Dips: local minima that are deeper than 25% under the lamp's recent level, counted per second window.
+    const dips: number[] = [];
+    for (let i = from + 1; i < lamp.length - 1; i++) {
+      if (lamp[i] < lamp[i - 1] && lamp[i] <= lamp[i + 1] && i > from + 2) {
+        const around = Math.max(lamp[i - 6] ?? 1, lamp[i + 6] ?? 1);
+        if (lamp[i] < around * 0.75) dips.push(i);
+      }
+    }
+    expect(dips.length).toBeGreaterThanOrEqual(2);
+    for (const d of dips) expect(dips.filter((e) => e >= d && e < d + 60).length).toBeLessThanOrEqual(3);
+    // About a second after the cut the tubes are nearly dark, and the room has dimmed with them.
+    expect(lamp[from + 75]).toBeLessThan(0.2);
+    expect(st.amb).toBeLessThan(1);
+    // Recovery is slow: 2.5 s after the sink it is not back yet, and it climbs on.
+    const run = lightRun(60 * 14, { 30: { cut: 1 } });
+    expect(run.lamp[30 + 60 * 3]).toBeLessThan(0.5);
+    expect(run.lamp[run.lamp.length - 1]).toBeGreaterThan(0.9);
+    expect(Math.min(...run.amb)).toBeLessThan(0.65);
+  });
+
+  /**
+   * Times of the lamp's up-swings: a rise of at least 10% of the larger value (the value it rose to) from the lowest point
+   * since the last fall of at least 10%. A flash is one fall and one rise, so counting rises counts flashes.
+   */
+  function upSwings(lamp: number[]): number[] {
+    const out: number[] = [];
+    let trough = lamp[0];
+    let peak = lamp[0];
+    let rising = false;
+    lamp.forEach((v, i) => {
+      if (!rising) {
+        trough = Math.min(trough, v);
+        if (v - trough >= 0.1 * v) {
+          out.push(i);
+          rising = true;
+          peak = v;
+        }
+      } else {
+        peak = Math.max(peak, v);
+        if (peak - v >= 0.1 * peak) {
+          rising = false;
+          trough = v;
+        }
+      }
+    });
+    return out;
+  }
+
+  it("never changes the tubes more than three times in one second across cut then surge gaps, beats at three a second", () => {
+    let worst = 0;
+    for (const loudness of [0.05, 0.9]) {
+      for (let gap = 0.3; gap <= 1.5001; gap += 0.05) {
+        const cutAt = 60;
+        const surgeAt = cutAt + Math.round(gap * 60);
+        const frames = surgeAt + 60 * 4;
+        const events: Record<number, Partial<VisualSignal>> = { [cutAt]: { cut: 0.7 }, [surgeAt]: { surge: 1 } };
+        for (let i = 0; i < frames; i += 20) events[i] = { ...events[i], beat: 1.5, beatWeight: 1 };
+        for (let i = 0; i < frames; i++) if (i % 20 < 6) events[i] = { ...events[i], beatWeight: 1 };
+        const swings = upSwings(lightRun(frames, events, { loudness }).lamp);
+        for (const t of swings) worst = Math.max(worst, swings.filter((u) => u >= t && u < t + 60).length);
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(3);
+    expect(worst).toBeGreaterThanOrEqual(2);
+  });
+
+  it("slams the lights above rest on a surge, also right after a cut", () => {
+    const solo = lightRun(60 * 3, { 30: { surge: 1 } });
+    expect(Math.max(...solo.lamp)).toBeGreaterThan(1.3);
+    expect(Math.max(...solo.amb)).toBeGreaterThan(1.05);
+    expect(solo.lamp[solo.lamp.length - 1]).toBeCloseTo(1, 1);
+    // The silence before a drop: a cut, then a surge half a second later.
+    const drop = lightRun(60 * 3, { 30: { cut: 1 }, 60: { surge: 1 } });
+    expect(drop.lamp[59]).toBeLessThan(0.7);
+    expect(Math.max(...drop.lamp.slice(60))).toBeGreaterThan(1.3);
+  });
+
+  it("sends one full wave down the aisle on a surge", () => {
+    const { st } = lightRun(1, { 0: { surge: 1 } });
+    expect(waveMax(st)).toBeGreaterThan(0.99);
+    expect(st.rr).toBe(1);
+  });
+
+  it("pulses the tubes faintly with the beat weight", () => {
+    const base = lightRun(60, {}).st.lamp;
+    const hit = lightRun(8, { 0: { beat: 1, beatWeight: 1 }, 1: { beatWeight: 1 }, 2: { beatWeight: 1 } }).lamp;
+    const peak = Math.max(...hit);
+    expect(peak).toBeGreaterThan(base * 1.02);
+    expect(peak).toBeLessThan(base * 1.2);
+  });
+
+  it("leaves the tubes and the room at rest for cuts, surges and beats at Calm and while paused", () => {
+    const events = { 30: { cut: 1, beat: 1, beatWeight: 1 }, 90: { surge: 1 } };
+    const calm = lightRun(60 * 4, events, {}, 0);
+    expect(Math.max(...calm.lamp)).toBeCloseTo(1, 6);
+    expect(Math.min(...calm.lamp)).toBeCloseTo(1, 6);
+    expect(Math.min(...calm.amb)).toBeCloseTo(1, 6);
+    expect(Math.max(...calm.amb)).toBeCloseTo(1, 6);
+  });
+
+  it("restores the lights when the drive stops during a cut", () => {
+    const st = createServerRoomState();
+    const rng = createRng(14);
+    stepServerRoom(st, { ...restSignal(), cut: 1, drive: LIVELY }, DT, LIVELY, rng);
+    for (let i = 0; i < 60; i++) stepServerRoom(st, { ...restSignal(), drive: LIVELY }, DT, LIVELY, rng);
+    expect(st.lamp).toBeLessThan(0.5);
+    for (let i = 0; i < 60 * 4; i++) stepServerRoom(st, { ...restSignal(), drive: LIVELY }, DT, 0, rng);
+    expect(st.lamp).toBeGreaterThan(0.97);
+    expect(st.amb).toBeGreaterThan(0.97);
   });
 
   it("replays the same slice seeds from the same rng seed", () => {

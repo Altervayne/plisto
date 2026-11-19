@@ -1,20 +1,25 @@
 /*
  * Hologram: a projector table throwing a holographic solid of the cover into a dark room. The solid is a cube
- * stood on a corner. Its rotation, faces (corners, edges, view depth) and the projector beams are worked out
- * once a frame in TypeScript and passed as uniforms, so the shader only inverts each face's affine map. Every
- * face carries scanlines in its own plane, filtered by their on-screen pitch, and a scan band travels through
- * the volume.
+ * stood on a corner, larger than the cover so most of it shows around it, with a dashed halo ring round its
+ * waist reaching into the stage's sides. Its rotation, faces (corners, edges, view depth) and the projector
+ * beams are worked out once a frame in TypeScript and passed as uniforms, so the shader only inverts each
+ * face's affine map. Every face carries scanlines in its own plane, filtered by their on-screen pitch, and a
+ * scan band travels through the volume.
  *
- * The song's intensity against its own 17 s mean turns and unfolds the solid; bass tilts it off its axis on a
- * damped pendulum; mids converge the beams; highs speed the scan band; beats send a packet up the beams and a
- * ring over the table; the bands raise the rim pillars. When the intensity first reaches the top of its range
- * a projector glitch slides slices of the projection sideways, at most once per 24 s; it lives in
- * `launchSlice` and `uGlitch` alone. Calm and paused hold a slow steady turn, a closed solid and a slow scan.
+ * Absolute loudness is the solid's energy: it sets the turn rate, the unfold, the beams and the overall light,
+ * so a near-silent passage is a dim, slow, folded solid and a loud one is open, bright and fast. A beat, sized
+ * by its weight, swells and bursts the solid open, flares its light and kicks its turn; bass hits rock it on a
+ * damped pendulum, mid hits light its edges and high hits its scan line; mids converge the beams; highs speed
+ * the scan band; beats send a packet up the beams and a ring over the table; the bands raise the rim pillars.
+ * A loudness surge throws the solid open with a full flare and a shock ring across the floor; a cut dims,
+ * flickers and folds it and slides slices of the projection sideways. When the intensity first reaches the top
+ * of its range the same slide runs, at most once per 24 s. Calm and paused hold a slow steady turn, a closed
+ * solid and a slow scan; only the loudness-led light stays live there.
  *
- * Photosensitivity: overall brightness follows only uGlow (the eased level). Every reaction moves or resizes
- * something, eased. A beat adds light in two places only: the thin packet, which travels and ramps in, and the
- * ring over the table top, which rises over 0.35 s. The glitch only translates the projection: it adds no
- * light and changes no colour.
+ * Photosensitivity: large-area light follows the eased loudness, the beat envelope (rate-capped with the
+ * beat), and the eased surge and cut envelopes; the cut's flicker runs at CUT_HZ, under three a second. Hits
+ * light only thin features (edges, the scan line) and move the solid. The glitch only translates the
+ * projection: it adds no light and changes no colour.
  */
 
 // -- Local Imports --
@@ -32,44 +37,90 @@ import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 /** Size, motion and reactions (the shader's own tunables open its source). */
 export const HOLO = {
-  // Solid edge in cover widths, by framing, and its centre above the cover centre.
-  SIZE: 0.92,
-  SIZE_AMB: 0.78,
-  RISE: 0.02,
+  // Solid edge in cover widths, by framing, its centre above the cover centre, and its slow hover, cover widths.
+  // A short stage shrinks the edge so the closed solid fits between the lens and TOP_MARGIN under the stage top;
+  // a swell or an unfold grows up from the lower tip and is scaled down evenly past SWELL_OVER over the top.
+  SIZE: 1.08,
+  SIZE_AMB: 1.06,
+  RISE: -0.06,
+  BOB: 0.012,
+  TOP_MARGIN: 0.03,
+  SWELL_OVER: 0.05,
+  // Raster handover: a face's lines give way to the screen-fixed raster as they slide from LINE_SLIP_LO to
+  // LINE_SLIP_HI line periods a frame, so a fast turn keeps lines without a strobing crawl; the handover eases
+  // back over LINE_CLEAR s.
+  LINE_SLIP_LO: 0.7,
+  LINE_SLIP_HI: 0.95,
+  LINE_CLEAR: 0.2,
   // How far the view looks down on the solid and the table, radians; the table ellipse follows it.
   TILT: 0.26,
   // Table centre below the cover centre, and its radius, in cover widths.
-  TABLE_DROP: 0.82,
-  TABLE_R: 0.86,
+  TABLE_DROP: 1.0,
+  TABLE_R: 1.05,
+  // The halo ring's radius round the solid's waist, cover widths.
+  HALO_R: 1.4,
+  // Ambient stages draw the table and the halo smaller by this share: their cover sits near the stage's left edge.
+  AMB_SPREAD: 0.84,
   // Scanline pitch on a face seen straight on, css px.
   LINE_PITCH: 4.0,
   // Quick and slow measures of the intensity, and the gap between them that reaches the end of the range.
   FAST_TAU: 1,
   SLOW_TAU: 17,
   REL_SPAN: 0.25,
-  // Turn rate, rad/s: Calm, then the range by reactivity (low end, high end). A flywheel: quick up, slow to coast.
+  // Energy: the absolute loudness mapped from ENERGY_LO..ENERGY_HI onto 0..1, eased over ENERGY_TAU.
+  ENERGY_LO: 0.1,
+  ENERGY_HI: 0.85,
+  ENERGY_TAU: 0.4,
+  // Turn rate, rad/s: Calm, then the range over the energy by reactivity (silent, loud). A flywheel: quick up, slow to coast.
   TURN_CALM: 0.22,
-  TURN_BALANCED: [0.12, 0.55],
-  TURN_LIVELY: [0.08, 0.8],
+  TURN_BALANCED: [0.06, 0.6],
+  TURN_LIVELY: [0.05, 0.95],
   TURN_UP: 0.9,
   TURN_DOWN: 2.6,
-  // A beat's push on the turn, rad/s, and how fast the push wears off, s.
-  KICK: 0.09,
-  KICK_TAU: 0.5,
+  // A beat's push on the turn per unit of weight, rad/s, and how fast the push wears off, s.
+  KICK: 0.9,
+  KICK_TAU: 0.3,
+  // The beat envelope: rises to each beat's weight over BEAT_UP and falls over BEAT_FALL, settled well inside a
+  // 128 BPM gap. At full weight the solid grows by SWELL, bursts open by BURST and its light flares by FLARE.
+  BEAT_UP: 0.035,
+  BEAT_FALL: 0.11,
+  SWELL: 0.12,
+  BURST: 0.6,
+  FLARE: 0.9,
   // Unfolding: faces drift out along their normals by OPEN_GAP half-edges at full open, on a soft spring.
-  OPEN_GAP: 0.2,
+  OPEN_GAP: 0.28,
   OPEN_BALANCED: 0.6,
   OPEN_PULL: 2.2,
   OPEN_DAMP: 2.4,
-  // Bass tumble: torque on a damped pendulum about a slowly drifting horizontal axis.
-  TUMBLE_TORQUE: 0.45,
-  TUMBLE_K: 2.6,
-  TUMBLE_DAMP: 1.5,
+  // Bass tumble: each bass hit pushes the other way on a damped pendulum about a slowly drifting horizontal axis.
+  TUMBLE_TORQUE: 4,
+  TUMBLE_K: 4,
+  TUMBLE_DAMP: 2,
+  // Hit envelopes: a quick rise, then the bass rocks for BASS_FALL and the edges and scan line glow for EDGE_FALL, s.
+  HIT_UP: 0.03,
+  BASS_FALL: 0.25,
+  EDGE_FALL: 0.15,
   // Scan band speed in half-edges a second: resting, plus the highs.
   SCAN_BASE: 0.55,
   SCAN_HIGH: 1.1,
   SCAN_SPAN: 2.6,
-  // A rare launch glitch on the projector: when the intensity crosses into the top of its range, at most once per this many seconds.
+  // A surge: its envelope's rise and fall, s, the extra unfold and flare at full strength, and the floor shock
+  // ring's life, s, and reach, in table radii past the rim.
+  SURGE_UP: 0.06,
+  SURGE_FALL: 1.2,
+  SURGE_OPEN: 0.8,
+  SURGE_FLARE: 1.2,
+  SHOCK_LIFE: 1.6,
+  SHOCK_REACH: 2.4,
+  // A cut: its envelope's rise and fall, s, the steady dim and the flicker on top of it at full strength, the
+  // flicker's rate, Hz, and how far the solid folds in.
+  CUT_UP: 0.05,
+  CUT_FALL: 0.7,
+  CUT_DIM: 0.4,
+  CUT_FLICKER: 0.35,
+  CUT_HZ: 2.5,
+  CUT_FOLD: 0.15,
+  // A projector glitch: on a cut, or when the intensity crosses into the top of its range, at most once per GLITCH_EVERY s.
   GLITCH_EVERY: 24,
   GLITCH_LIFE: 0.9,
   // A packet climbs the beams for PACKET_LIFE seconds, ramping in and out over PACKET_RAMP.
@@ -83,11 +134,15 @@ const RNG_SEED = 47;
 
 const FS = `${SCENE_PRELUDE}${CYBER_KIT}
 uniform vec4 uBandsE[6];
-uniform float uGlow;      // eased level: the only brightness input
+uniform float uGlow;      // overall light: the eased energy, dimmed by a cut
+uniform float uBeamAmt;   // beam and haze strength
+uniform vec4 uReact;      // the solid: flare, light, edge hit, scan line hit
+uniform vec4 uHalo;       // halo ring: radii (px), strength, turn
+uniform vec2 uShock;      // surge shock ring on the floor: reach in table radii, strength
 uniform float uSlow;      // seconds, for slow drifts
 uniform vec4 uGeo;        // solid centre from the cover centre (px), half edge (px), scanlines per face
 uniform vec4 uTable;      // table centre from the cover centre (px), radii (px)
-uniform vec4 uFace[18];   // per face: corner A and edge U; edge V, view z, line phase; scan band b0, bu, bv
+uniform vec4 uFace[18];   // per face: corner A and edge U; edge V, view z, line phase; scan band b0, bu, bv, raster handover
 uniform vec4 uBeam[4];    // projector beams: start and end, px from the solid centre
 uniform vec4 uBeamZ;      // each beam end's depth, -1 back to 1 front
 uniform float uScan;      // scan band position along its axis, half edges
@@ -98,6 +153,9 @@ uniform vec2 uCone;       // top of the haze cone (px from the solid centre) and
 const float LINE_W = 0.40;    // lit share of each scanline period
 const float SCAN_W = 0.22;    // scan band half width, half edges
 const float PILLAR_H = 0.34;  // tallest light pillar, cover widths
+const float LINE_PITCH = ${HOLO.LINE_PITCH.toFixed(1)}; // screen raster pitch, css px
+const float RASTER_DRIFT = 0.4; // screen raster drift, lines a second
+const float CROSS_DIP = 0.7;  // how far the handover's middle dips toward the mean
 float band(int i) { return uBandsE[i >> 2][i & 3]; }
 // The hologram colour: cyan in the dark room, blue ink in the bright one.
 vec3 holoCol(bool dk) { return dk ? vec3(0.00, 0.95, 1.0) : vec3(0.00, 0.22, 1.0); }
@@ -106,6 +164,13 @@ vec3 holoCol(bool dk) { return dk ? vec3(0.00, 0.95, 1.0) : vec3(0.00, 0.22, 1.0
 float launchSlice(float y, float amt, float seed) {
   float b = floor(y / (8.0 + 26.0 * hash11(floor(y / 40.0) + seed)) + seed);
   return (hash11(b * 3.1 + seed) - 0.5) * 2.0 * step(0.5, hash11(b * 1.7 + seed)) * amt;
+}
+
+// The distance in px from p to the ellipse of radii r round the origin, close to the curve.
+float ellipseDist(vec2 p, vec2 r) {
+  vec2 e = p / r;
+  float l = max(length(e), 1e-3);
+  return abs(l - 1.0) * l / max(length(e / r), 1e-6);
 }
 
 // One light pillar on the rim, pillar k: adds to back (k behind the solid) or front.
@@ -127,7 +192,7 @@ void main() {
   float hu = hushAt(fc);
   float det = 1.0 - 0.75 * hu;
   bool dk = uLight < 0.5;
-  float scale = 0.75 + 0.5 * uGlow;
+  float scale = uGlow;
   vec3 hcol = holoCol(dk);
   vec3 hcol2 = dk ? vec3(1.0, 0.05, 0.85) : vec3(0.95, 0.0, 0.55);
   vec2 tc = cc + uTable.xy, tr = uTable.zw;
@@ -151,7 +216,7 @@ void main() {
   vec2 mq = p - vec2(0.0, uSlow * 4.0);
   vec2 mcell = floor(mq / 15.0);
   vec2 moff = fract(mq / 15.0) * 15.0 - 3.0 - vec2(hash21(mcell + 2.3), hash21(mcell + 7.9)) * 9.0;
-  float near = exp(-dot(p - hc, p - hc) / (1.3 * cw * cw));
+  float near = exp(-dot(p - hc, p - hc) / (2.2 * cw * cw));
   col += hcol * step(0.93, hash21(mcell)) * exp(-dot(moff, moff) / 0.7) * near * (dk ? 0.5 : 0.15) * scale * det;
   // Three status lamps on the wall.
   for (int k = 0; k < 3; k++) {
@@ -161,6 +226,13 @@ void main() {
     vec3 lcol = k == 0 ? vec3(0.2, 1.0, 0.4) : (k == 1 ? vec3(1.0, 0.7, 0.2) : vec3(0.3, 0.8, 1.0));
     col = mix(col, lcol * (dk ? 0.9 : 0.8) * br, lm);
     col += lcol * exp(-dot(p - lc, p - lc) / 40.0) * (dk ? 0.14 : 0.04) * br;
+  }
+  // A surge's shock ring runs out across the floor from the rim and fades before the wall.
+  if (uShock.y > 0.0) {
+    float sd = ellipseDist(p - tc, tr * uShock.x);
+    float sv = ((1.0 - smoothstep(0.8, 2.5, sd)) + exp(-sd / 10.0) * 0.3) * uShock.y * smoothstep(wallY + 2.0, wallY - 30.0, p.y) * det;
+    if (dk) col += hcol * sv * 0.9;
+    else col = mix(col, hcol * 0.85, clamp(sv * 0.6, 0.0, 1.0));
   }
   // -- Table: rim wall, top, engraved rings, lens ring, lamps --
   vec2 tq = (p - tc) / tr;
@@ -201,7 +273,7 @@ void main() {
   if (dk) col += hcol * (pb.x * 0.55 * scale + pb.y) * det;
   else col = mix(col, hcol * 0.85, clamp(pb.x * 0.3 + pb.y * 1.5, 0.0, 1.0) * det);
   // -- The projection: glitch slices, the cone of haze and dust, the beams --
-  float region = step(abs(p.y - hc.y), 2.2 * h) * step(abs(p.x - hc.x), 2.2 * h);
+  float region = step(abs(p.y - hc.y), 2.4 * h) * step(abs(p.x - hc.x), 2.4 * h);
   vec2 q = vec2(p.x + launchSlice(p.y, uGlitch.x, uGlitch.y) * region, p.y) - hc;
   vec2 tq2 = tc - hc;
   float lensY = tq2.y, coneTop = uCone.x;
@@ -213,7 +285,7 @@ void main() {
     vec2 cell = floor(dp / 9.0);
     vec2 off = fract(dp / 9.0) * 9.0 - 2.0 - vec2(hash21(cell + 1.7), hash21(cell + 5.3)) * 5.0;
     float dust = step(0.86, hash21(cell)) * exp(-dot(off, off) / 0.8) * (0.6 + 0.4 * sin(uSlow * 0.9 + hash21(cell + 9.1) * 40.0));
-    col += hcol * cone * ((dk ? 0.07 : 0.05) * (1.0 - 0.5 * v) + dust * (dk ? 0.35 : 0.20)) * scale * det;
+    col += hcol * cone * ((dk ? 0.07 : 0.05) * (1.0 - 0.5 * v) + dust * (dk ? 0.35 : 0.20)) * scale * uBeamAmt * det;
   }
   float beams = 0.0, packet = 0.0;
   for (int i = 0; i < 4; i++) {
@@ -226,11 +298,23 @@ void main() {
     float pk = exp(-pow((t - uPulse.x) / 0.07, 2.0));
     packet += (1.0 - smoothstep(0.6, 1.8, d)) * pk * uPulse.y * z;
   }
-  col += hcol * (beams * (dk ? 0.55 : 0.45) * scale + packet * 0.55) * det;
+  col += hcol * (beams * (dk ? 0.55 : 0.45) * scale * uBeamAmt + packet * 0.55) * det;
+  // -- The halo: a dashed ring round the solid's waist, the dashes turning with it; its back arc lies behind the solid --
+  float hd = ellipseDist(q, uHalo.xy);
+  float dash = 0.45 + 0.55 * step(0.4, fract((atan(q.y / uHalo.y, q.x / uHalo.x) + uHalo.w) * 18.0 / TAU));
+  float halo = ((1.0 - smoothstep(0.5, 1.6, hd)) * dash + exp(-hd / 5.0) * 0.18) * uHalo.z * det;
+  float haloF = halo * step(q.y, 0.0);
+  if (dk) col += hcol * halo * step(0.0, q.y) * 0.55;
+  else col = mix(col, hcol * 0.85, clamp(halo * step(0.0, q.y) * 0.45, 0.0, 1.0));
   // -- The solid: six faces, each an affine map; back faces first, then front, scanlines in each face's plane --
   vec3 accB = vec3(0.0), accF = vec3(0.0);
   float aB = 0.0, aF = 0.0, eB = 0.0, eF = 0.0, eScan = 0.0, cut = 0.0;
-  if (abs(q.x) < 2.0 * h && abs(q.y) < 2.0 * h) for (int f = 0; f < 6; f++) {
+  // The projector's own raster: horizontal lines fixed on screen at the face lines' pitch, drifting slowly.
+  float rw = p.y / LINE_PITCH + uSlow * RASTER_DRIFT;
+  float raa = min(2.0 / (LINE_PITCH * uDpr), 0.6);
+  float raster = 1.0 - smoothstep(LINE_W - raa, LINE_W + raa, abs(fract(rw) - 0.5) * 2.0);
+  raster *= 0.82 + 0.18 * vnoise(vec2(p.x * 0.012 - uSlow * 0.3, floor(rw) * 1.7));
+  if (abs(q.x) < 2.2 * h && abs(q.y) < 2.2 * h) for (int f = 0; f < 6; f++) {
     vec4 fa = uFace[f * 3], fb = uFace[f * 3 + 1], fs = uFace[f * 3 + 2];
     float vz = fb.z;
     if (abs(vz) < 0.015) continue;
@@ -260,24 +344,36 @@ void main() {
     float ln = 1.0 - smoothstep(LINE_W - aa, LINE_W + aa, tl);
     // Each line breaks up a little along its length, the breaks drifting slowly, as a projected raster does.
     float run = 0.82 + 0.18 * vnoise(vec2(uv.x * 4.0 - uSlow * 0.3, floor(w) * 1.7 + float(f) * 11.0));
-    ln = mix(ln * run, LINE_W * 0.86, smoothstep(0.28, 0.48, fw));
+    float fine = smoothstep(0.28, 0.48, fw);
+    ln = mix(ln * run, LINE_W * 0.86, fine);
+    // A face whose lines slide too fast to read hands over to the screen raster, which cannot strobe; fs.w is the
+    // handover, and its middle dips toward the mean so the two line fields never beat at full strength. A face
+    // seen nearly edge-on keeps its mean.
+    float ho = fs.w * (1.0 - fine);
+    ln = mix(mix(ln, raster, ho), LINE_W * 0.86, CROSS_DIP * 4.0 * ho * (1.0 - ho));
     // The lines carry the cover, pulled toward the hologram colour; the face between them is a faint tint.
     vec3 cv = coverAt(clamp(uv, 0.0, 1.0), 1.2);
     vec3 lineC = dk ? mix(hcol, cv * 1.5, 0.4) * (0.75 + 0.6 * luma(cv)) : mix(hcol, cv * 0.7, 0.35);
     vec3 holc = mix(dk ? cv * 0.5 : cv, lineC, ln);
     // Edge-on faces hold more light, as a glass plate does.
     float fres = 0.7 + 0.6 * (1.0 - abs(vz));
-    float al = inside * ((fr ? 0.06 : 0.05) + ln * (fr ? 0.62 : 0.10) * (1.0 + 0.6 * sb)) * fres;
+    float al = inside * ((fr ? 0.06 : 0.05) + ln * (fr ? 0.62 : 0.10) * (1.0 + 0.6 * sb)) * fres * uReact.y * (1.0 + 0.6 * uReact.x);
     if (fr) { accF += holc * al; aF += al; eF = max(eF, edge); }
     else { accB += holc * al; aB += al; eB = max(eB, edge); }
     eScan = max(eScan, sb);
   }
   vec3 ecol = mix(hcol, hcol2, smoothstep(-h, h, q.y) * 0.8);
+  // Edges take the flare and the mid hits; the solid's light (energy, a cut's dim) scales every layer of it.
+  float lit = min(uReact.y, 1.0);
+  float edgeK = (1.0 + 0.5 * uReact.x + 0.6 * uReact.z) * lit;
+  float flareW = dk ? 0.35 * min(uReact.x, 1.0) : 0.0;
   if (aB > 0.0) col = mix(col, accB / aB, clamp(aB, 0.0, 0.6) * det);
-  col = mix(col, ecol, clamp(eB * 0.45, 0.0, 0.6) * det * (dk ? scale : 1.0));
-  if (aF > 0.0) col = mix(col, accF / aF, clamp(aF, 0.0, 0.7) * det);
-  col = mix(col, mix(ecol, vec3(1.0), dk ? 0.15 * eScan : 0.0) * (dk ? 1.25 : 1.0), clamp(eF, 0.0, 0.95) * det * (dk ? scale : 1.0));
-  col = mix(col, dk ? mix(hcol, vec3(1.0), 0.35) * scale : hcol * 0.8, cut * 0.65 * det);
+  col = mix(col, ecol, clamp(eB * 0.45 * edgeK, 0.0, 0.7) * det * (dk ? scale : 1.0));
+  if (aF > 0.0) col = mix(col, accF / aF, clamp(aF, 0.0, 0.7 + 0.15 * min(uReact.x, 1.0)) * det);
+  col = mix(col, mix(ecol, vec3(1.0), dk ? 0.15 * eScan + flareW : 0.0) * (dk ? 1.25 : 1.0), clamp(eF * edgeK, 0.0, 0.95) * det * (dk ? scale : 1.0));
+  col = mix(col, dk ? mix(hcol, vec3(1.0), 0.35) * scale : hcol * 0.8, clamp(cut * 0.65 * (1.0 + 0.6 * uReact.w) * lit, 0.0, 0.95) * det);
+  if (dk) col += hcol * haloF;
+  else col = mix(col, hcol * 0.85, clamp(haloF * 0.6, 0.0, 1.0));
   // Front pillars stand before the solid.
   if (dk) col += hcol * (pf.x * 0.55 * scale + pf.y) * det;
   else col = mix(col, hcol * 0.85, clamp(pf.x * 0.42 + pf.y * 1.5, 0.0, 1.0) * det);
@@ -285,7 +381,7 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
-/** The scene's moving state. The last three fields are derived each step for the shader. */
+/** The scene's moving state. The packet, glitch and solid fields at the end are derived each step for the shader. */
 export interface HologramState {
   yaw: number;
   spin: number;
@@ -297,7 +393,23 @@ export interface HologramState {
   openV: number;
   tumble: number;
   tumbleV: number;
+  // The eased energy from the absolute loudness, 0..1.
+  energy: number;
+  // The beat envelope's value and the peak it chases; the weight seen so far in the current beat.
+  beat: [number, number];
+  weightHeld: number;
+  // The surge and cut envelopes (value, peak), and the seconds since the last cut.
+  surge: [number, number];
+  cut: [number, number];
+  cutAge: number;
+  // The surge's floor shock ring: age and strength.
+  shock: [number, number];
+  // Bass, mid and high hit envelopes; the sign of the next bass push and whether a bass hit is under way.
   bass: number;
+  edge: number;
+  spark: number;
+  bassSign: number;
+  bassOn: boolean;
   focus: number;
   high: number;
   scan: number;
@@ -317,6 +429,15 @@ export interface HologramState {
   glitchAmt: number;
   // The motion gain the running glitch launched with, so a pause cannot cut its slide short.
   glitchGain: number;
+  // Derived for the solid: the extra unfold and size of a beat, surge or cut, its flare, its light, the overall
+  // light, and the shock ring's reach (table radii) and strength.
+  burst: number;
+  grow: number;
+  flare: number;
+  solidLight: number;
+  glow: number;
+  shockAt: number;
+  shockAmt: number;
 }
 
 export function createHologramState(): HologramState {
@@ -331,7 +452,18 @@ export function createHologramState(): HologramState {
     openV: 0,
     tumble: 0,
     tumbleV: 0,
+    energy: 0,
+    beat: [0, 0],
+    weightHeld: 0,
+    surge: [0, 0],
+    cut: [0, 0],
+    cutAge: 9,
+    shock: [9, 0],
     bass: 0,
+    edge: 0,
+    spark: 0,
+    bassSign: 1,
+    bassOn: false,
     focus: 0,
     high: 0,
     scan: -HOLO.SCAN_SPAN,
@@ -348,7 +480,23 @@ export function createHologramState(): HologramState {
     packetAmt: 0,
     glitchAmt: 0,
     glitchGain: 0,
+    burst: 0,
+    grow: 1,
+    flare: 0,
+    solidLight: 1,
+    glow: 1,
+    shockAt: 1,
+    shockAmt: 0,
   };
+}
+
+/** Steps a peak-follow envelope [value, peak] by `input`: the peak jumps up and decays over `fall`; the value rises to it over `up`. */
+function followPeak(env: [number, number], input: number, dt: number, up: number, fall: number): number {
+  // The peak snaps to 0 once too small to see, so the envelope comes to rest exactly.
+  const decayed = env[1] * Math.exp(-dt / fall);
+  env[1] = Math.max(decayed < 1e-4 ? 0 : decayed, input);
+  env[0] = env[1] > env[0] ? easeEnvelope(env[0], env[1], dt, up) : env[1];
+  return env[0];
 }
 
 /**
@@ -357,58 +505,97 @@ export function createHologramState(): HologramState {
  */
 export function stepHologram(st: HologramState, s: VisualSignal, dt: number, drive: number, rng: () => number): void {
   const H = HOLO;
+  const live = drive > 0;
   const lively = drive > 1.3;
+  const gain = Math.min(1.3, drive);
   st.slow += dt;
-  // Intensity against its own slow mean: the one measure of where the song is.
-  const intensity = s.level + 0.15 * s.bassMotion;
+  // Energy: where the absolute loudness sits, the driver of the turn, the unfold and the light.
+  const energyT = clamp01((s.loudness - H.ENERGY_LO) / (H.ENERGY_HI - H.ENERGY_LO));
+  // Intensity against its own slow mean: only the launch glitch reads it.
+  const intensity = s.loudness + 0.15 * s.bassMotion;
   if (!st.primed) {
     st.fast = intensity;
     st.slowMean = intensity;
+    st.energy = energyT;
     st.primed = true;
   }
   st.fast = easeEnvelope(st.fast, intensity, dt, H.FAST_TAU);
   st.slowMean = easeEnvelope(st.slowMean, intensity, dt, H.SLOW_TAU);
+  st.energy = easeEnvelope(st.energy, energyT, dt, H.ENERGY_TAU);
   const rel = Math.max(-1, Math.min(1, (st.fast - st.slowMean) / H.REL_SPAN));
   const ease2 = (prev: number, target: number, up: number, down: number) =>
     easeEnvelope(prev, target, dt, target > prev ? up : down);
-  // Turn: a flywheel toward the rate the intensity asks for; a beat gives it a small push.
-  const [lo, hi] = lively ? H.TURN_LIVELY : H.TURN_BALANCED;
-  const turnT =
-    drive === 0 ? H.TURN_CALM : rel < 0 ? H.TURN_CALM + (H.TURN_CALM - lo) * rel : H.TURN_CALM + (hi - H.TURN_CALM) * rel;
-  st.spin = ease2(st.spin, turnT, H.TURN_UP, H.TURN_DOWN);
+  // The beat envelope follows each beat's weight; the turn takes a push for every rise of it, so a beat's
+  // whole push is KICK times its final weight.
+  const weight = live ? Math.min(1.3, s.beatWeight) : 0;
+  const beatV = followPeak(st.beat, weight, dt, H.BEAT_UP, H.BEAT_FALL);
   st.kick *= Math.exp(-dt / H.KICK_TAU);
-  if (drive > 0 && s.beat > 0) st.kick += H.KICK * Math.min(1, s.beat) * Math.min(1.3, drive);
+  if (weight > st.weightHeld) st.kick += H.KICK * (weight - st.weightHeld);
+  // The weight reads 0 once its hold ends: that frame launches the table ring with the final weight. Calm or a
+  // pause landing inside a hold also reads 0, and drops the beat without a ring.
+  const ended = live && weight === 0 && st.weightHeld > 0 ? st.weightHeld : 0;
+  st.weightHeld = weight;
+  // Shifts: a surge throws the solid open and flares it, a cut dims, flickers and folds it.
+  const surge = live ? Math.min(1.3, s.surge) : 0;
+  const cutIn = live ? Math.min(1.3, s.cut) : 0;
+  const surgeV = followPeak(st.surge, surge, dt, H.SURGE_UP, H.SURGE_FALL);
+  const cutV = followPeak(st.cut, cutIn, dt, H.CUT_UP, H.CUT_FALL);
+  st.cutAge = cutIn > 0 ? 0 : st.cutAge + dt;
+  st.shock[0] += dt;
+  if (surge > 0) st.shock = [0, surge];
+  // Turn: a flywheel toward the rate the energy asks for, plus the beats' pushes.
+  const [lo, hi] = lively ? H.TURN_LIVELY : H.TURN_BALANCED;
+  const turnT = live ? lo + (hi - lo) * st.energy : H.TURN_CALM;
+  st.spin = ease2(st.spin, turnT, H.TURN_UP, H.TURN_DOWN);
   st.yaw = (st.yaw + (st.spin + st.kick) * dt) % (Math.PI * 2);
-  // Unfolding: the faces part on a soft spring as the intensity rises above its mean.
-  const openT = drive === 0 ? 0 : Math.max(0, rel) * (lively ? 1 : H.OPEN_BALANCED);
+  // Unfolding: the faces part on a soft spring as the energy rises; a cut pulls them shut.
+  const openT = live ? st.energy * (lively ? 1 : H.OPEN_BALANCED) * (1 - Math.min(1, cutV)) : 0;
   st.openV += ((openT - st.open) * H.OPEN_PULL - st.openV * H.OPEN_DAMP) * dt;
   st.open = Math.max(0, Math.min(1.15, st.open + st.openV * dt));
-  // Bass: torque on a damped pendulum, so the solid leans off its axis and swings back.
-  st.bass = ease2(st.bass, drive > 0 ? clamp01(s.bassMotion) : 0, 0.1, 0.4);
-  st.tumbleV += (H.TUMBLE_TORQUE * st.bass * Math.min(1.3, drive) - st.tumble * H.TUMBLE_K - st.tumbleV * H.TUMBLE_DAMP) * dt;
+  // Hits: each bass hit pushes the pendulum the other way, so the solid rocks; mids and highs light thin lines.
+  if (live && s.bassHit > 0.35 && !st.bassOn) st.bassSign = -st.bassSign;
+  st.bassOn = live && s.bassHit > (st.bassOn ? 0.15 : 0.35);
+  st.bass = ease2(st.bass, live ? Math.min(1.3, s.bassHit) : 0, H.HIT_UP, H.BASS_FALL);
+  st.edge = ease2(st.edge, live ? Math.min(1.3, s.midHit) : 0, H.HIT_UP, H.EDGE_FALL);
+  st.spark = ease2(st.spark, live ? Math.min(1.3, s.highHit) : 0, H.HIT_UP, H.EDGE_FALL);
+  st.tumbleV += (H.TUMBLE_TORQUE * st.bassSign * st.bass - st.tumble * H.TUMBLE_K - st.tumbleV * H.TUMBLE_DAMP) * dt;
   st.tumble += st.tumbleV * dt;
   // Mids focus the beams; highs speed the scan band.
-  st.focus = ease2(st.focus, drive > 0 ? clamp01(s.midMotion) : 0, 0.25, 0.8);
-  st.high = ease2(st.high, drive > 0 ? clamp01(s.highMotion) : 0, 0.2, 0.7);
-  st.scan += dt * (H.SCAN_BASE + H.SCAN_HIGH * st.high * Math.min(1.3, drive));
+  st.focus = ease2(st.focus, live ? clamp01(s.midMotion) : 0, 0.25, 0.8);
+  st.high = ease2(st.high, live ? clamp01(s.highMotion) : 0, 0.2, 0.7);
+  st.scan += dt * (H.SCAN_BASE + H.SCAN_HIGH * st.high * gain);
   if (st.scan > H.SCAN_SPAN) st.scan -= 2 * H.SCAN_SPAN;
-  st.bob = 0.012 * Math.sin(st.slow * 0.5);
-  // Beats: a packet up the beams and a ring over the table.
+  st.bob = H.BOB * Math.sin(st.slow * 0.5);
+  // Beats: a packet up the beams, sized by the weight as it lands, and a ring over the table; a surge rings it too.
   st.pulse[0] += dt;
-  if (drive > 0 && s.beat > 0 && st.pulse[0] > 0.45) st.pulse = [0, Math.min(1, 0.5 + s.beat * 0.5) * Math.min(1.3, drive)];
-  st.rings.step(dt, drive > 0 ? Math.min(1, s.beat) : 0);
+  const packetOf = (w: number) => Math.min(1.3, 0.15 + 0.9 * w);
+  if (live && s.beat > 0 && st.pulse[0] > 0.45) st.pulse = [0, packetOf(weight)];
+  else if (st.pulse[0] < 0.15) st.pulse[1] = Math.max(st.pulse[1], packetOf(weight));
+  st.rings.step(dt, Math.max(ended, surge > 0 ? 1.5 : 0));
   const pp = st.pulse[0] / H.PACKET_LIFE;
   st.packetAt = pp < 1 ? pp : 2;
   st.packetAmt = pp < 1 ? st.pulse[1] * (1 - pp * 0.5) * Math.min(1, st.pulse[0] / H.PACKET_RAMP, (H.PACKET_LIFE - st.pulse[0]) / H.PACKET_RAMP) : 0;
-  // The launch glitch: the intensity crossing into the top of its range, rarely.
+  // The glitch: on a cut, or the intensity crossing into the top of its range, rarely.
   const top = rel > 0.75;
-  if (drive > 0 && top && !st.wasHigh && st.slow - st.lastGlitch > H.GLITCH_EVERY) {
+  const onCut = cutIn > 0;
+  if (live && (onCut || (top && !st.wasHigh)) && st.slow - st.lastGlitch > (onCut ? H.GLITCH_LIFE : H.GLITCH_EVERY)) {
     st.glitch = 0;
     st.lastGlitch = st.slow;
-    st.glitchGain = Math.min(1.3, drive);
+    st.glitchGain = onCut ? gain * Math.min(1, 0.4 + cutIn) : gain;
     st.glitchSeed = 1 + rng() * 50;
   }
   st.wasHigh = top;
+  // What the solid shows this frame.
+  const sp = Math.min(1, st.shock[0] / H.SHOCK_LIFE);
+  st.shockAt = 1 + H.SHOCK_REACH * (1 - (1 - sp) ** 2);
+  st.shockAmt = sp < 1 ? st.shock[1] * (1 - sp) ** 2 * Math.min(1, st.shock[0] / 0.08) : 0;
+  const flicker = 0.5 - 0.5 * Math.cos(2 * Math.PI * H.CUT_HZ * st.cutAge);
+  const dim = Math.min(1, cutV) * (H.CUT_DIM + H.CUT_FLICKER * flicker);
+  st.burst = H.BURST * beatV + H.SURGE_OPEN * surgeV;
+  st.grow = (1 + H.SWELL * beatV) * (1 - H.CUT_FOLD * Math.min(1, cutV));
+  st.flare = Math.min(1.5, H.FLARE * beatV + H.SURGE_FLARE * surgeV);
+  st.solidLight = (0.8 + 0.6 * st.energy) * (1 - dim);
+  st.glow = (0.55 + 0.7 * Math.sqrt(st.energy)) * (1 - 0.5 * dim);
   st.glitch += dt;
   const ga = st.glitch / H.GLITCH_LIFE;
   st.glitchAmt = ga < 1 ? Math.sin(Math.PI * Math.min(1, ga * 2.5)) ** 2 * (1 - ga) * 18 * st.glitchGain : 0;
@@ -455,6 +642,11 @@ const EDGES: readonly (readonly [Vec3, Vec3])[] = [
   [[1, 0, 0], [0, 1, 0]],
 ];
 
+/** The table's radius in css px for a cover `cw` css px wide. */
+export function tableRadius(cw: number, ambient: boolean): number {
+  return HOLO.TABLE_R * cw * (ambient ? HOLO.AMB_SPREAD : 1);
+}
+
 /** The solid's frame in css px from its centre, filled in place each step. */
 export interface SolidFrame {
   h: number;
@@ -470,10 +662,63 @@ export interface SolidFrame {
   resid: Float32Array;
   // The top of the haze cone and its half width there.
   cone: [number, number];
+  // The solid's centre above the cover centre, css px.
+  rise: number;
+  // Each face's corner A (from the cover centre) and edges U and V last frame, and its raster handover.
+  prev: Float32Array;
+  handover: Float32Array;
 }
 
 export function createSolidFrame(): SolidFrame {
-  return { h: 0, cw: 0, lines: 0, faces: new Float32Array(72), beams: new Float32Array(16), beamZ: new Float32Array(4), slots: new Int8Array(4).fill(-1), resid: new Float32Array(20), cone: [0, 0] };
+  return {
+    h: 0,
+    cw: 0,
+    lines: 0,
+    faces: new Float32Array(72),
+    beams: new Float32Array(16),
+    beamZ: new Float32Array(4),
+    slots: new Int8Array(4).fill(-1),
+    resid: new Float32Array(20),
+    cone: [0, 0],
+    rise: 0,
+    prev: new Float32Array(36),
+    handover: new Float32Array(6),
+  };
+}
+
+// The closed solid's top corner above its centre, in half edges: the body diagonal's half, tilted toward the view.
+const TIP = Math.sqrt(3) * Math.cos(HOLO.TILT);
+
+/**
+ * How far each face's lines slide across themselves this frame, in line periods: the largest move of a face
+ * corner across the lines, over the lines' on-screen spacing. Writes the eased raster handover into each face's
+ * last slot.
+ */
+function handOver(out: SolidFrame, first: boolean, dt: number): void {
+  const H = HOLO;
+  const clear = Math.exp(-dt / H.LINE_CLEAR);
+  for (let f = 0; f < 6; f++) {
+    const o = f * 12;
+    const ax = out.faces[o], ay = out.faces[o + 1] + out.rise;
+    const ux = out.faces[o + 2], uy = out.faces[o + 3], vx = out.faces[o + 4], vy = out.faces[o + 5];
+    const p = out.prev.subarray(f * 6, f * 6 + 6);
+    let target = 0;
+    if (!first) {
+      const ul = Math.hypot(ux, uy);
+      const spacing = Math.abs(ux * vy - uy * vx) / Math.max(ul * out.lines, 1e-6);
+      let slide = 0;
+      for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const dx = ax + a * ux + b * vx - (p[0] + a * p[2] + b * p[4]);
+        const dy = ay + a * uy + b * vy - (p[1] + a * p[3] + b * p[5]);
+        slide = Math.max(slide, Math.abs(-dx * uy + dy * ux) / Math.max(ul, 1e-6));
+      }
+      const t = clamp01((slide / Math.max(spacing, 1e-6) - H.LINE_SLIP_LO) / (H.LINE_SLIP_HI - H.LINE_SLIP_LO));
+      target = t * t * (3 - 2 * t);
+    }
+    out.handover[f] = Math.max(target, out.handover[f] * clear);
+    out.faces[o + 11] = out.handover[f];
+    p.set([ax, ay, ux, uy, vx, vy]);
+  }
 }
 
 /**
@@ -481,49 +726,83 @@ export function createSolidFrame(): SolidFrame {
  * edges, view depth, scanline phase and the scan band's linear coefficients; beams run from the lens to the
  * four lowest corners, starting closer to the lens centre as the mids focus them. Each beam slot keeps its
  * corner while that corner stays among the four lowest; a slot whose corner leaves re-aims at the one that
- * entered by easing out the offset, so no beam end jumps. `dt` is the step's length.
+ * entered by easing out the offset, so no beam end jumps. `dt` is the step's length. `room` is the stage top's
+ * height above the cover centre, css px: the closed solid shrinks to fit under it, and its swell and unfold are
+ * capped just past it.
  */
-export function solidFrame(st: HologramState, cw: number, ambient: boolean, out: SolidFrame, dt: number): SolidFrame {
+export function solidFrame(st: HologramState, cw: number, ambient: boolean, out: SolidFrame, dt: number, room = Infinity): SolidFrame {
   const H = HOLO;
-  const h = (ambient ? H.SIZE_AMB : H.SIZE) * cw * 0.5;
+  const lensY = -H.TABLE_DROP * cw;
+  const topLimit = room - H.TOP_MARGIN * cw;
+  const hRest = Math.min((ambient ? H.SIZE_AMB : H.SIZE) * cw * 0.5, (topLimit - lensY) / (2 * TIP));
+  const rest = Math.min(H.RISE * cw, topLimit - TIP * hRest - H.BOB * cw) + st.bob * cw;
+  const h = hRest * st.grow;
   const phi = st.slow * 0.11;
   const M = mul(rotX(H.TILT), mul(rotAxis([Math.cos(phi), 0, Math.sin(phi)], st.tumble), mul(rotY(st.yaw), STAND)));
   const dir = [0.3, 1.0, 0.22];
   const dl = Math.hypot(dir[0], dir[1], dir[2]);
-  const scanAt = (v: Vec3) => (v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2]) / dl / h;
-  const grow = 1 + H.OPEN_GAP * st.open;
-  const fs = 1 - 0.5 * H.OPEN_GAP * st.open;
-  for (let ax = 0; ax < 3; ax++) {
-    for (let fv = 0; fv < 2; fv++) {
-      const sg = fv ? 1 : -1;
-      const n = [0, 0, 0];
-      n[ax] = sg;
-      const [t1, t2] = EDGES[ax];
-      const A = [0, 1, 2].map((i) => (n[i] * grow - (t1[i] + t2[i]) * fs) * h);
-      const vA = apply(M, A);
-      const vU = apply(M, t1.map((x) => x * 2 * h * fs));
-      const vV = apply(M, t2.map((x) => x * 2 * h * fs));
-      const vz = apply(M, n)[2];
-      out.faces.set([vA[0], vA[1], vU[0], vU[1], vV[0], vV[1], vz, 0.5 * fv + 0.17 * ax, scanAt(vA), scanAt(vU), scanAt(vV), 0], (ax * 2 + fv) * 12);
+  const opening = st.open + st.burst;
+  // Fills the faces for half edge hh and unfold o, and returns the height from the lowest corner to the highest.
+  const build = (hh: number, o: number): number => {
+    const scanAt = (v: Vec3) => (v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2]) / dl / hh;
+    const grow = 1 + H.OPEN_GAP * o;
+    const fs = 1 - 0.5 * H.OPEN_GAP * o;
+    for (let ax = 0; ax < 3; ax++) {
+      for (let fv = 0; fv < 2; fv++) {
+        const sg = fv ? 1 : -1;
+        const n = [0, 0, 0];
+        n[ax] = sg;
+        const [t1, t2] = EDGES[ax];
+        const A = [0, 1, 2].map((i) => (n[i] * grow - (t1[i] + t2[i]) * fs) * hh);
+        const vA = apply(M, A);
+        const vU = apply(M, t1.map((x) => x * 2 * hh * fs));
+        const vV = apply(M, t2.map((x) => x * 2 * hh * fs));
+        const vz = apply(M, n)[2];
+        out.faces.set([vA[0], vA[1], vU[0], vU[1], vV[0], vV[1], vz, 0.5 * fv + 0.17 * ax, scanAt(vA), scanAt(vU), scanAt(vV), 0], (ax * 2 + fv) * 12);
+      }
     }
-  }
-  // The four lowest corners of the closed cube, pushed out with the faces.
+    let top = -Infinity;
+    bottom = Infinity;
+    for (let f = 0; f < 72; f += 12) {
+      const y = out.faces[f + 1];
+      const ys = [y, y + out.faces[f + 3], y + out.faces[f + 5], y + out.faces[f + 3] + out.faces[f + 5]];
+      top = Math.max(top, ...ys);
+      bottom = Math.min(bottom, ...ys);
+    }
+    return top - bottom;
+  };
+  let bottom = 0;
+  // The solid stands on its resting lower tip, `base`: an unfold or a swell grows it upward. The steady solid
+  // (no beat, no surge) is scaled down evenly to stay TOP_MARGIN under the stage top; a beat's or a surge's
+  // growth on top of that may pass the top by at most SWELL_OVER.
+  const base = rest - TIP * hRest;
+  const steady = Math.min(1, (topLimit - base) / build(hRest, st.open));
+  const span = build(h, opening);
+  const fit = Math.min(steady, (room + H.SWELL_OVER * cw - base) / span);
+  out.rise = Math.max(base + fit * (rest - base), base - bottom * fit);
+  if (fit < 1) for (let o = 0; o < 72; o += 12) for (let j = 0; j < 6; j++) out.faces[o + j] *= fit;
+  const hs = h * fit;
+  const first = out.cw === 0;
+  // The line count comes from the resting size, so a swell stretches the lines instead of adding one.
+  out.lines = Math.floor((2 * hRest) / H.LINE_PITCH);
+  handOver(out, first, dt);
+  // The four lowest corners of the closed cube, pushed out with the faces and scaled with them.
   const corners: number[][] = [];
   for (let k = 0; k < 8; k++) {
-    const c = [k & 1 ? h : -h, k & 2 ? h : -h, k & 4 ? h : -h].map((x) => x * (1 + 0.5 * H.OPEN_GAP * st.open));
+    const c = [k & 1 ? hs : -hs, k & 2 ? hs : -hs, k & 4 ? hs : -hs].map((x) => x * (1 + 0.5 * H.OPEN_GAP * opening));
     corners.push(apply(M, c));
   }
   const order = corners.map((_, k) => k).sort((a, b) => corners[a][1] - corners[b][1]);
   const sorted = order.map((k) => corners[k]);
-  const tableR = H.TABLE_R * cw;
+  const tableR = tableRadius(cw, ambient);
   const lensR = 0.205 * tableR;
   const lensRy = lensR * Math.sin(H.TILT);
-  const ty = -(H.TABLE_DROP + H.RISE) * cw - st.bob * cw;
+  const ty = lensY - out.rise;
   const reach = 1 - 0.7 * st.focus;
   // A beam from the lens to corner c: start x, start y, end x, end y, depth.
   const beamTo = (c: number[]): number[] => {
-    const zn = Math.max(-1, Math.min(1, c[2] / (h * 1.5)));
-    return [Math.max(-1, Math.min(1, c[0] / (h * 1.2))) * lensR * reach, ty - zn * lensRy * reach, c[0], c[1], zn];
+    const zn = Math.max(-1, Math.min(1, c[2] / (hs * 1.5)));
+    return [Math.max(-1, Math.min(1, c[0] / (hs * 1.2))) * lensR * reach, ty - zn * lensRy * reach, c[0], c[1], zn];
   };
   const lowest = order.slice(0, 4);
   const entering = lowest.filter((k) => !out.slots.includes(k));
@@ -539,19 +818,17 @@ export function solidFrame(st: HologramState, cw: number, ambient: boolean, out:
   for (let s = 0; s < 4; s++) {
     const to = beamTo(corners[out.slots[s]]);
     for (let j = 0; j < 4; j++) out.beams[s * 4 + j] = to[j] + out.resid[s * 5 + j];
-    out.beamZ[s] = to[4] + out.resid[s * 5 + 4];
+    out.beamZ[s] = Math.max(-1, Math.min(1, to[4] + out.resid[s * 5 + 4]));
     for (let j = 0; j < 5; j++) out.resid[s * 5 + j] *= decay;
   }
   const ring = sorted.slice(1, 4);
   // The cone's top and width come from the sorted corners, so they ease like the beams when the order changes.
   const coneTop = (ring[0][1] + ring[1][1] + ring[2][1]) / 3;
   const coneWidth = Math.max(...ring.map((c) => Math.abs(c[0]))) * 0.9;
-  const first = out.cw === 0;
   out.cone[0] = first ? coneTop : coneTop + (out.cone[0] - coneTop) * decay;
   out.cone[1] = first ? coneWidth : coneWidth + (out.cone[1] - coneWidth) * decay;
   out.h = h;
   out.cw = cw;
-  out.lines = Math.floor((2 * h) / H.LINE_PITCH);
   return out;
 }
 
@@ -578,14 +855,23 @@ export function createHologram(kit: Kit): Candidate {
       art.sync(f.cover);
       const s = f.sig;
       stepHologram(st, s, f.dt, cyberGain(s, f.playing), rng);
-      const fr = solidFrame(st, kit.geo.cover[2] / kit.size.dpr, f.ambient, solid, f.dt);
+      const cover = kit.geo.cover;
+      const room = (kit.size.h - (cover[1] + cover[3] * 0.5)) / kit.size.dpr;
+      const fr = solidFrame(st, cover[2] / kit.size.dpr, f.ambient, solid, f.dt, room);
       const p = kit.program(HOLOGRAM_PROGRAM);
       setScene(kit, p, f, 0, st.rings.packed, art.tex);
       gl.uniform4fv(kit.uniform(p, "uBandsE"), st.bands);
-      kit.set1(p, "uGlow", clamp01(s.level * 1.5));
+      kit.set1(p, "uGlow", st.glow);
+      kit.set1(p, "uBeamAmt", (0.7 + 0.6 * st.energy) * (1 + 0.4 * st.flare) * st.solidLight);
+      kit.set4(p, "uReact", [st.flare, st.solidLight, st.edge, st.spark]);
+      const haloR = HOLO.HALO_R * fr.cw * (f.ambient ? HOLO.AMB_SPREAD : 1) * (1 + 0.5 * (st.grow - 1) + 0.08 * st.burst);
+      const haloAmt = (0.35 + 0.65 * st.energy) * (1 + 0.8 * st.flare) * st.solidLight;
+      kit.set4(p, "uHalo", [haloR, haloR * Math.sin(HOLO.TILT), haloAmt, st.yaw]);
+      kit.set2(p, "uShock", st.shockAt, st.shockAmt);
       kit.set1(p, "uSlow", st.slow);
-      kit.set4(p, "uGeo", [0, (HOLO.RISE + st.bob) * fr.cw, fr.h, fr.lines]);
-      kit.set4(p, "uTable", [0, -HOLO.TABLE_DROP * fr.cw, HOLO.TABLE_R * fr.cw, HOLO.TABLE_R * fr.cw * Math.sin(HOLO.TILT)]);
+      kit.set4(p, "uGeo", [0, fr.rise, fr.h, fr.lines]);
+      const tableR = tableRadius(fr.cw, f.ambient);
+      kit.set4(p, "uTable", [0, -HOLO.TABLE_DROP * fr.cw, tableR, tableR * Math.sin(HOLO.TILT)]);
       gl.uniform4fv(kit.uniform(p, "uFace"), fr.faces);
       gl.uniform4fv(kit.uniform(p, "uBeam"), fr.beams);
       kit.set4(p, "uBeamZ", [fr.beamZ[0], fr.beamZ[1], fr.beamZ[2], fr.beamZ[3]]);

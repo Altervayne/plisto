@@ -17,13 +17,30 @@ const OVAL_SIZE_MIN = 1 - 0.2 * LIVELY;
 const OVAL_SIZE_MAX = 1 + 0.2 * LIVELY + 0.18 * LIVELY;
 
 const sig = (over: Partial<VisualSignal>): VisualSignal =>
-  ({ rms: 0.3, level: 0.5, bassMotion: 0, midMotion: 0, highMotion: 0, beat: 0, drive: LIVELY, ...over }) as VisualSignal;
+  ({
+    rms: 0.3, level: 0.5, loudness: 0.3, bassMotion: 0, midMotion: 0, highMotion: 0, beat: 0, beatWeight: 0,
+    bassHit: 0, midHit: 0, highHit: 0, surge: 0, cut: 0, drive: LIVELY, ...over,
+  }) as VisualSignal;
 
-/** A song at frame i: a quiet stretch, then a loud drop with every motion envelope and beat at the cap. */
+/** A song at frame i: a quiet stretch, then a loud drop with every motion envelope, beat and hit at the cap. */
 function drop(i: number, drive = LIVELY): VisualSignal {
   if (i < 600) return sig({ rms: 0.15, drive });
-  const m = i % BEAT_EVERY < 4 ? LIVELY : 0.4;
-  return sig({ rms: 0.8, level: 1, bassMotion: m, midMotion: m, highMotion: m, beat: i % BEAT_EVERY === 0 ? 1.5 : 0, drive });
+  const k = i % BEAT_EVERY;
+  const m = k < 4 ? LIVELY : 0.4;
+  return sig({
+    rms: 0.8,
+    level: 1,
+    loudness: 0.85,
+    bassMotion: m,
+    midMotion: m,
+    highMotion: m,
+    beat: k === 0 ? 1.5 : 0,
+    beatWeight: k < 6 ? 1 : 0,
+    highHit: k < 3 ? 1 : 0,
+    surge: i === 900 ? 1 : 0,
+    cut: i === 1300 ? 1 : 0,
+    drive,
+  });
 }
 
 /** What the shader reads, so two runs can be compared by their pixels' inputs. */
@@ -31,8 +48,25 @@ function uniforms(st: RingedPlanetState) {
   const h = st.head;
   return [
     st.orb, st.spin, st.jetPh, st.pat, st.dw, st.bend, st.bendPh, st.warp, st.warpPh, st.comp, st.spoke, st.high,
-    st.ovWind, st.shear, st.fineT, st.fineA, h.lon, h.str, h.boil, ...st.crest, ...st.oval, ...st.wake, ...st.puff,
+    st.ovWind, st.shear, st.fineT, st.fineA, h.lon, h.str, h.boil, st.beatEnv, st.surgeEnv, st.spark, st.sparkPh,
+    ...st.crest, ...st.oval, ...st.wake, ...st.puff,
   ];
+}
+
+/** One kick of the given weight on a rested planet, then the crests' heights each frame for a second. */
+function kick(weight: number, frames = 60): { peak: number; heights: number[]; st: RingedPlanetState } {
+  const st = createRingedPlanetState();
+  const rng = createRng(1);
+  for (let i = 0; i < 120; i++) stepRingedPlanet(st, sig({}), DT, true, rng);
+  const heights: number[] = [];
+  for (let i = 0; i < frames; i++) {
+    const held = i < 6;
+    stepRingedPlanet(st, sig({ beat: i === 0 ? 1 : 0, beatWeight: held ? weight : 0 }), DT, true, rng);
+    let sum = 0;
+    for (let k = 1; k < st.crest.length; k += 2) sum += st.crest[k];
+    heights.push(sum);
+  }
+  return { peak: Math.max(...heights), heights, st };
 }
 
 /** Steps the drop until an outbreak is burning with some strength; false when none starts. */
@@ -171,6 +205,74 @@ describe("stepRingedPlanet", () => {
       expect(uniforms(st)).toEqual(uniforms(quiet));
     }
     expect(calm.shine).toBe(quiet.shine);
+  });
+
+  it("sizes the kick's crest by the beat's weight", () => {
+    const none = kick(0).peak;
+    const quiet = kick(0.25).peak;
+    const full = kick(1).peak;
+    expect(none).toBeLessThan(0.01);
+    expect(quiet).toBeGreaterThan(none);
+    expect(full).toBeGreaterThan(3 * quiet);
+    expect(full).toBeGreaterThan(0.8);
+    expect(kick(1.6).peak).toBeLessThanOrEqual(1.1);
+  });
+
+  it("raises the crest fast and clears it before the next kick at 128 BPM", () => {
+    const { heights, peak } = kick(1);
+    const at = (s: number) => heights[Math.round(s / DT)];
+    expect(at(0.1)).toBeGreaterThan(0.7 * peak);
+    expect(at(60 / 128)).toBeLessThan(0.25 * peak);
+    expect(at(0.9)).toBe(0);
+  });
+
+  it("flashes the globe with the beat and lets it decay", () => {
+    const { st } = kick(1, 6);
+    expect(st.beatEnv).toBeGreaterThan(0.9);
+    const rng = createRng(1);
+    for (let i = 0; i < 120; i++) stepRingedPlanet(st, sig({}), DT, true, rng);
+    expect(st.beatEnv).toBeLessThan(0.02);
+    expect(kick(0.25, 6).st.beatEnv).toBeLessThan(0.3);
+  });
+
+  it("sends one slow great crest and a storm glow on a surge", () => {
+    const st = createRingedPlanetState();
+    const rng = createRng(1);
+    for (let i = 0; i < 120; i++) stepRingedPlanet(st, sig({}), DT, true, rng);
+    stepRingedPlanet(st, sig({ surge: 1 }), DT, true, rng);
+    expect(st.crests.some((k) => k.slow > 1)).toBe(true);
+    expect(st.surgeEnv).toBe(1);
+    expect(st.puffs.length).toBeGreaterThan(0);
+    for (let i = 0; i < 60; i++) stepRingedPlanet(st, sig({}), DT, true, rng);
+    expect(st.crests.some((k) => k.slow > 1)).toBe(true);
+    expect(Math.max(...[1, 3, 5, 7].map((k) => st.crest[k]))).toBeGreaterThan(0.2);
+  });
+
+  it("ignores a cut, alone or before a surge", () => {
+    const run = (cut: number, surge: number) => {
+      const st = createRingedPlanetState();
+      const rng = createRng(1);
+      const loud = { level: 1, bassMotion: 1 };
+      for (let i = 0; i < 300; i++) stepRingedPlanet(st, sig(loud), DT, true, rng);
+      for (let i = 0; i < 90; i++) {
+        const over = i === 0 ? { cut } : i === 30 ? { surge } : {};
+        stepRingedPlanet(st, sig({ ...loud, ...over }), DT, true, rng);
+      }
+      return uniforms(st).concat(st.shine);
+    };
+    expect(run(1, 0)).toEqual(run(0, 0));
+    expect(run(1, 1)).toEqual(run(0, 1));
+  });
+
+  it("glints the ring's ice on the highs' hits and rests between them", () => {
+    const st = createRingedPlanetState();
+    const rng = createRng(1);
+    stepRingedPlanet(st, sig({ highHit: 1 }), DT, true, rng);
+    expect(st.spark).toBe(1);
+    const ph = st.sparkPh;
+    for (let i = 0; i < 60; i++) stepRingedPlanet(st, sig({}), DT, true, rng);
+    expect(st.spark).toBeLessThan(0.01);
+    expect(st.sparkPh).toBeGreaterThan(ph);
   });
 
   it("settles back to rest after the drop", () => {

@@ -3,17 +3,20 @@
  * golden hour by day. The camera is a true pinhole over a flat road, so every repeating thing (grid, dashes,
  * lamp posts, gates, light trails) sits at a world depth and slides toward the viewer: near things rush, far
  * things crawl, and the sun and the skyline, at infinity, never move. Speed is the scene's own logic: the
- * music's intensity against its own 17 s mean, sprung, with the lamp posts held on the beat by nudges of at
- * most 8%.
+ * music's absolute loudness, sprung, so a quiet passage cruises and a loud one launches, with the lamp posts
+ * held on the beat by nudges of at most 8%.
  *
  * Bass opens the sun's stripes and surges the speed, mids raise the skyline, highs lengthen the trails and run
- * glints along the grid; beats send a gate down the road and a ripple through the skyline. When the intensity
- * first reaches the top of its range, a launch glitch slides a few horizon slices with a small red and blue
- * split, at most once per 24 s; HIGHWAY.GLITCH_EVERY lists everything it touches.
+ * glints along the grid. A beat throws the towers up by its weight (a loud kick high, a kickless onset a
+ * little, a beat in a quiet passage barely), lights the neon, the sun's halo and the horizon haze by the same
+ * envelope, sends a gate down the road and a ripple through the skyline. A loudness surge throws the skyline
+ * up, bursts the speed and lights the scene once; a cut drops the skyline and sinks the glow. When the loudness
+ * first reaches the top of its range, or on a surge, a launch glitch slides a few horizon slices with a small
+ * red and blue split, at most once per 24 s; HIGHWAY.GLITCH_EVERY lists everything it touches.
  *
- * Photosensitivity: overall brightness follows only uGlow (the eased level). Every reaction moves or resizes
- * something, eased; the only light a beat adds is the gate's thin tubes, which travel. Paused or under Calm the
- * motion gain is 0: a steady cruise with no reaction.
+ * Photosensitivity: steady brightness follows uGlow (the eased loudness). The beat light follows the beat
+ * envelope, which the signal caps at 3 a second, and a surge is rare; hits only move the skyline and the road.
+ * Paused or under Calm the motion gain is 0: a steady cruise with no reaction.
  */
 
 // -- Local Imports --
@@ -31,23 +34,43 @@ import type { VisualSignal } from "../../../../state/player/visualSignal";
 export const HIGHWAY = {
   // World units per second at speed 1.
   TRAVEL: 9,
-  // Quick and slow measures of the intensity, and the gap between them that reaches the end of the range.
-  FAST_TAU: 1,
-  SLOW_TAU: 17,
-  REL_SPAN: 0.25,
+  // The loudness that cruises (speed 1), where the range ends, and the span the glitch trigger reads from.
+  LOUD_LO: 0.1,
+  LOUD_MID: 0.5,
+  LOUD_HI: 0.92,
   // Calm holds one steady cruise; the ranges by reactivity: Balanced swings, Lively launches.
   CALM_SPEED: 0.85,
-  RANGE_BALANCED: [0.7, 1.9],
-  RANGE_LIVELY: [0.5, 2.8],
+  RANGE_BALANCED: [0.5, 1.9],
+  RANGE_LIVELY: [0.32, 2.8],
   // The speed spring: quick to speed up, slower to coast.
   PULL_UP: 1.5,
   DAMP_UP: 2.45,
   PULL_DOWN: 0.5,
   DAMP_DOWN: 1.4,
   MIN_SPEED: 0.3,
-  // Extra speed per unit of bass envelope, eased.
-  SURGE: 0.22,
+  // Extra speed per unit of bass envelope (half the bass motion, half the bass hit), eased.
+  SURGE: 0.26,
   SURGE_TAU: 0.3,
+  // The beat envelope: peak of the beat weight, eased up and down, and its ceiling.
+  KICK_UP: 0.03,
+  KICK_DOWN: 0.14,
+  KICK_MAX: 1.25,
+  // The bass hit envelope that lifts the skyline a little between beats.
+  HIT_UP: 0.025,
+  HIT_DOWN: 0.12,
+  // A surge: the held peak decays over DROP_TAU, the skyline and the speed follow it, and the speed it adds.
+  DROP_TAU: 1,
+  DROP_UP: 0.07,
+  DROP_SPEED: 0.9,
+  // A cut: the held peak decays over CUT_TAU while the skyline and glow sink with it.
+  CUT_TAU: 1.3,
+  CUT_UP: 0.1,
+  // A surge releases a cut: the sink keeps this share on that frame and falls with this tau for RELEASE_SECS.
+  RELEASE_KEEP: 0.3,
+  RELEASE_TAU: 0.08,
+  RELEASE_SECS: 1,
+  // A beat weight under this sends no gate and no ripple.
+  WEIGHT_FLOOR: 0.05,
   // Lamp post spacing (the shader's LAMP_GAP) and the beat lock: largest nudge, phase pull, ease.
   LAMP_GAP: 7,
   MAX_NUDGE: 0.08,
@@ -55,8 +78,11 @@ export const HIGHWAY = {
   NUDGE_TAU: 0.7,
   // A gate is sent this many beats ahead, at most one per this many seconds (Balanced, Lively).
   GATE_LEAD: 4,
-  GATE_GAP_BALANCED: 3.6,
-  GATE_GAP_LIVELY: 1.9,
+  GATE_GAP_BALANCED: 1.2,
+  GATE_GAP_LIVELY: 0.7,
+  // A skyline ripple is sent at most once per this many seconds, and takes the beat's weight for this long.
+  RIPPLE_GAP: 0.3,
+  RIPPLE_SETTLE: 0.14,
   // Wrap of the travel passed to the shader, a multiple of every repeat on the road.
   WRAP: 840,
   // Trail rates relative to the travel: oncoming cars close fast, cars ahead slowly.
@@ -64,7 +90,7 @@ export const HIGHWAY = {
   AHEAD: 0.35,
   // The launch glitch is made of: launchSlice, uGlitch and the slice shift and colour split in main(); the glitch*,
   // lastGlitch and wasHigh state; GLITCH_*, RNG_SEED and the step's rng; and the relative energy stepSpeed returns.
-  // A rare launch glitch: when the intensity crosses into the top of its range, at most once per this many seconds.
+  // A rare launch glitch: when the loudness crosses into the top of its range or a surge lands, at most once per this many seconds.
   GLITCH_EVERY: 24,
   GLITCH_LIFE: 0.9,
 } as const;
@@ -79,7 +105,10 @@ uniform vec4 uBandsE[6];
 uniform float uTravel;    // world units travelled, wrapped
 uniform vec2 uTrail;      // oncoming and same-way trail offsets, wrapped
 uniform float uSpeed;     // 1 at cruise
-uniform float uGlow;      // eased level: the only brightness input
+uniform float uGlow;      // eased loudness, sunk by a cut: the steady brightness
+uniform float uBeat;      // beat and surge envelope: the light a beat adds
+uniform float uEnergy;    // eased loudness in 0..1: how far the mids raise the skyline
+uniform vec4 uCity;       // skyline throws: beat, bass hit, surge, cut sink
 uniform float uSlow;      // seconds, for slow drifts
 uniform float uGap;       // bass: the sun's stripe gaps opening
 uniform float uMidE;      // mids: the skyline rising
@@ -107,6 +136,11 @@ const float TRAIL_SEG = 6.0;  // trail repeat; the step wraps the offsets on 64 
 const float CITY_W = 2.4;     // skyline half width, cover widths
 const float CITY_H = 0.24;    // tallest resting tower, cover widths
 const float CITY_LIFT = 0.30; // height the mids add, cover widths
+const float KICK_LIFT = 0.30; // height a full beat adds, cover widths
+const float HIT_LIFT = 0.10;  // and a full bass hit
+const float THROW_LIFT = 0.34; // and a full surge
+const float CITY_KNEE = 0.45; // above this height a tower's rise is compressed toward CITY_TOP, cover widths
+const float CITY_TOP = 0.75;  // the tallest a tower gets, cover widths
 float band(int i) { return uBandsE[i >> 2][i & 3]; }
 
 // Distance in px to the nearest line of a repeating world coordinate v, given the world size of one px.
@@ -129,7 +163,7 @@ vec3 skyside(vec2 p, vec2 cc, float yH, float cw, vec2 sz, bool dk, float scale,
   vec3 sky;
   if (dk) {
     sky = mix(vec3(0.30, 0.02, 0.36), vec3(0.025, 0.008, 0.10), smoothstep(0.0, 0.75, up));
-    sky += vec3(1.00, 0.12, 0.45) * exp(-h / (0.22 * cw)) * 0.75;
+    sky += vec3(1.00, 0.12, 0.45) * exp(-h / (0.22 * cw)) * (0.75 + 0.4 * uBeat);
     vec2 cell = floor(p / 34.0);
     float hs = hash21(cell);
     vec2 sp = fract(p / 34.0) * 34.0 - 4.0 - vec2(hash21(cell + 3.1), hash21(cell + 8.3)) * 26.0;
@@ -152,8 +186,8 @@ vec3 skyside(vec2 p, vec2 cc, float yH, float cw, vec2 sz, bool dk, float scale,
   float cut = (1.0 - smoothstep(gap - 0.06, gap + 0.06, ph)) * step(v, zone) * smoothstep(0.0, 0.08, w);
   float disc = soft(d - R, 1.0);
   float sunM = disc * (1.0 - cut);
-  vec3 sunC = sunColor(v, dk) * (dk ? 0.86 + 0.24 * uGlow : 1.0);
-  vec3 halo = sunColor(0.35, dk) * exp(-max(d - R, 0.0) / (0.28 * R)) * (dk ? 0.42 : 0.30) * (0.7 + 0.3 * uGlow);
+  vec3 sunC = sunColor(v, dk) * (dk ? 0.86 + 0.24 * uGlow + 0.2 * uBeat : 1.0 + 0.05 * uBeat);
+  vec3 halo = sunColor(0.35, dk) * exp(-max(d - R, 0.0) / (0.28 * R)) * (dk ? 0.42 : 0.30) * (0.7 + 0.3 * uGlow + 0.6 * uBeat);
   sky += halo * (1.0 - disc);
   // Through the gaps: the sky, warmed by the sun behind.
   sky = mix(sky, sky + sunColor(v, dk) * (dk ? 0.10 : 0.12), disc * cut);
@@ -174,12 +208,18 @@ vec3 skyside(vec2 p, vec2 cc, float yH, float cw, vec2 sz, bool dk, float scale,
   }
   // The skyline: two rows of towers in silhouette against the sun, the near row rimmed in neon. Mids raise the
   // towers band by band, mirrored about the road; a beat sends a ripple out from the centre.
-  if (h < (CITY_H + CITY_LIFT + 0.12) * cw) {
+  if (h < CITY_TOP * cw) {
     float dx = abs(p.x - cc.x) / cw;
     float env = smoothstep(CITY_W, 0.5, dx) * (0.45 + 0.55 * smoothstep(0.0, 0.7, dx));
     int bi = 5 + int(min(dx / CITY_W, 0.999) * 10.0);
-    float lift = pow(uMidE, 0.7) * (0.5 + 0.9 * band(bi)) * CITY_LIFT * smoothstep(CITY_W + 0.2, 0.8, dx);
-    float ripple = uPulse.y * exp(-pow((dx - 0.3 - uPulse.x * 2.0) / 0.25, 2.0)) * 0.10;
+    float bnd = band(bi);
+    float reach = smoothstep(CITY_W + 0.2, 0.8, dx);
+    float sink = 1.0 - 0.85 * uCity.w;
+    // The mids' rise scales with the loudness; beats, bass hits and surges throw every tower, band by band.
+    float midLift = pow(uMidE, 0.7) * (0.5 + 0.9 * bnd) * CITY_LIFT * (0.3 + 0.7 * uEnergy);
+    float throwLift = (uCity.x * KICK_LIFT + uCity.y * HIT_LIFT + uCity.z * THROW_LIFT) * (0.45 + 0.9 * bnd);
+    float lift = (midLift + throwLift) * reach * sink;
+    float ripple = uPulse.y * exp(-pow((dx - 0.3 - uPulse.x * 2.0) / 0.25, 2.0)) * 0.14 * sink;
     // Far row: narrow, lower, hazed toward the sky.
     float fw = 0.032 * cw;
     float fi = floor(p.x / fw);
@@ -194,7 +234,12 @@ vec3 skyside(vec2 p, vec2 cc, float yH, float cw, vec2 sz, bool dk, float scale,
     float h1 = hash21(vec2(ni, 3.7)), h2 = hash21(vec2(ni, 9.1)), h3 = hash21(vec2(ni, 15.3));
     // About half the towers answer the mids strongly, the rest stay low, so the sun shows between the spires.
     float rise = mix(0.12, 1.25, smoothstep(0.42, 0.58, h2));
-    float th = ((0.025 + CITY_H * h1 * h1 * (0.5 + 0.7 * h1)) * env + lift * rise + ripple * (0.4 + h2)) * cw;
+    // A beat lifts the short towers too, so the whole skyline jumps.
+    float kickRise = mix(0.4, 1.15, smoothstep(0.42, 0.58, h2));
+    float thc = (0.025 + CITY_H * h1 * h1 * (0.5 + 0.7 * h1)) * env * (1.0 - 0.3 * uCity.w) + (midLift * rise + throwLift * kickRise) * reach * sink + ripple * (0.4 + h2);
+    // Past the knee the rise is compressed, so a full throw stays inside the sky.
+    thc = thc < CITY_KNEE ? thc : CITY_KNEE + (CITY_TOP - CITY_KNEE) * (1.0 - exp(-(thc - CITY_KNEE) / (CITY_TOP - CITY_KNEE)));
+    float th = thc * cw;
     float inX = step(0.06 + 0.1 * h3, lx) * step(lx, 0.94 - 0.1 * h2);
     float step2 = step(0.6, h3) * step(0.3, lx) * step(lx, 0.7) * 0.05 * cw;
     float top = th + step2;
@@ -301,7 +346,7 @@ vec3 groundside(vec2 p, vec2 cc, float yH, float cw, float F, bool dk, float sca
     col += gc * exp(-pow((z - g.x) / 0.9, 2.0)) * smoothstep(ROAD_W + 0.6, ROAD_W - 0.2, ax) * g.y * (dk ? 0.22 : 0.10) * smoothstep(40.0, 15.0, g.x) * smoothstep(3.0, 7.0, g.x);
   }
   // Haze where the plane meets the sky.
-  col += (dk ? vec3(1.0, 0.12, 0.5) : vec3(1.0, 0.75, 0.70)) * exp(-dy / (0.035 * cw)) * (dk ? 0.5 : 0.35);
+  col += (dk ? vec3(1.0, 0.12, 0.5) : vec3(1.0, 0.75, 0.70)) * exp(-dy / (0.035 * cw)) * (dk ? 0.5 : 0.35) * (1.0 + 0.7 * uBeat);
   return col;
 }
 
@@ -328,7 +373,7 @@ void main() {
   bool dk = uLight < 0.5;
   float yH = cc.y - HORIZON * cw;
   float F = FOCAL * cw;
-  float scale = 0.62 + 0.55 * uGlow;
+  float scale = 0.62 + 0.55 * uGlow + 0.3 * uBeat;
   vec3 n1 = mix(dk ? vec3(0.0, 0.92, 1.0) : vec3(0.0, 0.45, 1.0), neon(1), 0.10);
   vec3 n2 = mix(dk ? vec3(1.0, 0.08, 0.78) : vec3(0.95, 0.10, 0.62), neon(0), 0.08);
   vec3 col;
@@ -440,10 +485,20 @@ export interface NeonHighwayState {
   travel: number;
   speed: number;
   vel: number;
-  fast: number;
-  slowMean: number;
+  // The eased absolute loudness the speed and the skyline read.
+  loud: number;
   primed: boolean;
   surge: number;
+  // The beat envelope and the bass hit envelope.
+  kick: number;
+  hit: number;
+  // A surge's held peak and the eased throw it gives the skyline and the speed; a cut's held peak and sink.
+  dropPeak: number;
+  drop: number;
+  cutPeak: number;
+  sink: number;
+  // Seconds left of the fast release a surge gives the sink.
+  release: number;
   nudge: number;
   slow: number;
   gap: number;
@@ -474,10 +529,16 @@ export function createNeonHighwayState(): NeonHighwayState {
     travel: 0,
     speed: 1,
     vel: 0,
-    fast: 0,
-    slowMean: 0,
+    loud: 0,
     primed: false,
     surge: 0,
+    kick: 0,
+    hit: 0,
+    dropPeak: 0,
+    drop: 0,
+    cutPeak: 0,
+    sink: 0,
+    release: 0,
     nudge: 0,
     slow: 0,
     gap: 0,
@@ -501,18 +562,15 @@ export function createNeonHighwayState(): NeonHighwayState {
   };
 }
 
-/** The speed spring: intensity against its own slow mean, sprung toward the reactivity's range. Returns that gap. */
+/** The speed spring: the absolute loudness, sprung toward the reactivity's range. Returns where it sits in -1..1. */
 function stepSpeed(st: NeonHighwayState, s: VisualSignal, dt: number, drive: number): number {
   const H = HIGHWAY;
-  const intensity = s.level + 0.15 * s.bassMotion;
   if (!st.primed) {
-    st.fast = intensity;
-    st.slowMean = intensity;
+    st.loud = s.loudness;
     st.primed = true;
   }
-  st.fast = easeEnvelope(st.fast, intensity, dt, H.FAST_TAU);
-  st.slowMean = easeEnvelope(st.slowMean, intensity, dt, H.SLOW_TAU);
-  const rel = Math.max(-1, Math.min(1, (st.fast - st.slowMean) / H.REL_SPAN));
+  st.loud = easeEnvelope(st.loud, s.loudness, dt, 0.25);
+  const rel = st.loud < H.LOUD_MID ? Math.max(-1, (st.loud - H.LOUD_MID) / (H.LOUD_MID - H.LOUD_LO)) : Math.min(1, (st.loud - H.LOUD_MID) / (H.LOUD_HI - H.LOUD_MID));
   const [lo, hi] = drive > 1.3 ? H.RANGE_LIVELY : H.RANGE_BALANCED;
   const target = drive === 0 ? H.CALM_SPEED : rel < 0 ? 1 + (1 - lo) * rel : 1 + (hi - 1) * rel;
   const up = target > st.speed;
@@ -562,8 +620,23 @@ export function stepNeonHighway(st: NeonHighwayState, s: VisualSignal, dt: numbe
   const H = HIGHWAY;
   const rel = stepSpeed(st, s, dt, drive);
   stepBeatClock(st.bc, s, dt, drive);
-  st.surge = easeEnvelope(st.surge, drive > 0 ? s.bassMotion * H.SURGE : 0, dt, H.SURGE_TAU);
-  const v = H.TRAVEL * (st.speed + st.surge);
+  st.surge = easeEnvelope(st.surge, drive > 0 ? (0.5 * s.bassMotion + 0.5 * s.bassHit) * H.SURGE : 0, dt, H.SURGE_TAU);
+  // Beat and hit envelopes (the beat weight peak-followed), then a surge's and a cut's held peaks.
+  const ease2 = (prev: number, target: number, up: number, down: number) =>
+    easeEnvelope(prev, target, dt, target > prev ? up : down);
+  st.kick = ease2(st.kick, drive > 0 ? Math.min(H.KICK_MAX, s.beatWeight) : 0, H.KICK_UP, H.KICK_DOWN);
+  st.hit = ease2(st.hit, drive > 0 ? Math.min(1.3, s.bassHit) : 0, H.HIT_UP, H.HIT_DOWN);
+  st.dropPeak = drive > 0 ? Math.max(easeEnvelope(st.dropPeak, 0, dt, H.DROP_TAU), Math.min(1, s.surge)) : 0;
+  st.drop = ease2(st.drop, st.dropPeak, H.DROP_UP, H.DROP_TAU);
+  st.cutPeak = drive > 0 ? Math.max(easeEnvelope(st.cutPeak, 0, dt, H.CUT_TAU), Math.min(1, s.cut)) : 0;
+  if (drive > 0 && s.surge > 0) {
+    st.cutPeak = 0;
+    st.sink *= H.RELEASE_KEEP;
+    st.release = H.RELEASE_SECS;
+  }
+  st.release = Math.max(0, st.release - dt);
+  st.sink = ease2(st.sink, st.cutPeak, H.CUT_UP, st.release > 0 ? H.RELEASE_TAU : H.CUT_TAU);
+  const v = H.TRAVEL * (st.speed + st.surge + H.DROP_SPEED * st.drop);
   st.nudge = easeEnvelope(st.nudge, drive > 0 ? lampNudge(st, v) : 0, dt, H.NUDGE_TAU);
   const dz = dt * v * (1 + st.nudge);
   st.travel += dz;
@@ -571,28 +644,29 @@ export function stepNeonHighway(st: NeonHighwayState, s: VisualSignal, dt: numbe
   st.trail[1] = (st.trail[1] + dz * H.AHEAD) % TRAIL_WRAP;
   st.slow += dt;
   // Band jobs, each eased: bass opens the sun, mids lift the skyline, highs stretch the trails.
-  const ease2 = (prev: number, target: number, up: number, down: number) =>
-    easeEnvelope(prev, target, dt, target > prev ? up : down);
   st.gap = ease2(st.gap, drive > 0 ? clamp01(s.bassMotion * 0.75) : 0, 0.12, 0.45);
   st.mid = ease2(st.mid, drive > 0 ? clamp01(s.midMotion) : 0, 0.2, 0.6);
   st.high = ease2(st.high, drive > 0 ? clamp01(s.highMotion) : 0, 0.15, 0.5);
-  // Beats: a gate sent four beats ahead, and a ripple through the skyline.
+  // Beats: a gate sent four beats ahead, and a ripple through the skyline that keeps the beat's weight as it lands.
   st.pulse[0] += dt;
   const now = st.bc.clock;
-  if (drive > 0 && s.beat > 0) {
-    if (st.pulse[0] > 0.6) st.pulse = [0, Math.min(1, 0.5 + s.beat * 0.5) * Math.min(1.3, drive)];
+  const weight = drive > 0 ? s.beatWeight : 0;
+  const cap = Math.min(1.3, drive);
+  if (drive > 0 && st.pulse[0] < H.RIPPLE_SETTLE) st.pulse[1] = Math.max(st.pulse[1], Math.min(1, weight) * cap);
+  if (drive > 0 && s.beat > 0 && weight > H.WEIGHT_FLOOR) {
+    if (st.pulse[0] > H.RIPPLE_GAP) st.pulse = [0, Math.min(1, weight) * cap];
     const minGap = drive > 1.3 ? H.GATE_GAP_LIVELY : H.GATE_GAP_BALANCED;
     if (now - st.lastGate > minGap) {
-      st.gates.push({ z: st.travel + v * st.bc.period * H.GATE_LEAD, s: Math.min(1, 0.55 + s.beat * 0.45), hue: st.gateHue });
+      st.gates.push({ z: st.travel + v * st.bc.period * H.GATE_LEAD, s: Math.min(1, 0.4 + 0.6 * weight), hue: st.gateHue });
       st.gateHue = 1 - st.gateHue;
       st.lastGate = now;
       if (st.gates.length > GATE_SLOTS) st.gates.shift();
     }
   }
   st.gates = st.gates.filter((g) => g.z - st.travel > 0.2);
-  // The launch glitch: the intensity crossing into the top of its range, rarely.
+  // The launch glitch: the loudness crossing into the top of its range, or a surge, rarely.
   const high = rel > 0.75;
-  if (drive > 0 && high && !st.wasHigh && now - st.lastGlitch > H.GLITCH_EVERY) {
+  if (drive > 0 && ((high && !st.wasHigh) || s.surge > 0.3) && now - st.lastGlitch > H.GLITCH_EVERY) {
     st.glitch = 0;
     st.lastGlitch = now;
     st.glitchPeak = 22 * Math.min(1.3, drive);
@@ -602,7 +676,7 @@ export function stepNeonHighway(st: NeonHighwayState, s: VisualSignal, dt: numbe
   st.glitch += dt;
   const ga = st.glitch / H.GLITCH_LIFE;
   st.glitchAmt = ga < 1 ? Math.sin(Math.PI * Math.min(1, ga * 2.5)) ** 2 * (1 - ga) * st.glitchPeak : 0;
-  st.shownSpeed = (st.speed + st.surge) * (1 + st.nudge);
+  st.shownSpeed = (st.speed + st.surge + H.DROP_SPEED * st.drop) * (1 + st.nudge);
   st.shownPulse = st.pulse[1] * Math.max(0, 1 - st.pulse[0] / 1.4);
   cyberBands(st.bands, s, drive, dt);
 }
@@ -641,7 +715,10 @@ export function createNeonHighway(kit: Kit): Candidate {
       kit.set1(p, "uTravel", st.travel % HIGHWAY.WRAP);
       kit.set2(p, "uTrail", st.trail[0], st.trail[1]);
       kit.set1(p, "uSpeed", st.shownSpeed);
-      kit.set1(p, "uGlow", clamp01(s.level * 1.6));
+      kit.set1(p, "uGlow", clamp01(s.loudness * 1.6) * (1 - 0.4 * st.sink));
+      kit.set1(p, "uBeat", clamp01(Math.max(st.kick, st.drop)));
+      kit.set1(p, "uEnergy", clamp01((st.loud - HIGHWAY.LOUD_LO) / (HIGHWAY.LOUD_HI - HIGHWAY.LOUD_LO)));
+      gl.uniform4f(kit.uniform(p, "uCity"), st.kick, st.hit, st.drop, st.sink);
       kit.set1(p, "uSlow", st.slow);
       kit.set1(p, "uGap", st.gap);
       kit.set1(p, "uMidE", st.mid);

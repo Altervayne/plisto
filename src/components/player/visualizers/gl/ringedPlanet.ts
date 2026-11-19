@@ -11,8 +11,12 @@
  * kink the F ring. A beat sends a crest out across the ring and pops a cell in the storm band. Calm and paused
  * hold a fixed slow cruise with no reaction.
  *
- * Photosensitivity: brightness follows only the eased level. The waves move light around the ring and never add
- * it across a large area, and the ring's big edges hold still so its lit area never pumps.
+ * The kick: a beat's weight sizes a bright, tall crest that runs the whole ring and clears before the next kick, and
+ * flashes the storm band and the limb through a decaying envelope. A surge sends one great slow crest and floods the
+ * storm band; the highs' hits glint in the ring's ice.
+ *
+ * Photosensitivity: light follows the beat weight, capped at three a second, or an eased value. The ring's big edges
+ * hold still so its lit area never pumps.
  */
 
 // -- Local Imports --
@@ -62,10 +66,26 @@ const COMP_BASS = 0.016;
 const DW_BASE = 0.15;
 const DW_BASS = 0.9;
 // Least time between two beat crests, and a crest's life, in seconds: it has faded out before a fifth could evict it.
-const CREST_GAP = 0.55;
-const CREST_LIFE = 2.15;
-// A crest's outward speed, planet radii per second, times the square root of the pace.
-const CREST_SPEED = 0.32;
+const CREST_GAP = 0.3;
+const CREST_LIFE = 0.9;
+// A crest's rise time, decay time and the age its fade-out starts, in seconds of its own clock.
+const CREST_RISE = 0.06;
+const CREST_DECAY = 0.3;
+const CREST_FADE_AT = 0.35;
+// A crest's outward speed, planet radii per second, times the pace to the quarter power.
+const CREST_SPEED = 1.7;
+// The tallest a crest's strength goes: its lift stays inside what the plane solve holds.
+const CREST_CAP = 1.1;
+// A surge's crest runs on a clock this many times slower, so one great crest crosses the whole ring.
+const SURGE_SLOW = 2.2;
+// A surge's crest decays this many times slower on its own clock, so it still carries light at the outer edge.
+const SURGE_HOLD = 2;
+// The beat flash on the globe decays over this, and a surge's glow over SURGE_TAU, in seconds.
+const BEAT_TAU = 0.28;
+const SURGE_TAU = 1.4;
+// The ice glints decay over this, in seconds, and cycle their pattern at this rate per unit of hit.
+const SPARK_TAU = 0.12;
+const SPARK_RATE = 40;
 // Beat crests alive at once; the shader's uCrest holds this many.
 const CREST_SLOTS = 4;
 // Each oval's longitude, latitude (as a share of the half-sphere) and drift over the deep spin.
@@ -123,6 +143,10 @@ uniform float uComp;
 uniform float uSpoke;
 uniform float uHighE;
 uniform float uShine;
+uniform float uBeatG;    // the beat's eased flash: it lights the storm band and the limb
+uniform float uSurgeG;   // a surge's glow: a brighter storm band and a brighter ring
+uniform float uSpark;    // sparkle in the ring's ice, from the highs' hits
+uniform float uSparkPh;
 uniform vec2 uCrest[4];
 uniform vec4 uOval[3];   // the ovals: longitude, latitude (yy), size, spin angle
 uniform float uOvalW;    // how far each oval winds the bands round it
@@ -146,7 +170,7 @@ const float JET = 0.9;                    // spread of the band drifts round the
 const float STORM_BI = 13.0;              // the storm band (40 to 50 degrees north), where outbreaks erupt
 const vec2 OVAL = vec2(0.15, 0.062);      // an oval's half-axes at size 1, radians on the sphere
 const float HEAD_R = 0.15;                // the outbreak head's radius at full strength, radians
-const float PUFF_R = 0.045;
+const float PUFF_R = 0.075;
 const float R_IN = 1.24;                  // ring radii, in planet radii: C, B, the Cassini division, A, F
 const float R_B = 1.52;
 const float R_CAS = 1.95;
@@ -156,12 +180,17 @@ const float R_F = 2.33;
 const float ENCKE = 2.214;
 const float ZONE = 0.05;                  // streak zone width: each turns at its own Keplerian rate
 const float NB = 18.0;                    // cloud bands pole to pole
-const float CREST_W = 0.05;               // a beat crest's half-width, planet radii
-const float CREST_H = 0.014;              // its lift at full strength
-const float CREST_LIGHT = 0.3;            // how much of a crest's slope the lighting sees
+const float CREST_W = 0.13;               // a beat crest's half-width, planet radii
+const float CREST_H = 0.032;             // its lift at full strength: its slope stays under the view's, so the plane solve holds
+const float CREST_LIGHT = 0.8;            // how much of a crest's slope the lighting sees
+const float CREST_GLOW = 0.75;            // the light a full crest adds to the ring
+const float CREST_DENSE = 0.8;            // how much a full crest thickens the ring under it
+const float SURGE_RING = 0.35;            // how much a full surge brightens the ring
+const float STORM_FLASH = 0.5;            // how far a full beat whitens the storm band
+const float LIMB_BEAT = 2.2;              // the limb glow's gain per unit of beat flash
 const float BEND_K = 52.0;                // the bending wave's wavenumber, rad per planet radius
 const float COMP_K = 30.0;                // the compression wave's wavenumber, rad per planet radius
-const float CREST_PUSH = 0.024;           // how far a full beat crest shoves the ringlets, planet radii
+const float CREST_PUSH = 0.04;          // how far a full beat crest shoves the ringlets, planet radii
 const float WARP_LIGHT = 0.3;             // how much of the warp's tilt the lighting sees
 const float EXPOSURE = 1.3;
 
@@ -365,6 +394,9 @@ void main() {
       cloud = max(cloud, smoothstep(0.35, 0.75, exp(-dot(q, q) / (sz * sz)) * pf.w + (wt2 - 0.5) * 0.35));
     }
     alb = mix(alb, WHITE * (0.86 + 0.18 * wt2), cloud);
+    // The beat whitens the whole storm band and a surge floods it, so a kick lands on the globe as well as the ring.
+    float stormM = 1.0 - smoothstep(0.045, 0.1, abs(w.y - 0.5));
+    alb = mix(alb, WHITE * (0.9 + 0.15 * wt2), sat(stormM * (STORM_FLASH * uBeatG + 0.7 * uSurgeG) * (0.45 + 0.55 * streak)));
     alb *= 1.0 - 0.45 * lane;
     // The ovals themselves: a core turning as one with a fixed spiral wound into it, and a dark collar.
     for (int i = 0; i < 3; i++) {
@@ -416,7 +448,7 @@ void main() {
     float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     vec3 g = alb * lit * 1.15 * shine;
     g *= 0.75 + 0.25 * max(dot(N, V), 0.0);
-    g += vec3(0.35, 0.55, 1.0) * rim * 0.45 * smoothstep(-0.2, 0.4, ndl) * shine;
+    g += vec3(0.35, 0.55, 1.0) * rim * 0.45 * (1.0 + LIMB_BEAT * uBeatG) * smoothstep(-0.2, 0.4, ndl) * shine;
     // Ringshine: the lit rings faintly light the night side, more toward the equator.
     g += alb * vec3(1.0, 0.85, 0.62) * 0.05 * (1.0 - abs(yy)) * smoothstep(0.3, -0.3, ndl) * shine;
     col = mix(col, g, cov);
@@ -450,7 +482,10 @@ void main() {
       float push = uComp * sin(COMP_K * r - uBendPh * 0.8) * smoothstep(R_IN, R_IN + 0.1, r);
       for (int i = 0; i < 4; i++) { float u = (r - uCrest[i].x) / (CREST_W * 1.6); push += uCrest[i].y * CREST_PUSH * u * exp(-u * u); }
       vec2 tq = ringTau(r, aa, uHighE * 0.8 * sin(th * 3.0 + uOrb), push);
-      float tau = tq.x;
+      // A beat crest also thickens the ring under it, so it shows over the thin C ring and the Cassini division.
+      float crestLit = 0.0;
+      for (int i = 0; i < 4; i++) { float u = (r - uCrest[i].x) / CREST_W; crestLit += uCrest[i].y * exp(-u * u); }
+      float tau = tq.x * (1.0 + CREST_DENSE * crestLit);
       float grain = tq.y;
       // The Encke gap, with the shepherd moon in it and the wavy edges it leaves behind.
       float mTh = uOrb * pow(R_IN / ENCKE, 1.5) + 1.3;
@@ -495,10 +530,12 @@ void main() {
       float tc = dot(-Q, gL);
       vec3 dv = Q + gL * tc;
       float shadow = tc > 0.0 ? smoothstep(0.97, 1.04, length(vec3(dv.x, dv.y / OBL, dv.z))) : 1.0;
-      float crestLit = 0.0;
-      for (int i = 0; i < 4; i++) { float u = (r - uCrest[i].x) / CREST_W; crestLit += uCrest[i].y * exp(-u * u); }
       vec3 rc = ringAlb(r) * mix(1.0, grain, opaque * 0.85) * (1.0 - 0.45 * spokeK) * sunOn * (0.06 + 0.94 * shadow) * 1.15 * shine;
-      rc += vec3(1.0, 0.85, 0.6) * crestLit * 0.04 * shadow * shine;
+      rc *= 1.0 + SURGE_RING * uSurgeG;
+      rc += vec3(1.0, 0.85, 0.6) * crestLit * CREST_GLOW * shadow * shine;
+      // Ice glints from the highs' hits: thin points on the lit ring that change with each hit.
+      float glint = smoothstep(0.78, 0.95, vnoise(vec2(th * 70.0 + uSparkPh, r * 90.0 - uSparkPh * 0.7)));
+      rc += vec3(1.0, 0.95, 0.85) * glint * uSpark * 0.6 * (1.0 - smoothstep(0.15, 0.5, aa * 90.0)) * sunOn * shadow * shine;
       float a2 = alpha * edge2(r, R_IN - 0.01, R_F + 0.02, aa) * vis;
       col = col * (1.0 - a2) + rc * a2;
       // The shepherd moon itself: a small lit body riding in its gap.
@@ -513,19 +550,21 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
-/** One beat crest riding out across the ring: its radius in planet radii, age in seconds and beat strength. */
+/** One crest riding out across the ring: its radius in planet radii, age in seconds, strength and clock scale. */
 interface Crest {
   r: number;
   age: number;
   h: number;
+  slow: number;
 }
 
-/** One beat-fed convective cell: band-frame longitude, latitude, age in seconds and strength. */
+/** One beat-fed convective cell: band-frame longitude, latitude, age in seconds, strength and its full-weight size. */
 interface Puff {
   L: number;
   yy: number;
   age: number;
   h: number;
+  base: number;
 }
 
 interface Oval {
@@ -564,6 +603,11 @@ export interface RingedPlanetState {
   spoke: number;
   high: number;
   shine: number;
+  // The beat flash, a surge's glow and the ice glints, each eased.
+  beatEnv: number;
+  surgeEnv: number;
+  spark: number;
+  sparkPh: number;
   crests: Crest[];
   lastCrest: number;
   clock: number;
@@ -608,6 +652,10 @@ export function createRingedPlanetState(): RingedPlanetState {
     spoke: 0.3,
     high: 0,
     shine: 0.4,
+    beatEnv: 0,
+    surgeEnv: 0,
+    spark: 0,
+    sparkPh: 0,
     crests: [],
     lastCrest: -9,
     clock: 0,
@@ -652,6 +700,9 @@ export function stepRingedPlanet(
   const midM = live ? s.midMotion : 0;
   const highM = live ? s.highMotion : 0;
   const beat = live ? s.beat : 0;
+  const weight = live ? Math.min(CREST_CAP, s.beatWeight) : 0;
+  const surge = live ? s.surge : 0;
+  const highHit = live ? s.highHit : 0;
   st.clock += dt;
   // Pace: a quick energy measure against the song's own slow mean, through a soft spring.
   if (!st.primed) {
@@ -686,6 +737,12 @@ export function stepRingedPlanet(
   st.spoke = easeEnvelope(st.spoke, 0.3 + 0.7 * midM, dt, 0.4);
   st.high = easeEnvelope(st.high, highM, dt, 0.35);
   st.shine = easeEnvelope(st.shine, clamp01(s.level * 1.6), dt, 1.4);
+  // The beat's flash on the globe and a surge's glow peak-follow their signals and decay on their own clocks; the
+  // highs' hits set the ice glints and turn their pattern over.
+  st.beatEnv = Math.max(st.beatEnv * Math.exp(-dt / BEAT_TAU), weight);
+  st.surgeEnv = Math.max(st.surgeEnv * Math.exp(-dt / SURGE_TAU), Math.min(1, surge));
+  st.spark = Math.max(st.spark * Math.exp(-dt / SPARK_TAU), Math.min(1, highHit));
+  st.sparkPh += SPARK_RATE * st.spark * dt;
   // The globe's weather. Energy against the mean and the bass feed the ovals: they swell, spin up and wind the
   // bands tighter round them. The mids roll up the billows on the band boundaries. The highs stir the fine eddies.
   st.ovSize = easeEnvelope(st.ovSize, 1 + OVAL_SIZE_REL * st.relE * Math.min(drive, 1.6) + OVAL_SIZE_BASS * bassM, dt, 1.6);
@@ -724,32 +781,56 @@ export function stepRingedPlanet(
   st.wake[slot] = Math.max(st.wake[slot], h.str);
   // Beat: a crest rides out across the ring from its inner edge, and a convective cell pops up in the storm
   // band: at the head while it burns, elsewhere in view as the band charges, small while it is quiet.
+  // A crest's size is the beat's weight: the newest one keeps rising with it while the weight is held. A surge
+  // sends one great crest on a slow clock, and the crests it finds in the way give way before it does.
   for (const k of st.crests) {
-    k.r += CREST_SPEED * Math.sqrt(pace) * dt;
+    k.r += (CREST_SPEED * Math.pow(pace, 0.25) * dt) / k.slow;
     k.age += dt;
   }
-  st.crests = st.crests.filter((k) => k.age < CREST_LIFE);
+  st.crests = st.crests.filter((k) => k.age < CREST_LIFE * k.slow);
+  const evict = () => {
+    if (st.crests.length < CREST_SLOTS) return;
+    const i = st.crests.findIndex((k) => k.slow === 1);
+    st.crests.splice(i < 0 ? 0 : i, 1);
+  };
+  if (surge > 0) {
+    evict();
+    st.crests.push({ r: 1.2, age: 0, h: CREST_CAP, slow: SURGE_SLOW });
+  }
   if (beat > 0 && st.clock - st.lastCrest >= CREST_GAP) {
     st.lastCrest = st.clock;
-    if (st.crests.length === CREST_SLOTS) st.crests.shift();
-    st.crests.push({ r: 1.3, age: 0, h: Math.min(1.1, beat) });
+    evict();
+    st.crests.push({ r: 1.3, age: 0, h: weight, slow: 1 });
+  } else {
+    for (const k of st.crests) if (k.slow === 1 && k.age < 0.15) k.h = Math.max(k.h, weight);
   }
   for (const p of st.puffs) p.age += dt;
   st.puffs = st.puffs.filter((p) => p.age < PUFF_LIFE);
+  // A cell's size follows the beat's weight as it is held; a surge pops a pair at once.
+  const cellK = 0.25 + 0.75 * clamp01(weight / 0.7);
+  const popCell = (base: number, burning: boolean) => {
+    if (st.puffs.length === PUFF_SLOTS) st.puffs.shift();
+    const lon = burning ? h.lon + 0.03 + 0.05 * rng() : -0.7 + 1.3 * rng();
+    st.puffs.push({ L: lon + obPh, yy: 0.5 + (rng() - 0.5) * 0.06, age: 0, h: base * cellK, base });
+  };
+  if (surge > 0) {
+    popCell(0.9, false);
+    popCell(0.9, false);
+  }
   if (beat > 0 && st.clock - st.lastPuff >= PUFF_GAP) {
     st.lastPuff = st.clock;
-    if (st.puffs.length === PUFF_SLOTS) st.puffs.shift();
     const burning = h.str > 0.2;
-    const lon = burning ? h.lon + 0.03 + 0.05 * rng() : -0.7 + 1.3 * rng();
-    const charge = Math.min(1, st.cape / CAPE_FIRE);
-    st.puffs.push({ L: lon + obPh, yy: 0.5 + (rng() - 0.5) * 0.06, age: 0, h: burning ? 0.9 : 0.4 + 0.55 * charge });
+    popCell(burning ? 0.9 : 0.4 + 0.55 * Math.min(1, st.cape / CAPE_FIRE), burning);
+  } else {
+    for (const p of st.puffs) if (p.age < 0.15) p.h = Math.max(p.h, p.base * cellK);
   }
   st.crest.fill(0);
   st.puff.fill(0);
   st.crests.forEach((k, i) => {
-    const fin = Math.min(1, k.age / 0.7);
+    const t = k.age / k.slow;
+    const fin = Math.min(1, t / CREST_RISE);
     st.crest[i * 2] = k.r;
-    st.crest[i * 2 + 1] = k.h * fin * fin * (3 - 2 * fin) * Math.exp(-k.age / 1.6) * (1 - clamp01((k.age - 1.2) / (CREST_LIFE - 1.2)));
+    st.crest[i * 2 + 1] = k.h * fin * fin * (3 - 2 * fin) * Math.exp(-t / (CREST_DECAY * (k.slow > 1 ? SURGE_HOLD : 1))) * (1 - clamp01((t - CREST_FADE_AT) / (CREST_LIFE - CREST_FADE_AT)));
   });
   st.puffs.forEach((p, i) => {
     const fin = Math.min(1, p.age / 1.1);
@@ -795,6 +876,10 @@ export function createRingedPlanet(kit: Kit): Candidate {
       kit.set1(p, "uSpoke", st.spoke);
       kit.set1(p, "uHighE", st.high);
       kit.set1(p, "uShine", st.shine);
+      kit.set1(p, "uBeatG", st.beatEnv);
+      kit.set1(p, "uSurgeG", st.surgeEnv);
+      kit.set1(p, "uSpark", st.spark);
+      kit.set1(p, "uSparkPh", st.sparkPh);
       kit.gl.uniform2fv(kit.uniform(p, "uCrest"), st.crest);
       kit.gl.uniform4fv(kit.uniform(p, "uOval"), st.oval);
       kit.set1(p, "uOvalW", st.ovWind);

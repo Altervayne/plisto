@@ -8,10 +8,19 @@
  * wave of light down the aisle, in the next of three slots; the band envelopes send their own. The wall monitor
  * slides in slices on beats.
  *
- * Photosensitivity: brightness at rest follows the eased level (uGlow). Columns change LED hue and trade light
- * between lit and unlit rows, so a door's total holds. A wave adds eased, local light as it travels (LED swell
- * and burn, a blue wash on the rack faces) and fades out before it reaches the viewer; nothing flashes. Calm and
- * paused launch no waves and no columns and let running waves fade out; the LEDs only breathe slowly.
+ * The ceiling tubes and the room's ambient light follow the eased loudness, so a near-silent passage is a dim, sleeping
+ * room. A cut makes the tubes stutter (three dips, no more) while they sink toward dark and the room dims with them,
+ * then they recover slowly; a surge slams them back above rest with a full wave down the aisle. A beat's wave takes
+ * its strength from the beat weight, and the tubes pulse faintly with it.
+ *
+ * Photosensitivity: the tubes and the ambient light rest on the eased loudness, and the rack glow on the eased level
+ * (uGlow). A beat pulses the tubes by at most 10% of the beat weight. A cut stutters the tubes in a fixed pattern of
+ * three dips within a second (the last one stays down as they sink) and a surge slams them back, each at most once
+ * per few seconds, so no area changes more than three times in any second. At Calm and while paused all of these
+ * are at rest and the tubes only follow loudness. Columns change LED hue and trade light between lit and unlit
+ * rows, so a door's total holds. A wave adds eased, local light as it travels (LED swell and burn, a blue wash on
+ * the rack faces) and fades out before it reaches the viewer. Calm and paused launch no waves and no columns and
+ * let running waves fade out; the LEDs only breathe slowly.
  */
 
 // -- Local Imports --
@@ -60,6 +69,55 @@ export const SERVER_WAVES = {
   // Without drive, running waves fade over this time constant, s, and stop below STOP_A.
   FADE_TAU: 0.4,
   STOP_A: 0.001,
+  // A beat's wave strength runs from MIN_A (a quiet beat) to 1 with the beat weight, which is followed for WEIGHT_WINDOW s after the beat.
+  MIN_A: 0.12,
+  WEIGHT_BOOST: 1.2,
+  WEIGHT_WINDOW: 0.12,
+} as const;
+
+/**
+ * The room's lights. `lamp` scales the ceiling tubes and their wash, `amb` the room's ambient light; both read 1 at
+ * the rest loudness. A cut makes the tubes stutter in DIPS (three in under a second) while they sink toward dark,
+ * then recover slowly; a surge slams them back above rest.
+ */
+export const SERVER_LIGHTS = {
+  // Loudness easing, s, and the rest loudness where lamp and amb read exactly 1.
+  LOUD_TAU: 0.4,
+  REST_LOUD: 0.3,
+  // Lamp and ambient level at silence and at full loudness.
+  LAMP_QUIET: 0.45,
+  LAMP_LOUD: 1.2,
+  AMB_QUIET: 0.7,
+  AMB_LOUD: 1.08,
+  // A cut's depth is CUT_MIN + CUT_GAIN * strength, capped at 1; the tubes sink over SINK s, hold HOLD s, then recover with RECOVER_TAU.
+  CUT_MIN: 0.6,
+  CUT_GAIN: 0.4,
+  SINK: 1.1,
+  HOLD: 1.4,
+  RECOVER_TAU: 3.5,
+  // The dim that is left when the drive stops mid-cut falls with this time constant, s.
+  RELEASE_TAU: 0.4,
+  // The share of the tube light a full dim removes, and of the ambient light.
+  DARK: 0.95,
+  AMB_SINK: 0.65,
+  // Stutter: dips start at these seconds after the cut, last DIP_W, and remove DIP_DEPTH of the light.
+  DIPS: [0.05, 0.38, 0.71],
+  DIP_W: 0.12,
+  DIP_DEPTH: 0.7,
+  FLICK_TAU: 0.02,
+  // A surge's slam: its size is SLAM_MIN + SLAM_GAIN * strength, capped at 1, adding SLAM_LAMP to the tubes and SLAM_AMB to the room, fading with SLAM_TAU.
+  SLAM_MIN: 0.7,
+  SLAM_GAIN: 0.3,
+  SLAM_LAMP: 0.5,
+  SLAM_AMB: 0.12,
+  SLAM_TAU: 0.45,
+  // The faint tube pulse with a beat's weight, and its decay.
+  PULSE: 0.1,
+  PULSE_TAU: 0.2,
+  // Lamp and ambient easing, s.
+  LAMP_TAU: 0.03,
+  AMB_UP: 0.05,
+  AMB_DOWN: 0.15,
 } as const;
 
 const RNG_SEED = 41;
@@ -70,6 +128,8 @@ uniform float uBeat;
 uniform float uSeed;
 uniform float uGlow;
 uniform float uSlow;
+uniform float uLamp;      // the ceiling tubes' light: 1 at rest, down to dark on a cut, above 1 on a surge
+uniform float uAmb;       // the room's ambient light, the same scale
 uniform vec4 uRack[24];   // the level columns per rack slot: left level, left peak, right level, right peak
 // -- Tunables --
 const float FOCAL = 2.8;      // px per world unit at depth 1, in cover widths
@@ -206,7 +266,7 @@ void main() {
     float pxRow = F * (RACK_H / ROWS) / z;
     col = rackFace(z, h, sgn, pxW, pxRow, det, dk, emit);
     // The strip lights wash the faces along the aisle, brightest near the ceiling.
-    float wash = 0.78 + 0.30 * tube(z - 0.1) + 0.25 * smoothstep(0.2, 1.0, (h + FLOOR_H) / RACK_H);
+    float wash = 0.78 + 0.30 * tube(z - 0.1) * uLamp + 0.25 * smoothstep(0.2, 1.0, (h + FLOOR_H) / RACK_H);
     col *= dk ? wash * 1.0 : 1.0 + 0.12 * (wash - 0.9);
     float wv = max(uFront[0].y * exp(-pow((z - uFront[0].x) / 0.8, 2.0)), max(uFront[1].y * exp(-pow((z - uFront[1].x) / 0.8, 2.0)), uFront[2].y * exp(-pow((z - uFront[2].x) / 0.8, 2.0))));
     col += (dk ? vec3(0.05, 0.30, 0.65) : vec3(0.10, 0.25, 0.55)) * wv * 0.30 * det * smoothstep(WAVE_FADE.x, WAVE_FADE.y, z);
@@ -237,7 +297,7 @@ void main() {
       float seam = smoothstep(0.5 - 0.02 * max(1.0, 20.0 / max(pxT, 1.0)), 0.5, max(abs(tf.x), abs(tf.y)));
       col = dk ? vec3(0.030, 0.040, 0.058) : vec3(0.80, 0.84, 0.90);
       col = mix(col, dk ? vec3(0.085, 0.105, 0.14) : vec3(0.60, 0.65, 0.73), seam * smoothstep(0.5, 6.0, pxT));
-      float refl = exp(-pow((abs(x) - 0.36) / 0.09, 2.0)) * tube(z) * 0.55 + exp(-pow(x / 0.5, 2.0)) * 0.05;
+      float refl = exp(-pow((abs(x) - 0.36) / 0.09, 2.0)) * tube(z) * uLamp * 0.55 + exp(-pow(x / 0.5, 2.0)) * 0.05;
       col += (dk ? vec3(0.45, 0.62, 0.75) : vec3(0.16, 0.20, 0.24)) * refl * det;
     } else {
       // Ceiling: panels, two tube lights and a cable tray down the middle.
@@ -248,8 +308,10 @@ void main() {
       col = dk ? vec3(0.040, 0.050, 0.068) : vec3(0.93, 0.95, 0.98);
       col = mix(col, dk ? vec3(0.015, 0.02, 0.03) : vec3(0.72, 0.76, 0.83), seam * smoothstep(0.5, 5.0, pxT));
       float strip = step(abs(abs(x) - 0.36), 0.045) * tube(z);
-      col = mix(col, dk ? vec3(0.55, 0.90, 1.0) : vec3(0.85, 0.97, 1.0), strip);
-      col += (dk ? vec3(0.06, 0.28, 0.50) : vec3(0.0, 0.05, 0.12)) * exp(-pow((abs(x) - 0.36) / 0.20, 2.0)) * (0.5 + 0.5 * tube(z));
+      vec3 stripC = dk ? vec3(0.55, 0.90, 1.0) : vec3(0.85, 0.97, 1.0);
+      col = mix(col, stripC, clamp(strip * uLamp, 0.0, 1.0));
+      col += stripC * strip * 0.25 * max(uLamp - 1.0, 0.0);
+      col += (dk ? vec3(0.06, 0.28, 0.50) : vec3(0.0, 0.05, 0.12)) * exp(-pow((abs(x) - 0.36) / 0.20, 2.0)) * (0.5 + 0.5 * tube(z)) * uLamp;
       float tray = step(abs(x), 0.17);
       col = mix(col, dk ? vec3(0.018, 0.022, 0.030) : vec3(0.50, 0.54, 0.60), tray);
       float bl = exp(-pow((x + 0.07) / 0.022, 2.0)), og = exp(-pow((x - 0.05) / 0.022, 2.0));
@@ -258,6 +320,7 @@ void main() {
   }
   float fogK = 1.0 - exp(-z / FOG_Z);
   col = mix(col, fog, fogK * (dk ? 0.85 : 0.65));
+  col *= 0.25 + 0.75 * uAmb;
   emit *= (1.0 - fogK * 0.5) * scale * det;
   col += emit * (dk ? 1.0 : 0.85);
   // The far glow: the end wall monitor lights the aisle a little, steadily.
@@ -272,6 +335,8 @@ export interface ServerFront {
   a: number;
   cool: number;
   fading: boolean;
+  // Seconds left in which a beat's wave still follows the beat weight as it lands.
+  pend: number;
 }
 
 /** The scene's moving state. `packed`, `beatEnv` and `glow` are set by each step for the shader. */
@@ -292,6 +357,18 @@ export interface ServerRoomState {
   waveGain: number;
   beatEnv: number;
   glow: number;
+  // Eased loudness and the beat-weight envelope.
+  loud: number;
+  weight: number;
+  // Seconds since the last cut (Infinity when none is running), its depth, and how far the tubes have sunk (0..1).
+  cutAge: number;
+  cutDepth: number;
+  dim: number;
+  // The surge slam envelope, the stutter factor, and the lamp and ambient levels set for the shader.
+  slam: number;
+  flick: number;
+  lamp: number;
+  amb: number;
 }
 
 export function createServerRoomState(): ServerRoomState {
@@ -300,9 +377,9 @@ export function createServerRoomState(): ServerRoomState {
     slow: 0,
     rr: 0,
     fronts: [
-      { z: 0, a: 0, cool: 0, fading: false },
-      { z: 0, a: 0, cool: 0, fading: false },
-      { z: 0, a: 0, cool: 0, fading: false },
+      { z: 0, a: 0, cool: 0, fading: false, pend: 0 },
+      { z: 0, a: 0, cool: 0, fading: false, pend: 0 },
+      { z: 0, a: 0, cool: 0, fading: false, pend: 0 },
     ],
     beat: createCyberBeat(),
     cols: new Float32Array(C.SLOTS * 4),
@@ -315,7 +392,78 @@ export function createServerRoomState(): ServerRoomState {
     waveGain: 1,
     beatEnv: 0,
     glow: 0,
+    loud: SERVER_LIGHTS.REST_LOUD,
+    weight: 0,
+    cutAge: Infinity,
+    cutDepth: 0,
+    dim: 0,
+    slam: 0,
+    flick: 1,
+    lamp: 1,
+    amb: 1,
   };
+}
+
+/** Piecewise level of a light: `quiet` at silence, 1 at the rest loudness, `loud` at full loudness. */
+function loudLevel(loud: number, quiet: number, full: number): number {
+  const r = SERVER_LIGHTS.REST_LOUD;
+  return loud < r ? quiet + (1 - quiet) * (loud / r) : 1 + (full - 1) * ((loud - r) / (1 - r));
+}
+
+/** A beat wave's strength from the beat weight: small for a quiet or kickless beat, full for a kick. */
+function beatWaveStrength(weight: number): number {
+  const W = SERVER_WAVES;
+  return W.MIN_A + (1 - W.MIN_A) * clamp01(weight * W.WEIGHT_BOOST);
+}
+
+/**
+ * Steps the room's lights: loudness sets the rest level, a cut stutters and sinks the tubes, a surge slams them
+ * and the beat weight pulses them faintly. Cuts, surges and beats act only at motion gain `drive` above 0.
+ */
+function stepLights(st: ServerRoomState, sig: VisualSignal, dt: number, drive: number): void {
+  const L = SERVER_LIGHTS;
+  st.loud = easeEnvelope(st.loud, clamp01(sig.loudness), dt, L.LOUD_TAU);
+  if (drive > 0) {
+    if (sig.cut > 0) {
+      st.cutAge = 0;
+      st.cutDepth = Math.min(1, L.CUT_MIN + L.CUT_GAIN * sig.cut);
+    }
+    if (sig.surge > 0) {
+      // The slam ends any cut at once: lights out, then back at full.
+      st.cutAge = Infinity;
+      st.dim = 0;
+      st.slam = Math.min(1, L.SLAM_MIN + L.SLAM_GAIN * sig.surge);
+    }
+    st.weight = Math.max(st.weight, Math.min(1, sig.beatWeight));
+  } else {
+    st.cutAge = Infinity;
+    st.weight = 0;
+  }
+  st.weight *= Math.exp(-dt / L.PULSE_TAU);
+  st.slam *= Math.exp(-dt / L.SLAM_TAU);
+  st.cutAge += dt;
+  const age = st.cutAge;
+  if (age < L.SINK) {
+    const s = age / L.SINK;
+    st.dim = Math.max(st.dim, st.cutDepth * s * s * (3 - 2 * s));
+  } else if (age >= L.SINK + L.HOLD || drive === 0) {
+    st.dim *= Math.exp(-dt / (drive > 0 ? L.RECOVER_TAU : L.RELEASE_TAU));
+  }
+  // The first dips return to the light; the last one is the final extinguishing and stays down while the tubes sink and hold, so
+  // nothing flickers once they are near dark. It lifts with the slow recovery, or at once when a surge or the drive ends the cut.
+  const held = age < L.SINK + L.HOLD;
+  let flick = 1;
+  if (held) {
+    const last = L.DIPS[L.DIPS.length - 1];
+    if (age >= last) flick = 1 - L.DIP_DEPTH;
+    else for (const at of L.DIPS) if (age >= at && age < at + L.DIP_W) flick = 1 - L.DIP_DEPTH;
+  }
+  const slowLift = Number.isFinite(age) && !held && drive > 0;
+  st.flick = easeEnvelope(st.flick, flick, dt, slowLift ? L.RECOVER_TAU : L.FLICK_TAU);
+  const lampT = loudLevel(st.loud, L.LAMP_QUIET, L.LAMP_LOUD) * (1 - L.DARK * st.dim) * st.flick * (1 + L.SLAM_LAMP * st.slam + L.PULSE * st.weight);
+  st.lamp = easeEnvelope(st.lamp, lampT, dt, L.LAMP_TAU);
+  const ambT = loudLevel(st.loud, L.AMB_QUIET, L.AMB_LOUD) * (1 - L.AMB_SINK * st.dim) * (1 + L.SLAM_AMB * st.slam);
+  st.amb = easeEnvelope(st.amb, ambT, dt, ambT > st.amb ? L.AMB_UP : L.AMB_DOWN);
 }
 
 /** Eases the per-rack columns and their peaks, both sides, toward the bands at motion gain `drive`. */
@@ -361,18 +509,34 @@ export function stepServerRoom(st: ServerRoomState, sig: VisualSignal, dt: numbe
   if (drive > 0 && sig.beat > 0) {
     const f = st.fronts[st.rr++ % 3];
     f.z = W.START_Z;
+    f.a = beatWaveStrength(sig.beatWeight);
+    f.cool = W.COOL;
+    f.fading = false;
+    f.pend = W.WEIGHT_WINDOW;
+  }
+  // A surge sends one full wave of its own, in the next slot.
+  if (drive > 0 && sig.surge > 0) {
+    const f = st.fronts[st.rr++ % 3];
+    f.z = W.START_Z;
     f.a = 1;
     f.cool = W.COOL;
     f.fading = false;
+    f.pend = 0;
   }
   if (drive > 0) st.waveGain = Math.min(1.3, drive);
   st.fronts.forEach((f, g) => {
     f.cool -= dt;
+    // The beat weight is held for about 0.1 s and only rises, so the wave takes its final value.
+    if (f.pend > 0) {
+      f.pend -= dt;
+      if (drive > 0) f.a = Math.max(f.a, beatWaveStrength(sig.beatWeight));
+    }
     if (drive > 0 && env[g] > 0.5 && f.cool <= 0 && f.a < W.FREE_A) {
       f.z = W.START_Z;
       f.a = clamp01(0.6 + env[g] * 0.4);
       f.cool = W.COOL;
       f.fading = false;
+      f.pend = 0;
     }
     // Without drive a running wave fades out and stays out, even if the drive returns.
     if (drive === 0) f.fading = true;
@@ -387,6 +551,7 @@ export function stepServerRoom(st: ServerRoomState, sig: VisualSignal, dt: numbe
   });
   stepColumns(st, sig, dt, drive);
   st.glow = clamp01(sig.level * 1.5);
+  stepLights(st, sig, dt, drive);
 }
 
 const SERVER_ROOM_PROGRAM: ProgramSource = { name: "server-room", vs: FS_VS, fs: FS };
@@ -418,6 +583,8 @@ export function createServerRoom(kit: Kit): Candidate {
       kit.set1(p, "uSeed", st.beat.seed);
       kit.set1(p, "uGlow", st.glow);
       kit.set1(p, "uSlow", st.slow);
+      kit.set1(p, "uLamp", st.lamp);
+      kit.set1(p, "uAmb", st.amb);
       kit.drawQuad();
     },
     dispose() {

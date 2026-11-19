@@ -5,13 +5,16 @@
  * spiral wave the pair radiates. Rays near a hole march the steep funnel; the rest take a bracketed solve.
  * Dark-only: the scene has no light look.
  *
- * The pace is a quick energy measure against the song's own slow mean, through a soft spring, so the pair
- * slows in a breakdown and whips round on a drop. The bass raises the wave and deepens the wells, the mids
- * add pace and disc turbulence, the highs spark the photon rings and shimmer the jets. A beat sends a crest
- * out on the wave and a knot up each jet. Calm and paused hold a fixed slow orbit with no reaction.
+ * The pace and the wave follow the absolute loudness through a soft spring: a near-silent passage barely
+ * turns over a faint wave, a loud one whips round under a tall wave. The song's own recent energy only trims
+ * the pace. The bass raises the wave and deepens the wells, the mids add pace and disc turbulence, the highs
+ * spark the photon rings and shimmer the jets. A beat sends a crest out on the wave, sized by the beat's
+ * weight, and a knot up each jet; a surge sends one great wave and lurches the pair, a cut lets the turning
+ * and the waves sink. Calm and paused hold a fixed slow orbit with no reaction.
  *
  * Photosensitivity: overall brightness follows the eased level. The wave, the beat crests, the photon-ring spark,
- * the jet knot and the disc turbulence add light too, but each is eased and local, and nothing flashes.
+ * the jet knot and the disc turbulence add light too, but each is eased and local, and crests launch at most
+ * a few times a second.
  */
 
 // -- Local Imports --
@@ -26,27 +29,40 @@ import { easeEnvelope } from "../../../../state/player/visualSignal";
 import type { Candidate, Frame, Kit, ProgramSource } from "./kit";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
-// Orbit pace at the song's own mean, rad/s, and the share of it Calm and paused cruise at.
+// Orbit pace at a pace of 1, rad/s, and the share of it Calm and paused cruise at.
 export const OMEGA = 2.4;
 export const CALM_PACE = 0.6;
-// The pace range around the mean: [quietest, loudest] as multiples of OMEGA.
-const RANGE_BALANCED: readonly [number, number] = [0.72, 1.45];
-export const RANGE_LIVELY: readonly [number, number] = [0.5, 2.0];
-// The drive above which the Lively range applies.
+// The pace as a multiple of OMEGA: the near-silent floor, and the loudest at Balanced and at Lively.
+export const PACE_QUIET = 0.12;
+const PACE_TOP_BALANCED = 1.45;
+export const PACE_TOP_LIVELY = 2.0;
+// The drive above which the Lively top applies.
 const LIVELY_DRIVE = 1.3;
-// The energy measure, quick and slow, in seconds, and the gap between them that reaches the end of the range.
+// The loudness the loudness curve runs between, and its exponent: it stays low through a quiet intro.
+const LOUD_LO = 0.1;
+const LOUD_HI = 0.9;
+const LOUD_CURVE = 1.5;
+// The energy measure, quick and slow, in seconds, and the gap between them that reaches the end of its trim.
 const FAST_TAU = 1;
 const SLOW_TAU = 17;
 const REL_SPAN = 0.1;
+// Share of the pace the song's relative energy trims either way.
+export const REL_TRIM = 0.1;
 // Extra pace per unit of the mid envelope.
 export const MID_PACE = 0.22;
-// The orbit tightens by this share at the top of the range.
+// Extra pace per unit of surge, easing out over LURCH_TAU seconds.
+export const LURCH_PACE = 0.7;
+const LURCH_TAU = 1.5;
+// A cut sinks the turning and the waves over this many seconds.
+const SINK_SECS = 1.5;
+// The orbit tightens by this share at the top of the loudness curve.
 const INSPIRAL = 0.1;
 // Gravitational-wave number, rad per world unit.
 export const WAVE_K = 3.4;
-// Wave amplitude: at rest, per unit of relative energy and per unit of bass envelope.
+// Wave amplitude: at rest (Calm), at the near-silent floor, at the top of the loudness curve, and per unit of bass envelope.
 export const WAVE_BASE = 0.04;
-export const WAVE_REL = 0.06;
+export const WAVE_QUIET = 0.012;
+export const WAVE_LOUD = 0.1;
 export const WAVE_BASS = 0.07;
 // Well depth at the throat, at rest and per unit of bass envelope.
 export const WELL_BASE = 0.62;
@@ -54,6 +70,14 @@ export const WELL_BASS = 0.16;
 // Least time between two beat crests, and a crest's life, in seconds.
 const CREST_GAP = 0.55;
 export const CREST_LIFE = 8;
+// A beat's weight below this launches no crest; a crest's height follows the weight while it is held.
+const CREST_MIN = 0.12;
+const WEIGHT_HOLD = 0.12;
+// The great wave a surge sends, per unit of surge, and the cap on its height.
+const SURGE_CREST = 2.2;
+export const SURGE_MAX = 2.6;
+// The shader caps the sum of overlapping crests here, so the lift stays inside the surface solver's bracket.
+export const CREST_SUM_MAX = SURGE_MAX;
 // Beat crests alive at once; the shader's uCrest holds this many.
 const CREST_SLOTS = 4;
 // A jet knot's climb, in seconds.
@@ -116,6 +140,7 @@ float height(vec2 xz) {
   float env = smoothstep(0.5 * uOrbR, 1.7 * uOrbR, r) / (1.0 + 0.15 * r);
   float crest = 0.0;
   for (int i = 0; i < 4; i++) { float u = (r - uCrest[i].x) / CREST_W; crest += uCrest[i].y * exp(-u * u); }
+  crest = min(crest, ${CREST_SUM_MAX.toFixed(2)});
   gWave = wave * env;
   // The arm profile: narrow bright crests over wide dim troughs, averaging zero along a ring.
   gArm = (smoothstep(0.25, 1.0, wave) - 0.28) * env;
@@ -315,12 +340,12 @@ void main() {
   float fog = exp(-max(t - 4.0, 0.0) * 0.11);
   // Crests light up and troughs dim by the same share, so the waves run across the grid as light without
   // changing its mean; a beat crest adds a little light of its own as it travels.
-  float waveLit = 1.0 + 2.2 * gArm * sat(uWaveA * 7.0) + 1.3 * gCrest;
+  float waveLit = 1.0 + 2.2 * gArm * sat(uWaveA * 7.0) + 2.0 * gCrest;
   lineCol = mix(lineCol, vec3(0.85, 0.92, 1.0), sat(gWave * 0.6 + gCrest * 0.6) * 0.6);
   col += lineCol * line * fog * (0.55 + 1.1 * heatW + 0.8 * depthK) * waveLit * shine * (1.0 - 0.75 * hu);
   col += vec3(1.0, 0.45, 0.12) * heatW * heatW * 0.05 * shine * fog;
   // A faint fill on the fabric, brighter on the wave's crests and darker in its troughs: the two spiral arms.
-  float arms = 1.0 + 3.0 * gArm * sat(uWaveA * 7.0) + 1.5 * gCrest;
+  float arms = 1.0 + 3.0 * gArm * sat(uWaveA * 7.0) + 2.2 * gCrest;
   col += vec3(0.20, 0.36, 1.0) * FILL * arms * fog * smoothstep(0.0, 0.4, length(P.xz) - uOrbR * 0.6) * (1.0 - 0.8 * depthK) * shine * (1.0 - 0.6 * hu);
   vec3 cov = coverAt(0.5 + (p - gCC) / (w * 3.2), 4.0);
   float glow = exp(-pow(length(p - gCC) / (w * 0.95), 2.0));
@@ -336,11 +361,12 @@ void main() {
   outColor = vec4(settle(col, fc), 1.0);
 }`;
 
-/** One beat crest riding out on the wave: its radius in world units, age in seconds and beat strength. */
+/** One crest riding out on the wave: its radius in world units, age in seconds, height and whether a beat still holds it. */
 interface Crest {
   r: number;
   age: number;
   h: number;
+  held: boolean;
 }
 
 /** The scene's moving state, and the crest and knot uniforms the last step packed from it. */
@@ -352,7 +378,10 @@ export interface GravitationalWavesState {
   primed: boolean;
   speed: number;
   vel: number;
-  relE: number;
+  // The share of the loudness curve reached, 0..1, and the surge lurch and cut sink envelopes.
+  lv: number;
+  lurch: number;
+  sink: number;
   waveA: number;
   well: number;
   spin: number;
@@ -379,7 +408,9 @@ export function createGravitationalWavesState(): GravitationalWavesState {
     primed: false,
     speed: 1,
     vel: 0,
-    relE: 0,
+    lv: 0,
+    lurch: 0,
+    sink: 0,
     waveA: WAVE_BASE,
     well: WELL_BASE,
     spin: 0,
@@ -407,8 +438,10 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   const midM = live ? s.midMotion : 0;
   const highM = live ? s.highMotion : 0;
   const beat = live ? s.beat : 0;
+  const weight = live ? s.beatWeight : 0;
+  const surge = live ? s.surge : 0;
   st.clock += dt;
-  // Pace: a quick energy measure against the song's own slow mean, through a soft spring.
+  // Pace and wave follow the absolute loudness; the song's own recent energy only trims the pace.
   if (!st.primed) {
     st.fast = st.slow = s.rms;
     st.primed = true;
@@ -416,18 +449,23 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   st.fast = easeEnvelope(st.fast, s.rms, dt, FAST_TAU);
   st.slow = easeEnvelope(st.slow, s.rms, dt, SLOW_TAU);
   const rel = Math.max(-1, Math.min(1, (st.fast - st.slow) / REL_SPAN));
-  const range = drive === 0 ? [1, 1] : drive > LIVELY_DRIVE ? RANGE_LIVELY : RANGE_BALANCED;
-  let target = rel < 0 ? 1 + (1 - range[0]) * rel : 1 + (range[1] - 1) * rel;
-  target *= 1 + MID_PACE * midM;
-  // The spring speeds up firmly and coasts down slowly.
+  st.lv = drive === 0 ? 0 : Math.pow(clamp01((s.loudness - LOUD_LO) / (LOUD_HI - LOUD_LO)), LOUD_CURVE);
+  if (live && s.cut > 0) st.sink = 1;
+  st.sink = Math.max(0, st.sink - dt / SINK_SECS);
+  st.lurch = Math.max(surge, st.lurch * Math.exp(-dt / LURCH_TAU));
+  const top = drive > LIVELY_DRIVE ? PACE_TOP_LIVELY : PACE_TOP_BALANCED;
+  let target = drive === 0 ? 1 : PACE_QUIET + (top - PACE_QUIET) * st.lv;
+  target *= (1 + REL_TRIM * rel * st.lv) * (1 + MID_PACE * midM) * (1 + LURCH_PACE * st.lurch) * (1 - 0.5 * st.sink);
+  // The spring speeds up firmly, coasts down, and sinks faster after a cut; a drop is felt within about half a second.
   const up = target > st.speed;
-  st.vel += ((target - st.speed) * (up ? 1.5 : 0.5) - st.vel * (up ? 2.45 : 1.4)) * dt;
-  st.speed = Math.max(0.3, st.speed + st.vel * dt);
+  const [stiff, damp] = st.sink > 0 ? [9, 6] : up ? [6, 4.9] : [3.5, 3.7];
+  st.vel += ((target - st.speed) * stiff - st.vel * damp) * dt;
+  st.speed = Math.max(0.05, st.speed + st.vel * dt);
   const omega = OMEGA * (drive === 0 ? CALM_PACE : st.speed);
   st.phi += omega * dt;
-  st.relE = easeEnvelope(st.relE, drive === 0 ? 0 : rel, dt, 0.8);
-  st.radius = 1 - INSPIRAL * Math.max(0, st.relE) * Math.min(1, drive);
-  st.waveA = easeEnvelope(st.waveA, WAVE_BASE + WAVE_REL * Math.max(0, st.relE) * drive + WAVE_BASS * bassM, dt, 0.3);
+  st.radius = easeEnvelope(st.radius, 1 - INSPIRAL * st.lv * Math.min(1, drive), dt, 0.8);
+  const waveTarget = drive === 0 ? WAVE_BASE : WAVE_QUIET + (WAVE_LOUD - WAVE_QUIET) * st.lv + WAVE_BASS * bassM;
+  st.waveA = easeEnvelope(st.waveA, waveTarget, dt, st.sink > 0 ? 0.12 : waveTarget > st.waveA ? 0.3 : 0.5);
   st.well = easeEnvelope(st.well, WELL_BASE + WELL_BASS * bassM, dt, 0.35);
   st.turb = easeEnvelope(st.turb, midM, dt, 0.4);
   st.high = easeEnvelope(st.high, highM, dt, 0.35);
@@ -439,19 +477,36 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
     k.r += c * dt;
     k.age += dt;
   }
-  st.crests = st.crests.filter((k) => k.age < CREST_LIFE);
-  if (beat > 0 && st.clock - st.lastCrest >= CREST_GAP) {
+  // A beat's crest takes the highest weight while the beat is held, and is dropped if the final weight is slight.
+  for (const k of st.crests) {
+    if (!k.held) continue;
+    k.h = Math.max(k.h, Math.min(1.5, weight));
+    if (k.age >= WEIGHT_HOLD) k.held = false;
+    else st.knotH = k.h;
+  }
+  st.crests = st.crests.filter((k) => k.age < CREST_LIFE && (k.held || k.h >= CREST_MIN));
+  if (surge > 0) {
+    // A surge sends one great wave, taller than any beat crest, and holds the beat crests back for the gap.
     st.lastCrest = st.clock;
     if (st.crests.length === CREST_SLOTS) st.crests.shift();
-    st.crests.push({ r: st.radius * 1.1, age: 0, h: Math.min(1.5, beat) });
+    const h = Math.min(SURGE_MAX, SURGE_CREST * surge);
+    st.crests.push({ r: st.radius * 1.1, age: 0, h, held: false });
     st.knotAge = 0;
-    st.knotH = Math.min(1.5, beat);
+    st.knotH = Math.min(1.5, h);
+  } else if (beat > 0 && st.clock - st.lastCrest >= CREST_GAP) {
+    st.lastCrest = st.clock;
+    if (st.crests.length === CREST_SLOTS) st.crests.shift();
+    const h = Math.min(1.5, weight);
+    st.crests.push({ r: st.radius * 1.1, age: 0, h, held: true });
+    st.knotAge = 0;
+    st.knotH = h;
   }
   st.crest.fill(0);
+  const sunk = 1 - 0.8 * st.sink;
   st.crests.forEach((k, i) => {
     const fin = Math.min(1, k.age / 0.35);
     st.crest[i * 2] = k.r;
-    st.crest[i * 2 + 1] = k.h * fin * fin * (3 - 2 * fin) * Math.exp(-k.age / 4);
+    st.crest[i * 2 + 1] = k.h * sunk * fin * fin * (3 - 2 * fin) * Math.exp(-k.age / 4);
   });
   st.knotAge += dt;
   const ka = st.knotAge / KNOT_LIFE;
