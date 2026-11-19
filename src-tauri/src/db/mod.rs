@@ -12,6 +12,7 @@ mod export_ledger;
 mod migrations;
 mod playlist_albums;
 mod relocate;
+pub(crate) mod restore_points;
 pub(crate) mod scan_issues;
 mod tag_albums;
 mod visualizer_defaults;

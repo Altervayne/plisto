@@ -24,6 +24,7 @@ pub const MAX_ERROR_BYTES: usize = 512;
 
 /// Where the log lives and when the process started, managed so a command can reach both without the
 /// database lock.
+#[derive(Clone)]
 pub struct BootLog {
     dir: PathBuf,
     started: Instant,
@@ -54,6 +55,11 @@ impl BootLog {
         if let Some(line) = migrate_line(now_ms(), report) {
             write_line(&self.dir, &line);
         }
+    }
+
+    /// Writes one restore point line for `reason`.
+    pub fn log_point(&self, reason: &str, event: &PointLine) {
+        write_line(&self.dir, &point_line(now_ms(), reason, event));
     }
 
     /// Logs one finished command when the process is young or the index lock wait was long, so a
@@ -181,24 +187,96 @@ fn command_line(
     line
 }
 
+/// `<unix_ms> <KIND> <subject> <outcome>`, then ` <k>=<v>` per field and ` | <error>` when there is one,
+/// newline last.
+fn event_line(
+    now_ms: u64,
+    kind: &str,
+    subject: &str,
+    outcome: &str,
+    fields: &[(&str, String)],
+    error: Option<&str>,
+) -> String {
+    let mut raw = format!("{now_ms} {kind} {subject} {outcome}");
+    for (key, value) in fields {
+        raw.push_str(&format!(" {key}={value}"));
+    }
+    if let Some(error) = error {
+        raw.push_str(" | ");
+        raw.push_str(cap(error, MAX_ERROR_BYTES));
+    }
+    let (mut line, _) = sanitize(&raw);
+    line.push('\n');
+    line
+}
+
 /// `<unix_ms> MIGRATE copy ok from=<v> to=<v> ms=<n> bytes=<n>` or
 /// `<unix_ms> MIGRATE copy failed from=<v> to=<v> ms=<n> | <error>`, newline last. `None` when no copy
 /// was attempted.
 fn migrate_line(now_ms: u64, report: &MigrationReport) -> Option<String> {
-    let (from, to) = (report.from, report.to);
-    let raw = match &report.copy {
+    let mut fields = vec![("from", report.from.to_string()), ("to", report.to.to_string())];
+    let (outcome, error) = match &report.copy {
         CopyOutcome::None => return None,
         CopyOutcome::Ok { ms, bytes } => {
-            format!("{now_ms} MIGRATE copy ok from={from} to={to} ms={ms} bytes={bytes}")
+            fields.push(("ms", ms.to_string()));
+            fields.push(("bytes", bytes.to_string()));
+            ("ok", None)
         }
-        CopyOutcome::Failed { ms, error } => format!(
-            "{now_ms} MIGRATE copy failed from={from} to={to} ms={ms} | {}",
-            cap(error, MAX_ERROR_BYTES)
-        ),
+        CopyOutcome::Failed { ms, error } => {
+            fields.push(("ms", ms.to_string()));
+            ("failed", Some(error.as_str()))
+        }
     };
-    let (mut line, _) = sanitize(&raw);
-    line.push('\n');
-    Some(line)
+    Some(event_line(now_ms, "MIGRATE", "copy", outcome, &fields, error))
+}
+
+/// One restore point event, as its boot.log line reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointLine<'a> {
+    Taken {
+        ms: u64,
+        bytes: u64,
+        file: &'a str,
+        detail: Option<&'a str>,
+    },
+    /// `why` is `empty` or `unchanged`.
+    Skipped { why: &'a str },
+    Failed { ms: u64, error: &'a str },
+    Pruned { removed: usize, kept: usize },
+}
+
+/// `<unix_ms> POINT <reason> taken ms=<n> bytes=<n> file=<name> [detail=<d>]`,
+/// `... skipped why=<why>`, `... failed ms=<n> | <error>` or `... pruned removed=<n> kept=<n>`,
+/// newline last.
+fn point_line(now_ms: u64, reason: &str, event: &PointLine) -> String {
+    let line = |outcome: &str, fields: &[(&str, String)], error: Option<&str>| {
+        event_line(now_ms, "POINT", reason, outcome, fields, error)
+    };
+    match *event {
+        PointLine::Taken {
+            ms,
+            bytes,
+            file,
+            detail,
+        } => {
+            let mut fields = vec![
+                ("ms", ms.to_string()),
+                ("bytes", bytes.to_string()),
+                ("file", file.to_string()),
+            ];
+            if let Some(detail) = detail {
+                fields.push(("detail", detail.to_string()));
+            }
+            line("taken", &fields, None)
+        }
+        PointLine::Skipped { why } => line("skipped", &[("why", why.to_string())], None),
+        PointLine::Failed { ms, error } => line("failed", &[("ms", ms.to_string())], Some(error)),
+        PointLine::Pruned { removed, kept } => line(
+            "pruned",
+            &[("removed", removed.to_string()), ("kept", kept.to_string())],
+            None,
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -345,6 +423,64 @@ mod tests {
             "5 MIGRATE copy failed from=21 to=22 ms=3 | a b\n"
         );
         assert_eq!(migrate_line(5, &report(CopyOutcome::None)), None);
+    }
+
+    #[test]
+    fn point_lines_have_the_documented_layout() {
+        let taken = PointLine::Taken {
+            ms: 40,
+            bytes: 8192,
+            file: "rp-7-action.sqlite",
+            detail: Some("tags_apply"),
+        };
+        assert_eq!(
+            point_line(7, "action", &taken),
+            "7 POINT action taken ms=40 bytes=8192 file=rp-7-action.sqlite detail=tags_apply\n"
+        );
+        let plain = PointLine::Taken {
+            ms: 40,
+            bytes: 8192,
+            file: "rp-7-daily.sqlite",
+            detail: None,
+        };
+        assert_eq!(
+            point_line(7, "daily", &plain),
+            "7 POINT daily taken ms=40 bytes=8192 file=rp-7-daily.sqlite\n"
+        );
+        assert_eq!(
+            point_line(7, "daily", &PointLine::Skipped { why: "unchanged" }),
+            "7 POINT daily skipped why=unchanged\n"
+        );
+        let failed = PointLine::Failed {
+            ms: 3,
+            error: "disk\nfull",
+        };
+        assert_eq!(
+            point_line(7, "version", &failed),
+            "7 POINT version failed ms=3 | disk full\n"
+        );
+        let pruned = PointLine::Pruned {
+            removed: 1,
+            kept: 7,
+        };
+        assert_eq!(
+            point_line(7, "daily", &pruned),
+            "7 POINT daily pruned removed=1 kept=7\n"
+        );
+    }
+
+    #[test]
+    fn a_point_failure_is_capped_and_appended() {
+        let long = "x".repeat(2000);
+        let failed = PointLine::Failed { ms: 1, error: &long };
+        let line = point_line(1, "restore", &failed);
+        assert_eq!(line.split(" | ").nth(1).unwrap().trim_end().len(), MAX_ERROR_BYTES);
+
+        let dir = temp_dir("boot_log_point");
+        BootLog::new(dir.clone()).log_point("daily", &PointLine::Skipped { why: "empty" });
+        let text = fs::read_to_string(dir.join("boot.log")).unwrap();
+        assert!(text.ends_with(" POINT daily skipped why=empty\n"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

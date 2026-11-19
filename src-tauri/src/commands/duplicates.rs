@@ -11,6 +11,8 @@ use tauri::State;
 
 // -- Local Imports --
 use super::organize::with_scan_guard;
+use super::restore_points::point_before;
+use crate::bootlog::BootLog;
 use crate::db;
 use crate::dto::{DismissedPair, MergeReceipt};
 use crate::state::AppState;
@@ -46,14 +48,17 @@ pub fn list_duplicate_dismissals(state: State<'_, AppState>) -> Result<Vec<Dismi
 }
 
 /// Folds the duplicates into the keeper and returns the receipt the frontend holds for undo. Rejects
-/// while a scan runs, and changes nothing when the keeper, the list or a membership is refused.
+/// while a scan runs, and changes nothing when the keeper, the list or a membership is refused. A
+/// restore point is staged first; a point that cannot be taken is logged and the merge still runs.
 #[tauri::command]
 pub async fn merge_duplicates(
     keeper_id: i64,
     discard_ids: Vec<i64>,
     state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
 ) -> Result<MergeReceipt, String> {
     with_scan_guard(&state, |conn| {
+        point_before(&state, &boot_log, "merge_duplicates");
         db::merge_duplicates(conn, keeper_id, &discard_ids, super::now_unix())
             .map_err(|e| e.to_string())
     })

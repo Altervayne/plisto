@@ -174,6 +174,10 @@ pub fn run() {
             let (mut conn, migration) = db::open_db_reporting(&db_path)?;
             app.state::<bootlog::BootLog>().log_migrate(&migration);
 
+            // The version point is staged here, before anything below writes; the copy, the version
+            // record and the daily checks run on a worker.
+            commands::restore_points::start(&conn, &db_path, &app.state::<bootlog::BootLog>());
+
             // Fill any root's folded key left NULL by the migration, using the real normalize (SQL
             // lower() is ASCII-only and would break fold-parity). Idempotent, and cheap enough to
             // run inline before managed state takes the connection.
@@ -542,6 +546,7 @@ pub fn run() {
             commands::relocate::preview_relocate,
             commands::relocate::relocate_root,
             commands::missing::remove_missing_tracks,
+            commands::restore_points::take_point_before,
             commands::loudness::loudness_coverage,
             commands::window::show_main_window,
             commands::window::quit_app,

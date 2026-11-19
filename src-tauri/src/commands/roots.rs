@@ -18,6 +18,8 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 // -- Local Imports --
+use super::restore_points::point_before;
+use crate::bootlog::BootLog;
 use crate::db;
 use crate::dto::{Root, RootRemovalImpact, ScanProgress, ScanSummary};
 use crate::library_sync::SyncCmd;
@@ -76,15 +78,21 @@ pub async fn add_root(
 
 /// Removes a root and everything under it, in one transaction: the cascade drops its tracks and
 /// their album memberships, and any album or single left empty is deleted. Rejects while a scan
-/// runs. No walk. Async so the wait for a preempted background pass never holds the main thread.
+/// runs. No walk. Async so the wait for a preempted background pass never holds the main thread. A
+/// restore point is staged first; a point that cannot be taken is logged and the removal still runs.
 #[tauri::command]
-pub async fn remove_root(id: i64, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn remove_root(
+    id: i64,
+    state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
+) -> Result<(), String> {
     let _lock = acquire_scan_lock(&state, Holder::User)?;
     let result = (|| -> Result<(), String> {
         let mut conn = state
             .db
             .lock()
             .map_err(|_| "index is unavailable".to_string())?;
+        point_before(&state, &boot_log, "remove_root");
         db::remove_root(&mut conn, id).map_err(|e| e.to_string())
     })();
     let _ = state.library_sync.send(SyncCmd::RootsChanged);

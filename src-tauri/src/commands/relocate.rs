@@ -17,7 +17,9 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 // -- Local Imports --
+use super::restore_points::point_before;
 use super::roots::run_scan_blocking;
+use crate::bootlog::BootLog;
 use crate::db::{self, RootTrackPath};
 use crate::dto::{
     RelinkCandidate, RelocateOutcome, RelocatePreview, RelocateRefusal, Root, ScanProgress,
@@ -115,6 +117,7 @@ pub async fn relocate_root(
     new_path: String,
     on_progress: Channel<ScanProgress>,
     state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
 ) -> Result<RelocateOutcome, String> {
     let _lock = acquire_scan_lock(&state, Holder::User)?;
     state.cancel.store(false, Ordering::SeqCst);
@@ -128,6 +131,7 @@ pub async fn relocate_root(
     let scanned_at = super::now_unix();
     let written = {
         let mut conn = state.db.lock().map_err(|_| INDEX_UNAVAILABLE.to_string())?;
+        point_before(&state, &boot_log, "relocate");
         let backup = state.db_path.with_file_name(BACKUP_FILE);
         write_relocation(
             &mut conn, &backup, root_id, &new_path, merge_with, scanned_at,

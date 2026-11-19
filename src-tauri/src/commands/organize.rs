@@ -17,6 +17,7 @@ use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
+use super::restore_points::point_before;
 use crate::bootlog::BootLog;
 use crate::db;
 use crate::dto::{
@@ -61,13 +62,16 @@ pub fn create_album(
 /// Files many groups of loose tracks at once, each into a new album or an existing one, in one
 /// transaction. Each new album's cover is pre-filled the way create_album does it. Returns the
 /// receipt the frontend holds for undo and redo. Rejects while a scan runs, and rejects the whole
-/// batch when any plan no longer fits the library.
+/// batch when any plan no longer fits the library. A restore point is staged first; a point that cannot
+/// be taken is logged and the batch still runs.
 #[tauri::command]
 pub async fn create_albums_from_tags(
     plans: Vec<TagAlbumPlan>,
     state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
 ) -> Result<TagAlbumReceipt, String> {
     with_scan_guard(&state, |conn| {
+        point_before(&state, &boot_log, "tags_apply");
         let covers = plans
             .iter()
             .map(|plan| match plan.target {
