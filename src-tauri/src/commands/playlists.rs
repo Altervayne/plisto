@@ -11,10 +11,12 @@
 
 // -- Library Imports --
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tauri::State;
 
 // -- Local Imports --
+use crate::bootlog::BootLog;
 use crate::db;
 use crate::dto::{CoverRef, CoverSource, PlaylistRow, PlaylistSnapshot};
 use crate::state::AppState;
@@ -23,11 +25,34 @@ use crate::state::AppState;
 /// load_organization load-all shape. Async so a wait on the index lock never holds the main thread
 /// or other IPC replies.
 #[tauri::command]
-pub async fn load_playlists(state: State<'_, AppState>) -> Result<PlaylistSnapshot, String> {
+pub async fn load_playlists(
+    state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
+) -> Result<PlaylistSnapshot, String> {
+    let started = Instant::now();
+    let mut lock_wait = Duration::ZERO;
+    let result = read_playlists(&state, started, &mut lock_wait);
+    boot_log.log_command(
+        "load_playlists",
+        lock_wait,
+        started.elapsed(),
+        result.as_ref().err().map(String::as_str),
+    );
+    result
+}
+
+/// The read itself; the index lock is released before it returns.
+fn read_playlists(
+    state: &AppState,
+    started: Instant,
+    lock_wait: &mut Duration,
+) -> Result<PlaylistSnapshot, String> {
     let conn = state
         .db
         .lock()
-        .map_err(|_| "index is unavailable".to_string())?;
+        .map_err(|_| "index is unavailable".to_string());
+    *lock_wait = started.elapsed();
+    let conn = conn?;
     db::load_playlists(&conn).map_err(|e| e.to_string())
 }
 

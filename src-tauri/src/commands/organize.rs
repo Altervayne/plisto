@@ -11,11 +11,13 @@
 // -- Library Imports --
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
+use crate::bootlog::BootLog;
 use crate::db;
 use crate::dto::{
     AlbumFields, AlbumRow, AppliedResult, CoverRef, CoverSource, GenreRemovalImpact, GenreRow,
@@ -593,11 +595,34 @@ pub fn set_album_layout(
 /// row with its per-track genres, and the genre vocabulary. Mirrors the list_tracks load-all shape.
 /// Async so a wait on the index lock never holds the main thread or other IPC replies.
 #[tauri::command]
-pub async fn load_organization(state: State<'_, AppState>) -> Result<OrganizationSnapshot, String> {
+pub async fn load_organization(
+    state: State<'_, AppState>,
+    boot_log: State<'_, BootLog>,
+) -> Result<OrganizationSnapshot, String> {
+    let started = Instant::now();
+    let mut lock_wait = Duration::ZERO;
+    let result = read_organization(&state, started, &mut lock_wait);
+    boot_log.log_command(
+        "load_organization",
+        lock_wait,
+        started.elapsed(),
+        result.as_ref().err().map(String::as_str),
+    );
+    result
+}
+
+/// The read itself; the index lock is released before it returns.
+fn read_organization(
+    state: &AppState,
+    started: Instant,
+    lock_wait: &mut Duration,
+) -> Result<OrganizationSnapshot, String> {
     let conn = state
         .db
         .lock()
-        .map_err(|_| "index is unavailable".to_string())?;
+        .map_err(|_| "index is unavailable".to_string());
+    *lock_wait = started.elapsed();
+    let conn = conn?;
     let albums = db::load_albums(&conn).map_err(|e| e.to_string())?;
     let mut membership = db::load_album_tracks(&conn).map_err(|e| e.to_string())?;
     let genres = db::list_genres(&conn).map_err(|e| e.to_string())?;

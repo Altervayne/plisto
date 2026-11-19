@@ -6,7 +6,7 @@
 
 // -- Library Imports --
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // -- Local Imports --
 use crate::applog::{append_line, sanitize};
@@ -14,6 +14,9 @@ use crate::applog::{append_line, sanitize};
 const LOG_FILE: &str = "boot.log";
 const LOG_OLD_FILE: &str = "boot.log.old";
 const ROTATE_BYTES: u64 = 262_144;
+
+const COMMAND_WINDOW: Duration = Duration::from_secs(120);
+const SLOW_LOCK: Duration = Duration::from_secs(1);
 
 /// The most bytes of caller error text one line keeps.
 pub const MAX_ERROR_BYTES: usize = 512;
@@ -44,6 +47,40 @@ impl BootLog {
         let line = read_line(now_ms(), read, outcome, attempt, elapsed_ms, uptime_ms, error);
         write_line(&self.dir, &line);
     }
+
+    /// Logs one finished command when the process is young or the index lock wait was long, so a
+    /// reader can tell a call that never arrived from one that waited on the lock or whose answer was
+    /// lost. `error` is the failure text, `None` for success.
+    pub fn log_command(
+        &self,
+        cmd: &str,
+        lock_wait: Duration,
+        total: Duration,
+        error: Option<&str>,
+    ) {
+        self.log_command_at(self.started.elapsed(), cmd, lock_wait, total, error);
+    }
+
+    fn log_command_at(
+        &self,
+        uptime: Duration,
+        cmd: &str,
+        lock_wait: Duration,
+        total: Duration,
+        error: Option<&str>,
+    ) {
+        if !should_log_command(uptime, lock_wait) {
+            return;
+        }
+        let line = command_line(now_ms(), cmd, lock_wait, total, uptime, error);
+        write_line(&self.dir, &line);
+    }
+}
+
+/// A command is logged in the first `COMMAND_WINDOW` of the process, or whenever its lock wait
+/// reached `SLOW_LOCK`.
+fn should_log_command(uptime: Duration, lock_wait: Duration) -> bool {
+    uptime < COMMAND_WINDOW || lock_wait >= SLOW_LOCK
 }
 
 fn now_ms() -> u64 {
@@ -105,6 +142,32 @@ fn read_line(
         "{now_ms} BOOTREAD {read} {outcome} attempt={attempt} elapsed_ms={elapsed_ms} uptime_ms={uptime_ms} | {}",
         cap(error, MAX_ERROR_BYTES)
     );
+    let (mut line, _) = sanitize(&raw);
+    line.push('\n');
+    line
+}
+
+/// `<unix_ms> CMD <cmd> ok|err lock_wait_ms=<n> total_ms=<n> uptime_ms=<n>`, then ` | <error>` on `err`,
+/// newline last.
+fn command_line(
+    now_ms: u64,
+    cmd: &str,
+    lock_wait: Duration,
+    total: Duration,
+    uptime: Duration,
+    error: Option<&str>,
+) -> String {
+    let mut raw = format!(
+        "{now_ms} CMD {cmd} {} lock_wait_ms={} total_ms={} uptime_ms={}",
+        if error.is_some() { "err" } else { "ok" },
+        lock_wait.as_millis(),
+        total.as_millis(),
+        uptime.as_millis()
+    );
+    if let Some(error) = error {
+        raw.push_str(" | ");
+        raw.push_str(cap(error, MAX_ERROR_BYTES));
+    }
     let (mut line, _) = sanitize(&raw);
     line.push('\n');
     line
@@ -184,6 +247,53 @@ mod tests {
             fs::metadata(dir.join("boot.log.old")).unwrap().len(),
             ROTATE_BYTES
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    #[test]
+    fn a_command_line_has_the_documented_layout() {
+        let ok = command_line(9, "load_organization", ms(3), ms(40), ms(5000), None);
+        assert_eq!(
+            ok,
+            "9 CMD load_organization ok lock_wait_ms=3 total_ms=40 uptime_ms=5000\n"
+        );
+        let err = command_line(9, "load_playlists", ms(0), ms(1), ms(2), Some("a\nb"));
+        assert_eq!(
+            err,
+            "9 CMD load_playlists err lock_wait_ms=0 total_ms=1 uptime_ms=2 | a b\n"
+        );
+    }
+
+    #[test]
+    fn a_command_error_is_capped() {
+        let line = command_line(1, "c", ms(0), ms(0), ms(0), Some(&"x".repeat(2000)));
+        assert_eq!(line.split(" | ").nth(1).unwrap().trim_end().len(), MAX_ERROR_BYTES);
+    }
+
+    #[test]
+    fn commands_log_in_the_first_window_or_on_a_slow_lock() {
+        assert!(should_log_command(ms(0), ms(0)));
+        assert!(should_log_command(ms(119_999), ms(999)));
+        assert!(!should_log_command(ms(120_000), ms(999)));
+        assert!(should_log_command(ms(120_000), ms(1000)));
+        assert!(should_log_command(ms(500_000), ms(5000)));
+    }
+
+    #[test]
+    fn a_quiet_command_writes_nothing_and_a_logged_one_appends() {
+        let dir = temp_dir("boot_log_cmd");
+        let log = BootLog::new(dir.clone());
+        log.log_command_at(ms(300_000), "load_playlists", ms(10), ms(20), None);
+        assert!(!dir.join("boot.log").exists());
+        log.log_command_at(ms(300_000), "load_playlists", ms(1500), ms(1600), Some("boom"));
+        log.log_command_at(ms(10), "load_organization", ms(0), ms(2), None);
+        let text = fs::read_to_string(dir.join("boot.log")).unwrap();
+        assert_eq!(text.lines().count(), 2);
+        assert!(text.contains(" CMD load_playlists err lock_wait_ms=1500 total_ms=1600 uptime_ms=300000 | boom"));
         let _ = fs::remove_dir_all(&dir);
     }
 
