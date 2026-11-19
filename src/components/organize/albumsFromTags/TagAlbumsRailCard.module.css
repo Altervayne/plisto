@@ -1,0 +1,57 @@
+/* A quiet recess under the Files rows, the band's surface; the accent only on the action word. */
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  margin-top: 5px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--veil);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.card:hover {
+  background: var(--veil-2);
+}
+
+.card:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.glyph {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-3);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.go {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.card:hover .go {
+  text-decoration: underline;
+}

@@ -3,3 +3,8 @@
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* The unit after a folder-scoped count. */
+.unit {
+  margin-left: 6px;
+}

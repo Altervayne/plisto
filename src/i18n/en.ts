@@ -1012,6 +1012,28 @@ export const en = {
   tagAlbums: {
     entry: "Albums from tags",
     count: "{{n}}",
+    inFolder: "in this folder",
+    bandEyebrow: "Whole library",
+    bandTitle: {
+      one: "{{n}} album can be built from your tags",
+      other: "{{n}} albums can be built from your tags",
+    },
+    bandSub: {
+      one: "{{n}} of your {{m}} unsorted tracks shares album tags. Review before anything is filed.",
+      other: "{{n}} of your {{m}} unsorted tracks share album tags. Review before anything is filed.",
+    },
+    bandReview: "Review albums",
+    bandDismiss: "Not now",
+    leadLine: {
+      one: "{{n}} album can be built from tags",
+      other: "{{n}} albums can be built from tags",
+    },
+    leadReview: "Review",
+    railTitle: { one: "{{n}} album from your tags", other: "{{n}} albums from your tags" },
+    pointer: {
+      one: "Your unsorted tracks can make {{n}} album from their tags.",
+      other: "Your unsorted tracks can make {{n}} albums from their tags.",
+    },
     title: "Albums from tags",
     scopeFolder: {
       one: "{{n}} album from {tracks} in {folder}",

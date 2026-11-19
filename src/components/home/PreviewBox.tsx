@@ -1,5 +1,6 @@
 // -- Framework Imports --
 import { useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 // -- Icon Imports --
 import { Play } from "lucide-react";
@@ -45,7 +46,7 @@ const FEATURE_GAP = 16;
  * strip; a short box shows the strip alone. The strip measures its own remaining width and height to show
  * only as many items as fit, so a hovered cover's lift is never clipped by an overflow. With no rows it
  * shows a one-line invite rather than an empty stage. A play disc plays the track when the caller wires
- * one; without it the covers rest static.
+ * one; without it the covers rest static. An optional `lead` line sits between the head and the body.
  */
 export function PreviewBox({
   label,
@@ -54,6 +55,7 @@ export function PreviewBox({
   seeAllLabel,
   onSeeAll,
   onPlay,
+  lead,
 }: {
   label: string;
   rows: TrackRow[];
@@ -61,6 +63,7 @@ export function PreviewBox({
   seeAllLabel?: string;
   onSeeAll?: () => void;
   onPlay?: (track: TrackRow) => void;
+  lead?: ReactNode;
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [bodyWidth, setBodyWidth] = useState(0);
@@ -107,6 +110,7 @@ export function PreviewBox({
           </button>
         ) : null}
       </div>
+      {lead}
       <div className={`${styles.body} ${featureMode ? styles.bodyFeatured : ""}`} ref={bodyRef}>
         {featureMode ? (
           <>

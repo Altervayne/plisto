@@ -72,16 +72,19 @@ export interface BrowseScope {
  * rides across folders untouched. A row peek opens beside the grid. The tree, breadcrumb, and folder band
  * all derive from the passed tracks, so feeding a subset scopes the whole browser to it. An empty set
  * with an emptyState shows that in place of the browser; without one it falls through to the empty grid.
- * `headerAction` renders beside the lens toggle from the current scope, so a caller adds its own control.
+ * `headerAction` renders beside the lens toggle from the current scope, so a caller adds its own control;
+ * `banner` renders above the header from the same scope.
  */
 export function LibraryBrowser({
   tracks,
   emptyState,
   headerAction,
+  banner,
 }: {
   tracks: TrackRow[];
   emptyState?: ReactNode;
   headerAction?: (scope: BrowseScope) => ReactNode;
+  banner?: (scope: BrowseScope) => ReactNode;
 }) {
   const roots = useRoots();
   const t = useT();
@@ -167,8 +170,15 @@ export function LibraryBrowser({
     return <>{emptyState}</>;
   }
 
+  const browseScope: BrowseScope = {
+    id: scope,
+    tracks: descendant,
+    name: scope === initialScope ? null : (crumbs[crumbs.length - 1]?.name ?? null),
+  };
+
   return (
     <div className={styles.view}>
+      {banner?.(browseScope)}
       <div className={styles.header}>
         <div className={styles.path}>
           <Breadcrumb
@@ -179,11 +189,7 @@ export function LibraryBrowser({
           />
         </div>
         <div className={styles.lenses}>
-          {headerAction?.({
-            id: scope,
-            tracks: descendant,
-            name: scope === initialScope ? null : (crumbs[crumbs.length - 1]?.name ?? null),
-          })}
+          {headerAction?.(browseScope)}
           <Tooltip label={t((d) => d.files.selectAllTitle, { name: scopeName })}>
             <QuietButton
               aria-disabled={descendant.length === 0 || undefined}

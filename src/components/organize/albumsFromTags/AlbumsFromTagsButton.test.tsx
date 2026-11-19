@@ -19,7 +19,10 @@ vi.mock("../../../state/organize/groupByAlbumTags", () => ({
   groupByAlbumTags: () => ({ proposals: [{}, {}] }),
 }));
 
-const render = () => renderToStaticMarkup(<AlbumsFromTagsButton tracks={[]} onOpen={() => {}} />);
+const render = (folderScoped = false) =>
+  renderToStaticMarkup(
+    <AlbumsFromTagsButton tracks={[]} folderScoped={folderScoped} onOpen={() => {}} />,
+  );
 
 describe("AlbumsFromTagsButton", () => {
   it("is hidden while the albums have not loaded", () => {
@@ -32,5 +35,11 @@ describe("AlbumsFromTagsButton", () => {
   it("shows its entry once ready", () => {
     h.status = "ready";
     expect(render()).toContain("2");
+  });
+
+  it("names its unit only when scoped to a folder", () => {
+    h.status = "ready";
+    expect(render(false)).not.toContain("in this folder");
+    expect(render(true)).toContain("in this folder");
   });
 });

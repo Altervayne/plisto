@@ -77,6 +77,10 @@ export const PREF_KEYS = {
   trimHintSeen: "trim_hint_seen",
   // "1" once the flashing-visualizer notice is acknowledged; visualizers draw only then.
   visualizerWarningAck: "visualizer_warning_ack",
+  // The albums-from-tags proposal keys set aside with "Not now", a JSON list.
+  tagAlbumsDismissed: "tag_albums_dismissed",
+  // The newest missing_at among the gone tracks when "Not now" was pressed, a number string.
+  goneCardDismissed: "gone_card_dismissed",
 } as const;
 
 interface PreferencesStore {

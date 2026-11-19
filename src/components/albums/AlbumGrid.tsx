@@ -1,6 +1,6 @@
 // -- Framework Imports --
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 // -- Icon Imports --
 import { ArrowRight } from "lucide-react";
@@ -71,6 +71,7 @@ export function AlbumGrid({
   onOpenFull,
   emptyTitle,
   emptyLine,
+  emptyAction,
 }: {
   albums: AlbumRow[];
   selectedAlbumId: number | null;
@@ -78,6 +79,7 @@ export function AlbumGrid({
   onOpenFull?: (albumId: number) => void;
   emptyTitle?: string;
   emptyLine?: string;
+  emptyAction?: ReactNode;
 }) {
   const t = useT();
   const organize = useOrganizeEnabled();
@@ -295,6 +297,7 @@ export function AlbumGrid({
           tone="idle"
           title={emptyTitle ?? t((d) => d.albums.emptyTitle)}
           line={emptyLine ?? t((d) => d.albums.emptyLine)}
+          action={emptyAction}
         />
       </div>
     );

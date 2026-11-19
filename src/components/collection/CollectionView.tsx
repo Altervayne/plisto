@@ -9,6 +9,8 @@ import { AllTracksView } from "../tracks/AllTracksView";
 import { BrowseView } from "./browse/BrowseView";
 import { Resizer } from "../common/Resizer/Resizer";
 import { ProjectionPending } from "../organize/ProjectionPending";
+import { TagAlbumsPointer } from "../organize/albumsFromTags/TagAlbumsPointer";
+import { useLibraryTagReview } from "../organize/albumsFromTags/useLibraryTagReview";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -19,8 +21,11 @@ import {
   useCollectionDrawerAlbumId,
   useCollectionFullAlbumId,
   useOpenCollectionFull,
+  useRouteCollection,
   useSetCollectionDrawer,
 } from "../../state/collection/store";
+import { useTagProposals } from "../../state/organize/tagProposals";
+import { useOrganizeEnabled } from "../../state/player/store";
 import { useOrgStatus } from "../../state/projectionStatus";
 
 // -- Type Imports --
@@ -44,7 +49,8 @@ const VIEW_EXIT_MS = 120;
  * The Collection's body for the segment in view: the album wall with its drawer and full pane, the
  * singles wall with its drawer, All tracks, or Browse. One drawer id serves both walls; each resolves
  * it against its own bucket, so a stale id from the other wall never opens a drawer here. The full pane
- * is scoped to albums, and a deleted id closes it rather than stranding the wall under it.
+ * is scoped to albums, and a deleted id closes it rather than stranding the wall under it. An empty album
+ * or singles wall points at the albums the loose tracks' tags can make, opening the review from here.
  */
 export function CollectionView({
   segment,
@@ -64,6 +70,15 @@ export function CollectionView({
   const openFull = useOpenCollectionFull();
   const closeFull = useCloseCollectionFull();
   const orgStatus = useOrgStatus();
+  const route = useRouteCollection();
+  // The pointer shows on an empty wall only; the view owns the sheet so its receipt outlasts the pointer.
+  const proposals = useTagProposals();
+  const organize = useOrganizeEnabled();
+  const review = useLibraryTagReview(() => route({ segment: "albums" }));
+  const pointer = (empty: boolean) =>
+    empty && organize && proposals ? (
+      <TagAlbumsPointer albumCount={proposals.albumCount} onReview={review.open} />
+    ) : undefined;
 
   const selectedAlbum = albums.find((a) => a.id === drawerAlbumId) ?? null;
   const selectedSingle = singles.find((a) => a.id === drawerAlbumId) ?? null;
@@ -106,7 +121,9 @@ export function CollectionView({
           onOpen={setDrawer}
           emptyTitle={t((d) => d.singles.emptyTitle)}
           emptyLine={t((d) => d.singles.emptyLine)}
+          emptyAction={pointer(singles.length === 0)}
         />
+        {review.sheet}
         {singleDrawer.mounted && lastSingle.current ? (
           <div className={styles.panel}>
             <Resizer resizer={resizer} />
@@ -136,7 +153,9 @@ export function CollectionView({
           selectedAlbumId={drawerAlbumId}
           onOpen={setDrawer}
           onOpenFull={openFull}
+          emptyAction={pointer(albums.length === 0)}
         />
+        {review.sheet}
         {albumDrawer.mounted && lastAlbum.current ? (
           <div className={styles.panel}>
             <Resizer resizer={resizer} />

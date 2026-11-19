@@ -12,6 +12,8 @@ import { useMemo } from "react";
 import { StatBox } from "./StatBox";
 import { PreviewBox } from "./PreviewBox";
 import { SuggestionBox } from "./SuggestionBox";
+import { TagAlbumsLead } from "../organize/albumsFromTags/TagAlbumsLead";
+import { useLibraryTagReview } from "../organize/albumsFromTags/useLibraryTagReview";
 
 // -- Unit Imports --
 import {
@@ -28,6 +30,7 @@ import { useDelayedFlag } from "../../hooks/useDelayedFlag";
 // -- State Imports --
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useAlbumIndex, useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
+import { useTagEntry } from "../../state/organize/tagProposals";
 import { useMostPlayed, useRecentlyPlayed } from "../../state/player/playHistory";
 import { useOrgStatus } from "../../state/projectionStatus";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
@@ -111,15 +114,26 @@ function UnsortedPreviewBox({ onNavigate }: HomeBoxProps) {
   const waiting = useDelayedFlag(!ready, NOTE_DELAY_MS);
   const pendingNote = waiting ? t((d) => d.projections.finderNote) : "";
   const onPlay = usePreviewPlay();
+  const entry = useTagEntry();
+  // The box owns the review sheet, so its receipt outlasts the lead line once the proposals are filed.
+  const review = useLibraryTagReview(() => onNavigate({ segment: "albums" }));
   return (
-    <PreviewBox
-      label={t((d) => d.home.unsortedLabel)}
-      rows={rows}
-      invite={ready ? t((d) => d.home.unsortedInvite) : pendingNote}
-      seeAllLabel={t((d) => d.home.seeAll)}
-      onSeeAll={() => onNavigate("unsorted")}
-      onPlay={onPlay}
-    />
+    <>
+      <PreviewBox
+        label={t((d) => d.home.unsortedLabel)}
+        rows={rows}
+        invite={ready ? t((d) => d.home.unsortedInvite) : pendingNote}
+        seeAllLabel={t((d) => d.home.seeAll)}
+        onSeeAll={() => onNavigate("unsorted")}
+        onPlay={onPlay}
+        lead={
+          entry ? (
+            <TagAlbumsLead albumCount={entry.summary.albumCount} onReview={review.open} />
+          ) : undefined
+        }
+      />
+      {review.sheet}
+    </>
   );
 }
 

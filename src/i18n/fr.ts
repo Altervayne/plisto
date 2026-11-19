@@ -1018,6 +1018,28 @@ export const fr: Dict = {
   tagAlbums: {
     entry: "Albums depuis les tags",
     count: "{{n}}",
+    inFolder: "dans ce répertoire",
+    bandEyebrow: "Toute l'audiothèque",
+    bandTitle: {
+      one: "{{n}} album peut être créé depuis vos tags",
+      other: "{{n}} albums peuvent être créés depuis vos tags",
+    },
+    bandSub: {
+      one: "{{n}} de vos {{m}} pistes non triées partage des tags d'album. Vérifiez avant tout classement.",
+      other: "{{n}} de vos {{m}} pistes non triées partagent des tags d'album. Vérifiez avant tout classement.",
+    },
+    bandReview: "Vérifier les albums",
+    bandDismiss: "Pas maintenant",
+    leadLine: {
+      one: "{{n}} album peut être créé depuis les tags",
+      other: "{{n}} albums peuvent être créés depuis les tags",
+    },
+    leadReview: "Vérifier",
+    railTitle: { one: "{{n}} album depuis vos tags", other: "{{n}} albums depuis vos tags" },
+    pointer: {
+      one: "Vos pistes non triées peuvent former {{n}} album à partir de leurs tags.",
+      other: "Vos pistes non triées peuvent former {{n}} albums à partir de leurs tags.",
+    },
     title: "Albums depuis les tags",
     scopeFolder: {
       one: "{{n}} album à partir de {tracks} dans {folder}",

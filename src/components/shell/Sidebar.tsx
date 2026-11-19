@@ -5,6 +5,8 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { MiniPlayer } from "../player/MiniPlayer";
 import { AppModeSwitch } from "../player/AppModeSwitch";
 import { PluginSidebarZone } from "../plugins/sidebar/PluginSidebarZone";
+import { RailNotice } from "./RailNotice";
+import { useLibraryTagReview } from "../organize/albumsFromTags/useLibraryTagReview";
 
 // -- Framework Imports --
 import { useEffect, useRef } from "react";
@@ -14,6 +16,7 @@ import type { Ref } from "react";
 import { Home, LayoutGrid, Inbox, Library, ListMusic, Radio, History, Images, AudioLines, Download, Settings } from "lucide-react";
 
 // -- State Imports --
+import { useRouteCollection } from "../../state/collection/store";
 import { useAppMode } from "../../state/player/store";
 import { usePluginRoute } from "../../state/shell/store";
 
@@ -38,6 +41,9 @@ import styles from "./Sidebar.module.css";
  * what remains: Player drops the file and utility sections, Organizer drops the Player and History rows,
  * and a section whose rows all go takes its label with it. The foot always shows. The Collection row
  * carries no count: its segment switch carries them.
+ *
+ * A notice slot under the Files rows offers a pending suggestion (the albums the tags can make) while the
+ * rail is open; the rail owns the review it opens.
  *
  * Enabled plugins add a zone between Library and Utilities, scrolling with the sections. A plugin
  * opens through `onOpenPlugin`, which lands on its page with the route a nav row named.
@@ -72,6 +78,12 @@ export function Sidebar({
   const appMode = useAppMode();
   const pluginRoute = usePluginRoute();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const routeCollection = useRouteCollection();
+  // The rail owns the review sheet, so its receipt outlasts the notice once the proposals are filed.
+  const review = useLibraryTagReview(() => {
+    routeCollection({ segment: "albums" });
+    onModeChange("collection");
+  });
 
   // Keep the active row in view when the destination changes by click, shortcut, or the finder. A plugin
   // page changes its active row by route alone, so the route counts too.
@@ -137,6 +149,7 @@ export function Sidebar({
                     onClick={() => onModeChange("covers")}
                   />
                 ) : null}
+                {collapsed ? null : <RailNotice onReviewTags={review.open} />}
               </div>
             ) : null}
 
@@ -225,6 +238,7 @@ export function Sidebar({
           onClick={() => onModeChange("settings")}
         />
       </div>
+      {review.sheet}
     </aside>
   );
 }

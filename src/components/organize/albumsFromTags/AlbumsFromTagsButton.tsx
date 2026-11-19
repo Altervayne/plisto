@@ -21,13 +21,16 @@ import styles from "./AlbumsFromTagsButton.module.css";
 /**
  * The quiet entry to the albums-from-tags review, labelled with how many albums the loose tracks in
  * scope would make. Counts live, so it follows folder navigation, and hides itself at zero or while the
- * albums have not loaded.
+ * albums have not loaded. `folderScoped` names the unit "in this folder", so the tally never reads as the
+ * library total.
  */
 export function AlbumsFromTagsButton({
   tracks,
+  folderScoped = false,
   onOpen,
 }: {
   tracks: TrackRow[];
+  folderScoped?: boolean;
   onOpen: () => void;
 }) {
   const t = useT();
@@ -44,7 +47,10 @@ export function AlbumsFromTagsButton({
   return (
     <QuietButton onClick={onOpen}>
       {t((d) => d.tagAlbums.entry)}
-      <span className={styles.count}>{t((d) => d.tagAlbums.count, { n: count })}</span>
+      <span className={styles.count}>
+        {t((d) => d.tagAlbums.count, { n: count })}
+        {folderScoped ? <span className={styles.unit}>{t((d) => d.tagAlbums.inFolder)}</span> : null}
+      </span>
     </QuietButton>
   );
 }
