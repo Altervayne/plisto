@@ -22,6 +22,16 @@
   pointer-events: none;
 }
 
+/* A badge that opens something takes the pointer back from the art beneath it. */
+.action {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: rgba(0, 0, 0, 0.58);
+}
+
 .dot {
   width: 6px;
   height: 6px;

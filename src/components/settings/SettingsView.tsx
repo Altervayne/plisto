@@ -39,7 +39,6 @@ import {
   useScanProgress,
   useScanStatus,
   useScanSummary,
-  useSetLibraryGone,
 } from "../../state/store";
 import { useGenres, useLoadGenres } from "../../state/organize/store";
 import { useOpenScanIssues, useScanIssuesStore } from "../../state/scanIssues";
@@ -49,7 +48,8 @@ import {
   useSetCloseToTray,
   useSetKeepLibraryUpToDate,
 } from "../../state/preferences/store";
-import { useSetShortcutsOpen } from "../../state/shell/store";
+import { useOpenGone, useSetShortcutsOpen } from "../../state/shell/store";
+import { ALL_GONE } from "../../state/gone/goneGroups";
 
 // -- IPC Imports --
 import { openDefaultAppsSettings } from "../../lib/ipc";
@@ -92,16 +92,14 @@ function Page({ id, shown, children }: { id: SettingsSectionId; shown: SettingsS
  * here. Folders holds the library roots and their actions. Rescans run quiet, as does the background
  * sync: while a quiet scan runs its progress and a Cancel sit under the buttons, which stay live since a
  * request joins it and adding a folder preempts it. A failed check leaves a warn line there. Otherwise
- * the last summary sits under the buttons; when it left files gone from disk, its Review link opens All
- * Tracks filtered to them through `onReviewGone`. Files a scan could not read add a standing row under
+ * the last summary sits under the buttons; when it left files gone from disk, its Review link opens the
+ * gone-tracks sheet. Files a scan could not read add a standing row under
  * it with the count on record and a Review button for the sheet. The keep-up-to-date switch closes the
  * section.
  */
 export function SettingsView({
-  onReviewGone,
   onSearchSettings,
 }: {
-  onReviewGone?: () => void;
   onSearchSettings?: (door: HTMLElement) => void;
 }) {
   const roots = useRoots();
@@ -114,7 +112,7 @@ export function SettingsView({
   const progress = useScanProgress();
   const checkFailed = useQuietCheckFailed();
   const scanSummary = useScanSummary();
-  const setGone = useSetLibraryGone();
+  const openGone = useOpenGone();
   const genres = useGenres();
   const loadGenres = useLoadGenres();
   const theme = useTheme();
@@ -144,12 +142,8 @@ export function SettingsView({
     void refreshIssueCount();
   }, [refreshIssueCount, scanSummary]);
 
-  // Review opens All Tracks already narrowed to the gone tracks, the chip naming why; it never purges,
-  // it only surfaces them for the user to act on there.
-  const onReviewGoneTracks = () => {
-    setGone(true);
-    onReviewGone?.();
-  };
+  // Review opens the gone-tracks sheet over the whole library.
+  const onReviewGoneTracks = () => openGone(ALL_GONE);
 
   const themeSegments: Segment<ThemeChoice>[] = [
     { value: "system", label: t((d) => d.settings.themeSystem) },

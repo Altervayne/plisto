@@ -24,10 +24,13 @@ import {
   useScanProgress,
   useScanStatus,
 } from "../../state/store";
-import { useOpenSettings } from "../../state/shell/store";
+import { useOpenGone, useOpenSettings } from "../../state/shell/store";
+import { useGoneLibrary } from "../../state/gone/goneEntry";
+import { ALL_GONE } from "../../state/gone/goneGroups";
 
 // -- Utils Imports --
 import { healthReasons } from "./libraryHealth";
+import { labelDoor, showReviewHint } from "../gone/goneDoors";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -109,7 +112,7 @@ function reasonLines(
 /**
  * The title bar's library cluster: a status dot and the folder name, then the refresh glyph. The dot
  * turns warn while the library is out of sync, and its tooltip names why; clicking the label opens
- * Settings. The glyph starts a quiet rescan of every root, spins while one runs past a short grace, and
+ * the gone-tracks sheet while tracks are gone, Settings otherwise. The glyph starts a quiet rescan of every root, spins while one runs past a short grace, and
  * a brief caption counts what a quiet scan added.
  */
 export function LibraryStatus({ label }: { label: LibraryLabel }) {
@@ -124,6 +127,7 @@ export function LibraryStatus({ label }: { label: LibraryLabel }) {
   const goneCount = useGoneCount();
   const rescanQuiet = useRescanQuiet();
   const openSettings = useOpenSettings();
+  const openGone = useOpenGone();
   const caption = useAddedCaption(useScanAdded());
 
   const running = status === "scanning" && quiet;
@@ -132,8 +136,12 @@ export function LibraryStatus({ label }: { label: LibraryLabel }) {
   const reasons = healthReasons({ offlineRoots, checkFailed: failed, goneCount });
   const lines = reasonLines(t, reasons, roots);
   const path = label.kind === "single" ? label.path : undefined;
-  const labelTip =
-    path || lines.length > 0 ? <TipLines lead={path} detail={lines} /> : undefined;
+  // The library-wide count the sheet can list, null until the organization has loaded.
+  const goneTotal = useGoneLibrary()?.total ?? null;
+  const detail = showReviewHint(goneTotal) ? [...lines, t((d) => d.gone.reviewHint)] : lines;
+  const labelTip = path || detail.length > 0 ? <TipLines lead={path} detail={detail} /> : undefined;
+  const onLabel = () =>
+    labelDoor(goneTotal) === "gone" ? openGone(ALL_GONE) : openSettings({ target: "folders" });
 
   const total = progress?.total ?? 0;
   const refreshTip = running ? (
@@ -152,7 +160,7 @@ export function LibraryStatus({ label }: { label: LibraryLabel }) {
   return (
     <div className={styles.workspace}>
       <Tooltip label={labelTip}>
-        <button type="button" className={styles.label} onClick={() => openSettings({ target: "folders" })}>
+        <button type="button" className={styles.label} onClick={onLabel}>
           <span
             className={styles.dot}
             data-warn={reasons.length > 0 ? "" : undefined}

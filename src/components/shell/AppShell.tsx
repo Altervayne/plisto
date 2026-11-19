@@ -29,6 +29,7 @@ import { QuietButton } from "../common/QuietButton";
 import { SelectionActionBar } from "../organize/SelectionActionBar";
 import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
+import { GoneHost } from "../gone/GoneHost";
 import { ScanIssuesHost } from "../scan/ScanIssuesHost";
 import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 import { PluginPage } from "../plugins/PluginPage";
@@ -51,7 +52,13 @@ import { useShellNavigation } from "./useShellNavigation";
 import { useStandalonePlayback } from "./useStandalonePlayback";
 
 // -- State Imports --
-import { useAddRoot, useBooted, useRoots, useTracks } from "../../state/store";
+import {
+  useAddRoot,
+  useBooted,
+  useRoots,
+  useSetLibraryGone,
+  useTracks,
+} from "../../state/store";
 import {
   useAlbums,
   useCanRedo,
@@ -118,6 +125,7 @@ export function AppShell({
   const addRoot = useAddRoot();
   const booted = useBooted();
   const roots = useRoots();
+  const setLibraryGone = useSetLibraryGone();
   const albums = useAlbums();
   const singles = useSingles();
   const unsorted = useUnsortedTracks();
@@ -287,7 +295,6 @@ export function AppShell({
           )
         ) : mode === "settings" ? (
           <SettingsView
-            onReviewGone={() => navigate({ segment: "tracks" })}
             onSearchSettings={finder.enabled ? (door) => finder.openScoped(door, "settings") : undefined}
           />
         ) : pluginId != null ? (
@@ -437,6 +444,12 @@ export function AppShell({
 
         {finder.finder ? <Finder nav={finderNav} {...finder.finder} /> : null}
         <DuplicatesHost />
+        <GoneHost
+          onShowAll={() => {
+            setLibraryGone(true);
+            navigate({ segment: "tracks" });
+          }}
+        />
         <ScanIssuesHost />
         <PluginConfirmHost />
 

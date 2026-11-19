@@ -22,6 +22,8 @@ import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
 import { useOrganizeEnabled, usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { usePlaylistsStore } from "../../state/playlists/store";
 import { announceAfterBlock } from "../../state/player/queueToast";
+import { useOpenGone } from "../../state/shell/store";
+import { useAlbumGoneCount } from "../../state/gone/goneIn";
 
 // -- Utils Imports --
 import { sourceForContainer } from "./playbackSource";
@@ -123,6 +125,9 @@ export const AlbumCard = memo(function AlbumCard({
   const { src, loading } = useAlbumCover(album.id, window.devicePixelRatio <= 1.5 ? "grid" : "detail");
   const tracks = useAlbumTracks(album.id);
   const missing = tracks.filter((track) => track.missing_at != null).length;
+  const openGone = useOpenGone();
+  // The badge counts every flagged member; only members on a reachable root lead into the sheet.
+  const listedGone = useAlbumGoneCount(album.id);
   const t = useT();
   const source = sourceForContainer(album, t((d) => d.albums.untitled));
   // Play the album: its members in order, cursor on the first. Shared by the cover button and the menu item.
@@ -240,7 +245,11 @@ export const AlbumCard = memo(function AlbumCard({
           </span>
         ) : null}
         {missing > 0 ? (
-          <CoverBadge tone="warn" label={t((d) => d.albums.tracksMissing, { n: missing })} />
+          <CoverBadge
+            tone="warn"
+            label={t((d) => d.albums.tracksMissing, { n: missing })}
+            onClick={listedGone > 0 ? () => openGone({ kind: "album", albumId: album.id }) : undefined}
+          />
         ) : null}
         {/* The play affordance: a disc centered on the cover, fading in on hover. Its own click target -
          * it plays the album and stops the card's open underneath. The context-menu Play is the

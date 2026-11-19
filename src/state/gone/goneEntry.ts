@@ -113,6 +113,11 @@ function useGoneFor(scope: GoneScope): GoneResult | null {
   return goneResult(held?.tracks ?? tracks, held?.roots ?? roots, offlineIds, membership, scope);
 }
 
+/** The library-wide grouping, whatever scope the sheet last opened on; null until the organization has loaded. */
+export function useGoneLibrary(): GoneResult | null {
+  return useGoneFor(ALL_GONE);
+}
+
 /** The grouping for the scope the shell holds (the open sheet's), or null until the organization has loaded. */
 export function useGoneSummary(): GoneResult | null {
   return useGoneFor(useGoneScope());

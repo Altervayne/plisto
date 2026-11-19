@@ -1,0 +1,48 @@
+.label {
+  padding: 6px 8px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.more {
+  align-self: flex-start;
+}
+
+.more button {
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+/* A whole-body state: a scan holding the counts, or nothing gone. */
+.center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 0;
+  text-align: center;
+}
+
+.tone {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+.centerTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.centerLine {
+  max-width: 420px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}

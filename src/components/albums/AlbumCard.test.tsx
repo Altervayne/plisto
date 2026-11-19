@@ -22,6 +22,7 @@ vi.mock("../common/ContextMenu", () => ({
     return null;
   },
 }));
+vi.mock("../../state/gone/goneIn", () => ({ useAlbumGoneCount: () => 0 }));
 vi.mock("../common/Cover/Cover", () => ({ Cover: () => null }));
 vi.mock("../common/CoverBadge/CoverBadge", () => ({ CoverBadge: () => null }));
 vi.mock("../scan/StaffSpinner", () => ({ StaffSpinner: () => null }));

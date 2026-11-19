@@ -55,6 +55,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The gone-tracks line under the count, aligned with it. */
+.goneLine {
+  display: block;
+  text-align: right;
+}
+
 /* A root the last scan could not reach, flagged in the warn tone ahead of its kept count. */
 .offline {
   margin-right: 10px;

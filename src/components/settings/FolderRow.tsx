@@ -5,6 +5,7 @@ import { useState } from "react";
 import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { LocatePanel } from "./LocatePanel";
+import { GoneDoorLine } from "../gone/GoneDoorLine";
 
 // -- Icon Imports --
 import { RotateCw, X } from "lucide-react";
@@ -17,6 +18,8 @@ import {
   useRescanQuiet,
 } from "../../state/store";
 import { locateEligible } from "../../state/relocate";
+import { useOrgStatus } from "../../state/projectionStatus";
+import { useOpenGone } from "../../state/shell/store";
 import { useScanIssuesStore } from "../../state/scanIssues";
 
 // -- IPC Imports --
@@ -57,6 +60,9 @@ export function FolderRow({ root }: { root: Root }) {
   const offline = offlineIds.includes(root.id);
   const eligible = locateEligible(root, offlineIds);
   const t = useT();
+  const openGone = useOpenGone();
+  // The sheet lists nothing until the organization has loaded, and an offline root's tracks are kept.
+  const showGone = useOrgStatus() === "ready" && !offline && root.missing_count > 0;
   const name = folderName(root.path);
   const locate = useLocateFlow(root.id, name);
   const mergeHint = useMergeHint(root);
@@ -98,6 +104,15 @@ export function FolderRow({ root }: { root: Root }) {
         <span className={styles.count}>
           {offline ? <span className={styles.offline}>{t((d) => d.settings.offline)}</span> : null}
           {t((d) => d.settings.trackCount, { n: root.track_count })}
+          {showGone ? (
+            <span className={styles.goneLine}>
+              <GoneDoorLine
+                text={t((d) => d.gone.inline, { n: root.missing_count })}
+                action={t((d) => d.tracks.reviewGone)}
+                onAction={() => openGone({ kind: "root", rootId: root.id })}
+              />
+            </span>
+          ) : null}
         </span>
         <div className={styles.controls}>
           {eligible ? (

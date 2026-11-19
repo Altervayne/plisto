@@ -1,0 +1,97 @@
+/* A notice at the top of the gone sheet: a glyph, the problem in words, and its fixes at the trailing edge. */
+.block {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: none;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+}
+
+.glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--veil-2);
+  color: var(--ink-2);
+}
+
+.warn {
+  color: var(--warn-text);
+}
+
+.good {
+  color: var(--good-text);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: -0.005em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.line {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+/* The fixes sit compact beside the text and drop under it when a long line leaves no room. */
+.acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 280px;
+}
+
+.acts button {
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+@media (max-width: 640px) {
+  .block {
+    flex-wrap: wrap;
+  }
+
+  .acts {
+    flex-basis: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
