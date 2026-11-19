@@ -51,9 +51,10 @@
 }
 
 /* The player switch and Settings sit together as a pinned foot pair, tight like a nav group rather
- * than spread by the sidebar's own wide gap. */
+ * than spread by the sidebar's own wide gap. Like the head, it never shrinks. */
 .footgroup {
   display: flex;
+  flex: none;
   flex-direction: column;
   gap: 3px;
 }

@@ -4,6 +4,9 @@
  * legibly over any art regardless of the app theme. Rounded and softly lifted so it reads as one
  * object; the 236px rail is tight, so the title and artist truncate rather than wrap. */
 .mini {
+  /* Never shrinks in the rail's column: the clip below would otherwise let a short window crush the
+   * card, so the scrolling sections above take the squeeze instead. */
+  flex: none;
   position: relative;
   overflow: hidden;
   border-radius: var(--r-md);
