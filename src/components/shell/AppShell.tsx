@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useCallback } from "react";
+import { Fragment, useCallback } from "react";
 import type { CSSProperties } from "react";
 
 // -- Icon Imports --
@@ -75,6 +75,7 @@ import { useOrgStatus, usePlaylistsStatus } from "../../state/projectionStatus";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useCloseCollectionFull, useCollectionFullAlbumId } from "../../state/collection/store";
 import { useAppMode, usePlayerStore } from "../../state/player/store";
+import { useRestoreGeneration } from "../../state/restorePoints/store";
 import { useHistoryLens, useSetShortcutsOpen, useShortcutsOpen } from "../../state/shell/store";
 
 // -- IPC Imports --
@@ -186,6 +187,9 @@ export function AppShell({
   // The lens the History destination opens on. A Home See-all sets it before navigating, so History
   // seeds its own local lens from it on mount.
   const historyLens = useHistoryLens();
+  // A restore reassigns album and playlist ids, so the library destinations remount and drop every id
+  // their local state held (selections, open rows, dialogs). Settings keeps its result sheet.
+  const restoreGeneration = useRestoreGeneration();
 
   // A file dropped onto the player, off the desktop: append to a playing queue, or start fresh. The
   // playing check reads the store directly so the drop handler stays stable and never re-binds the
@@ -273,7 +277,7 @@ export function AppShell({
         <SafeModeBanner />
         {mode === "home" ? (
           // Home needs a library; an empty one keeps the add-a-folder onboarding, as the walls do.
-          count === 0 ? emptyLibrary : <HomeView onNavigate={navigate} />
+          count === 0 ? emptyLibrary : <HomeView key={restoreGeneration} onNavigate={navigate} />
         ) : mode === "export" ? (
           <ExportView />
         ) : mode === "player" ? (
@@ -309,25 +313,26 @@ export function AppShell({
             />
           )
         ) : mode === "covers" ? (
-          <CoversView />
+          <CoversView key={restoreGeneration} />
         ) : mode === "playlists" ? (
           openPlaylist ? (
             <PlaylistView
+              key={restoreGeneration}
               playlistId={openPlaylist.id}
               onBack={() => setOpenPlaylistId(null)}
               onOpenAlbum={(albumId) => navigate({ segment: "albums", full: albumId })}
             />
           ) : (
-            <PlaylistsView onOpen={setOpenPlaylistId} />
+            <PlaylistsView key={restoreGeneration} onOpen={setOpenPlaylistId} />
           )
         ) : mode === "history" ? (
-          <HistoryView initialLens={historyLens} />
+          <HistoryView key={restoreGeneration} initialLens={historyLens} />
         ) : count === 0 ? (
           // A library wall with no tracks: the add-a-folder onboarding. Only ever reached in standalone
           // (the normal path took the early return above), when "Open library" opened an empty library.
           emptyLibrary
         ) : (
-          <>
+          <Fragment key={restoreGeneration}>
             <div className={styles.controls}>
               <div className={styles.history}>
                 <QuietButton
@@ -391,7 +396,7 @@ export function AppShell({
                 }
               />
             </div>
-          </>
+          </Fragment>
         )}
 
         {/* Every plugin frame lives in this layer, over the plugin page's slot. */}

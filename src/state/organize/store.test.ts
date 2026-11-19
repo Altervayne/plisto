@@ -16,6 +16,7 @@ vi.mock("../../lib/ipc", async (original) => {
     loadOrganization: vi.fn(),
     deleteAlbum: vi.fn(),
     loadPlaylists: vi.fn(),
+    takePointBefore: vi.fn(),
     revertAlbumsFromTags: vi.fn(),
     reapplyAlbumsFromTags: vi.fn(),
   };
@@ -48,6 +49,7 @@ beforeEach(() => {
   loadOrganization.mockResolvedValue(snapshot);
   loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [entry] });
   deleteAlbum.mockResolvedValue(undefined);
+  vi.mocked(ipc.takePointBefore).mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -251,5 +253,40 @@ describe("album delete", () => {
     await useOrganizeStore.getState().deleteAlbums([4, 5, 6]);
     expect(loadPlaylists).toHaveBeenCalledTimes(1);
     expect(reportLibraryChange).toHaveBeenCalledWith({ track_ids: [], albums: false, playlists: true });
+  });
+
+  it("saves a restore point before deleting more than one album", async () => {
+    await useOrganizeStore.getState().deleteAlbums([4, 5]);
+    expect(ipc.takePointBefore).toHaveBeenCalledWith("delete_albums");
+    expect(vi.mocked(ipc.takePointBefore).mock.invocationCallOrder[0]).toBeLessThan(
+      deleteAlbum.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("deletes nothing when a restore began while the point was saved", async () => {
+    vi.mocked(ipc.takePointBefore).mockImplementation(async () => {
+      orgLoader.hold();
+      return true;
+    });
+    try {
+      await expect(useOrganizeStore.getState().deleteAlbums([4, 5])).rejects.toSatisfy(ipc.isNotReady);
+      expect(deleteAlbum).not.toHaveBeenCalled();
+    } finally {
+      orgLoader.release();
+    }
+  });
+
+  it("saves no point for a single album", async () => {
+    await useOrganizeStore.getState().deleteAlbums([4]);
+    await useOrganizeStore.getState().deleteAlbum(4);
+    expect(ipc.takePointBefore).not.toHaveBeenCalled();
+  });
+
+  it("deletes anyway when the point could not be saved", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(ipc.takePointBefore).mockRejectedValue(new Error("disk full"));
+    await useOrganizeStore.getState().deleteAlbums([4, 5]);
+    expect(deleteAlbum).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

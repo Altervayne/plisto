@@ -14,6 +14,7 @@ import { usePluginZone } from "../plugins/sidebar/usePluginZone";
 // -- State Imports --
 import { useRouteCollection } from "../../state/collection/store";
 import { useAppMode } from "../../state/player/store";
+import { useRestoreGeneration } from "../../state/restorePoints/store";
 import {
   useOpenTool,
   usePluginPageRequest,
@@ -78,6 +79,14 @@ export function useShellNavigation({
   );
   const routeCollection = useRouteCollection();
   const [openPlaylistId, setOpenPlaylistId] = useState<number | null>(null);
+  // A restore reassigns playlist ids, so the open playlist closes back to the list.
+  const restoreGeneration = useRestoreGeneration();
+  const seenGeneration = useRef(restoreGeneration);
+  useEffect(() => {
+    if (seenGeneration.current === restoreGeneration) return;
+    seenGeneration.current = restoreGeneration;
+    setOpenPlaylistId(null);
+  }, [restoreGeneration]);
 
   // The Track Editor destination's session. Opening a tool lands on that destination and the session
   // persists across nav: the workbench stays mounted while a session holds, hidden off the destination.

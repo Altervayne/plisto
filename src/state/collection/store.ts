@@ -114,6 +114,7 @@ interface CollectionStore extends CollectionPanes {
   clearHandoff: () => void;
   toggleBrowseKind: (kind: keyof BrowseKinds) => void;
   focusBrowse: (albumId: number) => void;
+  resetAlbumRefs: () => void;
 }
 
 export const useCollectionStore = create<CollectionStore>((set) => ({
@@ -141,6 +142,12 @@ export const useCollectionStore = create<CollectionStore>((set) => ({
         .getState()
         .setPreference(PREF_KEYS.collectionBrowseFocus, String(albumId));
     }, FOCUS_PERSIST_MS);
+  },
+  // Drops every open pane and focus naming an album, for when album ids are reassigned under them.
+  resetAlbumRefs: () => {
+    if (focusPersistTimer !== null) clearTimeout(focusPersistTimer);
+    focusPersistTimer = null;
+    set({ drawerAlbumId: null, fullAlbumId: null, handoff: null, browseFocusId: null });
   },
 }));
 

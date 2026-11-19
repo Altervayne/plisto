@@ -49,6 +49,10 @@ export interface ProjectionLoader {
   isReady: () => boolean;
   /** Back to not ready with every read and timer dropped; a waiting `start()` resolves. */
   reset: () => void;
+  /** A `reset()` that also refuses every read until `release()`: no wake, focus or reload can land rows. */
+  hold: () => void;
+  /** Ends a hold with a fresh reset, so nothing read during it is trusted. The caller then starts it. */
+  release: () => void;
 }
 
 export function createProjectionLoader<T>(options: ProjectionLoaderOptions<T>): ProjectionLoader {
@@ -63,6 +67,7 @@ export function createProjectionLoader<T>(options: ProjectionLoaderOptions<T>): 
   let run: RetryRun | null = null;
   let first: Promise<void> | null = null;
   let resolveFirst: (() => void) | null = null;
+  let held = false;
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
 
   const wake = (): void => run?.wake();
@@ -105,7 +110,7 @@ export function createProjectionLoader<T>(options: ProjectionLoaderOptions<T>): 
   };
 
   const start = (): Promise<void> => {
-    if (ready) return Promise.resolve();
+    if (ready || held) return Promise.resolve();
     if (first) return first;
     first = new Promise<void>((resolve) => {
       resolveFirst = resolve;
@@ -128,6 +133,7 @@ export function createProjectionLoader<T>(options: ProjectionLoaderOptions<T>): 
   };
 
   const reload = async (retry = true): Promise<boolean> => {
+    if (held) return false;
     if (!ready) {
       wantReload = true;
       void start();
@@ -145,24 +151,34 @@ export function createProjectionLoader<T>(options: ProjectionLoaderOptions<T>): 
     }
   };
 
+  const reset = (): void => {
+    epoch++;
+    run?.cancel();
+    run = null;
+    release();
+    ready = false;
+    applied = 0;
+    wantReload = false;
+    troubled = false;
+    first = null;
+    settleFirst();
+    options.onFlags({ ready: false, stalled: false });
+  };
+
   return {
     start,
     load: () => reload(),
     reload,
     wake,
     isReady: () => ready,
-    reset: () => {
-      epoch++;
-      run?.cancel();
-      run = null;
-      release();
-      ready = false;
-      applied = 0;
-      wantReload = false;
-      troubled = false;
-      first = null;
-      settleFirst();
-      options.onFlags({ ready: false, stalled: false });
+    reset,
+    hold: () => {
+      reset();
+      held = true;
+    },
+    release: () => {
+      held = false;
+      reset();
     },
   };
 }

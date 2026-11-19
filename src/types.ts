@@ -1501,3 +1501,81 @@ export interface PluginInstallError {
   code: PluginInstallErrorCode;
   detail: string;
 }
+
+/** How a restore point was made: at a version change, on a daily check, before an action or before a restore. */
+export type RestorePointReason = "version" | "daily" | "action" | "restore";
+
+/** Every restore point, newest first, with the folder's point count and size. Mirrors RestorePointList in dto.rs. */
+export interface RestorePointList {
+  points: RestorePointRow[];
+  disk_points: number;
+  disk_bytes: number;
+}
+
+/** One restore point. `file` is the name a restore asks for; `created_at` is unix ms. Mirrors RestorePointRow. */
+export interface RestorePointRow {
+  file: string;
+  reason: RestorePointReason;
+  created_at: number;
+  bytes: number;
+  status: RestorePointStatus;
+}
+
+/** Whether a point can be restored. `detail` is the action key, the prior app version or the restored file name. */
+export type RestorePointStatus =
+  | {
+      kind: "ready";
+      app_version: string;
+      detail: string | null;
+      albums: number;
+      singles: number;
+      playlists: number;
+      filed_tracks: number;
+      edited_tracks: number;
+      genre_tracks: number;
+    }
+  | { kind: "newer"; format: number }
+  | { kind: "unreadable"; error: string };
+
+/** What restoring a point brings back and what it loses. Mirrors RestoreSummary in dto.rs. */
+export interface RestoreSummary {
+  albums: number;
+  singles: number;
+  playlists: number;
+  filed_tracks: number;
+  unmatched_tracks: number;
+  albums_not_recreated: number;
+  collapsed: number;
+  dropped_entries: number;
+  cleared_tracks: number;
+  unmatched: UnmatchedGroup[];
+}
+
+/** What an unmatched group belongs to in the point; `other` is tracks in no album and no playlist. */
+export type UnmatchedKind = "album" | "single" | "playlist" | "other";
+
+/** The unmatched tracks of one container of the point, as real-case paths. `id` and `title` are null for `other`. */
+export interface UnmatchedGroup {
+  kind: UnmatchedKind;
+  id: number | null;
+  title: string | null;
+  paths: string[];
+}
+
+/** Why a restore was refused before anything changed. Mirrors RestoreRefusal in dto.rs. */
+export type RestoreRefusal =
+  | { code: "newer"; format: number }
+  | { code: "unreadable"; message: string }
+  | { code: "integrity"; message: string }
+  | { code: "before_point"; message: string }
+  | { code: "busy" };
+
+/** A dry run of a restore. */
+export type RestorePreview =
+  | { kind: "ready"; summary: RestoreSummary }
+  | { kind: "refused"; reason: RestoreRefusal };
+
+/** The result of a restore. `before_point` names the point of the library as it was, which undoes this one. */
+export type RestoreOutcome =
+  | { kind: "done"; summary: RestoreSummary; before_point: string | null }
+  | { kind: "refused"; reason: RestoreRefusal };

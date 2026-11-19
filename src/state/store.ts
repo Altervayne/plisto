@@ -75,9 +75,10 @@ export type ScanMode = "blocking" | "quiet";
 
 /**
  * A surface that must not see rows shift under it: the albums-from-tags write, the gone-tracks purge
- * (its confirm and its run), and a running export. While any is held, sync deltas gather unapplied.
+ * (its confirm and its run), a running export and a restore. While any is held, sync deltas gather
+ * unapplied.
  */
-export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "export";
+export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "export" | "restore";
 
 /** What the user chose on the relink prompt: move the offline root here, add the folder anew, or neither. */
 export type RelinkChoice = "relink" | "asNew" | "cancel";

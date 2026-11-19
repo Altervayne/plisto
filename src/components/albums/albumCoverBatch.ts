@@ -25,6 +25,8 @@ const srcCache = new Map<string, string>();
 const queued = new Map<string, Resolve>();
 const inFlight = new Map<string, Promise<string | null>>();
 const versions = new Map<number, number>();
+// Added to every album's version, so one bump refetches every mounted cover.
+let allVersion = 0;
 const listeners = new Set<() => void>();
 let flushScheduled = false;
 
@@ -46,7 +48,7 @@ export function peekAlbumCover(albumId: number, size: CoverSize): string | undef
 
 /** The album's invalidation count; a change tells a mounted hook to refetch. */
 export function albumCoverVersion(albumId: number): number {
-  return versions.get(albumId) ?? 0;
+  return (versions.get(albumId) ?? 0) + allVersion;
 }
 
 /** Subscribes to invalidations; returns the unsubscribe. */
@@ -70,6 +72,14 @@ export function invalidateAlbumCover(albumId: number): void {
     if (!queued.has(key)) inFlight.delete(key);
   }
   versions.set(albumId, albumCoverVersion(albumId) + 1);
+  listeners.forEach((listener) => listener());
+}
+
+/** Drops every cached cover, for when album ids are reassigned: a mounted card refetches in place. */
+export function invalidateAllAlbumCovers(): void {
+  srcCache.clear();
+  for (const key of [...inFlight.keys()]) if (!queued.has(key)) inFlight.delete(key);
+  allVersion++;
   listeners.forEach((listener) => listener());
 }
 

@@ -54,6 +54,7 @@ import {
   setAlbumCover as ipcSetAlbumCover,
   setTrackGenres as ipcSetTrackGenres,
   setTrackKeepOwnCover as ipcSetTrackKeepOwnCover,
+  takePointBefore as ipcTakePointBefore,
 } from "../../lib/ipc";
 
 // -- Type Imports --
@@ -521,8 +522,19 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     deleteAlbums: async (albumIds) => {
       if (!writable()) throw notReadyError();
       if (albumIds.length === 0) return;
+      // One restore point for the whole set; a failed point never blocks the delete.
+      if (albumIds.length > 1) {
+        await ipcTakePointBefore("delete_albums").catch((e) =>
+          console.warn("Restore point before delete failed:", e),
+        );
+      }
+      // A restore may have begun while the point was saved: its album ids are not these.
+      if (!writable()) throw notReadyError();
       try {
-        for (const albumId of albumIds) await ipcDeleteAlbum(albumId);
+        for (const albumId of albumIds) {
+          if (!writable()) throw notReadyError();
+          await ipcDeleteAlbum(albumId);
+        }
       } catch {
         set({ error: "Some items could not be deleted." });
       } finally {

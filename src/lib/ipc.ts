@@ -72,6 +72,9 @@ import type {
   RelocateOutcome,
   RelocatePreview,
   RepeatMode,
+  RestoreOutcome,
+  RestorePointList,
+  RestorePreview,
   Root,
   RootRemovalImpact,
   SandboxCheckCounts,
@@ -1552,4 +1555,32 @@ export function scanIssuesClear(
 /** Opens the scan log in the default app. False when no log file exists yet. */
 export function scanIssuesOpenLog(): Promise<boolean> {
   return invoke<boolean>("scan_issues_open_log");
+}
+
+// -- Restore points --
+
+/** Every restore point, newest first, with the folder's disk use. */
+export function listRestorePoints(): Promise<RestorePointList> {
+  return invoke<RestorePointList>("list_restore_points");
+}
+
+/** What restoring the point `file` would bring back and lose. Writes nothing. */
+export function planRestore(file: string): Promise<RestorePreview> {
+  return invoke<RestorePreview>("plan_restore", { file });
+}
+
+/**
+ * Replaces the library's organization with the point `file`, after saving a point of the library as it
+ * is. A refusal changes nothing.
+ */
+export function restoreFromPoint(file: string): Promise<RestoreOutcome> {
+  return invoke<RestoreOutcome>("restore_from_point", { file });
+}
+
+/**
+ * Saves a restore point before a multi-item action. Resolves true when it was saved; a refused action
+ * key rejects.
+ */
+export function takePointBefore(action: "delete_albums"): Promise<boolean> {
+  return invoke<boolean>("take_point_before", { action });
 }
