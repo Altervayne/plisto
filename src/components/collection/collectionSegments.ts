@@ -22,11 +22,14 @@ export const SEGMENT_HIDDEN: Record<AppMode, ReadonlySet<CollectionSegment>> = {
 /** The landing when the remembered segment is absent or gone. */
 export const FALLBACK_SEGMENT: CollectionSegment = "albums";
 
-/** The counts the switch shows. Browse is a way of looking, not a set, so it has none. */
+/**
+ * The counts the switch shows. Browse is a way of looking, not a set, so it has none; an undefined
+ * count is not known yet.
+ */
 export interface SegmentCounts {
-  albums: number;
-  singles: number;
-  tracks: number;
+  albums?: number;
+  singles?: number;
+  tracks?: number;
 }
 
 /** One shown segment: its count (null for Browse) and whether it reads dimmed for being empty. */
@@ -47,7 +50,7 @@ export function visibleSegments(
 /** The switch's rows with their counts. Only an empty Singles dims; it stays clickable. */
 export function segmentViews(visible: CollectionSegment[], counts: SegmentCounts): SegmentView[] {
   return visible.map((id) => {
-    const count = id === "browse" ? null : counts[id];
+    const count = id === "browse" ? null : (counts[id] ?? null);
     return { id, count, dimmed: id === "singles" && count === 0 };
   });
 }

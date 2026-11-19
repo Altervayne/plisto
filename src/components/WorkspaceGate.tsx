@@ -3,7 +3,9 @@ import { useEffect } from "react";
 
 // -- Component Imports --
 import { AppShell } from "./shell/AppShell";
+import { BootStalled } from "./BootStalled";
 import { EmptyState } from "./common/EmptyState";
+import { PendingSpinner } from "./common/PendingSpinner";
 import { QuietButton } from "./common/QuietButton";
 import { ScanProgress } from "./scan/ScanProgress";
 import { RelinkPrompt } from "./settings/RelinkPrompt";
@@ -12,6 +14,7 @@ import { WorkspacePicker } from "./workspace/WorkspacePicker";
 // -- State Imports --
 import {
   useBoot,
+  useBootStalled,
   useBooted,
   useRescanAll,
   useRoots,
@@ -28,15 +31,17 @@ import styles from "./WorkspaceGate.module.css";
 
 /**
  * The top-level switch. Boots once on mount by hydrating the roots (and the last index when any
- * exist), then picks the view: nothing until booted, an error state on failure, the app shell over a
- * stocked library, and onboarding when the library is empty. A blocking scan overlays the shell rather
- * than replacing it, so it keeps the shell mounted and returns the user to the view they were on. The
- * relink prompt, for a picked folder that looks like a moved root, mounts beside the shell. A quiet scan
- * never reaches this switch: its progress and failure live in the title bar and Settings.
+ * exist), then picks the view: a quiet wait until booted (a stalled-start state with a retry once the
+ * read is overdue), an error state on failure, the app shell over a stocked library, and onboarding when
+ * the library is empty. A blocking scan overlays the shell rather than replacing it, so it keeps the
+ * shell mounted and returns the user to the view they were on. The relink prompt, for a picked folder
+ * that looks like a moved root, mounts beside the shell. A quiet scan never reaches this switch: its
+ * progress and failure live in the title bar and Settings.
  */
 export function WorkspaceGate() {
   const boot = useBoot();
   const booted = useBooted();
+  const stalled = useBootStalled();
   const roots = useRoots();
   const status = useScanStatus();
   const blocking = useScanMode() === "blocking";
@@ -48,8 +53,15 @@ export function WorkspaceGate() {
     void boot();
   }, [boot]);
 
-  // Hold nothing until the roots hydrate, so the picker never flashes before the library opens.
-  if (!booted) return null;
+  // Hold the picker back until the roots hydrate, so it never flashes before the library opens. A slow
+  // read shows a spinner; one stuck past the stall threshold says so, with a retry.
+  if (!booted) {
+    return stalled ? (
+      <BootStalled />
+    ) : (
+      <PendingSpinner title={t((d) => d.projections.bootLoadingTitle)} />
+    );
+  }
 
   if (status === "error" && blocking) {
     return (

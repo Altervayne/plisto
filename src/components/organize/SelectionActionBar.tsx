@@ -3,11 +3,13 @@ import { useRef, useState } from "react";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
+import { useWriteGate } from "./useWriteGate";
 
 // -- Component Imports --
 import { FoldedActions } from "../common/ActionFold/FoldedActions";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
 import { AlbumPicker } from "./AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { ExtractPanel } from "../extract/ExtractPanel";
@@ -40,6 +42,7 @@ import type { ExtractTrack } from "../extract/ExtractPanel";
 
 // -- Utils Imports --
 import { suggestAlbumFields } from "../../state/organize/suggestFields";
+import { isNotReady } from "../../lib/ipc";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -82,6 +85,8 @@ export function SelectionActionBar({
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const { addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
+  const albumsGate = useWriteGate("albums");
+  const playlistsGate = useWriteGate("playlists");
   const t = useT();
 
   const [busy, setBusy] = useState(false);
@@ -118,8 +123,9 @@ export function SelectionActionBar({
       const albumId = await createAlbum(suggestAlbumFields(rows), selectedIds);
       clearSelection();
       onCreated(albumId);
-    } catch {
-      setError(t((d) => d.selection.createError));
+    } catch (e) {
+      // A refusal before the albums loaded is no failure: the control says so on its own.
+      if (!isNotReady(e)) setError(t((d) => d.selection.createError));
     } finally {
       setBusy(false);
     }
@@ -134,8 +140,8 @@ export function SelectionActionBar({
       for (const trackId of selectedIds) ids.push(await createSingle(trackId));
       clearSelection();
       onMadeSingles(ids);
-    } catch {
-      setError(t((d) => d.singles.makeError));
+    } catch (e) {
+      if (!isNotReady(e)) setError(t((d) => d.singles.makeError));
     } finally {
       setBusy(false);
     }
@@ -270,11 +276,13 @@ export function SelectionActionBar({
       group: 2,
       label: createLabel,
       onSelect: () => void onCreate(),
-      disabled: busy,
+      disabled: busy || albumsGate.blocked,
       node: (
-        <PrimaryButton onClick={() => void onCreate()} disabled={busy}>
-          {createLabel}
-        </PrimaryButton>
+        <Tooltip label={albumsGate.tip}>
+          <PrimaryButton onClick={() => void onCreate()} disabled={busy || albumsGate.blocked}>
+            {createLabel}
+          </PrimaryButton>
+        </Tooltip>
       ),
     },
     {
@@ -283,11 +291,13 @@ export function SelectionActionBar({
       group: 2,
       label: makeLabel,
       onSelect: () => void onMakeSingles(),
-      disabled: busy,
+      disabled: busy || albumsGate.blocked,
       node: (
-        <QuietButton onClick={() => void onMakeSingles()} disabled={busy}>
-          {makeLabel}
-        </QuietButton>
+        <Tooltip label={albumsGate.tip}>
+          <QuietButton onClick={() => void onMakeSingles()} disabled={busy || albumsGate.blocked}>
+            {makeLabel}
+          </QuietButton>
+        </Tooltip>
       ),
     },
     {
@@ -296,7 +306,14 @@ export function SelectionActionBar({
       group: 2,
       label: addToAlbumLabel,
       onSelect: openAlbumPicker,
-      node: <QuietButton onClick={openAlbumPicker}>{addToAlbumLabel}</QuietButton>,
+      disabled: albumsGate.blocked,
+      node: (
+        <Tooltip label={albumsGate.tip}>
+          <QuietButton onClick={openAlbumPicker} disabled={albumsGate.blocked}>
+            {addToAlbumLabel}
+          </QuietButton>
+        </Tooltip>
+      ),
     },
     {
       id: "playlist",
@@ -304,7 +321,14 @@ export function SelectionActionBar({
       group: 3,
       label: addToPlaylistLabel,
       onSelect: openPlaylistPicker,
-      node: <QuietButton onClick={openPlaylistPicker}>{addToPlaylistLabel}</QuietButton>,
+      disabled: playlistsGate.blocked,
+      node: (
+        <Tooltip label={playlistsGate.tip}>
+          <QuietButton onClick={openPlaylistPicker} disabled={playlistsGate.blocked}>
+            {addToPlaylistLabel}
+          </QuietButton>
+        </Tooltip>
+      ),
     },
     {
       id: "extract",

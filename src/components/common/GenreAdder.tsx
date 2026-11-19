@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
 // -- Component Imports --
 import { ScrollArea } from "./ScrollArea/ScrollArea";
+import { Tooltip } from "./Tooltip";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -34,12 +35,15 @@ export function GenreAdder({
   onCreate,
   placeholder,
   exclude = NO_EXCLUDE,
+  createTip,
 }: {
   genres: GenreRow[];
   onPick: (id: number) => void;
   onCreate: (name: string) => void;
   placeholder?: string;
   exclude?: number[];
+  /** When set, the Create row is offered but disabled, carrying this tooltip; picking still works. */
+  createTip?: string;
 }) {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -76,7 +80,7 @@ export function GenreAdder({
 
   const commit = (index: number) => {
     if (index < suggestions.length) onPick(suggestions[index].id);
-    else if (showCreate) onCreate(trimmed);
+    else if (showCreate && createTip === undefined) onCreate(trimmed);
     else return;
     setQuery("");
     setHighlight(0);
@@ -139,21 +143,24 @@ export function GenreAdder({
               ))}
               {showCreate ? (
                 <li>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={highlight === suggestions.length}
-                    className={
-                      highlight === suggestions.length
-                        ? `${styles.option} ${styles.create} ${styles.active}`
-                        : `${styles.option} ${styles.create}`
-                    }
-                    onMouseDown={(e) => e.preventDefault()}
-                    onMouseEnter={() => setHighlight(suggestions.length)}
-                    onClick={() => commit(suggestions.length)}
-                  >
-                    {t((d) => d.genre.create, { name: trimmed })}
-                  </button>
+                  <Tooltip label={createTip} placement="right">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={highlight === suggestions.length}
+                      disabled={createTip !== undefined}
+                      className={
+                        highlight === suggestions.length
+                          ? `${styles.option} ${styles.create} ${styles.active}`
+                          : `${styles.option} ${styles.create}`
+                      }
+                      onMouseDown={(e) => e.preventDefault()}
+                      onMouseEnter={() => setHighlight(suggestions.length)}
+                      onClick={() => commit(suggestions.length)}
+                    >
+                      {t((d) => d.genre.create, { name: trimmed })}
+                    </button>
+                  </Tooltip>
                 </li>
               ) : null}
             </ul>

@@ -26,6 +26,9 @@ import { QueueRow } from "./QueueRow";
 import { QueueBand } from "./QueueBand";
 import { QueueStreamCard } from "./QueueStreamCard";
 
+// -- Hook Imports --
+import { useWriteGate } from "../organize/useWriteGate";
+
 // -- State Imports --
 import {
   usePlayerActions,
@@ -89,6 +92,7 @@ export function QueueList() {
   const hasParked = useHasParked();
   const createPlaylist = useCreatePlaylist();
   const addTracksToPlaylist = useAddTracksToPlaylist();
+  const saveGate = useWriteGate("playlists");
   const t = useT();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -146,8 +150,12 @@ export function QueueList() {
     cleared(stream.plugin_name);
   };
 
+  // Playlists not yet loaded: the save waits, and its tooltip says why in place of the usual hint.
   const saveButton = (
-    <QuietButton disabled={libraryIds.length === 0 || saving || saved} onClick={() => void onSave()}>
+    <QuietButton
+      disabled={saveGate.blocked || libraryIds.length === 0 || saving || saved}
+      onClick={() => void onSave()}
+    >
       {t((d) => (saved ? d.player.queueSavedAsPlaylist : d.player.saveQueueAsPlaylist))}
     </QuietButton>
   );
@@ -192,7 +200,7 @@ export function QueueList() {
             {t((d) => d.player.stream.parkedHeader, { name: stream.plugin_name })}
           </p>
           <div className={styles.parkActions}>
-            {withHint(t((d) => d.player.stream.saveParkedHint), saveButton)}
+            {withHint(saveGate.tip ?? t((d) => d.player.stream.saveParkedHint), saveButton)}
             {withHint(
               t((d) => d.player.stream.clearParkedHint),
               <QuietButton disabled={queue.length === 0} onClick={onClear}>
@@ -207,7 +215,7 @@ export function QueueList() {
             <span className={styles.label}>{t((d) => d.player.upNext)}</span>
             <span className={styles.count}>{formatCount(ahead)}</span>
           </div>
-          <div className={styles.actions}>{saveButton}</div>
+          <div className={styles.actions}>{withHint(saveGate.tip ?? null, saveButton)}</div>
         </div>
       )}
 

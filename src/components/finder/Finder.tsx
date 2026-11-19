@@ -18,6 +18,7 @@ import { useFinderMotion } from "./useFinderMotion";
 // -- State Imports --
 import { useLoadGenres } from "../../state/organize/store";
 import { usePlayerEnabled } from "../../state/player/store";
+import { useProjectionStatus } from "../../state/projectionStatus";
 
 // -- Type Imports --
 import type { FinderNav } from "./useFinderActions";
@@ -55,6 +56,7 @@ export function Finder({
   initialScope?: FinderScope | null;
 }) {
   const t = useT();
+  const projection = useProjectionStatus();
   const playerEnabled = usePlayerEnabled();
   const loadGenres = useLoadGenres();
   const [query, setQuery] = useState("");
@@ -257,6 +259,10 @@ export function Finder({
             onHover={setCursor}
             onActivate={activate}
           />
+
+          {projection !== "ready" ? (
+            <p className={styles.note}>{t((d) => d.projections.finderNote)}</p>
+          ) : null}
 
           <div className={styles.legend} aria-hidden="true">
             {legend.map((part) => (

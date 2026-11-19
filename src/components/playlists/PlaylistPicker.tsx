@@ -10,6 +10,7 @@ import { useMountTransition } from "../../hooks/useMountTransition";
 
 // -- State Imports --
 import { usePlaylistTrackCount } from "../../state/playlists/expansion";
+import { usePlaylistsStatus } from "../../state/projectionStatus";
 
 // -- Type Imports --
 import type { PlaylistRow } from "../../types";
@@ -53,6 +54,8 @@ export function PlaylistPicker({
   onClose: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  // Until the playlists load the list is empty for the wrong reason, so it must not read as "no playlists".
+  const status = usePlaylistsStatus();
   const t = useT();
   const untitled = t((d) => d.playlists.untitled);
 
@@ -84,45 +87,51 @@ export function PlaylistPicker({
     <>
       <div className={styles.backdrop} onClick={requestClose} aria-hidden="true" />
       <div className={styles.panel} data-state={panel.state} role="dialog" aria-label={t((d) => d.playlists.pickerTitle)}>
-        <div className={styles.search}>
-          <SearchField
-            value={filter}
-            onChange={setFilter}
-            placeholder={t((d) => d.playlists.find)}
-          />
-        </div>
-        <ScrollArea className={styles.scroll}>
-          <ul className={styles.list}>
-            {shown.map((playlist) => (
-              <li key={playlist.id}>
-                <button
-                  type="button"
-                  className={styles.option}
-                  onClick={() => onChoose(playlist.id)}
-                >
-                  <span className={styles.name}>{playlistName(playlist, untitled)}</span>
-                  <span className={styles.count}>
-                    <TrackCount playlistId={playlist.id} />
-                  </span>
-                </button>
-              </li>
-            ))}
-            {showCreate ? (
-              <li>
-                <button
-                  type="button"
-                  className={`${styles.option} ${styles.create}`}
-                  onClick={() => onCreate(trimmed)}
-                >
-                  {t((d) => d.playlists.create, { name: trimmed })}
-                </button>
-              </li>
-            ) : null}
-            {shown.length === 0 && !showCreate ? (
-              <li className={styles.empty}>{t((d) => d.playlists.pickerEmpty)}</li>
-            ) : null}
-          </ul>
-        </ScrollArea>
+        {status !== "ready" ? (
+          <p className={styles.empty}>{t((d) => d.projections.loadingTitle)}</p>
+        ) : (
+          <>
+            <div className={styles.search}>
+              <SearchField
+                value={filter}
+                onChange={setFilter}
+                placeholder={t((d) => d.playlists.find)}
+              />
+            </div>
+            <ScrollArea className={styles.scroll}>
+              <ul className={styles.list}>
+                {shown.map((playlist) => (
+                  <li key={playlist.id}>
+                    <button
+                      type="button"
+                      className={styles.option}
+                      onClick={() => onChoose(playlist.id)}
+                    >
+                      <span className={styles.name}>{playlistName(playlist, untitled)}</span>
+                      <span className={styles.count}>
+                        <TrackCount playlistId={playlist.id} />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+                {showCreate ? (
+                  <li>
+                    <button
+                      type="button"
+                      className={`${styles.option} ${styles.create}`}
+                      onClick={() => onCreate(trimmed)}
+                    >
+                      {t((d) => d.playlists.create, { name: trimmed })}
+                    </button>
+                  </li>
+                ) : null}
+                {shown.length === 0 && !showCreate ? (
+                  <li className={styles.empty}>{t((d) => d.playlists.pickerEmpty)}</li>
+                ) : null}
+              </ul>
+            </ScrollArea>
+          </>
+        )}
       </div>
     </>
   );

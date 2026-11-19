@@ -27,7 +27,7 @@ import {
   setTrackGenres as setTrackGenresCmd,
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
-import { withRetry } from "../lib/withRetry";
+import { createProjectionLoader } from "./projectionLoad";
 import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } from "./librarySync";
 import type { LibrarySummary, PendingDelta } from "./librarySync";
 import { reportLibraryChange } from "./plugins/libraryWatch";
@@ -38,12 +38,12 @@ import type { RelinkOffer, RelocateResult } from "./relocate";
 import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets";
 
 // -- State Imports --
-// The organize store depends on this one (runtime only), so this back-reference is a safe cycle: it is
-// touched solely inside actions, to mirror a peek edit into the album membership projection. The
-// playlists store never touches this one, so importing it here is cycle-free; the purge reloads it so a
+// The organize store depends on this one (runtime only), and the playlists store depends on the organize
+// store, so these back-references are safe cycles: each is touched solely inside actions. The organize
+// store mirrors a peek edit into the album membership projection; the purge reloads the playlists so a
 // gone track's cascaded slots leave the playlist view too.
-import { useOrganizeStore } from "./organize/store";
-import { usePlaylistsStore } from "./playlists/store";
+import { orgLoader, useOrganizeStore } from "./organize/store";
+import { playlistsLoader, usePlaylistsStore } from "./playlists/store";
 // Reaches back here through the player store; boot is its only use, so the cycle stays runtime-only.
 import { useVisualizerDefaults } from "./player/visualizerDefaults";
 
@@ -110,6 +110,8 @@ interface ScanState {
 interface AppStore {
   roots: Root[];
   booted: boolean;
+  // The first roots or tracks read is outstanding past the stall threshold; the boot gate stays up.
+  bootStalled: boolean;
   scan: ScanState;
   tracks: TrackRow[];
   // Each root's watch mode as the background sync last reported it.
@@ -140,6 +142,7 @@ interface AppStore {
   // A picked folder that looks like a moved root, held while the relink prompt asks what to do.
   relinkOffer: RelinkOffer | null;
   boot: () => Promise<void>;
+  retryBoot: () => void;
   loadRoots: () => Promise<boolean>;
   addRoot: () => Promise<void>;
   addRootPath: (path: string) => Promise<boolean>;
@@ -242,13 +245,32 @@ export const useAppStore = create<AppStore>((set, get) => {
     }
   };
 
+  const rootsLoader = createProjectionLoader({
+    name: "roots",
+    read: () => listRoots(),
+    apply: (roots) => set({ roots }),
+    onFlags: ({ stalled }) => set({ bootStalled: stalled }),
+  });
+  const tracksLoader = createProjectionLoader({
+    name: "tracks",
+    read: async () => (await listTracks({})).rows,
+    apply: (tracks) => set({ tracks }),
+    onFlags: ({ stalled }) => set({ bootStalled: stalled }),
+  });
+  // A function: the organize store and this one import each other, so its loader may not exist yet here.
+  const loaders = () => [rootsLoader, tracksLoader, orgLoader, playlistsLoader];
+
   // Reloads the roots, tracks and organization. Each read keeps its current rows on failure; the
   // result says whether all three landed.
   const refreshLibrary = async (): Promise<boolean> => {
+    // A tracks or organization read still on its first load is deferred, not failed: its loader refreshes
+    // it on landing. Sampled before the call, since the first read may land while it returns.
+    const tracksFirst = !tracksLoader.isReady();
+    const orgFirst = !orgLoader.isReady();
     const roots = await get().loadRoots();
     const tracks = await get().loadTracks();
     const org = await useOrganizeStore.getState().refreshOrganization();
-    return roots && tracks && org;
+    return roots && (tracks || tracksFirst) && (org || orgFirst);
   };
 
   // The library reload plus what a relocate merge repoints outside it: playlist slots and the
@@ -279,6 +301,8 @@ export const useAppStore = create<AppStore>((set, get) => {
   // back to a full keep-on-error refresh on a reload or a failed fetch. Album membership rows carry
   // missing_at too, so a filed track also refreshes the organization.
   const applyDelta = async ({ ids, reload }: PendingDelta) => {
+    // A change event proves the backend is answering: a read still waiting tries again at once.
+    for (const loader of loaders()) loader.wake();
     if (!reload) {
       const rows = await getTracksByIds(ids).catch(() => null);
       if (rows) {
@@ -300,6 +324,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   return {
     roots: [],
     booted: false,
+    bootStalled: false,
     scan: idleScan,
     tracks: [],
     rootStates: [],
@@ -317,29 +342,31 @@ export const useAppStore = create<AppStore>((set, get) => {
     filesSearch: "",
     relinkOffer: null,
 
+    // The first roots and tracks reads never give up: a failure or a hang holds the loading gate, and
+    // never lands on onboarding as an empty library. An empty answer is not a failure, so a genuinely
+    // empty library still resolves at once.
     boot: async () => {
       // Not awaited: the stage draws the global pick until the defaults land.
       void useVisualizerDefaults.getState().load();
-      await get().loadRoots();
+      await rootsLoader.start();
       // Open into the last index when the library has roots; the background sync runs its own startup
       // pass to catch up on what changed while the app was closed.
-      if (get().roots.length > 0) await get().loadTracks();
+      if (get().roots.length > 0) await tracksLoader.start();
+      // Not awaited: a hung read must not blank the window. Readers wait on the projection status.
+      void orgLoader.start();
+      void playlistsLoader.start();
       set({ booted: true });
     },
 
-    // A read that still fails after its retries keeps the current roots: at boot that is the empty
-    // list, and later a failed reload never drops a stocked library back to onboarding.
-    loadRoots: async () => {
-      try {
-        // Retried: an early boot read can reject before managed state is ready. An empty result is not
-        // a rejection, so a genuinely empty library still resolves at once and shows onboarding.
-        const roots = await withRetry(listRoots);
-        set({ roots });
-        return true;
-      } catch {
-        return false;
-      }
+    // The stalled gate's Try again: asks the folder and track reads for an attempt at once.
+    retryBoot: () => {
+      rootsLoader.wake();
+      tracksLoader.wake();
     },
+
+    // A reload that still fails after its retries keeps the current roots, so a failed reload never
+    // drops a stocked library back to onboarding.
+    loadRoots: () => rootsLoader.reload(),
 
     // While a root is offline or all-missing, a picked folder is first checked against it: a likely
     // match parks as an offer for the relink prompt instead of being added. A failed check reads as no
@@ -433,18 +460,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       await cancelScan();
     },
 
-    // Like loadRoots, a read that still fails after its retries keeps the current rows, so a stocked
+    // Like loadRoots, a reload that still fails after its retries keeps the current rows, so a stocked
     // library is never emptied by one failed read.
-    loadTracks: async () => {
-      try {
-        // Retried for the same boot-race reason as loadRoots: it runs right after the roots hydrate.
-        const { rows } = await withRetry(() => listTracks({}));
-        set({ tracks: rows });
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    loadTracks: () => tracksLoader.reload(),
 
     // ---- Background sync ----
 
@@ -613,10 +631,12 @@ export const useAppStore = create<AppStore>((set, get) => {
     setFilesSort: (filesSort) => set({ filesSort }),
     setFilesSearch: (filesSearch) => set({ filesSearch }),
 
-    reset: () =>
+    reset: () => {
+      for (const loader of loaders()) loader.reset();
       set({
         roots: [],
         booted: false,
+        bootStalled: false,
         scan: idleScan,
         tracks: [],
         rootStates: [],
@@ -633,7 +653,8 @@ export const useAppStore = create<AppStore>((set, get) => {
         filesSort: [],
         filesSearch: "",
         relinkOffer: null,
-      }),
+      });
+    },
   };
 });
 
@@ -641,6 +662,8 @@ export const useAppStore = create<AppStore>((set, get) => {
 
 export const useRoots = (): Root[] => useAppStore((s) => s.roots);
 export const useBooted = (): boolean => useAppStore((s) => s.booted);
+/** True while the first roots or tracks read has been outstanding past the stall threshold. */
+export const useBootStalled = (): boolean => useAppStore((s) => s.bootStalled);
 
 /**
  * The top-bar library label from the roots: one root reads as its path, several as a count, null when
@@ -727,6 +750,7 @@ export const useSetFilesSort = () => useAppStore((s) => s.setFilesSort);
 export const useSetFilesSearch = () => useAppStore((s) => s.setFilesSearch);
 
 export const useBoot = () => useAppStore((s) => s.boot);
+export const useRetryBoot = () => useAppStore((s) => s.retryBoot);
 export const useLoadRoots = () => useAppStore((s) => s.loadRoots);
 export const useAddRoot = () => useAppStore((s) => s.addRoot);
 export const useAddRootPath = () => useAppStore((s) => s.addRootPath);

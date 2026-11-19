@@ -3,6 +3,10 @@ import { useState } from "react";
 
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
+
+// -- Hook Imports --
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- State Imports --
 import { useDeleteAlbum } from "../../state/organize/store";
@@ -37,6 +41,9 @@ export function AlbumDeleteControl({
   const [confirming, setConfirming] = useState(false);
   // The playlists holding the album, counted as the confirm arms.
   const [inPlaylists, setInPlaylists] = useState(0);
+  // An album delete dissolves playlist entries and the note below counts them, so both projections must
+  // be in; a single is in no entry.
+  const gate = useWriteGate(single ? "albums" : "both");
   const t = useT();
 
   const onDelete = async () => {
@@ -51,16 +58,19 @@ export function AlbumDeleteControl({
   if (!confirming) {
     return (
       <div className={styles.wrap}>
-        <QuietButton
-          onClick={() => {
-            setInPlaylists(
-              single ? 0 : playlistsHoldingAlbum(usePlaylistsStore.getState().albumEntries, albumId),
-            );
-            setConfirming(true);
-          }}
-        >
-          {single ? t((d) => d.singles.remove) : t((d) => d.albums.delete)}
-        </QuietButton>
+        <Tooltip label={gate.tip}>
+          <QuietButton
+            disabled={gate.blocked}
+            onClick={() => {
+              setInPlaylists(
+                single ? 0 : playlistsHoldingAlbum(usePlaylistsStore.getState().albumEntries, albumId),
+              );
+              setConfirming(true);
+            }}
+          >
+            {single ? t((d) => d.singles.remove) : t((d) => d.albums.delete)}
+          </QuietButton>
+        </Tooltip>
       </div>
     );
   }

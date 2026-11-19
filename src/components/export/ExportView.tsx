@@ -16,6 +16,7 @@ import { ExportReadiness } from "./ExportReadiness";
 import { ExportReport } from "./ExportReport";
 import { ExportScope } from "./ExportScope";
 import { ExportSections } from "./ExportSections";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- Hook Imports --
 import { useExportChanges } from "./useExportChanges";
@@ -23,6 +24,7 @@ import { useExportSetup } from "./useExportSetup";
 
 // -- State Imports --
 import { useAlbums, useMembership, useSingles } from "../../state/organize/store";
+import { useProjectionStatus } from "../../state/projectionStatus";
 import { useTracks } from "../../state/store";
 import { PREF_KEYS, usePreference, useSetPreference } from "../../state/preferences/store";
 
@@ -72,6 +74,7 @@ export function ExportView() {
   const singles = useSingles();
   const membership = useMembership();
   const tracks = useTracks();
+  const projection = useProjectionStatus();
   const t = useT();
 
   const [phase, setPhase] = useState<Phase>("idle");
@@ -387,6 +390,10 @@ export function ExportView() {
       </CenteredStage>
     );
   }
+
+  // The readiness counts and the album and playlist sections come from the projections, so the picker
+  // waits for both and offers no run before then.
+  if (projection !== "ready") return <ProjectionPending state={projection} />;
 
   // At least one section must be on and hold something to export: an album/single section counts only
   // when the library has that kind, while playlists is taken on trust (an empty playlist set simply

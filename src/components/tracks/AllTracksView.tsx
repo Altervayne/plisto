@@ -11,12 +11,15 @@ import { TrackDetail } from "./TrackDetail";
 import { EmptyState } from "../common/EmptyState";
 import { Resizer } from "../common/Resizer/Resizer";
 import { SegmentedControl } from "../common/SegmentedControl";
+import { ProjectionPending } from "../organize/ProjectionPending";
+import { FacetFilter } from "./FacetFilter";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 
 // -- Organize State Imports --
 import { useAlbumIndex } from "../../state/organize/store";
+import { useOrgStatus } from "../../state/projectionStatus";
 
 // -- State Imports --
 import {
@@ -51,6 +54,8 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./AllTracksView.module.css";
 
+const NO_GENRES = new Map<number, string>();
+
 /**
  * All Tracks: every track in the library on one flat, metadata-organized surface. No folder tree, no
  * breadcrumb, no lens - just the collection grid with its search, facet filter, and column sort, over
@@ -60,6 +65,7 @@ import styles from "./AllTracksView.module.css";
 export function AllTracksView() {
   const tracks = useTracks();
   const albumIndex = useAlbumIndex();
+  const orgStatus = useOrgStatus();
   const t = useT();
 
   const sort = useLibrarySort();
@@ -102,6 +108,10 @@ export function AllTracksView() {
     );
   }
 
+  // The missing-metadata narrowing reads the filed album, so the list waits for the albums to load. The
+  // header and the filter stay, so the narrowing can always be turned off.
+  const pending = missingMetadata && orgStatus !== "ready";
+
   return (
     <div className={styles.view}>
       <div className={styles.header}>
@@ -133,36 +143,56 @@ export function AllTracksView() {
         ref={containerRef}
         style={{ "--drawer-width": `${width}px` } as CSSProperties}
       >
-        <TrackGrid
-          view={view}
-          enableFacets
-          columns={collectionColumns}
-          albumIndex={albumIndex}
-          source={{ kind: "tracks" }}
-          sort={sort}
-          onSortChange={setSort}
-          search={search}
-          onSearchChange={setSearch}
-          facets={facets}
-          onFacetsChange={setFacets}
-          missingMetadata={missingMetadata}
-          onMissingMetadataChange={setMissingMetadata}
-          gone={gone}
-          onGoneChange={setGone}
-          groupBy={groupBy}
-          onGroupByChange={setGroupBy}
-          onVisibleCount={setVisibleCount}
-          selectedId={selected?.id ?? null}
-          onSelect={setSelected}
-          revealId={revealId}
-          onRevealed={clearReveal}
-        />
-        {selected ? (
-          <div className={styles.panel}>
-            <Resizer resizer={resizer} />
-            <TrackDetail track={selected} onClose={() => setSelected(null)} />
+        {pending ? (
+          <div className={styles.pending}>
+            <div className={styles.pendingBar}>
+              <FacetFilter
+                tracks={tracks}
+                genreNameById={NO_GENRES}
+                facets={facets}
+                onChange={setFacets}
+                missingMetadata={missingMetadata}
+                onMissingMetadataChange={setMissingMetadata}
+                gone={gone}
+                onGoneChange={setGone}
+              />
+            </div>
+            <ProjectionPending state={orgStatus} />
           </div>
-        ) : null}
+        ) : (
+          <>
+            <TrackGrid
+              view={view}
+              enableFacets
+              columns={collectionColumns}
+              albumIndex={albumIndex}
+              source={{ kind: "tracks" }}
+              sort={sort}
+              onSortChange={setSort}
+              search={search}
+              onSearchChange={setSearch}
+              facets={facets}
+              onFacetsChange={setFacets}
+              missingMetadata={missingMetadata}
+              onMissingMetadataChange={setMissingMetadata}
+              gone={gone}
+              onGoneChange={setGone}
+              groupBy={groupBy}
+              onGroupByChange={setGroupBy}
+              onVisibleCount={setVisibleCount}
+              selectedId={selected?.id ?? null}
+              onSelect={setSelected}
+              revealId={revealId}
+              onRevealed={clearReveal}
+            />
+            {selected ? (
+              <div className={styles.panel}>
+                <Resizer resizer={resizer} />
+                <TrackDetail track={selected} onClose={() => setSelected(null)} />
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

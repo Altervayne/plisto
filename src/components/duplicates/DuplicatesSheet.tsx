@@ -9,10 +9,14 @@ import { StaffSpinner } from "../scan/StaffSpinner";
 import { DismissedSection } from "./DismissedSection";
 import { DuplicateSetCard } from "./DuplicateSetCard";
 import { MergedSetCard } from "./MergedSetCard";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
 import { useDuplicatesReview } from "./useDuplicatesReview";
+
+// -- State Imports --
+import { useProjectionStatus } from "../../state/projectionStatus";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -32,6 +36,7 @@ const EXIT_MS = 200;
 export function DuplicatesSheet({ onClose }: { onClose: () => void }) {
   const t = useT();
   const review = useDuplicatesReview();
+  const projection = useProjectionStatus();
 
   // Own the card's lifetime so a close plays its exit before the host drops it.
   const [open, setOpen] = useState(true);
@@ -73,7 +78,12 @@ export function DuplicatesSheet({ onClose }: { onClose: () => void }) {
           </QuietButton>
         </div>
 
-        {!review.loaded ? (
+        {projection !== "ready" ? (
+          // A copy is judged by its filed album and its playlists, so no set is offered before both load.
+          <div className={styles.loading}>
+            <ProjectionPending state={projection} />
+          </div>
+        ) : !review.loaded ? (
           <div className={styles.loading}>
             <StaffSpinner />
           </div>

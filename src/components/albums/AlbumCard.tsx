@@ -15,6 +15,7 @@ import { AlbumDeleteConfirm } from "./AlbumDeleteConfirm";
 
 // -- Hook Imports --
 import { useAlbumCover } from "./useAlbumCover";
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- State Imports --
 import { useAlbumTracks, useDeleteAlbum } from "../../state/organize/store";
@@ -127,6 +128,9 @@ export const AlbumCard = memo(function AlbumCard({
   // Play the album: its members in order, cursor on the first. Shared by the cover button and the menu item.
   const playAlbum = () => play(tracks.map((track) => track.track_id), 0, source);
   const single = album.kind === "single";
+  // An album goes into a playlist as an entry and its delete dissolves entries; a single does neither.
+  const addGate = useWriteGate(single ? "playlists" : "both");
+  const deleteGate = useWriteGate(single ? "albums" : "both");
   const lead = single
     ? t((d) => d.singles.marker)
     : t((d) => d.albums.trackCount, { n: album.track_count });
@@ -186,6 +190,8 @@ export const AlbumCard = memo(function AlbumCard({
         {
           icon: <ListPlus size={16} strokeWidth={1.8} />,
           label: single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo),
+          disabled: addGate.blocked,
+          tooltip: addGate.tip,
           // An album goes in as one entry; a single stays a track.
           onSelect: () =>
             onAddToPlaylist(
@@ -204,6 +210,8 @@ export const AlbumCard = memo(function AlbumCard({
         icon: <Trash2 size={16} strokeWidth={1.8} />,
         label: single ? t((d) => d.singles.remove) : t((d) => d.albums.delete),
         style: "destructive",
+        disabled: deleteGate.blocked,
+        tooltip: deleteGate.tip,
         onSelect: () => {
           setInPlaylists(
             single ? 0 : playlistsHoldingAlbum(usePlaylistsStore.getState().albumEntries, album.id),

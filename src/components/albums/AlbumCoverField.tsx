@@ -13,6 +13,7 @@ import { useRemoveAlbumCover, useSetAlbumCover } from "../../state/organize/stor
 
 // -- Utils Imports --
 import { pickImageFile } from "../../lib/dialog";
+import { isNotReady } from "../../lib/ipc";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -40,8 +41,8 @@ export function AlbumCoverField({ albumId, hasCover }: { albumId: number; hasCov
     try {
       await setAlbumCover(albumId, path);
       reload();
-    } catch {
-      setError(t((d) => d.cover.setError));
+    } catch (e) {
+      if (!isNotReady(e)) setError(t((d) => d.cover.setError));
     }
   };
 
@@ -49,8 +50,8 @@ export function AlbumCoverField({ albumId, hasCover }: { albumId: number; hasCov
     try {
       await removeAlbumCover(albumId);
       reload();
-    } catch {
-      setError(t((d) => d.cover.setError));
+    } catch (e) {
+      if (!isNotReady(e)) setError(t((d) => d.cover.setError));
     }
   };
 

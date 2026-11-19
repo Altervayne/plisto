@@ -10,7 +10,11 @@ import type { MenuEntry } from "../../common/ContextMenu";
 import type { RecordActions } from "./useRecordActions";
 import type { AlbumRow } from "../../../types";
 
-const h = vi.hoisted(() => ({ items: [] as MenuEntry[] }));
+const h = vi.hoisted(() => ({ items: [] as MenuEntry[], blocked: false }));
+
+vi.mock("../../organize/useWriteGate", () => ({
+  useWriteGate: () => ({ blocked: h.blocked, tip: h.blocked ? "Available once loaded" : undefined }),
+}));
 
 vi.mock("../../common/ContextMenu", () => ({
   ContextMenu: (p: { items: MenuEntry[] }) => {
@@ -59,6 +63,7 @@ const labels = (kind: "album" | "single") => {
 
 beforeEach(() => {
   h.items = [];
+  h.blocked = false;
 });
 
 describe("BrowseRecordMenu add to playlist", () => {
@@ -72,5 +77,16 @@ describe("BrowseRecordMenu add to playlist", () => {
     const names = labels("single");
     expect(names).toContain("Add to playlist...");
     expect(names).not.toContain("Add album to playlist...");
+  });
+
+  it("disables the add with the tooltip while albums and playlists have not loaded", () => {
+    h.blocked = true;
+    labels("album");
+    const entry = h.items.find(
+      (e): e is Exclude<MenuEntry, { separator: true }> =>
+        !("separator" in e) && e.label === "Add album to playlist...",
+    );
+    expect(entry?.disabled).toBe(true);
+    expect(entry?.tooltip).toBe("Available once loaded");
   });
 });

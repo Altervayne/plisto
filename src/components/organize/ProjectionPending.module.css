@@ -1,0 +1,4 @@
+/* The live region adds no box of its own: the state inside lays out as if it stood alone. */
+.live {
+  display: contents;
+}

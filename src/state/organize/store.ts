@@ -17,6 +17,7 @@ import { useShallow } from "zustand/react/shallow";
 
 // -- State Imports --
 import { useAppStore } from "../store";
+import { createProjectionLoader } from "../projectionLoad";
 import { refreshAfterMerge } from "../duplicates/store";
 import { usePlaylistsStore } from "../playlists/store";
 import { diffOrg, hasLibrarySink, reportLibraryChange } from "../plugins/libraryWatch";
@@ -29,7 +30,6 @@ import { inPlayOrder } from "./groupByAlbumTags";
 // -- Utils Imports --
 import { buildAlbumIndex } from "../../components/tracks/trackAlbum";
 import { compareMemberOrder } from "../../components/albums/albumLayout";
-import { withRetry } from "../../lib/withRetry";
 
 // -- IPC Imports --
 import {
@@ -47,6 +47,7 @@ import {
   loadOrganization as ipcLoadOrganization,
   mergeDuplicates as ipcMergeDuplicates,
   mergeGenres as ipcMergeGenres,
+  notReadyError,
   removeAlbumCover as ipcRemoveAlbumCover,
   removeAlbumGenre as ipcRemoveAlbumGenre,
   renameGenre as ipcRenameGenre,
@@ -75,6 +76,8 @@ interface OrganizeStore {
   // True once a projection read has landed. An album entry in a playlist reads as loading until then,
   // since an empty projection is indistinguishable from a failed read.
   orgReady: boolean;
+  // True while the first read has been outstanding past the stall threshold.
+  orgStalled: boolean;
   // The genre vocabulary sits outside the undoable projection: a rename or a merge is not an undo step.
   genres: GenreRow[];
   past: Command[];
@@ -141,6 +144,12 @@ function reportGenreRenamed(genreId: number): void {
 }
 
 export const useOrganizeStore = create<OrganizeStore>((set, get) => {
+  // The write gate: a membership write issued before the albums (or, for a write that also touches
+  // playlists, the playlists) have loaded would act on a projection that only looks empty. Reads the live
+  // flags, never a captured value. A sync write returns with no effect; an async one rejects.
+  const writable = (withPlaylists = false): boolean =>
+    get().orgReady && (!withPlaylists || usePlaylistsStore.getState().ready);
+
   // Resyncs from the DB when a write fails: the optimistic projection is now ahead of it, so a reload
   // is the correct recovery. The undo stack is left intact - a reload is not itself an undo boundary.
   const reloadOnFailure = (): void => {
@@ -210,21 +219,6 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     }
   };
 
-  // Reads the snapshot into the store; false when the read failed and nothing was touched.
-  const readOrganization = async (retry: boolean): Promise<boolean> => {
-    try {
-      const snapshot = await (retry ? withRetry(ipcLoadOrganization) : ipcLoadOrganization());
-      set({
-        org: { albums: snapshot.albums, membership: snapshot.membership },
-        orgReady: true,
-        genres: snapshot.genres,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   // Fires a command's write, and on a failed persist resyncs from the DB and surfaces a quiet error.
   const persist = (cmd: Command, before: OrgState): void => {
     const write = commandToIpc(cmd);
@@ -252,6 +246,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // distinct edit that never lands on the undo stack, so this stays off the command engine: patch
   // optimistically, write, and on failure fall back to the same reload recovery.
   const mutateGenres = (membership: AlbumTrackRow[], ipcCall: () => Promise<void>): void => {
+    if (!writable()) return;
     const before = get().org;
     set((s) => ({ org: { ...s.org, membership }, error: null }));
     const write = ipcCall();
@@ -264,6 +259,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   // projection, mirroring the backend's touch so the "updated since" filter reflects it before the next
   // reload.
   const commit = (cmd: Command): void => {
+    if (!writable()) return;
     const before = get().org;
     set((s) => {
       const org = applyCommand(s.org, cmd);
@@ -285,21 +281,22 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
   return {
     org: emptyOrg,
     orgReady: false,
+    orgStalled: false,
     genres: [],
     past: [],
     future: [],
     selection: new Set<number>(),
     error: null,
 
-    // Retried: an early boot read can reject before managed state is ready. A failed reload keeps a
-    // projection already loaded; a failed first load leaves it empty and not ready, so a playlist's album
-    // entries read as loading.
+    // Before the first read lands this only starts it (or joins it) and returns at once: the projection
+    // is never empty and not ready at once. A later reload retries, then keeps the loaded projection
+    // when it still fails.
     loadOrganization: async () => {
-      if (!(await readOrganization(true)) && !get().orgReady) set({ org: emptyOrg });
+      await orgLoader.load();
     },
 
     // The keep-on-error read: a failed snapshot leaves the current projection in place.
-    refreshOrganization: () => readOrganization(false),
+    refreshOrganization: () => orgLoader.reload(false),
 
     // A light vocabulary-only refresh, for a surface that opens without a full org load.
     loadGenres: async () => {
@@ -411,6 +408,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       const { past } = get();
       if (past.length === 0 || replaying) return;
       const cmd = past[past.length - 1];
+      if (!writable(cmd.kind === "duplicateMerge")) return;
       const inverse = invertCommand(cmd);
       const before = get().org;
       set((s) => ({
@@ -436,6 +434,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
       const { future } = get();
       if (future.length === 0 || replaying) return;
       const cmd = future[future.length - 1];
+      if (!writable(cmd.kind === "duplicateMerge")) return;
       const before = get().org;
       set((s) => ({
         org: applyCommand(s.org, cmd),
@@ -458,6 +457,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
     // The selection is filed in play order, the same order the tag grouping files a proposal in.
     createAlbum: async (fields, trackIds) => {
+      if (!writable()) throw notReadyError();
       const ordered = inPlayOrder(trackIds, useAppStore.getState().tracks);
       const row = await ipcCreateAlbum(fields, ordered);
       await get().loadOrganization();
@@ -469,6 +469,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     // One write for the whole batch, one reload, then the batch lands on the undo stack. Unlike a plain
     // create it keeps the history: its receipt replays under the same album ids, so no entry goes stale.
     createAlbumsFromTags: async (plans) => {
+      if (!writable()) throw notReadyError();
       const receipt = await ipcCreateAlbumsFromTags(plans);
       await get().loadOrganization();
       const entry: TagBatch = { kind: "tagBatch", receipt, applied: true };
@@ -479,6 +480,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     // A refused merge rejects to the caller with nothing changed. A landed one reloads, then goes on the
     // stack like a tag batch.
     mergeDuplicates: async (keeperId, discardIds) => {
+      if (!writable(true)) throw notReadyError();
       const receipt = await ipcMergeDuplicates(keeperId, discardIds);
       await reloadAfterMerge();
       const entry: DuplicateMerge = {
@@ -493,6 +495,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     createSingle: async (trackId) => {
+      if (!writable()) throw notReadyError();
       const row = await ipcCreateSingle(trackId);
       await get().loadOrganization();
       // Promoting a loose track is structural, same as create: the future branch cannot survive it.
@@ -501,6 +504,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     deleteAlbum: async (albumId) => {
+      if (!writable()) throw notReadyError();
       await ipcDeleteAlbum(albumId);
       // The delete dissolved the album's entries into track slots in every playlist; they reload first
       // so no entry points at a gone album.
@@ -515,6 +519,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     // mid-loop failure aborts the rest but still resyncs and clears history in the finally, so the
     // projection never drifts from the DB, and surfaces a quiet error like the other structural writes.
     deleteAlbums: async (albumIds) => {
+      if (!writable()) throw notReadyError();
       if (albumIds.length === 0) return;
       try {
         for (const albumId of albumIds) await ipcDeleteAlbum(albumId);
@@ -528,11 +533,13 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     setAlbumCover: async (albumId, srcPath) => {
+      if (!writable()) throw notReadyError();
       await ipcSetAlbumCover(albumId, srcPath);
       await get().loadOrganization();
     },
 
     removeAlbumCover: async (albumId) => {
+      if (!writable()) throw notReadyError();
       await ipcRemoveAlbumCover(albumId);
       await get().loadOrganization();
     },
@@ -540,6 +547,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     // Keep-own-cover is an album_tracks flag, not an undoable projection edit: fire the write, then
     // reload so the membership rows carry the fresh flag for the peek and bulk bar to read.
     setTrackKeepOwnCover: async (albumId, trackIds, value) => {
+      if (!writable()) throw notReadyError();
       await ipcSetTrackKeepOwnCover(albumId, trackIds, value);
       await get().loadOrganization();
     },
@@ -548,6 +556,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     // and rename touch only the vocabulary, so a genre refresh is enough. Delete and merge also rewrite
     // membership genre_ids, so they reload the whole projection to keep the drawer rows true.
     createGenre: async (name) => {
+      if (!writable()) throw notReadyError();
       try {
         const row = await ipcCreateGenre(name);
         await get().loadGenres();
@@ -559,6 +568,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     renameGenre: async (id, name) => {
+      if (!writable()) throw notReadyError();
       try {
         await ipcRenameGenre(id, name);
         reportGenreRenamed(id);
@@ -571,6 +581,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     deleteGenre: async (id) => {
+      if (!writable()) throw notReadyError();
       try {
         await ipcDeleteGenre(id);
         await get().loadOrganization();
@@ -580,6 +591,7 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
     },
 
     mergeGenres: async (sourceId, targetId) => {
+      if (!writable()) throw notReadyError();
       try {
         await ipcMergeGenres(sourceId, targetId);
         await get().loadOrganization();
@@ -650,6 +662,18 @@ export const useOrganizeStore = create<OrganizeStore>((set, get) => {
 
     clearSelection: () => set({ selection: new Set<number>() }),
   };
+});
+
+/** The projection read: `boot()` starts it, and every later load joins or follows it. */
+export const orgLoader = createProjectionLoader({
+  name: "organization",
+  read: () => ipcLoadOrganization(),
+  apply: (snapshot) =>
+    useOrganizeStore.setState({
+      org: { albums: snapshot.albums, membership: snapshot.membership },
+      genres: snapshot.genres,
+    }),
+  onFlags: ({ ready, stalled }) => useOrganizeStore.setState({ orgReady: ready, orgStalled: stalled }),
 });
 
 /**

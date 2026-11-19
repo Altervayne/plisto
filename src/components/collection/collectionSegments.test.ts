@@ -34,6 +34,12 @@ describe("visibleSegments", () => {
 });
 
 describe("segmentViews", () => {
+  it("leaves an unknown count out and never dims it", () => {
+    const views = segmentViews(ALL, { tracks: 240 });
+    expect(views.map((v) => v.count)).toEqual([null, null, null, 240]);
+    expect(views.some((v) => v.dimmed)).toBe(false);
+  });
+
   it("counts every segment but Browse", () => {
     const views = segmentViews(ALL, { albums: 12, singles: 3, tracks: 240 });
     expect(views.map((v) => v.count)).toEqual([null, 12, 3, 240]);

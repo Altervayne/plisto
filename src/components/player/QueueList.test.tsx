@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   addTracks: vi.fn(async () => {}),
   cleared: vi.fn(),
   clearSaved: vi.fn(),
+  saveBlocked: false,
 }));
 
 vi.mock("../../state/player/store", () => ({
@@ -50,10 +51,18 @@ vi.mock("../../state/playlists/store", () => ({
   useCreatePlaylist: () => h.createPlaylist,
   useAddTracksToPlaylist: () => h.addTracks,
 }));
+vi.mock("../organize/useWriteGate", () => ({
+  useWriteGate: () => ({ blocked: h.saveBlocked, tip: h.saveBlocked ? "wait" : undefined }),
+}));
 vi.mock("../common/ScrollArea/ScrollArea", () => ({
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("../common/Tooltip", () => ({ Tooltip: ({ children }: { children: ReactNode }) => children }));
+// Exposes the label in the markup, which the real bubble only mounts on hover.
+vi.mock("../common/Tooltip", () => ({
+  Tooltip: ({ label, children }: { label?: string; children: ReactNode }) => (
+    <span data-tip={label}>{children}</span>
+  ),
+}));
 vi.mock("../common/QuietButton", () => ({
   QuietButton: (p: { children: string; disabled?: boolean; onClick?: () => void }) => {
     h.buttons.push({ label: p.children, disabled: p.disabled, onClick: p.onClick });
@@ -105,6 +114,7 @@ beforeEach(() => {
   h.hasParked = true;
   h.blocks = [];
   h.albums = new Map();
+  h.saveBlocked = false;
 });
 
 describe("QueueList with a stream seated", () => {
@@ -160,6 +170,25 @@ describe("QueueList with a stream seated", () => {
     button("Save as playlist")?.onClick?.();
     await vi.waitFor(() => expect(h.addTracks).toHaveBeenCalledWith(5, [11, 13]));
     expect(h.createPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables Save while playlists have not loaded", () => {
+    h.saveBlocked = true;
+    render();
+    expect(button("Save as playlist")?.disabled).toBe(true);
+  });
+
+  it("carries the gate's tip on the blocked Save, in place of the parked hint", () => {
+    h.saveBlocked = true;
+    const html = render();
+    expect(html).toContain('data-tip="wait"');
+    expect(html).not.toContain("Saves the parked queue");
+  });
+
+  it("shows the parked hint on Save once playlists have loaded", () => {
+    const html = render();
+    expect(html).not.toContain('data-tip="wait"');
+    expect(html).toContain('data-tip="Saves the parked queue"');
   });
 
   it("shows the empty line and disables Save and Clear with nothing parked", () => {

@@ -8,8 +8,8 @@ import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
 import { SegmentedControl } from "../common/SegmentedControl";
 import { Switch } from "../common/Switch/Switch";
-import { GenreAdder } from "../common/GenreAdder";
 import { FolderRow } from "./FolderRow";
+import { GenreAddRow } from "./GenreAddRow";
 import { GenreSettingRow } from "./GenreSettingRow";
 import { PlaybackDeviceRow } from "./PlaybackDeviceRow";
 import { PlayHistoryRow } from "./PlayHistoryRow";
@@ -41,7 +41,7 @@ import {
   useScanSummary,
   useSetLibraryGone,
 } from "../../state/store";
-import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
+import { useGenres, useLoadGenres } from "../../state/organize/store";
 import { useOpenScanIssues, useScanIssuesStore } from "../../state/scanIssues";
 import {
   useCloseToTray,
@@ -117,7 +117,6 @@ export function SettingsView({
   const setGone = useSetLibraryGone();
   const genres = useGenres();
   const loadGenres = useLoadGenres();
-  const createGenre = useCreateGenre();
   const theme = useTheme();
   const setTheme = useSetTheme();
   const locale = useLocale();
@@ -150,11 +149,6 @@ export function SettingsView({
   const onReviewGoneTracks = () => {
     setGone(true);
     onReviewGone?.();
-  };
-
-  // The store surfaces any failure through its error channel; swallow the rejection here.
-  const onCreateGenre = (name: string) => {
-    void createGenre(name).catch(() => {});
   };
 
   const themeSegments: Segment<ThemeChoice>[] = [
@@ -279,14 +273,7 @@ export function SettingsView({
                 )}
               </div>
               <div className={styles.foot}>
-                <SettingRow id="addGenre" className={styles.genreAdd}>
-                  <GenreAdder
-                    genres={genres}
-                    onPick={() => {}}
-                    onCreate={onCreateGenre}
-                    placeholder={t((d) => d.settings.addGenre)}
-                  />
-                </SettingRow>
+                <GenreAddRow className={styles.genreAdd} />
               </div>
             </section>
           </Page>

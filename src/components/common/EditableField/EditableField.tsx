@@ -19,6 +19,7 @@ export function EditableField({
   autoFocus = false,
   onDone,
   ariaLabel,
+  disabled = false,
 }: {
   value: string;
   onCommit: (next: string) => void;
@@ -27,6 +28,7 @@ export function EditableField({
   autoFocus?: boolean;
   onDone?: () => void;
   ariaLabel: string;
+  disabled?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const reverting = useRef(false);
@@ -66,6 +68,7 @@ export function EditableField({
       placeholder={placeholder}
       aria-label={ariaLabel}
       autoFocus={autoFocus}
+      disabled={disabled}
       spellCheck={false}
       onChange={(e) => setDraft(e.target.value)}
       onKeyDown={onKeyDown}

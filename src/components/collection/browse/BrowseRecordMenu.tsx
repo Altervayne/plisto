@@ -14,6 +14,7 @@ import { useCreatePlaylist, usePlaylists } from "../../../state/playlists/store"
 
 // -- Hook Imports --
 import { usePlaylistAdd } from "../../playlists/usePlaylistAdd";
+import { useWriteGate } from "../../organize/useWriteGate";
 
 // -- Utils Imports --
 import { browseMenuSlots } from "./browseMenu";
@@ -59,6 +60,8 @@ export function BrowseRecordMenu({
   const createPlaylist = useCreatePlaylist();
   const [picking, setPicking] = useState<PlaylistAdd | null>(null);
   const single = album.kind === "single";
+  // An album goes in as an entry that expands against album membership; a single goes in as its track.
+  const gate = useWriteGate(single ? "playlists" : "both");
 
   const entry = (id: BrowseMenuId): MenuEntry | null => {
     switch (id) {
@@ -72,6 +75,8 @@ export function BrowseRecordMenu({
         return {
           icon: icon(ListPlus),
           label: single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo),
+          disabled: gate.blocked,
+          tooltip: gate.tip,
           onSelect: () =>
             setPicking(
               single

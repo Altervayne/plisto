@@ -8,6 +8,9 @@ import { SearchField } from "../common/SearchField";
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
 
+// -- State Imports --
+import { useOrgStatus } from "../../state/projectionStatus";
+
 // -- Type Imports --
 import type { AlbumRow } from "../../types";
 
@@ -40,6 +43,8 @@ export function AlbumPicker({
   onClose: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  // Until the albums load the list is empty for the wrong reason, so it must not read as "no albums".
+  const status = useOrgStatus();
   const t = useT();
   const untitled = t((d) => d.albums.untitled);
 
@@ -64,7 +69,9 @@ export function AlbumPicker({
     <>
       <div className={styles.backdrop} onClick={requestClose} aria-hidden="true" />
       <div className={styles.panel} data-state={panel.state} role="dialog" aria-label={t((d) => d.selection.pickerTitle)}>
-        {albums.length === 0 ? (
+        {status !== "ready" ? (
+          <p className={styles.empty}>{t((d) => d.projections.loadingTitle)}</p>
+        ) : albums.length === 0 ? (
           <p className={styles.empty}>{t((d) => d.selection.noAlbums)}</p>
         ) : (
           <>

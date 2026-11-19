@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
 import { useAppStore } from "./store";
-import { useOrganizeStore } from "./organize/store";
+import { orgLoader, useOrganizeStore } from "./organize/store";
+import { playlistsLoader } from "./playlists/store";
 import { usePlayerStore } from "./player/store";
 
 // -- IPC Imports --
@@ -25,6 +26,7 @@ vi.mock("../lib/ipc", () => ({
   loadPlaylists: vi.fn(),
   relinkCandidates: vi.fn(),
   relocateRoot: vi.fn(),
+  removeMissingTracks: vi.fn(),
   removeRoot: vi.fn(async () => {}),
   rescanAll: vi.fn(),
   rescanLibrary: vi.fn(async () => {}),
@@ -65,12 +67,19 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
   useAppStore.getState().reset();
+  orgLoader.reset();
+  playlistsLoader.reset();
   useOrganizeStore.setState({ org: { albums: [], membership: [] } });
   mocked.listRoots.mockResolvedValue([root]);
   mocked.listTracks.mockResolvedValue({ rows: [track(1)] } as never);
+  mocked.loadOrganization.mockResolvedValue({ albums: [], membership: [], genres: [] });
+  mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [] });
 });
 
 afterEach(() => {
+  useAppStore.getState().reset();
+  orgLoader.reset();
+  playlistsLoader.reset();
   vi.useRealTimers();
 });
 
@@ -110,7 +119,16 @@ describe("sync ticks", () => {
   });
 });
 
+// Boots on the default mocks so every projection has landed, then clears the call counts.
+async function bootAndClear(): Promise<void> {
+  await useAppStore.getState().boot();
+  await vi.advanceTimersByTimeAsync(0);
+  vi.clearAllMocks();
+}
+
 describe("sync deltas", () => {
+  beforeEach(bootAndClear);
+
   it("patch rows by id, and give the same rows when applied twice", async () => {
     useAppStore.setState({ tracks: [track(1), track(2)] });
     mocked.getTracksByIds.mockResolvedValue([track(2, "renamed"), track(3)]);
@@ -164,6 +182,21 @@ describe("sync deltas", () => {
     await vi.runAllTimersAsync();
     expect(mocked.getTracksByIds).not.toHaveBeenCalled();
     expect(ids()).toEqual([1, 9]);
+  });
+
+  it("do not read a first-run reload as failed while the tracks read has never run", async () => {
+    useAppStore.getState().reset();
+    orgLoader.reset();
+    playlistsLoader.reset();
+    mocked.listRoots.mockResolvedValue([]);
+    mocked.loadOrganization.mockResolvedValue({ albums: [], membership: [], genres: [] });
+    mocked.loadPlaylists.mockResolvedValue({ playlists: [], tracks: [], album_entries: [] });
+    await useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocked.listTracks).not.toHaveBeenCalled();
+    useAppStore.getState().queueDelta({ reload: true });
+    await vi.runAllTimersAsync();
+    expect(useAppStore.getState().scan.status).not.toBe("error");
   });
 
   it("refresh the organization only when a changed track is filed", async () => {
@@ -266,6 +299,90 @@ describe("boot", () => {
     expect(s.booted).toBe(true);
     expect(s.roots).toEqual([root]);
     expect(ids()).toEqual([1, 2]);
+  });
+
+  it("starts the organization and playlists reads before the gate opens, without waiting on them", async () => {
+    mocked.loadOrganization.mockReturnValue(new Promise(() => {}));
+    mocked.loadPlaylists.mockReturnValue(new Promise(() => {}));
+
+    await useAppStore.getState().boot();
+    expect(useAppStore.getState().booted).toBe(true);
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);
+    expect(mocked.loadPlaylists).toHaveBeenCalledTimes(1);
+    expect(useOrganizeStore.getState().orgReady).toBe(false);
+  });
+
+  it("joins the running reads when called twice", async () => {
+    await useAppStore.getState().boot();
+    await useAppStore.getState().boot();
+    expect(mocked.listRoots).toHaveBeenCalledTimes(1);
+    expect(mocked.listTracks).toHaveBeenCalledTimes(1);
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);
+    expect(mocked.loadPlaylists).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the gate through twenty rejected roots reads, never reading as empty", async () => {
+    for (let i = 0; i < 20; i++) mocked.listRoots.mockRejectedValueOnce("not ready");
+    const booting = useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(useAppStore.getState().booted).toBe(false);
+    expect(useAppStore.getState().roots).toEqual([]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await booting;
+    expect(useAppStore.getState().booted).toBe(true);
+    expect(useAppStore.getState().roots).toEqual([root]);
+  });
+
+  it("holds the gate through a roots read that never settles, flagging it stalled", async () => {
+    mocked.listRoots.mockReturnValueOnce(new Promise(() => {})).mockReturnValue(new Promise(() => {}));
+    void useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(useAppStore.getState().booted).toBe(false);
+    expect(useAppStore.getState().bootStalled).toBe(true);
+  });
+
+  it("retries a waiting roots read at once on retryBoot", async () => {
+    mocked.listRoots.mockRejectedValueOnce("not ready").mockResolvedValue([root]);
+    const booting = useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(mocked.listRoots).toHaveBeenCalledTimes(1);
+    useAppStore.getState().retryBoot();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocked.listRoots).toHaveBeenCalledTimes(2);
+    await booting;
+    expect(useAppStore.getState().booted).toBe(true);
+  });
+
+  it("recovers on the third attempt when two roots reads never settle", async () => {
+    mocked.listRoots
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue([root]);
+    void useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(mocked.listRoots).toHaveBeenCalledTimes(3);
+    expect(useAppStore.getState().booted).toBe(true);
+  });
+
+  it("recovers from a tracks read that never settles", async () => {
+    mocked.listTracks.mockReturnValueOnce(new Promise(() => {})).mockResolvedValue({ rows: [track(4)] } as never);
+    void useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(useAppStore.getState().booted).toBe(true);
+    expect(ids()).toEqual([4]);
+    expect(useAppStore.getState().bootStalled).toBe(false);
+  });
+
+  it("wakes a waiting projection read on any sync delta", async () => {
+    mocked.loadOrganization.mockRejectedValueOnce("early").mockResolvedValue({ albums: [], membership: [], genres: [] });
+    await useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);
+    mocked.getTracksByIds.mockResolvedValue([]);
+    useAppStore.getState().queueDelta({ ids: [9] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(2);
+    expect(useOrganizeStore.getState().orgReady).toBe(true);
   });
 });
 
@@ -392,7 +509,40 @@ describe("the relink prompt", () => {
   });
 });
 
+describe("with a stuck organization read", () => {
+  beforeEach(async () => {
+    mocked.loadOrganization.mockReturnValue(new Promise(() => {}));
+    await useAppStore.getState().boot();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
+  it("lets a library reload through instead of holding the delta flush", async () => {
+    mocked.listTracks.mockResolvedValue({ rows: [track(1), track(9)] } as never);
+    useAppStore.getState().queueDelta({ reload: true });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(ids()).toEqual([1, 9]);
+    expect(useAppStore.getState().pendingDelta).toEqual({ ids: [], reload: false });
+  });
+
+  it("does not report a library reload as failed while the organization is still loading", async () => {
+    mocked.listTracks.mockResolvedValue({ rows: [track(1)] } as never);
+    useAppStore.getState().queueDelta({ reload: true });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(useAppStore.getState().scan.status).not.toBe("error");
+  });
+
+  it("releases the purge hold", async () => {
+    mocked.removeMissingTracks.mockResolvedValue({ removed: 1 } as never);
+    const purge = useAppStore.getState().purgeGoneTracks([1]);
+    await vi.advanceTimersByTimeAsync(100);
+    await purge;
+    expect(useAppStore.getState().syncHolds).toEqual([]);
+  });
+});
+
 describe("removing a root", () => {
+  beforeEach(bootAndClear);
+
   it("reloads roots, tracks, organization and playlists", async () => {
     mocked.listRoots.mockResolvedValue([]);
     mocked.listTracks.mockResolvedValue({ rows: [] } as never);

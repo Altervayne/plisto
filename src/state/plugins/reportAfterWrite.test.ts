@@ -48,10 +48,12 @@ beforeEach(() => {
       albums: [{ id: 7, title: "a", album_artist: null, year: null, genre: null, track_count: 1 } as AlbumRow],
       membership: [{ album_id: 7, track_id: 1, genre_ids: [] } as unknown as AlbumTrackRow],
     },
+    orgReady: true,
     past: [],
     future: [],
   });
   usePlaylistsStore.setState({
+    ready: true,
     tracks: [
       { id: 1, playlist_id: 3, position: 1 } as PlaylistTrackRow,
       { id: 2, playlist_id: 3, position: 2 } as PlaylistTrackRow,

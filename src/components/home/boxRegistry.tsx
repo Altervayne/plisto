@@ -22,10 +22,14 @@ import {
 } from "./homeSuggestions";
 import { resolveFacet } from "../tracks/trackFacets";
 
+// -- Hook Imports --
+import { useDelayedFlag } from "../../hooks/useDelayedFlag";
+
 // -- State Imports --
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useAlbumIndex, useAlbumTracks, useMembership, useUnsortedTracks } from "../../state/organize/store";
 import { useMostPlayed, useRecentlyPlayed } from "../../state/player/playHistory";
+import { useOrgStatus } from "../../state/projectionStatus";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { useSetHistoryLens } from "../../state/shell/store";
 import { useSetLibraryFacets, useSetLibraryMissingMetadata, useTracks } from "../../state/store";
@@ -45,6 +49,9 @@ const PREVIEW_LIMIT = 12;
 /** How deep into the recent plays the more-from-artist signal reads, so an album's worth of one artist
  *  wins it over a scattering of others. */
 const RECENT_ARTIST_WINDOW = 24;
+
+/** How long the albums may stay unloaded before the Unsorted preview says so; a normal launch never shows it. */
+const NOTE_DELAY_MS = 400;
 
 /** The props every box takes: the one nav path the whole landing shares. */
 export interface HomeBoxProps {
@@ -81,11 +88,12 @@ function MissingCoversBox({ onNavigate }: HomeBoxProps) {
 
 function UnsortedStatBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
+  const ready = useOrgStatus() === "ready";
   const count = useUnsortedTracks().length;
   return (
     <StatBox
       label={t((d) => d.home.unsortedLabel)}
-      count={count}
+      count={ready ? count : null}
       verb={t((d) => d.home.unsortedVerb)}
       settled={t((d) => d.home.unsortedSettled)}
       onClick={() => onNavigate("unsorted")}
@@ -95,13 +103,19 @@ function UnsortedStatBox({ onNavigate }: HomeBoxProps) {
 
 function UnsortedPreviewBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
-  const rows = useUnsortedTracks().slice(0, PREVIEW_LIMIT);
+  const ready = useOrgStatus() === "ready";
+  const unsorted = useUnsortedTracks();
+  // Not ready, every track reads as loose: show no false pile and no all-clear. A wait long enough to
+  // notice says the albums are still loading.
+  const rows = ready ? unsorted.slice(0, PREVIEW_LIMIT) : [];
+  const waiting = useDelayedFlag(!ready, NOTE_DELAY_MS);
+  const pendingNote = waiting ? t((d) => d.projections.finderNote) : "";
   const onPlay = usePreviewPlay();
   return (
     <PreviewBox
       label={t((d) => d.home.unsortedLabel)}
       rows={rows}
-      invite={t((d) => d.home.unsortedInvite)}
+      invite={ready ? t((d) => d.home.unsortedInvite) : pendingNote}
       seeAllLabel={t((d) => d.home.seeAll)}
       onSeeAll={() => onNavigate("unsorted")}
       onPlay={onPlay}
@@ -153,12 +167,13 @@ function MostPlayedBox({ onNavigate }: HomeBoxProps) {
 
 function MissingMetadataBox({ onNavigate }: HomeBoxProps) {
   const t = useT();
+  const ready = useOrgStatus() === "ready";
   const count = countMissingMetadata(useTracks(), useAlbumIndex());
   const setMissingMetadata = useSetLibraryMissingMetadata();
   return (
     <StatBox
       label={t((d) => d.home.missingMetaLabel)}
-      count={count}
+      count={ready ? count : null}
       verb={t((d) => d.home.missingMetaVerb)}
       settled={t((d) => d.home.missingMetaSettled)}
       // Land on All Tracks already narrowed to these tracks, the chip naming why.

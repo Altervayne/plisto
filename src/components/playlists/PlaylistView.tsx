@@ -9,6 +9,7 @@ import { Resizer } from "../common/Resizer/Resizer";
 import { PlaylistHeader } from "./PlaylistHeader";
 import { PlaylistTrackList } from "./PlaylistTrackList";
 import { TrackDetail } from "../tracks/TrackDetail";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- Hook Imports --
 import { useDrawerResize } from "../common/Resizer/useDrawerResize";
@@ -16,6 +17,7 @@ import { useDrawerResize } from "../common/Resizer/useDrawerResize";
 // -- State Imports --
 import { useTrack } from "../../state/store";
 import { usePlaylists, usePlaylistTracks } from "../../state/playlists/store";
+import { usePlaylistsStatus } from "../../state/projectionStatus";
 
 // -- Type Imports --
 import type { Crumb } from "../../state/files/folderTree";
@@ -47,6 +49,7 @@ export function PlaylistView({
   onOpenAlbum: (albumId: number) => void;
 }) {
   const t = useT();
+  const status = usePlaylistsStatus();
   const { width, containerRef, resizer } = useDrawerResize();
   const playlists = usePlaylists();
   const tracks = usePlaylistTracks(playlistId);
@@ -85,19 +88,23 @@ export function PlaylistView({
         ref={containerRef}
         style={{ "--drawer-width": `${width}px` } as CSSProperties}
       >
-        <ScrollArea className={styles.main} contentClassName={styles.mainInner}>
-          {playlist ? (
-            <PlaylistHeader playlist={playlist} onDeleted={onBack} />
-          ) : null}
-          <div className={styles.tracks}>
-            <PlaylistTrackList
-              playlistId={playlistId}
-              onOpenSlot={setOpenSlotId}
-              openSlotId={openSlotId}
-              onOpenAlbum={onOpenAlbum}
-            />
-          </div>
-        </ScrollArea>
+        {status !== "ready" ? (
+          <ProjectionPending state={status} />
+        ) : (
+          <ScrollArea className={styles.main} contentClassName={styles.mainInner}>
+            {playlist ? (
+              <PlaylistHeader playlist={playlist} onDeleted={onBack} />
+            ) : null}
+            <div className={styles.tracks}>
+              <PlaylistTrackList
+                playlistId={playlistId}
+                onOpenSlot={setOpenSlotId}
+                openSlotId={openSlotId}
+                onOpenAlbum={onOpenAlbum}
+              />
+            </div>
+          </ScrollArea>
+        )}
 
         {trackRow ? (
           <div className={styles.panel}>

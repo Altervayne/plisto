@@ -48,6 +48,7 @@ import { announceAfterBlock } from "../../state/player/queueToast";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
@@ -105,6 +106,8 @@ export function AlbumTrackList({
   const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const album = useAlbum(albumId);
+  const albumsGate = useWriteGate("albums");
+  const playlistsGate = useWriteGate("playlists");
   const t = useT();
 
   // Every play from this list shares one source, for the "playing from" line. Until the row loads, the
@@ -326,11 +329,15 @@ export function AlbumTrackList({
       {
         icon: <ListPlus size={16} strokeWidth={1.8} />,
         label: t((d) => d.playlists.addTo),
+        disabled: playlistsGate.blocked,
+        tooltip: playlistsGate.tip,
         onSelect: () => setPlaylistPicker({ tracks: [row.track_id], fromSelection: false }),
       },
       {
         icon: <ImageIcon size={16} strokeWidth={1.8} />,
         label: row.keep_own_cover ? t((d) => d.albums.useAlbumCover) : t((d) => d.albums.keepOwnCover),
+        disabled: albumsGate.blocked,
+        tooltip: albumsGate.tip,
         onSelect: () => void setTrackKeepOwnCover(albumId, [row.track_id], !row.keep_own_cover),
       },
       { separator: true },
@@ -338,6 +345,8 @@ export function AlbumTrackList({
         icon: <X size={16} strokeWidth={1.8} />,
         label: t((d) => d.albums.removeFromAlbum),
         style: "destructive",
+        disabled: albumsGate.blocked,
+        tooltip: albumsGate.tip,
         onSelect: () => unassignTracks(albumId, [row.track_id]),
       },
     );
@@ -364,8 +373,9 @@ export function AlbumTrackList({
   };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    // A drop outside any target, or back onto the source, leaves the layout untouched.
-    if (!over || over.id === active.id) return;
+    // A drop outside any target, or back onto the source, leaves the layout untouched; so does a drop
+    // before the albums have loaded, which the store would refuse.
+    if (!over || over.id === active.id || albumsGate.blocked) return;
     const trackId = Number(active.id);
 
     // An empty disc zone seeds the track there first and sheds its transient state. Otherwise the

@@ -48,6 +48,20 @@
   gap: 24px;
 }
 
+/* The list area while the albums load: the filter stays on top so the narrowing can be switched off. */
+.pending {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pendingBar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px;
+}
+
 /* The detail panel's positioned wrapper: it holds the var width, and the resize handle rides its left
  * border as a child, so the handle reads as part of the panel and moves with it as the var changes. */
 .panel {

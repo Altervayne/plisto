@@ -4,6 +4,10 @@ import { useState } from "react";
 // -- Component Imports --
 import { EditableField } from "../common/EditableField/EditableField";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
+
+// -- Hook Imports --
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- Icon Imports --
 import { Merge, Trash2 } from "lucide-react";
@@ -39,6 +43,8 @@ export function GenreSettingRow({ genre, genres }: { genre: GenreRow; genres: Ge
   const deleteGenre = useDeleteGenre();
   const mergeGenres = useMergeGenres();
   const genreRemovalImpact = useGenreRemovalImpact();
+  // The row shows from the vocabulary's own read; its writes wait for the albums.
+  const gate = useWriteGate("albums");
   const t = useT();
 
   const [mode, setMode] = useState<Mode>("idle");
@@ -57,7 +63,9 @@ export function GenreSettingRow({ genre, genres }: { genre: GenreRow; genres: Ge
   const onRename = (next: string) => {
     // A genre name is never empty; drop an empty commit and let the field re-seed from the store.
     if (next === "") return;
-    void renameGenre(genre.id, next).finally(() => setRev((r) => r + 1));
+    void renameGenre(genre.id, next)
+      .catch(() => {})
+      .finally(() => setRev((r) => r + 1));
   };
 
   const onDeleteClick = async () => {
@@ -65,52 +73,62 @@ export function GenreSettingRow({ genre, genres }: { genre: GenreRow; genres: Ge
     setMode("delete");
   };
 
+  // A refused write leaves the confirm open: nothing ran, so it must not close as if it had.
   const onConfirmMerge = async () => {
-    if (!target) return;
+    if (!target || gate.blocked) return;
     reset();
-    await mergeGenres(genre.id, target.id);
+    await mergeGenres(genre.id, target.id).catch(() => {});
   };
 
   const onConfirmDelete = async () => {
+    if (gate.blocked) return;
     reset();
-    await deleteGenre(genre.id);
+    await deleteGenre(genre.id).catch(() => {});
   };
 
   return (
     <div className={styles.rowWrap}>
       <div className={styles.row}>
-        <div className={styles.main}>
-          <EditableField
-            key={rev}
-            value={genre.name}
-            ariaLabel={t((d) => d.settings.renameGenre)}
-            onCommit={onRename}
-          />
-        </div>
+        <Tooltip label={gate.tip}>
+          <div className={styles.main}>
+            <EditableField
+              key={rev}
+              value={genre.name}
+              ariaLabel={t((d) => d.settings.renameGenre)}
+              onCommit={onRename}
+              disabled={gate.blocked}
+            />
+          </div>
+        </Tooltip>
         <span className={styles.count}>
           {t((d) => d.settings.genreUsed, { n: genre.track_count })}
         </span>
         <div className={styles.controls}>
-          <button
-            type="button"
-            className={styles.glyph}
-            aria-label={t((d) => d.settings.mergeGenre)}
-            onClick={() => {
-              setTarget(null);
-              setMode("merge");
-            }}
-            disabled={others.length === 0}
-          >
-            <Merge size={15} strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
-            className={`${styles.glyph} ${styles.remove}`}
-            aria-label={t((d) => d.settings.removeGenre)}
-            onClick={() => void onDeleteClick()}
-          >
-            <Trash2 size={15} strokeWidth={1.8} />
-          </button>
+          <Tooltip label={gate.tip}>
+            <button
+              type="button"
+              className={styles.glyph}
+              aria-label={t((d) => d.settings.mergeGenre)}
+              onClick={() => {
+                setTarget(null);
+                setMode("merge");
+              }}
+              disabled={others.length === 0 || gate.blocked}
+            >
+              <Merge size={15} strokeWidth={1.8} />
+            </button>
+          </Tooltip>
+          <Tooltip label={gate.tip}>
+            <button
+              type="button"
+              className={`${styles.glyph} ${styles.remove}`}
+              aria-label={t((d) => d.settings.removeGenre)}
+              onClick={() => void onDeleteClick()}
+              disabled={gate.blocked}
+            >
+              <Trash2 size={15} strokeWidth={1.8} />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -135,9 +153,11 @@ export function GenreSettingRow({ genre, genres }: { genre: GenreRow; genres: Ge
               old: genre.name,
             })}
           </span>
-          <QuietButton onClick={() => void onConfirmMerge()}>
-            {t((d) => d.settings.mergeAction)}
-          </QuietButton>
+          <Tooltip label={gate.tip}>
+            <QuietButton onClick={() => void onConfirmMerge()} disabled={gate.blocked}>
+              {t((d) => d.settings.mergeAction)}
+            </QuietButton>
+          </Tooltip>
           <QuietButton onClick={reset}>{t((d) => d.common.cancel)}</QuietButton>
         </div>
       ) : null}
@@ -147,9 +167,11 @@ export function GenreSettingRow({ genre, genres }: { genre: GenreRow; genres: Ge
           <span className={styles.prompt}>
             {t((d) => d.settings.removeGenreConfirm, { n: impact, name: genre.name })}
           </span>
-          <QuietButton onClick={() => void onConfirmDelete()}>
-            {t((d) => d.settings.removeAction)}
-          </QuietButton>
+          <Tooltip label={gate.tip}>
+            <QuietButton onClick={() => void onConfirmDelete()} disabled={gate.blocked}>
+              {t((d) => d.settings.removeAction)}
+            </QuietButton>
+          </Tooltip>
           <QuietButton onClick={reset}>{t((d) => d.common.cancel)}</QuietButton>
         </div>
       ) : null}

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // -- Unit Imports --
 import { usePlaylistAdd } from "./usePlaylistAdd";
 import type { PlaylistAdd } from "./usePlaylistAdd";
+import { notReadyError } from "../../lib/ipc";
 
 const h = vi.hoisted(() => ({
   addAlbums: vi.fn(async () => {}),
@@ -49,6 +50,12 @@ describe("usePlaylistAdd", () => {
 
   it("shows no pill and rejects nothing when the album add fails", async () => {
     h.addAlbums.mockRejectedValue(new Error("write failed"));
+    await expect(h.add(1, { kind: "albums", albumIds: [4] })).resolves.toBeUndefined();
+    expect(h.albumAdded).not.toHaveBeenCalled();
+  });
+
+  it("shows no pill and rejects nothing when the add is refused before the playlists load", async () => {
+    h.addAlbums.mockRejectedValue(notReadyError());
     await expect(h.add(1, { kind: "albums", albumIds: [4] })).resolves.toBeUndefined();
     expect(h.albumAdded).not.toHaveBeenCalled();
   });

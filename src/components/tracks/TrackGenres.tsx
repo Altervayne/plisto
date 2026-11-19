@@ -7,6 +7,9 @@ import { GenreAdder } from "../common/GenreAdder";
 // -- Icon Imports --
 import { X } from "lucide-react";
 
+// -- Hook Imports --
+import { useWriteGate } from "../organize/useWriteGate";
+
 // -- State Imports --
 import { useSetTrackGenres } from "../../state/store";
 import { useCreateGenre, useGenres, useLoadGenres } from "../../state/organize/store";
@@ -30,6 +33,8 @@ export function TrackGenres({ trackId, genreIds }: { trackId: number; genreIds: 
   const setTrackGenres = useSetTrackGenres();
   const createGenre = useCreateGenre();
   const loadGenres = useLoadGenres();
+  // Picking an existing genre is a track edit; only a new vocabulary entry waits for the albums.
+  const gate = useWriteGate("albums");
   const t = useT();
 
   useEffect(() => {
@@ -75,6 +80,7 @@ export function TrackGenres({ trackId, genreIds }: { trackId: number; genreIds: 
           onPick={(id) => commit([...genreIds, id])}
           onCreate={onCreate}
           placeholder={t((d) => d.albums.addGenre)}
+          createTip={gate.tip}
         />
       </div>
     </div>

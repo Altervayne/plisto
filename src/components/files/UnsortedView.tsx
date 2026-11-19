@@ -6,9 +6,11 @@ import { LibraryBrowser } from "./LibraryBrowser";
 import { EmptyState } from "../common/EmptyState";
 import { AlbumsFromTagsButton } from "../organize/albumsFromTags/AlbumsFromTagsButton";
 import { AlbumsFromTagsSheet } from "../organize/albumsFromTags/AlbumsFromTagsSheet";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- State Imports --
 import { useUnsortedTracks } from "../../state/organize/store";
+import { useOrgStatus } from "../../state/projectionStatus";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -25,11 +27,16 @@ import { useT } from "../../i18n";
 export function UnsortedView({ onShowAlbums }: { onShowAlbums: () => void }) {
   const t = useT();
   const [review, setReview] = useState<{ id: string; name: string | null } | null>(null);
+  const status = useOrgStatus();
+  const unsorted = useUnsortedTracks();
+
+  // Without the membership every track reads as loose, so nothing is listed until it has loaded.
+  if (status !== "ready") return <ProjectionPending state={status} />;
 
   return (
     <>
       <LibraryBrowser
-        tracks={useUnsortedTracks()}
+        tracks={unsorted}
         emptyState={
           <EmptyState
             tone="good"

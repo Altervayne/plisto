@@ -7,6 +7,7 @@ import { QuietButton } from "../../common/QuietButton";
 // -- State Imports --
 import { useOrganizeStore } from "../../../state/organize/store";
 import { groupByAlbumTags } from "../../../state/organize/groupByAlbumTags";
+import { useOrgStatus } from "../../../state/projectionStatus";
 
 // -- i18n Imports --
 import { useT } from "../../../i18n";
@@ -19,7 +20,8 @@ import styles from "./AlbumsFromTagsButton.module.css";
 
 /**
  * The quiet entry to the albums-from-tags review, labelled with how many albums the loose tracks in
- * scope would make. Counts live, so it follows folder navigation, and hides itself at zero.
+ * scope would make. Counts live, so it follows folder navigation, and hides itself at zero or while the
+ * albums have not loaded.
  */
 export function AlbumsFromTagsButton({
   tracks,
@@ -29,6 +31,7 @@ export function AlbumsFromTagsButton({
   onOpen: () => void;
 }) {
   const t = useT();
+  const status = useOrgStatus();
   const albums = useOrganizeStore((s) => s.org.albums);
   const membership = useOrganizeStore((s) => s.org.membership);
   const count = useMemo(
@@ -36,7 +39,7 @@ export function AlbumsFromTagsButton({
     [tracks, albums, membership],
   );
 
-  if (count === 0) return null;
+  if (status !== "ready" || count === 0) return null;
 
   return (
     <QuietButton onClick={onOpen}>

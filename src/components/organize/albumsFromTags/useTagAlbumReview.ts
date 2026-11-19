@@ -20,7 +20,7 @@ import {
 } from "../../../state/organize/tagAlbumReview";
 
 // -- IPC Imports --
-import { isStaleProposal } from "../../../lib/ipc";
+import { isNotReady, isStaleProposal } from "../../../lib/ipc";
 
 // -- Type Imports --
 import type { TagAlbumReceipt } from "../../../types";
@@ -143,7 +143,7 @@ export function useTagAlbumReview(scopeId: string) {
         await loadOrganization();
         rebuild();
         setNotice("stale");
-      } else {
+      } else if (!isNotReady(e)) {
         setNotice("error");
       }
     } finally {

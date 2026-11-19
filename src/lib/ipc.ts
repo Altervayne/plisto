@@ -481,6 +481,19 @@ export function isStaleProposal(error: unknown): boolean {
   return String(error).includes(STALE_PROPOSAL);
 }
 
+// The store's refusal of a membership write issued before albums or playlists have loaded.
+const NOT_READY = "albums and playlists have not loaded yet";
+
+/** The rejection a gated store write returns while the projection it writes against has not loaded. */
+export function notReadyError(): Error {
+  return new Error(NOT_READY);
+}
+
+/** True when a store write was refused because albums or playlists have not loaded; nothing was written. */
+export function isNotReady(error: unknown): boolean {
+  return String(error).includes(NOT_READY);
+}
+
 /**
  * Files many groups of loose tracks into new or existing albums in one transaction. Resolves with the
  * receipt that undo and redo replay; rejects the whole batch, writing nothing, when a plan went stale.
@@ -586,6 +599,17 @@ export function setTrackKeepOwnCover(
 /** Loads the whole organize state in one pass: every album with its count, and every membership row. */
 export function loadOrganization(): Promise<OrganizationSnapshot> {
   return invoke<OrganizationSnapshot>("load_organization");
+}
+
+/** Appends one startup-read line (failed, timeout, late, recovered) to the boot log. */
+export function logBootRead(
+  read: "roots" | "tracks" | "organization" | "playlists",
+  outcome: "failed" | "timeout" | "late" | "recovered",
+  attempt: number,
+  elapsedMs: number,
+  error: string | null,
+): Promise<void> {
+  return invoke<void>("log_boot_read", { read, outcome, attempt, elapsedMs, error });
 }
 
 /** The whole genre vocabulary, each entry with its usage count. */

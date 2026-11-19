@@ -9,7 +9,11 @@ import { AlbumCard } from "./AlbumCard";
 import type { MenuEntry } from "../common/ContextMenu";
 import type { AlbumRow } from "../../types";
 
-const h = vi.hoisted(() => ({ items: [] as MenuEntry[] }));
+const h = vi.hoisted(() => ({ items: [] as MenuEntry[], blocked: false }));
+
+vi.mock("../organize/useWriteGate", () => ({
+  useWriteGate: () => ({ blocked: h.blocked, tip: h.blocked ? "Available once loaded" : undefined }),
+}));
 
 vi.mock("../common/ContextMenu", () => ({
   useContextMenu: () => ({ open: false, x: 0, y: 0, close: () => {}, onContextMenu: () => {} }),
@@ -78,6 +82,7 @@ const choose = (kind: "album" | "single") => {
 
 beforeEach(() => {
   h.items = [];
+  h.blocked = false;
   vi.stubGlobal("window", { devicePixelRatio: 1 });
 });
 
@@ -92,5 +97,21 @@ describe("AlbumCard add to playlist", () => {
     const { label, onAddToPlaylist } = choose("single");
     expect(label).toBe("Add to playlist...");
     expect(onAddToPlaylist).toHaveBeenCalledWith({ kind: "tracks", trackIds: [31, 32] });
+  });
+});
+
+describe("AlbumCard while albums and playlists have not loaded", () => {
+  it("disables the add and delete entries with the tooltip", () => {
+    h.blocked = true;
+    choose("album");
+    const gated = h.items.filter(
+      (e): e is Exclude<MenuEntry, { separator: true }> =>
+        !("separator" in e) && (e.label.includes("to playlist") || e.style === "destructive"),
+    );
+    expect(gated).toHaveLength(2);
+    for (const entry of gated) {
+      expect(entry.disabled).toBe(true);
+      expect(entry.tooltip).toBe("Available once loaded");
+    }
   });
 });

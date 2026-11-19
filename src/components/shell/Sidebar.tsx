@@ -61,8 +61,8 @@ export function Sidebar({
   onModeChange: (mode: Mode) => void;
   onOpenPlugin: (id: string, route: string | null) => void;
   filesCount: number;
-  unsortedCount: number;
-  playlistsCount: number;
+  unsortedCount?: number;
+  playlistsCount?: number;
   coversCount: number;
   collapsed?: boolean;
   bare?: boolean;

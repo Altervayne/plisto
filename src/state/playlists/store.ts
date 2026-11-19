@@ -18,6 +18,7 @@ import {
   createPlaylist as ipcCreatePlaylist,
   deletePlaylist as ipcDeletePlaylist,
   loadPlaylists as ipcLoadPlaylists,
+  notReadyError,
   removePlaylistCover as ipcRemovePlaylistCover,
   removePlaylistSlots as ipcRemovePlaylistSlots,
   renamePlaylist as ipcRenamePlaylist,
@@ -28,10 +29,10 @@ import {
   unpackPlaylistAlbumEntry as ipcUnpackPlaylistAlbumEntry,
 } from "../../lib/ipc";
 
-// -- Utils Imports --
-import { withRetry } from "../../lib/withRetry";
-
 // -- State Imports --
+// Imports the organize store, which imports this one back; each is read only inside actions.
+import { useOrganizeStore } from "../organize/store";
+import { createProjectionLoader } from "../projectionLoad";
 import { reportLibraryChange } from "../plugins/libraryWatch";
 
 // -- Type Imports --
@@ -42,6 +43,9 @@ interface PlaylistsStore {
   tracks: PlaylistTrackRow[];
   // Album entries share the slot id space with `tracks`: both kinds order and reorder together.
   albumEntries: PlaylistAlbumEntryRow[];
+  // True once a read has landed; `stalled` is true while the first read is outstanding past the threshold.
+  ready: boolean;
+  stalled: boolean;
 
   load: () => Promise<void>;
   create: (name: string | null) => Promise<number>;
@@ -63,38 +67,39 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
   tracks: [],
   albumEntries: [],
 
+  ready: false,
+  stalled: false,
+
+  // Before the first read lands this only starts it (or joins it) and returns at once. A later reload that
+  // still fails keeps the rows already held; an error never reads as "no playlists".
   load: async () => {
-    try {
-      // Retried: an early boot read can reject before managed state is ready. A read that still fails
-      // keeps the rows already held; an error never reads as "no playlists".
-      const snapshot = await withRetry(ipcLoadPlaylists);
-      set({
-        playlists: snapshot.playlists,
-        tracks: snapshot.tracks,
-        albumEntries: snapshot.album_entries,
-      });
-    } catch (error) {
-      console.warn("Playlists failed to load; keeping the current rows.", error);
+    const landed = await playlistsLoader.load();
+    if (!landed && playlistsLoader.isReady()) {
+      console.warn("Playlists failed to load; keeping the current rows.");
     }
   },
 
   create: async (name) => {
+    if (!writable()) throw notReadyError();
     const row = await ipcCreatePlaylist(name);
     await get().load();
     return row.id;
   },
 
   rename: async (id, name) => {
+    if (!writable()) throw notReadyError();
     await ipcRenamePlaylist(id, name);
     await get().load();
   },
 
   remove: async (id) => {
+    if (!writable()) throw notReadyError();
     await ipcDeletePlaylist(id);
     await get().load();
   },
 
   setDescription: async (id, description) => {
+    if (!writable()) throw notReadyError();
     await ipcSetPlaylistDescription(id, description);
     await get().load();
   },
@@ -102,36 +107,43 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
   // The picked path comes in from the field, which runs the picker at the call site the way the album
   // cover does; a null pick never reaches here. The bound cover's art is refreshed by the caller's hook.
   setCover: async (id, srcPath) => {
+    if (!writable()) throw notReadyError();
     await ipcSetPlaylistCover(id, srcPath);
     await get().load();
   },
 
   removeCover: async (id) => {
+    if (!writable()) throw notReadyError();
     await ipcRemovePlaylistCover(id);
     await get().load();
   },
 
   addTracks: async (playlistId, trackIds) => {
+    if (!writable()) throw notReadyError();
     await ipcAddTracksToPlaylist(playlistId, trackIds);
     await get().load();
   },
 
   addAlbums: async (playlistId, albumIds, keepOrder) => {
+    if (!writable(true)) throw notReadyError();
     await ipcAddAlbumsToPlaylist(playlistId, albumIds, keepOrder);
     await get().load();
   },
 
   setKeepOrder: async (slotId, keepOrder) => {
+    if (!writable()) throw notReadyError();
     await ipcSetPlaylistEntryKeepOrder(slotId, keepOrder);
     await get().load();
   },
 
   unpack: async (slotId) => {
+    if (!writable()) throw notReadyError();
     await ipcUnpackPlaylistAlbumEntry(slotId);
     await get().load();
   },
 
   removeSlots: async (slotIds) => {
+    if (!writable()) throw notReadyError();
     await ipcRemovePlaylistSlots(slotIds);
     await get().load();
   },
@@ -139,6 +151,7 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
   // Optimistic: renumber this playlist's slots to the new order at once, then persist. A drag settles
   // with no reload flicker; a failed write reloads from truth to drop the optimistic order.
   reorder: (playlistId, orderedSlotIds) => {
+    if (!writable()) return;
     const position = new Map(orderedSlotIds.map((id, i) => [id, i + 1]));
     const renumber = <T extends { id: number; playlist_id: number; position: number }>(
       rows: T[],
@@ -157,6 +170,27 @@ export const usePlaylistsStore = create<PlaylistsStore>((set, get) => ({
     );
   },
 }));
+
+/**
+ * The write gate: a playlist write before the playlists have loaded would act on rows that only look
+ * empty. A write that reads album membership also waits for the albums. Reads the live flags.
+ */
+function writable(withAlbums = false): boolean {
+  return usePlaylistsStore.getState().ready && (!withAlbums || useOrganizeStore.getState().orgReady);
+}
+
+/** The playlists read: `boot()` starts it, and every later load joins or follows it. */
+export const playlistsLoader = createProjectionLoader({
+  name: "playlists",
+  read: () => ipcLoadPlaylists(),
+  apply: (snapshot) =>
+    usePlaylistsStore.setState({
+      playlists: snapshot.playlists,
+      tracks: snapshot.tracks,
+      albumEntries: snapshot.album_entries,
+    }),
+  onFlags: ({ ready, stalled }) => usePlaylistsStore.setState({ ready, stalled }),
+});
 
 // -- Selectors (narrow: each returns one primitive or one shallow-stable reference) --
 

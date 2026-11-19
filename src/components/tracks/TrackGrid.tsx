@@ -30,6 +30,9 @@ import { TrackCardWall } from "./TrackCardWall";
 import { AlbumPicker } from "../organize/AlbumPicker";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 
+// -- Hook Imports --
+import { useWriteGate } from "../organize/useWriteGate";
+
 // -- State Imports --
 import {
   useEditTrack,
@@ -336,6 +339,8 @@ export function TrackGrid({
   const playlists = usePlaylists();
   const addTracksToPlaylist = useAddTracksToPlaylist();
   const createPlaylist = useCreatePlaylist();
+  const albumsGate = useWriteGate("albums");
+  const playlistsGate = useWriteGate("playlists");
   const setOpenTool = useSetOpenTool();
   // A flat list is not a container, so playing from it plays just that track; the source tag still
   // names where it came from.
@@ -430,16 +435,22 @@ export function TrackGrid({
       {
         icon: <Disc size={16} strokeWidth={1.8} />,
         label: t((d) => d.selection.addToAlbum),
+        disabled: albumsGate.blocked,
+        tooltip: albumsGate.tip,
         onSelect: () => setAlbumPickerTrack(track.id),
       },
       {
         icon: <ListPlus size={16} strokeWidth={1.8} />,
         label: t((d) => d.playlists.addTo),
+        disabled: playlistsGate.blocked,
+        tooltip: playlistsGate.tip,
         onSelect: () => setPlaylistPickerTrack(track.id),
       },
       {
         icon: <Disc3 size={16} strokeWidth={1.8} />,
         label: t((d) => d.singles.make, { n: 1 }),
+        disabled: albumsGate.blocked,
+        tooltip: albumsGate.tip,
         onSelect: () => void createSingle(track.id),
       },
     ];

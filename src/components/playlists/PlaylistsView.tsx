@@ -3,9 +3,11 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { EmptyState } from "../common/EmptyState";
 import { PlaylistRow } from "./PlaylistRow";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- State Imports --
 import { useCreatePlaylist, usePlaylists } from "../../state/playlists/store";
+import { usePlaylistsStatus } from "../../state/projectionStatus";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -23,11 +25,14 @@ export function PlaylistsView({ onOpen }: { onOpen: (id: number) => void }) {
   const playlists = usePlaylists();
   const create = useCreatePlaylist();
   const t = useT();
+  const status = usePlaylistsStatus();
 
   const onNew = async () => {
     const id = await create(null);
     onOpen(id);
   };
+
+  if (status !== "ready") return <ProjectionPending state={status} />;
 
   if (playlists.length === 0) {
     return (

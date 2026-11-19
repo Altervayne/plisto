@@ -64,6 +64,7 @@ import {
   useUnsortedTracks,
 } from "../../state/organize/store";
 import { usePlaylists } from "../../state/playlists/store";
+import { useOrgStatus, usePlaylistsStatus } from "../../state/projectionStatus";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useCloseCollectionFull, useCollectionFullAlbumId } from "../../state/collection/store";
 import { useAppMode, usePlayerStore } from "../../state/player/store";
@@ -121,6 +122,8 @@ export function AppShell({
   const singles = useSingles();
   const unsorted = useUnsortedTracks();
   const playlists = usePlaylists();
+  const orgReady = useOrgStatus() === "ready";
+  const playlistsReady = usePlaylistsStatus() === "ready";
   const coversNeeded = useNeedsCoverCount();
   const undo = useUndo();
   const redo = useRedo();
@@ -167,7 +170,8 @@ export function AppShell({
   // The full-pane playlist, scoped like the album pane: a deleted id no longer resolves, so the pane
   // falls back to the list rather than stranding on it.
   const openPlaylist = playlists.find((p) => p.id === openPlaylistId) ?? null;
-  if (openPlaylistId != null && openPlaylist == null) {
+  // An unloaded list holds no playlist, so only a loaded one can call the id gone.
+  if (playlistsReady && openPlaylistId != null && openPlaylist == null) {
     setOpenPlaylistId(null);
   }
 
@@ -250,8 +254,8 @@ export function AppShell({
         onModeChange={setMode}
         onOpenPlugin={openPlugin}
         filesCount={count}
-        unsortedCount={unsorted.length}
-        playlistsCount={playlists.length}
+        unsortedCount={orgReady ? unsorted.length : undefined}
+        playlistsCount={playlistsReady ? playlists.length : undefined}
         coversCount={coversNeeded}
         collapsed={collapsed}
         bare={noLibrary && sidebarExpanded}
@@ -279,7 +283,7 @@ export function AppShell({
               <StaffSpinner />
             </div>
           ) : (
-            <PlayerView onNavigate={onNavigate} />
+            <PlayerView onNavigate={onNavigate} compact={standalone && !sidebarExpanded} />
           )
         ) : mode === "settings" ? (
           <SettingsView
@@ -346,7 +350,11 @@ export function AppShell({
                 <CollectionSwitch
                   visible={visibleSegments(appMode)}
                   segment={segment}
-                  counts={{ albums: albums.length, singles: singles.length, tracks: count }}
+                  counts={{
+                    albums: orgReady ? albums.length : undefined,
+                    singles: orgReady ? singles.length : undefined,
+                    tracks: count,
+                  }}
                   onChange={(next) => navigate({ segment: next })}
                 />
               ) : null}

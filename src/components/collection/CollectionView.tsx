@@ -8,6 +8,7 @@ import { AlbumFolderView } from "../albums/AlbumFolderView";
 import { AllTracksView } from "../tracks/AllTracksView";
 import { BrowseView } from "./browse/BrowseView";
 import { Resizer } from "../common/Resizer/Resizer";
+import { ProjectionPending } from "../organize/ProjectionPending";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -20,6 +21,7 @@ import {
   useOpenCollectionFull,
   useSetCollectionDrawer,
 } from "../../state/collection/store";
+import { useOrgStatus } from "../../state/projectionStatus";
 
 // -- Type Imports --
 import type { CollectionSegment } from "../../state/collection/store";
@@ -61,13 +63,15 @@ export function CollectionView({
   const setDrawer = useSetCollectionDrawer();
   const openFull = useOpenCollectionFull();
   const closeFull = useCloseCollectionFull();
+  const orgStatus = useOrgStatus();
 
   const selectedAlbum = albums.find((a) => a.id === drawerAlbumId) ?? null;
   const selectedSingle = singles.find((a) => a.id === drawerAlbumId) ?? null;
   const openAlbum = albums.find((a) => a.id === fullAlbumId) ?? null;
   useEffect(() => {
-    if (fullAlbumId != null && openAlbum == null) closeFull();
-  }, [fullAlbumId, openAlbum, closeFull]);
+    // An album list that has not loaded holds no album, so only a loaded list can call the id gone.
+    if (orgStatus === "ready" && fullAlbumId != null && openAlbum == null) closeFull();
+  }, [orgStatus, fullAlbumId, openAlbum, closeFull]);
 
   // Hold each drawer through its exit after the selection clears. The panel width snaps; only the
   // drawer content transform-fades. The selection is already null by then, so a ref keeps the last
@@ -86,6 +90,8 @@ export function CollectionView({
   if (openAlbum) lastOpenAlbum.current = openAlbum;
 
   const closeDrawer = () => setDrawer(null);
+
+  if (segment !== "tracks" && orgStatus !== "ready") return <ProjectionPending state={orgStatus} />;
 
   if (segment === "browse") return <BrowseView albums={albums} singles={singles} />;
 

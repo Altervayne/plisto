@@ -19,6 +19,7 @@ import { AlbumExportDialog } from "./AlbumExportDialog";
 import { PlaylistPicker } from "../playlists/PlaylistPicker";
 import { PrimaryButton } from "../common/PrimaryButton";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
 
 // -- State Imports --
 import { useCreatePlaylist, usePlaylists, usePlaylistsStore } from "../../state/playlists/store";
@@ -29,6 +30,7 @@ import { useOrganizeEnabled } from "../../state/player/store";
 
 // -- Hook Imports --
 import { usePlaylistAdd } from "../playlists/usePlaylistAdd";
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- Utils Imports --
 import { planLanding } from "./handoffLanding";
@@ -207,6 +209,9 @@ export function AlbumGrid({
   // The bar is one component across both walls; its delete copy follows the wall kind. A wall holds one
   // kind, so the first row names it.
   const single = albums[0]?.kind === "single";
+  // Albums go into a playlist as entries and their delete dissolves entries; singles do neither.
+  const addGate = useWriteGate(single ? "playlists" : "both");
+  const deleteGate = useWriteGate(single ? "albums" : "both");
 
   // What the bar's add hands the picker: the picked albums as entries in wall order, or a single wall's
   // member tracks.
@@ -360,17 +365,22 @@ export function AlbumGrid({
               {t((d) => d.albums.exportSelected)}
               <ArrowRight size={15} strokeWidth={2} aria-hidden="true" />
             </PrimaryButton>
-            <QuietButton
-              onClick={() => {
-                const target = pickedAdd();
-                if (target) setPlaylistTarget(target);
-              }}
-            >
-              {single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo)}
-            </QuietButton>
-            <QuietButton onClick={openBulkConfirm}>
-              {single ? t((d) => d.singles.removeSelected) : t((d) => d.albums.deleteSelected)}
-            </QuietButton>
+            <Tooltip label={addGate.tip}>
+              <QuietButton
+                disabled={addGate.blocked}
+                onClick={() => {
+                  const target = pickedAdd();
+                  if (target) setPlaylistTarget(target);
+                }}
+              >
+                {single ? t((d) => d.playlists.addTo) : t((d) => d.playlists.addAlbumTo)}
+              </QuietButton>
+            </Tooltip>
+            <Tooltip label={deleteGate.tip}>
+              <QuietButton onClick={openBulkConfirm} disabled={deleteGate.blocked}>
+                {single ? t((d) => d.singles.removeSelected) : t((d) => d.albums.deleteSelected)}
+              </QuietButton>
+            </Tooltip>
             <QuietButton onClick={() => setSelected(new Set())}>
               {t((d) => d.common.clear)}
             </QuietButton>

@@ -4,11 +4,14 @@ import { useRef, useState } from "react";
 // -- Component Imports --
 import { FoldedActions } from "../common/ActionFold/FoldedActions";
 import { QuietButton } from "../common/QuietButton";
+import { Tooltip } from "../common/Tooltip";
 
 // -- Hook Imports --
 import type { MountState } from "../../hooks/useMountTransition";
+import { useWriteGate } from "../organize/useWriteGate";
 
 // -- Type Imports --
+import type { WriteGate } from "../organize/useWriteGate";
 import type { FoldAction } from "../common/ActionFold/FoldedActions";
 
 // -- i18n Imports --
@@ -87,19 +90,31 @@ export function AlbumSelectionBar({
     { label: t((d) => d.albums.newDisc, { n: newDisc }), onSelect: () => onMoveToDisc(newDisc) },
   ];
 
+  // The membership writes wait for the albums, the playlist add for the playlists.
+  const albumsGate = useWriteGate("albums");
+  const playlistsGate = useWriteGate("playlists");
+
   const plain = (
     id: string,
     keep: number,
     group: number,
     label: string,
     onSelect: () => void,
+    gate?: WriteGate,
   ): FoldAction => ({
     id,
     keep,
     group,
     label,
     onSelect,
-    node: <QuietButton onClick={onSelect}>{label}</QuietButton>,
+    disabled: gate?.blocked,
+    node: (
+      <Tooltip label={gate?.tip}>
+        <QuietButton onClick={onSelect} disabled={gate?.blocked}>
+          {label}
+        </QuietButton>
+      </Tooltip>
+    ),
   });
 
   // The actions in display order, grouped for the hairlines; the keep rank says what folds into More
@@ -115,10 +130,15 @@ export function AlbumSelectionBar({
       label: moveLabel,
       onSelect: () => undefined,
       steps: discSteps,
+      disabled: albumsGate.blocked,
       measure: <QuietButton>{moveLabel}</QuietButton>,
       node: (
         <div className={styles.moveWrap}>
-          <QuietButton onClick={() => setMenuOpen((open) => !open)}>{moveLabel}</QuietButton>
+          <Tooltip label={albumsGate.tip}>
+            <QuietButton onClick={() => setMenuOpen((open) => !open)} disabled={albumsGate.blocked}>
+              {moveLabel}
+            </QuietButton>
+          </Tooltip>
           {menuOpen ? (
             <>
               <div className={styles.backdrop} onClick={() => setMenuOpen(false)} aria-hidden="true" />
@@ -145,11 +165,11 @@ export function AlbumSelectionBar({
       ),
     },
     plain("extract", 9, 3, extractLabel, onExtract),
-    plain("playlist", 6, 4, playlistLabel, onAddToPlaylist),
+    plain("playlist", 6, 4, playlistLabel, onAddToPlaylist, playlistsGate),
     plain("cover", 8, 5, setCoverLabel, onSetCover),
-    plain("own", 10, 5, keepOwnLabel, onKeepOwnCover),
-    plain("usealbum", 11, 5, useAlbumLabel, onUseAlbumCover),
-    plain("remove", 5, 6, removeLabel, onRemove),
+    plain("own", 10, 5, keepOwnLabel, onKeepOwnCover, albumsGate),
+    plain("usealbum", 11, 5, useAlbumLabel, onUseAlbumCover, albumsGate),
+    plain("remove", 5, 6, removeLabel, onRemove, albumsGate),
   ];
 
   return (
