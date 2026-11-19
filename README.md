@@ -7,7 +7,7 @@
 
   [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
   ![Platform: Windows](https://img.shields.io/badge/platform-Windows_x64-informational)
-  ![Version](https://img.shields.io/badge/version-2.7.0-success)
+  ![Version](https://img.shields.io/badge/version-2.7.1-success)
 </div>
 
 ---
