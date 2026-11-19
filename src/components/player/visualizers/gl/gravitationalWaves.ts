@@ -5,10 +5,12 @@
  * spiral wave the pair radiates. Rays near a hole march the steep funnel; the rest take a bracketed solve.
  * Dark-only: the scene has no light look.
  *
- * The pace and the wave follow the absolute loudness through a soft spring: a near-silent passage barely
- * turns over a faint wave, a loud one whips round under a tall wave. The song's own recent energy only trims
- * the pace. The bass raises the wave and deepens the wells, the mids add pace and disc turbulence, the highs
- * spark the photon rings and shimmer the jets. A beat sends a crest out on the wave, sized by the beat's
+ * The absolute loudness sets the wave and the floor of the pace: a near-silent passage barely turns over a
+ * faint wave. Above that floor the pace swings with the intensity (the loudness plus the recent kick weight)
+ * against its own slow mean, through a soft spring, so a build or a drop whips the pair round even when the
+ * loudness is pinned high and a calmer passage lets it settle. A strong kick pushes the orbit on through an
+ * eased envelope. The bass raises the wave and deepens the wells, the mids add pace and disc turbulence, the
+ * highs spark the photon rings and shimmer the jets. A beat sends a crest out on the wave, sized by the beat's
  * weight, and a knot up each jet; a surge sends one great wave and lurches the pair, a cut lets the turning
  * and the waves sink. Calm and paused hold a fixed slow orbit with no reaction.
  *
@@ -32,24 +34,39 @@ import type { VisualSignal } from "../../../../state/player/visualSignal";
 // Orbit pace at a pace of 1, rad/s, and the share of it Calm and paused cruise at.
 export const OMEGA = 2.4;
 export const CALM_PACE = 0.6;
-// The pace as a multiple of OMEGA: the near-silent floor, and the loudest at Balanced and at Lively.
+// The pace as a multiple of OMEGA: the near-silent floor, and the pace at full loudness while the music holds
+// its own recent level, at Balanced and at Lively.
 export const PACE_QUIET = 0.12;
-const PACE_TOP_BALANCED = 1.45;
-export const PACE_TOP_LIVELY = 2.0;
-// The drive above which the Lively top applies.
+const PACE_BODY_BALANCED = 1.1;
+export const PACE_BODY_LIVELY = 1.3;
+// The drive above which the Lively body and swing apply.
 const LIVELY_DRIVE = 1.3;
+// How far the share of the pace above the floor swings with the intensity against its recent level:
+// [calmer, building] as multiples of it, at Balanced and at Lively.
+const SWING_BALANCED: readonly [number, number] = [0.6, 1.8];
+const SWING_LIVELY: readonly [number, number] = [0.5, 2.0];
+// The pace eases into PACE_MAX above PACE_KNEE. The wave arms pass a point at twice the orbit's rate, so the
+// cap keeps them under three a second.
+const PACE_KNEE = 2.2;
+export const PACE_MAX = 3.1;
 // The loudness the loudness curve runs between, and its exponent: it stays low through a quiet intro.
 const LOUD_LO = 0.1;
 const LOUD_HI = 0.9;
 const LOUD_CURVE = 1.5;
-// The energy measure, quick and slow, in seconds, and the gap between them that reaches the end of its trim.
-const FAST_TAU = 1;
-const SLOW_TAU = 17;
-const REL_SPAN = 0.1;
-// Share of the pace the song's relative energy trims either way.
-export const REL_TRIM = 0.1;
+// Intensity: the loudness plus this share of the recent kick weight, which a peak-follow holds over KICK_TAU.
+const KICK_SHARE = 0.15;
+const KICK_TAU = 0.8;
+// The intensity measure, quick and slow, in seconds, and the gap between them that reaches the end of the swing.
+const FAST_TAU = 0.8;
+const SLOW_TAU = 10;
+const REL_SPAN = 0.12;
+// The beat push: extra pace per unit of beat weight, the time constant of each of its two rise stages and its
+// fall, in seconds.
+export const PUSH_PACE = 0.5;
+const PUSH_RISE = 0.05;
+const PUSH_FALL = 0.25;
 // Extra pace per unit of the mid envelope.
-export const MID_PACE = 0.22;
+const MID_PACE = 0.12;
 // Extra pace per unit of surge, easing out over LURCH_TAU seconds.
 export const LURCH_PACE = 0.7;
 const LURCH_TAU = 1.5;
@@ -378,6 +395,13 @@ export interface GravitationalWavesState {
   primed: boolean;
   speed: number;
   vel: number;
+  // The peak-followed kick weight, and the beat push's held target, first ease and envelope.
+  kick: number;
+  pushHold: number;
+  pushIn: number;
+  push: number;
+  // The orbit's pace this step, as a multiple of OMEGA.
+  pace: number;
   // The share of the loudness curve reached, 0..1, and the surge lurch and cut sink envelopes.
   lv: number;
   lurch: number;
@@ -406,8 +430,13 @@ export function createGravitationalWavesState(): GravitationalWavesState {
     fast: 0,
     slow: 0,
     primed: false,
-    speed: 1,
+    speed: CALM_PACE,
     vel: 0,
+    kick: 0,
+    pushHold: 0,
+    pushIn: 0,
+    push: 0,
+    pace: CALM_PACE,
     lv: 0,
     lurch: 0,
     sink: 0,
@@ -427,9 +456,17 @@ export function createGravitationalWavesState(): GravitationalWavesState {
   };
 }
 
+/** A pace eased into PACE_MAX above PACE_KNEE, with no kink at the knee. */
+export function paceKnee(p: number): number {
+  if (p <= PACE_KNEE) return p;
+  const room = PACE_MAX - PACE_KNEE;
+  return PACE_KNEE + room * Math.tanh((p - PACE_KNEE) / room);
+}
+
 /**
  * Advances the state by dt. Under Calm and while paused the motion envelopes and beats are ignored, so the
  * pair cruises at a fixed slow pace over a low wave; only the eased level, through `shine`, sets the light.
+ * The pace spring eases it into and out of that cruise.
  */
 export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSignal, dt: number, playing: boolean): void {
   const live = playing && s.drive > 0;
@@ -441,27 +478,48 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   const weight = live ? s.beatWeight : 0;
   const surge = live ? s.surge : 0;
   st.clock += dt;
-  // Pace and wave follow the absolute loudness; the song's own recent energy only trims the pace.
+  // The absolute loudness sets the floor and the wave; the intensity against its own recent level swings the
+  // pace above the floor, so a build speeds the pair up even when the loudness is pinned high.
+  st.kick = Math.max(drive > 0 ? weight / drive : 0, st.kick * Math.exp(-dt / KICK_TAU));
+  const intensity = s.loudness + KICK_SHARE * st.kick;
   if (!st.primed) {
-    st.fast = st.slow = s.rms;
+    st.fast = st.slow = intensity;
     st.primed = true;
   }
-  st.fast = easeEnvelope(st.fast, s.rms, dt, FAST_TAU);
-  st.slow = easeEnvelope(st.slow, s.rms, dt, SLOW_TAU);
+  // Paused, the loudness sinks to the resting arch; the measures hold, so a resume does not read as a build.
+  if (playing) {
+    st.fast = easeEnvelope(st.fast, intensity, dt, FAST_TAU);
+    st.slow = easeEnvelope(st.slow, intensity, dt, SLOW_TAU);
+  }
   const rel = Math.max(-1, Math.min(1, (st.fast - st.slow) / REL_SPAN));
   st.lv = drive === 0 ? 0 : Math.pow(clamp01((s.loudness - LOUD_LO) / (LOUD_HI - LOUD_LO)), LOUD_CURVE);
   if (live && s.cut > 0) st.sink = 1;
   st.sink = Math.max(0, st.sink - dt / SINK_SECS);
   st.lurch = Math.max(surge, st.lurch * Math.exp(-dt / LURCH_TAU));
-  const top = drive > LIVELY_DRIVE ? PACE_TOP_LIVELY : PACE_TOP_BALANCED;
-  let target = drive === 0 ? 1 : PACE_QUIET + (top - PACE_QUIET) * st.lv;
-  target *= (1 + REL_TRIM * rel * st.lv) * (1 + MID_PACE * midM) * (1 + LURCH_PACE * st.lurch) * (1 - 0.5 * st.sink);
+  const lively = drive > LIVELY_DRIVE;
+  const body = lively ? PACE_BODY_LIVELY : PACE_BODY_BALANCED;
+  const [calmer, building] = lively ? SWING_LIVELY : SWING_BALANCED;
+  const swing = rel < 0 ? 1 + (1 - calmer) * rel : 1 + (building - 1) * rel;
+  // Calm and paused aim the spring at the cruise, so leaving or entering them eases the pace instead of stepping it.
+  const target =
+    drive === 0
+      ? CALM_PACE
+      : (PACE_QUIET + (body - PACE_QUIET) * st.lv * swing) *
+        (1 + MID_PACE * midM) *
+        (1 + LURCH_PACE * st.lurch) *
+        (1 - 0.5 * st.sink);
   // The spring speeds up firmly, coasts down, and sinks faster after a cut; a drop is felt within about half a second.
   const up = target > st.speed;
   const [stiff, damp] = st.sink > 0 ? [9, 6] : up ? [6, 4.9] : [3.5, 3.7];
   st.vel += ((target - st.speed) * stiff - st.vel * damp) * dt;
   st.speed = Math.max(0.05, st.speed + st.vel * dt);
-  const omega = OMEGA * (drive === 0 ? CALM_PACE : st.speed);
+  // A kick pushes the orbit on, and the push eases out over PUSH_FALL.
+  st.pushHold = Math.max(weight, st.pushHold * Math.exp(-dt / PUSH_FALL));
+  // Two eases in a row start the push gently, so the pace never steps.
+  st.pushIn = easeEnvelope(st.pushIn, st.pushHold, dt, PUSH_RISE);
+  st.push = easeEnvelope(st.push, st.pushIn, dt, PUSH_RISE);
+  st.pace = paceKnee(st.speed * (1 + PUSH_PACE * st.push * (1 - st.sink)));
+  const omega = OMEGA * st.pace;
   st.phi += omega * dt;
   st.radius = easeEnvelope(st.radius, 1 - INSPIRAL * st.lv * Math.min(1, drive), dt, 0.8);
   const waveTarget = drive === 0 ? WAVE_BASE : WAVE_QUIET + (WAVE_LOUD - WAVE_QUIET) * st.lv + WAVE_BASS * bassM;
