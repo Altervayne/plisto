@@ -13,6 +13,7 @@
     "thumbs:check": "node tools/visualizer-thumbs.mjs check",
     "prune:target": "node scripts/prune-target.mjs",
     "release:manifest": "node scripts/make-latest-json.mjs",
+    "build:diagnostic": "tauri build --features diagnostic --no-bundle",
     "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-build.ps1",
     "release:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-build.ps1 -Setup"
   },

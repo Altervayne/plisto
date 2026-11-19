@@ -10,6 +10,7 @@
 pub mod album_covers;
 pub mod bulk_edit;
 pub mod covers;
+pub mod diagnostics;
 pub mod discovery;
 pub mod duplicates;
 pub mod export;

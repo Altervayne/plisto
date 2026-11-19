@@ -2,6 +2,7 @@
 mod adhoc;
 mod applog;
 mod audio;
+mod bootlog;
 mod commands;
 mod covers;
 mod db;
@@ -162,6 +163,13 @@ pub fn run() {
             // launch and hand ownership to managed state.
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            let boot_log = bootlog::BootLog::new(data_dir.clone());
+            boot_log.log_start();
+            app.manage(boot_log);
+            #[cfg(feature = "diagnostic")]
+            if let Some(main) = app.get_webview_window("main") {
+                main.open_devtools();
+            }
             let db_path = data_dir.join("plisto.sqlite");
             let mut conn = db::open_db(&db_path)?;
 
@@ -528,6 +536,7 @@ pub fn run() {
             commands::scan_issues::scan_issues_text,
             commands::scan_issues::scan_issues_clear,
             commands::scan_issues::scan_issues_open_log,
+            commands::diagnostics::log_boot_read,
             commands::relocate::relink_candidates,
             commands::relocate::preview_relocate,
             commands::relocate::relocate_root,

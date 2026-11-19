@@ -14,6 +14,11 @@ edition = "2021"
 name = "plisto_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# A local release build with the webview devtools enabled, to inspect a bug that only shows under the
+# release CSP and origin. Never part of a shipped build.
+diagnostic = ["tauri/devtools"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
