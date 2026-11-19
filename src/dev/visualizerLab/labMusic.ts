@@ -15,6 +15,9 @@ import { BAND_COUNT, FINE_BAND_COUNT, type LevelFrame } from "../../types";
 const FEED_HZ = 30;
 const STEP = 60 / 120 / 4;
 const LOOP_BARS = 16;
+// The groove stands for a loud master. Its unit rms alone would read as near silence, so the level frame
+// carries this dBFS and the follower's loudness sits where a loud passage does.
+const GROOVE_DB = -9;
 // The fine spectrum's ballistics, matching the 24 bands'.
 export const FINE_ATTACK = 0.5;
 export const FINE_DECAY = 0.15;
@@ -171,7 +174,12 @@ export function createLabMusic(startAt: number): LabMusic {
       sq += next[i] * next[i];
       max = Math.max(max, next[i]);
     }
-    level = { rms: Math.min(1, Math.sqrt(sq / BAND_COUNT) * 1.35), peak: Math.min(1, max * 0.92), flux: Math.min(1, flux / 2.2) };
+    level = {
+      rms: Math.min(1, Math.sqrt(sq / BAND_COUNT) * 1.35),
+      peak: Math.min(1, max * 0.92),
+      flux: Math.min(1, flux / 2.2),
+      rmsDb: GROOVE_DB,
+    };
     bands = next;
     fineRaw = widen(next, clock);
   };
