@@ -13,7 +13,8 @@ vi.mock("../common/ScrollArea/ScrollArea", () => ({
   ScrollArea: ({ children }: { children: unknown }) => <div data-scroll="">{children as never}</div>,
 }));
 vi.mock("../../state/player/store", () => ({ useAppMode: () => "both" }));
-vi.mock("../../state/shell/store", () => ({ usePluginRoute: () => null }));
+vi.mock("../../state/shell/store", () => ({ usePluginRoute: () => null, useOpenGone: () => () => {} }));
+vi.mock("../../state/gone/goneEntry", () => ({ useGoneEntry: () => null }));
 
 const pill = (open: boolean) => renderToStaticMarkup(<SearchPill open={open} onOpen={() => {}} />);
 

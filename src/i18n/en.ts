@@ -1832,6 +1832,10 @@ export const en = {
     inline: { one: "{{n}} gone", other: "{{n}} gone" },
     albumLine: { one: "{{n}} file is gone.", other: "{{n}} files are gone." },
     findThem: "Find them",
+    railTitle: { one: "{{n}} track cannot be found", other: "{{n}} tracks cannot be found" },
+    railLine: "Their files moved or were deleted. Nothing in your folders was touched.",
+    railReview: "Review",
+    railNotNow: "Not now",
   },
 };
 

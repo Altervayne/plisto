@@ -10,6 +10,10 @@ const h = vi.hoisted(() => ({
   entry: null as null | { summary: { albumCount: number } },
   review: null as null | (() => void),
   open: vi.fn(),
+  gone: null as null | { summary: { total: number }; dismiss: () => void },
+  goneReview: null as null | (() => void),
+  goneDismiss: null as null | (() => void),
+  openGone: vi.fn(),
 }));
 
 vi.mock("./NavItem", () => ({
@@ -25,7 +29,15 @@ vi.mock("../player/MiniPlayer", () => ({ MiniPlayer: () => null }));
 vi.mock("../player/AppModeSwitch", () => ({ AppModeSwitch: () => null }));
 vi.mock("../plugins/sidebar/PluginSidebarZone", () => ({ PluginSidebarZone: () => null }));
 vi.mock("../../state/player/store", () => ({ useAppMode: () => h.appMode }));
-vi.mock("../../state/shell/store", () => ({ usePluginRoute: () => null }));
+vi.mock("../../state/shell/store", () => ({ usePluginRoute: () => null, useOpenGone: () => h.openGone }));
+vi.mock("../../state/gone/goneEntry", () => ({ useGoneEntry: () => h.gone }));
+vi.mock("../gone/GoneRailCard", () => ({
+  GoneRailCard: ({ total, onReview, onDismiss }: { total: number; onReview: () => void; onDismiss: () => void }) => {
+    h.goneReview = onReview;
+    h.goneDismiss = onDismiss;
+    return <i data-gone-card={total} />;
+  },
+}));
 vi.mock("../../state/collection/store", () => ({ useRouteCollection: () => () => {} }));
 vi.mock("../../state/organize/tagProposals", () => ({ useTagEntry: () => h.entry }));
 vi.mock("../organize/albumsFromTags/useLibraryTagReview", () => ({
@@ -57,6 +69,10 @@ describe("Sidebar rail notice", () => {
     h.entry = null;
     h.review = null;
     h.open.mockClear();
+    h.gone = null;
+    h.goneReview = null;
+    h.goneDismiss = null;
+    h.openGone.mockClear();
   });
 
   it("shows the albums card in the Files group when there is an entry", () => {
@@ -84,6 +100,43 @@ describe("Sidebar rail notice", () => {
     render();
     h.review?.();
     expect(h.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the gone card alone when both notices qualify", () => {
+    h.entry = { summary: { albumCount: 12 } };
+    h.gone = { summary: { total: 80 }, dismiss: () => {} };
+    const html = render();
+    expect(html).toContain('data-gone-card="80"');
+    expect(html).not.toContain("data-rail-card");
+  });
+
+  it("falls back to the albums card when the gone entry is absent (below threshold, dismissed, not ready, offline only)", () => {
+    h.entry = { summary: { albumCount: 12 } };
+    const html = render();
+    expect(html).toContain('data-rail-card="12"');
+    expect(html).not.toContain("data-gone-card");
+  });
+
+  it("shows the gone card without an albums entry", () => {
+    h.gone = { summary: { total: 80 }, dismiss: () => {} };
+    expect(render()).toContain('data-gone-card="80"');
+  });
+
+  it("hides the gone card while collapsed and in Player mode", () => {
+    h.gone = { summary: { total: 80 }, dismiss: () => {} };
+    expect(render({}, true)).not.toContain("data-gone-card");
+    h.appMode = "player";
+    expect(render()).not.toContain("data-gone-card");
+  });
+
+  it("opens the gone sheet at library scope and passes the dismissal through", () => {
+    const dismiss = vi.fn();
+    h.gone = { summary: { total: 80 }, dismiss };
+    render();
+    h.goneReview?.();
+    expect(h.openGone).toHaveBeenCalledWith();
+    h.goneDismiss?.();
+    expect(dismiss).toHaveBeenCalledTimes(1);
   });
 });
 

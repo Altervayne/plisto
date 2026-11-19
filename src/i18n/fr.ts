@@ -1867,5 +1867,9 @@ export const fr: Dict = {
     inline: { one: "{{n}} absente", other: "{{n}} absentes" },
     albumLine: { one: "{{n}} fichier est absent.", other: "{{n}} fichiers sont absents." },
     findThem: "Les retrouver",
+    railTitle: { one: "{{n}} piste introuvable", other: "{{n}} pistes introuvables" },
+    railLine: "Leurs fichiers ont été déplacés ou supprimés. Rien n'a été modifié dans vos répertoires.",
+    railReview: "Vérifier",
+    railNotNow: "Pas maintenant",
   },
 };

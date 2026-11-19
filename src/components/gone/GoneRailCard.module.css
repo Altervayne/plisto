@@ -1,0 +1,69 @@
+/* A quiet recess under the Files rows, the band's surface; the accent only on Review. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 5px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+  color: var(--ink);
+}
+
+.title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.line {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0 -4px -8px;
+}
+
+.go,
+.no {
+  border: 0;
+  background: transparent;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.go {
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.no {
+  font-weight: 550;
+  color: var(--ink-3);
+}
+
+.go:hover,
+.no:hover {
+  background: var(--veil);
+}
+
+.no:hover {
+  color: var(--ink);
+}
+
+.go:focus-visible,
+.no:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
