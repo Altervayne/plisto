@@ -44,7 +44,7 @@ pub async fn remove_missing_tracks(
 
 /// Runs the purge once `point_saved` reports a saved point. An empty id list removes nothing, so it
 /// takes no point.
-fn purge_with_point(
+pub(super) fn purge_with_point(
     conn: &mut Connection,
     track_ids: &[i64],
     point_saved: impl FnOnce() -> bool,

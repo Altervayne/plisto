@@ -10,6 +10,20 @@ use super::Reason;
 /// How old the newest daily point must be before another is due: 24 hours, in ms.
 pub const DAILY_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// The longest pause inside one burst of an action: 10 minutes, in ms. A pause of this length or more
+/// ends the burst.
+pub const BURST_WINDOW_MS: i64 = 10 * 60 * 1000;
+
+/// Whether a readable action point for `key`, by the `detail` in its meta, was taken at or after
+/// `since`.
+pub fn action_point_since(points: &[PointEntry], key: &str, since: i64) -> bool {
+    points.iter().any(|p| {
+        p.reason == Reason::Action
+            && p.created_at >= since
+            && matches!(&p.status, PointStatus::Ready(m) if m.detail.as_deref() == Some(key))
+    })
+}
+
 /// Whether launching `running` after `last_run` calls for a version point. A key never written, or
 /// written by another version, does.
 pub fn version_point_due(last_run: Option<&str>, running: &str) -> bool {

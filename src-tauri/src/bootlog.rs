@@ -239,7 +239,7 @@ pub enum PointLine<'a> {
         file: &'a str,
         detail: Option<&'a str>,
     },
-    /// `why` is `empty` or `unchanged`.
+    /// `why` is `empty`, `unchanged` or `burst`.
     Skipped { why: &'a str },
     Failed { ms: u64, error: &'a str },
     Pruned { removed: usize, kept: usize },

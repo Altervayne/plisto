@@ -7,7 +7,9 @@
  */
 
 // -- Library Imports --
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
@@ -49,11 +51,34 @@ type Job = Box<dyn FnOnce() + Send>;
 /// Takes an action point before the command's transaction begins. `state.db` must be locked by the
 /// caller and idle, so the staged snapshot is the library as the action finds it. Returns whether the
 /// point is saved or, for an action that does not wait, staged; an empty library counts as saved, since
-/// it holds nothing to lose. Only an action that waits for its point has a caller that refuses on false.
+/// it holds nothing to lose. Calls of one action in a run, each under 10 minutes after the last, are a
+/// burst: only the call that begins it takes a point, so the point from before the burst stands. Later
+/// calls log one burst skip and return true. Only an action that waits for its point has a caller that
+/// refuses on false.
 pub fn point_before(state: &AppState, boot_log: &BootLog, action: &str) -> bool {
-    point_before_at(&state.db_path, boot_log, action, now_ms(), spawn_worker)
+    point_before_with(
+        &state.db_path,
+        boot_log,
+        action,
+        now_ms(),
+        &BURSTS,
+        spawn_worker,
+    )
 }
 
+/// One action's current burst: when its last call came, when it began, and whether its skip is logged.
+struct Burst {
+    last_call: i64,
+    began: i64,
+    skip_logged: bool,
+}
+
+/// The burst of each action key in this process.
+type Bursts = Mutex<HashMap<&'static str, Burst>>;
+
+static BURSTS: LazyLock<Bursts> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(test)]
 fn point_before_at(
     db_path: &Path,
     log: &BootLog,
@@ -61,10 +86,24 @@ fn point_before_at(
     now_ms: i64,
     run: impl FnOnce(Job),
 ) -> bool {
+    point_before_with(db_path, log, action, now_ms, &Mutex::new(HashMap::new()), run)
+}
+
+fn point_before_with(
+    db_path: &Path,
+    log: &BootLog,
+    action: &str,
+    now_ms: i64,
+    bursts: &Bursts,
+    run: impl FnOnce(Job),
+) -> bool {
     let Some(action) = ACTIONS.iter().find(|a| a.key == action) else {
         log_failed(log, Reason::Action, 0, &format!("unknown action {action}"));
         return false;
     };
+    if in_burst(db_path, log, action.key, now_ms, bursts) {
+        return true;
+    }
     let staged = match stage_logged(db_path, log, Reason::Action, Some(action.key), now_ms) {
         Staging::Ready(staged) => staged,
         Staging::Empty => return true,
@@ -79,6 +118,37 @@ fn point_before_at(
         finish_logged(staged, &log, Reason::Action, Some(key));
     }));
     true
+}
+
+// Whether this call continues a burst of `key` whose first call left a ready point. A continuing call
+// moves the burst's last call to now; any other call starts a burst here. A last call after `now_ms`
+// (the clock moved back) or a list that cannot be read starts a new burst.
+fn in_burst(db_path: &Path, log: &BootLog, key: &'static str, now_ms: i64, bursts: &Bursts) -> bool {
+    let mut bursts = bursts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(burst) = bursts.get_mut(key) {
+        let continues = burst.last_call <= now_ms && now_ms - burst.last_call < points::BURST_WINDOW_MS;
+        if continues {
+            let held = points::list(&points_dir(db_path))
+                .is_ok_and(|listed| points::action_point_since(&listed, key, burst.began));
+            if held {
+                burst.last_call = now_ms;
+                if !burst.skip_logged {
+                    log.log_point(Reason::Action.as_str(), &PointLine::Skipped { why: "burst" });
+                    burst.skip_logged = true;
+                }
+                return true;
+            }
+        }
+    }
+    bursts.insert(
+        key,
+        Burst {
+            last_call: now_ms,
+            began: now_ms,
+            skip_logged: false,
+        },
+    );
+    false
 }
 
 /// Takes a point ahead of a multi-step change the front end drives itself. Only a key marked for the
@@ -569,6 +639,120 @@ mod tests {
             1
         );
         assert_eq!(log_text(&dir).matches(" POINT daily taken ").count(), 1);
+    }
+
+    const MIN: i64 = 60_000;
+
+    fn run_now(job: Job) {
+        job();
+    }
+
+    fn action_points(dir: &Path) -> usize {
+        point_files(dir).iter().filter(|n| n.ends_with("-action.sqlite")).count()
+    }
+
+    fn fresh_bursts() -> Bursts {
+        Mutex::new(HashMap::new())
+    }
+
+    #[test]
+    fn a_steady_run_of_calls_takes_one_point_however_long_it_lasts() {
+        let (dir, path, _conn, log) = library("burst_steady");
+        let bursts = fresh_bursts();
+        let at = 1_000_000;
+        for minute in 0..=60 {
+            assert!(point_before_with(&path, &log, "merge_duplicates", at + minute * MIN, &bursts, run_now));
+        }
+        assert_eq!(action_points(&dir), 1);
+        assert_eq!(log_text(&dir).matches(" POINT action skipped why=burst").count(), 1);
+    }
+
+    #[test]
+    fn a_pause_of_ten_minutes_starts_a_new_burst() {
+        let (dir, path, _conn, log) = library("burst_pause");
+        let bursts = fresh_bursts();
+        let at = 1_000_000;
+        assert!(point_before_with(&path, &log, "tags_apply", at, &bursts, run_now));
+        assert!(point_before_with(&path, &log, "tags_apply", at + 9 * MIN, &bursts, run_now));
+        assert_eq!(action_points(&dir), 1);
+        assert!(point_before_with(&path, &log, "tags_apply", at + 18 * MIN, &bursts, run_now));
+        assert_eq!(action_points(&dir), 1);
+        assert!(point_before_with(&path, &log, "tags_apply", at + 28 * MIN, &bursts, run_now));
+        assert_eq!(action_points(&dir), 2);
+    }
+
+    #[test]
+    fn another_action_neither_ends_nor_extends_a_burst() {
+        let (dir, path, _conn, log) = library("burst_other");
+        let bursts = fresh_bursts();
+        let at = 1_000_000;
+        let call = |key: &str, minute: i64| {
+            assert!(point_before_with(&path, &log, key, at + minute * MIN, &bursts, run_now));
+        };
+        call("tags_apply", 0);
+        call("merge_duplicates", 8);
+        call("merge_duplicates", 16);
+        // Twelve minutes after tags_apply's last call: its burst is over, whatever merge did between.
+        call("tags_apply", 12);
+        let count = |key: &str| {
+            list_details(&dir).iter().filter(|d| d.as_str() == key).count()
+        };
+        assert_eq!(count("tags_apply"), 2);
+        assert_eq!(count("merge_duplicates"), 1);
+    }
+
+    // The `detail` of every action point in the folder.
+    fn list_details(dir: &Path) -> Vec<String> {
+        points::list(&dir.join(DIR_NAME))
+            .unwrap()
+            .into_iter()
+            .filter_map(|p| match p.status {
+                points::PointStatus::Ready(meta) => meta.detail,
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_restart_takes_a_point_on_the_first_call() {
+        let (dir, path, _conn, log) = library("burst_restart");
+        let at = 1_000_000;
+        assert!(point_before_with(&path, &log, "tags_apply", at, &fresh_bursts(), run_now));
+        assert!(point_before_with(&path, &log, "tags_apply", at + MIN, &fresh_bursts(), run_now));
+        assert_eq!(action_points(&dir), 2);
+    }
+
+    #[test]
+    fn a_purge_inside_a_burst_runs_and_removes() {
+        let (dir, path, conn, log) = library("burst_purge");
+        conn.execute(
+            "INSERT INTO tracks (source_path, display_path, filename, ext, size_bytes, mtime,
+                                 has_embedded_cover, scanned_at, missing_at)
+             VALUES ('/m/a.mp3', '/m/a.mp3', 'a.mp3', 'mp3', 1, 1, 0, 1, 5)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        let bursts = fresh_bursts();
+        let at = 1_000_000;
+        assert!(point_before_with(&path, &log, "purge", at, &bursts, run_now));
+        let mut writer = db::open_db(&path).unwrap();
+        let summary = super::super::missing::purge_with_point(&mut writer, &[id], || {
+            point_before_with(&path, &log, "purge", at + 2 * MIN, &bursts, run_now)
+        })
+        .unwrap();
+        assert_eq!(summary.removed, 1);
+        assert_eq!(action_points(&dir), 1);
+    }
+
+    #[test]
+    fn a_point_stamped_in_the_future_does_not_suppress() {
+        let (dir, path, _conn, log) = library("burst_future");
+        // The clock ran ahead, then was corrected.
+        let bursts = fresh_bursts();
+        assert!(point_before_with(&path, &log, "tags_apply", 9_000_000, &bursts, run_now));
+        assert!(point_before_with(&path, &log, "tags_apply", 1_000, &bursts, run_now));
+        assert_eq!(action_points(&dir), 2);
     }
 
     #[test]

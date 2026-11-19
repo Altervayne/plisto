@@ -14,7 +14,9 @@ mod take;
 #[cfg(test)]
 mod tests;
 
-pub use due::{daily_due, newest_content_hash, version_point_due};
+pub use due::{
+    action_point_since, daily_due, newest_content_hash, version_point_due, BURST_WINDOW_MS,
+};
 pub use format::{Reason, DIR_NAME};
 pub use list::{list, PointEntry};
 pub use take::{finish, live_hash, stage, take, Staged, Taken};
