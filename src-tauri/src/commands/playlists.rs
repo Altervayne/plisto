@@ -20,9 +20,10 @@ use crate::dto::{CoverRef, CoverSource, PlaylistRow, PlaylistSnapshot};
 use crate::state::AppState;
 
 /// Loads every playlist with its slot count and every slot in play order, in one lock. Mirrors the
-/// load_organization load-all shape.
+/// load_organization load-all shape. Async so a wait on the index lock never holds the main thread
+/// or other IPC replies.
 #[tauri::command]
-pub fn load_playlists(state: State<'_, AppState>) -> Result<PlaylistSnapshot, String> {
+pub async fn load_playlists(state: State<'_, AppState>) -> Result<PlaylistSnapshot, String> {
     let conn = state
         .db
         .lock()

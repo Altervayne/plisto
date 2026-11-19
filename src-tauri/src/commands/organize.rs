@@ -591,8 +591,9 @@ pub fn set_album_layout(
 
 /// Loads the whole organize state in one lock: every album with its track count, every membership
 /// row with its per-track genres, and the genre vocabulary. Mirrors the list_tracks load-all shape.
+/// Async so a wait on the index lock never holds the main thread or other IPC replies.
 #[tauri::command]
-pub fn load_organization(state: State<'_, AppState>) -> Result<OrganizationSnapshot, String> {
+pub async fn load_organization(state: State<'_, AppState>) -> Result<OrganizationSnapshot, String> {
     let conn = state
         .db
         .lock()
