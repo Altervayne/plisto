@@ -1275,7 +1275,7 @@ export const en = {
     warnCarry: "Carry on",
     warnHint: "You can change this later in Settings > Visualizers.",
     warnButtonTip: "Read the notice first",
-    warnElsewhereTip: "Read the flash notice in the full Player first",
+    warnElsewhereTip: "Open the full Player to read the flash notice",
     warnLineSheet: "Some visualizers can flash. Calm reduces the reaction.",
     markCanFlash: "Can flash",
     markCalmer: "Calmer",

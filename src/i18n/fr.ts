@@ -1281,7 +1281,7 @@ export const fr: Dict = {
     warnCarry: "Continuer",
     warnHint: "Vous pourrez modifier ce choix dans Paramètres > Visualiseurs.",
     warnButtonTip: "Lisez d'abord l'avertissement",
-    warnElsewhereTip: "Lisez d'abord l'avertissement sur les flashs dans le Lecteur complet",
+    warnElsewhereTip: "Ouvrez le Lecteur complet pour lire l'avertissement sur les flashs",
     warnLineSheet: "Certains visualiseurs peuvent produire des flashs. Calme réduit la réaction.",
     markCanFlash: "Flashs possibles",
     markCalmer: "Plus calme",
