@@ -10,76 +10,22 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use rusqlite::types::Value;
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 // -- Local Imports --
-use super::duplicates::{
-    insert_membership, insert_pairs, list_duplicate_dismissals, member_count, membership_row,
-    repoint, PLAYS, SLOTS,
-};
+use super::duplicates::member_count;
 use super::playlist_albums::{dissolve_entries_into, referenced_album_members};
-use super::tag_albums::set_updated_at;
+use super::relocate_fold::{fold_pairs, set_scan_values};
 use super::{
-    all_folder_cover_paths, delete_emptied_albums, get_setting, membership_album,
-    remove_membership, set_setting,
+    all_folder_cover_paths, delete_emptied_albums, get_setting, membership_album, set_setting,
 };
-use crate::dto::{DismissedPair, MergeMembership};
 use crate::normalize::normalize_path_key;
 use crate::paths::relative_under;
 
 // The settings key holding every moved root's earlier paths, as JSON.
 const ROOT_MOVES: &str = "root_moves";
 const MAX_EARLIER: usize = 4;
-
-// The columns a scan writes. A kept track paired with an absorbed one takes these from it, since the
-// absorbed row is the fresh read of the same file.
-const SCAN_COLUMNS: &[&str] = &[
-    "source_path",
-    "display_path",
-    "filename",
-    "ext",
-    "size_bytes",
-    "mtime",
-    "duration_secs",
-    "raw_title",
-    "raw_artist",
-    "raw_album",
-    "raw_album_artist",
-    "raw_track_no",
-    "raw_disc_no",
-    "raw_year",
-    "raw_genre",
-    "has_embedded_cover",
-    "scanned_at",
-    "missing_at",
-    "rg_track_gain",
-    "rg_track_peak",
-    "rg_album_gain",
-    "rg_album_peak",
-    "gain_tags_read",
-    "art_hash",
-    "art_width",
-    "art_height",
-];
-
-// The measured loudness columns. They move as one group, since the stamp is what makes the value valid.
-const LOUDNESS_COLUMNS: &[&str] = &[
-    "loudness_lufs",
-    "loudness_peak",
-    "loudness_size",
-    "loudness_mtime",
-];
-
-const EDIT_COLUMNS: &[&str] = &[
-    "title",
-    "artist",
-    "album",
-    "album_artist",
-    "year",
-    "disc_no",
-];
 
 /// Why a relocate was refused. Nothing is written in any case.
 #[derive(Debug)]
@@ -239,15 +185,7 @@ pub fn merge_root(
     // Read before the carry empties any album, while every member is still in its place.
     let referenced = referenced_album_members(&tx)?;
 
-    carry_dismissals(&tx, &plan.pairs, now)?;
-    let mut scans = Vec::with_capacity(plan.pairs.len());
-    for &(o, n) in &plan.pairs {
-        carry_track(&tx, o, n, now)?;
-        carry_loudness(&tx, o, n)?;
-        carry_issue(&tx, o, n)?;
-        scans.push((o, scan_values(&tx, n)?));
-        tx.execute("DELETE FROM tracks WHERE id = ?1", params![n])?;
-    }
+    let scans = fold_pairs(&tx, &plan.pairs, now)?;
 
     // Re-stamp before the root row goes: deleting it cascades to every track still pointing at it.
     let carried = tx.execute(
@@ -484,17 +422,6 @@ fn drop_location_issues(conn: &Connection, root_id: i64) -> rusqlite::Result<()>
     Ok(())
 }
 
-/// Hands absorbed track `n`'s tag-failure record to its kept twin `o`. `o` takes `n`'s scan columns, so
-/// its own record describes a read that no longer stands and goes.
-fn carry_issue(conn: &Connection, o: i64, n: i64) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM scan_issues WHERE track_id = ?1", params![o])?;
-    conn.execute(
-        "UPDATE scan_issues SET track_id = ?1 WHERE track_id = ?2",
-        params![o, n],
-    )?;
-    Ok(())
-}
-
 /// Re-keys every folder cover under `old_key` to the same folder under `new_root`. A cover already
 /// bound at the new key gives way: the rewritten root's own choice wins.
 fn rebase_folder_covers(conn: &Connection, old_key: &str, new_root: &Path) -> rusqlite::Result<()> {
@@ -515,136 +442,6 @@ fn rebase_folder_covers(conn: &Connection, old_key: &str, new_root: &Path) -> ru
             params![new_key, folder],
         )?;
     }
-    Ok(())
-}
-
-// ---- Merge carry-over ----
-
-/// Moves every dismissal that names an absorbed track onto its kept twin. The pair of twins itself
-/// drops out, and the old rows cascade away with the absorbed tracks.
-fn carry_dismissals(conn: &Connection, pairs: &[(i64, i64)], now: i64) -> rusqlite::Result<()> {
-    let twin: HashMap<i64, i64> = pairs.iter().map(|&(o, n)| (n, o)).collect();
-    let mut carried = Vec::new();
-    for pair in list_duplicate_dismissals(conn)? {
-        if !twin.contains_key(&pair.track_lo) && !twin.contains_key(&pair.track_hi) {
-            continue;
-        }
-        let a = twin.get(&pair.track_lo).copied().unwrap_or(pair.track_lo);
-        let b = twin.get(&pair.track_hi).copied().unwrap_or(pair.track_hi);
-        if a != b {
-            carried.push(DismissedPair {
-                track_lo: a.min(b),
-                track_hi: a.max(b),
-            });
-        }
-    }
-    insert_pairs(conn, &carried, now)?;
-    Ok(())
-}
-
-/// Folds absorbed track `n` onto kept track `o`. Slots and plays union onto o; edits fill o's empty
-/// fields; genres, an assigned cover and a visualizer default move only into an o that has none. A
-/// filed o keeps its album and n leaves its own; a loose o takes n's place.
-fn carry_track(conn: &Connection, o: i64, n: i64, now: i64) -> rusqlite::Result<()> {
-    repoint(conn, SLOTS, n, o)?;
-    repoint(conn, PLAYS, n, o)?;
-    carry_edits(conn, o, n)?;
-    for table in ["track_genres", "track_covers", "track_visualizers"] {
-        if !has_row(conn, table, o)? {
-            conn.execute(
-                &format!("UPDATE {table} SET track_id = ?1 WHERE track_id = ?2"),
-                params![o, n],
-            )?;
-        }
-    }
-    if let Some(m) = membership_row(conn, n)? {
-        let o_loose = membership_album(conn, o)?.is_none();
-        remove_membership(conn, n)?;
-        if o_loose {
-            insert_membership(conn, &MergeMembership { track_id: o, ..m })?;
-        }
-        set_updated_at(conn, m.album_id, now)?;
-    }
-    Ok(())
-}
-
-/// Gives o the measured loudness group of n when n has been measured or tried (its stamp is non-NULL).
-/// o keeps its own group otherwise.
-fn carry_loudness(conn: &Connection, o: i64, n: i64) -> rusqlite::Result<()> {
-    let sets = LOUDNESS_COLUMNS
-        .iter()
-        .map(|c| format!("{c} = (SELECT {c} FROM tracks WHERE id = ?2)"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    conn.execute(
-        &format!(
-            "UPDATE tracks SET {sets} WHERE id = ?1
-               AND (SELECT loudness_size FROM tracks WHERE id = ?2) IS NOT NULL"
-        ),
-        params![o, n],
-    )?;
-    Ok(())
-}
-
-fn carry_edits(conn: &Connection, o: i64, n: i64) -> rusqlite::Result<()> {
-    if !has_row(conn, "track_edits", n)? {
-        return Ok(());
-    }
-    if !has_row(conn, "track_edits", o)? {
-        conn.execute(
-            "UPDATE track_edits SET track_id = ?1 WHERE track_id = ?2",
-            params![o, n],
-        )?;
-        return Ok(());
-    }
-    let fills = EDIT_COLUMNS
-        .iter()
-        .map(|c| format!("{c} = COALESCE({c}, (SELECT {c} FROM track_edits WHERE track_id = ?2))"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    conn.execute(
-        &format!("UPDATE track_edits SET {fills} WHERE track_id = ?1"),
-        params![o, n],
-    )?;
-    Ok(())
-}
-
-fn has_row(conn: &Connection, table: &str, track_id: i64) -> rusqlite::Result<bool> {
-    conn.query_row(
-        &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE track_id = ?1)"),
-        params![track_id],
-        |r| r.get(0),
-    )
-}
-
-fn scan_values(conn: &Connection, track_id: i64) -> rusqlite::Result<Vec<Value>> {
-    conn.query_row(
-        &format!(
-            "SELECT {} FROM tracks WHERE id = ?1",
-            SCAN_COLUMNS.join(", ")
-        ),
-        params![track_id],
-        |r| {
-            (0..SCAN_COLUMNS.len())
-                .map(|i| r.get::<_, Value>(i))
-                .collect()
-        },
-    )
-}
-
-fn set_scan_values(conn: &Connection, track_id: i64, values: &[Value]) -> rusqlite::Result<()> {
-    let sets = SCAN_COLUMNS
-        .iter()
-        .enumerate()
-        .map(|(i, c)| format!("{c} = ?{}", i + 1))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = format!(
-        "UPDATE tracks SET {sets} WHERE id = ?{}",
-        SCAN_COLUMNS.len() + 1
-    );
-    let args = values.iter().cloned().chain([Value::Integer(track_id)]);
-    conn.execute(&sql, params_from_iter(args))?;
     Ok(())
 }
 
@@ -700,9 +497,12 @@ fn io_failure(e: std::io::Error) -> rusqlite::Error {
 
 #[cfg(test)]
 mod tests {
+    use super::super::relocate_fold::scan_values;
     use super::*;
     use crate::db;
+    use crate::dto::DismissedPair;
     use crate::normalize::folder_of;
+    use rusqlite::types::Value;
 
     const OLD: &str = "/Music/Old";
     const NEW: &str = "/Volumes/Disk/Music";
