@@ -33,6 +33,17 @@ describe("tagOf", () => {
     expect(tagOf(r, "nebula")).toEqual({ form: "set-aside", tier: "track" });
     expect(tagOf(r, "latte")).toBeNull();
   });
+
+  it("outlines the default Off holds and leaves the Off tile bare", () => {
+    const r = res({ picked: "off", source: "global", defaultKind: "nebula", defaultTier: "album" });
+    expect(tagOf(r, "nebula")).toEqual({ form: "set-aside", tier: "album" });
+    expect(tagOf(r, "off")).toBeNull();
+  });
+
+  it("fills the Off tile when Off is the default itself", () => {
+    const r = res({ picked: "off", source: "album", defaultKind: "off", defaultTier: "album" });
+    expect(tagOf(r, "off")).toEqual({ form: "filled", tier: "album" });
+  });
 });
 
 describe("markersOf", () => {
@@ -48,5 +59,10 @@ describe("markersOf", () => {
   it("carries both dots on one chip when the groups match", () => {
     const r = res({ picked: "glass", source: "override", defaultKind: "latte", defaultTier: "album" });
     expect(markersOf(r)).toEqual({ cozy: { active: true, setAside: true } });
+  });
+
+  it("rings the group of the default Off holds", () => {
+    const r = res({ picked: "off", source: "global", defaultKind: "nebula", defaultTier: "album" });
+    expect(markersOf(r)).toEqual({ off: { active: true }, classic: { setAside: true } });
   });
 });

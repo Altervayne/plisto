@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 // -- Component Imports --
 import { KindTag } from "../tiles/KindTag";
 
+// -- State Imports --
+import { defaultWaits } from "../../../../state/player/visualizerResolve";
+
 // -- Type Imports --
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 import type { DefaultTier, Resolution } from "../../../../state/player/visualizerResolve";
@@ -21,10 +24,15 @@ export interface SheetTag {
   tier: DefaultTier;
 }
 
-/** The tag on a kind's thumb: filled on the default in effect, outlined on the default an override set aside. */
+// The default an override or the global pick Off keeps from drawing.
+function setAside(res: Resolution): boolean {
+  return res.source === "override" || defaultWaits(res);
+}
+
+/** The tag on a kind's thumb: filled on the default in effect, outlined on a default set aside. */
 export function tagOf(res: Resolution, kind: VisualizerKind): SheetTag | null {
   if (res.defaultTier == null || res.defaultKind == null) return null;
-  if (res.source === "override") {
+  if (setAside(res)) {
     return kind === res.defaultKind ? { form: "set-aside", tier: res.defaultTier } : null;
   }
   return kind === res.picked ? { form: "filled", tier: res.defaultTier } : null;
@@ -39,7 +47,7 @@ export function markersOf(res: Resolution, groups: readonly SheetGroup[]): ChipM
   const markers: ChipMarkers = {};
   const active = groupOf(groups, res.picked);
   if (active) markers[active] = { active: true };
-  const aside = res.source === "override" && res.defaultKind ? groupOf(groups, res.defaultKind) : undefined;
+  const aside = setAside(res) && res.defaultKind ? groupOf(groups, res.defaultKind) : undefined;
   if (aside) markers[aside] = { ...markers[aside], setAside: true };
   return markers;
 }

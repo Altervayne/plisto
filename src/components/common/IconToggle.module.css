@@ -36,6 +36,17 @@
   cursor: default;
 }
 
+/* aria-disabled dims like disabled but keeps receiving hover, so a tooltip can say why it is off. */
+.toggle[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toggle[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--ink-3);
+}
+
 /* Pressed: a raised chip lifting off the ground, its glyph at full ink. Light rests it on a surface tile
  * with the soft shadow; dark, where a floated white tile would glare, sits it in the deeper veil flat. */
 .toggle[aria-pressed="true"] {

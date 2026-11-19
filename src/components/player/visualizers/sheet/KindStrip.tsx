@@ -6,6 +6,7 @@ import type { CSSProperties, ReactNode, RefObject } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // -- Component Imports --
+import { FamilyMark, markLabel } from "../tiles/FamilyMark";
 import { KindTile } from "../tiles/KindTile";
 
 // -- Hook Imports --
@@ -40,6 +41,15 @@ interface KindStripProps {
 }
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * A family's spoken name: its label, then its mark ("Cyber, Can flash"). The visible heading is hidden
+ * from readers.
+ */
+function groupName(id: SheetGroupId, t: ReturnType<typeof useT>): string {
+  const mark = markLabel(id, t);
+  return mark ? `${sheetGroupLabel(id, t)}, ${mark}` : sheetGroupLabel(id, t);
+}
 
 function kindOf(target: EventTarget | null): VisualizerKind | null {
   if (!(target instanceof Element)) return null;
@@ -155,10 +165,11 @@ export function KindStrip({ groups, checked, stripRef, onPick, onGroupChange, ta
       >
         {groups.map((group) => (
           <div key={group.id} className={styles.group} data-group={group.id}>
-            <span className={styles.heading} aria-hidden="true">
-              {group.id === "off" ? <>&nbsp;</> : sheetGroupLabel(group.id, t)}
-            </span>
-            <div className={styles.row} role="radiogroup" aria-label={sheetGroupLabel(group.id, t)}>
+            <div className={styles.heading} aria-hidden="true">
+              <span>{group.id === "off" ? <>&nbsp;</> : sheetGroupLabel(group.id, t)}</span>
+              <FamilyMark id={group.id} />
+            </div>
+            <div className={styles.row} role="radiogroup" aria-label={groupName(group.id, t)}>
               {group.kinds.map((kind) => (
                 <KindTile
                   key={kind}

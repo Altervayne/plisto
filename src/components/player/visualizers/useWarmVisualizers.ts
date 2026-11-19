@@ -14,6 +14,7 @@ import {
   useVisualizerOverride,
 } from "../../../state/player/visualizerDefaults";
 import { isOffered } from "../../../state/player/visualizerCatalog";
+import { useVisualizersAllowed } from "../../../state/player/visualizerWarning";
 import { keyOfPlace, placeOf, resolveVisualizer } from "../../../state/player/visualizerResolve";
 import { normalizeVisualizerKind } from "../../../state/player/visualizerKind";
 
@@ -32,15 +33,16 @@ export function useWarmCurrentVisualizer(): void {
   const override = useVisualizerOverride();
   const prefsLoaded = usePreferencesLoaded();
   const ready = useVisualizerDefaultsStatus() === "ready" && prefsLoaded;
+  const allowed = useVisualizersAllowed();
   const place = trackId == null ? null : placeOf(trackId, albumIndex);
   const { trackDefault, albumDefault } = useStoredDefaults(place ?? { kind: "adhoc" });
   const done = useRef(false);
   useEffect(() => {
-    if (done.current || !ready || place == null) return;
+    if (done.current || !ready || !allowed || place == null) return;
     done.current = true;
     const input = { global, trackDefault, albumDefault, override, albumKey: keyOfPlace(place), catalog };
     return whenIdle(() => warmKind(resolveVisualizer(input).picked));
-  }, [ready, place, global, trackDefault, albumDefault, override, catalog]);
+  }, [ready, allowed, place, global, trackDefault, albumDefault, override, catalog]);
 }
 
 /** Warms the picked kind and the stored album and track defaults the catalog offers while the sheet is open. */

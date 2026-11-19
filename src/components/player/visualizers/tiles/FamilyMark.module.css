@@ -1,0 +1,16 @@
+/* A quiet note beside a family name: tertiary ink, with the flash icon in the warn hue. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.flash svg {
+  color: var(--warn);
+}

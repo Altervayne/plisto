@@ -102,6 +102,33 @@ describe("VisualizerSheet chips", () => {
   });
 });
 
+describe("VisualizerSheet warning line and marks", () => {
+  const LINE = "Some visualizers can flash. Calm reduces the reaction.";
+
+  it("shows the line with every family on", () => {
+    expect(renderSheet("ridge", [], [])).toContain(LINE);
+  });
+
+  it("shows the line with only Cozy offered, where the chips are hidden", () => {
+    const html = renderSheet("train", [], ["classic", "dots", "fluid", "cyber", "cosmic"]);
+    expect(chipLabels(html)).toEqual([]);
+    expect(html).toContain(LINE);
+  });
+
+  it("marks the families in the strip headings and, icon-only, on the chips", () => {
+    const html = renderSheet("ridge", [], []);
+    expect(html.match(/>Can flash</g)).toHaveLength(2);
+    expect(html.match(/>Calmer</g)).toHaveLength(1);
+    expect(html.match(/aria-label="Can flash"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Calmer"/g)).toHaveLength(1);
+  });
+
+  it("marks the lone Cozy heading when the chips are hidden", () => {
+    const html = renderSheet("train", [], ["classic", "dots", "fluid", "cyber", "cosmic"]);
+    expect(html.match(/>Calmer</g)).toHaveLength(1);
+  });
+});
+
 describe("VisualizerSheet manage link", () => {
   it("is offered in the Player", () => {
     const html = renderSheet("ridge", [], []);

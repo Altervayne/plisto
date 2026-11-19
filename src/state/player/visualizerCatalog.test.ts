@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   ALL_OFFERED,
+  allGroupsOn,
   BUILTIN_ENTRIES,
   buildCatalog,
   canTurnOff,
   catalogOf,
   familyState,
   isOffered,
+  isOnlyGroup,
+  keepOnlyGroup,
   nextOfferedKind,
   offeredGroups,
   parseCatalog,
@@ -392,5 +395,51 @@ describe("catalogOf", () => {
     expect(catalogOf(`${raw}`, false)).toBe(a);
     expect(catalogOf(raw, true)).not.toBe(a);
     expect(catalogOf(undefined, false)).not.toBe(a);
+  });
+});
+
+describe("keepOnlyGroup", () => {
+  it("turns every other family off and keeps the chosen one on", () => {
+    const next = keepOnlyGroup(catalog([]), "cozy");
+    expect(next?.groups).toEqual(GROUP_ORDER.filter((g) => g !== "cozy"));
+  });
+
+  it("turns the chosen family on when it was off", () => {
+    const next = keepOnlyGroup(catalog([], ["cozy", "dots"]), "cozy");
+    expect(next?.groups).toEqual(["dots", "classic", "fluid", "cyber", "cosmic"]);
+  });
+
+  it("leaves kinds and unknown ids as stored", () => {
+    const next = keepOnlyGroup(catalog(["glass", "retired-kind"], ["gone-family"]), "cozy");
+    expect(next?.kinds).toEqual(["glass", "retired-kind"]);
+    expect(next?.groups).toContain("gone-family");
+  });
+
+  it("refuses a catalog that is not writable", () => {
+    expect(keepOnlyGroup(buildCatalog(undefined, true), "cozy")).toBeNull();
+    expect(keepOnlyGroup(buildCatalog('{"v":2}', false), "cozy")).toBeNull();
+  });
+
+  it("refuses a family with no entry", () => {
+    expect(keepOnlyGroup(catalog([]), "nope")).toBeNull();
+  });
+
+  it("refuses a result that would offer no kind", () => {
+    expect(keepOnlyGroup(catalog(kindsOf("cozy")), "cozy")).toBeNull();
+  });
+
+  it("reads back as the only family on", () => {
+    const next = keepOnlyGroup(catalog([]), "cozy")!;
+    const c = buildCatalog(serializeCatalog(next), false);
+    expect(isOnlyGroup(c, "cozy")).toBe(true);
+    expect(c.offeredKinds).toEqual(kindsOf("cozy"));
+    expect(isOnlyGroup(catalog([]), "cozy")).toBe(false);
+  });
+});
+
+describe("allGroupsOn", () => {
+  it("drops every known family and keeps kinds and unknown ids", () => {
+    const next = allGroupsOn(catalog(["glass"], ["dots", "gone-family"]));
+    expect(next).toEqual({ kinds: ["glass"], groups: ["gone-family"] });
   });
 });

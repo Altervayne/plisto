@@ -1,5 +1,6 @@
 // -- Component Imports --
 import { Switch } from "../../common/Switch/Switch";
+import { FamilyMark } from "../../player/visualizers/tiles/FamilyMark";
 import { CatalogTile } from "./CatalogTile";
 
 // -- State Imports --
@@ -44,6 +45,7 @@ export function FamilyBlock({
     <div className={styles.family} data-family={family.id}>
       <div className={styles.head}>
         <h3 className={`${settingsStyles.label} ${styles.name}`}>{name}</h3>
+        <FamilyMark id={family.id} />
         <span className={styles.count}>{count}</span>
         {holdsLast ? <span className={styles.count}>{lastNote}</span> : null}
         <span className={styles.grow} />

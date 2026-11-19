@@ -62,7 +62,11 @@ function probe<T>(hook: () => T): T {
 }
 
 function setPrefs(values: Record<string, string>, loaded = true): void {
-  usePreferencesStore.setState({ values, failedKeys: new Set<string>(), loaded });
+  usePreferencesStore.setState({
+    values: { [PREF_KEYS.visualizerWarningAck]: "1", ...values },
+    failedKeys: new Set<string>(),
+    loaded,
+  });
 }
 
 function setDefaults(
@@ -125,6 +129,13 @@ describe("useWarmCurrentVisualizer", () => {
     setDefaults({ 7: "nebula" });
     probe(useWarmCurrentVisualizer);
     expect(h.warmKind.mock.calls).toEqual([["nebula"]]);
+  });
+
+  it("warms nothing while the flash warning is unacknowledged", () => {
+    setDefaults({ 7: "nebula" });
+    setPrefs({ [PREF_KEYS.visualizerWarningAck]: "" });
+    probe(useWarmCurrentVisualizer);
+    expect(h.warmKind).not.toHaveBeenCalled();
   });
 
   it("warms the next tier when the default is turned off", () => {

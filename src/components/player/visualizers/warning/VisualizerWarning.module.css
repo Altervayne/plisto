@@ -1,0 +1,259 @@
+/* The notice: a card centered over the lower part of the Player panel, above the transport. It floats on
+ * the panel without a scrim, so the transport and the queue stay reachable. It scrolls inside itself when
+ * the window is too short to show it whole. */
+.notice {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: 132px;
+  width: min(580px, calc(100% - 32px));
+  max-height: calc(100% - 148px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px 0;
+  overflow-y: auto;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  scrollbar-width: none;
+}
+
+.notice::-webkit-scrollbar {
+  display: none;
+}
+
+/* Focus lands on the card when it appears; the ring would only frame it for no reason. */
+.notice:focus {
+  outline: none;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head svg {
+  flex: none;
+  color: var(--warn);
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+/* A row whose switch would refuse the press is quiet: no hover and no pointer. */
+.row[data-disabled] {
+  cursor: default;
+}
+
+.row[data-disabled]:hover {
+  background: transparent;
+}
+
+.rowIcon {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rowLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rowHint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* The box and Carry on: pinned to the card's foot, so the way out is never scrolled out of view. */
+.actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 0 18px;
+  background: var(--surface);
+}
+
+/* The "I understand" row: the box and its words are one press target. */
+.ack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--on-solid);
+  transition:
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.ack[aria-checked="true"] .box {
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.foot > button {
+  flex: none;
+  padding: 8px 18px;
+  font-size: 13px;
+}
+
+/* Carry on reads as unavailable until the box is ticked: a flat veil, not a faded accent. */
+.foot > button:disabled {
+  background: var(--veil-2);
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+/* A short window has too little stage above the transport for the single column. The text takes the left
+ * column and the three choices the right, the box, hint and Carry on run along the foot, and the rhythm
+ * tightens. Nothing is dropped. */
+@media (max-height: 740px) {
+  .notice {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-rows: auto 1fr;
+    align-items: start;
+    gap: 6px 20px;
+    width: min(720px, calc(100% - 32px));
+    padding: 14px 20px 0;
+  }
+
+  .head {
+    grid-column: 1;
+  }
+
+  .title {
+    font-size: 15px;
+  }
+
+  .body {
+    grid-column: 1;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .rows {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    margin: -2px -8px 0 0;
+    gap: 0;
+  }
+
+  .row {
+    padding: 5px 8px;
+  }
+
+  .rowHint {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 12px;
+  }
+
+  .hint {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .foot {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* A narrow window stacks the hint over the button rather than squeezing either. */
+@media (max-width: 520px) {
+  .foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .foot > button {
+    justify-content: center;
+  }
+}

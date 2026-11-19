@@ -7,6 +7,7 @@ import {
   applyManualPick,
   clearDefaultTier,
   defaultActions,
+  defaultWaits,
   placeOf,
   resolveVisualizer,
   storedDefaultsOf,
@@ -256,6 +257,195 @@ describe("resolveVisualizer with a catalog", () => {
   });
 });
 
+describe("resolveVisualizer with Off as the global pick", () => {
+  const override = { kind: "bloom", albumKey: ALBUM_KEY } as const;
+
+  it("draws Off over an album default and still reports it", () => {
+    expect(resolveVisualizer(input({ global: "off", albumDefault: "nebula" }))).toEqual({
+      picked: "off",
+      source: "global",
+      defaultKind: "nebula",
+      defaultTier: "album",
+      skipped: null,
+    });
+  });
+
+  it("draws Off over a track default and still reports it", () => {
+    expect(resolveVisualizer(input({ global: "off", albumDefault: "nebula", trackDefault: "terrain" }))).toEqual({
+      picked: "off",
+      source: "global",
+      defaultKind: "terrain",
+      defaultTier: "track",
+      skipped: null,
+    });
+  });
+
+  it("draws Off over an override alone", () => {
+    expect(resolveVisualizer(input({ global: "off", override }))).toEqual({
+      picked: "off",
+      source: "global",
+      defaultKind: null,
+      defaultTier: null,
+      skipped: null,
+    });
+  });
+
+  it("draws Off over an override and both defaults together", () => {
+    const res = resolveVisualizer(input({ global: "off", albumDefault: "nebula", trackDefault: "terrain", override }));
+    expect(res).toEqual({
+      picked: "off",
+      source: "global",
+      defaultKind: "terrain",
+      defaultTier: "track",
+      skipped: null,
+    });
+  });
+
+  it("keeps an Off default reading as the default in effect", () => {
+    expect(resolveVisualizer(input({ global: "off", albumDefault: "off" }))).toMatchObject({
+      picked: "off",
+      source: "album",
+      defaultKind: "off",
+    });
+  });
+
+  it("reports a default the catalog turns off, and draws Off", () => {
+    const res = resolveVisualizer(input({ global: "off", albumDefault: "nebula", catalog: without(["nebula"]) }));
+    expect(res).toEqual({
+      picked: "off",
+      source: "global",
+      defaultKind: null,
+      defaultTier: null,
+      skipped: { kind: "nebula", tier: "album" },
+    });
+  });
+
+  it("reports a turned-off track default over a waiting album default", () => {
+    const res = resolveVisualizer(
+      input({ global: "off", trackDefault: "terrain", albumDefault: "nebula", catalog: without(["terrain"]) }),
+    );
+    expect(res).toMatchObject({
+      picked: "off",
+      source: "global",
+      defaultKind: "nebula",
+      skipped: { kind: "terrain", tier: "track" },
+    });
+  });
+
+  it("draws Off for a file opened from disk", () => {
+    expect(resolveVisualizer(input({ global: "off", albumKey: null, override }))).toMatchObject({
+      picked: "off",
+      source: "global",
+    });
+  });
+
+  it("draws the defaults again once the global pick is lifted", () => {
+    const stored = { albumDefault: "nebula", trackDefault: "terrain" };
+    expect(resolveVisualizer(input({ global: "off", ...stored })).picked).toBe("off");
+    expect(resolveVisualizer(input({ global: "glass", ...stored })).picked).toBe("terrain");
+  });
+});
+
+describe("defaultWaits", () => {
+  it("names a default the global pick Off keeps from drawing", () => {
+    expect(defaultWaits(resolveVisualizer(input({ global: "off", albumDefault: "nebula" })))).toBe(true);
+    expect(defaultWaits(resolveVisualizer(input({ global: "off", trackDefault: "terrain" })))).toBe(true);
+  });
+
+  it("is false when the default draws, when there is none, and for an Off default", () => {
+    expect(defaultWaits(resolveVisualizer(input({ albumDefault: "nebula" })))).toBe(false);
+    expect(defaultWaits(resolveVisualizer(input({ global: "off" })))).toBe(false);
+    expect(defaultWaits(resolveVisualizer(input({ global: "off", albumDefault: "off" })))).toBe(false);
+    const turnedOff = input({ global: "off", albumDefault: "nebula", catalog: without(["nebula"]) });
+    expect(defaultWaits(resolveVisualizer(turnedOff))).toBe(false);
+  });
+
+  it("is false during an override", () => {
+    const over = input({ albumDefault: "nebula", override: { kind: "bloom", albumKey: ALBUM_KEY } });
+    expect(defaultWaits(resolveVisualizer(over))).toBe(false);
+  });
+});
+
+describe("applyManualPick of Off", () => {
+  it("writes the global pick Off over a default and drops the override", () => {
+    expect(applyManualPick(input({ albumDefault: "nebula" }), "off")).toEqual({ override: null, global: "off" });
+    const over = input({ albumDefault: "nebula", override: { kind: "bloom", albumKey: ALBUM_KEY } });
+    expect(applyManualPick(over, "off")).toEqual({ override: null, global: "off" });
+  });
+
+  it("writes the global pick Off over a track default", () => {
+    const both = input({ albumDefault: "nebula", trackDefault: "terrain" });
+    expect(applyManualPick(both, "off")).toEqual({ override: null, global: "off" });
+  });
+
+  it("writes the global pick Off over an Off default", () => {
+    expect(applyManualPick(input({ albumDefault: "off" }), "off")).toEqual({ override: null, global: "off" });
+  });
+
+  it("writes the global pick Off with no default", () => {
+    expect(applyManualPick(input(), "off")).toEqual({ override: null, global: "off" });
+  });
+
+  it("writes the global pick Off for a file opened from disk", () => {
+    expect(applyManualPick(input({ albumKey: null }), "off")).toEqual({ override: null, global: "off" });
+  });
+});
+
+describe("applyManualPick while the global pick is Off", () => {
+  it("lifts Off to the kind with no default", () => {
+    expect(applyManualPick(input({ global: "off" }), "glass")).toEqual({ override: null, global: "glass" });
+  });
+
+  it("lifts Off and sets the kind aside over a default that differs", () => {
+    expect(applyManualPick(input({ global: "off", albumDefault: "nebula" }), "bloom")).toEqual({
+      override: { kind: "bloom", albumKey: ALBUM_KEY },
+      global: "bloom",
+    });
+  });
+
+  it("lifts Off with no override when the kind is the default", () => {
+    expect(applyManualPick(input({ global: "off", albumDefault: "nebula" }), "nebula")).toEqual({
+      override: null,
+      global: "nebula",
+    });
+    const both = input({ global: "off", albumDefault: "nebula", trackDefault: "terrain" });
+    expect(applyManualPick(both, "terrain")).toEqual({ override: null, global: "terrain" });
+    expect(applyManualPick(both, "nebula")).toEqual({
+      override: { kind: "nebula", albumKey: ALBUM_KEY },
+      global: "nebula",
+    });
+  });
+
+  it("drops an override left behind when the kind is the default", () => {
+    const stale = input({ global: "off", albumDefault: "nebula", override: { kind: "bloom", albumKey: ALBUM_KEY } });
+    expect(applyManualPick(stale, "nebula")).toEqual({ override: null, global: "nebula" });
+  });
+
+  it("lifts Off over an Off default and sets the kind aside", () => {
+    expect(applyManualPick(input({ global: "off", albumDefault: "off" }), "glass")).toEqual({
+      override: { kind: "glass", albumKey: ALBUM_KEY },
+      global: "glass",
+    });
+  });
+
+  it("lifts Off over a turned-off default with no override", () => {
+    const skipped = input({ global: "off", albumDefault: "nebula", catalog: without(["nebula"]) });
+    expect(applyManualPick(skipped, "bloom")).toEqual({ override: null, global: "bloom" });
+  });
+
+  it("lifts Off for a file opened from disk", () => {
+    const fromDisk = input({ global: "off", albumKey: null });
+    expect(applyManualPick(fromDisk, "glass")).toEqual({ override: null, global: "glass" });
+  });
+
+  it("draws the lifting pick and nothing stale", () => {
+    const before = input({ global: "off", albumDefault: "nebula" });
+    const pick = applyManualPick(before, "bloom");
+    const after = resolveVisualizer({ ...before, global: pick.global ?? before.global, override: pick.override });
+    expect(after).toMatchObject({ picked: "bloom", source: "override", defaultKind: "nebula" });
+  });
+});
+
 describe("applyManualPick", () => {
   it("writes the global pref over a skipped default, with no override", () => {
     const skipped = input({ albumDefault: "nebula", catalog: without(["nebula"]) });
@@ -328,6 +518,11 @@ describe("clearDefaultTier", () => {
 
   it("clears the track tier of an offered track default, leaving a turned-off album default alone", () => {
     expect(clearOf({ trackDefault: "terrain", albumDefault: "nebula", catalog: without(["nebula"]) })).toBe("track");
+  });
+
+  it("clears the waiting default while Off is the global pick", () => {
+    expect(clearOf({ global: "off", trackDefault: "terrain", albumDefault: "nebula" })).toBe("track");
+    expect(clearOf({ global: "off", albumDefault: "nebula" })).toBe("album");
   });
 
   it("keeps a temporary pick: clearing during an override still shows the pick", () => {
@@ -416,6 +611,21 @@ describe("defaultActions", () => {
     const a = flags(filed, { albumDefault: "nebula", catalog: without(["nebula"]) });
     expect(a.clear).toEqual({ visible: true, disabled: false });
     expect(a.useAlbum.disabled).toBe(false);
+  });
+
+  it("keeps both live and Clear visible while Off holds a default, to store Off", () => {
+    const a = flags(filed, { global: "off", albumDefault: "nebula" });
+    expect(a).toEqual({
+      useAlbum: { visible: true, disabled: false },
+      useTrack: { visible: true, disabled: false },
+      clear: { visible: true, disabled: false },
+    });
+  });
+
+  it("dims Use for this album while Off is the global pick and the album default is Off", () => {
+    const a = flags(filed, { global: "off", albumDefault: "off" });
+    expect(a.useAlbum.disabled).toBe(true);
+    expect(a.useTrack.disabled).toBe(false);
   });
 
   it("offers a single the album tier only", () => {

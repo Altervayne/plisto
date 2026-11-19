@@ -134,6 +134,25 @@ describe("VisualizersSection", () => {
     expect(html).toContain(`${ALL_KINDS.length} of ${ALL_KINDS.length} on`);
   });
 
+  it("always shows the flash line under the helper", () => {
+    const html = renderToStaticMarkup(<VisualizersSection />);
+    expect(html).toContain(en.settings.visualizersFlashLine);
+    expect(html.indexOf(en.settings.visualizersHelper)).toBeLessThan(html.indexOf(en.settings.visualizersFlashLine));
+  });
+
+  it("shows the line while the stored choices are unread or failed", () => {
+    setPrefs({}, { loaded: false });
+    expect(renderToStaticMarkup(<VisualizersSection />)).toContain(en.settings.visualizersFlashLine);
+    setPrefs({ [KEY]: serializeCatalog({ kinds: [], groups: [] }) }, { failed: true });
+    expect(renderToStaticMarkup(<VisualizersSection />)).toContain(en.settings.visualizersFlashLine);
+  });
+
+  it("marks each family block from the registry's data", () => {
+    const html = renderToStaticMarkup(<VisualizersSection />);
+    expect(html.match(/>Can flash</g)).toHaveLength(2);
+    expect(html.match(/>Calmer</g)).toHaveLength(1);
+  });
+
   it("names every switch by its kind or family", () => {
     const html = renderToStaticMarkup(<VisualizersSection />);
     expect(html).toContain(`aria-label="${en.player.visualizerRidge}"`);

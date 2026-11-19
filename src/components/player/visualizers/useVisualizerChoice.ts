@@ -14,6 +14,7 @@ import { useVisualizerResolution } from "./useVisualizerResolution";
 import { usePlayerSpectrumLayout, usePlayerVisualizerReactivity } from "../../../state/preferences/store";
 import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../state/player/visualizerDefaults";
 import { useVisualizerPreview } from "../../../state/player/visualizerSheet";
+import { useVisualizersAllowed } from "../../../state/player/visualizerWarning";
 import type { DipReason } from "../../../state/player/visualizerDip";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
 import { isDarkTheme, subscribeTheme } from "../../../theme";
@@ -69,7 +70,9 @@ export interface VisualizerChoice {
  * be, and dips the stage from the shown kind to it. A kind previewed from the picker takes the
  * pick's place as the dip target until the preview ends; the pick and its fallback line stay as they are.
  * Cover pixels load while either end of the dip draws them, so the outgoing kind keeps its art on the way
- * down. A WebGL failure drops that kind to Ridge until the target changes, so aiming at it again retries.
+ * down. Until the flash warning is acknowledged the stage aims at Off whatever the pick or a preview says,
+ * loads no pixels and warms nothing, then dips to the pick once it is. A WebGL failure drops that kind to
+ * Ridge until the target changes, so aiming at it again retries.
  */
 export function useVisualizerChoice(
   coverSrc: string | null,
@@ -92,16 +95,19 @@ export function useVisualizerChoice(
   const reactivity = usePlayerVisualizerReactivity();
   const spectrumLayout = usePlayerSpectrumLayout();
   const preview = useVisualizerPreview();
-  const aimed = preview ?? picked;
+  // Until the flash warning is acknowledged every kind is held off, whatever the pick or a preview says.
+  const allowed = useVisualizersAllowed();
+  const wanted: VisualizerKind = allowed ? picked : "off";
+  const aimed = allowed ? (preview ?? picked) : "off";
   const [failed, setFailed] = useState<VisualizerKind | null>(null);
   const warmed = useWarmState((s) => s.warmed);
   const warm = (kind: VisualizerKind) => warmIn(warmed, kind);
-  const [shown, setShown] = useState(() => mountedKind(picked, warm));
+  const [shown, setShown] = useState(() => mountedKind(wanted, warm));
   // The programs reach the shader cache before the dip aims at the kind, so its first frame never stalls.
   useEffect(() => {
     warmKind(aimed);
   }, [aimed]);
-  const wantsCover = needsCoverPixels(aimed) || needsCoverPixels(picked) || needsCoverPixels(shown);
+  const wantsCover = needsCoverPixels(aimed) || needsCoverPixels(wanted) || needsCoverPixels(shown);
   const cover = useCoverPixels(wantsCover ? coverSrc : null);
   const seedWanted = wantsCover && (status === "coverless" || (status === "present" && cover.state === "absent"));
   // Keyed on the aimed kind, so the seed a dark-only kind needs builds before the swap.
@@ -118,7 +124,11 @@ export function useVisualizerChoice(
   const { target, ready } = dipTarget(aimed, failed === aimed, state, warm);
   const reason = useDipReason(boundaryKey(trackId, defaultsReady), target);
   useVisualizerDip(stageRef, target, ready, reason, shown, setShown);
-  const pickedTarget = preview == null ? target : dipTarget(picked, failed === picked, state).target;
+  const pickedTarget = !allowed
+    ? picked
+    : preview == null
+      ? target
+      : dipTarget(picked, failed === picked, state).target;
   const fallback = fallbackOf(picked, pickedTarget, failed === picked);
   return {
     picked,

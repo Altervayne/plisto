@@ -1,4 +1,5 @@
 // -- Component Imports --
+import { FamilyMark } from "../tiles/FamilyMark";
 import { GroupMarkers } from "../tiles/GroupMarkers";
 
 // -- Local Imports --
@@ -41,6 +42,7 @@ export function GroupChips({
           onClick={() => onJump(id)}
         >
           {sheetGroupLabel(id, t)}
+          <FamilyMark id={id} iconOnly />
           <GroupMarkers {...markers?.[id]} />
         </button>
       ))}

@@ -1,5 +1,5 @@
 // -- Icon Imports --
-import { RotateCw } from "lucide-react";
+import { RotateCw, Zap } from "lucide-react";
 
 // -- Component Imports --
 import { QuietButton } from "../../common/QuietButton";
@@ -46,6 +46,10 @@ export function VisualizersSection() {
 
       <SettingRow id="visualizerCatalog" className={styles.intro}>
         <p className={settingsStyles.helper}>{t((d) => d.settings.visualizersHelper)}</p>
+        <p className={styles.flashLine}>
+          <Zap size={15} strokeWidth={1.8} aria-hidden="true" />
+          <span>{t((d) => d.settings.visualizersFlashLine)}</span>
+        </p>
         <div className={styles.status}>
           {!loaded ? (
             <span>{t((d) => d.settings.visualizersReading)}</span>

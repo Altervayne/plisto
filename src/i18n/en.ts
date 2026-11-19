@@ -725,6 +725,8 @@ export const en = {
     visualizersOnCount: { one: "{{n}} of {{total}} on", other: "{{n}} of {{total}} on" },
     visualizersFamilyOff: "Turned off. Turn it on to change these.",
     visualizersLastOn: "At least one visualizer has to stay on.",
+    visualizersFlashLine:
+      "Some visualizers react to the music with bright flashes and fast movement, most of all in Cyber and Cosmic. Cozy is calmer, and setting Reactivity to Calm reduces how they react. If you feel unwell, stop and consult a doctor.",
     sectionAppearance: "Appearance & language",
     sectionSystem: "System",
     closeBehavior: "When you close the window",
@@ -1256,6 +1258,27 @@ export const en = {
     visualizerSkippedTrack: "Track default: {name}, turned off",
     visualizerClearAlbumDefault: "Clear album default",
     visualizerClearTrackDefault: "Clear track default",
+    visualizerDefaultWaiting: "{tier}: {name}, waiting while visualizers are off",
+    warnTitleFirst: "Visualizers can flash",
+    warnBodyFirst:
+      "Some visualizers react to the music with bright flashes and fast movement, most of all in the Cyber and Cosmic families. If you are sensitive to flashing light, you can choose a calmer setup now. If you feel unwell, stop and consult a doctor.",
+    warnTitleUpdate: "New visualizers can flash",
+    warnBodyUpdate:
+      "This update adds the Cyber and Cosmic families. They react to the beat with light as well as motion, and can flash. If you are sensitive to flashing light, you can choose a calmer setup now. If you feel unwell, stop and consult a doctor.",
+    warnCozy: "Keep only Cozy",
+    warnCozyD: "Turns off every other family, including Classic, Dots and Fluid.",
+    warnCalm: "Set Reactivity to Calm",
+    warnCalmD: "Reduces how the visualizers react to the music.",
+    warnOff: "Turn visualizers off",
+    warnOffD: "The stage stays plain. You can pick one again from the sheet.",
+    warnAck: "I understand",
+    warnCarry: "Carry on",
+    warnHint: "You can change this later in Settings > Visualizers.",
+    warnButtonTip: "Read the notice first",
+    warnElsewhereTip: "Read the flash notice in the full Player first",
+    warnLineSheet: "Some visualizers can flash. Calm reduces the reaction.",
+    markCanFlash: "Can flash",
+    markCalmer: "Calmer",
     stream: {
       streamingFrom: "Streaming from",
       listened: "{time} listened",
@@ -1732,6 +1755,16 @@ export const en = {
       busy: "The plugin changed while Plisto was checking it. Try again.",
       unknown: "Something went wrong. Try again.",
     },
+  },
+  projections: {
+    loadingTitle: "Loading albums and playlists",
+    stalledTitle: "Albums and playlists have not loaded yet",
+    stalledLine: "Nothing in your library has changed. Plisto keeps trying.",
+    tryAgain: "Try again",
+    writeBlocked: "Available once albums and playlists have loaded",
+    finderNote: "Albums and playlists are still loading",
+    bootLoadingTitle: "Loading your library",
+    bootStalledTitle: "Your library has not loaded yet",
   },
 };
 

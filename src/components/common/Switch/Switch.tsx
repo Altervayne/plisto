@@ -13,12 +13,15 @@ export function Switch({
   label,
   disabled = false,
   pending = false,
+  describedBy,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   label: string;
   disabled?: boolean;
   pending?: boolean;
+  /** The id of the element that describes the switch. */
+  describedBy?: string;
 }) {
   return (
     <button
@@ -26,6 +29,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       aria-busy={pending ? "true" : undefined}
       className={pending ? `${styles.switch} ${styles.pending}` : styles.switch}

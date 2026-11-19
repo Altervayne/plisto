@@ -1,6 +1,7 @@
 /*
  * The visualizer a track resolves to: a temporary override, then the track default, then the album
- * default, then the global pick. Pure, so the stage, the pickers and their tests share one rule set.
+ * default, then the global pick. The global pick Off outranks all of them; nothing stored is rewritten.
+ * Pure, so the stage, the pickers and their tests share one rule set.
  *
  * Every track keys its override to an album key. A filed track and a single key on their album, a loose
  * track on itself, so a pick never sticks across unrelated loose tracks. A file opened from disk has no
@@ -52,14 +53,14 @@ export interface SkippedDefault {
 export interface Resolution {
   picked: VisualizerKind;
   source: VisualizerSource;
-  // The default in play, still reported while an override sets it aside.
+  // The default in play, still reported while an override or the global pick Off sets it aside.
   defaultKind: VisualizerKind | null;
   defaultTier: DefaultTier | null;
   // The turned-off default that outranks the one in play, or the highest one when none is in play.
   skipped: SkippedDefault | null;
 }
 
-/** What a manual pick writes: the override, and the global pref when no default is in play. */
+/** What a manual pick writes: the override, and the global pref when no default is in play or Off is involved. */
 export interface ManualPick {
   override: VisualizerOverride | null;
   // Null leaves the global pref as it is.
@@ -160,25 +161,35 @@ export function resolveVisualizer(input: ResolveInput): Resolution {
   const defaultKind = track ?? album;
   const defaultTier: DefaultTier | null = track ? "track" : album ? "album" : null;
   const override = liveOverride(input.override, input.albumKey, input.catalog);
+  const picked = override ?? defaultKind ?? globalKind(input.global, input.catalog);
+  const skipped = skippedDefault(input, defaultTier);
+  // The global pick Off outranks every default and override. The default stays reported, so the pickers
+  // can name it while it waits.
+  if (input.global === "off" && picked !== "off") {
+    return { picked: "off", source: "global", defaultKind, defaultTier, skipped };
+  }
   // Clearing the last default during an override keeps the pick showing, with nothing left to set aside.
   const source: VisualizerSource = override && defaultKind ? "override" : defaultTier ?? "global";
-  return {
-    picked: override ?? defaultKind ?? globalKind(input.global, input.catalog),
-    source,
-    defaultKind,
-    defaultTier,
-    skipped: skippedDefault(input, defaultTier),
-  };
+  return { picked, source, defaultKind, defaultTier, skipped };
+}
+
+/** Whether the global pick Off keeps the default in play from drawing. */
+export function defaultWaits(res: Resolution): boolean {
+  return res.source === "global" && res.defaultKind != null && res.defaultKind !== res.picked;
 }
 
 /**
- * A pick from the picker or V. Over a default it is a temporary override, and picking the default
- * itself drops it. With no default it writes the global pref and drops any override left behind.
+ * A pick from the picker or V. Off always writes the global pref and drops the override. A kind picked
+ * while the global pref is Off becomes the global pref. Over a default a kind is a temporary override,
+ * and picking the default itself drops it. With no default it writes the global pref and drops any
+ * override left behind.
  */
 export function applyManualPick(input: ResolveInput, kind: VisualizerKind): ManualPick {
+  if (kind === "off") return { override: null, global: "off" };
   const { defaultKind } = resolveVisualizer(input);
   if (defaultKind == null || input.albumKey == null) return { override: null, global: kind };
-  return { override: kind === defaultKind ? null : { kind, albumKey: input.albumKey }, global: null };
+  const override = kind === defaultKind ? null : { kind, albumKey: input.albumKey };
+  return { override, global: input.global === "off" ? kind : null };
 }
 
 /**

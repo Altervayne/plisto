@@ -13,12 +13,14 @@ import { Cover } from "../../common/Cover/Cover";
 import { IconButton } from "../../common/IconButton";
 import { LegibilityScrim } from "../LegibilityScrim";
 import { SeekBar } from "../SeekBar";
+import { Tooltip } from "../../common/Tooltip";
 import { UpNextGlance } from "./UpNextGlance";
 import { VisualizerSheet } from "../visualizers/sheet/VisualizerSheet";
 import { Visualizer } from "../visualizers/Visualizer";
 import { Volume } from "../Volume";
 
 // -- Hook Imports --
+import { ambientCycleTarget } from "./ambientCycle";
 import { useAmbientIdle } from "./useAmbientIdle";
 import { useAmbientKeys } from "./useAmbientKeys";
 import { useFullscreen } from "./useFullscreen";
@@ -32,9 +34,9 @@ import { useVisualizerPick } from "../visualizers/useVisualizerPick";
 import { useVisualizerCatalog } from "../../../state/preferences/store";
 import { usePlayerActions, usePlayerStatus, useSeatedStream } from "../../../state/player/store";
 import { showsScrubber, waitingPhase } from "../../../state/player/streamView";
-import { nextOfferedKind } from "../../../state/player/visualizerCatalog";
 import { isDarkOnly, type VisualizerKind } from "../../../state/player/visualizerKind";
 import { useVisualizerSheet, useVisualizerSheetOpen } from "../../../state/player/visualizerSheet";
+import { useVisualizersAllowed } from "../../../state/player/visualizerWarning";
 
 // -- Local Imports --
 import { panelScheme, useSchemeSwap } from "../panelScheme";
@@ -78,6 +80,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const status = usePlayerStatus();
   const actions = usePlayerActions();
   const sheetOpen = useVisualizerSheetOpen();
+  const allowed = useVisualizersAllowed();
   const { faded, wake } = useAmbientIdle(sheetOpen);
   const t = useT();
   const coverRef = useRef<HTMLSpanElement | null>(null);
@@ -86,7 +89,13 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const textRef = useRef<HTMLDivElement | null>(null);
   const hushRefs = useMemo(() => [textRef], []);
   const [hint, setHint] = useState(true);
-  const [toast, setToast] = useState<{ label: string; name: string; kind: VisualizerKind; id: number; gone: boolean } | null>(null);
+  const [toast, setToast] = useState<{
+    label: string;
+    name: string;
+    kind: VisualizerKind;
+    id: number;
+    gone: boolean;
+  } | null>(null);
   // The toast holds while its kind builds, then reads normally and fades.
   const toastWarm = useIsWarm(toast?.kind ?? "off");
   const toastLoading = useLoadingCue(toast && !toastWarm ? toast.kind : null);
@@ -116,7 +125,8 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   }, [toast, toastWarm]);
 
   const cycle = () => {
-    const next = nextOfferedKind(catalog, picked) as VisualizerKind;
+    const next = ambientCycleTarget(allowed, catalog, picked);
+    if (next == null) return;
     // The suffix says the pick holds for this album only, which is true when it set a default aside.
     const setAside = pick(next).override != null;
     const name = t(VISUALIZER_VIEWS[next].label);
@@ -136,6 +146,20 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   let drawnTile: string | null = null;
   if (shown === "liquid") drawnTile = styles.liquidTile;
   else if (shown === "dot-cover") drawnTile = styles.dotTile;
+
+  // Until the flash notice is acknowledged the button is inert; its tooltip points to the Player's notice.
+  const waves = (
+    <IconButton
+      aria-label={t((d) => d.player.visualizer)}
+      onClick={(e) => useVisualizerSheet.getState().toggle(e.currentTarget)}
+      aria-disabled={allowed ? undefined : true}
+      aria-haspopup="menu"
+      aria-expanded={sheetOpen}
+    >
+      <Waves size={20} strokeWidth={1.8} />
+    </IconButton>
+  );
+  const visualizerButton = allowed ? waves : <Tooltip label={t((d) => d.player.warnElsewhereTip)}>{waves}</Tooltip>;
 
   return createPortal(
     <PanelSchemeContext.Provider value={scheme}>
@@ -222,14 +246,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
             <UpNextGlance active={status.track_id != null && stream == null} />
             <AmbientTransport />
             <div className={styles.right}>
-              <IconButton
-                aria-label={t((d) => d.player.visualizer)}
-                onClick={(e) => useVisualizerSheet.getState().toggle(e.currentTarget)}
-                aria-haspopup="menu"
-                aria-expanded={sheetOpen}
-              >
-                <Waves size={20} strokeWidth={1.8} />
-              </IconButton>
+              {visualizerButton}
               <Volume volume={status.volume} />
             </div>
           </div>

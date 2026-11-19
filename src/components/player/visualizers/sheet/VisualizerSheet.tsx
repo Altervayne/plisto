@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
+// -- Icon Imports --
+import { Zap } from "lucide-react";
+
 // -- Component Imports --
 import { DefaultsAside } from "./DefaultsAside";
 import { GroupChips } from "./GroupChips";
@@ -160,11 +163,13 @@ function SheetBody({
       aria-label={t((d) => d.player.visualizer)}
       onKeyDown={onKeyDown}
     >
-      {showsChips(groups) ? (
-        <div className={styles.head}>
-          <GroupChips groups={groups} current={group} onJump={onJump} markers={markers} />
-        </div>
-      ) : null}
+      <div className={styles.head}>
+        {showsChips(groups) ? <GroupChips groups={groups} current={group} onJump={onJump} markers={markers} /> : null}
+        <p className={styles.warnLine}>
+          <Zap size={13} strokeWidth={1.8} aria-hidden="true" />
+          {t((d) => d.player.warnLineSheet)}
+        </p>
+      </div>
       <KindStrip groups={groups} checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
       <SheetFooter
         picked={picked}

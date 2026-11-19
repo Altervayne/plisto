@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   GROUP_ORDER,
+  GROUP_TEMPERAMENT,
   VISUALIZER_DESCRIPTORS,
   blendFor,
   descriptorOf,
+  groupMark,
   isVisualizerKind,
   type GlVisualizerId,
 } from "./visualizerRegistry";
@@ -140,5 +142,21 @@ describe("isVisualizerKind", () => {
     expect(isVisualizerKind("horizon")).toBe(false);
     expect(isVisualizerKind("Glass")).toBe(false);
     expect(isVisualizerKind("toString")).toBe(false);
+  });
+});
+
+describe("groupMark", () => {
+  it("marks Cyber and Cosmic as flash and Cozy as calm", () => {
+    expect(groupMark("cyber")).toBe("flash");
+    expect(groupMark("cosmic")).toBe("flash");
+    expect(groupMark("cozy")).toBe("calm");
+  });
+
+  it("leaves the other families, unknown ids and inherited names unmarked", () => {
+    for (const id of ["classic", "dots", "fluid", "plugin:x", "toString", ""]) expect(groupMark(id)).toBeNull();
+  });
+
+  it("only names registered families", () => {
+    for (const id of Object.keys(GROUP_TEMPERAMENT)) expect(GROUP_ORDER as readonly string[]).toContain(id);
   });
 });

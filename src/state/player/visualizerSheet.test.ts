@@ -4,15 +4,56 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // -- Unit Imports --
 import { PREVIEW_DWELL_MS, useVisualizerSheet } from "./visualizerSheet";
 
+// -- State Imports --
+import { PREF_KEYS, usePreferencesStore } from "../preferences/store";
+
 const sheet = () => useVisualizerSheet.getState();
+
+function setGate(acknowledged: boolean): void {
+  usePreferencesStore.setState({
+    values: acknowledged ? { [PREF_KEYS.visualizerWarningAck]: "1" } : {},
+    failedKeys: new Set<string>(),
+    loaded: true,
+  });
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
+  setGate(true);
   sheet().close();
 });
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("visualizer sheet gate", () => {
+  it("refuses open and toggle while the warning is unacknowledged", () => {
+    setGate(false);
+    sheet().open();
+    sheet().toggle();
+    expect(sheet().isOpen).toBe(false);
+  });
+
+  it("refuses while the preferences have not loaded or the flag failed to read", () => {
+    usePreferencesStore.setState({ values: { [PREF_KEYS.visualizerWarningAck]: "1" }, loaded: false });
+    sheet().open();
+    expect(sheet().isOpen).toBe(false);
+    usePreferencesStore.setState({
+      loaded: true,
+      failedKeys: new Set([PREF_KEYS.visualizerWarningAck]),
+    });
+    sheet().open();
+    expect(sheet().isOpen).toBe(false);
+  });
+
+  it("starts no preview while it cannot open", () => {
+    setGate(false);
+    sheet().open();
+    sheet().preview("nebula");
+    vi.advanceTimersByTime(PREVIEW_DWELL_MS);
+    expect(sheet().previewKind).toBeNull();
+  });
 });
 
 describe("visualizer sheet", () => {

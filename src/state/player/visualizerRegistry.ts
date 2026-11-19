@@ -23,6 +23,21 @@ export const GROUP_LABELS: Record<VisualizerGroupId, (d: Dict) => string> = {
   cosmic: (d) => d.player.visualizerGroupCosmic,
 };
 
+/** How a family tends to look: it can flash, or it is calmer. A family not listed carries no mark. */
+export type GroupMark = "flash" | "calm";
+
+export const GROUP_TEMPERAMENT: Partial<Record<VisualizerGroupId, GroupMark>> = {
+  cozy: "calm",
+  cyber: "flash",
+  cosmic: "flash",
+};
+
+/** The mark a family carries, or null. An id the registry does not name has none. */
+export function groupMark(id: string): GroupMark | null {
+  if (!Object.prototype.hasOwnProperty.call(GROUP_TEMPERAMENT, id)) return null;
+  return GROUP_TEMPERAMENT[id as VisualizerGroupId] ?? null;
+}
+
 /** A family's localized name. An id the registry does not name reads as itself. */
 export function groupLabel(id: string, t: Translate): string {
   return Object.prototype.hasOwnProperty.call(GROUP_LABELS, id) ? t(GROUP_LABELS[id as VisualizerGroupId]) : id;

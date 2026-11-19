@@ -75,6 +75,8 @@ export const PREF_KEYS = {
   exportSetups: "export_setups",
   // "1" once the trim-bar drag hint is retired by the first drag.
   trimHintSeen: "trim_hint_seen",
+  // "1" once the flashing-visualizer notice is acknowledged; visualizers draw only then.
+  visualizerWarningAck: "visualizer_warning_ack",
 } as const;
 
 interface PreferencesStore {
@@ -90,12 +92,17 @@ interface PreferencesStore {
   setPreference: (key: string, value: string) => void;
 }
 
+// The order of `setPreference` calls, so a load can tell which keys were written after it began.
+let writeCount = 0;
+const lastWrite = new Map<string, number>();
+
 export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
   values: {},
   failedKeys: new Set<string>(),
   loaded: false,
 
   loadPreferences: async () => {
+    const started = writeCount;
     const reads = await Promise.all(
       Object.values(PREF_KEYS).map(async (key) => {
         // A read that still fails after the retries leaves the key absent and is recorded, so a
@@ -112,6 +119,14 @@ export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
     for (const [key, value, ok] of reads) {
       if (!ok) failedKeys.add(key);
       else if (value != null) values[key] = value;
+    }
+    // A key written after this load began holds a newer value than the read: it stays as written and is
+    // not a failed read.
+    const current = get().values;
+    for (const [key, at] of lastWrite) {
+      if (at <= started) continue;
+      values[key] = current[key]!;
+      failedKeys.delete(key);
     }
     set({ values, failedKeys, loaded: true });
   },
@@ -138,6 +153,7 @@ export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
   getPreference: (key) => get().values[key],
 
   setPreference: (key, value) => {
+    lastWrite.set(key, ++writeCount);
     set((s) => ({ values: { ...s.values, [key]: value } }));
     // Best-effort persist: a failed pref write is non-fatal, so it never throws into the UI.
     void setSetting(key, value).catch(() => {});

@@ -122,6 +122,45 @@ describe("DefaultsAside skipped line", () => {
   });
 });
 
+describe("DefaultsAside while Off is the global pick", () => {
+  it("names the waiting album default", () => {
+    const tree = treeOf(resolvedOf({ global: "off", albumDefault: "nebula" }));
+    expect(lines(tree).map((l) => l.props.children)).toEqual([
+      "Album default: Nebula, waiting while visualizers are off",
+    ]);
+  });
+
+  it("names the waiting track default", () => {
+    const tree = treeOf(resolvedOf({ global: "off", albumDefault: "nebula", trackDefault: "train" }));
+    expect(lines(tree).map((l) => l.props.children)).toEqual([
+      "Track default: Train, waiting while visualizers are off",
+    ]);
+  });
+
+  it("keeps the turned-off line for a skipped default", () => {
+    const tree = treeOf(resolvedOf({ global: "off", albumDefault: "train", catalog: off("train") }));
+    expect(lines(tree).map((l) => l.props.children)).toEqual(["Album default: Train, turned off"]);
+  });
+
+  it("says nothing with no default", () => {
+    expect(lines(treeOf(resolvedOf({ global: "off" })))).toEqual([]);
+  });
+
+  it("stores Off for the album and the track, and clears the waiting default", () => {
+    const tree = treeOf(resolvedOf({ global: "off", albumDefault: "nebula" }));
+    const [useAlbum, useTrack] = buttons(tree);
+    expect([useAlbum.props["aria-disabled"], useTrack.props["aria-disabled"]]).toEqual([false, false]);
+    (useAlbum.props.onClick as (event: unknown) => void)({ currentTarget: { closest: () => null } });
+    (useTrack.props.onClick as (event: unknown) => void)({ currentTarget: { closest: () => null } });
+    expect(setAlbumDefault).toHaveBeenCalledWith(7, "off");
+    expect(setTrackDefault).toHaveBeenCalledWith(3, "off");
+    vi.clearAllMocks();
+    expect(labelOf(clearButton(tree))).toBe("Clear default");
+    pressClear(tree);
+    expect(setAlbumDefault).toHaveBeenCalledWith(7, null);
+  });
+});
+
 describe("DefaultsAside clear pill", () => {
   it("reads Clear default with nothing skipped", () => {
     const tree = treeOf(resolvedOf({ albumDefault: "nebula" }));

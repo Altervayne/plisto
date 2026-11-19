@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AmbientButton } from "./ambient/AmbientButton";
 import { AmbientStage } from "./ambient/AmbientStage";
 import { Aurora } from "./Aurora";
+import { auroraEased } from "./auroraEased";
 import { CenteredStage } from "../common/CenteredStage";
 import { CoverBackdrop } from "./CoverBackdrop";
 import { LegibilityScrim } from "./LegibilityScrim";
@@ -13,6 +14,7 @@ import { QueueList } from "./QueueList";
 import { SoundMenu } from "../sound/SoundMenu";
 import { Visualizer } from "./visualizers/Visualizer";
 import { VisualizerSheet } from "./visualizers/sheet/VisualizerSheet";
+import { VisualizerWarning } from "./visualizers/warning/VisualizerWarning";
 
 // -- Hook Imports --
 import { coverStatus } from "../tracks/coverStatus";
@@ -20,8 +22,10 @@ import { useTrackCover } from "../tracks/useTrackCover";
 import { useVisualizerChoice } from "./visualizers/useVisualizerChoice";
 
 // -- State Imports --
+import { usePlayerVisualizer, usePlayerVisualizerReactivity } from "../../state/preferences/store";
 import { useCurrentTrackId, useStreamArtRev } from "../../state/player/store";
 import { isDarkOnly } from "../../state/player/visualizerKind";
+import { useVisualizersAllowed } from "../../state/player/visualizerWarning";
 
 // -- Local Imports --
 import { panelScheme, useSchemeSwap } from "./panelScheme";
@@ -48,9 +52,16 @@ import styles from "./PlayerView.module.css";
  * back to the entry button.
  *
  * `onNavigate` routes the hero's source link back to the library - the shell owns the mode and open-id
- * state, so this only forwards the chosen source.
+ * state, so this only forwards the chosen source. `compact` marks the open-file window, which keeps a
+ * plain stage and leaves the visualizer notice for the full Player.
  */
-export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource) => void }) {
+export function PlayerView({
+  onNavigate,
+  compact = false,
+}: {
+  onNavigate: (source: PlaybackSource) => void;
+  compact?: boolean;
+}) {
   const trackId = useCurrentTrackId();
   const t = useT();
   const [ambientTrack, setAmbientTrack] = useState<number | null>(null);
@@ -92,6 +103,7 @@ export function PlayerView({ onNavigate }: { onNavigate: (source: PlaybackSource
           trackId={trackId}
           onNavigate={onNavigate}
           ambient={ambientTrack != null}
+          compact={compact}
           onEnterAmbient={enterAmbient}
           entryRef={entryRef}
         />
@@ -114,12 +126,14 @@ function PlayerStage({
   trackId,
   onNavigate,
   ambient,
+  compact,
   onEnterAmbient,
   entryRef,
 }: {
   trackId: number;
   onNavigate: (source: PlaybackSource) => void;
   ambient: boolean;
+  compact: boolean;
   onEnterAmbient: () => void;
   entryRef: Ref<HTMLButtonElement>;
 }) {
@@ -140,6 +154,7 @@ function PlayerStage({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const choice = useVisualizerChoice(coverSrc, artStatus, trackId, panelRef);
   const { shown } = choice;
+  const easedAurora = auroraEased(useVisualizersAllowed(), usePlayerVisualizer(), usePlayerVisualizerReactivity());
   // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.
   let drawnArt: "liquid" | "dots" | null = null;
   if (!ambient && shown === "liquid") drawnArt = "liquid";
@@ -159,7 +174,9 @@ function PlayerStage({
         {...schemeStamp(scheme)}
       >
         <CoverBackdrop src={coverSrc} className={styles.glow} />
-        {ambient ? null : <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} />}
+        {ambient ? null : (
+          <Aurora trackId={trackId} coverRef={coverRef} coverless={artStatus === "coverless"} eased={easedAurora} />
+        )}
         {ambient ? null : (
           <Visualizer
             choice={choice}
@@ -184,9 +201,11 @@ function PlayerStage({
             legible={legible}
             onEnterAmbient={onEnterAmbient}
             ambientRef={entryRef}
+            noticeHere={!compact}
           />
           <QueueList />
         </div>
+        {ambient || compact ? null : <VisualizerWarning floorRef={seekRef} />}
         {ambient ? null : <VisualizerSheet place="player" trackId={trackId} fallback={choice.fallback} />}
       </div>
     </PanelSchemeContext.Provider>

@@ -8,6 +8,10 @@
 // -- Library Imports --
 import { create } from "zustand";
 
+// -- State Imports --
+import { usePreferencesStore } from "../preferences/store";
+import { warningStatus } from "./visualizerWarning";
+
 // -- Type Imports --
 import type { VisualizerKind } from "./visualizerKind";
 
@@ -36,12 +40,20 @@ function cancelPending(): void {
   pending = null;
 }
 
+/** Whether the flash warning is acknowledged; the sheet never opens before. */
+function gateOpen(): boolean {
+  const { loaded, failedKeys, values } = usePreferencesStore.getState();
+  return warningStatus(loaded, failedKeys, values) === "acknowledged";
+}
+
 export const useVisualizerSheet = create<VisualizerSheetStore>((set, get) => ({
   isOpen: false,
   anchor: null,
   previewKind: null,
 
-  open: (anchor = null) => set({ isOpen: true, anchor }),
+  open: (anchor = null) => {
+    if (gateOpen()) set({ isOpen: true, anchor });
+  },
   toggle: (anchor = null) => {
     if (get().isOpen) get().close();
     else get().open(anchor);

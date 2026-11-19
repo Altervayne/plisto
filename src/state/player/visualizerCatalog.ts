@@ -202,6 +202,36 @@ export function toggleGroup(catalog: Catalog, group: string): CatalogState | nul
   return guarded(catalog, { kinds, groups: [...groups, group] });
 }
 
+/**
+ * Turns every family but `keep` off and `keep` on. Only `groups` changes: kinds and ids the registry
+ * does not know stay as stored. Null when the catalog is not writable, `keep` has no entry, or the
+ * result would offer no kind.
+ */
+export function keepOnlyGroup(catalog: Catalog, keep: string): CatalogState | null {
+  if (!catalog.writable || !catalog.entries.some((e) => e.group === keep)) return null;
+  const known = new Set(catalog.entries.map((e) => e.group));
+  const others = [...known].filter((g) => g !== keep);
+  const kept = catalog.state.groups.filter((g) => g !== keep);
+  return guarded(catalog, {
+    kinds: catalog.state.kinds,
+    groups: [...kept, ...others.filter((g) => !kept.includes(g))],
+  });
+}
+
+/** Whether `keep` is the only family on: it is not turned off and every other known family is. */
+export function isOnlyGroup(catalog: Catalog, keep: string): boolean {
+  const known = new Set(catalog.entries.map((e) => e.group));
+  if (!known.has(keep)) return false;
+  const off = new Set(catalog.state.groups);
+  return !off.has(keep) && [...known].every((g) => g === keep || off.has(g));
+}
+
+/** The state with every known family turned back on; kinds and unknown ids stay as stored. */
+export function allGroupsOn(catalog: Catalog): CatalogState {
+  const known = new Set(catalog.entries.map((e) => e.group));
+  return { kinds: catalog.state.kinds, groups: catalog.state.groups.filter((g) => !known.has(g)) };
+}
+
 /** Whether a kind or family that is on can be turned off: the same guard the toggles apply. */
 export function canTurnOff(catalog: Catalog, scope: "kind" | "group", id: string): boolean {
   if (scope === "kind") return !catalog.state.kinds.includes(id) && toggleKind(catalog, id) !== null;

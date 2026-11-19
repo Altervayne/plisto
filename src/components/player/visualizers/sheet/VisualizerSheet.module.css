@@ -45,8 +45,29 @@
   }
 }
 
+/* The warning wraps under the chips when it does not fit beside them, and is never cut. */
 .head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
+  min-height: 30px;
+}
+
+.warnLine {
+  flex: 1 1 340px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0;
+  padding: 0 4px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+.warnLine svg {
+  flex: none;
+  color: var(--warn);
 }

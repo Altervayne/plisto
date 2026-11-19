@@ -69,6 +69,7 @@ export function PlayerHero({
   legible = false,
   onEnterAmbient,
   ambientRef,
+  noticeHere = true,
 }: {
   trackId: number;
   onNavigate: (source: PlaybackSource) => void;
@@ -87,6 +88,8 @@ export function PlayerHero({
   legible?: boolean;
   onEnterAmbient?: () => void;
   ambientRef?: Ref<HTMLButtonElement>;
+  // False where the flash notice is not drawn (the compact window), so the visualizer button points to the Player.
+  noticeHere?: boolean;
 }) {
   const stream = useSeatedStream();
   const { cover } = useTrackCover(trackId, false, stream?.art_rev ?? 0);
@@ -106,7 +109,7 @@ export function PlayerHero({
     sound: (
       <div key="sound" className={styles.soundSlot}>
         <SoundMenu />
-        <VisualizerButton />
+        <VisualizerButton noticeHere={noticeHere} />
       </div>
     ),
     cluster: (
