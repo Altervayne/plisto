@@ -346,10 +346,20 @@ mod tests {
     }
 
     // A temp library with two unreadable files, indexed once at time 1000, and the state to retry it.
+    // Fields drop in order, so the state's database closes before the folder is removed.
     struct Setup {
-        dir: PathBuf,
         state: AppState,
         files: [PathBuf; 2],
+        _dir: Folder,
+    }
+
+    // The temp folder, removed on drop.
+    struct Folder(PathBuf);
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     impl Setup {
@@ -379,7 +389,11 @@ mod tests {
 
             let mut state = AppState::for_test(conn, PathBuf::new());
             state.db_path = db_path;
-            Self { dir, state, files }
+            Self {
+                state,
+                files,
+                _dir: Folder(dir),
+            }
         }
 
         fn fix_all(&self) {
@@ -391,12 +405,6 @@ mod tests {
         fn rows(&self) -> Vec<crate::dto::ScanIssue> {
             let conn = self.state.db.lock().unwrap();
             scan_issues::list(&conn, 0, 100, None).unwrap()
-        }
-    }
-
-    impl Drop for Setup {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.dir);
         }
     }
 
