@@ -9,6 +9,10 @@
 mod album_numbering;
 mod duplicates;
 mod export_ledger;
+mod folder_moves;
+// Only the tests call into the folder locate writer, so its surface reads as unused outside them.
+#[cfg_attr(not(test), allow(dead_code))]
+mod locate_folder;
 mod migrations;
 mod playlist_albums;
 mod relocate;
@@ -29,6 +33,7 @@ pub use playlist_albums::{
     add_albums_to_playlist, expanded_queue, playlist_expanded, set_entry_keep_order,
     unpack_album_entry, ALBUM_MEMBER_KEY,
 };
+pub use folder_moves::{folder_moves, FolderMove};
 pub use migrations::{CopyOutcome, MigrationReport};
 pub use relocate::{
     backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,
@@ -632,12 +637,14 @@ pub fn fill_root_keys(conn: &Connection) -> rusqlite::Result<()> {
 /// Removes a root and everything that hung off it, in one transaction. Deleting the root CASCADEs
 /// to its tracks (root_id FK), and each dropped track CASCADEs to its album membership (track_id
 /// FK). Any album or single gutted to zero members by that cascade is then deleted, restoring the
-/// "every container holds at least one member" invariant. The root's recorded earlier paths go too.
+/// "every container holds at least one member" invariant. The root's recorded earlier paths and
+/// folder moves go too.
 pub fn remove_root(conn: &mut Connection, root_id: i64) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM roots WHERE id = ?1", params![root_id])?;
     delete_emptied_albums(&tx)?;
     relocate::forget_root_moves(&tx, root_id)?;
+    folder_moves::forget_folder_moves(&tx, root_id)?;
     tx.commit()
 }
 

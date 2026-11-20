@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::types::Value;
@@ -6,6 +7,7 @@ use rusqlite::{params, Connection};
 use super::tests::{add_track, names_in, rows, seed, temp_dir, walk, whole_state, ETE, MAIN};
 use super::*;
 use crate::db;
+use crate::db::locate_folder;
 use crate::dto::{RestoreSummary, UnmatchedGroup, UnmatchedKind};
 use crate::normalize::normalize_path_key;
 
@@ -191,6 +193,93 @@ fn a_moved_root_matches_by_id_through_the_recorded_move() {
     let applied = apply(&mut conn, &point, &dir.0, 2000);
     assert_eq!(applied.summary.unmatched_tracks, 0);
     assert_eq!(whole_state(&conn), before);
+}
+
+#[test]
+fn a_point_from_before_a_folder_locate_matches_every_track_after_it() {
+    let dir = scratch("folder_locate");
+    let mut conn = db::open_in_memory().unwrap();
+    seed(&conn);
+    // Band was moved to Group: both files read gone, and a scan added B.flac again as track 7, which
+    // a playlist picked up.
+    conn.execute("UPDATE tracks SET missing_at = 5 WHERE id IN (1, 2)", []).unwrap();
+    add_track(&conn, 7, 1, &walk(MAIN, &["Group", "B.flac"]), true);
+    conn.execute(
+        "INSERT INTO playlist_tracks (id, playlist_id, track_id, position) VALUES (9, 2, 7, 1)",
+        [],
+    )
+    .unwrap();
+    let filed = rows(&conn, "SELECT * FROM album_tracks ORDER BY track_id");
+    let point = point_at(&conn, &dir.0, Reason::Action, 1000);
+
+    let found: HashMap<String, i64> = [("A.flac", 101), ("B.flac", 102)]
+        .iter()
+        .map(|(name, size)| (normalize_path_key(&walk(MAIN, &["Group", name])), *size))
+        .collect();
+    let band = walk(MAIN, &["Band"]);
+    let located = locate_folder::plan_locate_folder(&conn, 1, &band, &walk(MAIN, &["Group"]), &found)
+        .unwrap();
+    assert_eq!((located.relinked.len(), located.merged.len()), (1, 1));
+    locate_folder::locate_folder(&mut conn, &located, 50).unwrap();
+    wreck(&conn);
+
+    let planned = plan(&conn, &point).unwrap();
+    assert_eq!(planned.unmatched_tracks, 0);
+    apply(&mut conn, &point, &dir.0, 2000);
+    assert_eq!(rows(&conn, "SELECT * FROM album_tracks ORDER BY track_id"), filed);
+    assert_eq!(
+        rows(&conn, "SELECT track_id FROM playlist_tracks WHERE id = 9"),
+        vec![vec![int(2)]],
+        "the slot of the row that folded away lands on the track it folded into"
+    );
+}
+
+#[test]
+fn a_folded_row_filed_in_a_lower_album_takes_the_gone_track_there_on_restore() {
+    let dir = scratch("folder_locate_collapse");
+    let mut conn = db::open_in_memory().unwrap();
+    let root = db::insert_root(&conn, &normalize_path_key(MAIN), MAIN, 1).unwrap();
+    // Track 1 is gone from Band; a scan added it again in Group as track 2, filed into album 1, made
+    // after album 2 holds track 1 and the present track 3.
+    add_track(&conn, 1, root, &walk(MAIN, &["Band", "A.flac"]), true);
+    add_track(&conn, 2, root, &walk(MAIN, &["Group", "A.flac"]), true);
+    add_track(&conn, 3, root, &walk(MAIN, &["C.flac"]), true);
+    conn.execute_batch(
+        "UPDATE tracks SET missing_at = 5 WHERE id = 1;
+         INSERT INTO albums (id, title, created_at, updated_at) VALUES (1, 'Tags', 1, 1), (2, 'Record', 1, 1);
+         INSERT INTO album_tracks (album_id, track_id, track_no) VALUES (1, 2, 1), (2, 1, 1), (2, 3, 2);",
+    )
+    .unwrap();
+    let point = point_at(&conn, &dir.0, Reason::Action, 1000);
+
+    let found = HashMap::from([(normalize_path_key(&walk(MAIN, &["Group", "A.flac"])), 101)]);
+    let located = locate_folder::plan_locate_folder(
+        &conn,
+        root,
+        &walk(MAIN, &["Band"]),
+        &walk(MAIN, &["Group"]),
+        &found,
+    )
+    .unwrap();
+    assert_eq!(located.merged, vec![(1, 2)]);
+    locate_folder::locate_folder(&mut conn, &located, 50).unwrap();
+    assert_eq!(
+        rows(&conn, "SELECT album_id, track_id FROM album_tracks ORDER BY album_id, track_id"),
+        vec![vec![int(2), int(1)], vec![int(2), int(3)]],
+        "the locate keeps track 1 in its album and deletes the one the fold emptied"
+    );
+
+    // Both point tracks become track 1, and the lowest (album_id, track_no, point id) keeps it.
+    let applied = apply(&mut conn, &point, &dir.0, 2000);
+    let s = &applied.summary;
+    assert_eq!(
+        (s.unmatched_tracks, s.collapsed, s.albums, s.albums_not_recreated),
+        (0, 1, 2, 0)
+    );
+    assert_eq!(
+        rows(&conn, "SELECT album_id, track_id, track_no FROM album_tracks ORDER BY album_id, track_id"),
+        vec![vec![int(1), int(1), int(1)], vec![int(2), int(3), int(2)]]
+    );
 }
 
 #[test]

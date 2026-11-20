@@ -20,7 +20,7 @@ use super::format::{DataTable, Reason};
 use super::load::{load, PointData};
 use super::matching::{match_tracks, LiveRoot, LiveTrack};
 use super::take::{take, PointError, Taken};
-use crate::db::root_moves;
+use crate::db::{folder_moves, root_moves};
 use crate::dto::RestoreSummary;
 
 /// Why a restore did not happen. Every variant leaves the library as it was.
@@ -149,8 +149,9 @@ fn plan(conn: &Connection, data: &PointData) -> rusqlite::Result<Rebuilt> {
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let moves = root_moves(conn)?;
+    let located = folder_moves(conn)?;
 
-    let map = match_tracks(&data.roots, &data.tracks, &live_roots, &live_tracks, &moves);
+    let map = match_tracks(&data.roots, &data.tracks, &live_roots, &live_tracks, &moves, &located);
     let mut rebuilt = rebuild(data, &map, &live_covers);
 
     // Tracks the point holds nothing for lose their per-track rows to the replace.

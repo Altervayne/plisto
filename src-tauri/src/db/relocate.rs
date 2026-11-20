@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 // -- Local Imports --
 use super::duplicates::member_count;
+use super::folder_moves::reid_folder_moves;
 use super::playlist_albums::{dissolve_entries_into, referenced_album_members};
 use super::relocate_fold::{fold_pairs, set_scan_values};
 use super::{
@@ -168,7 +169,8 @@ pub fn plan_merge(
 /// track fills the gaps, plays and playlist slots union onto it, and it takes the absorbed track's
 /// scan columns. Absorbed-only tracks move to the kept root with their ids. Kept-only tracks are
 /// rewritten to the new path. Albums left with no member are deleted and counted; a playlist entry of
-/// one becomes the kept tracks its members folded onto, in the album's order.
+/// one becomes the kept tracks its members folded onto, in the album's order. The absorbed root's
+/// recorded folder moves pass to the kept root.
 pub fn merge_root(
     conn: &mut Connection,
     keep_root: i64,
@@ -223,6 +225,7 @@ pub fn merge_root(
     }
     rebase_folder_covers(&tx, &keep.key, new_root)?;
     record_move(&tx, keep.id, &keep.path, &absorb.path, Some(absorb.id))?;
+    reid_folder_moves(&tx, absorb.id, keep.id)?;
     // An album the carry emptied lives on as the kept tracks, so its playlist entries become them.
     let twin: HashMap<i64, i64> = plan.pairs.iter().map(|&(o, n)| (n, o)).collect();
     for (album_id, members) in &referenced {
@@ -288,10 +291,10 @@ struct RootRow {
 
 // One track's place under its root: the folded remainder of its key and the real-case remainder of
 // its display path.
-struct RelRow {
-    id: i64,
-    rel_key: PathBuf,
-    rel_disp: PathBuf,
+pub(super) struct RelRow {
+    pub(super) id: i64,
+    pub(super) rel_key: PathBuf,
+    pub(super) rel_disp: PathBuf,
 }
 
 /// Reads a root and places each of its tracks under it. Refused when the root is gone or any track
@@ -358,7 +361,7 @@ fn plan_rows(conn: &Connection, keep: &[RelRow], absorb: &[RelRow]) -> rusqlite:
     })
 }
 
-fn predict_emptied(conn: &Connection, pairs: &[(i64, i64)]) -> rusqlite::Result<i64> {
+pub(super) fn predict_emptied(conn: &Connection, pairs: &[(i64, i64)]) -> rusqlite::Result<i64> {
     let mut leaving: BTreeMap<i64, i64> = BTreeMap::new();
     for &(o, n) in pairs {
         if let Some(album_id) = membership_album(conn, n)? {
@@ -380,7 +383,7 @@ fn predict_emptied(conn: &Connection, pairs: &[(i64, i64)]) -> rusqlite::Result<
 
 /// `rel` re-anchored at `root`. An empty remainder is the root itself, which `join` would suffix with
 /// a separator.
-fn rebase(root: &Path, rel: &Path) -> PathBuf {
+pub(super) fn rebase(root: &Path, rel: &Path) -> PathBuf {
     if rel.as_os_str().is_empty() {
         root.to_path_buf()
     } else {
@@ -388,11 +391,11 @@ fn rebase(root: &Path, rel: &Path) -> PathBuf {
     }
 }
 
-fn path_key(path: &Path) -> String {
+pub(super) fn path_key(path: &Path) -> String {
     normalize_path_key(&path.to_string_lossy())
 }
 
-fn rewrite_track(conn: &Connection, row: &RelRow, new_root: &Path) -> rusqlite::Result<()> {
+pub(super) fn rewrite_track(conn: &Connection, row: &RelRow, new_root: &Path) -> rusqlite::Result<()> {
     let key = path_key(&rebase(new_root, &row.rel_key));
     let display = rebase(new_root, &row.rel_disp)
         .to_string_lossy()
