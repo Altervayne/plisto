@@ -88,7 +88,11 @@ export function GoneSheet({
 
   const [open, setOpen] = useState(true);
   const card = useMountTransition(open, EXIT_MS);
-  const requestClose = useCallback(() => setOpen(false), []);
+  // The sheet stays while a folder apply runs, so its step and Cancel stay in view until it reports.
+  const pinned = locate.folderRunning;
+  const requestClose = useCallback(() => {
+    if (!pinned) setOpen(false);
+  }, [pinned]);
   useEffect(() => {
     if (!card.mounted) onClose();
   }, [card.mounted, onClose]);
@@ -163,6 +167,15 @@ export function GoneSheet({
     confirm: locate.confirm,
     retry: locate.recheck,
     dismiss: locate.dismiss,
+    folder: {
+      start: (group) => {
+        if (group.rootId != null) locate.startFolder({ id: group.id, path: group.path, rootId: group.rootId });
+      },
+      confirm: locate.confirmFolder,
+      retry: locate.recheckFolder,
+      dismiss: locate.dismissFolder,
+      stop: locate.stopFolder,
+    },
     rescan: (rootId) => void rescan(rootId),
     remove: removal.request,
     toggle: (id) =>
@@ -179,7 +192,7 @@ export function GoneSheet({
 
   const title = t((d) => d.gone.title);
   const none = view.total === 0;
-  const idle = scanning || none || removing;
+  const idle = scanning || none || removing || locate.folderRunning;
   const removeBlocked = gate.blocked || removing;
   const scopeName =
     scope.kind === "album"
@@ -214,7 +227,9 @@ export function GoneSheet({
             <p className={styles.sub}>{t((d) => d.gone.sub)}</p>
             {scanning || none || receipt != null ? null : <p className={styles.summary}>{summary}</p>}
           </div>
-          <QuietButton onClick={requestClose}>{t((d) => d.common.close)}</QuietButton>
+          <QuietButton onClick={requestClose} disabled={pinned}>
+            {t((d) => d.common.close)}
+          </QuietButton>
         </div>
 
         {scope.kind !== "all" && scopeName ? (
@@ -242,6 +257,9 @@ export function GoneSheet({
               removeBlocked={removeBlocked}
               removeTip={gate.tip}
               steps={locate.steps}
+              folderSteps={locate.folderSteps}
+              folderBusy={locate.folderRunning}
+              roots={roots}
               expanded={expanded}
               shownGroups={shownGroups}
               shownTracks={shownTracks}

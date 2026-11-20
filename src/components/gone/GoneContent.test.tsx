@@ -43,6 +43,7 @@ const actions: GoneActions = {
   confirm: vi.fn(),
   retry: vi.fn(),
   dismiss: vi.fn(),
+  folder: { start: vi.fn(), confirm: vi.fn(), retry: vi.fn(), dismiss: vi.fn(), stop: vi.fn() },
   rescan: vi.fn(),
   remove: vi.fn(),
   toggle: vi.fn(),
@@ -57,6 +58,9 @@ function render(view: GoneView, over: Partial<Parameters<typeof GoneContent>[0]>
       scanning={false}
       removeBlocked={false}
       steps={{}}
+      folderSteps={{}}
+      folderBusy={false}
+      roots={[root(1, "/m", 100)]}
       expanded={new Set()}
       shownGroups={5}
       shownTracks={{}}
@@ -87,11 +91,11 @@ describe("GoneContent states", () => {
     expect(html).toContain("Remove from library");
   });
 
-  it("offers a vanished subfolder Remove only, with no Locate", () => {
+  it("offers a vanished subfolder the folder Locate beside Remove", () => {
     const html = render({ ...EMPTY, likely: [group("/m/rock", 12)], total: 12, folders: 1 });
     expect(html).toContain("Likely moved");
     expect(html).toContain("Remove from library");
-    expect(html).not.toContain("Locate folder");
+    expect(html).toContain("Locate folder");
   });
 
   it("shows mixed groups under a label, one open with its tracks", () => {
@@ -152,6 +156,85 @@ describe("GoneContent states", () => {
   it("lists only the offline roots it is given, so an empty root never shows", () => {
     const html = render({ ...EMPTY, offline: [{ root: root(2, "E:/Archive", 10), goneCount: 0 }] });
     expect(html.match(/Likely moved|kept, not gone/g)).toHaveLength(1);
+  });
+});
+
+describe("GoneContent subfolder Locate", () => {
+  const one = { ...EMPTY, groups: [group("/m/dl", 23)], total: 23, folders: 1 };
+
+  it("offers Locate subfolder on a subfolder group only", () => {
+    const html = render(one);
+    expect(html).toContain("Locate subfolder");
+    expect(html).toContain("Remove from library");
+  });
+
+  it("leaves a partly gone root's top level with Remove only", () => {
+    const html = render({ ...EMPTY, groups: [group("/m", 23)], total: 23, folders: 1 });
+    expect(html).not.toContain("Locate subfolder");
+    expect(html).toContain("Remove from library");
+  });
+
+  it("offers no Locate for a group under no root", () => {
+    const orphan = { ...group("/x/dl", 23), rootId: null };
+    const html = render({ ...EMPTY, groups: [orphan], total: 23, folders: 1 });
+    expect(html).not.toContain("Locate subfolder");
+  });
+
+  it("disables Locate subfolder while a scan or a folder apply holds the lock", () => {
+    expect(render(one, { folderBusy: true })).toMatch(/<button[^>]*disabled[^>]*>Locate subfolder/);
+    expect(render(one)).not.toMatch(/<button[^>]*disabled[^>]*>Locate subfolder/);
+  });
+
+  it("shows a group's step line under its row in place of the button", () => {
+    const html = render(one, {
+      folderSteps: { "/m/dl": { kind: "checking", name: "dl", folder: "E:/dl" } },
+    });
+    expect(html).toContain("Checking E:/dl...");
+    expect(html).not.toContain("Locate subfolder");
+  });
+
+  it("holds another group's use action while a folder apply runs", () => {
+    const plan = {
+      kind: "folder" as const,
+      target_root_id: 1,
+      total: 23,
+      relinked: 23,
+      merged: 0,
+      stays: 0,
+      albums_replaced: 0,
+      partial: false,
+    };
+    const folderSteps = { "/m/dl": { kind: "confirm" as const, name: "dl", folder: "E:/dl", plan } };
+    expect(render(one, { folderSteps, folderBusy: true })).toMatch(/<button[^>]*disabled[^>]*>Use this folder/);
+    expect(render(one, { folderSteps })).not.toMatch(/<button[^>]*disabled[^>]*>Use this folder/);
+  });
+
+  it("keeps a listed group's running step and its Cancel in view while a scan hides the rows", () => {
+    const html = render(one, {
+      scanning: true,
+      folderBusy: true,
+      folderSteps: { "/m/dl": { kind: "running", name: "dl", folder: "E:/dl" } },
+    });
+    expect(html).toContain("Updating dl");
+    expect(html).toContain("Cancel");
+  });
+
+  it("shows a running folder apply with Cancel", () => {
+    const html = render(one, {
+      folderBusy: true,
+      folderSteps: { "/m/dl": { kind: "running", name: "dl", folder: "E:/dl" } },
+    });
+    expect(html).toContain("Updating dl");
+    expect(html).toContain("Cancel");
+  });
+
+  it("keeps a finished folder step as a notice once its group has left the list", () => {
+    const html = render(EMPTY, {
+      folderSteps: { "/m/dl": { kind: "done", name: "dl", folder: "E:/dl", missing: 2, located: 21 } },
+    });
+    expect(html).toContain("21 tracks now point to ");
+    expect(html).toContain("E:/dl");
+    expect(html).toContain("The other 2 tracks stay marked gone");
   });
 });
 

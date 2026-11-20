@@ -31,6 +31,15 @@ export interface GoneView {
   folders: number;
 }
 
+/**
+ * Whether a group sits below its root, so a folder locate can point it somewhere else. A partly gone
+ * root's own top level is not a subfolder: moving it is the root's Locate, so it offers Remove only.
+ */
+export function isSubfolder(group: GoneGroup, roots: Root[]): boolean {
+  const root = roots.find((r) => r.id === group.rootId);
+  return root != null && foldId(root.path) !== group.id;
+}
+
 /** How many tracks an expanded folder lists before "Show more tracks", and how many each press adds. */
 export const TRACK_PAGE = 50;
 /** How many folders each "Show more folders" press adds after the first page. */

@@ -4,6 +4,7 @@ import { ChevronDown, Folder } from "lucide-react";
 // -- Component Imports --
 import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
+import { LocatePanel } from "../settings/LocatePanel";
 import { TruncatedText } from "../common/TruncatedText/TruncatedText";
 
 // -- Utils Imports --
@@ -15,6 +16,7 @@ import { useT } from "../../i18n";
 // -- Type Imports --
 import type { GoneGroup } from "../../state/gone/goneGroups";
 import type { TrackRow } from "../../types";
+import type { LocateStep } from "../settings/locateFlow";
 
 // -- Style Imports --
 import styles from "./GoneGroupRow.module.css";
@@ -41,9 +43,21 @@ export function GoneTrackRow({
   );
 }
 
+/** A folder group's Locate: its step and the moves of the flow behind it. */
+export interface GroupLocate {
+  step: LocateStep;
+  onStart: () => void;
+  onConfirm: () => void;
+  onRetry: () => void;
+  onDismiss: () => void;
+  onStop: () => void;
+}
+
 /**
- * A folder holding gone tracks: a toggle row with its path and count and a Remove action, and the tracks
- * under it once open. A long folder lists a page of tracks at a time.
+ * A folder holding gone tracks: a toggle row with its path and count, Locate subfolder and Remove actions,
+ * and the tracks under it once open. A long folder lists a page of tracks at a time. `locate` is absent
+ * where the folder cannot be located (a partly gone root's top level), which then offers Remove only; a
+ * Locate in progress shows its step line under the row.
  */
 export function GoneGroupRow({
   group,
@@ -53,6 +67,7 @@ export function GoneGroupRow({
   removeBlocked,
   removeTip,
   metaOf,
+  locate,
   onToggle,
   onMoreTracks,
   onRemove,
@@ -65,6 +80,7 @@ export function GoneGroupRow({
   removeBlocked: boolean;
   removeTip?: string;
   metaOf: (track: TrackRow) => string;
+  locate?: GroupLocate;
   onToggle: () => void;
   onMoreTracks: () => void;
   onRemove: () => void;
@@ -84,12 +100,27 @@ export function GoneGroupRow({
           <TruncatedText text={group.path} className={styles.path} />
           <span className={styles.count}>{t((d) => d.gone.tracks, { n: group.tracks.length })}</span>
         </button>
+        {locate && locate.step.kind === "idle" ? (
+          <QuietButton onClick={locate.onStart} disabled={locked}>
+            {t((d) => d.gone.locateSubfolder)}
+          </QuietButton>
+        ) : null}
         <Tooltip label={removeTip}>
           <QuietButton destructive onClick={onRemove} disabled={locked || removeBlocked}>
             {t((d) => d.gone.removeGroup)}
           </QuietButton>
         </Tooltip>
       </div>
+      {locate && locate.step.kind !== "idle" ? (
+        <LocatePanel
+          step={locate.step}
+          locked={locked}
+          onConfirm={locate.onConfirm}
+          onRetry={locate.onRetry}
+          onDismiss={locate.onDismiss}
+          onStop={locate.onStop}
+        />
+      ) : null}
       {open
         ? group.tracks
             .slice(0, shownTracks)

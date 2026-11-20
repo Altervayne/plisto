@@ -20,6 +20,7 @@ import {
   removeMissingTracks as removeMissingTracksCmd,
   removeRoot as removeRootCmd,
   relinkCandidates,
+  locateFolder as locateFolderCmd,
   relocateRoot as relocateRootCmd,
   rescanAll as rescanAllCmd,
   rescanLibrary,
@@ -32,7 +33,7 @@ import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } 
 import type { LibrarySummary, PendingDelta } from "./librarySync";
 import { reportLibraryChange } from "./plugins/libraryWatch";
 import { bestCandidate, needsRelinkCheck } from "./relocate";
-import type { RelinkOffer, RelocateResult } from "./relocate";
+import type { LocateFolderResult, RelinkOffer, RelocateResult } from "./relocate";
 
 // -- Type Imports --
 import type { GridFacet, GroupDimension } from "../components/tracks/trackFacets";
@@ -54,6 +55,7 @@ import type {
   LibrarySyncStatus,
   LibrarySyncSummary,
   LibrarySyncTick,
+  LocateFolderOutcome,
   PurgeSummary,
   Root,
   RootWatchState,
@@ -75,10 +77,10 @@ export type ScanMode = "blocking" | "quiet";
 
 /**
  * A surface that must not see rows shift under it: the albums-from-tags write, the gone-tracks purge
- * (its confirm and its run), a running export and a restore. While any is held, sync deltas gather
- * unapplied.
+ * (its confirm and its run), a folder locate, a running export and a restore. While any is held, sync
+ * deltas gather unapplied.
  */
-export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "export" | "restore";
+export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "locate" | "export" | "restore";
 
 /** What the user chose on the relink prompt: move the offline root here, add the folder anew, or neither. */
 export type RelinkChoice = "relink" | "asNew" | "cancel";
@@ -148,6 +150,7 @@ interface AppStore {
   addRoot: () => Promise<void>;
   addRootPath: (path: string) => Promise<boolean>;
   relocateRoot: (rootId: number, path: string) => Promise<RelocateResult>;
+  locateFolder: (rootId: number, folder: string, newPath: string) => Promise<LocateFolderResult>;
   resolveRelink: (choice: RelinkChoice) => Promise<RelocateResult | null>;
   removeRoot: (id: number) => Promise<void>;
   rescanAll: () => Promise<void>;
@@ -420,6 +423,32 @@ export const useAppStore = create<AppStore>((set, get) => {
         await refreshAfterRelocate();
       }
       return outcome;
+    },
+
+    // Points the gone tracks under a folder at where they moved to. No scan runs, so there is no overlay.
+    // Sync deltas are held from before the write, as for a purge. A done outcome reloads what it touched,
+    // the visualizer defaults included (a merge folds a row's pick onto the kept track); a refusal changed
+    // nothing, so it reloads nothing. A busy lock is reported to the caller, and so is a second call while
+    // one runs: holds dedupe by name, so its release would end the first one's hold early.
+    locateFolder: async (rootId, folder, newPath) => {
+      if (get().syncHolds.includes("locate")) return { kind: "busy" };
+      get().holdSync("locate");
+      try {
+        let outcome: LocateFolderOutcome;
+        try {
+          outcome = await locateFolderCmd(rootId, folder, newPath);
+        } catch (e) {
+          return isScanBusy(e) ? { kind: "busy" } : { kind: "failed", message: String(e) };
+        }
+        if (outcome.kind !== "done") return outcome;
+        await get().loadRoots();
+        await get().loadTracks();
+        await useOrganizeStore.getState().loadOrganization();
+        await Promise.all([usePlaylistsStore.getState().load(), useVisualizerDefaults.getState().load()]);
+        return outcome;
+      } finally {
+        get().releaseSync("locate");
+      }
     },
 
     // Closes the relink prompt and carries out the choice. Only a relink has a result to report.
@@ -758,6 +787,9 @@ export const useAddRootPath = () => useAppStore((s) => s.addRootPath);
 export const useRelinkOffer = (): RelinkOffer | null => useAppStore((s) => s.relinkOffer);
 export const useResolveRelink = () => useAppStore((s) => s.resolveRelink);
 export const useRelocateRoot = () => useAppStore((s) => s.relocateRoot);
+export const useLocateFolder = () => useAppStore((s) => s.locateFolder);
+/** A folder locate is writing, whichever sheet started it. */
+export const useFolderLocating = () => useAppStore((s) => s.syncHolds.includes("locate"));
 export const useRemoveRoot = () => useAppStore((s) => s.removeRoot);
 export const useRescanAll = () => useAppStore((s) => s.rescanAll);
 export const useRescanQuiet = () => useAppStore((s) => s.rescanQuiet);

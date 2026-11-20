@@ -2,12 +2,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
-import { createLocateFlow, stepAfterRelocate } from "./locateFlow";
+import { createLocateFlow, createLocateFolderFlow, stepAfterLocateFolder, stepAfterRelocate } from "./locateFlow";
 
 // -- Type Imports --
-import type { LocateDeps, LocateStep } from "./locateFlow";
-import type { RelocateResult } from "../../state/relocate";
-import type { RelocatePreview, ScanSummary } from "../../types";
+import type { LocateDeps, LocateFolderDeps, LocateStep } from "./locateFlow";
+import type { LocateFolderResult, RelocateResult } from "../../state/relocate";
+import type { LocateFolderPreview, RelocatePreview, ScanSummary } from "../../types";
 
 const MOVE: RelocatePreview = { kind: "move", total: 200, sampled: 48, matched: 48, partial: false };
 
@@ -165,5 +165,151 @@ describe("locate flow", () => {
     release(MOVE);
     await pending;
     expect(steps.map((s) => s.kind)).toEqual(["checking"]);
+  });
+});
+
+const READY: LocateFolderPreview = {
+  kind: "ready",
+  target_root_id: 9,
+  total: 120,
+  relinked: 90,
+  merged: 10,
+  stays: 20,
+  albums_replaced: 1,
+  partial: true,
+};
+
+const FOLDER_DONE: LocateFolderResult = { kind: "done", relinked: 90, merged: 10, stays: 20, albums_replaced: 1 };
+const PICKED = "E:\\Archive\\Rock";
+const GONE = "D:\\Music\\Rock";
+
+/** A folder flow wired to fakes, recording every step it emits. */
+function setupFolder(overrides: Partial<LocateFolderDeps> = {}) {
+  const deps: LocateFolderDeps = {
+    pickFolder: vi.fn(async () => PICKED),
+    preview: vi.fn(async () => READY),
+    locate: vi.fn(async () => FOLDER_DONE),
+    stop: vi.fn(),
+    ...overrides,
+  };
+  const steps: LocateStep[] = [];
+  const flow = createLocateFolderFlow(7, GONE, deps, (s) => steps.push(s));
+  return { deps, steps, flow, last: () => steps[steps.length - 1] };
+}
+
+describe("locate folder flow", () => {
+  it("walks pick, check, ready, apply to a receipt, binding the root and the gone folder", async () => {
+    const { flow, steps, last, deps } = setupFolder();
+    await flow.pick("Rock");
+    expect(steps.map((s) => s.kind)).toEqual(["checking", "confirm"]);
+    expect(deps.preview).toHaveBeenCalledWith(7, GONE, PICKED);
+
+    await flow.confirm();
+    expect(steps.map((s) => s.kind)).toEqual(["checking", "confirm", "running", "done"]);
+    expect(deps.locate).toHaveBeenCalledWith(7, GONE, PICKED);
+    expect(last()).toEqual({ kind: "done", name: "Rock", folder: PICKED, missing: 20, located: 100 });
+  });
+
+  it("carries the ready counts into a folder plan", async () => {
+    const { flow, steps } = setupFolder();
+    await flow.pick("Rock");
+    expect(steps[1]).toMatchObject({
+      kind: "confirm",
+      plan: { kind: "folder", relinked: 90, merged: 10, stays: 20, total: 120, partial: true, albums_replaced: 1 },
+    });
+  });
+
+  it("leaves everything alone when the picker is cancelled", async () => {
+    const { flow, steps, deps } = setupFolder({ pickFolder: vi.fn(async () => null) });
+    await flow.pick("Rock");
+    expect(steps).toEqual([]);
+    expect(deps.preview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { code: "nothing_gone" },
+    { code: "same" },
+    { code: "overlap" },
+    { code: "outside_roots" },
+    { code: "no_match" },
+    { code: "root_level" },
+    { code: "unreadable" },
+    { code: "inconclusive" },
+    { code: "cancelled" },
+    { code: "failed", message: "x" },
+  ] as const)("shows a refused preview (%j) inline and never reaches confirm", async (reason) => {
+    const { flow, last, deps } = setupFolder({
+      preview: vi.fn(async (): Promise<LocateFolderPreview> => ({ kind: "refused", reason })),
+    });
+    await flow.pick("Rock");
+    expect(last()).toEqual({ kind: "refused", name: "Rock", folder: PICKED, reason });
+    await flow.confirm();
+    expect(deps.locate).not.toHaveBeenCalled();
+  });
+
+  it("reads a rejected preview as a failed refusal", async () => {
+    const { flow, last } = setupFolder({
+      preview: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    await flow.pick("Rock");
+    expect(last()).toMatchObject({ kind: "refused", reason: { code: "failed" } });
+  });
+
+  it("shows a refusal after confirm, a busy lock and a failed call inline", async () => {
+    const refused = setupFolder({
+      locate: vi.fn(async (): Promise<LocateFolderResult> => ({ kind: "refused", reason: { code: "cancelled" } })),
+    });
+    await refused.flow.pick("Rock");
+    await refused.flow.confirm();
+    expect(refused.last()).toMatchObject({ kind: "refused", reason: { code: "cancelled" } });
+
+    const busy = setupFolder({ locate: vi.fn(async (): Promise<LocateFolderResult> => ({ kind: "busy" })) });
+    await busy.flow.pick("Rock");
+    await busy.flow.confirm();
+    expect(busy.last()).toMatchObject({ kind: "refused", reason: { code: "busy" } });
+
+    expect(stepAfterLocateFolder("Rock", "E:\\x", { kind: "failed", message: "boom" })).toMatchObject({
+      kind: "refused",
+      reason: { code: "failed", message: "boom" },
+    });
+  });
+
+  it("drops a slow check once the flow was cancelled", async () => {
+    let release: (p: LocateFolderPreview) => void = () => {};
+    const { flow, steps, last } = setupFolder({
+      preview: vi.fn(() => new Promise<LocateFolderPreview>((r) => (release = r))),
+    });
+    const pending = flow.pick("Rock");
+    await vi.waitFor(() => expect(steps.map((s) => s.kind)).toEqual(["checking"]));
+    flow.cancel();
+    release(READY);
+    await pending;
+    expect(last()).toEqual({ kind: "idle" });
+  });
+
+  it("asks a running apply to stop but keeps the step until it reports", async () => {
+    let finish: (r: LocateFolderResult) => void = () => {};
+    const { flow, steps, last, deps } = setupFolder({
+      locate: vi.fn(() => new Promise<LocateFolderResult>((r) => (finish = r))),
+    });
+    await flow.pick("Rock");
+    const applying = flow.confirm();
+    flow.stop();
+    expect(deps.stop).toHaveBeenCalledTimes(1);
+    expect(last().kind).toBe("running");
+    finish({ kind: "refused", reason: { code: "cancelled" } });
+    await applying;
+    expect(last()).toMatchObject({ kind: "refused", reason: { code: "cancelled" } });
+    expect(steps.some((s) => s.kind === "idle")).toBe(false);
+  });
+
+  it("ignores stop outside a running apply", async () => {
+    const { flow, deps } = setupFolder();
+    flow.stop();
+    await flow.pick("Rock");
+    flow.stop();
+    expect(deps.stop).not.toHaveBeenCalled();
   });
 });

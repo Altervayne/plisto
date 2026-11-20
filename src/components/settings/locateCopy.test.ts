@@ -46,6 +46,38 @@ const STEPS: LocateStep[] = [
   { kind: "refused", ...base, reason: { code: "busy" } },
 ];
 
+const FOLDER_PLAN = {
+  kind: "folder",
+  target_root_id: 1,
+  total: 120,
+  relinked: 90,
+  merged: 10,
+  stays: 20,
+  albums_replaced: 2,
+  partial: true,
+} as const;
+
+const FOLDER_REFUSALS = [
+  { code: "nothing_gone" },
+  { code: "same" },
+  { code: "overlap" },
+  { code: "outside_roots" },
+  { code: "no_match" },
+  { code: "root_level" },
+  { code: "unreadable" },
+  { code: "inconclusive" },
+  { code: "cancelled" },
+  { code: "failed", message: "x" },
+] as const;
+
+const FOLDER_STEPS: LocateStep[] = [
+  { kind: "confirm", ...base, plan: FOLDER_PLAN },
+  { kind: "confirm", ...base, plan: { ...FOLDER_PLAN, merged: 0, albums_replaced: 0, partial: false } },
+  { kind: "done", ...base, missing: 20, located: 100 },
+  { kind: "done", ...base, missing: 0, located: 1 },
+  ...FOLDER_REFUSALS.map((reason): LocateStep => ({ kind: "refused", ...base, reason })),
+];
+
 describe("locate copy", () => {
   it.each(LOCALES)("leaves no raw token in any %s step line", (locale) => {
     const t = createT(locale);
@@ -54,6 +86,54 @@ describe("locate copy", () => {
       expect(line, step.kind).toBeTruthy();
       expect(line).not.toMatch(/[{}]/);
     }
+  });
+
+  it.each(LOCALES)("leaves no raw token in any %s folder step line", (locale) => {
+    const t = createT(locale);
+    for (const step of FOLDER_STEPS) {
+      const line = stepLine(t, step);
+      expect(line, JSON.stringify(step)).toBeTruthy();
+      expect(line).not.toMatch(/[{}]/);
+    }
+  });
+
+  it("words each folder refusal differently in both locales", () => {
+    for (const locale of LOCALES) {
+      const t = createT(locale);
+      const lines = FOLDER_REFUSALS.map((reason) => stepLine(t, { kind: "refused", ...base, reason }));
+      expect(new Set(lines).size).toBe(FOLDER_REFUSALS.length);
+    }
+  });
+
+  it("names the folder confirm's exact counts, the folded twins and the replaced albums", () => {
+    const t = createT("en");
+    const full = stepLine(t, FOLDER_STEPS[0])!;
+    expect(full).toContain("Found 100 of 120 gone tracks in E:\\Music.");
+    expect(full).toContain("10 tracks a scan already added there are merged");
+    expect(full).toContain("2 albums made since the move are replaced.");
+    expect(full).toContain("stay marked gone");
+    const plain = stepLine(t, FOLDER_STEPS[1])!;
+    expect(plain).not.toContain("merged");
+    expect(plain).not.toContain("stay marked gone");
+  });
+
+  it("words a single found track in the singular in French", () => {
+    const one = { ...FOLDER_PLAN, total: 1, relinked: 1, merged: 0, stays: 0, albums_replaced: 0, partial: false };
+    const line = stepLine(createT("fr"), { kind: "confirm", ...base, plan: one })!;
+    expect(line).toContain("1 piste absente sur 1 retrouv\u00e9e dans E:\\Music.");
+  });
+
+  it("tells the outside-roots refusal to add the folder in Settings > Folders first", () => {
+    const line = stepLine(createT("en"), { kind: "refused", ...base, reason: { code: "outside_roots" } })!;
+    expect(line).toContain("Settings > Folders");
+  });
+
+  it("words the folder receipt by the located count", () => {
+    const t = createT("en");
+    expect(stepLine(t, FOLDER_STEPS[2])).toBe(
+      "100 tracks now point to E:\\Music. The other 20 tracks stay marked gone and come back if their files appear.",
+    );
+    expect(stepLine(t, FOLDER_STEPS[3])).toBe("1 track now points to E:\\Music.");
   });
 
   it("states the move's sampled counts and the merge's exact ones", () => {

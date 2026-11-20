@@ -37,6 +37,8 @@ import type {
   ImageFolderGroup,
   LibrarySyncStatus,
   ListTracksResponse,
+  LocateFolderOutcome,
+  LocateFolderPreview,
   LoudnessCoverage,
   MergeReceipt,
   OrganizationSnapshot,
@@ -175,6 +177,23 @@ export function relocateRoot(
   channel: Channel<ScanProgress>,
 ): Promise<RelocateOutcome> {
   return invoke<RelocateOutcome>("relocate_root", { rootId, newPath, onProgress: channel });
+}
+
+/** What pointing the gone tracks under `folder` of root `rootId` at `newPath` would do. Read-only. */
+export function previewLocateFolder(
+  rootId: number,
+  folder: string,
+  newPath: string,
+): Promise<LocateFolderPreview> {
+  return invoke<LocateFolderPreview>("preview_locate_folder", { rootId, folder, newPath });
+}
+
+/**
+ * Points the gone tracks under `folder` of root `rootId` at `newPath`, with no rescan. Resolves with a
+ * refusal (nothing changed) or the tally; rejects when the scan lock is held.
+ */
+export function locateFolder(rootId: number, folder: string, newPath: string): Promise<LocateFolderOutcome> {
+  return invoke<LocateFolderOutcome>("locate_folder", { rootId, folder, newPath });
 }
 
 /** Purges the gone tracks in `trackIds` (only rows the scan flagged gone), resolving with the tally. */

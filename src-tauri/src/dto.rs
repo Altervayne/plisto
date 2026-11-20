@@ -154,7 +154,7 @@ pub enum LocateFolderRefusal {
     Failed { message: String },
 }
 
-/// What locating a folder would do: `relinked` gone tracks re-pointed, `merged` folded into a row a
+/// What locating a folder would do: `relinked` gone tracks re-pointed, `merged` taking in a row a
 /// scan already added at the new place, `stays` not found there. `partial` is true when some stay.
 /// Tagged on `kind`. Mirrors LocateFolderPreview in types.ts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

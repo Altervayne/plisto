@@ -787,8 +787,11 @@ export const en = {
     locateInstead: "Locate instead",
     locate: "Locate...",
     locateChecking: "Checking {folder}...",
-    locateConfirm:
-      "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+    locateConfirm: {
+      one: "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+      other:
+        "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+    },
     locatePartial: "Tracks not found stay marked gone and come back if their files appear.",
     locateUse: "Use this folder",
     locateDone: "{name} now points to {folder}.",
@@ -814,6 +817,24 @@ export const en = {
       other: "{{n}} albums made since the move are replaced.",
     },
     locateHint: "Looks like it's now at {folder}.",
+    locateFolderConfirm: {
+      one: "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+      other:
+        "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with them. Plisto never changes your files.",
+    },
+    locateFolderMerged: {
+      one: "{{n}} track a scan already added there is merged into its gone twin, keeping the albums, playlists and plays.",
+      other: "{{n}} tracks a scan already added there are merged into their gone twins, keeping the albums, playlists and plays.",
+    },
+    locateFolderDone: {
+      one: "{{n}} track now points to {folder}.",
+      other: "{{n}} tracks now point to {folder}.",
+    },
+    locateFolderNothingGone: "Nothing is gone under {name} any more.",
+    locateFolderOverlap: "{folder} is inside {name}, or the other way round. Pick a folder outside both.",
+    locateFolderOutside: "{folder} is not in your library yet. Add it in Settings > Folders first, then locate again.",
+    locateFolderRootLevel: "{name} is a library folder itself. Locate it from Settings > Folders.",
+    locateFolderCancelled: "Cancelled. Nothing was changed.",
     sectionGenres: "Genres",
     genresEmpty: "No genres yet. Add one, or they appear as you tag tracks.",
     addGenre: "Add genre",
@@ -1801,6 +1822,7 @@ export const en = {
     likelyLine: "{path} ({tracks}) is gone. Looks like it moved.",
     likelyMore: "Locate it to point the library at the new place. Albums, playlists and plays move with it.",
     locateFolder: "Locate folder",
+    locateSubfolder: "Locate subfolder",
     removeGroup: "Remove from library",
     removeAll: "Remove all gone tracks",
     removeThese: "Remove these tracks",

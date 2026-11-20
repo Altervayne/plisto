@@ -61,6 +61,8 @@ export interface GoneBlockProps {
   onConfirm: () => void;
   onRetry: () => void;
   onDismiss: () => void;
+  /** Present when the running step can be stopped early; the step then offers Cancel. */
+  onStop?: () => void;
 }
 
 /**
@@ -97,16 +99,20 @@ export function GoneBlock(props: GoneBlockProps) {
         </div>
         <div className={styles.acts}>
           {step.kind === "confirm" ? (
-            <PrimaryButton onClick={props.onConfirm}>
+            <PrimaryButton onClick={props.onConfirm} disabled={locked}>
               {step.plan.kind === "merge"
                 ? t((d) => d.settings.mergeAction)
                 : t((d) => d.settings.locateUse)}
             </PrimaryButton>
           ) : null}
           {step.kind === "refused" && retryable(step.reason) ? (
-            <QuietButton onClick={props.onRetry}>{t((d) => d.scan.tryAgain)}</QuietButton>
+            <QuietButton onClick={props.onRetry} disabled={locked}>
+              {t((d) => d.scan.tryAgain)}
+            </QuietButton>
           ) : null}
-          {step.kind === "running" ? null : (
+          {step.kind === "running" ? (
+            props.onStop ? <QuietButton onClick={props.onStop}>{t((d) => d.common.cancel)}</QuietButton> : null
+          ) : (
             <QuietButton onClick={props.onDismiss}>
               {step.kind === "checking" || step.kind === "confirm"
                 ? t((d) => d.common.cancel)

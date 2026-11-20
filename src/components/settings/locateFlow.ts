@@ -1,19 +1,27 @@
 /*
- * The step machine behind a folder row's Locate action: pick a folder, check it, confirm, relocate.
- * Kept free of React and the store so each transition is tested with injected dependencies. Every
- * operation takes a ticket; a newer operation, or a dispose, makes an older response stale and drops it,
- * so a slow check never lands on a flow the user has moved past.
+ * The step machine behind a Locate action: pick a folder, check it, confirm, apply. One machine serves a
+ * whole root (relocate) and a gone subfolder of a root (locate folder); each builder binds its target into
+ * closures, so the steps and the panel that draws them are shared. Kept free of React and the store so
+ * each transition is tested with injected dependencies. Every operation takes a ticket; a newer operation,
+ * or a dispose, makes an older response stale and drops it, so a slow check never lands on a flow the user
+ * has moved past.
  */
 
 // -- Type Imports --
-import type { RelocatePreview, RelocateRefusal } from "../../types";
-import type { RelocateResult } from "../../state/relocate";
+import type { LocateFolderPreview, LocateFolderRefusal, RelocatePreview, RelocateRefusal } from "../../types";
+import type { LocateFolderResult, RelocateResult } from "../../state/relocate";
 
 /** A refusal from the backend, or the busy guard when a scan already holds the lock. */
-export type LocateRefusal = RelocateRefusal | { code: "busy" };
+export type LocateRefusal = RelocateRefusal | LocateFolderRefusal | { code: "busy" };
 
-/** A preview the user can act on: moving the root to the folder, or merging an indexed root into it. */
-export type LocatePlan = Extract<RelocatePreview, { kind: "move" | "merge" }>;
+/** A folder locate's ready preview: how many gone tracks relink, take in a scanned twin, or stay gone. */
+export type FolderPlan = Omit<Extract<LocateFolderPreview, { kind: "ready" }>, "kind"> & { kind: "folder" };
+
+/**
+ * A preview the user can act on: moving the root to the folder, merging an indexed root into it, or
+ * pointing a gone subfolder's tracks at it.
+ */
+export type LocatePlan = Extract<RelocatePreview, { kind: "move" | "merge" }> | FolderPlan;
 
 /**
  * Where the flow stands. `name` is the root's folder name when the flow began, kept because the root's
@@ -24,16 +32,33 @@ export type LocateStep =
   | { kind: "checking"; name: string; folder: string }
   | { kind: "confirm"; name: string; folder: string; plan: LocatePlan }
   | { kind: "running"; name: string; folder: string }
-  | { kind: "done"; name: string; folder: string; missing: number }
+  | { kind: "done"; name: string; folder: string; missing: number; located?: number }
   | { kind: "refused"; name: string; folder: string; reason: LocateRefusal };
 
 export const IDLE: LocateStep = { kind: "idle" };
 
-/** The calls the flow makes, injected so a test can stand in for the folder picker and the backend. */
+/** The calls a root flow makes, injected so a test can stand in for the folder picker and the backend. */
 export interface LocateDeps {
   pickFolder: () => Promise<string | null>;
   preview: (rootId: number, folder: string) => Promise<RelocatePreview>;
   relocate: (rootId: number, folder: string) => Promise<RelocateResult>;
+}
+
+/** The calls a folder flow makes. `stop` asks a running apply to end early; the apply still reports how it ended. */
+export interface LocateFolderDeps {
+  pickFolder: () => Promise<string | null>;
+  preview: (rootId: number, folder: string, newPath: string) => Promise<LocateFolderPreview>;
+  locate: (rootId: number, folder: string, newPath: string) => Promise<LocateFolderResult>;
+  stop?: () => void;
+}
+
+/** The target-bound calls the step machine runs on; the builders below close over the root or folder. */
+interface TargetDeps {
+  pickFolder: () => Promise<string | null>;
+  preview: (picked: string) => Promise<LocatePlan | { kind: "refused"; reason: LocateRefusal }>;
+  /** Carries out the plan and returns the step it leaves. */
+  apply: (name: string, picked: string) => Promise<LocateStep>;
+  stop?: () => void;
 }
 
 export interface LocateFlow {
@@ -45,6 +70,8 @@ export interface LocateFlow {
   confirm: () => Promise<void>;
   /** Drops the flow back to idle and discards any response still in flight. */
   cancel: () => void;
+  /** Asks a running apply to end early, where the target supports it. The step stays until the apply reports. */
+  stop: () => void;
   /** Discards any response still in flight without touching the step. */
   dispose: () => void;
 }
@@ -63,12 +90,60 @@ export function stepAfterRelocate(name: string, folder: string, result: Relocate
   }
 }
 
+/** The step a finished folder locate leaves. */
+export function stepAfterLocateFolder(name: string, folder: string, result: LocateFolderResult): LocateStep {
+  switch (result.kind) {
+    case "done":
+      return { kind: "done", name, folder, missing: result.stays, located: result.relinked + result.merged };
+    case "refused":
+      return { kind: "refused", name, folder, reason: result.reason };
+    case "busy":
+      return { kind: "refused", name, folder, reason: { code: "busy" } };
+    case "failed":
+      return { kind: "refused", name, folder, reason: { code: "failed", message: result.message } };
+  }
+}
+
 /** Builds the flow for one root. `emit` receives every step the flow moves to. */
 export function createLocateFlow(
   rootId: number,
   deps: LocateDeps,
   emit: (step: LocateStep) => void,
 ): LocateFlow {
+  return createTargetFlow(
+    {
+      pickFolder: deps.pickFolder,
+      preview: (picked) => deps.preview(rootId, picked),
+      apply: async (name, picked) => stepAfterRelocate(name, picked, await deps.relocate(rootId, picked)),
+    },
+    emit,
+  );
+}
+
+/** Builds the flow for the gone tracks under `folder` of a root. */
+export function createLocateFolderFlow(
+  rootId: number,
+  folder: string,
+  deps: LocateFolderDeps,
+  emit: (step: LocateStep) => void,
+): LocateFlow {
+  return createTargetFlow(
+    {
+      pickFolder: deps.pickFolder,
+      preview: async (picked) => {
+        const preview = await deps.preview(rootId, folder, picked);
+        if (preview.kind === "refused") return preview;
+        const { kind: _ready, ...rest } = preview;
+        return { kind: "folder", ...rest };
+      },
+      apply: async (name, picked) => stepAfterLocateFolder(name, picked, await deps.locate(rootId, folder, picked)),
+      stop: deps.stop,
+    },
+    emit,
+  );
+}
+
+function createTargetFlow(deps: TargetDeps, emit: (step: LocateStep) => void): LocateFlow {
   let ticket = 0;
   let current: LocateStep = IDLE;
 
@@ -79,9 +154,9 @@ export function createLocateFlow(
 
   const checkFolder = async (mine: number, name: string, folder: string) => {
     go({ kind: "checking", name, folder });
-    let preview: RelocatePreview;
+    let preview: Awaited<ReturnType<TargetDeps["preview"]>>;
     try {
-      preview = await deps.preview(rootId, folder);
+      preview = await deps.preview(folder);
     } catch (e) {
       if (mine !== ticket) return;
       go({ kind: "refused", name, folder, reason: { code: "failed", message: String(e) } });
@@ -112,14 +187,18 @@ export function createLocateFlow(
       const { name, folder } = current;
       const mine = ++ticket;
       go({ kind: "running", name, folder });
-      const result = await deps.relocate(rootId, folder);
+      const step = await deps.apply(name, folder);
       if (mine !== ticket) return;
-      go(stepAfterRelocate(name, folder, result));
+      go(step);
     },
 
     cancel: () => {
       ticket += 1;
       go(IDLE);
+    },
+
+    stop: () => {
+      if (current.kind === "running") deps.stop?.();
     },
 
     dispose: () => {

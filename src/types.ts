@@ -221,6 +221,38 @@ export type RelocatePreview =
     }
   | { kind: 'refused'; reason: RelocateRefusal };
 
+/** Why locating a folder was refused or failed before anything changed. Mirrors LocateFolderRefusal in dto.rs. */
+export type LocateFolderRefusal =
+  | { code: 'nothing_gone' }
+  | { code: 'same' }
+  | { code: 'overlap' }
+  | { code: 'outside_roots' }
+  | { code: 'no_match' }
+  | { code: 'root_level' }
+  | { code: 'unreadable' }
+  | { code: 'inconclusive' }
+  | { code: 'cancelled' }
+  | { code: 'failed'; message: string };
+
+/** What locating a folder would do: re-point `relinked`, fold the rows a scan added into `merged`, leave `stays`. Mirrors LocateFolderPreview. */
+export type LocateFolderPreview =
+  | {
+      kind: 'ready';
+      target_root_id: number;
+      total: number;
+      relinked: number;
+      merged: number;
+      stays: number;
+      albums_replaced: number;
+      partial: boolean;
+    }
+  | { kind: 'refused'; reason: LocateFolderRefusal };
+
+/** The result of a folder locate: what was written, or a refusal with nothing changed. Mirrors LocateFolderOutcome. */
+export type LocateFolderOutcome =
+  | { kind: 'done'; relinked: number; merged: number; stays: number; albums_replaced: number }
+  | { kind: 'refused'; reason: LocateFolderRefusal };
+
 /** An offline or all-missing root whose files look to be under a freshly picked folder. Mirrors RelinkCandidate. */
 export interface RelinkCandidate {
   root_id: number;

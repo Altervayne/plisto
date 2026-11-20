@@ -790,8 +790,11 @@ export const fr: Dict = {
     locateInstead: "Localiser plutôt",
     locate: "Localiser...",
     locateChecking: "Vérification de {folder}...",
-    locateConfirm:
-      "{{n}} pistes sur {{total}} vérifiées retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+    locateConfirm: {
+      one: "{{n}} piste sur {{total}} vérifiées retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+      other:
+        "{{n}} pistes sur {{total}} vérifiées retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+    },
     locatePartial:
       "Les pistes introuvables restent marquées absentes et reviennent si leurs fichiers réapparaissent.",
     locateUse: "Utiliser ce répertoire",
@@ -820,6 +823,26 @@ export const fr: Dict = {
       other: "{{n}} albums créés depuis le déplacement sont remplacés.",
     },
     locateHint: "Il semble se trouver maintenant dans {folder}.",
+    locateFolderConfirm: {
+      one: "{{n}} piste absente sur {{total}} retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+      other:
+        "{{n}} pistes absentes sur {{total}} retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+    },
+    locateFolderMerged: {
+      one: "{{n}} piste qu'une analyse a déjà ajoutée là est fusionnée avec son homologue absente, en conservant albums, playlists et écoutes.",
+      other:
+        "{{n}} pistes qu'une analyse a déjà ajoutées là sont fusionnées avec leurs homologues absentes, en conservant albums, playlists et écoutes.",
+    },
+    locateFolderDone: {
+      one: "{{n}} piste pointe désormais vers {folder}.",
+      other: "{{n}} pistes pointent désormais vers {folder}.",
+    },
+    locateFolderNothingGone: "Plus aucune piste n'est absente dans {name}.",
+    locateFolderOverlap: "{folder} est dans {name}, ou l'inverse. Choisissez un répertoire en dehors des deux.",
+    locateFolderOutside:
+      "{folder} n'est pas encore dans votre audiothèque. Ajoutez-le d'abord dans Paramètres > Répertoires, puis localisez de nouveau.",
+    locateFolderRootLevel: "{name} est lui-même un répertoire de la bibliothèque. Localisez-le depuis Paramètres > Répertoires.",
+    locateFolderCancelled: "Annulé. Rien n'a été modifié.",
     sectionGenres: "Genres",
     genresEmpty: "Aucun genre pour l'instant. Ajoutez-en un, ou ils apparaîtront à mesure que vous taguez des pistes.",
     addGenre: "Ajouter un genre",
@@ -1833,6 +1856,7 @@ export const fr: Dict = {
     likelyMore:
       "Localisez-le pour que la bibliothèque pointe vers le nouvel emplacement. Albums, playlists et écoutes suivent.",
     locateFolder: "Localiser le répertoire",
+    locateSubfolder: "Localiser le sous-répertoire",
     removeGroup: "Retirer de la bibliothèque",
     removeAll: "Retirer toutes les pistes absentes",
     removeThese: "Retirer ces pistes",

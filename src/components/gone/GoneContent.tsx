@@ -9,14 +9,15 @@ import { pageGroups } from "../../state/gone/goneGroups";
 
 // -- Utils Imports --
 import { folderName } from "../settings/locateCopy";
-import { GROUP_STEP, TRACK_PAGE, idsOf } from "./goneView";
+import { GROUP_STEP, TRACK_PAGE, idsOf, isSubfolder } from "./goneView";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
 
 // -- Type Imports --
+import type { GoneGroup } from "../../state/gone/goneGroups";
 import type { LocateStep } from "../settings/locateFlow";
-import type { TrackRow } from "../../types";
+import type { Root, TrackRow } from "../../types";
 import type { GoneView } from "./goneView";
 
 // -- Style Imports --
@@ -28,6 +29,14 @@ export interface GoneActions {
   confirm: (rootId: number) => void;
   retry: (rootId: number) => void;
   dismiss: (rootId: number) => void;
+  /** The folder flow behind a subfolder's Locate, keyed by the group's folded id. */
+  folder: {
+    start: (group: GoneGroup) => void;
+    confirm: (id: string) => void;
+    retry: (id: string) => void;
+    dismiss: (id: string) => void;
+    stop: (id: string) => void;
+  };
   rescan: (rootId: number) => void;
   remove: (ids: number[]) => void;
   toggle: (groupId: string) => void;
@@ -50,7 +59,8 @@ export function GoneReceipt({ removed }: { removed: number }) {
 /**
  * The sheet's body below the header: the offline and moved notices, the folders and the flat list, or the
  * scan state while a scan runs. A Locate step that is still on screen keeps its notice through a scan and
- * after the root stops being gone, so a finished Locate reads as done rather than vanishing.
+ * after the root stops being gone, so a finished Locate reads as done rather than vanishing; a folder's
+ * step does the same once a locate empties its group.
  */
 export function GoneContent({
   view,
@@ -58,6 +68,9 @@ export function GoneContent({
   removeBlocked,
   removeTip,
   steps,
+  folderSteps,
+  folderBusy,
+  roots,
   expanded,
   shownGroups,
   shownTracks,
@@ -70,6 +83,11 @@ export function GoneContent({
   removeTip?: string;
   /** The Locate step of each root that has one. */
   steps: Record<number, LocateStep>;
+  /** The Locate step of each gone folder that has one, by the group's folded id. */
+  folderSteps: Record<string, LocateStep>;
+  /** A folder apply holds the scan lock, so every Locate and Remove waits. */
+  folderBusy: boolean;
+  roots: Root[];
   expanded: ReadonlySet<string>;
   shownGroups: number;
   /** Tracks listed per open folder, by folder id; absent means one page. */
@@ -87,6 +105,26 @@ export function GoneContent({
   // A finished or refused Locate on a root that is no longer listed keeps its notice. During a scan every
   // running step stays, listed or not, since the relocate itself is what the scan is.
   const leftover = scanning ? active : active.filter(({ id }) => !listed.has(id));
+  const locked = scanning || folderBusy;
+  // A folder step shows as a notice once its group has left the list, or while a scan hides every row.
+  const listedFolders = new Set([...view.likely, ...view.groups].map((g) => g.id));
+  const folderNotices = Object.entries(folderSteps)
+    .filter(([id, step]) => step.kind !== "idle" && (scanning || !listedFolders.has(id)))
+    .map(([id, step]) => (
+      <GoneBlock
+        key={`fstep:${id}`}
+        kind="moved"
+        path=""
+        count={0}
+        step={step}
+        locked={locked}
+        removeBlocked
+        onConfirm={() => actions.folder.confirm(id)}
+        onRetry={() => actions.folder.retry(id)}
+        onDismiss={() => actions.folder.dismiss(id)}
+        onStop={() => actions.folder.stop(id)}
+      />
+    ));
   const notices = leftover.map(({ id, step }) => (
     <GoneBlock
       key={`step:${id}`}
@@ -94,7 +132,7 @@ export function GoneContent({
       path=""
       count={0}
       step={step}
-      locked={scanning}
+      locked={locked}
       removeBlocked
       onConfirm={() => actions.confirm(id)}
       onRetry={() => actions.retry(id)}
@@ -106,6 +144,7 @@ export function GoneContent({
     return (
       <>
         {notices}
+        {folderNotices}
         <div className={styles.center}>
           <GoneStaffs tall />
           <p className={styles.centerTitle}>{t((d) => d.gone.scanTitle)}</p>
@@ -116,11 +155,13 @@ export function GoneContent({
   }
 
   const { visible, hiddenFolders } = pageGroups(view.groups, shownGroups);
-  const removal = { removeBlocked, removeTip };
+  const removal = { removeBlocked: removeBlocked || folderBusy, removeTip };
+  const folderStepOf = (id: string): LocateStep => folderSteps[id] ?? { kind: "idle" };
 
   return (
     <>
       {notices}
+      {folderNotices}
       {view.offline.map(({ root }) => (
         <GoneBlock
           key={`offline:${root.id}`}
@@ -128,7 +169,7 @@ export function GoneContent({
           path={root.path}
           count={root.track_count}
           step={stepOf(root.id)}
-          locked={scanning}
+          locked={locked}
           removeBlocked
           onLocate={() => actions.locate(root.id, folderName(root.path))}
           onRescan={() => actions.rescan(root.id)}
@@ -144,7 +185,7 @@ export function GoneContent({
           path={root.path}
           count={tracks.length}
           step={stepOf(root.id)}
-          locked={scanning}
+          locked={locked}
           {...removal}
           onLocate={() => actions.locate(root.id, folderName(root.path))}
           onRemove={() => actions.remove(idsOf(tracks))}
@@ -159,13 +200,15 @@ export function GoneContent({
           kind="moved"
           path={group.path}
           count={group.tracks.length}
-          step={{ kind: "idle" }}
-          locked={scanning}
+          step={folderStepOf(group.id)}
+          locked={locked}
           {...removal}
+          onLocate={group.rootId != null ? () => actions.folder.start(group) : undefined}
           onRemove={() => actions.remove(idsOf(group.tracks))}
-          onConfirm={() => undefined}
-          onRetry={() => undefined}
-          onDismiss={() => undefined}
+          onConfirm={() => actions.folder.confirm(group.id)}
+          onRetry={() => actions.folder.retry(group.id)}
+          onDismiss={() => actions.folder.dismiss(group.id)}
+          onStop={() => actions.folder.stop(group.id)}
         />
       ))}
       {view.groups.length > 0 ? (
@@ -177,9 +220,21 @@ export function GoneContent({
               group={group}
               open={expanded.has(group.id)}
               shownTracks={shownTracks[group.id] ?? TRACK_PAGE}
-              locked={scanning}
+              locked={locked}
               {...removal}
               metaOf={metaOf}
+              locate={
+                group.rootId != null && isSubfolder(group, roots)
+                  ? {
+                      step: folderStepOf(group.id),
+                      onStart: () => actions.folder.start(group),
+                      onConfirm: () => actions.folder.confirm(group.id),
+                      onRetry: () => actions.folder.retry(group.id),
+                      onDismiss: () => actions.folder.dismiss(group.id),
+                      onStop: () => actions.folder.stop(group.id),
+                    }
+                  : undefined
+              }
               onToggle={() => actions.toggle(group.id)}
               onMoreTracks={() => actions.moreTracks(group.id)}
               onRemove={() => actions.remove(idsOf(group.tracks))}

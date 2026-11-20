@@ -24,6 +24,7 @@ vi.mock("../lib/ipc", () => ({
   listTracks: vi.fn(),
   loadOrganization: vi.fn(async () => ({ albums: [], membership: [], genres: [] })),
   loadPlaylists: vi.fn(),
+  locateFolder: vi.fn(),
   relinkCandidates: vi.fn(),
   relocateRoot: vi.fn(),
   removeMissingTracks: vi.fn(),
@@ -536,6 +537,67 @@ describe("with a stuck organization read", () => {
     const purge = useAppStore.getState().purgeGoneTracks([1]);
     await vi.advanceTimersByTimeAsync(100);
     await purge;
+    expect(useAppStore.getState().syncHolds).toEqual([]);
+  });
+});
+
+describe("locating a folder", () => {
+  beforeEach(bootAndClear);
+
+  const reloads = () => {
+    mocked.listRoots.mockClear();
+    mocked.listTracks.mockClear();
+    mocked.loadPlaylists.mockClear();
+    vi.mocked(mocked.loadOrganization).mockClear();
+  };
+
+  it("reloads roots, tracks, organization and playlists after a done outcome, then releases the hold", async () => {
+    mocked.locateFolder.mockResolvedValue({ kind: "done", relinked: 3, merged: 1, stays: 0, albums_replaced: 0 });
+    reloads();
+    const result = await settle(useAppStore.getState().locateFolder(1, "/music/old", "/music/new"));
+    expect(mocked.locateFolder).toHaveBeenCalledWith(1, "/music/old", "/music/new");
+    expect(result.kind).toBe("done");
+    expect(mocked.listRoots).toHaveBeenCalled();
+    expect(mocked.listTracks).toHaveBeenCalled();
+    expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);
+    expect(mocked.loadPlaylists).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().syncHolds).toEqual([]);
+  });
+
+  it("reloads nothing after a refusal", async () => {
+    mocked.locateFolder.mockResolvedValue({ kind: "refused", reason: { code: "no_match" } });
+    reloads();
+    const result = await settle(useAppStore.getState().locateFolder(1, "/music/old", "/music/new"));
+    expect(result).toEqual({ kind: "refused", reason: { code: "no_match" } });
+    expect(mocked.listRoots).not.toHaveBeenCalled();
+    expect(mocked.listTracks).not.toHaveBeenCalled();
+    expect(mocked.loadOrganization).not.toHaveBeenCalled();
+    expect(mocked.loadPlaylists).not.toHaveBeenCalled();
+  });
+
+  it("reports a held scan lock as busy and any other rejection as failed, reloading nothing", async () => {
+    reloads();
+    mocked.locateFolder.mockRejectedValueOnce("a scan is already running");
+    expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({ kind: "busy" });
+    mocked.locateFolder.mockRejectedValueOnce("disk on fire");
+    expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({
+      kind: "failed",
+      message: "disk on fire",
+    });
+    expect(mocked.listTracks).not.toHaveBeenCalled();
+    expect(useAppStore.getState().syncHolds).toEqual([]);
+  });
+
+  it("holds sync while the write is pending and turns a second call away as busy", async () => {
+    let finish: (v: unknown) => void = () => {};
+    mocked.locateFolder.mockReturnValueOnce(new Promise((ok) => (finish = ok)) as never);
+    const first = useAppStore.getState().locateFolder(1, "/a", "/b");
+    expect(useAppStore.getState().syncHolds).toEqual(["locate"]);
+    expect(await useAppStore.getState().locateFolder(1, "/c", "/d")).toEqual({ kind: "busy" });
+    expect(mocked.locateFolder).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().syncHolds).toEqual(["locate"]);
+    finish({ kind: "refused", reason: { code: "no_match" } });
+    await first;
     expect(useAppStore.getState().syncHolds).toEqual([]);
   });
 });

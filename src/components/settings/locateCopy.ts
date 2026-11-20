@@ -1,7 +1,7 @@
 /*
  * The wording of each Locate step, and of the remove confirm, as one line, built from the dictionary. Pure, so a test can run every
  * step through both locales. A move's counts are the backend's sample, so the confirm names how many of
- * the checked tracks were found; a merge's counts are exact.
+ * the checked tracks were found; a merge's and a folder locate's counts are exact.
  */
 
 // -- Type Imports --
@@ -15,7 +15,7 @@ export function folderName(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
-/** The line for a refused relocate or check. */
+/** The line for a refused relocate, folder locate or check. */
 export function refusalLine(
   t: Translate,
   reason: LocateRefusal,
@@ -28,7 +28,17 @@ export function refusalLine(
     case "same":
       return t((d) => d.settings.locateSame, { name });
     case "overlap":
-      return t((d) => d.settings.locateOverlap, { folder, other: reason.other });
+      return "other" in reason
+        ? t((d) => d.settings.locateOverlap, { folder, other: reason.other })
+        : t((d) => d.settings.locateFolderOverlap, { name, folder });
+    case "nothing_gone":
+      return t((d) => d.settings.locateFolderNothingGone, { name });
+    case "outside_roots":
+      return t((d) => d.settings.locateFolderOutside, { folder });
+    case "root_level":
+      return t((d) => d.settings.locateFolderRootLevel, { name });
+    case "cancelled":
+      return t((d) => d.settings.locateFolderCancelled);
     case "unreadable":
       return t((d) => d.settings.locateUnreadable, { folder });
     case "inconclusive":
@@ -57,7 +67,9 @@ export function stepLine(t: Translate, step: LocateStep): string | null {
       return refusalLine(t, step.reason, step.name, step.folder);
     case "done":
       return [
-        t((d) => d.settings.locateDone, { name: step.name, folder: step.folder }),
+        step.located != null
+          ? t((d) => d.settings.locateFolderDone, { n: step.located, name: step.name, folder: step.folder })
+          : t((d) => d.settings.locateDone, { name: step.name, folder: step.folder }),
         step.missing > 0 ? t((d) => d.settings.locateDoneMissing, { n: step.missing }) : null,
       ]
         .filter(Boolean)
@@ -67,13 +79,19 @@ export function stepLine(t: Translate, step: LocateStep): string | null {
       const lead =
         plan.kind === "merge"
           ? t((d) => d.settings.locateMerge, { n: plan.other_tracks, name, folder })
-          : t((d) => d.settings.locateConfirm, { n: plan.matched, total: plan.sampled, folder });
+          : plan.kind === "folder"
+            ? t((d) => d.settings.locateFolderConfirm, { n: plan.relinked + plan.merged, total: plan.total, folder })
+            : t((d) => d.settings.locateConfirm, { n: plan.matched, total: plan.sampled, folder });
+      const folded =
+        plan.kind === "folder" && plan.merged > 0
+          ? t((d) => d.settings.locateFolderMerged, { n: plan.merged })
+          : null;
       const replaced =
-        plan.kind === "merge" && plan.albums_replaced > 0
+        plan.kind !== "move" && plan.albums_replaced > 0
           ? t((d) => d.settings.locateMergeReplaced, { n: plan.albums_replaced })
           : null;
       const partial = plan.partial ? t((d) => d.settings.locatePartial) : null;
-      return [lead, replaced, partial].filter(Boolean).join(" ");
+      return [lead, folded, replaced, partial].filter(Boolean).join(" ");
     }
   }
 }

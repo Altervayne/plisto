@@ -1,4 +1,4 @@
-/* A folder of gone tracks: a header row that toggles, a trailing Remove, and the tracks below it. */
+/* A folder of gone tracks: a header row that toggles, trailing Locate and Remove, and the tracks below it. */
 .group {
   display: flex;
   flex-direction: column;
@@ -16,7 +16,7 @@
   background: var(--veil);
 }
 
-.head > button:last-child {
+.head > button:not(.toggle) {
   flex: none;
   padding: 6px 10px;
   font-size: 12.5px;
