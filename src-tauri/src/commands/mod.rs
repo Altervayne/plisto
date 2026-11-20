@@ -15,6 +15,7 @@ pub mod discovery;
 pub mod duplicates;
 pub mod export;
 pub mod extract;
+pub mod file_writes;
 pub mod library_sync;
 mod list_query;
 pub mod locate_folder;
@@ -51,7 +52,6 @@ pub mod window;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use tauri::ipc::Channel;
 use tauri::State;
@@ -78,8 +78,6 @@ pub async fn scan_workspace(
     let _lock = acquire_scan_lock(&state, Holder::User)?;
     state.cancel.store(false, Ordering::SeqCst);
 
-    let db_path = state.db_path.clone();
-    let cancel = Arc::clone(&state.cancel);
     let scanned_at = now_unix();
 
     // Get-or-create the root for this path under the write lock, then walk just it.
@@ -98,23 +96,7 @@ pub async fn scan_workspace(
     })()?;
     let _ = state.library_sync.send(SyncCmd::RootsChanged);
 
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let roots = [root];
-        scan::run_scan(
-            &roots,
-            &db_path,
-            &cancel,
-            scanned_at,
-            &HashMap::new(),
-            move |e| forward_progress(&on_progress, e),
-        )
-    })
-    .await;
-
-    match outcome {
-        Ok(result) => result,
-        Err(_) => Err("scan task failed to run".to_string()),
-    }
+    roots::run_scan_blocking(&state, vec![root], scanned_at, on_progress).await
 }
 
 /// Sends a scan's progress ticks over a user command's channel. The changed ids are for the

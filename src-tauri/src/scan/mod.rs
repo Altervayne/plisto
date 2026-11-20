@@ -7,7 +7,8 @@
  * never reconciles. A vanished file is flagged missing, never deleted, only after a complete
  * pass, and a returned file's flag is cleared there too. An unreachable root or an unreadable
  * folder is never taken as empty: its rows are left as they are. A root can be narrowed to a set of
- * units (folders, recursive or not); the walk and the reconcile then stay inside them.
+ * units (folders, recursive or not); the walk and the reconcile then stay inside them. Writes to
+ * music files left unfinished under a root are settled before it is walked.
  */
 
 // -- Module Declarations --
@@ -35,7 +36,7 @@ use walkdir::WalkDir;
 // -- Local Imports --
 use crate::db;
 use crate::db::scan_issues::{apply_pass, load_issue_keys, Applied, IssueScope};
-use crate::dto::{ScanPhase, ScanProgress, ScanSummary};
+use crate::dto::{ScanPhase, ScanProgress, ScanSummary, WriteRecovery};
 use crate::model::TrackRecord;
 use crate::normalize::{folder_of, is_audio, needs_reread, normalize_path_key, normalize_track};
 use deferral::{read_decision, share_locked, ReadDecision};
@@ -75,11 +76,13 @@ pub struct ScanRoot {
     pub units: Option<Vec<ScanUnit>>,
 }
 
-/// What a scan reports while it runs: throttled progress ticks, and the ids of rows it just
-/// committed (upserted, or flagged or cleared by reconcile), one batch per commit.
+/// What a scan reports while it runs: throttled progress ticks, the ids of rows it just committed
+/// (upserted, or flagged or cleared by reconcile), one batch per commit, and what each root's
+/// unfinished writes came to, for a root that had any.
 pub enum ScanEmit {
     Progress(ScanProgress),
     Changed(Vec<i64>),
+    Recovered(WriteRecovery),
 }
 
 /// Runs a scan over `roots`, writing into the database at `db_path`. Each root is walked in turn,
@@ -153,8 +156,26 @@ where
     let mut scopes: Vec<Scope> = Vec::new();
     let mut offline_roots: Vec<i64> = Vec::new();
     for root in roots {
+        let reachable = root_reachable(&root.path);
+        // Unfinished writes are settled before the walk reads the files and reported before anything
+        // can fail; an offline root's are counted as waiting. A reachable root that cannot be settled
+        // sits this pass out, so a file mid-swap is never taken as gone.
+        #[cfg(windows)]
+        if let Err(e) = crate::file_writes::recover::recover_for_scan(
+            &conn,
+            root.id,
+            &root.path,
+            reachable,
+            scanned_at,
+            |found| emit(ScanEmit::Recovered(found)),
+        ) {
+            eprintln!("[scan] cannot recover writes under {}: {e}", root.path.display());
+            if reachable {
+                continue;
+            }
+        }
         // An unplugged drive or a deleted folder would walk as empty and flag every track missing.
-        if !root_reachable(&root.path) {
+        if !reachable {
             offline_roots.push(root.id);
             continue;
         }

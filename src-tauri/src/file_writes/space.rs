@@ -14,6 +14,8 @@ use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use super::replace::{os_error, verbatim_units};
 
 /// Bytes this user may still write on the volume holding the folder `dir`, quotas counted.
+// Unused until a command writes a music file in place.
+#[allow(dead_code)]
 pub fn free_space(dir: &Path) -> io::Result<u64> {
     let mut wide = verbatim_units(dir)?;
     // A share root is accepted only with its trailing backslash.

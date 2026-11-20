@@ -199,6 +199,11 @@ where
             .map_err(|_| "index is unavailable".to_string())?;
         scan_issues::select_ids(&conn, &selection).map_err(|e| e.to_string())?
     };
+    // Settled writes are noted as each folder pass reports them, so a later failure keeps them.
+    let emit = |e: ScanEmit| match e {
+        ScanEmit::Recovered(found) => state.note_write_recovery(found),
+        e => emit(e),
+    };
     retry_issues(
         &state.db_path,
         &state.cancel,

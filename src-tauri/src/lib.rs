@@ -42,7 +42,7 @@ use tauri::{Manager, WindowEvent};
 
 // -- State Imports --
 use covers::InFlightGuard;
-use dto::{ExportStatus, LibrarySyncStatus};
+use dto::{ExportStatus, LibrarySyncStatus, WriteRecovery};
 use library_sync::SyncCmd;
 use loudness::LoudnessCmd;
 use sound_settings::Levelling;
@@ -194,6 +194,19 @@ pub fn run() {
                 .unwrap_or(0);
             db::backfill_genres_from_albums(&mut conn, now)?;
 
+            // Writes to music files a crash left unfinished are settled before anything reads the
+            // library; a root that does not answer keeps its rows for the scan to settle later.
+            #[cfg(windows)]
+            let write_recovery = {
+                let mut found = WriteRecovery::default();
+                if let Err(e) = file_writes::recover::recover_at_boot(&conn, now, &mut found) {
+                    eprintln!("[file_writes] boot recovery failed: {e}");
+                }
+                found
+            };
+            #[cfg(not(windows))]
+            let write_recovery = WriteRecovery::default();
+
             // Thumbnails and the full-res cover blobs cache beside the index, never in the music
             // folder. The webview reads thumbnails back through the asset protocol scoped here.
             let covers_dir = data_dir.join("covers");
@@ -327,6 +340,11 @@ pub fn run() {
                 playlist_export_running: AtomicBool::new(false),
                 discovery_cancel: Arc::new(AtomicBool::new(false)),
                 discovery_running: AtomicBool::new(false),
+                file_write_running: AtomicBool::new(false),
+                file_write_cancel: Arc::new(AtomicBool::new(false)),
+                file_write_yield: AtomicBool::new(false),
+                write_recovery: Mutex::new(None),
+                write_reported: Mutex::new(std::collections::HashSet::new()),
                 export_status: Arc::new(Mutex::new(ExportStatus {
                     running: false,
                     progress: None,
@@ -341,6 +359,8 @@ pub fn run() {
                 frames_ready: AtomicBool::new(false),
                 plugins,
             });
+            // The launch report goes through the reported set like every later one.
+            app.state::<AppState>().note_write_recovery(write_recovery);
 
             // Plugin streams reach the engine, the stash and the windows through the managed state,
             // so the hub is connected once it exists.
@@ -528,6 +548,8 @@ pub fn run() {
             commands::playlist_export::cancel_playlist_export,
             commands::extract::extract_preview,
             commands::extract::extract_apply,
+            commands::file_writes::take_file_write_recovery,
+            commands::file_writes::last_file_write,
             commands::bulk_edit::bulk_edit_tracks,
             commands::bulk_edit::apply_track_titles,
             commands::roots::list_roots,

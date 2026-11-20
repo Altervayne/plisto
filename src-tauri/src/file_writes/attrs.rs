@@ -41,11 +41,15 @@ const SETTABLE: u32 = FILE_ATTRIBUTE_ARCHIVE.0
 
 /// Whether the file carries the read-only attribute. A write refuses such a file rather than clear
 /// the flag.
+// Unused until a command writes a music file in place.
+#[allow(dead_code)]
 pub fn is_read_only(path: &Path) -> io::Result<bool> {
     Ok(fs::metadata(path)?.permissions().readonly())
 }
 
 #[cfg(windows)]
+// Unused until a command writes a music file in place.
+#[allow(dead_code)]
 pub fn is_hidden(path: &Path) -> io::Result<bool> {
     Ok(fs::metadata(path)?.file_attributes() & FILE_ATTRIBUTE_HIDDEN.0 != 0)
 }

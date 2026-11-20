@@ -9,7 +9,6 @@
 mod album_numbering;
 mod duplicates;
 mod export_ledger;
-#[allow(dead_code)]
 pub(crate) mod file_writes;
 mod folder_moves;
 mod locate_folder;

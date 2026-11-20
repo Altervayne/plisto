@@ -5,6 +5,8 @@
  */
 
 // -- Library Imports --
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 // -- Local Imports --
@@ -308,6 +310,91 @@ pub struct ScanSummary {
     pub issues: u32,
     #[serde(skip)]
     pub issue_changes: Vec<crate::db::scan_issues::DraftChange>,
+}
+
+/// What a recovery run did with unfinished writes: originals put back, writes completed, files left
+/// on an offline folder, and the absolute paths of files it left as they are. Mirrors WriteRecovery in
+/// types.ts, where the command answers null for an empty report.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteRecovery {
+    pub restored: u32,
+    pub finished: u32,
+    pub held_offline: u32,
+    pub needs_attention: Vec<String>,
+    /// One key per held or moved row behind `held_offline` and `needs_attention`, with its path
+    /// when it is an attention entry. The two counts are only ever changed through these keys.
+    #[serde(skip)]
+    holds: Vec<(String, Option<String>)>,
+}
+
+impl WriteRecovery {
+    pub fn is_empty(&self) -> bool {
+        self.restored == 0
+            && self.finished == 0
+            && self.held_offline == 0
+            && self.needs_attention.is_empty()
+    }
+
+    /// Lists the file of journal row `op` as needing attention.
+    pub fn flag(&mut self, op: &str, path: String) {
+        self.add(format!("attention:{op}"), Some(path));
+    }
+
+    /// Counts journal row `op` as waiting on an offline folder.
+    pub fn flag_offline(&mut self, op: &str) {
+        self.add(format!("offline:{op}"), None);
+    }
+
+    /// Adds `other`; a row both reports flag is counted once, and a path is listed once.
+    pub fn merge(&mut self, other: WriteRecovery) {
+        self.restored += other.restored;
+        self.finished += other.finished;
+        for (key, path) in other.holds {
+            self.add(key, path);
+        }
+    }
+
+    /// The part of this report not yet in `reported`, which then holds every key of it. Restored and
+    /// finished rows are gone once settled, so they always count.
+    pub fn unreported(self, reported: &mut HashSet<String>) -> WriteRecovery {
+        let mut fresh = WriteRecovery {
+            restored: self.restored,
+            finished: self.finished,
+            ..WriteRecovery::default()
+        };
+        for (key, path) in self.holds {
+            if reported.insert(key.clone()) {
+                fresh.add(key, path);
+            }
+        }
+        fresh
+    }
+
+    fn add(&mut self, key: String, path: Option<String>) {
+        if self.holds.iter().any(|(known, _)| *known == key) {
+            return;
+        }
+        match &path {
+            Some(p) if !self.needs_attention.contains(p) => self.needs_attention.push(p.clone()),
+            Some(_) => {}
+            None => self.held_offline += 1,
+        }
+        self.holds.push((key, path));
+    }
+}
+
+/// The newest write batch that changed a file, for the Settings last-write line. `at` is epoch
+/// milliseconds. Mirrors LastFileWrite in types.ts, where the command answers null before the first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastFileWrite {
+    pub batch_id: i64,
+    pub kind: String,
+    pub label: Option<String>,
+    pub at: i64,
+    pub files: i64,
+    pub undoable: bool,
 }
 
 /// The `library:sync` tick: whether a background session runs and its running totals across passes.

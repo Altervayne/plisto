@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::ipc::Channel;
 use tauri::State;
@@ -21,10 +21,10 @@ use tauri::State;
 use super::restore_points::point_before;
 use crate::bootlog::BootLog;
 use crate::db;
-use crate::dto::{Root, RootRemovalImpact, ScanProgress, ScanSummary};
+use crate::dto::{Root, RootRemovalImpact, ScanProgress, ScanSummary, WriteRecovery};
 use crate::library_sync::SyncCmd;
 use crate::normalize::normalize_path_key;
-use crate::scan;
+use crate::scan::{self, ScanEmit};
 use crate::scan_lock::{acquire_scan_lock, Holder};
 use crate::state::AppState;
 
@@ -177,7 +177,8 @@ pub fn root_removal_impact(
 }
 
 /// Runs the root-aware scan on a blocking thread and awaits it, so the runtime stays free to
-/// service a cancel. The caller holds the scan lock; this only spawns the walk.
+/// service a cancel. The caller holds the scan lock; this only spawns the walk. What the pass settled
+/// of unfinished writes is noted for the front end whatever the outcome.
 pub(super) async fn run_scan_blocking(
     state: &State<'_, AppState>,
     roots: Vec<scan::ScanRoot>,
@@ -186,6 +187,8 @@ pub(super) async fn run_scan_blocking(
 ) -> Result<ScanSummary, String> {
     let db_path = state.db_path.clone();
     let cancel = Arc::clone(&state.cancel);
+    let recovered = Arc::new(Mutex::new(WriteRecovery::default()));
+    let sink = Arc::clone(&recovered);
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         scan::run_scan(
             &roots,
@@ -193,10 +196,17 @@ pub(super) async fn run_scan_blocking(
             &cancel,
             scanned_at,
             &HashMap::new(),
-            move |e| super::forward_progress(&on_progress, e),
+            move |e| match e {
+                ScanEmit::Recovered(found) => {
+                    sink.lock().unwrap_or_else(|e| e.into_inner()).merge(found)
+                }
+                e => super::forward_progress(&on_progress, e),
+            },
         )
     })
     .await;
+    let found = std::mem::take(&mut *recovered.lock().unwrap_or_else(|e| e.into_inner()));
+    state.note_write_recovery(found);
     match outcome {
         Ok(result) => result,
         Err(_) => Err("scan task failed to run".to_string()),

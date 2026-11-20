@@ -3,12 +3,13 @@
  * Win32 replace that keeps the original under the backup name, free space, file attributes, the
  * in-use check against the player, and the fault seam crash tests stop an operation with.
  */
-#![allow(dead_code)]
 
 pub mod attrs;
 pub mod fault;
 pub mod in_use;
 pub mod names;
+#[cfg(windows)]
+pub mod recover;
 #[cfg(windows)]
 pub mod replace;
 #[cfg(windows)]

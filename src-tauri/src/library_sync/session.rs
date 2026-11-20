@@ -61,6 +61,7 @@ impl Session {
                     delta.add(ids);
                 }
             }
+            ScanEmit::Recovered(found) => state.note_write_recovery(found),
         }
         self.flush_delta(app, false);
     }

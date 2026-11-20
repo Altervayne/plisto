@@ -6,7 +6,7 @@
  */
 
 // -- Library Imports --
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -17,7 +17,7 @@ use rusqlite::Connection;
 use crate::adhoc::AdHocTrack;
 use crate::audio::{PlayerCmd, PlayerNotice, PlayerStatus, QueueMirror};
 use crate::covers::InFlightGuard;
-use crate::dto::{ExportStatus, LibrarySyncStatus};
+use crate::dto::{ExportStatus, LibrarySyncStatus, WriteRecovery};
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
 use crate::plugins::api::stream::StreamHub;
@@ -60,6 +60,18 @@ pub struct AppState {
     pub playlist_export_running: AtomicBool,
     pub discovery_cancel: Arc<AtomicBool>,
     pub discovery_running: AtomicBool,
+    /// Set while a command writes to a music file; exports and structural commands refuse meanwhile.
+    pub file_write_running: AtomicBool,
+    // Unused until a command writes a music file in place.
+    #[allow(dead_code)]
+    pub file_write_cancel: Arc<AtomicBool>,
+    /// Raised by a user taker of the scan lock, so a file-write holder lets go between files.
+    pub file_write_yield: AtomicBool,
+    /// What recovery settled since the front end last asked: the boot run and every scan-time run
+    /// merged, taken and cleared by `take_file_write_recovery`.
+    pub write_recovery: Mutex<Option<WriteRecovery>>,
+    /// The keys of every held row reported this session, so a row held across scans is reported once.
+    pub write_reported: Mutex<HashSet<String>>,
     /// Export progress the tray reads and the worker writes; Arc so both hold it at once.
     pub export_status: Arc<Mutex<ExportStatus>>,
     /// The one handle to the audio thread. Never cloned: dropping AppState at exit closes the channel,
@@ -88,6 +100,24 @@ impl AppState {
     /// The plugin playback stream session.
     pub fn streams(&self) -> &StreamHub {
         self.plugins.api().streams()
+    }
+
+    /// Adds what a recovery run settled to the report the front end takes next. A held row already
+    /// reported this session is left out, and an empty run adds nothing, so a quiet scan never raises
+    /// the notice.
+    pub fn note_write_recovery(&self, found: WriteRecovery) {
+        let found = {
+            let mut reported = self.write_reported.lock().unwrap_or_else(|e| e.into_inner());
+            found.unreported(&mut reported)
+        };
+        if found.is_empty() {
+            return;
+        }
+        let mut held = self.write_recovery.lock().unwrap_or_else(|e| e.into_inner());
+        match held.as_mut() {
+            Some(report) => report.merge(found),
+            None => *held = Some(found),
+        }
     }
 }
 
@@ -123,6 +153,11 @@ impl AppState {
             playlist_export_running: AtomicBool::new(false),
             discovery_cancel: Arc::new(AtomicBool::new(false)),
             discovery_running: AtomicBool::new(false),
+            file_write_running: AtomicBool::new(false),
+            file_write_cancel: Arc::new(AtomicBool::new(false)),
+            file_write_yield: AtomicBool::new(false),
+            write_recovery: Mutex::new(None),
+            write_reported: Mutex::new(HashSet::new()),
             export_status: Arc::new(Mutex::new(ExportStatus {
                 running: false,
                 progress: None,
