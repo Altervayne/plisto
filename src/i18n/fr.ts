@@ -101,7 +101,7 @@ export const fr: Dict = {
 
   scan: {
     pickerTitle: "Bienvenue dans Plisto",
-    pickerSafety: "Plisto ne modifie pas les fichiers ou répertoires vers lesquels vous le dirigez. L'application se contente de les lire et indéxer pour les apporter dans votre espace de travail. Toute modification devra être exportée.",
+    pickerSafety: "Plisto lit et indexe les répertoires vers lesquels vous le dirigez. Il n'y change rien sauf si vous le lui demandez ; vos modifications restent dans Plisto jusqu'à l'export.",
     chooseFolder: "Choisir mon premier répertoire",
     step1: "Choisissez un ou plusieurs répertoires avec de la musique",
     step2: "Organisez votre musique en albums et ajoutez des métadonnées",
@@ -506,7 +506,7 @@ export const fr: Dict = {
     sets: { one: "{{n}} groupe", other: "{{n}} groupes" },
     files: { one: "{{n}} fichier", other: "{{n}} fichiers" },
     safety:
-      "Plisto ne supprime ni ne modifie jamais vos fichiers. Garder celle-ci y transfère playlists et écoutes ; les autres copies passent dans Non triées. Pour vous en débarrasser, utilisez Aller au fichier et supprimez-la là-bas - la bibliothèque suit d'elle-même.",
+      "En garder une ne supprime ni ne modifie aucun fichier. Garder celle-ci y transfère playlists et écoutes ; les autres copies passent dans Non triées. Pour vous en débarrasser, utilisez Aller au fichier et supprimez-la là-bas - la bibliothèque suit d'elle-même.",
     empty: "Aucun doublon possible - chaque morceau n'existe qu'en un seul fichier.",
     emptyResolved: "Plus aucun doublon possible.",
     identical: "Copie identique",
@@ -767,7 +767,7 @@ export const fr: Dict = {
     offline: "Hors ligne",
     keepUpToDate: "Garder l'audiothèque à jour",
     keepUpToDateHelper:
-      "Plisto repère les fichiers ajoutés, modifiés ou supprimés dans ces répertoires. Il ne les modifie jamais.",
+      "Plisto repère les fichiers ajoutés, modifiés ou supprimés dans ces répertoires. Les surveiller ne change rien.",
     trackCount: { one: "{{n}} piste", other: "{{n}} pistes" },
     removeConfirm: "Retirer ce répertoire ?",
     removeDrops: { one: "Cela retire {{n}} piste.", other: "Cela retire {{n}} pistes." },
@@ -791,9 +791,9 @@ export const fr: Dict = {
     locate: "Localiser...",
     locateChecking: "Vérification de {folder}...",
     locateConfirm: {
-      one: "{{n}} piste sur {{total}} vérifiées retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+      one: "{{n}} piste sur {{total}} vérifiées retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Cela ne modifie pas vos fichiers.",
       other:
-        "{{n}} pistes sur {{total}} vérifiées retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+        "{{n}} pistes sur {{total}} vérifiées retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Cela ne modifie pas vos fichiers.",
     },
     locatePartial:
       "Les pistes introuvables restent marquées absentes et reviennent si leurs fichiers réapparaissent.",
@@ -816,9 +816,9 @@ export const fr: Dict = {
       "Impossible de relocaliser {name} : une écriture dans certains de ses fichiers n'est pas terminée. Plisto a laissé le dossier à sa place.",
     locateBusy: "Une analyse est déjà en cours. Réessayez quand elle sera terminée.",
     locateMerge: {
-      one: "{folder} est déjà dans votre audiothèque ({{n}} piste). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Plisto ne modifie jamais vos fichiers.",
+      one: "{folder} est déjà dans votre audiothèque ({{n}} piste). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Cela ne modifie pas vos fichiers.",
       other:
-        "{folder} est déjà dans votre audiothèque ({{n}} pistes). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Plisto ne modifie jamais vos fichiers.",
+        "{folder} est déjà dans votre audiothèque ({{n}} pistes). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Cela ne modifie pas vos fichiers.",
     },
     locateMergeReplaced: {
       one: "{{n}} album créé depuis le déplacement est remplacé.",
@@ -826,9 +826,9 @@ export const fr: Dict = {
     },
     locateHint: "Il semble se trouver maintenant dans {folder}.",
     locateFolderConfirm: {
-      one: "{{n}} piste absente sur {{total}} retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+      one: "{{n}} piste absente sur {{total}} retrouvée dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Cela ne modifie pas vos fichiers.",
       other:
-        "{{n}} pistes absentes sur {{total}} retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Plisto ne modifie jamais vos fichiers.",
+        "{{n}} pistes absentes sur {{total}} retrouvées dans {folder}. Utiliser ce répertoire ? Albums, playlists et écoutes suivent. Cela ne modifie pas vos fichiers.",
     },
     locateFolderMerged: {
       one: "{{n}} piste qu'une analyse a déjà ajoutée là est fusionnée avec son homologue absente, en conservant albums, playlists et écoutes.",
@@ -1850,7 +1850,7 @@ export const fr: Dict = {
   },
   gone: {
     title: "Pistes absentes",
-    sub: "Plisto ne modifie jamais vos fichiers. Ces pistes figurent encore dans la bibliothèque, mais Plisto ne les retrouve plus.",
+    sub: "Ces pistes figurent encore dans la bibliothèque, mais Plisto ne les retrouve plus.",
     tracks: { one: "{{n}} piste", other: "{{n}} pistes" },
     folders: { one: "{{n}} répertoire", other: "{{n}} répertoires" },
     summary: "{tracks} dans {folders}",
@@ -1866,7 +1866,7 @@ export const fr: Dict = {
     removeAll: "Retirer toutes les pistes absentes",
     removeThese: "Retirer ces pistes",
     showAll: "Voir dans Toutes les pistes",
-    safety: "Vos fichiers musicaux ne sont jamais modifiés.",
+    safety: "Les retirer ne touche pas à vos fichiers musicaux.",
     offline: "Hors ligne",
     offlineLine: "{path} est hors ligne. Ses pistes sont conservées, pas absentes.",
     offlineSub: "Rebranchez le disque, puis relancez une analyse. Ou localisez le répertoire s'il se trouve ailleurs maintenant.",

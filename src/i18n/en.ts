@@ -100,7 +100,7 @@ export const en = {
 
   scan: {
     pickerTitle: "Welcome to Plisto",
-    pickerSafety: "Plisto does not alter the files or folders you point it to. It only reads and indexes them to bring them to your workspace. Any modifications have to be exported.",
+    pickerSafety: "Plisto reads and indexes the folders you point it to. It changes nothing in them unless you ask it to; your edits live in Plisto until you export.",
     chooseFolder: "Pick my first folder",
     step1: "Pick one or more folders with music",
     step2: "Organize your music into albums and add metadata",
@@ -505,7 +505,7 @@ export const en = {
     sets: { one: "{{n}} set", other: "{{n}} sets" },
     files: { one: "{{n}} file", other: "{{n}} files" },
     safety:
-      "Plisto never deletes or changes your files. Keep this one moves playlists and plays onto it; the other copies go to Unsorted. To get rid of one, use Go to file and delete it there - the library catches up on its own.",
+      "Keeping one doesn't delete or change any file. Keep this one moves playlists and plays onto it; the other copies go to Unsorted. To get rid of one, use Go to file and delete it there - the library catches up on its own.",
     empty: "No possible duplicates - each song lives in one file.",
     emptyResolved: "No possible duplicates left.",
     identical: "Identical copy",
@@ -764,7 +764,7 @@ export const en = {
     offline: "Offline",
     keepUpToDate: "Keep library up to date",
     keepUpToDateHelper:
-      "Plisto notices files you add, change or remove in these folders. It never modifies them.",
+      "Plisto notices files you add, change or remove in these folders. Watching them changes nothing.",
     trackCount: { one: "{{n}} track", other: "{{n}} tracks" },
     removeConfirm: "Remove this folder?",
     removeDrops: { one: "This drops {{n}} track.", other: "This drops {{n}} tracks." },
@@ -788,9 +788,9 @@ export const en = {
     locate: "Locate...",
     locateChecking: "Checking {folder}...",
     locateConfirm: {
-      one: "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+      one: "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. This doesn't change your files.",
       other:
-        "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+        "Found {{n}} of {{total}} checked tracks in {folder}. Use this folder? Albums, playlists and plays move with it. This doesn't change your files.",
     },
     locatePartial: "Tracks not found stay marked gone and come back if their files appear.",
     locateUse: "Use this folder",
@@ -810,9 +810,9 @@ export const en = {
       "Couldn't relocate {name}: a write to some of its files is still unfinished. Plisto left the folder where it was.",
     locateBusy: "A scan is already running. Try again when it finishes.",
     locateMerge: {
-      one: "{folder} is already in your library ({{n}} track). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. Plisto never changes your files.",
+      one: "{folder} is already in your library ({{n}} track). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. This doesn't change your files.",
       other:
-        "{folder} is already in your library ({{n}} tracks). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. Plisto never changes your files.",
+        "{folder} is already in your library ({{n}} tracks). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. This doesn't change your files.",
     },
     locateMergeReplaced: {
       one: "{{n}} album made since the move is replaced.",
@@ -820,9 +820,9 @@ export const en = {
     },
     locateHint: "Looks like it's now at {folder}.",
     locateFolderConfirm: {
-      one: "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with it. Plisto never changes your files.",
+      one: "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with it. This doesn't change your files.",
       other:
-        "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with them. Plisto never changes your files.",
+        "Found {{n}} of {{total}} gone tracks in {folder}. Use this folder? Albums, playlists and plays move with them. This doesn't change your files.",
     },
     locateFolderMerged: {
       one: "{{n}} track a scan already added there is merged into its gone twin, keeping the albums, playlists and plays.",
@@ -1817,7 +1817,7 @@ export const en = {
   },
   gone: {
     title: "Gone tracks",
-    sub: "Plisto never changes your files. These are tracks it still lists but can no longer find.",
+    sub: "These are tracks Plisto still lists but can no longer find.",
     tracks: { one: "{{n}} track", other: "{{n}} tracks" },
     folders: { one: "{{n}} folder", other: "{{n}} folders" },
     summary: "{tracks} in {folders}",
@@ -1832,7 +1832,7 @@ export const en = {
     removeAll: "Remove all gone tracks",
     removeThese: "Remove these tracks",
     showAll: "Show in All Tracks",
-    safety: "Your music files are never touched.",
+    safety: "Removing them doesn't touch your music files.",
     offline: "Offline",
     offlineLine: "{path} is offline. Its tracks are kept, not gone.",
     offlineSub: "Reconnect the drive, then rescan. Or locate the folder if it lives somewhere else now.",
