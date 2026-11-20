@@ -21,6 +21,7 @@ import {
 
 // -- Utils Imports --
 import { withRetry } from "../lib/withRetry";
+import { busyKind } from "../lib/busyError";
 
 // -- Type Imports --
 import type {
@@ -33,9 +34,6 @@ import type {
 /** Rows fetched per page of the list. */
 export const ISSUES_PAGE_SIZE = 200;
 
-/** What the backend says when a retry meets a running scan. */
-const SCAN_RUNNING = "a scan is already running";
-
 /** Where a read stands. `error` keeps whatever was loaded before. */
 export type IssuesStatus = "idle" | "loading" | "ready" | "error";
 
@@ -47,6 +45,7 @@ export type IssueNotice =
   | { kind: "retrying"; n: number; progress?: ScanIssueRetryProgress }
   | { kind: "result"; cleared: number; stillFailing: number }
   | { kind: "scanRunning" }
+  | { kind: "fileWriteRunning" }
   | { kind: "noLog" }
   | { kind: "unavailable" }
   | { kind: "failed" };
@@ -105,8 +104,7 @@ export function liveFilter(
 
 /** Whether a rejection is the backend refusing a retry because a scan is running. */
 export function isScanRunning(error: unknown): boolean {
-  const text = typeof error === "string" ? error : error instanceof Error ? error.message : "";
-  return text.includes(SCAN_RUNNING);
+  return busyKind(error) === "scan";
 }
 
 /** Reads the first page, then more pages until `depth` rows are held or the list ends. */
@@ -165,7 +163,10 @@ export const useScanIssuesStore = create<ScanIssuesStore>((set, get) => {
             : { kind: "result", cleared: result.cleared, stillFailing: result.retried - result.cleared },
       });
     } catch (error) {
-      set({ notice: { kind: isScanRunning(error) ? "scanRunning" : "failed" } });
+      const busy = busyKind(error);
+      if (busy === "scan") set({ notice: { kind: "scanRunning" } });
+      else if (busy === "fileWrite") set({ notice: { kind: "fileWriteRunning" } });
+      else set({ notice: { kind: "failed" } });
       return;
     }
     await refreshAll();

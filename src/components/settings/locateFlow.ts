@@ -10,9 +10,10 @@
 // -- Type Imports --
 import type { LocateFolderPreview, LocateFolderRefusal, RelocatePreview, RelocateRefusal } from "../../types";
 import type { LocateFolderResult, RelocateResult } from "../../state/relocate";
+import type { BusyKind } from "../../lib/busyError";
 
-/** A refusal from the backend, or the busy guard when a scan already holds the lock. */
-export type LocateRefusal = RelocateRefusal | LocateFolderRefusal | { code: "busy" };
+/** A refusal from the backend, or the busy guard when a scan or a file write already holds the lock. */
+export type LocateRefusal = RelocateRefusal | LocateFolderRefusal | { code: "busy"; by?: BusyKind };
 
 /** A folder locate's ready preview: how many gone tracks relink, take in a scanned twin, or stay gone. */
 export type FolderPlan = Omit<Extract<LocateFolderPreview, { kind: "ready" }>, "kind"> & { kind: "folder" };
@@ -84,7 +85,7 @@ export function stepAfterRelocate(name: string, folder: string, result: Relocate
     case "refused":
       return { kind: "refused", name, folder, reason: result.reason };
     case "busy":
-      return { kind: "refused", name, folder, reason: { code: "busy" } };
+      return { kind: "refused", name, folder, reason: { code: "busy", by: result.by } };
     case "failed":
       return IDLE;
   }
@@ -98,7 +99,7 @@ export function stepAfterLocateFolder(name: string, folder: string, result: Loca
     case "refused":
       return { kind: "refused", name, folder, reason: result.reason };
     case "busy":
-      return { kind: "refused", name, folder, reason: { code: "busy" } };
+      return { kind: "refused", name, folder, reason: { code: "busy", by: result.by } };
     case "failed":
       return { kind: "refused", name, folder, reason: { code: "failed", message: result.message } };
   }

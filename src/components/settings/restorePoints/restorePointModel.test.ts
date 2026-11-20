@@ -57,7 +57,17 @@ describe("pointKind", () => {
     expect(pointKind(ready("restore", "old.sqlite"))).toEqual({ reason: "restore" });
   });
 
-  it.each(["tags_apply", "merge_duplicates", "delete_albums", "remove_root", "purge", "relocate"])(
+  it.each([
+    "tags_apply",
+    "merge_duplicates",
+    "delete_albums",
+    "remove_root",
+    "purge",
+    "relocate",
+    "stamp",
+    "stamp_undo",
+    "trim_replace",
+  ])(
     "keeps the %s action",
     (key) => {
       expect(pointKind(ready("action", key))).toEqual({ reason: "action", action: key });

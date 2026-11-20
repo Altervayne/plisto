@@ -25,7 +25,8 @@ import styles from "./AlbumSelectionBar.module.css";
  * are selected. It carries the count, a select-all, a move-to-disc menu, an add-to-playlist, a set-cover,
  * the two keep-own-cover toggles, a remove, and a clear, on one line in hairline-parted groups. When the
  * pane narrows the lowest-priority actions fold into a trailing More menu; Clear stays. The move menu
- * lists the album's discs plus one entry for the next new disc. Every action reports up - the parent owns
+ * lists the album's discs plus one entry for the next new disc.
+ * Write tags rides last, only while tag writing is on. Every action reports up - the parent owns
  * the selection and layout.
  */
 export function AlbumSelectionBar({
@@ -43,6 +44,7 @@ export function AlbumSelectionBar({
   onKeepOwnCover,
   onUseAlbumCover,
   onRemove,
+  onWriteTags,
   onClear,
 }: {
   count: number;
@@ -60,6 +62,7 @@ export function AlbumSelectionBar({
   onKeepOwnCover: () => void;
   onUseAlbumCover: () => void;
   onRemove: () => void;
+  onWriteTags?: () => void;
   onClear: () => void;
 }) {
   const t = useT();
@@ -80,6 +83,7 @@ export function AlbumSelectionBar({
   const keepOwnLabel = t((d) => d.albums.keepOwnCover);
   const useAlbumLabel = t((d) => d.albums.useAlbumCover);
   const removeLabel = t((d) => d.albums.removeFromAlbum);
+  const writeTagsLabel = t((d) => d.fileWrites.entry.barAction);
 
   // Folded into More, Move to disc opens its disc list as a second menu.
   const discSteps = [
@@ -170,6 +174,7 @@ export function AlbumSelectionBar({
     plain("own", 10, 5, keepOwnLabel, onKeepOwnCover, albumsGate),
     plain("usealbum", 11, 5, useAlbumLabel, onUseAlbumCover, albumsGate),
     plain("remove", 5, 6, removeLabel, onRemove, albumsGate),
+    ...(onWriteTags ? [plain("stamp", 12, 7, writeTagsLabel, onWriteTags)] : []),
   ];
 
   return (

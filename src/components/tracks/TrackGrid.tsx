@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 // -- Icon Imports --
-import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, ListStart, Play, Scissors, Trash2 } from "lucide-react";
+import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, Crop, Disc, Disc3, FolderOpen, Info, ListEnd, ListPlus, ListStart, Pencil, Play, Scissors, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { ScrollArea } from "../common/ScrollArea/ScrollArea";
@@ -62,6 +62,8 @@ import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { announceAfterBlock } from "../../state/player/queueToast";
 import { useSetOpenTool } from "../../state/shell/store";
 import { useViewKeys } from "../../state/shell/viewKeys";
+import { openStampSheet } from "../../state/fileWrites/store";
+import { useStampFiles } from "../../state/preferences/store";
 
 // -- Utils Imports --
 import { gridTemplate, toColumnDefs, trackColumns, trackGlobalFilter } from "./trackColumns";
@@ -69,6 +71,7 @@ import { EMPTY_HISTORY, EMPTY_INDEX, filterByFacets, isMissingMetadata } from ".
 import { UNTAGGED_KEY, flattenGroups, groupRows } from "./trackGrouping";
 import { revealFile } from "../../lib/opener";
 import { canSplice } from "../../lib/splice";
+import { menuStampTarget } from "../../lib/stampScope";
 import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
@@ -342,6 +345,7 @@ export function TrackGrid({
   const albumsGate = useWriteGate("albums");
   const playlistsGate = useWriteGate("playlists");
   const setOpenTool = useSetOpenTool();
+  const stampFiles = useStampFiles();
   // A flat list is not a container, so playing from it plays just that track; the source tag still
   // names where it came from.
   const playTrack = (trackId: number) => play([trackId], 0, source);
@@ -365,6 +369,8 @@ export function TrackGrid({
   // Play is the keyboard and assistive route the hover triangle cannot be. A gone source greys it out
   // with the reason.
   const buildMenu = (track: TrackRowData): MenuEntry[] => {
+    // Write tags is the exception: it takes the selection when the row is in it.
+    const stamp = menuStampTarget(track.id, selection, rowIds);
     // Split and Trim are gated on a container the cutter can slice; a format it cannot greys them out
     // with the reason.
     const spliceable = canSplice(track.ext);
@@ -446,6 +452,15 @@ export function TrackGrid({
         tooltip: playlistsGate.tip,
         onSelect: () => setPlaylistPickerTrack(track.id),
       },
+      ...(stampFiles
+        ? [
+            {
+              icon: <Pencil size={16} strokeWidth={1.8} />,
+              label: t((d) => d.fileWrites.entry.menuItem, { n: stamp.trackIds.length }),
+              onSelect: () => openStampSheet(stamp.scope),
+            } satisfies MenuEntry,
+          ]
+        : []),
       {
         icon: <Disc3 size={16} strokeWidth={1.8} />,
         label: t((d) => d.singles.make, { n: 1 }),

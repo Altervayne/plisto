@@ -31,6 +31,7 @@ import { Finder } from "../finder/Finder";
 import { DuplicatesHost } from "../duplicates/DuplicatesHost";
 import { GoneHost } from "../gone/GoneHost";
 import { ScanIssuesHost } from "../scan/ScanIssuesHost";
+import { FileWritesHost } from "../fileWrites/FileWritesHost";
 import { ShortcutsSheet } from "../shortcuts/ShortcutsSheet";
 import { PluginPage } from "../plugins/PluginPage";
 import { PluginFrameLayer } from "../plugins/frames/PluginFrameLayer";
@@ -456,6 +457,7 @@ export function AppShell({
           }}
         />
         <ScanIssuesHost />
+        <FileWritesHost />
         <PluginConfirmHost />
 
         {/* The offer to start without plugins, shown while the runtime is held after an unclean exit. */}

@@ -1,0 +1,27 @@
+/* The running view: a bar, the file in hand and the live tallies. */
+
+.bar {
+  height: 6px;
+  border-radius: var(--pill);
+  background: var(--veil-2);
+  overflow: hidden;
+  flex: none;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--pill);
+  background: var(--accent);
+  transition: width var(--dur-soft) var(--ease-standard);
+}
+
+.current {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 1.3em;
+}

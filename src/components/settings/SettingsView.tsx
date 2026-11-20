@@ -16,6 +16,7 @@ import { PlayHistoryRow } from "./PlayHistoryRow";
 import { SearchSettingsDoor } from "./SearchSettingsDoor";
 import { SettingRow } from "./SettingRow";
 import { SectionsMenu, SettingsRail } from "./SettingsRail";
+import { MusicFilesSection } from "./musicFiles/MusicFilesSection";
 import { PluginsSection } from "./plugins/PluginsSection";
 import { RestorePointsSection } from "./restorePoints/RestorePointsSection";
 import { SoundSection } from "./SoundSection";
@@ -41,6 +42,7 @@ import {
   useScanStatus,
   useScanSummary,
 } from "../../state/store";
+import { openStampUndo } from "../../state/fileWrites/store";
 import { useGenres, useLoadGenres } from "../../state/organize/store";
 import { useOpenScanIssues, useScanIssuesStore } from "../../state/scanIssues";
 import {
@@ -271,6 +273,10 @@ export function SettingsView({
                 <GenreAddRow className={styles.genreAdd} />
               </div>
             </section>
+          </Page>
+
+          <Page id="musicFiles" shown={section}>
+            <MusicFilesSection onUndo={openStampUndo} />
           </Page>
 
           <Page id="restorePoints" shown={section}>

@@ -2,10 +2,11 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { folderName, removePrompt, retryable, stepLine } from "./locateCopy";
+import { folderName, refusalLine, removePrompt, retryable, stepLine } from "./locateCopy";
 
 // -- i18n Imports --
 import { createT } from "../../i18n";
+import { en } from "../../i18n/en";
 
 // -- Type Imports --
 import type { Locale } from "../../i18n/types";
@@ -165,6 +166,13 @@ describe("locate copy", () => {
     expect(retryable({ code: "inconclusive" })).toBe(true);
     expect(retryable({ code: "no_match", sampled: 1, matched: 0 })).toBe(false);
     expect(retryable({ code: "busy" })).toBe(false);
+  });
+
+  it("words a busy refusal by what holds the lock", () => {
+    const t = createT("en");
+    expect(refusalLine(t, { code: "busy", by: "fileWrite" }, "n", "f")).toBe(en.fileWrites.busy);
+    expect(refusalLine(t, { code: "busy", by: "scan" }, "n", "f")).toBe(en.settings.locateBusy);
+    expect(refusalLine(t, { code: "busy" }, "n", "f")).toBe(en.settings.locateBusy);
   });
 
   it("reads the trailing folder name", () => {

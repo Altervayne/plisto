@@ -35,6 +35,10 @@ import type {
   GenreRow,
   HistoryRow,
   ImageFolderGroup,
+  KeptBackup,
+  KeptDiscardAllOutcome,
+  KeptDiscardOutcome,
+  LastFileWrite,
   LibrarySyncStatus,
   ListTracksResponse,
   LocateFolderOutcome,
@@ -91,6 +95,9 @@ import type {
   SpliceJob,
   SpliceProgress,
   SpliceReport,
+  StampEvent,
+  StampPreview,
+  StampScope,
   StreamNow,
   TagAlbumPlan,
   TagAlbumReceipt,
@@ -98,6 +105,9 @@ import type {
   TrackEdit,
   TrackEditFields,
   TrackOverride,
+  TrimReplaceJob,
+  TrimReplaceResult,
+  WriteRecovery,
   TrackPlacement,
   TrackRow,
   VisualizerDefaults,
@@ -136,9 +146,12 @@ export function addRoot(path: string, channel: Channel<ScanProgress>): Promise<S
   return invoke<ScanSummary>("add_root", { path, onProgress: channel });
 }
 
-/** Removes a root: its tracks and their memberships are dropped and emptied albums deleted. */
-export function removeRoot(id: number): Promise<void> {
-  return invoke("remove_root", { id });
+/**
+ * Removes a root: its tracks and their memberships are dropped and emptied albums deleted. A root with
+ * unfinished file writes rejects with "unfinished writes" unless `dropPendingWrites` forgets them.
+ */
+export function removeRoot(id: number, dropPendingWrites = false): Promise<void> {
+  return invoke("remove_root", { id, dropPendingWrites });
 }
 
 /** Rescans one root incrementally, streaming progress, resolving with the summary. */
@@ -1602,4 +1615,93 @@ export function restoreFromPoint(file: string): Promise<RestoreOutcome> {
  */
 export function takePointBefore(action: "delete_albums"): Promise<boolean> {
   return invoke<boolean>("take_point_before", { action });
+}
+
+// -- Writing to music files --
+// Batches stream a StampEvent per file over a per-invocation channel; each re-read file also fires the
+// existing library delta. The write commands refuse with "a file write is running" while one holds the lock.
+
+/** Wraps an event callback in a fresh channel a tag-write batch streams its events over. */
+export function createStampChannel(onEvent: (event: StampEvent) => void): Channel<StampEvent> {
+  const channel = new Channel<StampEvent>();
+  channel.onmessage = onEvent;
+  return channel;
+}
+
+/** What startup or a scan did about writes an earlier run left unfinished. Takes and clears it. */
+export function takeFileWriteRecovery(): Promise<WriteRecovery> {
+  return invoke<WriteRecovery>("take_file_write_recovery");
+}
+
+/** The latest batch that wrote a file, or null before the first. */
+export function lastFileWrite(): Promise<LastFileWrite> {
+  return invoke<LastFileWrite>("last_file_write");
+}
+
+/** The files under `rootId` with an unfinished write, as absolute paths. */
+export function pendingWrites(rootId: number): Promise<string[]> {
+  return invoke<string[]>("pending_writes", { rootId });
+}
+
+/** How many files in `scope` differ from what Plisto shows. A read on its own connection. */
+export function stampDifferCount(scope: StampScope): Promise<{ files: number }> {
+  return invoke<{ files: number }>("stamp_differ_count", { scope });
+}
+
+/** The dry run of a tag write over `scope`. Writes nothing; the snapshot it names is what a run commits. */
+export function stampPreview(scope: StampScope): Promise<StampPreview> {
+  return invoke<StampPreview>("stamp_preview", { scope });
+}
+
+/** Writes the previewed batch, streaming one event per file and ending with the summary. */
+export function stampRun(previewId: string, onEvent: Channel<StampEvent>): Promise<void> {
+  return invoke("stamp_run", { previewId, onEvent });
+}
+
+/** Stops the running batch after the file it is on. */
+export function stampCancel(): Promise<void> {
+  return invoke("stamp_cancel");
+}
+
+/** Writes `trackIds` again inside the batch `batchId`, so one undo covers the run and its retries. */
+export function stampRetry(batchId: number, trackIds: number[], onEvent: Channel<StampEvent>): Promise<void> {
+  return invoke("stamp_retry", { batchId, trackIds, onEvent });
+}
+
+/** Puts back what the batch `batchId` wrote, field by field, streaming one event per file. */
+export function stampUndo(batchId: number, onEvent: Channel<StampEvent>): Promise<void> {
+  return invoke("stamp_undo", { batchId, onEvent });
+}
+
+/**
+ * Trims a library track in place, keeping its original as a hidden backup. Rejects with a failure
+ * detail the front end maps to a TrimFailure. Cancellable through `trimReplaceCancel` until the swap.
+ */
+export function trimReplace(job: TrimReplaceJob, onProgress: Channel<SpliceProgress>): Promise<TrimReplaceResult> {
+  return invoke<TrimReplaceResult>("trim_replace", { job, onProgress });
+}
+
+/** Signals the running in-place trim to stop. Only effective before the swap. */
+export function trimReplaceCancel(): Promise<void> {
+  return invoke("trim_replace_cancel");
+}
+
+/** Puts the kept original of `undoId` back. Refused when the file changed since the trim. */
+export function trimUndo(undoId: number): Promise<void> {
+  return invoke("trim_undo", { undoId });
+}
+
+/** Every kept backup with where it stands. A read. */
+export function keptBackupsList(): Promise<KeptBackup[]> {
+  return invoke<KeptBackup[]>("kept_backups_list");
+}
+
+/** Deletes one kept backup. Refused when its folder is offline. */
+export function keptBackupDiscard(undoId: number): Promise<KeptDiscardOutcome> {
+  return invoke<KeptDiscardOutcome>("kept_backup_discard", { undoId });
+}
+
+/** Deletes every kept backup it can reach; rows on an offline folder are skipped and counted. */
+export function keptBackupsDiscardAll(): Promise<KeptDiscardAllOutcome> {
+  return invoke<KeptDiscardAllOutcome>("kept_backups_discard_all");
 }

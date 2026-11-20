@@ -28,6 +28,9 @@ import {
   setTrackGenres as setTrackGenresCmd,
 } from "../lib/ipc";
 import { pickFolder } from "../lib/dialog";
+import { busyKind } from "../lib/busyError";
+import type { BusyKind } from "../lib/busyError";
+import { showFileWriteBusy } from "./fileWrites/store";
 import { createProjectionLoader } from "./projectionLoad";
 import { mergeDelta, mergeRowsById, NO_DELTA, offlineRootIds, summaryFromSync } from "./librarySync";
 import type { LibrarySummary, PendingDelta } from "./librarySync";
@@ -77,10 +80,10 @@ export type ScanMode = "blocking" | "quiet";
 
 /**
  * A surface that must not see rows shift under it: the albums-from-tags write, the gone-tracks purge
- * (its confirm and its run), a folder locate, a running export and a restore. While any is held, sync
- * deltas gather unapplied.
+ * (its confirm and its run), a folder locate, a running export, a restore and a tag write (its preview
+ * and its run). While any is held, sync deltas gather unapplied.
  */
-export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "locate" | "export" | "restore";
+export type SyncHold = "tagAlbums" | "purgeConfirm" | "purge" | "locate" | "export" | "restore" | "stamp";
 
 /** What the user chose on the relink prompt: move the offline root here, add the folder anew, or neither. */
 export type RelinkChoice = "relink" | "asNew" | "cancel";
@@ -192,16 +195,8 @@ const idleScan: ScanState = {
   added: null,
 };
 
-// The backend's rejection when a scan already holds the lock; every scan command words it the same.
-const SCAN_BUSY = "a scan is already running";
-
 // The quiet error when the rows could not be reloaded after a background change. Never shown raw.
 const RELOAD_FAILED = "library reload failed";
-
-/** Whether a scan rejection is the busy guard rather than a real failure. */
-function isScanBusy(error: unknown): boolean {
-  return String(error).includes(SCAN_BUSY);
-}
 
 /** Whether the scan state belongs to a blocking scan still running, which nothing quiet may touch. */
 function blockingRun(scan: ScanState): boolean {
@@ -240,7 +235,14 @@ export const useAppStore = create<AppStore>((set, get) => {
     } catch (e) {
       // Background passes yield to this scan, so a busy lock means a user write is mid-flight. That
       // is worth a quiet note, never the full-screen failure.
-      if (isScanBusy(e)) {
+      const busy = busyKind(e);
+      if (busy === "fileWrite") {
+        // A file write holds the lock: leave the scan state alone and tell the user why nothing ran.
+        set({ scan: before });
+        showFileWriteBusy();
+        return null;
+      }
+      if (busy === "scan") {
         set({ scan: { ...before, status: "error", mode: "quiet", error: String(e) } });
         return null;
       }
@@ -402,11 +404,11 @@ export const useAppStore = create<AppStore>((set, get) => {
     // reported inline by the caller, so it leaves the scan state as it was rather than a quiet error.
     relocateRoot: async (rootId, path) => {
       const before = get().scan;
-      let busy = false;
+      let busy: BusyKind | null = null;
       const outcome = await runScanJob(
         (channel) =>
           relocateRootCmd(rootId, path, channel).catch((e) => {
-            busy = isScanBusy(e);
+            busy = busyKind(e);
             throw e;
           }),
         (o) => (o.kind === "done" ? o.summary : null),
@@ -414,7 +416,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!outcome) {
         if (busy) {
           set({ scan: before });
-          return { kind: "busy" };
+          return { kind: "busy", by: busy };
         }
         await refreshAfterRelocate();
         return { kind: "failed" };
@@ -438,7 +440,8 @@ export const useAppStore = create<AppStore>((set, get) => {
         try {
           outcome = await locateFolderCmd(rootId, folder, newPath);
         } catch (e) {
-          return isScanBusy(e) ? { kind: "busy" } : { kind: "failed", message: String(e) };
+          const by = busyKind(e);
+          return by ? { kind: "busy", by } : { kind: "failed", message: String(e) };
         }
         if (outcome.kind !== "done") return outcome;
         await get().loadRoots();

@@ -868,6 +868,8 @@ export const fr: Dict = {
     rescanAll: ["actualiser", "scanner", "mettre à jour"],
     keepUpToDate: ["surveiller", "automatique", "re-scanner"],
     addGenre: ["catégorie", "étiquette"],
+    stampFiles: ["tags", "écrire les tags", "métadonnées", "id3", "intégrer", "fichiers", "titre", "artiste", "album", "genre"],
+    trimReplace: ["rogner", "rognage", "remplacer le fichier", "écraser", "sauvegarde", "original", "opus"],
     restorePoints: ["sauvegarde", "annuler", "récupérer", "retour arrière", "restaurer"],
     outputDevice: ["haut-parleurs", "casque", "audio"],
     playHistory: ["réinitialiser", "écoutes", "effacer"],
@@ -1170,6 +1172,7 @@ export const fr: Dict = {
     jobExport: "une exportation",
     jobSplice: "un découpage",
     jobPlaylistExport: "une exportation de playlist",
+    jobFileWrite: "une écriture dans vos fichiers musicaux",
     and: "et",
     running: {
       one: "{subject} est encore en cours. Quitter Plisto l'annule.",
@@ -1909,6 +1912,9 @@ export const fr: Dict = {
     kindActionOther: "Avant un changement",
     actionMerge: "Fusionner les doublons",
     actionDeleteAlbums: "Supprimer des albums",
+    actionStamp: "Écrire les tags dans les fichiers",
+    actionStampUndo: "Annuler une écriture de tags",
+    actionTrimReplace: "Remplacer l'original",
     appVersion: "Plisto {version}",
     albums: { one: "{{n}} album", other: "{{n}} albums" },
     singles: { one: "{{n}} single", other: "{{n}} singles" },
@@ -1987,5 +1993,379 @@ export const fr: Dict = {
     failBeforePoint:
       "Plisto n'a pas pu enregistrer d'abord un point de restauration de l'instant, il s'est donc arrêté. Libérez de l'espace disque et réessayez.",
     failFailed: "La restauration n'a pas été lancée.",
+  },
+  fileWrites: {
+    busy: "Plisto écrit dans vos fichiers musicaux. Réessayez dans un instant.",
+    empty: "(vide)",
+    files: { one: "{{n}} fichier", other: "{{n}} fichiers" },
+    tracks: { one: "{{n}} piste", other: "{{n}} pistes" },
+    cancel: "Annuler",
+    close: "Fermer",
+    done: "Terminé",
+    retry: "Réessayer",
+    field: {
+      title: "Titre",
+      artist: "Artiste",
+      album: "Album",
+      albumArtist: "Artiste de l'album",
+      year: "Année",
+      track: "Piste",
+      disc: "Disque",
+      genres: "Genres",
+      cover: "Pochette",
+    },
+    reason: {
+      written: "Écrits",
+      reverted: "Rétablis",
+      unchanged: { label: "Inchangé", text: "Contient déjà ces tags." },
+      inUse: {
+        label: "En cours d'utilisation",
+        text: "En lecture ou suivante dans la file. Plisto n'y touche pas ; réessayez quand elle est libre.",
+      },
+      readOnly: { label: "Lecture seule", text: "Marqué en lecture seule. Plisto ne modifie pas les attributs du fichier." },
+      comment: {
+        label: "Commentaire non réécrivable",
+        text: "Son commentaire ne peut pas être réécrit sans le perdre : le fichier reste tel quel.",
+      },
+      unsupported: { label: "Format non pris en charge", text: "Les fichiers WMA ne peuvent pas être écrits." },
+      offline: { label: "Répertoire hors ligne", text: "Son répertoire est hors ligne. Rebranchez d'abord le disque." },
+      missing: { label: "Fichier absent", text: "Le fichier a disparu du disque." },
+      failed: {
+        label: "Échec",
+        text: "Windows a refusé de remplacer le fichier (accès refusé). Le fichier est inchangé.",
+      },
+      changed: {
+        label: "Modifié depuis",
+        text: "Modifié depuis l'écriture par Plisto : il garde son contenu actuel.",
+      },
+      edited: {
+        label: "Modifié entre-temps",
+        text: "Ses valeurs ont changé dans Plisto après votre confirmation : le fichier est resté tel quel. Réessayer le présente de nouveau avec les valeurs actuelles.",
+      },
+      attention: {
+        label: "À vérifier",
+        text: "Une écriture interrompue a laissé ce fichier dans un état que Plisto n'a pas pu régler seul. Il n'a pas été touché davantage.",
+      },
+      detail: "Détail : {detail}",
+    },
+
+    settings: {
+      section: "Fichiers musicaux",
+      lede: "Plisto lit vos fichiers musicaux et ne les modifie jamais, sauf si vous activez l'une de ces options. Chacune demande confirmation avant d'agir.",
+      stampLabel: "Écrire les tags dans les fichiers",
+      stampHelper:
+        "Ajoute l'action Écrire les tags dans les fichiers aux albums et aux sélections de pistes. Elle écrit dans vos fichiers le titre, l'artiste, l'album, l'artiste de l'album, l'année, la piste, le disque et les genres que Plisto affiche. Jamais la pochette, et elle n'efface aucun champ.",
+      stampNote:
+        "Cela modifie vos fichiers sur le disque. Les autres applications et appareils verront les nouveaux tags, et votre prochain export recopiera ces fichiers. Chaque écriture demande confirmation et peut être annulée d'ici.",
+      differLabel: "Fichiers qui diffèrent de Plisto :",
+      differChecking: "Vérification...",
+      review: "Examiner...",
+      lastWriteLabel: "Dernière écriture :",
+      lastKindStamp: "Tags écrits",
+      lastKindTrim: "Rognage remplacé",
+      lastToday: "aujourd'hui {time}",
+      lastYesterday: "hier {time}",
+      undo: "Annuler...",
+      trimLabel: "Remplacer l'original lors d'un rognage",
+      trimHelper:
+        "Ajoute Remplacer l'original à l'Éditeur de piste, pour les fichiers Opus seulement. Les autres formats restent enregistrés en nouveau fichier, et l'éditeur en donne la raison.",
+      trimNote:
+        "L'original reste à côté du fichier, en copie masquée conservée 30 jours par défaut, jusqu'à ce que vous la supprimiez ou que le délai expire. Un répertoire synchronisé par OneDrive ou Dropbox synchronisera aussi cette copie.",
+      keepLabel: "Conserver l'original pendant",
+      keep7: "7 jours",
+      keep30: "30 jours",
+      keepNever: "Jusqu'à suppression",
+      keepHelper:
+        "Le délai écoulé, Plisto supprime la copie. Supprimez-en une plus tôt depuis les Sauvegardes conservées. Un changement vaut aussi pour les sauvegardes existantes, dès la prochaine vérification.",
+      keptLabel: "Sauvegardes conservées :",
+      keptLine: { one: "{{n}} sauvegarde - {size}", other: "{{n}} sauvegardes - {size}" },
+      keptNone: "Aucune",
+      manage: "Gérer...",
+    },
+
+    entry: {
+      doorLine: {
+        one: "{{differing}} fichier sur {{n}} diffère de Plisto.",
+        other: "{{differing}} fichiers sur {{n}} diffèrent de Plisto.",
+      },
+      doorAction: "Écrire les tags dans les fichiers",
+      menuItem: { one: "Écrire les tags de {{n}} fichier...", other: "Écrire les tags de {{n}} fichiers..." },
+      barAction: "Écrire les tags dans les fichiers",
+    },
+
+    stamp: {
+      title: "Écrire les tags dans les fichiers",
+      sub: "Plisto écrit dans vos fichiers ce que vous voyez ici. Rien n'est écrit avant votre confirmation.",
+      scopeAlbum: "{album} - {artist} - {tracks}",
+      scopeAlbums: { one: "{{n}} album", other: "{{n}} albums" },
+      scopeSelection: { one: "{{n}} piste sélectionnée dans {album}", other: "{{n}} pistes sélectionnées dans {album}" },
+      scopeLoose: { one: "{{n}} piste sélectionnée, hors album", other: "{{n}} pistes sélectionnées, hors album" },
+      scopeSingle: "Single : {title}, {artist}",
+      scopeLibrary: "Toute l'audiothèque, {tracks}",
+      writtenEyebrow: "Écrit",
+      writtenNever: "Jamais la pochette. Un champ sans valeur dans Plisto reste tel quel dans le fichier.",
+      writtenLoose: "Seulement les champs que vous avez modifiés, piste par piste.",
+      bannerExport:
+        "Un export est en cours. L'écriture attend sa fin, pour qu'un fichier ne soit jamais copié pendant son remplacement.",
+      bannerCost:
+        "Une écriture de cette taille prend du temps : chaque fichier est copié, écrit puis échangé. Les répertoires synchronisés (OneDrive, Dropbox) téléverseront chaque fichier modifié.",
+      bannerSingle:
+        "Un single n'a pas d'album. Plisto écrit le titre du single comme album, comme le fait un export aujourd'hui.",
+      bannerLoose:
+        "Ces pistes ne sont pas dans un album : seuls les champs que vous avez modifiés sont écrits.",
+      willWrite: { one: "{{n}} fichier sera écrit.", other: "{{n}} fichiers seront écrits." },
+      willSkip: { one: "{{n}} restera intact.", other: "{{n}} resteront intacts." },
+      byChange: "Par changement",
+      byFile: "Par fichier",
+      asInAlbum: "{value} (comme dans l'album)",
+      fromTo: "{from} -> {to}",
+      showMore: { one: "Afficher {{n}} fichier de plus", other: "Afficher {{n}} fichiers de plus" },
+      notWritten: "Non écrit",
+      offlineGroup: { one: "{{n}} piste, conservée telle quelle", other: "{{n}} pistes, conservées telles quelles" },
+      checking: "Vérification de vos fichiers...",
+      checkFailed: "Plisto n'a pas pu vérifier les fichiers. Rien n'a été modifié.",
+      nothingTitle: "Rien à écrire",
+      nothingLine: "Tous les fichiers contiennent déjà les tags affichés par Plisto. Aucun fichier n'est touché.",
+      nothingFoot: "Vos fichiers n'ont pas été modifiés.",
+      footer:
+        "Un point de restauration est enregistré d'abord. Vous pouvez l'annuler jusqu'à votre prochaine écriture. Les modifications faites dans Plisto qui figurent maintenant dans le fichier cessent d'être des modifications : le fichier devient la référence. Votre prochain export recopiera ces fichiers.",
+      write: { one: "Écrire {{n}} fichier", other: "Écrire {{n}} fichiers" },
+    },
+
+    run: {
+      titleRunning: "Écriture des tags",
+      titleStopped: "Écriture arrêtée",
+      titleDone: "Tags écrits",
+      titleUndoing: "Annulation de l'écriture",
+      titleUndone: "Écriture annulée",
+      progress: "Écriture de {{i}} sur {{n}}",
+      undoProgress: "Annulation de {{i}} sur {{n}}",
+      counterWritten: "écrits",
+      counterSkipped: "ignorés",
+      counterFailed: "échecs",
+      infoRunning:
+        "Une piste qui démarre ou qui est mise en file pendant l'écriture est ignorée et listée comme En cours d'utilisation ; vous pourrez la réessayer ensuite. L'arrêt laisse le fichier en cours se terminer : un fichier n'est jamais laissé à moitié écrit. L'export et les autres écritures attendent la fin de celle-ci.",
+      footRunning: "La lecture continue. Les fichiers en cours d'utilisation sont ignorés.",
+      stop: "Arrêter après ce fichier",
+      stopping: "Arrêt après ce fichier...",
+      stoppedTitle: "Arrêt après {{i}} fichiers sur {{n}}.",
+      stoppedInfo: {
+        one: "Le fichier non traité diffère toujours de Plisto. Les fichiers écrits peuvent être annulés.",
+        other: "Les {{n}} fichiers non traités diffèrent toujours de Plisto. Les fichiers écrits peuvent être annulés.",
+      },
+      notStarted: "Non traités ({{n}})",
+      writtenGroup: "Écrits ({{n}})",
+      failedGroup: "Échec ({{n}})",
+      skippedGroup: "Ignorés ({{n}})",
+      keptGroup: "Laissé tel quel ({{n}})",
+      revertedGroup: "Rétablis ({{n}})",
+      undoUntil: "Vous pouvez l'annuler jusqu'à votre prochaine écriture.",
+      undoStopped: { one: "Annuler ce fichier...", other: "Annuler ces {{n}} fichiers..." },
+      wrote: { one: "{{n}} fichier écrit.", other: "{{n}} fichiers écrits." },
+      failedHint: "Vérifiez qu'aucune autre application n'a le fichier ouvert, puis réessayez.",
+      retryN: "Réessayer {{n}}",
+      doneFoot:
+        "Plisto a relu les fichiers écrits : l'audiothèque affiche exactement leur contenu. Vous pouvez l'annuler jusqu'à votre prochaine écriture. Votre prochain export les recopiera.",
+      undoThis: "Annuler cette écriture...",
+      undoneTitle: {
+        one: "{{n}} fichier a retrouvé ses tags précédents.",
+        other: "{{n}} fichiers ont retrouvé leurs tags précédents.",
+      },
+      undoneBlockTitle: "Seul ce que Plisto a écrit a été rétabli.",
+      undoneBlockLine: "Les tags d'autres applications et tout ce que vous avez modifié depuis restent tels quels.",
+      undoneInfo:
+        "L'annulation remet les fichiers en l'état. Elle ne ramène pas les modifications Plisto effacées quand elles sont devenues les tags du fichier. Un point de restauration le peut (Paramètres, Points de restauration).",
+      undoneFoot: "L'audiothèque affiche les fichiers tels qu'ils sont maintenant.",
+      undoTitle: "Annuler cette écriture ?",
+      undoBody: {
+        one: "{{n}} fichier retrouve les tags qu'il avait avant. Un champ n'est rétabli que s'il contient encore ce que Plisto a écrit. Tout ce que vous ou une autre application avez modifié depuis reste.",
+        other:
+          "{{n}} fichiers retrouvent les tags qu'ils avaient avant. Un champ n'est rétabli que s'il contient encore ce que Plisto a écrit. Tout ce que vous ou une autre application avez modifié depuis reste.",
+      },
+      undoPoint: "Un point de restauration est enregistré d'abord.",
+      undoConfirm: "Annuler l'écriture",
+      failed: "L'écriture n'a pas été lancée. Rien n'a été modifié.",
+      pointNotSaved: "Plisto n'a pas pu enregistrer d'abord un point de restauration, il n'a donc rien écrit.",
+    },
+
+    trim: {
+      saveLabel: "Enregistrer",
+      saveNew: "Nouveau fichier",
+      saveReplace: "Remplacer l'original",
+      trimAndReplace: "Rogner et remplacer",
+      replacesLabel: "Remplace",
+      replacesLine:
+        "L'audio rogné prend la place du fichier, tags et pochette conservés. L'original reste à côté, masqué, {keep}.",
+      keepFor: { one: "pendant {{n}} jour", other: "pendant {{n}} jours" },
+      keepForever: "jusqu'à ce que vous le supprimiez",
+      keepUntil: "Jusqu'au {date}",
+      keepUntilForever: "Jusqu'à suppression",
+      off: "Le remplacement de l'original est désactivé.",
+      turnOn: "Activer dans les Paramètres",
+      why: {
+        inUse:
+          "Cette piste est en lecture ou suivante dans la file : son fichier ne peut pas être remplacé maintenant. Arrêtez la lecture ou choisissez une autre piste, puis réessayez.",
+        adHoc: "Ce fichier n'est pas dans votre audiothèque : il ne peut être enregistré qu'en nouveau fichier.",
+        flac: "Il n'existe pas encore de moyen sûr d'écrire un FLAC sur place ; la prise en charge est prévue. Le reconstruire ici ferait perdre sa table de recherche et sa somme de contrôle : un FLAC est enregistré en nouveau fichier.",
+        format:
+          "Il n'existe pas encore de moyen sûr d'écrire un {format} sur place ; la prise en charge est prévue. Seul l'Opus peut être remplacé : un fichier {format} est enregistré en nouveau fichier.",
+        readOnly: "Ce fichier est en lecture seule : il ne peut pas être remplacé. Plisto ne modifie pas les attributs du fichier.",
+      },
+      unavailableTitle: "Ce fichier n'a pas pu être ouvert",
+      missingLine:
+        "Le fichier a disparu du disque (Plisto le liste comme absent). Rien ne peut être rogné ni remplacé tant qu'il n'est pas revenu ou localisé.",
+      offlineLine:
+        "Son répertoire, {folder}, est hors ligne. Rebranchez le disque et rouvrez la piste. Rien ne peut être rogné ni remplacé tant que le fichier est inaccessible.",
+      backToEditor: "Retour à l'Éditeur de piste",
+      confirmTitle: "Remplacer {name} ?",
+      confirmAudio:
+        "Le fichier garde sa place dans l'audiothèque, ses tags et sa pochette. Son audio passe de {from} à {to}.",
+      confirmBackup: "L'original ({size}) reste à côté, en fichier masqué, {keep} :",
+      confirmSync: "Dans un répertoire synchronisé par OneDrive ou Dropbox, cette copie est aussi synchronisée.",
+      confirmUndo: "Vous pouvez annuler le rognage tant que la copie est conservée.",
+      confirmPoint: "Un point de restauration est enregistré d'abord.",
+      confirmButton: "Remplacer le fichier",
+      runningTitle: "Remplacement",
+      runningLine: "Écriture d'une copie temporaire, puis échange. L'original est conservé.",
+      doneTitle: "Rogné et remplacé",
+      doneLine:
+        "{name} dure maintenant {to}, contre {from}. L'original ({size}) est conservé à côté. {until}.",
+      doneRestart: "La piste reprend depuis le début si elle était en lecture.",
+      undoTrim: "Annuler le rognage...",
+      keptBackups: "Sauvegardes conservées",
+      trimAnother: "Rogner un autre",
+      undoneTitle: "Original remis",
+      undoneLine: "{name} dure de nouveau {from}. La version rognée n'a pas été conservée et la sauvegarde a disparu.",
+      trimAgain: "Rogner à nouveau",
+      undoTitle: "Remettre l'original de {name} ?",
+      undoBody:
+        "Le fichier rogné ({to}) est remplacé par l'original ({from}). La version rognée n'est pas conservée et la sauvegarde est supprimée.",
+      undoNote: "Plisto ne le fait que si le fichier est exactement tel que le rognage l'a laissé.",
+      undoConfirm: "Remettre l'original",
+      undoRefused: "Le fichier a changé depuis le rognage : Plisto n'a pas remis l'original.",
+      failedTitle: "Le rognage n'a pas abouti",
+      untouched: "Votre fichier d'origine est intact.",
+      saveAsNew: "Enregistrer en nouveau fichier",
+      fail: {
+        locked: {
+          title: "Une autre application a le fichier ouvert",
+          text: "Une autre application, ou OneDrive pendant la synchronisation du répertoire, a ce fichier ouvert : Plisto n'a pas pu l'échanger. Fermez cette application ou attendez la fin de la synchronisation, puis réessayez.",
+        },
+        space: {
+          title: "Pas assez de place sur {drive}",
+          text: "Le disque n'a pas assez de place pour le nouveau fichier et l'original conservé ({size}). Libérez de la place, ou enregistrez en nouveau fichier sur un autre disque.",
+        },
+        denied: {
+          title: "Accès refusé",
+          text: "Windows a refusé l'accès au fichier ou à son répertoire. Vérifiez que le fichier n'est pas en lecture seule et que vous pouvez écrire dans le répertoire, puis réessayez.",
+        },
+        other: {
+          title: "Windows a signalé une erreur",
+          text: "L'échange s'est arrêté avec l'erreur Windows {code}.",
+        },
+      },
+    },
+
+    kept: {
+      title: "Sauvegardes conservées",
+      sub: "Remplacer un fichier en le rognant conserve son original à côté. Annulez le rognage pour le remettre, ou supprimez-le pour libérer la place.",
+      summary: { one: "{{n}} sauvegarde - {size}", other: "{{n}} sauvegardes - {size}" },
+      summaryMissing: { one: "{{n}} absente", other: "{{n}} absentes" },
+      summaryOffline: "{{n}} hors ligne",
+      summaryDays: { one: "conservée {{n}} jour", other: "conservées {{n}} jours" },
+      summaryForever: "conservées jusqu'à suppression",
+      change: "Modifier",
+      rowMeta: "Original {size} - conservé {when}",
+      rowTrimmed: "Rogné de {from} à {to} - original {size}",
+      expiresIn: { one: "Expire dans {{n}} jour", other: "Expire dans {{n}} jours" },
+      expiresToday: "Expire aujourd'hui",
+      untilDiscard: "Jusqu'à suppression",
+      undoTrim: "Annuler le rognage...",
+      discard: "Supprimer",
+      discardAll: "Tout supprimer",
+      missingPill: "Sauvegarde absente",
+      missingLine: "Le fichier de sauvegarde a disparu du disque : ce rognage ne peut plus être annulé.",
+      removeFromList: "Retirer de la liste",
+      changedPill: "Modifié depuis le rognage",
+      offlinePill: "Répertoire hors ligne",
+      offlineLine: "{folder} est hors ligne. Rebranchez le disque pour annuler ou supprimer cette sauvegarde.",
+      foot: "Chaque copie est à côté de son fichier et occupe la place de ce disque. Les répertoires synchronisés la synchronisent aussi.",
+      emptyTitle: "Aucune sauvegarde conservée",
+      emptyLine:
+        "Lorsque vous remplacez un fichier en le rognant, son original est conservé ici jusqu'à sa suppression ou l'expiration du délai.",
+      undoTitle: "Remettre l'original de {title} ?",
+      undoBody: "Le fichier rogné est remplacé par l'original. La version rognée n'est pas conservée.",
+      undoBodyTimed: "Le fichier rogné ({to}) est remplacé par l'original ({from}). La version rognée n'est pas conservée.",
+      undoNote: "Plisto ne le fait que si le fichier est exactement tel que le rognage l'a laissé.",
+      undoConfirm: "Remettre l'original",
+      discardTitle: "Supprimer la sauvegarde de {title} ?",
+      discardBody:
+        "Cela supprime l'original masqué ({size}) et libère la place. C'est irréversible, et {title} ne pourra plus être annulée : le rognage devient définitif.",
+      discardConfirm: "Supprimer la sauvegarde",
+      discardAllTitle: { one: "Supprimer {{n}} sauvegarde ?", other: "Supprimer {{n}} sauvegardes ?" },
+      discardAllBody: {
+        one: "Cela supprime la copie masquée et libère {size}. C'est irréversible, et le rognage concerné ne pourra plus être annulé.",
+        other:
+          "Cela supprime les {{n}} copies masquées et libère {size}. C'est irréversible, et les rognages concernés ne pourront plus être annulés.",
+      },
+      discardAllConfirm: { one: "Supprimer {{n}} sauvegarde", other: "Supprimer {{n}} sauvegardes" },
+      discardAllOffline: {
+        one: "{{n}} sauvegarde sur un répertoire hors ligne est conservée.",
+        other: "{{n}} sauvegardes sur des répertoires hors ligne sont conservées.",
+      },
+      leftInPlace: "Le fichier a changé depuis sa mise en réserve : il est resté en place et seule son entrée a été retirée : {path}",
+      leftInPlaceMany: {
+        one: "{{n}} fichier a changé depuis sa mise en réserve : il est resté en place et seule son entrée a été retirée.",
+        other: "{{n}} fichiers ont changé depuis leur mise en réserve : ils sont restés en place et seules leurs entrées ont été retirées.",
+      },
+      discardFailed: "La sauvegarde n'a pas pu être supprimée. Rien n'a été modifié.",
+      loadFailed: "Impossible de lire les sauvegardes conservées.",
+    },
+
+    purge: {
+      backups: {
+        one: "{{n}} de ces pistes a une sauvegarde conservée de son original. Elle reste dans les Sauvegardes conservées jusqu'à sa suppression.",
+        other:
+          "{{n}} de ces pistes ont une sauvegarde conservée de leur original. Elles restent dans les Sauvegardes conservées jusqu'à leur suppression.",
+      },
+    },
+    folder: {
+      backups: {
+        one: "{{n}} sauvegarde conservée se trouve dans ce répertoire. Elle reste dans les Sauvegardes conservées jusqu'à sa suppression.",
+        other: "{{n}} sauvegardes conservées se trouvent dans ce répertoire. Elles restent dans les Sauvegardes conservées jusqu'à leur suppression.",
+      },
+    },
+
+    pending: {
+      title: "Retirer ce répertoire malgré des écritures inachevées ?",
+      body: "Plisto était en train d'écrire ces fichiers quand il s'est arrêté, et le répertoire est inaccessible pour les remettre en état.",
+      more: "et {{n}} de plus",
+      note: "Retirer le répertoire fait oublier ces écritures. Ceux de ces fichiers qui sont toujours sur le disque restent tels quels.",
+      confirm: "Retirer quand même",
+      failed: "Le répertoire n'a pas pu être retiré. Rien n'a été modifié.",
+    },
+
+    recovery: {
+      title: "Plisto a terminé une écriture interrompue",
+      restored: {
+        one: "L'application s'est fermée pendant l'écriture d'un fichier. Plisto a remis l'original : le fichier est exactement comme avant. Rien n'a été perdu.",
+        other:
+          "L'application s'est fermée pendant l'écriture de fichiers. Plisto a remis {{n}} originaux : les fichiers sont exactement comme avant. Rien n'a été perdu.",
+      },
+      finished: {
+        one: "{{n}} fichier était presque terminé quand l'application s'est fermée. Plisto l'a achevé.",
+        other: "{{n}} fichiers étaient presque terminés quand l'application s'est fermée. Plisto les a achevés.",
+      },
+      heldOffline: {
+        one: "{{n}} fichier est dans un répertoire hors ligne. Plisto le réglera au retour du répertoire.",
+        other: "{{n}} fichiers sont dans des répertoires hors ligne. Plisto les réglera au retour des répertoires.",
+      },
+      needsAttention: {
+        one: "{{n}} fichier demande votre attention. Plisto l'a laissé tel quel.",
+        other: "{{n}} fichiers demandent votre attention. Plisto les a laissés tels quels.",
+      },
+      show: "Afficher le fichier",
+      dismiss: "Fermer",
+    },
   },
 };

@@ -8,7 +8,13 @@ import { getSetting, setSetting } from "../../lib/ipc";
 import { catalogOf, toggleKind } from "../player/visualizerCatalog";
 
 // -- Unit Imports --
-import { PREF_KEYS, persistVisualizerCatalog, selectCatalogUnreadable, usePreferencesStore } from "./store";
+import {
+  PREF_KEYS,
+  normalizeTrimBackupDays,
+  persistVisualizerCatalog,
+  selectCatalogUnreadable,
+  usePreferencesStore,
+} from "./store";
 
 vi.mock("../../lib/ipc", () => ({ getSetting: vi.fn(), setSetting: vi.fn() }));
 
@@ -148,5 +154,21 @@ describe("visualizer catalog preference", () => {
     unsubscribe();
     expect(renders).toBe(1);
     expect(catalogOf(last[0] as string, last[1] as boolean)).toBe(first);
+  });
+});
+
+describe("music file write preferences", () => {
+  it("are stored under the names the backend reads", () => {
+    expect(PREF_KEYS.stampFiles).toBe("stampFiles");
+    expect(PREF_KEYS.trimReplace).toBe("trimReplace");
+    expect(PREF_KEYS.trimBackupDays).toBe("trimBackupDays");
+  });
+
+  it("reads an absent or unknown backup limit as 30 days and keeps the three it offers", () => {
+    expect(normalizeTrimBackupDays(undefined)).toBe("30");
+    expect(normalizeTrimBackupDays("14")).toBe("30");
+    expect(normalizeTrimBackupDays("7")).toBe("7");
+    expect(normalizeTrimBackupDays("30")).toBe("30");
+    expect(normalizeTrimBackupDays("never")).toBe("never");
   });
 });

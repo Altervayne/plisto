@@ -1600,7 +1600,8 @@ export type RestoreRefusal =
   | { code: "unreadable"; message: string }
   | { code: "integrity"; message: string }
   | { code: "before_point"; message: string }
-  | { code: "busy" };
+  | { code: "busy" }
+  | { code: "file_write" };
 
 /** A dry run of a restore. */
 export type RestorePreview =
@@ -1611,3 +1612,166 @@ export type RestorePreview =
 export type RestoreOutcome =
   | { kind: "done"; summary: RestoreSummary; before_point: string | null }
   | { kind: "refused"; reason: RestoreRefusal };
+
+// -- Writing to music files --
+
+/** What a tag write covers: whole albums, chosen tracks, or every track the feature can reach. Mirrors StampScope. */
+export type StampScope =
+  | { kind: "albums"; albumIds: number[] }
+  | { kind: "tracks"; trackIds: number[] }
+  | { kind: "library" };
+
+/** A tag field a write can set. The cover is never one. Mirrors StampField. */
+export type StampField = "title" | "artist" | "album" | "albumArtist" | "year" | "track" | "disc" | "genres";
+
+/**
+ * Why a file was left alone. `changed` is used only by undo (the file was edited since the write);
+ * `edited` is a file whose values changed in Plisto between the preview and its turn. Mirrors SkipReason.
+ */
+export type SkipReason =
+  | "unchanged"
+  | "inUse"
+  | "readOnly"
+  | "comment"
+  | "unsupported"
+  | "offline"
+  | "missing"
+  | "failed"
+  | "changed"
+  | "edited";
+
+/** What happened to one file of a batch. */
+export type StampOutcome = "written" | "reverted" | SkipReason;
+
+/** A track named in a result group. Mirrors TrackRef. */
+export interface TrackRef {
+  trackId: number;
+  title: string;
+  relPath: string;
+  /** The library folder the file sits under, named only for an offline file; null when unknown. */
+  rootLabel: string | null;
+}
+
+/** One field a file would change; `from` is null when the file holds no value. Mirrors StampChange. */
+export interface StampChange {
+  field: StampField;
+  from: string | null;
+  to: string;
+}
+
+/** The changes planned for one file. Mirrors StampFilePlan. */
+export interface StampFilePlan {
+  trackId: number;
+  title: string;
+  relPath: string;
+  changes: StampChange[];
+}
+
+/** Files the preview leaves alone, grouped by reason. */
+export interface StampSkipGroup {
+  reason: SkipReason;
+  tracks: TrackRef[];
+}
+
+/**
+ * The dry run of a tag write. `previewId` names the snapshot the run commits; `exportRunning` and
+ * `exportsAffected` drive the export banner and the footer line. Mirrors StampPreview.
+ */
+export interface StampPreview {
+  previewId: string;
+  files: StampFilePlan[];
+  skips: StampSkipGroup[];
+  exportRunning: boolean;
+  exportsAffected: number;
+}
+
+/** A progress event of a batch. File events are never throttled. Mirrors StampEvent. */
+export type StampEvent =
+  | { kind: "started"; total: number }
+  | { kind: "file"; index: number; trackId: number; outcome: StampOutcome; detail?: string }
+  | { kind: "finished"; summary: StampSummary };
+
+/** One result group: every track that ended with the same outcome. */
+export interface StampResultGroup {
+  outcome: StampOutcome;
+  tracks: TrackRef[];
+}
+
+/** How a batch ended. `pointSaved` is false when its restore point could not be taken. Mirrors StampSummary. */
+export interface StampSummary {
+  batchId: number;
+  cancelled: boolean;
+  groups: StampResultGroup[];
+  pointSaved: boolean;
+}
+
+/** The latest batch that wrote a file, for the Settings last-write line. Null before the first. */
+export type LastFileWrite = {
+  batchId: number;
+  kind: "stamp" | "trim";
+  /** Epoch ms, as `Date.now()` reads; not seconds. */
+  at: number;
+  files: number;
+  undoable: boolean;
+  /** What the write covered, named for the Settings line (an album title); null when it has no single name. */
+  label: string | null;
+} | null;
+
+/** One trim to apply in place: the library track and the part to keep. Mirrors TrimReplaceJob. */
+export interface TrimReplaceJob {
+  trackId: number;
+  segment: Segment;
+}
+
+/** What a trim in place left behind. `expiresAt` is epoch ms, null when kept until discarded. */
+export interface TrimReplaceResult {
+  undoId: number;
+  backupName: string;
+  expiresAt: number | null;
+}
+
+/** Why a trim in place failed; `other` carries the Windows code in the error detail. Mirrors TrimFailure. */
+export type TrimFailure = "locked" | "space" | "denied" | "other";
+
+/** Where a kept backup stands: on disk, gone from disk, or on a folder that is offline. */
+export type KeptBackupState = "kept" | "missing" | "offline";
+
+/** One hidden original kept beside a trimmed file. Times are epoch ms. Mirrors KeptBackup. */
+export interface KeptBackup {
+  undoId: number;
+  trackId: number | null;
+  rootId: number | null;
+  title: string;
+  relPath: string;
+  rootLabel: string;
+  size: number;
+  /** Epoch ms. */
+  keptAt: number;
+  /** Epoch ms; null when kept until discarded. */
+  expiresAt: number | null;
+  /** Length of the original and of the trimmed file, in ms; null when the row predates them. */
+  originalDurationMs: number | null;
+  trimmedDurationMs: number | null;
+  state: KeptBackupState;
+  canUndo: boolean;
+}
+
+/** What startup or a scan did about writes a closed app left unfinished. Mirrors WriteRecovery. */
+export type WriteRecovery = {
+  restored: number;
+  finished: number;
+  heldOffline: number;
+  needsAttention: string[];
+} | null;
+
+/** What discarding one kept backup did. `leftInPlace` is a file changed since it was kept: the entry went, the file stayed. */
+export interface KeptDiscardOutcome {
+  leftInPlace: boolean;
+}
+
+/** What discarding every kept backup did: rows removed, files left in place, and offline rows skipped. */
+export interface KeptDiscardAllOutcome {
+  discarded: number;
+  leftInPlace: number;
+  offline: number;
+}

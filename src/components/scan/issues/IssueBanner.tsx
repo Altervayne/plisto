@@ -50,6 +50,9 @@ export function IssueBanner({ notice }: { notice: IssueNotice | null }) {
     case "scanRunning":
       text = t((d) => d.scan.issueScanRunning);
       break;
+    case "fileWriteRunning":
+      text = t((d) => d.fileWrites.busy);
+      break;
     case "noLog":
       text = t((d) => d.scan.issueNoLog);
       break;

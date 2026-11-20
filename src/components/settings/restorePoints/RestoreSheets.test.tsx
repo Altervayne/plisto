@@ -18,7 +18,7 @@ import { fr } from "../../../i18n/fr";
 import { createT } from "../../../i18n";
 
 // -- Type Imports --
-import type { RestoreFailureKey } from "../../../state/restorePoints/store";
+import type { RestoreFailure, RestoreFailureKey } from "../../../state/restorePoints/store";
 import type { RestorePointRow, RestoreSummary, UnmatchedGroup } from "../../../types";
 
 const escaped = (text: string) => text.replace(/'/g, "&#x27;");
@@ -233,5 +233,10 @@ describe("failureText", () => {
 
   it("uses the scan-running wording for a busy refusal", () => {
     expect(failureText(createT("en"), { key: "busy", detail: null })).toBe(en.settings.locateBusy);
+  });
+
+  it("uses the file-write wording for a file_write refusal", () => {
+    const failure = { key: "file_write", detail: null } as unknown as RestoreFailure;
+    expect(failureText(createT("en"), failure)).toBe(en.fileWrites.busy);
   });
 });

@@ -25,6 +25,12 @@ export function kindLabel(t: Translate, kind: PointKind): string {
           return t((d) => d.restorePoints.kindAction, { action: t((d) => d.tracks.removeGone) });
         case "relocate":
           return t((d) => d.restorePoints.kindAction, { action: t((d) => d.settings.locate) });
+        case "stamp":
+          return t((d) => d.restorePoints.kindAction, { action: t((d) => d.restorePoints.actionStamp) });
+        case "stamp_undo":
+          return t((d) => d.restorePoints.kindAction, { action: t((d) => d.restorePoints.actionStampUndo) });
+        case "trim_replace":
+          return t((d) => d.restorePoints.kindAction, { action: t((d) => d.restorePoints.actionTrimReplace) });
         default:
           return t((d) => d.restorePoints.kindActionOther);
       }

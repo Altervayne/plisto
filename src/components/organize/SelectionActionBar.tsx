@@ -35,6 +35,8 @@ import {
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { announceAfterBlock } from "../../state/player/queueToast";
+import { openStampSheet } from "../../state/fileWrites/store";
+import { useStampFiles } from "../../state/preferences/store";
 
 // -- Type Imports --
 import type { FoldAction } from "../common/ActionFold/FoldedActions";
@@ -87,6 +89,7 @@ export function SelectionActionBar({
   const playerEnabled = usePlayerEnabled();
   const albumsGate = useWriteGate("albums");
   const playlistsGate = useWriteGate("playlists");
+  const stampFiles = useStampFiles();
   const t = useT();
 
   const [busy, setBusy] = useState(false);
@@ -237,6 +240,13 @@ export function SelectionActionBar({
   const extractLabel = t((d) => d.extract.action);
   const editTagsLabel = t((d) => d.selection.editTags);
   const cleanLabel = t((d) => d.selection.cleanTitles);
+  const writeTagsLabel = t((d) => d.fileWrites.entry.barAction);
+
+  // Opens the tag-write sheet over the selected ids.
+  const openWriteTags = () => {
+    const trackIds = tracks.filter((track) => selection.has(track.id)).map((track) => track.id);
+    openStampSheet({ kind: "tracks", trackIds });
+  };
 
   const openAlbumPicker = () => {
     setPlaylistPickerOpen(false);
@@ -354,6 +364,18 @@ export function SelectionActionBar({
       onSelect: openCleanTitles,
       node: <QuietButton onClick={openCleanTitles}>{cleanLabel}</QuietButton>,
     },
+    ...(stampFiles
+      ? [
+          {
+            id: "stamp",
+            keep: 10,
+            group: 5,
+            label: writeTagsLabel,
+            onSelect: openWriteTags,
+            node: <QuietButton onClick={openWriteTags}>{writeTagsLabel}</QuietButton>,
+          },
+        ]
+      : []),
   ];
 
   return (

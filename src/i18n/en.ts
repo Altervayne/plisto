@@ -860,6 +860,8 @@ export const en = {
     rescanAll: ["refresh", "scan", "update"],
     keepUpToDate: ["watch", "automatic", "rescan"],
     addGenre: ["tag", "category"],
+    stampFiles: ["tags", "write tags", "metadata", "id3", "embed", "files", "title", "artist", "album", "genre"],
+    trimReplace: ["trim", "crop", "replace file", "overwrite", "backup", "original", "opus"],
     restorePoints: ["backup", "undo", "recover", "rollback", "snapshot", "restore"],
     outputDevice: ["speakers", "headphones", "audio"],
     playHistory: ["reset", "listening", "clear"],
@@ -1162,6 +1164,7 @@ export const en = {
     jobExport: "an export",
     jobSplice: "a splice",
     jobPlaylistExport: "a playlist export",
+    jobFileWrite: "a write to your music files",
     and: "and",
     running: {
       one: "{subject} is still running. Quitting Plisto cancels it.",
@@ -1872,6 +1875,9 @@ export const en = {
     kindActionOther: "Before a change",
     actionMerge: "Merge duplicates",
     actionDeleteAlbums: "Delete albums",
+    actionStamp: "Write tags to files",
+    actionStampUndo: "Undo a tag write",
+    actionTrimReplace: "Replace the original",
     appVersion: "Plisto {version}",
     albums: { one: "{{n}} album", other: "{{n}} albums" },
     singles: { one: "{{n}} single", other: "{{n}} singles" },
@@ -1950,6 +1956,390 @@ export const en = {
     failBeforePoint:
       "Plisto couldn't save a restore point of right now first, so it stopped. Free some disk space and try again.",
     failFailed: "The restore did not run.",
+  },
+  fileWrites: {
+    busy: "Plisto is writing to your music files. Try again in a moment.",
+    empty: "(empty)",
+    files: { one: "{{n}} file", other: "{{n}} files" },
+    tracks: { one: "{{n}} track", other: "{{n}} tracks" },
+    cancel: "Cancel",
+    close: "Close",
+    done: "Done",
+    retry: "Retry",
+    field: {
+      title: "Title",
+      artist: "Artist",
+      album: "Album",
+      albumArtist: "Album artist",
+      year: "Year",
+      track: "Track",
+      disc: "Disc",
+      genres: "Genres",
+      cover: "Cover",
+    },
+    // Why a file was left alone, and the outcome names a result group can carry.
+    reason: {
+      written: "Written",
+      reverted: "Reverted",
+      unchanged: { label: "Unchanged", text: "Already holds these tags." },
+      inUse: {
+        label: "In use",
+        text: "Playing now or next in the queue. Plisto leaves it alone; retry once it is free.",
+      },
+      readOnly: { label: "Read-only", text: "Marked read-only. Plisto does not change file attributes." },
+      comment: {
+        label: "Comment cannot be rewritten",
+        text: "Its comment frame cannot be rewritten without losing it, so the file is left as it is.",
+      },
+      unsupported: { label: "Format not supported", text: "WMA files cannot be written." },
+      offline: { label: "Folder offline", text: "Its folder is offline. Reconnect the drive first." },
+      missing: { label: "File missing", text: "The file is gone from disk." },
+      failed: {
+        label: "Failed",
+        text: "Windows refused to replace the file (access denied). The file is unchanged.",
+      },
+      changed: {
+        label: "Changed since",
+        text: "Edited since Plisto wrote it, so it keeps what it holds now.",
+      },
+      edited: {
+        label: "Edited meanwhile",
+        text: "Its values changed in Plisto after you confirmed, so the file was left alone. Retry shows it again with the current values.",
+      },
+      attention: {
+        label: "Needs attention",
+        text: "An interrupted write left this file in a state Plisto could not settle on its own. It was not touched further.",
+      },
+      detail: "Detail: {detail}",
+    },
+
+    // Settings > Music files (scenes A and B:library).
+    settings: {
+      section: "Music files",
+      lede: "Plisto reads your music files and never changes them, unless you turn one of these on. Each asks before it acts.",
+      stampLabel: "Write tags to files",
+      stampHelper:
+        "Adds a Write tags to files action to albums and track selections. It writes the title, artist, album, album artist, year, track, disc and genres Plisto shows into your files. It never writes the cover and never clears a field.",
+      stampNote:
+        "This changes your files on disk. Other apps and devices will see the new tags, and your next export copies those files again. Every write asks first and can be undone from here.",
+      differLabel: "Files that differ from Plisto:",
+      differChecking: "Checking...",
+      review: "Review...",
+      lastWriteLabel: "Last write:",
+      lastKindStamp: "Tags written",
+      lastKindTrim: "Trim replaced",
+      lastToday: "today {time}",
+      lastYesterday: "yesterday {time}",
+      undo: "Undo...",
+      trimLabel: "Replace the original when trimming",
+      trimHelper:
+        "Adds Replace the original to the Track Editor, for Opus files only. Other formats keep saving a new file, and the editor says why.",
+      trimNote:
+        "The original stays beside the file as a hidden copy, kept 30 days by default, until you discard it or the time runs out. A folder synced by OneDrive or Dropbox will sync that copy too.",
+      keepLabel: "Keep the original for",
+      keep7: "7 days",
+      keep30: "30 days",
+      keepNever: "Until I discard",
+      keepHelper:
+        "When the time is up Plisto deletes the copy. Discard one sooner from Kept backups. A change applies to existing backups too, from the next check.",
+      keptLabel: "Kept backups:",
+      keptLine: { one: "{{n}} backup - {size}", other: "{{n}} backups - {size}" },
+      keptNone: "None",
+      manage: "Manage...",
+    },
+
+    // Entry points (scene B).
+    entry: {
+      doorLine: {
+        one: "{{differing}} of {{n}} file differs from Plisto.",
+        other: "{{differing}} of {{n}} files differ from Plisto.",
+      },
+      doorAction: "Write tags to files",
+      menuItem: { one: "Write tags to {{n}} file...", other: "Write tags to {{n}} files..." },
+      barAction: "Write tags to files",
+    },
+
+    // The confirm sheet (scene C).
+    stamp: {
+      title: "Write tags to files",
+      sub: "Plisto writes what you see here into your files. Nothing is written until you confirm.",
+      scopeAlbum: "{album} - {artist} - {tracks}",
+      scopeAlbums: { one: "{{n}} album", other: "{{n}} albums" },
+      scopeSelection: { one: "{{n}} track selected in {album}", other: "{{n}} tracks selected in {album}" },
+      scopeLoose: { one: "{{n}} track selected, not in an album", other: "{{n}} tracks selected, none in an album" },
+      scopeSingle: "Single: {title}, {artist}",
+      scopeLibrary: "Whole library, {tracks}",
+      writtenEyebrow: "Written",
+      writtenNever: "Never the cover. A field Plisto has no value for stays as it is in the file.",
+      writtenLoose: "Only the fields you edited, track by track.",
+      bannerExport:
+        "An export is running. Writing waits until it finishes, so a file is never copied while it is being replaced.",
+      bannerCost:
+        "A write this large takes a while: each file is copied, written and swapped in. Synced folders (OneDrive, Dropbox) will upload every changed file.",
+      bannerSingle:
+        "A single has no album. Plisto writes the single's own title as the album, as an export does today.",
+      bannerLoose:
+        "These tracks are not in an album, so only the fields you edited are written.",
+      willWrite: { one: "{{n}} file will be written.", other: "{{n}} files will be written." },
+      willSkip: { one: "{{n}} will be left alone.", other: "{{n}} will be left alone." },
+      byChange: "By change",
+      byFile: "By file",
+      asInAlbum: "{value} (as in the album)",
+      fromTo: "{from} -> {to}",
+      showMore: { one: "Show {{n}} more file", other: "Show {{n}} more files" },
+      notWritten: "Not written",
+      offlineGroup: { one: "{{n}} track, kept as it is", other: "{{n}} tracks, kept as they are" },
+      checking: "Checking your files...",
+      checkFailed: "Plisto could not check the files. Nothing was changed.",
+      nothingTitle: "Nothing to write",
+      nothingLine: "Every file already holds the tags Plisto shows. No file is touched.",
+      nothingFoot: "Your files were not touched.",
+      footer:
+        "A restore point is saved first. You can undo it until your next write. Edits you made in Plisto that are now in the file stop being edits: the file becomes the truth. Your next export copies these files again.",
+      write: { one: "Write {{n}} file", other: "Write {{n}} files" },
+    },
+
+    // Progress, results and undo (scene D).
+    run: {
+      titleRunning: "Writing tags",
+      titleStopped: "Writing stopped",
+      titleDone: "Tags written",
+      titleUndoing: "Undoing the write",
+      titleUndone: "Write undone",
+      progress: "Writing {{i}} of {{n}}",
+      undoProgress: "Undoing {{i}} of {{n}}",
+      counterWritten: "written",
+      counterSkipped: "skipped",
+      counterFailed: "failed",
+      infoRunning:
+        "A track that starts playing, or is queued next, while the batch runs is skipped and listed as In use; you can retry it afterwards. Stopping lets the current file finish: a file is never left half-written. Export and other writes wait until this one ends.",
+      footRunning: "Playback keeps going. Files in use are skipped.",
+      stop: "Stop after this file",
+      stopping: "Stopping after this file...",
+      stoppedTitle: "Stopped after {{i}} of {{n}} files.",
+      stoppedInfo: {
+        one: "The file not started still differs from Plisto. The written files can be undone.",
+        other: "The {{n}} files not started still differ from Plisto. The written files can be undone.",
+      },
+      notStarted: "Not started ({{n}})",
+      writtenGroup: "Written ({{n}})",
+      failedGroup: "Failed ({{n}})",
+      skippedGroup: "Skipped ({{n}})",
+      keptGroup: "Kept as they are ({{n}})",
+      revertedGroup: "Reverted ({{n}})",
+      undoUntil: "You can undo it until your next write.",
+      undoStopped: { one: "Undo this file...", other: "Undo these {{n}} files..." },
+      wrote: { one: "Wrote {{n}} file.", other: "Wrote {{n}} files." },
+      failedHint: "Check that no other app has the file open, then retry.",
+      retryN: "Retry {{n}}",
+      doneFoot:
+        "Plisto re-read the written files, so the library shows exactly what they hold. You can undo it until your next write. Your next export copies them again.",
+      undoThis: "Undo this write...",
+      undoneTitle: {
+        one: "{{n}} file went back to its earlier tags.",
+        other: "{{n}} files went back to their earlier tags.",
+      },
+      undoneBlockTitle: "Only what Plisto wrote was reverted.",
+      undoneBlockLine: "The tags of other apps and anything you changed since stay as they are.",
+      undoneInfo:
+        "Undo puts the files back. It does not bring back the Plisto edits that were cleared when they became the file's tags. A restore point can (Settings, Restore points).",
+      undoneFoot: "The library shows the files as they are now.",
+      undoTitle: "Undo this write?",
+      undoBody: {
+        one: "{{n}} file goes back to the tags it had before. A field goes back only if it still holds what Plisto wrote. Anything you or another app changed since stays.",
+        other:
+          "{{n}} files go back to the tags they had before. A field goes back only if it still holds what Plisto wrote. Anything you or another app changed since stays.",
+      },
+      undoPoint: "A restore point is saved first.",
+      undoConfirm: "Undo write",
+      failed: "The write did not run. Nothing was changed.",
+      pointNotSaved: "Plisto could not save a restore point first, so it wrote nothing.",
+    },
+
+    // The Track Editor save (scenes E and G).
+    trim: {
+      saveLabel: "Save",
+      saveNew: "As a new file",
+      saveReplace: "Replace the original",
+      trimAndReplace: "Trim and replace",
+      replacesLabel: "Replaces",
+      replacesLine:
+        "The trimmed audio takes the file's place, tags and cover kept. The original stays beside it, hidden, {keep}.",
+      keepFor: { one: "for {{n}} day", other: "for {{n}} days" },
+      keepForever: "until you discard it",
+      keepUntil: "Until {date}",
+      keepUntilForever: "Until you discard it",
+      off: "Replacing the original is off.",
+      turnOn: "Turn it on in Settings",
+      why: {
+        inUse:
+          "This track is playing or next in the queue, so its file cannot be replaced now. Stop playback or choose another track, then try again.",
+        adHoc: "This file is not in your library, so it can only be saved as a new file.",
+        flac: "There is no safe way to write FLAC in place yet; support is planned. Rebuilding it here would drop its seek table and checksum, so a FLAC is saved as a new file.",
+        format:
+          "There is no safe way to write {format} in place yet; support is planned. Only Opus can be replaced, so a {format} file is saved as a new file.",
+        readOnly: "This file is read-only, so it cannot be replaced. Plisto does not change file attributes.",
+      },
+      unavailableTitle: "This file could not be opened",
+      missingLine:
+        "The file is gone from disk (Plisto lists it as missing). Nothing can be trimmed or replaced until it is back or located.",
+      offlineLine:
+        "Its folder, {folder}, is offline. Reconnect the drive and open the track again. Nothing can be trimmed or replaced while the file is out of reach.",
+      backToEditor: "Back to Track Editor",
+      confirmTitle: "Replace {name}?",
+      confirmAudio:
+        "The file keeps its place in your library, its tags and its cover. Its audio goes from {from} to {to}.",
+      confirmBackup: "The original ({size}) stays beside it as a hidden file, {keep}:",
+      confirmSync: "In a folder synced by OneDrive or Dropbox, that copy is synced too.",
+      confirmUndo: "You can undo the trim while the copy is kept.",
+      confirmPoint: "A restore point is saved first.",
+      confirmButton: "Replace file",
+      runningTitle: "Replacing",
+      runningLine: "Writing a temporary copy, then swapping it in. The original is kept.",
+      doneTitle: "Trimmed and replaced",
+      doneLine:
+        "{name} is now {to}, down from {from}. The original ({size}) is kept beside it. {until}.",
+      doneRestart: "The track starts over from the beginning if it was playing.",
+      undoTrim: "Undo trim...",
+      keptBackups: "Kept backups",
+      trimAnother: "Trim another",
+      undoneTitle: "Original put back",
+      undoneLine: "{name} is {from} again. The trimmed version was not kept, and the backup is gone.",
+      trimAgain: "Trim again",
+      undoTitle: "Put the original of {name} back?",
+      undoBody:
+        "The trimmed file ({to}) is replaced by the original ({from}). The trimmed version is not kept, and the backup is removed.",
+      undoNote: "Plisto only does this if the file is exactly as the trim left it.",
+      undoConfirm: "Put original back",
+      undoRefused: "The file changed since the trim, so Plisto did not put the original back.",
+      failedTitle: "The trim didn't finish",
+      untouched: "Your original file is untouched.",
+      saveAsNew: "Save as a new file instead",
+      fail: {
+        locked: {
+          title: "Another app has the file open",
+          text: "Another app, or OneDrive while it syncs the folder, has this file open, so Plisto could not swap it in. Close that app or wait for the sync, then retry.",
+        },
+        space: {
+          title: "Not enough room on {drive}",
+          text: "The drive has no room for the new file and the kept original ({size}). Free some space, or save as a new file on another drive.",
+        },
+        denied: {
+          title: "Access denied",
+          text: "Windows denied access to the file or its folder. Check that the file is not read-only and that you can write to the folder, then retry.",
+        },
+        other: {
+          title: "Windows reported an error",
+          text: "The swap stopped with Windows error {code}.",
+        },
+      },
+    },
+
+    // Kept backups (scene F).
+    kept: {
+      title: "Kept backups",
+      sub: "Replacing a file while trimming keeps its original beside it. Undo the trim to put it back, or discard it to free the space.",
+      summary: { one: "{{n}} backup - {size}", other: "{{n}} backups - {size}" },
+      summaryMissing: { one: "{{n}} missing", other: "{{n}} missing" },
+      summaryOffline: "{{n}} offline",
+      summaryDays: { one: "kept {{n}} day", other: "kept {{n}} days" },
+      summaryForever: "kept until you discard them",
+      change: "Change",
+      rowMeta: "Original {size} - kept {when}",
+      rowTrimmed: "Trimmed {from} to {to} - original {size}",
+      expiresIn: { one: "Expires in {{n}} day", other: "Expires in {{n}} days" },
+      expiresToday: "Expires today",
+      untilDiscard: "Until you discard",
+      undoTrim: "Undo trim...",
+      discard: "Discard",
+      discardAll: "Discard all",
+      missingPill: "Backup missing",
+      missingLine: "The backup file is gone from disk, so this trim can no longer be undone.",
+      removeFromList: "Remove from list",
+      changedPill: "Changed since the trim",
+      offlinePill: "Folder offline",
+      offlineLine: "{folder} is offline. Reconnect the drive to undo or discard this backup.",
+      foot: "Each copy sits beside its file and counts against that drive. Synced folders sync it too.",
+      emptyTitle: "No kept backups",
+      emptyLine:
+        "When you replace a file while trimming, its original is kept here until you discard it or its time runs out.",
+      undoTitle: "Put the original of {title} back?",
+      undoBody: "The trimmed file is replaced by the original. The trimmed version is not kept.",
+      undoBodyTimed: "The trimmed file ({to}) is replaced by the original ({from}). The trimmed version is not kept.",
+      undoNote: "Plisto only does this if the file is exactly as the trim left it.",
+      undoConfirm: "Put original back",
+      discardTitle: "Discard the backup of {title}?",
+      discardBody:
+        "This deletes the hidden original ({size}) and frees the space. It cannot be undone, and {title} can no longer be undone: the trim becomes permanent.",
+      discardConfirm: "Discard backup",
+      discardAllTitle: { one: "Discard {{n}} backup?", other: "Discard {{n}} backups?" },
+      discardAllBody: {
+        one: "This deletes the hidden copy and frees {size}. It cannot be undone, and the trim it covers can no longer be undone.",
+        other:
+          "This deletes the {{n}} hidden copies and frees {size}. It cannot be undone, and the trims they cover can no longer be undone.",
+      },
+      discardAllConfirm: { one: "Discard {{n}} backup", other: "Discard {{n}} backups" },
+      discardAllOffline: {
+        one: "{{n}} backup on an offline folder is kept.",
+        other: "{{n}} backups on offline folders are kept.",
+      },
+      leftInPlace: "The file changed since Plisto kept it, so it was left in place and only its entry was removed: {path}",
+      leftInPlaceMany: {
+        one: "{{n}} file changed since Plisto kept it, so it was left in place and only its entry was removed.",
+        other: "{{n}} files changed since Plisto kept them, so they were left in place and only their entries were removed.",
+      },
+      discardFailed: "The backup could not be discarded. Nothing was changed.",
+      loadFailed: "Could not read the kept backups.",
+    },
+
+    // Lines added to confirms that already exist (purge, remove folder).
+    purge: {
+      backups: {
+        one: "{{n}} of these tracks has a kept backup of its original. It stays in Kept backups until you discard it.",
+        other:
+          "{{n}} of these tracks have a kept backup of their original. They stay in Kept backups until you discard them.",
+      },
+    },
+    folder: {
+      backups: {
+        one: "{{n}} kept backup lives in this folder. It stays in Kept backups until you discard it.",
+        other: "{{n}} kept backups live in this folder. They stay in Kept backups until you discard them.",
+      },
+    },
+
+    // Removing a folder that still has unfinished writes.
+    pending: {
+      title: "Remove this folder with unfinished writes?",
+      body: "Plisto was in the middle of writing these files when it stopped, and the folder cannot be reached to put them back.",
+      more: "and {{n}} more",
+      note: "Removing the folder forgets these writes. Any of these files still on the drive stay as they are.",
+      confirm: "Remove anyway",
+      failed: "The folder could not be removed. Nothing was changed.",
+    },
+
+    // The notice after Plisto settled writes a closed app left unfinished (scene E:recovery).
+    recovery: {
+      title: "Plisto finished an interrupted write",
+      restored: {
+        one: "The app closed while a file was being written. Plisto put the original back, so the file is exactly as it was. Nothing was lost.",
+        other:
+          "The app closed while files were being written. Plisto put {{n}} originals back, so the files are exactly as they were. Nothing was lost.",
+      },
+      finished: {
+        one: "{{n}} file was almost done when the app closed. Plisto completed it.",
+        other: "{{n}} files were almost done when the app closed. Plisto completed them.",
+      },
+      heldOffline: {
+        one: "{{n}} file is on a folder that is offline. Plisto settles it when the folder is back.",
+        other: "{{n}} files are on folders that are offline. Plisto settles them when the folders are back.",
+      },
+      needsAttention: {
+        one: "{{n}} file needs a look. Plisto left it as it is.",
+        other: "{{n}} files need a look. Plisto left them as they are.",
+      },
+      show: "Show the file",
+      dismiss: "Dismiss",
+    },
   },
 };
 

@@ -46,7 +46,7 @@ export function refusalLine(
     case "failed":
       return t((d) => d.settings.locateFailed, { name });
     case "busy":
-      return t((d) => d.settings.locateBusy);
+      return reason.by === "fileWrite" ? t((d) => d.fileWrites.busy) : t((d) => d.settings.locateBusy);
   }
 }
 

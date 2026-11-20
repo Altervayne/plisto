@@ -25,9 +25,11 @@ describe("removeGone", () => {
     }
   });
 
-  it("maps a scan in progress and any other failure", async () => {
+  it("maps a scan or a file write in progress and any other failure", async () => {
     const busy = vi.fn().mockRejectedValue("a scan is already running");
     expect(await removeGone([1], busy)).toEqual({ kind: "failed", reason: "busy" });
+    const writing = vi.fn().mockRejectedValue("a file write is running");
+    expect(await removeGone([1], writing)).toEqual({ kind: "failed", reason: "fileWrite" });
     const broken = vi.fn().mockRejectedValue("index is unavailable");
     expect(await removeGone([1], broken)).toEqual({ kind: "failed", reason: "failed" });
   });
@@ -44,7 +46,7 @@ describe("removeFailureLine", () => {
 
   it("has a line for every reason in both languages", () => {
     for (const locale of ["en", "fr"] as const) {
-      for (const reason of ["not_saved", "busy", "failed"] as const) {
+      for (const reason of ["not_saved", "busy", "fileWrite", "failed"] as const) {
         expect(removeFailureLine(createT(locale), reason).length).toBeGreaterThan(0);
       }
     }

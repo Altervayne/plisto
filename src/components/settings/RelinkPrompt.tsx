@@ -44,7 +44,7 @@ export function RelinkPrompt() {
     const folder = offer.path;
     const result = await resolve(choice);
     if (result?.kind === "refused") setNotice(refusalLine(t, result.reason, name, folder));
-    else if (result?.kind === "busy") setNotice(refusalLine(t, { code: "busy" }, name, folder));
+    else if (result?.kind === "busy") setNotice(refusalLine(t, { code: "busy", by: result.by }, name, folder));
   };
 
   return (

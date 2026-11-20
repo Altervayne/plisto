@@ -81,6 +81,11 @@ export const PREF_KEYS = {
   tagAlbumsDismissed: "tag_albums_dismissed",
   // The newest missing_at among the gone tracks when "Not now" was pressed, a number string.
   goneCardDismissed: "gone_card_dismissed",
+  // The two opt-ins to writing into music files, and how long a trim keeps its original. The backend reads
+  // these same keys by name and refuses a write command while its switch is off.
+  stampFiles: "stampFiles",
+  trimReplace: "trimReplace",
+  trimBackupDays: "trimBackupDays",
 } as const;
 
 interface PreferencesStore {
@@ -272,4 +277,43 @@ export const usePlayerSpectrumLayout = (): SpectrumLayout =>
 export const useSetPlayerSpectrumLayout = (): ((layout: SpectrumLayout) => void) => {
   const setPreference = useSetPreference();
   return (layout) => setPreference(PREF_KEYS.playerSpectrumLayout, layout);
+};
+
+/** How long a trim in place keeps the original: 7 or 30 days, or until the user discards it. */
+export type TrimBackupDays = "7" | "30" | "never";
+
+/** The limits in the order Settings offers them. */
+export const TRIM_BACKUP_DAYS: readonly TrimBackupDays[] = ["7", "30", "never"];
+
+/** The stored limit; an absent or unknown value reads 30 days. */
+export function normalizeTrimBackupDays(raw: string | undefined): TrimBackupDays {
+  return TRIM_BACKUP_DAYS.find((days) => days === raw) ?? "30";
+}
+
+/** Whether Plisto may write tags into music files. Persisted, default off: only an explicit "1" turns it on. */
+export const useStampFiles = (): boolean => usePreference(PREF_KEYS.stampFiles) === "1";
+
+/** Flips the tag-writing opt-in. Best-effort persist like every other pref. */
+export const useSetStampFiles = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.stampFiles, on ? "1" : "0");
+};
+
+/** Whether Plisto may replace an Opus file when trimming it. Persisted, default off. */
+export const useTrimReplace = (): boolean => usePreference(PREF_KEYS.trimReplace) === "1";
+
+/** Flips the replace-the-original opt-in. Best-effort persist like every other pref. */
+export const useSetTrimReplace = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.trimReplace, on ? "1" : "0");
+};
+
+/** How long a replaced file's original is kept. An absent or unknown pref reads 30 days. */
+export const useTrimBackupDays = (): TrimBackupDays =>
+  normalizeTrimBackupDays(usePreference(PREF_KEYS.trimBackupDays));
+
+/** Persists the backup limit. Best-effort like every other pref. */
+export const useSetTrimBackupDays = (): ((days: TrimBackupDays) => void) => {
+  const setPreference = useSetPreference();
+  return (days) => setPreference(PREF_KEYS.trimBackupDays, days);
 };

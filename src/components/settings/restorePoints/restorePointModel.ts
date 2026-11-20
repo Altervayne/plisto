@@ -8,7 +8,16 @@ import type { RestoreResult } from "../../../state/restorePoints/store";
 import type { RestorePointRow, RestoreSummary, UnmatchedGroup } from "../../../types";
 
 /** The whitelisted action keys a point can be taken before. */
-export type ActionKey = "tags_apply" | "merge_duplicates" | "delete_albums" | "remove_root" | "purge" | "relocate";
+export type ActionKey =
+  | "tags_apply"
+  | "merge_duplicates"
+  | "delete_albums"
+  | "remove_root"
+  | "purge"
+  | "relocate"
+  | "stamp"
+  | "stamp_undo"
+  | "trim_replace";
 
 /** What a row is called: its reason, plus the action key when the point was taken before an action. */
 export type PointKind =
@@ -24,6 +33,9 @@ const ACTION_KEYS: readonly string[] = [
   "remove_root",
   "purge",
   "relocate",
+  "stamp",
+  "stamp_undo",
+  "trim_replace",
 ];
 
 /** The kind of a point. A version point is named for the version that made it. */

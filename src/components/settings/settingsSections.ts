@@ -9,6 +9,7 @@ import type { Dict } from "../../i18n/en";
 export type SettingsSectionId =
   | "folders"
   | "genres"
+  | "musicFiles"
   | "restorePoints"
   | "playback"
   | "sound"
@@ -26,6 +27,7 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "folders", label: (d) => d.settings.sectionFolders },
   { id: "genres", label: (d) => d.settings.sectionGenres },
+  { id: "musicFiles", label: (d) => d.fileWrites.settings.section },
   { id: "restorePoints", label: (d) => d.restorePoints.section },
   { id: "playback", label: (d) => d.settings.sectionPlayback },
   { id: "sound", label: (d) => d.settings.sectionSound },

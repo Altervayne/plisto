@@ -3,6 +3,7 @@ import { EditableField } from "../common/EditableField/EditableField";
 import { AlbumCoverField } from "./AlbumCoverField";
 import { AlbumMetaFields } from "./AlbumMetaFields";
 import { GoneDoorLine } from "../gone/GoneDoorLine";
+import { StampDoorLine } from "../fileWrites/StampDoorLine";
 
 // -- State Imports --
 import { useCommitAlbumFields } from "../../state/organize/store";
@@ -22,7 +23,8 @@ import styles from "./AlbumFolderHeader.module.css";
  * The album header for the full-pane view: the cover on the left, the editable title over its metadata
  * on the right. Reuses the drawer's cover and meta fields, laid out wide instead of stacked. The title
  * commits the full album field set with its one column replaced, the same path the drawer's title takes.
- * An album with gone members adds a line under the fields that opens the gone sheet on it.
+ * An album with gone members adds a line under the fields that opens the gone sheet on it; one whose
+ * files differ from Plisto adds the tag-write door line.
  */
 export function AlbumFolderHeader({ album }: { album: AlbumRow }) {
   const commit = useCommitAlbumFields();
@@ -57,6 +59,7 @@ export function AlbumFolderHeader({ album }: { album: AlbumRow }) {
             onAction={() => openGone({ kind: "album", albumId: album.id })}
           />
         ) : null}
+        <StampDoorLine albumId={album.id} />
       </div>
     </header>
   );

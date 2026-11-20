@@ -21,7 +21,7 @@ import type { Dict } from "../../i18n/en";
 import type { Translate } from "../../i18n";
 
 /** Maps a running-job key from the backend to its display name; an unknown key falls back to itself. */
-function jobName(key: string, t: Translate): string {
+export function jobName(key: string, t: Translate): string {
   switch (key) {
     case "scan":
       return t((d: Dict) => d.quitGuard.jobScan);
@@ -31,6 +31,8 @@ function jobName(key: string, t: Translate): string {
       return t((d: Dict) => d.quitGuard.jobSplice);
     case "playlist_export":
       return t((d: Dict) => d.quitGuard.jobPlaylistExport);
+    case "file_write":
+      return t((d: Dict) => d.quitGuard.jobFileWrite);
     default:
       return key;
   }

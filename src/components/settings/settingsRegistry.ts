@@ -14,6 +14,8 @@ export type SettingId =
   | "rescanAll"
   | "keepUpToDate"
   | "addGenre"
+  | "stampFiles"
+  | "trimReplace"
   | "restorePoints"
   | "outputDevice"
   | "playHistory"
@@ -90,6 +92,20 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     section: "genres",
     label: (d) => d.settings.addGenre,
     synonyms: (d) => d.settingsIndex.addGenre,
+  },
+  {
+    id: "stampFiles",
+    section: "musicFiles",
+    label: (d) => d.fileWrites.settings.stampLabel,
+    sublabel: (d) => d.fileWrites.settings.stampHelper,
+    synonyms: (d) => d.settingsIndex.stampFiles,
+  },
+  {
+    id: "trimReplace",
+    section: "musicFiles",
+    label: (d) => d.fileWrites.settings.trimLabel,
+    sublabel: (d) => d.fileWrites.settings.trimHelper,
+    synonyms: (d) => d.settingsIndex.trimReplace,
   },
   {
     id: "restorePoints",

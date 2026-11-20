@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 
 // -- Icon Imports --
-import { FolderOpen, Image as ImageIcon, Info, ListEnd, ListPlus, ListStart, Play, X } from "lucide-react";
+import { FolderOpen, Image as ImageIcon, Info, ListEnd, ListPlus, ListStart, Pencil, Play, X } from "lucide-react";
 
 // -- Component Imports --
 import { AlbumSelectionBar } from "./AlbumSelectionBar";
@@ -45,6 +45,8 @@ import {
 } from "../../state/playlists/store";
 import { usePlayerActions, usePlayerEnabled } from "../../state/player/store";
 import { announceAfterBlock } from "../../state/player/queueToast";
+import { openStampSheet } from "../../state/fileWrites/store";
+import { useStampFiles } from "../../state/preferences/store";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -53,6 +55,7 @@ import { useWriteGate } from "../organize/useWriteGate";
 // -- Utils Imports --
 import { groupByDisc, moveManyToDisc, moveToDisc, placeAt, reorderOnto } from "./albumLayout";
 import { revealFile } from "../../lib/opener";
+import { menuStampTarget } from "../../lib/stampScope";
 import { importTrackCover } from "../../lib/ipc";
 import { reportLibraryChange } from "../../state/plugins/libraryWatch";
 import { pickImageFile } from "../../lib/dialog";
@@ -108,6 +111,7 @@ export function AlbumTrackList({
   const album = useAlbum(albumId);
   const albumsGate = useWriteGate("albums");
   const playlistsGate = useWriteGate("playlists");
+  const stampFiles = useStampFiles();
   const t = useT();
 
   // Every play from this list shares one source, for the "playing from" line. Until the row loads, the
@@ -275,8 +279,10 @@ export function AlbumTrackList({
 
   // The row's right-click menu, in album-member context. Details rides only in browse mode, where a
   // peek exists to open. The cover entry flips by the membership's current flag: keeping its own art or
-  // falling back to the album cover. Remove-from-album is the sole destructive entry.
+  // falling back to the album cover. Remove-from-album is the sole destructive entry. Write tags acts on
+  // the selection when the row is in it; every other entry acts on the row alone.
   const buildTrackMenu = (row: AlbumTrackRowData): MenuEntry[] => {
+    const stamp = menuStampTarget(row.track_id, selected, ids);
     const unplayable = row.missing_at != null;
     // Its own group after the play rows; both ride only while the player is on.
     const visualizerItem = playerEnabled ? visualizerMenuItem({ track: row.track_id }, t) : null;
@@ -333,6 +339,15 @@ export function AlbumTrackList({
         tooltip: playlistsGate.tip,
         onSelect: () => setPlaylistPicker({ tracks: [row.track_id], fromSelection: false }),
       },
+      ...(stampFiles
+        ? [
+            {
+              icon: <Pencil size={16} strokeWidth={1.8} />,
+              label: t((d) => d.fileWrites.entry.menuItem, { n: stamp.trackIds.length }),
+              onSelect: () => openStampSheet(stamp.scope),
+            } satisfies MenuEntry,
+          ]
+        : []),
       {
         icon: <ImageIcon size={16} strokeWidth={1.8} />,
         label: row.keep_own_cover ? t((d) => d.albums.useAlbumCover) : t((d) => d.albums.keepOwnCover),
@@ -416,6 +431,11 @@ export function AlbumTrackList({
           onKeepOwnCover={() => setSelectedKeepOwnCover(true)}
           onUseAlbumCover={() => setSelectedKeepOwnCover(false)}
           onRemove={removeSelected}
+          onWriteTags={
+            stampFiles
+              ? () => openStampSheet({ kind: "tracks", trackIds: ids.filter((id) => selected.has(id)) })
+              : undefined
+          }
           onClear={clearSelection}
         />
       ) : null}

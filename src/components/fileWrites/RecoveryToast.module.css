@@ -1,0 +1,27 @@
+/* The recovery notice: a title, the lines that apply, and two quiet actions, stacked in the shared pill. */
+div.card {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 8px 8px 16px;
+  max-width: min(420px, calc(100vw - 48px));
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+}
+
+.line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  margin: 2px 0 0 -8px;
+}

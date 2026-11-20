@@ -3,7 +3,7 @@ import { memo, useState } from "react";
 import type { MouseEvent } from "react";
 
 // -- Icon Imports --
-import { Check, Download, Info, ListEnd, ListPlus, ListStart, Maximize2, Play, Trash2 } from "lucide-react";
+import { Check, Download, Info, ListEnd, ListPlus, ListStart, Maximize2, Pencil, Play, Trash2 } from "lucide-react";
 
 // -- Component Imports --
 import { Cover } from "../common/Cover/Cover";
@@ -24,10 +24,13 @@ import { usePlaylistsStore } from "../../state/playlists/store";
 import { announceAfterBlock } from "../../state/player/queueToast";
 import { useOpenGone } from "../../state/shell/store";
 import { useAlbumGoneCount } from "../../state/gone/goneIn";
+import { openStampSheet } from "../../state/fileWrites/store";
+import { useStampFiles } from "../../state/preferences/store";
 
 // -- Utils Imports --
 import { sourceForContainer } from "./playbackSource";
 import { playlistsHoldingAlbum } from "./albumPlaylists";
+import { albumsStampScope } from "../../lib/stampScope";
 import { visualizerMenuItem } from "../player/visualizers/contextPicker/visualizerMenuItem";
 
 // -- Type Imports --
@@ -89,6 +92,7 @@ export const AlbumCard = memo(function AlbumCard({
   const { play, addToQueue, playNext } = usePlayerActions();
   const playerEnabled = usePlayerEnabled();
   const organize = useOrganizeEnabled();
+  const stampFiles = useStampFiles();
   const menu = useContextMenu();
   // Album deletion clears the undo history, so a one-click menu delete is guarded by a confirm. The
   // playlists holding the album are counted as the confirm opens, so the line is read once, not tracked.
@@ -189,6 +193,13 @@ export const AlbumCard = memo(function AlbumCard({
       label: single ? t((d) => d.singles.exportItem) : t((d) => d.albums.exportItem),
       onSelect: () => onExport(album.id),
     });
+    if (stampFiles && tracks.length > 0) {
+      items.push({
+        icon: <Pencil size={16} strokeWidth={1.8} />,
+        label: t((d) => d.fileWrites.entry.menuItem, { n: tracks.length }),
+        onSelect: () => openStampSheet(albumsStampScope([album.id])),
+      });
+    }
     if (onAddToPlaylist) {
       items.push(
         { separator: true },

@@ -1,0 +1,202 @@
+/* Rows and notes shared by the tag-write sheet's confirm, running and result views. */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  flex: none;
+}
+
+.bannerIcon {
+  flex: none;
+  display: inline-flex;
+  color: var(--ink-3);
+}
+
+.bannerIcon.warn {
+  color: var(--warn-text);
+}
+
+.label {
+  padding: 6px 8px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+}
+
+.head:hover {
+  background: var(--veil);
+}
+
+.toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: transform 120ms;
+}
+
+.toggle[data-open="false"] {
+  transform: rotate(-90deg);
+}
+
+.toggleSpace {
+  flex: none;
+  width: 14px;
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.headText b {
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.reason {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: var(--pill);
+  background: var(--veil);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 580;
+  white-space: nowrap;
+}
+
+.reason.warn {
+  color: var(--warn-text);
+}
+
+.reason.bad {
+  color: var(--danger-text);
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 6px 40px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+
+.file:hover {
+  background: var(--veil);
+}
+
+.file.flat {
+  padding-left: 8px;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.title {
+  font-size: 12.5px;
+  font-weight: 580;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.what {
+  flex: none;
+  max-width: 300px;
+  color: var(--ink-2);
+  font-size: 12px;
+  text-align: right;
+}
+
+.note {
+  padding: 6px 8px 6px 40px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.more {
+  align-self: flex-start;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.more:hover {
+  text-decoration: underline;
+}
+
+.counters {
+  display: flex;
+  gap: 18px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.counters b {
+  margin-right: 5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.counters .bad b {
+  color: var(--danger-text);
+}
+
+.bigline {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}

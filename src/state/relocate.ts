@@ -5,6 +5,7 @@
  */
 
 // -- Type Imports --
+import type { BusyKind } from "../lib/busyError";
 import type { LocateFolderOutcome, RelinkCandidate, RelocateOutcome, Root } from "../types";
 
 /** A folder the user just picked that looks like a moved root, held until they choose what to do. */
@@ -15,15 +16,19 @@ export interface RelinkOffer {
 
 /**
  * The result of a relocate as the store reports it: the backend's outcome, plus the two ways the call
- * itself can fail. Busy means a scan holds the lock; failed means the rescan after the commit broke.
+ * itself can fail. Busy means a scan or a file write holds the lock (`by` says which; a scan when
+ * absent). Failed means the rescan after the commit broke.
  */
-export type RelocateResult = RelocateOutcome | { kind: "busy" } | { kind: "failed" };
+export type RelocateResult = RelocateOutcome | { kind: "busy"; by?: BusyKind } | { kind: "failed" };
 
 /**
- * The result of a folder locate: the backend's outcome, plus busy (a scan holds the lock) and failed
- * (the call itself broke, with its message).
+ * The result of a folder locate: the backend's outcome, plus busy (a scan or a file write holds the
+ * lock) and failed (the call itself broke, with its message).
  */
-export type LocateFolderResult = LocateFolderOutcome | { kind: "busy" } | { kind: "failed"; message: string };
+export type LocateFolderResult =
+  | LocateFolderOutcome
+  | { kind: "busy"; by?: BusyKind }
+  | { kind: "failed"; message: string };
 
 /** Whether a root offers Locate: it is offline, or every one of its tracks is gone. */
 export function locateEligible(root: Root, offlineIds: number[]): boolean {

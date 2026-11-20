@@ -77,7 +77,8 @@ export function refusalFailure(reason: RestoreRefusal): RestoreFailure {
     case "newer":
       return { key: "newer", detail: String(reason.format) };
     case "busy":
-      return { key: "busy", detail: null };
+    case "file_write":
+      return { key: reason.code, detail: null };
     default:
       return { key: reason.code, detail: reason.message };
   }

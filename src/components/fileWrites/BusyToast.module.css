@@ -1,0 +1,12 @@
+/* One line of text in the shared pill. */
+div.pill {
+  max-width: min(560px, calc(100vw - 48px));
+}
+
+.text {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}

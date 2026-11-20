@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore } from "./store";
 import { orgLoader, useOrganizeStore } from "./organize/store";
 import { playlistsLoader } from "./playlists/store";
+import { useFileWritesStore } from "./fileWrites/store";
 import { usePlayerStore } from "./player/store";
 
 // -- IPC Imports --
@@ -165,6 +166,19 @@ describe("sync deltas", () => {
     expect(mocked.getTracksByIds).toHaveBeenCalledWith([1, 2, 4]);
   });
 
+  it("gather while a tag write holds sync and apply once it releases", async () => {
+    mocked.getTracksByIds.mockResolvedValue([]);
+    const s = useAppStore.getState();
+    s.holdSync("stamp");
+    s.queueDelta({ ids: [7] });
+    await settle(s.flushDelta());
+    expect(mocked.getTracksByIds).not.toHaveBeenCalled();
+
+    s.releaseSync("stamp");
+    await vi.runAllTimersAsync();
+    expect(mocked.getTracksByIds).toHaveBeenCalledWith([7]);
+  });
+
   it("keep the current rows when the fetch and the fallback reload both fail", async () => {
     useAppStore.setState({ tracks: [track(1), track(2)] });
     mocked.getTracksByIds.mockRejectedValue("locked");
@@ -285,6 +299,14 @@ describe("blocking scans", () => {
     mocked.addRoot.mockRejectedValue("a scan is already running");
     await settle(useAppStore.getState().addRootPath("/new"));
     expect(useAppStore.getState().scan).toMatchObject({ status: "error", mode: "quiet" });
+  });
+
+  it("show the file write notice, and no scan error, when a file write holds the lock", async () => {
+    useFileWritesStore.setState({ busyAt: null });
+    mocked.addRoot.mockRejectedValue("a file write is running");
+    await settle(useAppStore.getState().addRootPath("/new"));
+    expect(useAppStore.getState().scan.status).not.toBe("error");
+    expect(useFileWritesStore.getState().busyAt).not.toBeNull();
   });
 });
 
@@ -578,13 +600,20 @@ describe("locating a folder", () => {
   it("reports a held scan lock as busy and any other rejection as failed, reloading nothing", async () => {
     reloads();
     mocked.locateFolder.mockRejectedValueOnce("a scan is already running");
-    expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({ kind: "busy" });
+    expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({ kind: "busy", by: "scan" });
     mocked.locateFolder.mockRejectedValueOnce("disk on fire");
     expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({
       kind: "failed",
       message: "disk on fire",
     });
     expect(mocked.listTracks).not.toHaveBeenCalled();
+    expect(useAppStore.getState().syncHolds).toEqual([]);
+  });
+
+  it("reports a running file write as busy too", async () => {
+    reloads();
+    mocked.locateFolder.mockRejectedValueOnce("a file write is running");
+    expect(await useAppStore.getState().locateFolder(1, "/a", "/b")).toEqual({ kind: "busy", by: "fileWrite" });
     expect(useAppStore.getState().syncHolds).toEqual([]);
   });
 
@@ -658,9 +687,15 @@ describe("relocating a root", () => {
     const before = useAppStore.getState().scan;
 
     const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
-    expect(result).toEqual({ kind: "busy" });
+    expect(result).toEqual({ kind: "busy", by: "scan" });
     expect(useAppStore.getState().scan).toEqual(before);
     expect(mocked.listRoots).not.toHaveBeenCalled();
+  });
+
+  it("reports a relocate refused by a running file write as such", async () => {
+    mocked.relocateRoot.mockRejectedValue("a file write is running");
+    const result = await settle(useAppStore.getState().relocateRoot(1, "/new"));
+    expect(result).toEqual({ kind: "busy", by: "fileWrite" });
   });
 
   it("reloads and reports failed when the rescan after the commit breaks", async () => {

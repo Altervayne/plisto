@@ -1,0 +1,96 @@
+/* The confirm's diff: one row per change in the by-change view. */
+
+.row {
+  display: grid;
+  grid-template-columns: 22px 130px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+
+.row:hover {
+  background: var(--veil);
+}
+
+.toggle {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: transform 120ms;
+}
+
+.toggle[data-open="false"] {
+  transform: rotate(-90deg);
+}
+
+.field {
+  font-weight: 600;
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-2);
+}
+
+.arrow {
+  flex: none;
+  display: inline-flex;
+}
+
+.from {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ink-3) 50%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.from.empty {
+  text-decoration: none;
+  font-style: italic;
+}
+
+.to {
+  color: var(--ink);
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+}
+
+.more {
+  align-self: flex-start;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.more:hover {
+  text-decoration: underline;
+}

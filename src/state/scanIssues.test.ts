@@ -238,6 +238,14 @@ describe("retry", () => {
     expect(state().rows).toHaveLength(2);
   });
 
+  it("words a refusal during a file write apart from a scan", async () => {
+    held();
+    vi.mocked(scanIssuesRetry).mockRejectedValue("a file write is running");
+    await state().retryShown();
+    expect(state().notice).toEqual({ kind: "fileWriteRunning" });
+    expect(state().rows).toHaveLength(2);
+  });
+
   it("recognises the refusal as a string or an error", () => {
     expect(isScanRunning("a scan is already running")).toBe(true);
     expect(isScanRunning(new Error("a scan is already running"))).toBe(true);

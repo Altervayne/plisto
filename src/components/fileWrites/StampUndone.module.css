@@ -1,0 +1,40 @@
+/* The undone view's note on what an undo does and does not touch. */
+
+.block {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+  flex: none;
+}
+
+.glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--veil-2);
+  color: var(--good-text);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.line {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
