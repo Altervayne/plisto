@@ -1,8 +1,15 @@
 // -- Test Imports --
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const flags = vi.hoisted(() => ({ stampEnabled: true }));
+vi.mock("../../lib/features", () => ({
+  get STAMP_ENABLED() {
+    return flags.stampEnabled;
+  },
+}));
 
 // -- Unit Imports --
-import { hasRecoveryNews, openKeptBackups, openStampSheet, useFileWritesStore } from "./store";
+import { hasRecoveryNews, openKeptBackups, openStampSheet, openStampUndo, useFileWritesStore } from "./store";
 
 const state = () => useFileWritesStore.getState();
 
@@ -18,6 +25,14 @@ describe("sheets", () => {
     expect(state().sheet).toEqual({ kind: "kept" });
     state().closeSheet();
     expect(state().sheet).toBeNull();
+  });
+
+  it("opens no tag-write sheet while the feature is off", () => {
+    flags.stampEnabled = false;
+    openStampSheet({ kind: "library" });
+    openStampUndo(4);
+    expect(state().sheet).toBeNull();
+    flags.stampEnabled = true;
   });
 });
 

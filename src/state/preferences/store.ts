@@ -11,6 +11,7 @@ import { create } from "zustand";
 // -- IPC Imports --
 import { getSetting, setSetting } from "../../lib/ipc";
 import { withRetry } from "../../lib/withRetry";
+import { STAMP_ENABLED } from "../../lib/features";
 
 // -- State Imports --
 import {
@@ -290,8 +291,14 @@ export function normalizeTrimBackupDays(raw: string | undefined): TrimBackupDays
   return TRIM_BACKUP_DAYS.find((days) => days === raw) ?? "30";
 }
 
-/** Whether Plisto may write tags into music files. Persisted, default off: only an explicit "1" turns it on. */
-export const useStampFiles = (): boolean => usePreference(PREF_KEYS.stampFiles) === "1";
+/**
+ * Whether Plisto may write tags into music files. Persisted, default off: only an explicit "1" turns it on.
+ * Always false while the feature switch is off, whatever is stored.
+ */
+export const useStampFiles = (): boolean => {
+  const stored = usePreference(PREF_KEYS.stampFiles) === "1";
+  return STAMP_ENABLED && stored;
+};
 
 /** Flips the tag-writing opt-in. Best-effort persist like every other pref. */
 export const useSetStampFiles = (): ((on: boolean) => void) => {

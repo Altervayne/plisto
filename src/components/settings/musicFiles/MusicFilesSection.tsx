@@ -28,6 +28,7 @@ import type { TrimBackupDays } from "../../../state/preferences/store";
 import { formatBytes } from "../../../lib/format";
 import { lastWriteWhen } from "./lastWriteWhen";
 import { sectionAttr } from "../settingsSections";
+import { STAMP_ENABLED } from "../../../lib/features";
 
 // -- i18n Imports --
 import { useLocale, useT } from "../../../i18n";
@@ -107,51 +108,53 @@ export function MusicFilesSection({ onUndo }: { onUndo?: (batchId: number) => vo
       <h2 className={pageStyles.label}>{t((d) => d.fileWrites.settings.section)}</h2>
       <p className={styles.lede}>{t((d) => d.fileWrites.settings.lede)}</p>
 
-      <SettingRow id="stampFiles" className={pageStyles.pref}>
-        <div className={pageStyles.row}>
-          <span className={pageStyles.rowLabel}>{t((d) => d.fileWrites.settings.stampLabel)}</span>
-          <span className={pageStyles.control}>
-            <Switch
-              checked={stampOn}
-              onChange={setStamp}
-              label={t((d) => d.fileWrites.settings.stampLabel)}
-            />
-          </span>
-        </div>
-        <p className={pageStyles.helper}>{t((d) => d.fileWrites.settings.stampHelper)}</p>
-        <Note text={t((d) => d.fileWrites.settings.stampNote)} />
-        {stampOn && typeof differ === "number" ? (
-          <StatLine
-            action={differ > 0 ? t((d) => d.fileWrites.settings.review) : null}
-            onAction={() => openStampSheet({ kind: "library" })}
-          >
-            {t((d) => d.fileWrites.settings.differLabel)} <b>{differ.toLocaleString(locale)}</b>
-          </StatLine>
-        ) : null}
-        {stampOn && differ === undefined ? (
-          <StatLine action={null} onAction={() => {}}>
-            {t((d) => d.fileWrites.settings.differLabel)} {t((d) => d.fileWrites.settings.differChecking)}
-          </StatLine>
-        ) : null}
-        {showLast ? (
-          <StatLine
-            action={canUndo ? t((d) => d.fileWrites.settings.undo) : null}
-            onAction={() => onUndo?.(last.batchId)}
-          >
-            {t((d) => d.fileWrites.settings.lastWriteLabel)}{" "}
-            {last.label ? (
-              <>
-                <b>{last.label}</b> -{" "}
-              </>
-            ) : null}
-            {t((d) => d.fileWrites.files, { n: last.files })} -{" "}
-            {lastWriteWhen(last.at, Date.now(), locale, {
-              today: (time) => t((d) => d.fileWrites.settings.lastToday, { time }),
-              yesterday: (time) => t((d) => d.fileWrites.settings.lastYesterday, { time }),
-            })}
-          </StatLine>
-        ) : null}
-      </SettingRow>
+      {STAMP_ENABLED ? (
+        <SettingRow id="stampFiles" className={pageStyles.pref}>
+          <div className={pageStyles.row}>
+            <span className={pageStyles.rowLabel}>{t((d) => d.fileWrites.settings.stampLabel)}</span>
+            <span className={pageStyles.control}>
+              <Switch
+                checked={stampOn}
+                onChange={setStamp}
+                label={t((d) => d.fileWrites.settings.stampLabel)}
+              />
+            </span>
+          </div>
+          <p className={pageStyles.helper}>{t((d) => d.fileWrites.settings.stampHelper)}</p>
+          <Note text={t((d) => d.fileWrites.settings.stampNote)} />
+          {stampOn && typeof differ === "number" ? (
+            <StatLine
+              action={differ > 0 ? t((d) => d.fileWrites.settings.review) : null}
+              onAction={() => openStampSheet({ kind: "library" })}
+            >
+              {t((d) => d.fileWrites.settings.differLabel)} <b>{differ.toLocaleString(locale)}</b>
+            </StatLine>
+          ) : null}
+          {stampOn && differ === undefined ? (
+            <StatLine action={null} onAction={() => {}}>
+              {t((d) => d.fileWrites.settings.differLabel)} {t((d) => d.fileWrites.settings.differChecking)}
+            </StatLine>
+          ) : null}
+          {showLast ? (
+            <StatLine
+              action={canUndo ? t((d) => d.fileWrites.settings.undo) : null}
+              onAction={() => onUndo?.(last.batchId)}
+            >
+              {t((d) => d.fileWrites.settings.lastWriteLabel)}{" "}
+              {last.label ? (
+                <>
+                  <b>{last.label}</b> -{" "}
+                </>
+              ) : null}
+              {t((d) => d.fileWrites.files, { n: last.files })} -{" "}
+              {lastWriteWhen(last.at, Date.now(), locale, {
+                today: (time) => t((d) => d.fileWrites.settings.lastToday, { time }),
+                yesterday: (time) => t((d) => d.fileWrites.settings.lastYesterday, { time }),
+              })}
+            </StatLine>
+          ) : null}
+        </SettingRow>
+      ) : null}
 
       <SettingRow id="trimReplace" className={pageStyles.pref}>
         <div className={pageStyles.row}>

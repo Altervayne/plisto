@@ -5,6 +5,9 @@
  * predicate instead of being left out. Plugin hub rows are dynamic: their ids come from `hubSettingId`.
  */
 
+// -- Utils Imports --
+import { STAMP_ENABLED } from "../../lib/features";
+
 // -- Type Imports --
 import type { Dict } from "../../i18n/en";
 import type { SettingsSectionId } from "./settingsSections";
@@ -99,6 +102,7 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     label: (d) => d.fileWrites.settings.stampLabel,
     sublabel: (d) => d.fileWrites.settings.stampHelper,
     synonyms: (d) => d.settingsIndex.stampFiles,
+    visible: () => STAMP_ENABLED,
   },
   {
     id: "trimReplace",

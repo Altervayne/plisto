@@ -7,6 +7,9 @@
 // -- Library Imports --
 import { create } from "zustand";
 
+// -- Utils Imports --
+import { STAMP_ENABLED } from "../../lib/features";
+
 // -- Type Imports --
 import type { StampScope, WriteRecovery } from "../../types";
 
@@ -98,13 +101,15 @@ export const useFileWritesStore = create<FileWritesStore>((set) => ({
 
 // -- Actions for callers outside React (menu builders, handlers) --
 
-/** Opens the tag-write sheet over `scope`. */
+/** Opens the tag-write sheet over `scope`. Does nothing while tag writing is switched off. */
 export function openStampSheet(scope: StampScope): void {
+  if (!STAMP_ENABLED) return;
   useFileWritesStore.getState().openStamp(scope);
 }
 
-/** Opens the tag-write sheet on the undo confirm of batch `batchId`. */
+/** Opens the tag-write sheet on the undo confirm of batch `batchId`. Does nothing while tag writing is off. */
 export function openStampUndo(batchId: number): void {
+  if (!STAMP_ENABLED) return;
   useFileWritesStore.getState().openStampUndo(batchId);
 }
 

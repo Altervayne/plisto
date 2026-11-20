@@ -15,7 +15,7 @@ import { openSetting } from "./useFinderActions";
 import { entryKey } from "./finderIndex";
 import { GROUP_CAP, searchFinder } from "./finderMatch";
 import { parseRecents, pushRecent, resolveRecents } from "./finderRecents";
-import { SETTINGS_REGISTRY, hubSettingId, visibleSettings } from "../settings/settingsRegistry";
+import { hubSettingId, visibleSettings } from "../settings/settingsRegistry";
 import { SETTINGS_SECTIONS } from "../settings/settingsSections";
 
 // -- i18n Imports --
@@ -53,6 +53,10 @@ describe("settingEntries", () => {
     }
   });
 
+  it("never offers the tag-write setting while the feature is off", () => {
+    expect(idsOf(build(en, true))).not.toContain("stampFiles");
+  });
+
   it("leaves out a setting the registry hides in this app state", () => {
     expect(idsOf(build(en, false))).not.toContain("defaultApp");
     expect(idsOf(build(en, true))).toContain("defaultApp");
@@ -61,7 +65,7 @@ describe("settingEntries", () => {
   it("finds every registered setting by its own label in both languages", () => {
     for (const dict of [en, fr]) {
       const entries = build(dict, true);
-      for (const setting of SETTINGS_REGISTRY) {
+      for (const setting of visibleSettings({ windows: true })) {
         const found = scopedGroups(entries, setting.label(dict)).flatMap((g) => g.items.map((i) => i.id));
         expect(found, `${dict.settings.nav}: ${setting.id}`).toContain(setting.id);
       }
