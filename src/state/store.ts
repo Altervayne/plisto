@@ -155,7 +155,7 @@ interface AppStore {
   relocateRoot: (rootId: number, path: string) => Promise<RelocateResult>;
   locateFolder: (rootId: number, folder: string, newPath: string) => Promise<LocateFolderResult>;
   resolveRelink: (choice: RelinkChoice) => Promise<RelocateResult | null>;
-  removeRoot: (id: number) => Promise<void>;
+  removeRoot: (id: number, dropPendingWrites?: boolean) => Promise<void>;
   rescanAll: () => Promise<void>;
   rescanQuiet: (rootId?: number) => Promise<void>;
   cancel: () => Promise<void>;
@@ -464,8 +464,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       return null;
     },
 
-    removeRoot: async (id) => {
-      await removeRootCmd(id);
+    removeRoot: async (id, dropPendingWrites = false) => {
+      await removeRootCmd(id, dropPendingWrites);
       await get().loadRoots();
       await get().loadTracks();
       // The removal sweeps emptied albums, the entries that referenced them, and the removed tracks' slots.

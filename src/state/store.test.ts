@@ -642,7 +642,7 @@ describe("removing a root", () => {
     mocked.loadPlaylists.mockClear();
 
     await settle(useAppStore.getState().removeRoot(1));
-    expect(mocked.removeRoot).toHaveBeenCalledWith(1);
+    expect(mocked.removeRoot).toHaveBeenCalledWith(1, false);
     expect(mocked.listRoots).toHaveBeenCalled();
     expect(mocked.listTracks).toHaveBeenCalled();
     expect(mocked.loadOrganization).toHaveBeenCalledTimes(1);

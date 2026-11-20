@@ -1,0 +1,242 @@
+/*
+ * The Kept backups sheet: the same dimmed scrim and lifted card as the tag-write sheet, drawn wide for
+ * the rows.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 12, 0.55);
+}
+
+.overlay[data-state="enter"] .backdrop {
+  animation: scrim-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .backdrop {
+  animation: scrim-out var(--dur-soft) var(--ease-exit) both;
+}
+
+.overlay[data-state="enter"] .panel {
+  animation: card-in var(--dur-slow) var(--ease-cover) both;
+}
+
+.overlay[data-state="exit"] .panel {
+  animation: card-out var(--dur-soft) var(--ease-exit) both;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.panel {
+  position: relative;
+  transform-origin: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(780px, 94vw);
+  max-height: min(740px, 90vh);
+  padding: 20px 22px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+/* -- Header -- */
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--danger-text);
+}
+
+/* -- Body -- */
+
+.list {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.list :global(.hide-native-scrollbar) {
+  max-height: 60vh;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 10px;
+}
+
+/* -- Footer -- */
+
+.foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.safety {
+  flex: 1 1 220px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.safetyIcon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+/* -- Summary and notices -- */
+
+.summary {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.change {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.change:hover {
+  text-decoration: underline;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.noticeIcon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ink-3);
+}
+
+/* -- Empty state -- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 0;
+  text-align: center;
+}
+
+.tone {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.emptyLine {
+  margin: 0;
+  max-width: 420px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}

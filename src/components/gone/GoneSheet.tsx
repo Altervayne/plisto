@@ -10,6 +10,7 @@ import { ScrollArea } from "../common/ScrollArea/ScrollArea";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { GoneContent, GoneReceipt } from "./GoneContent";
 import { GoneRemoveConfirm } from "./GoneRemoveConfirm";
+import { useKeptBackupsPeek } from "../fileWrites/useKeptBackupsPeek";
 
 // -- Hook Imports --
 import { useMountTransition } from "../../hooks/useMountTransition";
@@ -33,6 +34,7 @@ import { ALL_GONE, GROUP_PAGE } from "../../state/gone/goneGroups";
 // -- Utils Imports --
 import { buildAlbumIndex, resolveTrackAlbum } from "../tracks/trackAlbum";
 import { folderName } from "../settings/locateCopy";
+import { keptForTracks } from "../../lib/keptBackups";
 import { GROUP_STEP, TRACK_PAGE, buildView, summaryParts } from "./goneView";
 import { escapeTarget, wrapTab } from "./goneFocus";
 
@@ -147,6 +149,10 @@ export function GoneSheet({
     holdSync("purgeConfirm");
     return () => releaseSync("purgeConfirm");
   }, [target, holdSync, releaseSync]);
+
+  // The confirm also names the kept backups of the tracks it removes.
+  const keptBackups = useKeptBackupsPeek(target != null);
+  const keptCount = keptForTracks(keptBackups, target ?? []).length;
 
   const view = useMemo(() => buildView(result), [result]);
   const albumIndex = useMemo(
@@ -299,6 +305,7 @@ export function GoneSheet({
 
         <GoneRemoveConfirm
           count={target?.length ?? null}
+          backups={keptCount}
           onConfirm={() => void removal.confirm()}
           onClose={removal.cancel}
         />

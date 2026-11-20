@@ -6,6 +6,7 @@ import { QuietButton } from "../common/QuietButton";
 import { Tooltip } from "../common/Tooltip/Tooltip";
 import { LocatePanel } from "./LocatePanel";
 import { GoneDoorLine } from "../gone/GoneDoorLine";
+import { PendingWritesConfirm } from "./PendingWritesConfirm";
 
 // -- Icon Imports --
 import { RotateCw, X } from "lucide-react";
@@ -14,22 +15,23 @@ import { RotateCw, X } from "lucide-react";
 import {
   useBlockingScan,
   useOfflineRoots,
-  useRemoveRoot,
   useRescanQuiet,
 } from "../../state/store";
 import { locateEligible } from "../../state/relocate";
 import { useOrgStatus } from "../../state/projectionStatus";
 import { useOpenGone } from "../../state/shell/store";
-import { useScanIssuesStore } from "../../state/scanIssues";
 
 // -- IPC Imports --
 import { rootRemovalImpact } from "../../lib/ipc";
 
 // -- Hook Imports --
+import { useKeptBackupsPeek } from "../fileWrites/useKeptBackupsPeek";
 import { useLocateFlow } from "./useLocateFlow";
 import { useMergeHint } from "./useMergeHint";
+import { useRootRemoval } from "./useRootRemoval";
 
 // -- Utils Imports --
+import { keptForRoot } from "../../lib/keptBackups";
 import { folderName, removePrompt } from "./locateCopy";
 
 // -- Type Imports --
@@ -53,7 +55,6 @@ import styles from "./FolderRow.module.css";
  */
 export function FolderRow({ root }: { root: Root }) {
   const rescanQuiet = useRescanQuiet();
-  const removeRoot = useRemoveRoot();
   // A quiet scan never locks the row: a rescan joins it and a remove preempts it.
   const scanning = useBlockingScan();
   const offlineIds = useOfflineRoots();
@@ -66,9 +67,12 @@ export function FolderRow({ root }: { root: Root }) {
   const name = folderName(root.path);
   const locate = useLocateFlow(root.id, name);
   const mergeHint = useMergeHint(root);
+  const removal = useRootRemoval(root.id);
   const locating = ["checking", "confirm", "running"].includes(locate.step.kind);
 
   const [impact, setImpact] = useState<RootRemovalImpact | null>(null);
+  // The remove confirm also names the kept backups that live in this folder.
+  const keptCount = keptForRoot(useKeptBackupsPeek(impact != null), root.id).length;
 
   const onRemoveClick = async () => {
     try {
@@ -80,9 +84,7 @@ export function FolderRow({ root }: { root: Root }) {
 
   const onConfirm = async () => {
     setImpact(null);
-    await removeRoot(root.id);
-    // The removal cascades through the unreadable-file rows of the root.
-    void useScanIssuesStore.getState().refreshStanding();
+    await removal.remove();
   };
 
   const onLocateInstead = () => {
@@ -90,7 +92,14 @@ export function FolderRow({ root }: { root: Root }) {
     locate.start();
   };
 
-  const prompt = impact ? removePrompt(t, impact, { name, offline, eligible }) : "";
+  const prompt = impact
+    ? [
+        removePrompt(t, impact, { name, offline, eligible }),
+        keptCount > 0 ? t((d) => d.fileWrites.folder.backups, { n: keptCount }) : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
 
   return (
     <div className={styles.rowWrap}>
@@ -156,6 +165,20 @@ export function FolderRow({ root }: { root: Root }) {
           </QuietButton>
         </div>
       ) : null}
+
+      {removal.failed ? (
+        <div className={styles.confirm}>
+          <span className={styles.prompt} role="alert">
+            {t((d) => d.fileWrites.pending.failed)}
+          </span>
+        </div>
+      ) : null}
+
+      <PendingWritesConfirm
+        files={removal.unfinished}
+        onConfirm={() => void removal.removeAnyway()}
+        onClose={removal.dismissUnfinished}
+      />
 
       {impact ? (
         <div className={styles.confirm}>
