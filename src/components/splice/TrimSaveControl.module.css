@@ -1,0 +1,73 @@
+/* The Save control: stacked labelled blocks over the trim CTA, the same rhythm as the output config it
+ * wraps. No frame - space only. */
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The file the trim replaces: a good-tone dot beside the full mono path, wrapped rather than cut, so
+ * the user sees exactly which file is written. */
+.target {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: var(--pill);
+  background: var(--good);
+}
+
+.path {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+/* Why the replace is unavailable or the button is dead, what the replace keeps, or that it is off:
+ * readable ink, not the hint tone. */
+.why {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* The Settings pointer, inline in the off line. */
+.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

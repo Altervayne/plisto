@@ -65,74 +65,8 @@
   overflow-y: auto;
 }
 
-/* The output config sinks to the panel foot, always in reach under the knobs and readout. */
+/* The Save control sinks to the panel foot, always in reach under the knobs and readout. */
 .configFoot {
   margin-top: auto;
   padding-top: 4px;
-}
-
-/* -- Running and done: one centered column, mirroring the split and export views -- */
-
-.centered {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  max-width: 460px;
-}
-
-.title {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 660;
-  letter-spacing: -0.025em;
-  color: var(--ink);
-}
-
-/* The destination path on the running screen: mono meta ink, truncated with the full path on hover. */
-.path {
-  margin: 0;
-  max-width: 100%;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The good-tone status dot, the done signal in place of any accent. */
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--pill);
-  background: var(--good);
-}
-
-/* Live counts; digits align via tabular-nums, the line stays quiet meta ink. */
-.counters {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--ink-3);
-}
-
-.tally {
-  color: var(--warn-text);
-}
-
-/* A hair of breathing room under the running Cancel. */
-.foot {
-  margin-top: 4px;
-}
-
-/* The done actions stay quiet - the good dot is the signal, no solid accent here. Wraps on a narrow
- * pane rather than running off the centered column. */
-.actions {
-  margin-top: 4px;
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px;
 }

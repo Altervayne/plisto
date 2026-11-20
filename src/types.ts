@@ -1717,10 +1717,19 @@ export type LastFileWrite = {
   label: string | null;
 } | null;
 
-/** One trim to apply in place: the library track and the part to keep. Mirrors TrimReplaceJob. */
+/**
+ * One trim to apply in place: the library track, the part to keep, and the row values the editor's
+ * analysis was taken from. The back end refuses with `changed` when the row or the file differs.
+ * Mirrors TrimReplaceJob.
+ */
 export interface TrimReplaceJob {
   trackId: number;
   segment: Segment;
+  expect: {
+    sizeBytes: number;
+    /** Epoch seconds, as TrackRow.mtime carries it. */
+    mtime: number;
+  };
 }
 
 /** What a trim in place left behind. `expiresAt` is epoch ms, null when kept until discarded. */
@@ -1730,8 +1739,25 @@ export interface TrimReplaceResult {
   expiresAt: number | null;
 }
 
-/** Why a trim in place failed; `other` carries the Windows code in the error detail. Mirrors TrimFailure. */
-export type TrimFailure = "locked" | "space" | "denied" | "other";
+/**
+ * Why a trim in place or its undo failed; `other` carries the Windows code in the error detail. `busy` is
+ * another job holding the library; `unavailable` is the switch off, a format other than Opus, or a file
+ * outside the library. Mirrors TrimFailure.
+ */
+export type TrimFailure =
+  | "locked"
+  | "space"
+  | "denied"
+  | "changed"
+  | "inUse"
+  | "offline"
+  | "missing"
+  | "busy"
+  | "unavailable"
+  | "other";
+
+/** The code a cancelled trim run rejects with. Never a TrimFailure: a cancel leaves the file as it was. */
+export type TrimCancelled = "cancelled";
 
 /** Where a kept backup stands: on disk, gone from disk, or on a folder that is offline. */
 export type KeptBackupState = "kept" | "missing" | "offline";

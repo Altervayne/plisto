@@ -1675,7 +1675,8 @@ export function stampUndo(batchId: number, onEvent: Channel<StampEvent>): Promis
 
 /**
  * Trims a library track in place, keeping its original as a hidden backup. Rejects with a failure
- * detail the front end maps to a TrimFailure. Cancellable through `trimReplaceCancel` until the swap.
+ * detail the front end maps to a TrimFailure, or with the TrimCancelled code after
+ * `trimReplaceCancel`, which only stops it before the swap.
  */
 export function trimReplace(job: TrimReplaceJob, onProgress: Channel<SpliceProgress>): Promise<TrimReplaceResult> {
   return invoke<TrimReplaceResult>("trim_replace", { job, onProgress });
@@ -1686,7 +1687,7 @@ export function trimReplaceCancel(): Promise<void> {
   return invoke("trim_replace_cancel");
 }
 
-/** Puts the kept original of `undoId` back. Refused when the file changed since the trim. */
+/** Puts the kept original of `undoId` back. Rejects with a TrimFailure, `changed` for an edited file. */
 export function trimUndo(undoId: number): Promise<void> {
   return invoke("trim_undo", { undoId });
 }

@@ -1,0 +1,35 @@
+/* What the replace does, one point per line, in the dialog's prompt voice. */
+.list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* The hidden backup's name under its point. */
+.hidden {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+
+/* The restore-point or compare note, on the veil like the tag-write undo's. */
+.note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--veil);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.note svg {
+  flex: none;
+}

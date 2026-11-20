@@ -67,6 +67,28 @@
   text-align: center;
 }
 
+/* A reread that failed: one warn-tone line under the header, with its Try again inline. */
+.rereadError {
+  margin: 0;
+  padding: 0 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--warn-text);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
 /* A hair of breathing room under the running Cancel. */
 .foot {
   margin-top: 4px;

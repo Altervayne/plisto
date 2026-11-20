@@ -2178,8 +2178,14 @@ export const en = {
         flac: "There is no safe way to write FLAC in place yet; support is planned. Rebuilding it here would drop its seek table and checksum, so a FLAC is saved as a new file.",
         format:
           "There is no safe way to write {format} in place yet; support is planned. Only Opus can be replaced, so a {format} file is saved as a new file.",
-        readOnly: "This file is read-only, so it cannot be replaced. Plisto does not change file attributes.",
+        rereading: "Plisto is reading the file again. The trim can be saved once that is done.",
+        stale:
+          "The file changed since the editor read it, so this trim cannot be saved. Reread it to trim what is there now; your trim stays until you do.",
       },
+      reread: "Reread the file",
+      rereadFirst: "Reread the file before saving this trim.",
+      rereadFailed: "Plisto could not read the file again, so nothing can be saved from this trim until it can.",
+      rereadRetry: "Try again",
       unavailableTitle: "This file could not be opened",
       missingLine:
         "The file is gone from disk (Plisto lists it as missing). Nothing can be trimmed or replaced until it is back or located.",
@@ -2212,6 +2218,9 @@ export const en = {
       undoNote: "Plisto only does this if the file is exactly as the trim left it.",
       undoConfirm: "Put original back",
       undoRefused: "The file changed since the trim, so Plisto did not put the original back.",
+      undoUnavailable:
+        "The original cannot be put back now: replacing the original is off, or the file is no longer an Opus file in your library.",
+      undoSpace: "The drive has no room to put the original ({size}) back. Free some space, then retry.",
       failedTitle: "The trim didn't finish",
       untouched: "Your original file is untouched.",
       saveAsNew: "Save as a new file instead",
@@ -2227,6 +2236,24 @@ export const en = {
         denied: {
           title: "Access denied",
           text: "Windows denied access to the file or its folder. Check that the file is not read-only and that you can write to the folder, then retry.",
+        },
+        changed: {
+          title: "The file changed",
+          text: "The file changed after the editor read it, so Plisto did not replace it. Trim again rereads it, so you can check the trim before you replace it.",
+        },
+        inUse: { title: "The file is in use" },
+        offline: {
+          title: "The folder is offline",
+          text: "The file's library folder is out of reach. Reconnect the drive, then retry.",
+        },
+        missing: { title: "The file is gone from disk" },
+        busy: {
+          title: "Plisto is busy",
+          text: "Another job is using your library: a write to your music files, an export or a folder change. Wait for it to finish, then retry.",
+        },
+        unavailable: {
+          title: "This file cannot be replaced",
+          text: "Replacing the original is off, or this is not an Opus file in your library. Save it as a new file instead.",
         },
         other: {
           title: "Windows reported an error",

@@ -2209,8 +2209,15 @@ export const fr: Dict = {
         flac: "Il n'existe pas encore de moyen sûr d'écrire un FLAC sur place ; la prise en charge est prévue. Le reconstruire ici ferait perdre sa table de recherche et sa somme de contrôle : un FLAC est enregistré en nouveau fichier.",
         format:
           "Il n'existe pas encore de moyen sûr d'écrire un {format} sur place ; la prise en charge est prévue. Seul l'Opus peut être remplacé : un fichier {format} est enregistré en nouveau fichier.",
-        readOnly: "Ce fichier est en lecture seule : il ne peut pas être remplacé. Plisto ne modifie pas les attributs du fichier.",
+        rereading: "Plisto relit le fichier. Le rognage pourra être enregistré une fois la lecture terminée.",
+        stale:
+          "Le fichier a changé depuis sa lecture par l'éditeur : ce rognage ne peut pas être enregistré. Relisez-le pour rogner son contenu actuel ; votre rognage reste en place jusque-là.",
       },
+      reread: "Relire le fichier",
+      rereadFirst: "Relisez le fichier avant d'enregistrer ce rognage.",
+      rereadFailed:
+        "Plisto n'a pas pu relire le fichier : rien ne peut être enregistré à partir de ce rognage tant qu'il n'y parvient pas.",
+      rereadRetry: "Réessayer",
       unavailableTitle: "Ce fichier n'a pas pu être ouvert",
       missingLine:
         "Le fichier a disparu du disque (Plisto le liste comme absent). Rien ne peut être rogné ni remplacé tant qu'il n'est pas revenu ou localisé.",
@@ -2243,6 +2250,10 @@ export const fr: Dict = {
       undoNote: "Plisto ne le fait que si le fichier est exactement tel que le rognage l'a laissé.",
       undoConfirm: "Remettre l'original",
       undoRefused: "Le fichier a changé depuis le rognage : Plisto n'a pas remis l'original.",
+      undoUnavailable:
+        "L'original ne peut pas être remis maintenant : le remplacement de l'original est désactivé, ou le fichier n'est plus un fichier Opus de votre audiothèque.",
+      undoSpace:
+        "Le disque n'a pas assez de place pour remettre l'original ({size}). Libérez de la place, puis réessayez.",
       failedTitle: "Le rognage n'a pas abouti",
       untouched: "Votre fichier d'origine est intact.",
       saveAsNew: "Enregistrer en nouveau fichier",
@@ -2258,6 +2269,24 @@ export const fr: Dict = {
         denied: {
           title: "Accès refusé",
           text: "Windows a refusé l'accès au fichier ou à son répertoire. Vérifiez que le fichier n'est pas en lecture seule et que vous pouvez écrire dans le répertoire, puis réessayez.",
+        },
+        changed: {
+          title: "Le fichier a changé",
+          text: "Le fichier a changé après sa lecture par l'éditeur : Plisto ne l'a pas remplacé. Rogner à nouveau le relit, pour que vous vérifiiez le rognage avant de le remplacer.",
+        },
+        inUse: { title: "Le fichier est utilisé" },
+        offline: {
+          title: "Le répertoire est hors ligne",
+          text: "Le répertoire de l'audiothèque qui contient ce fichier est inaccessible. Rebranchez le disque, puis réessayez.",
+        },
+        missing: { title: "Le fichier a disparu du disque" },
+        busy: {
+          title: "Plisto est occupé",
+          text: "Une autre tâche utilise votre audiothèque : une écriture dans vos fichiers musicaux, un export ou un changement de répertoire. Attendez qu'elle se termine, puis réessayez.",
+        },
+        unavailable: {
+          title: "Ce fichier ne peut pas être remplacé",
+          text: "Le remplacement de l'original est désactivé, ou ce fichier n'est pas un fichier Opus de votre audiothèque. Enregistrez-le plutôt en nouveau fichier.",
         },
         other: {
           title: "Windows a signalé une erreur",

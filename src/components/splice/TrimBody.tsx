@@ -3,24 +3,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 // -- Component Imports --
-import { CenteredStage } from "../common/CenteredStage";
-import { QuietButton } from "../common/QuietButton";
-import { Tooltip } from "../common/Tooltip/Tooltip";
-import { ProgressLine } from "../scan/ProgressLine";
-import { StaffSpinner } from "../scan/StaffSpinner";
 import { WaveformLane } from "./WaveformLane";
 import { MiniTransport } from "./MiniTransport";
 import { ZoomControl } from "./ZoomControl";
 import { CropControls } from "./CropControls";
 import { TrimReadout } from "./TrimReadout";
 import { SpliceOutputConfig } from "./SpliceOutputConfig";
-import { SpliceRunReport } from "./SpliceRunReport";
+import { TrimSaveControl } from "./TrimSaveControl";
+import { TrimNewDone, TrimNewRunning } from "./TrimNewFileStage";
+import { TrimReplaceStage } from "./TrimReplaceStage";
+import { TrimReplaceConfirm } from "./TrimReplaceDialogs";
 
 // -- Hook Imports --
-import { useSpliceDestination } from "./useSpliceDestination";
 import { usePreviewScrub } from "./usePreviewScrub";
 import { usePreviewToggle } from "./usePreviewToggle";
 import { useWorkbenchKeys } from "./useWorkbenchKeys";
+import { useTrimSaveAsNew } from "./useTrimSaveAsNew";
+import { useKeepFor, useTrimReplaceFlow } from "./useTrimReplaceFlow";
+import type { TrimSource } from "./useTrimReplaceFlow";
 
 // -- State Imports --
 import {
@@ -30,30 +30,17 @@ import {
   useSetPreference,
   useTrimHintDue,
 } from "../../state/preferences/store";
-import { useAddRootPath } from "../../state/store";
 
 // -- IPC Imports --
-import {
-  createSpliceChannel,
-  playerPreview,
-  spliceCancel,
-  spliceDetectSilence,
-  spliceRun,
-} from "../../lib/ipc";
+import { playerPreview, spliceDetectSilence } from "../../lib/ipc";
 
 // -- Utils Imports --
 import { snapFrame, spliceFormat } from "../../lib/splice";
-import { applyPadding, detectTrim, paddingFrames, sourceStem, trimsAnything } from "../../lib/crop";
-import { openFolder } from "../../lib/opener";
+import { applyPadding, detectTrim, paddingFrames, trimsAnything } from "../../lib/crop";
+import { formatDuration } from "../../lib/format";
 
 // -- Type Imports --
-import type {
-  CollisionPolicy,
-  SpliceJob,
-  SpliceProgress,
-  SpliceReport,
-  WaveformAnalysis,
-} from "../../types";
+import type { WaveformAnalysis } from "../../types";
 import type { WaveformLaneHandle, ZoomState } from "./WaveformLane";
 
 // -- i18n Imports --
@@ -75,12 +62,6 @@ const DEFAULT_PADDING_MS = 75;
 /** How close to an edge a silence span counts as touching it, when deriving the trim. */
 const EDGE_EPSILON_SECS = 0.05;
 
-/** Which screen the body shows: the trim surface, the live run, or the done report. */
-type SubPhase = "editing" | "running" | "done";
-
-/** Where the add-to-library action sits: unstarted, indexing, or done. */
-type AddState = "idle" | "adding" | "added";
-
 /** A pref string as a finite number, or the fallback when it is absent or unparsable. */
 function numberPref(value: string | undefined, fallback: number): number {
   if (value == null) return fallback;
@@ -89,23 +70,30 @@ function numberPref(value: string | undefined, fallback: number): number {
 }
 
 /**
- * The cropper's surface across its three phases. Editing is the waveform lane with its two trim handles
- * over the transport and zoom, beside the panel holding the threshold and padding knobs, the head/tail
- * readout, the destination, and the Trim CTA. Running is a centered determinate stage; done is a report.
+ * The cropper's surface. Editing is the waveform lane with its two trim handles over the transport and
+ * zoom, beside the panel holding the threshold and padding knobs, the head/tail readout, and the Save
+ * control: a new file, or the library file replaced in place. Each save has its own centered screens.
  * The body owns the trim: two points derived from the file's silence, widened by the padding, cut as one
- * segment that keeps the source name.
+ * segment. A new `analysis` - the file reread after a finished write, or on Reread - seeds a fresh trim.
+ * The workbench owns the file and its rereads through `source`.
  */
 export function TrimBody({
   analysis,
   path,
+  name,
   ext,
+  trackId,
   dirtyRef,
+  source,
   onRequestClose,
 }: {
   analysis: WaveformAnalysis;
   path: string;
+  name: string;
   ext: string;
+  trackId: number;
   dirtyRef?: MutableRefObject<boolean>;
+  source: TrimSource;
   onRequestClose: () => void;
 }) {
   const t = useT();
@@ -131,19 +119,21 @@ export function TrimBody({
     [notePlayhead],
   );
 
-  // The detected-or-hand trim points, seeded once from the analysis silence (the common case, free on
-  // open). Padding widens these into the effective cut; a hand drag moves them and holds detection off.
+  // The detected-or-hand trim points, seeded from the analysis silence (the common case, free on open).
+  // Padding widens these into the effective cut; a hand drag moves them and holds detection off.
   const [base, setBase] = useState(() => detectTrim(analysis.silence, totalFrames, epsilon));
   const [handMoved, setHandMoved] = useState(false);
   const [touched, setTouched] = useState(false);
 
-  const [subPhase, setSubPhase] = useState<SubPhase>("editing");
-  const [collision, setCollision] = useState<CollisionPolicy>("rename");
-  const [confirmingRun, setConfirmingRun] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<SpliceProgress | null>(null);
-  const [report, setReport] = useState<SpliceReport | null>(null);
-  const [addState, setAddState] = useState<AddState>("idle");
+  // A reread file is a new source: seed its trim afresh and park the playhead at the start.
+  const [seededFrom, setSeededFrom] = useState(analysis);
+  if (seededFrom !== analysis) {
+    setSeededFrom(analysis);
+    setBase(detectTrim(analysis.silence, totalFrames, epsilon));
+    setHandMoved(false);
+    setTouched(false);
+    setPlayheadSecs(0);
+  }
 
   const storedThreshold = usePreference(PREF_KEYS.spliceThresholdDb);
   const storedPadding = usePreference(PREF_KEYS.splicePaddingMs);
@@ -152,9 +142,6 @@ export function TrimBody({
   const retireTrimHint = useRetireTrimHint();
   const thresholdDb = numberPref(storedThreshold, DEFAULT_THRESHOLD_DB);
   const paddingMs = numberPref(storedPadding, DEFAULT_PADDING_MS);
-
-  const { destination, check, checking, pick } = useSpliceDestination();
-  const addRootPath = useAddRootPath();
 
   // A detection generation, so a stale re-detect (an earlier threshold) never lands over a newer one.
   // A monotonic counter, not a boolean gate, so StrictMode's double mount never swallows a run.
@@ -172,22 +159,18 @@ export function TrimBody({
     [path, totalFrames, epsilon],
   );
 
-  // Reconcile a remembered threshold with the opening trim: the analysis ran at the default, so only a
-  // differing remembered threshold needs a detect on open. Idempotent through redetect's generation
-  // guard, so no ref gate to leak under StrictMode; the knob handler owns every later re-detect.
+  // Reconcile a remembered threshold with each analysis' trim: the analysis ran at the default, so only
+  // a differing remembered threshold needs a detect. A detect still running against the previous file is
+  // voided first. Idempotent through the generation guard; the knob handler owns every later re-detect.
   useEffect(() => {
+    detectGen.current += 1;
     if (thresholdDb !== ANALYSIS_THRESHOLD_DB) void redetect(thresholdDb);
-  }, []);
+  }, [analysis]);
 
   // The first handle drag retires the hint for good.
   useEffect(() => {
     if (handMoved) retireTrimHint();
   }, [handMoved]);
-
-  // Publish the close-guard signal: only an unsaved edit on the trim surface arms it.
-  useEffect(() => {
-    if (dirtyRef) dirtyRef.current = subPhase === "editing" && touched;
-  }, [dirtyRef, subPhase, touched]);
 
   // The snapped trim points the handles, veil, and readout show: the frame grid the format can land on,
   // made visible so the shown times match what the cut writes.
@@ -199,6 +182,30 @@ export function TrimBody({
   const pad = paddingFrames(paddingMs, sampleRate);
   const effective = applyPadding({ inFrame, outFrame }, pad, totalFrames);
   const canTrim = trimsAnything(effective, totalFrames);
+  const resultSecs = Math.max(0, effective.out - effective.in) / sampleRate;
+
+  // A run acts on the trim, so the unsaved-edits flag clears; a later edit re-arms it.
+  const clearTouched = useCallback(() => setTouched(false), []);
+  // Neither save cuts from a stale or rereading analysis: its frames may not match the file now.
+  const canCut = canTrim && !source.stale && !source.reading;
+  const cutHint = !canTrim
+    ? t((d) => d.splice.trimNothing)
+    : t((d) => (source.reading ? d.fileWrites.trim.why.rereading : d.fileWrites.trim.rereadFirst));
+  const newFile = useTrimSaveAsNew({ path, range: effective, canTrim: canCut, onStart: clearTouched });
+
+  const replace = useTrimReplaceFlow({ trackId, ext, ...source });
+  const keep = useKeepFor();
+  const { flow } = replace;
+
+  // The trim surface shows while neither save is past its confirm.
+  const editing = newFile.phase === "editing" && (flow.kind === "idle" || flow.kind === "confirming");
+
+  // Publish the close-guard signal: an unsaved edit on the trim surface arms it, and so does one kept
+  // behind a failed replace, which Back would otherwise drop.
+  const guarded = editing || flow.kind === "failed";
+  useEffect(() => {
+    if (dirtyRef) dirtyRef.current = guarded && touched;
+  }, [dirtyRef, guarded, touched]);
 
   const onMoveIn = useCallback(
     (frame: number) => {
@@ -242,80 +249,19 @@ export function TrimBody({
     void playerPreview(path, effective.in / sampleRate, effective.out / sampleRate).catch(() => {});
   };
 
-  const onPickDestination = () => {
-    setConfirmingRun(false);
-    setRunError(null);
-    void pick();
-  };
-
-  const runTrim = useCallback(async () => {
-    if (!destination || !canTrim) return;
-    setConfirmingRun(false);
-    setRunError(null);
-    setProgress(null);
-    setReport(null);
-    setAddState("idle");
-    // A run acts on the trim, so the unsaved-edits flag clears; a later edit re-arms it.
-    setTouched(false);
-    setSubPhase("running");
-
-    const channel = createSpliceChannel((tick) => {
-      setProgress((prev) => {
-        const completed =
-          prev && prev.phase === tick.phase ? Math.max(prev.completed, tick.completed) : tick.completed;
-        return { ...tick, completed };
-      });
+  const onReplace = () => {
+    if (!canTrim) return;
+    replace.ask({
+      from: formatDuration(durationSecs),
+      to: formatDuration(resultSecs),
+      startFrame: effective.in,
+      endFrame: effective.out,
     });
-
-    // One segment, no tags of its own: the naming pattern is the source stem (no tokens), so the trimmed
-    // file keeps the source's own name. The cropper keeps the source tag verbatim - same track, every
-    // field and the cover carried across.
-    const job: SpliceJob = {
-      source_path: path,
-      segments: [
-        { start_frame: effective.in, end_frame: effective.out, title: null, artist: null, track_no: null },
-      ],
-      destination,
-      naming_pattern: sourceStem(path),
-      collision,
-      keep_source_tags: true,
-    };
-
-    try {
-      setReport(await spliceRun(job, channel));
-      setSubPhase("done");
-    } catch {
-      // The source is read-only, so a failed run leaves it untouched; drop back with the reason.
-      setRunError(t((d) => d.splice.trimFailed));
-      setSubPhase("editing");
-    }
-  }, [destination, canTrim, path, effective.in, effective.out, collision, t]);
-
-  const onRunClick = useCallback(() => {
-    if (check?.non_empty) setConfirmingRun(true);
-    else void runTrim();
-  }, [check, runTrim]);
-
-  const onAddToLibrary = useCallback(() => {
-    if (!destination) return;
-    setAddState("adding");
-    void addRootPath(destination)
-      .then((ok) => setAddState(ok ? "added" : "idle"))
-      .catch(() => setAddState("idle"));
-  }, [destination, addRootPath]);
-
-  const onTrimAgain = useCallback(() => {
-    setReport(null);
-    setProgress(null);
-    setRunError(null);
-    setConfirmingRun(false);
-    setAddState("idle");
-    setSubPhase("editing");
-  }, []);
+  };
 
   // The cropper's reduced shortcut map: no tool or marker keys, just Space to toggle the preview and
   // Escape to step from a sounding preview back to the workbench close.
-  useWorkbenchKeys(subPhase === "editing", {
+  useWorkbenchKeys(editing && flow.kind === "idle", {
     onZoomIn: () => laneZoomRef.current?.zoomIn(),
     onZoomOut: () => laneZoomRef.current?.zoomOut(),
     onFit: () => laneZoomRef.current?.fit(),
@@ -325,73 +271,24 @@ export function TrimBody({
     onClose: onRequestClose,
   });
 
-  if (subPhase === "running") {
-    const total = progress?.total ?? 1;
-    const completed = progress?.completed ?? 0;
-    const errors = progress?.errors ?? 0;
-    const value = total > 0 ? completed / total : null;
+  if (newFile.phase === "running") {
+    return <TrimNewRunning destination={newFile.destination} progress={newFile.progress} />;
+  }
+
+  if (newFile.phase === "done" && newFile.report) {
     return (
-      <CenteredStage>
-        <div className={styles.centered}>
-          <StaffSpinner />
-          <h1 className={styles.title}>{t((d) => d.splice.trimming)}</h1>
-          {destination ? (
-            <Tooltip label={destination}>
-              <p className={styles.path}>{destination}</p>
-            </Tooltip>
-          ) : null}
-          <ProgressLine value={value} />
-          <div className={`${styles.counters} tabular`}>
-            <span>
-              {completed} / {total}
-            </span>
-            {errors > 0 ? (
-              <span className={styles.tally}>{t((d) => d.export.errors, { n: errors })}</span>
-            ) : null}
-          </div>
-          <div className={styles.foot}>
-            <QuietButton onClick={() => void spliceCancel()}>
-              {t((d) => d.splice.cancel)}
-            </QuietButton>
-          </div>
-        </div>
-      </CenteredStage>
+      <TrimNewDone
+        report={newFile.report}
+        destination={newFile.destination}
+        addState={newFile.addState}
+        onAddToLibrary={newFile.onAddToLibrary}
+        onTrimAgain={newFile.onTrimAgain}
+      />
     );
   }
 
-  if (subPhase === "done" && report) {
-    const title = report.cancelled
-      ? t((d) => d.splice.stopped, { done: report.written, total: report.total })
-      : t((d) => d.splice.wrote, { n: report.written });
-    const addLabel =
-      addState === "adding"
-        ? t((d) => d.splice.addingToLibrary)
-        : addState === "added"
-          ? t((d) => d.splice.addedToLibrary)
-          : t((d) => d.splice.addToLibrary);
-    return (
-      <CenteredStage>
-        <div className={styles.centered}>
-          <span className={styles.dot} aria-hidden="true" />
-          <h1 className={styles.title}>{title}</h1>
-          <SpliceRunReport report={report} />
-          <div className={styles.actions}>
-            <QuietButton
-              onClick={onAddToLibrary}
-              disabled={report.written === 0 || addState !== "idle"}
-            >
-              {addLabel}
-            </QuietButton>
-            {destination ? (
-              <QuietButton onClick={() => void openFolder(destination)}>
-                {t((d) => d.export.openFolder)}
-              </QuietButton>
-            ) : null}
-            <QuietButton onClick={onTrimAgain}>{t((d) => d.splice.trimAgain)}</QuietButton>
-          </div>
-        </div>
-      </CenteredStage>
-    );
+  if (flow.kind !== "idle" && flow.kind !== "confirming" && replace.snapshot) {
+    return <TrimReplaceStage replace={replace} path={path} name={name} reloading={source.reading} />;
   }
 
   return (
@@ -447,33 +344,50 @@ export function TrimBody({
           <TrimReadout
             inFrame={inFrame}
             outFrame={outFrame}
-            resultSecs={Math.max(0, effective.out - effective.in) / sampleRate}
+            resultSecs={resultSecs}
             sampleRate={sampleRate}
             onHead={onMoveIn}
             onTail={onMoveOut}
             onPlayKept={onPlayKept}
           />
           <div className={styles.configFoot}>
-            <SpliceOutputConfig
-              destination={destination}
-              check={check}
-              checking={checking}
-              collision={collision}
-              segmentCount={1}
-              confirming={confirmingRun}
-              runError={runError}
-              canRun={canTrim}
-              runLabel={t((d) => d.splice.trimCta)}
-              disabledHint={t((d) => d.splice.trimNothing)}
-              onPickDestination={onPickDestination}
-              onCollision={setCollision}
-              onRun={onRunClick}
-              onConfirmRun={() => void runTrim()}
-              onCancelConfirm={() => setConfirmingRun(false)}
-            />
+            <TrimSaveControl
+              replace={replace}
+              path={path}
+              canTrim={canTrim}
+              source={source}
+              onReplace={onReplace}
+            >
+              <SpliceOutputConfig
+                destination={newFile.destination}
+                check={newFile.check}
+                checking={newFile.checking}
+                collision={newFile.collision}
+                segmentCount={1}
+                confirming={newFile.confirmingRun}
+                runError={newFile.runError}
+                canRun={canCut}
+                runLabel={t((d) => d.splice.trimCta)}
+                disabledHint={cutHint}
+                onPickDestination={newFile.onPickDestination}
+                onCollision={newFile.setCollision}
+                onRun={newFile.onRun}
+                onConfirmRun={() => void newFile.runTrim()}
+                onCancelConfirm={() => newFile.setConfirmingRun(false)}
+              />
+            </TrimSaveControl>
           </div>
         </div>
       </div>
+
+      <TrimReplaceConfirm
+        open={flow.kind === "confirming"}
+        name={name}
+        snapshot={replace.snapshot}
+        keep={keep}
+        onConfirm={replace.run}
+        onClose={replace.dismissConfirm}
+      />
     </div>
   );
 }
