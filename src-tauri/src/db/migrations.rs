@@ -14,7 +14,7 @@ use std::time::Instant;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 // The latest schema version. user_version below this triggers the migrations up to it.
-const LATEST_VERSION: i64 = 22;
+const LATEST_VERSION: i64 = 23;
 
 // Version 1: the sole `tracks` table plus a single-row `meta` holding the active workspace.
 // No tag-column indexes; UNIQUE(source_path) is the only one and doubles as the upsert key.
@@ -470,6 +470,66 @@ CREATE INDEX idx_playlist_tracks_album ON playlist_tracks(album_id);
 CREATE INDEX idx_playlist_tracks_track ON playlist_tracks(track_id);
 ";
 
+// Version 23: writes to the user's music files. `tracks.raw_genres` holds every genre value the file
+// carries as a JSON array, exactly as read; NULL marks a row not yet re-read, which the scan drains.
+// `file_write_batches` is one stamp run or trim. `file_write_journal` holds one row per file in flight
+// for crash recovery. `file_write_undo` is what an undo and the kept-backups list read; it outlives its
+// track (SET NULL) and its root: `root_path` is the snapshot a removed root leaves behind, and
+// `root_id` is cleared by the root removal. A column and new tables only, so every existing row is untouched.
+const MIGRATION_V23: &str = "
+ALTER TABLE tracks ADD COLUMN raw_genres TEXT;
+
+CREATE TABLE file_write_batches (
+    id            INTEGER PRIMARY KEY,
+    kind          TEXT NOT NULL CHECK (kind IN ('stamp','trim')),
+    label         TEXT,
+    started_at    INTEGER NOT NULL,
+    finished_at   INTEGER,
+    files_written INTEGER NOT NULL DEFAULT 0,
+    undone_at     INTEGER
+);
+CREATE TABLE file_write_journal (
+    op_id          TEXT PRIMARY KEY,
+    batch_id       INTEGER NOT NULL REFERENCES file_write_batches(id),
+    kind           TEXT NOT NULL,
+    root_id        INTEGER NOT NULL,
+    rel_path       TEXT NOT NULL,
+    rel_key        TEXT NOT NULL,
+    temp_name      TEXT NOT NULL,
+    backup_name    TEXT NOT NULL,
+    pre_size       INTEGER NOT NULL,
+    pre_mtime      INTEGER NOT NULL,
+    phase          TEXT NOT NULL,
+    undo_json      TEXT,
+    target_undo_id INTEGER,
+    created_at     INTEGER NOT NULL,
+    UNIQUE (root_id, rel_key)
+);
+CREATE TABLE file_write_undo (
+    id                 INTEGER PRIMARY KEY,
+    batch_id           INTEGER NOT NULL REFERENCES file_write_batches(id) ON DELETE CASCADE,
+    kind               TEXT NOT NULL,
+    track_id           INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+    root_id            INTEGER,
+    root_path          TEXT NOT NULL,
+    rel_path           TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    prior_json         TEXT,
+    written_json       TEXT,
+    cleared_edits_json TEXT,
+    backup_name        TEXT,
+    backup_size        INTEGER,
+    post_size          INTEGER NOT NULL,
+    post_mtime         INTEGER NOT NULL,
+    expires_at         INTEGER,
+    undone_at          INTEGER,
+    sweep_json         TEXT,
+    pre_duration_ms    INTEGER,
+    post_duration_ms   INTEGER
+);
+CREATE INDEX file_write_undo_batch ON file_write_undo(batch_id);
+";
+
 // The whole-database copy written beside the file before a schema bump.
 const PRE_MIGRATION_BACKUP: &str = "plisto.pre-migration-backup.sqlite";
 
@@ -529,6 +589,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<MigrationReport> {
             19 => conn.execute_batch(MIGRATION_V20)?,
             20 => conn.execute_batch(MIGRATION_V21)?,
             21 => migrate_v22(conn)?,
+            22 => migrate_v23(conn)?,
             _ => unreachable!("no migration defined for user_version {version}"),
         }
         version += 1;
@@ -579,6 +640,15 @@ fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
     }
 
     tx.pragma_update(None, "user_version", 22)?;
+    tx.commit()
+}
+
+/// Adds the file-write tables and `raw_genres` in one transaction, so a failed step leaves the v22
+/// schema whole and the version unbumped.
+fn migrate_v23(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    tx.execute_batch(MIGRATION_V23)?;
+    tx.pragma_update(None, "user_version", 23)?;
     tx.commit()
 }
 
@@ -1770,7 +1840,7 @@ mod tests {
 
         migrate(&conn).unwrap();
 
-        assert_eq!(user_version(&conn), 22);
+        assert_eq!(user_version(&conn), 23);
         assert_eq!(slot_dump(&conn), before, "every slot keeps its id and values");
         assert_eq!(
             count(
@@ -1833,7 +1903,7 @@ mod tests {
         };
         let after_first = schema(&conn);
         migrate(&conn).unwrap();
-        assert_eq!(user_version(&conn), 22);
+        assert_eq!(user_version(&conn), 23);
         assert_eq!(schema(&conn), after_first, "a second run changes no schema");
         assert_eq!(slot_dump(&conn), before, "a second run changes no slot");
     }
@@ -1970,8 +2040,8 @@ mod tests {
         let before = slot_dump(&conn);
 
         let report = migrate(&conn).unwrap();
-        assert_eq!(user_version(&conn), 22);
-        assert_eq!((report.from, report.to), (21, 22));
+        assert_eq!(user_version(&conn), 23);
+        assert_eq!((report.from, report.to), (21, 23));
         let CopyOutcome::Ok { bytes, .. } = report.copy else {
             panic!("expected a copy, got {:?}", report.copy);
         };
@@ -2023,7 +2093,7 @@ mod tests {
 
         let report = migrate(&conn).unwrap();
 
-        assert_eq!((report.from, report.to), (21, 22));
+        assert_eq!((report.from, report.to), (21, 23));
         assert_eq!(report.copy, CopyOutcome::None);
     }
 
@@ -2059,7 +2129,7 @@ mod tests {
         let report = migrate(&conn).unwrap();
 
         assert!(matches!(report.copy, CopyOutcome::Failed { .. }));
-        assert_eq!(user_version(&conn), 22);
+        assert_eq!(user_version(&conn), 23);
         assert_eq!(slot_dump(&conn), before);
         assert_eq!(foreign_keys(&conn), 1);
         assert!(
@@ -2245,6 +2315,9 @@ mod tests {
             "covers",
             "duplicate_dismissals",
             "export_ledger",
+            "file_write_batches",
+            "file_write_journal",
+            "file_write_undo",
             "folder_covers",
             "genres",
             "meta",

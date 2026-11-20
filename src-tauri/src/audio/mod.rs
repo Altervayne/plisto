@@ -39,7 +39,7 @@ pub use decode::{DecodeError, Decoder};
 pub use dsp::gain::{track_gain_db, GainInputs};
 pub use feed::{FeedCause, FeedConsumer, FeedEvent, FeedHub, FeedSource, FeedState, Transport};
 pub use peaks::{compute_peaks, Peak, PeakAccumulator};
-pub(crate) use queue::index_of_id;
+pub(crate) use queue::{index_of_id, preload_target};
 pub use silence::{find_silence, SilenceDetector, SilenceSpan};
 
 // ---- Audio feed for out-of-process readers ----

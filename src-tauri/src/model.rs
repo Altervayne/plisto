@@ -21,6 +21,9 @@ pub struct RawTags {
     pub disc_no: Option<String>,
     pub year: Option<String>,
     pub genre: Option<String>,
+    // Every genre value in the file, in order and as read; `genre` is the first. None only on a
+    // default set that no reader has filled; a file with no genre reads as an empty list.
+    pub genres: Option<Vec<String>>,
     pub duration_secs: Option<f64>,
     pub has_embedded_cover: Option<bool>,
     // ReplayGain strings as tagged ("-6.52 dB", "0.98"); parsed in normalize.rs. An Opus
@@ -67,6 +70,8 @@ pub struct TrackRecord {
     pub raw_disc_no: Option<i64>,
     pub raw_year: Option<i64>,
     pub raw_genre: Option<String>,
+    // A JSON array of the file's genre values; NULL (None) is the drain sentinel for a legacy row.
+    pub raw_genres: Option<String>,
     pub has_embedded_cover: Option<bool>,
     pub rg_track_gain: Option<f64>,
     pub rg_track_peak: Option<f64>,

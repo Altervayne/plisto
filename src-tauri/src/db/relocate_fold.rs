@@ -38,6 +38,7 @@ const SCAN_COLUMNS: &[&str] = &[
     "raw_disc_no",
     "raw_year",
     "raw_genre",
+    "raw_genres",
     "has_embedded_cover",
     "scanned_at",
     "missing_at",

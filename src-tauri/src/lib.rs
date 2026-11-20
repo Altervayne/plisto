@@ -9,6 +9,7 @@ mod db;
 mod discovery;
 mod dto;
 mod export;
+mod file_writes;
 mod intake;
 mod library_sync;
 mod loudness;

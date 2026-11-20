@@ -9,6 +9,8 @@
 mod album_numbering;
 mod duplicates;
 mod export_ledger;
+#[allow(dead_code)]
+pub(crate) mod file_writes;
 mod folder_moves;
 mod locate_folder;
 mod migrations;
@@ -117,10 +119,10 @@ pub fn upsert_track(
             raw_title, raw_artist, raw_album, raw_album_artist,
             raw_track_no, raw_disc_no, raw_year, raw_genre, has_embedded_cover, scanned_at, root_id,
             rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, gain_tags_read,
-            art_hash, art_width, art_height
+            art_hash, art_width, art_height, raw_genres
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22, 1, ?23, ?24, ?25
+            ?19, ?20, ?21, ?22, 1, ?23, ?24, ?25, ?26
          )
          ON CONFLICT(source_path) DO UPDATE SET
             display_path = excluded.display_path,
@@ -147,7 +149,8 @@ pub fn upsert_track(
             gain_tags_read = 1,
             art_hash = excluded.art_hash,
             art_width = excluded.art_width,
-            art_height = excluded.art_height
+            art_height = excluded.art_height,
+            raw_genres = excluded.raw_genres
          RETURNING id",
         params![
             rec.source_path,
@@ -175,6 +178,7 @@ pub fn upsert_track(
             art.map(|a| &a.hash),
             art.map(|a| a.width),
             art.map(|a| a.height),
+            rec.raw_genres,
         ],
         |r| r.get(0),
     )
@@ -2576,6 +2580,7 @@ mod tests {
             raw_disc_no: None,
             raw_year: Some(1997),
             raw_genre: None,
+            raw_genres: Some("[]".to_string()),
             has_embedded_cover: Some(true),
             rg_track_gain: None,
             rg_track_peak: None,
@@ -2659,7 +2664,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
 
         for table in [
             "tracks",
@@ -2750,7 +2755,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
     }
 
     #[test]
@@ -2816,6 +2821,24 @@ mod tests {
             .query_row("SELECT has_embedded_cover FROM tracks", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, Some(1), "Some(true) persists as 1");
+    }
+
+    #[test]
+    fn upsert_track_writes_and_refreshes_raw_genres() {
+        let conn = open_in_memory().unwrap();
+        let read = || -> Option<String> {
+            conn.query_row("SELECT raw_genres FROM tracks", [], |r| r.get(0))
+                .unwrap()
+        };
+
+        let mut rec = sample(100);
+        rec.raw_genres = Some(r#"["Rock","Pop"]"#.to_string());
+        upsert_track(&conn, &rec, None).unwrap();
+        assert_eq!(read().as_deref(), Some(r#"["Rock","Pop"]"#));
+
+        rec.raw_genres = Some("[]".to_string());
+        upsert_track(&conn, &rec, None).unwrap();
+        assert_eq!(read().as_deref(), Some("[]"));
     }
 
     #[test]

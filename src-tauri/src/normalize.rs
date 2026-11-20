@@ -56,6 +56,7 @@ pub fn normalize_track(
         raw_disc_no: parse_leading_int(&raw.disc_no),
         raw_year: parse_leading_int(&raw.year),
         raw_genre: clean_text(&raw.genre),
+        raw_genres: raw.genres.as_ref().map(|g| genres_json(g)),
         has_embedded_cover: raw.has_embedded_cover,
         rg_track_gain: parse_gain_db(&raw.rg_track_gain),
         rg_track_peak: parse_peak(&raw.rg_track_peak),
@@ -64,6 +65,12 @@ pub fn normalize_track(
         cover_art: raw.cover_art.clone(),
         scanned_at,
     }
+}
+
+/// The stored form of a file's genre values: a JSON array of the strings exactly as read, so a value
+/// that holds a separator stays one value.
+fn genres_json(genres: &[String]) -> String {
+    serde_json::to_string(genres).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Lexical canonicalization for the dedup key only. Purely string-level so it never touches
@@ -115,9 +122,9 @@ pub fn needs_rescan(stored: (i64, i64), current: (i64, i64)) -> bool {
     stored != current
 }
 
-/// True when a row must be re-read: either its stats changed, or its art was never examined.
-/// `art_known` is false for a row whose `has_embedded_cover` is still NULL, so a legacy row is
-/// re-read once to fill the flag and skipped on every later pass once it is non-NULL.
+/// True when a row must be re-read: either its stats changed, or its art or genres were never examined.
+/// `art_known` is false for a row whose `has_embedded_cover` or `raw_genres` is still NULL, so a
+/// legacy row is re-read once to fill both and skipped on every later pass once they are non-NULL.
 pub fn needs_reread(stored: (i64, i64), current: (i64, i64), art_known: bool) -> bool {
     needs_rescan(stored, current) || !art_known
 }
@@ -189,6 +196,28 @@ mod tests {
         assert_eq!(rec.raw_title, None);
         assert_eq!(rec.raw_artist, None);
         assert_eq!(rec.raw_album, None);
+    }
+
+    #[test]
+    fn genres_are_stored_as_a_json_array_exactly_as_read() {
+        let raw = RawTags {
+            genre: Some("Rock".to_string()),
+            genres: Some(vec![" Rock ".to_string(), "Pop; Soul".to_string()]),
+            ..tags()
+        };
+        let rec = normalize_track("/music/song.mp3", 10, 20, 99, &raw);
+        assert_eq!(rec.raw_genres.as_deref(), Some(r#"[" Rock ","Pop; Soul"]"#));
+        assert_eq!(rec.raw_genre.as_deref(), Some("Rock"));
+
+        let none = RawTags {
+            genres: Some(Vec::new()),
+            ..tags()
+        };
+        let rec = normalize_track("/music/song.mp3", 10, 20, 99, &none);
+        assert_eq!(rec.raw_genres.as_deref(), Some("[]"));
+
+        let unread = normalize_track("/music/song.mp3", 10, 20, 99, &tags());
+        assert_eq!(unread.raw_genres, None, "an unread set stays NULL");
     }
 
     #[test]

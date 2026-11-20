@@ -48,6 +48,7 @@ pub fn read_tags_detailed(path: &Path) -> (RawTags, Option<TagFailure>) {
             return (
                 RawTags {
                     has_embedded_cover: Some(false),
+                    genres: Some(Vec::new()),
                     ..RawTags::default()
                 },
                 Some(failure),
@@ -63,6 +64,7 @@ pub fn raw_from_art(art: &ArtFile) -> RawTags {
     let mut raw = RawTags {
         duration_secs: Some(tagged.properties().duration().as_secs_f64()),
         has_embedded_cover: Some(false),
+        genres: Some(Vec::new()),
         ..RawTags::default()
     };
 
@@ -71,6 +73,7 @@ pub fn raw_from_art(art: &ArtFile) -> RawTags {
         raw.artist = tag.artist().map(|c| c.into_owned());
         raw.album = tag.album().map(|c| c.into_owned());
         raw.genre = tag.genre().map(|c| c.into_owned());
+        raw.genres = Some(tag.get_strings(ItemKey::Genre).map(str::to_string).collect());
         raw.album_artist = tag.get_string(ItemKey::AlbumArtist).map(str::to_string);
         raw.track_no = tag.get_string(ItemKey::TrackNumber).map(str::to_string);
         raw.disc_no = tag.get_string(ItemKey::DiscNumber).map(str::to_string);
@@ -357,5 +360,55 @@ mod tests {
 
         assert_eq!(raw.has_embedded_cover, Some(false));
         assert_eq!(raw.cover_art, None);
+    }
+
+    fn opus_genres(name: &str, comments: &[&str]) -> RawTags {
+        let file = TempFile::new(name);
+        std::fs::write(&file.0, opus_with_comments(comments)).unwrap();
+        let (raw, errored) = read_tags(&file.0);
+        assert!(!errored);
+        raw
+    }
+
+    #[test]
+    fn a_file_without_a_genre_reads_an_empty_list() {
+        let raw = opus_genres("none.opus", &["TITLE=Song"]);
+
+        assert_eq!(raw.genres, Some(Vec::new()));
+        assert_eq!(raw.genre, None);
+    }
+
+    #[test]
+    fn one_genre_reads_as_a_one_item_list() {
+        let raw = opus_genres("one.opus", &["GENRE=Rock"]);
+
+        assert_eq!(raw.genres, Some(vec!["Rock".to_string()]));
+        assert_eq!(raw.genre.as_deref(), Some("Rock"));
+    }
+
+    #[test]
+    fn several_genres_read_in_order_and_a_separator_stays_inside_its_value() {
+        let raw = opus_genres("many.opus", &["GENRE=Rock", "GENRE=Pop; Soul", "GENRE=Jazz"]);
+
+        assert_eq!(
+            raw.genres,
+            Some(vec![
+                "Rock".to_string(),
+                "Pop; Soul".to_string(),
+                "Jazz".to_string()
+            ])
+        );
+        assert_eq!(raw.genre.as_deref(), Some("Rock"), "raw_genre is the first value");
+    }
+
+    #[test]
+    fn an_unreadable_file_still_gets_an_empty_list() {
+        let file = TempFile::new("broken.mp3");
+        std::fs::write(&file.0, b"").unwrap();
+
+        let (raw, errored) = read_tags(&file.0);
+
+        assert!(errored);
+        assert_eq!(raw.genres, Some(Vec::new()), "so the forced re-read drains");
     }
 }

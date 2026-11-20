@@ -205,6 +205,9 @@ pub(super) const EXCLUDED_TABLES: &[(&str, &str)] = &[
     ("export_ledger", "describes files at a destination"),
     ("duplicate_dismissals", "scan-side review state"),
     ("scan_issues", "scan findings"),
+    ("file_write_batches", "describes writes to files on disk"),
+    ("file_write_journal", "crash recovery state for files on disk"),
+    ("file_write_undo", "describes writes to files on disk"),
     ("meta", "legacy workspace row"),
 ];
 

@@ -425,13 +425,13 @@ impl Scope {
 
 /// Loads each indexed track's (size, mtime, art_known) into a map keyed by the canonical path,
 /// so the incremental check never queries the DB per file. `art_known` is whether the row's
-/// `has_embedded_cover` is non-NULL, which the re-read rule uses to drain unexamined rows. A track
-/// flagged missing reads as not known, so it is re-read once when its file returns and a still
-/// broken file gets its issue row back.
+/// `has_embedded_cover` and `raw_genres` are both non-NULL, which the re-read rule uses to drain
+/// unexamined rows. A track flagged missing reads as not known, so it is re-read once when its file
+/// returns and a still broken file gets its issue row back.
 fn load_stats(conn: &Connection) -> rusqlite::Result<HashMap<String, (i64, i64, bool)>> {
     let mut stmt = conn.prepare(
         "SELECT source_path, size_bytes, mtime,
-                has_embedded_cover IS NOT NULL AND missing_at IS NULL
+                has_embedded_cover IS NOT NULL AND raw_genres IS NOT NULL AND missing_at IS NULL
          FROM tracks",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -1063,6 +1063,84 @@ mod tests {
         // Now that every row is examined, an unchanged re-scan skips all of them.
         let third = scan(&music.path, &db_path);
         assert_eq!(third.skipped, 2);
+        assert_eq!(third.updated, 0);
+    }
+
+    fn raw_genres_of(db_path: &Path, filename: &str) -> Option<String> {
+        let conn = Connection::open(db_path).unwrap();
+        conn.query_row(
+            "SELECT raw_genres FROM tracks WHERE filename = ?1",
+            [filename],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    // A FLAC that lofty opens, tagged with `genres` as separate GENRE values.
+    fn write_flac_with_genres(path: &Path, genres: &[&str]) {
+        use lofty::config::WriteOptions;
+        use lofty::prelude::{ItemKey, TagExt};
+        use lofty::tag::{ItemValue, Tag, TagItem, TagType};
+
+        let mut flac = b"fLaC".to_vec();
+        flac.push(0x80);
+        flac.extend_from_slice(&[0x00, 0x00, 0x22]);
+        flac.extend_from_slice(&[0u8; 34]);
+        fs::write(path, flac).unwrap();
+        let mut tag = Tag::new(TagType::VorbisComments);
+        for genre in genres {
+            tag.push(TagItem::new(ItemKey::Genre, ItemValue::Text((*genre).to_string())));
+        }
+        tag.save_to_path(path, WriteOptions::default()).unwrap();
+    }
+
+    #[test]
+    fn a_scan_stores_one_genre_and_several_genres_as_arrays() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        write_flac_with_genres(&music.path.join("one.flac"), &["Rock"]);
+        write_flac_with_genres(&music.path.join("many.flac"), &["Rock", "Pop; Soul", "Jazz"]);
+
+        scan(&music.path, &db_path);
+
+        assert_eq!(raw_genres_of(&db_path, "one.flac").as_deref(), Some(r#"["Rock"]"#));
+        assert_eq!(
+            raw_genres_of(&db_path, "many.flac").as_deref(),
+            Some(r#"["Rock","Pop; Soul","Jazz"]"#)
+        );
+    }
+
+    #[test]
+    fn a_legacy_row_without_raw_genres_is_re_read_once() {
+        let music = TempDir::new("scan_music");
+        let store = TempDir::new("scan_db");
+        let db_path = store.path.join("plisto.sqlite");
+        fs::write(music.path.join("a.mp3"), b"").unwrap();
+        fs::write(music.path.join("b.flac"), b"").unwrap();
+
+        scan(&music.path, &db_path);
+        assert_eq!(
+            raw_genres_of(&db_path, "a.mp3").as_deref(),
+            Some("[]"),
+            "a file with no genre stores an empty list"
+        );
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE tracks SET raw_genres = NULL WHERE filename = 'a.mp3'",
+                [],
+            )
+            .unwrap();
+        }
+        let second = scan(&music.path, &db_path);
+        assert_eq!(second.updated, 1, "only the NULL row is re-read");
+        assert_eq!(second.skipped, 1);
+        assert_eq!(raw_genres_of(&db_path, "a.mp3").as_deref(), Some("[]"));
+
+        let third = scan(&music.path, &db_path);
+        assert_eq!(third.skipped, 2, "it is not read again");
         assert_eq!(third.updated, 0);
     }
 
