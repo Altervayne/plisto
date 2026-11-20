@@ -550,6 +550,7 @@ pub fn run() {
             commands::extract::extract_apply,
             commands::file_writes::take_file_write_recovery,
             commands::file_writes::last_file_write,
+            commands::file_writes::pending_writes,
             commands::bulk_edit::bulk_edit_tracks,
             commands::bulk_edit::apply_track_titles,
             commands::roots::list_roots,

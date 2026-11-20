@@ -296,7 +296,7 @@ pub enum RestoreLine<'a> {
         collapsed: i64,
         dropped: i64,
     },
-    /// `why` is `newer`, `unreadable`, `integrity`, `before_point` or `busy`.
+    /// `why` is `newer`, `unreadable`, `integrity`, `before_point`, `busy` or `file_write`.
     Refused { why: &'a str },
     Failed { ms: u64, error: &'a str },
 }

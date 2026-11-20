@@ -8,6 +8,8 @@ use super::*;
 use crate::normalize::normalize_path_key;
 use tauri::async_runtime::block_on;
 
+mod unfinished;
+
 // A unique throwaway directory under the system temp dir, removed on drop.
 struct TempDir(PathBuf);
 
@@ -276,6 +278,27 @@ fn an_apply_while_the_scan_lock_is_held_is_busy() {
     .unwrap_err();
     assert_eq!(err, busy);
     assert_eq!(points, 0);
+}
+
+#[test]
+fn an_apply_is_refused_while_a_file_write_runs() {
+    let lib = Lib::new();
+    let id = lib.gone("a.mp3");
+    lib.file("a.mp3", 3);
+    lib.state.file_write_running.store(true, Ordering::SeqCst);
+    let mut points = 0;
+    let err = block_on(apply(&lib.state, lib.root_id, &lib.old(), &lib.new_path(), || {
+        points += 1;
+        true
+    }))
+    .unwrap_err();
+    assert_eq!(err, "a file write is running");
+    assert_eq!(points, 0);
+    let conn = lib.state.db.lock().unwrap();
+    let gone: Option<i64> = conn
+        .query_row("SELECT missing_at FROM tracks WHERE id = ?1", params![id], |r| r.get(0))
+        .unwrap();
+    assert!(gone.is_some());
 }
 
 #[test]

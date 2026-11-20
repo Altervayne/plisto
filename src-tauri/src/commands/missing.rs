@@ -11,6 +11,7 @@ use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
+use super::file_writes::refuse_while_writing;
 use super::restore_points::point_before;
 use crate::bootlog::BootLog;
 use crate::db;
@@ -23,23 +24,32 @@ use crate::state::AppState;
 const NOT_REMOVED: &str = "Nothing was removed: a restore point could not be saved first.";
 
 /// Removes the gone tracks in `track_ids` and reports the tally: rows dropped and albums emptied by the
-/// cascade. Rejects while a scan runs. Only rows already flagged gone are dropped; a present track passed
-/// by id is left in place. Saves a restore point first and removes nothing when that fails. No walk. Async
-/// so the wait for a preempted background pass never holds the main thread.
+/// cascade. Rejects while a scan or a write to a music file runs. Only rows already flagged gone are
+/// dropped; a present track passed by id is left in place. Saves a restore point first and removes
+/// nothing when that fails. No walk. Async so the wait for a preempted background pass never holds
+/// the main thread.
 #[tauri::command]
 pub async fn remove_missing_tracks(
     track_ids: Vec<i64>,
     state: State<'_, AppState>,
     boot_log: State<'_, BootLog>,
 ) -> Result<PurgeSummary, String> {
-    let _lock = acquire_scan_lock(&state, Holder::User)?;
+    purge_guarded(&state, &track_ids, || point_before(&state, &boot_log, "purge"))
+}
+
+// Takes the scan lock, refuses while a file write runs, then purges.
+fn purge_guarded(
+    state: &AppState,
+    track_ids: &[i64],
+    point_saved: impl FnOnce() -> bool,
+) -> Result<PurgeSummary, String> {
+    let _lock = acquire_scan_lock(state, Holder::User)?;
+    refuse_while_writing(state)?;
     let mut conn = state
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    purge_with_point(&mut conn, &track_ids, || {
-        point_before(&state, &boot_log, "purge")
-    })
+    purge_with_point(&mut conn, track_ids, point_saved)
 }
 
 /// Runs the purge once `point_saved` reports a saved point. An empty id list removes nothing, so it
@@ -58,6 +68,7 @@ pub(super) fn purge_with_point(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
 
     fn gone_track(conn: &Connection, source: &str) -> i64 {
         conn.execute(
@@ -91,6 +102,20 @@ mod tests {
         let summary = purge_with_point(&mut conn, &[id], || true).unwrap();
         assert_eq!(summary.removed, 1);
         assert_eq!(track_count(&conn), 0);
+    }
+
+    #[test]
+    fn a_purge_is_refused_while_a_file_write_runs() {
+        let conn = db::open_in_memory().unwrap();
+        let id = gone_track(&conn, "/m/a.mp3");
+        let state = AppState::for_test(conn, std::path::PathBuf::new());
+        state.file_write_running.store(true, Ordering::SeqCst);
+        let err = purge_guarded(&state, &[id], || panic!("no point for a refused purge"));
+        assert_eq!(err.unwrap_err(), "a file write is running");
+        assert_eq!(track_count(&state.db.lock().unwrap()), 1);
+
+        state.file_write_running.store(false, Ordering::SeqCst);
+        assert_eq!(purge_guarded(&state, &[id], || true).unwrap().removed, 1);
     }
 
     #[test]

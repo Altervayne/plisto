@@ -642,14 +642,15 @@ pub fn fill_root_keys(conn: &Connection) -> rusqlite::Result<()> {
 /// Removes a root and everything that hung off it, in one transaction. Deleting the root CASCADEs
 /// to its tracks (root_id FK), and each dropped track CASCADEs to its album membership (track_id
 /// FK). Any album or single gutted to zero members by that cascade is then deleted, restoring the
-/// "every container holds at least one member" invariant. The root's recorded earlier paths and
-/// folder moves go too.
+/// "every container holds at least one member" invariant. The root's recorded earlier paths, folder
+/// moves and journal rows go too; its undo rows stay, with no root.
 pub fn remove_root(conn: &mut Connection, root_id: i64) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM roots WHERE id = ?1", params![root_id])?;
     delete_emptied_albums(&tx)?;
     relocate::forget_root_moves(&tx, root_id)?;
     folder_moves::forget_folder_moves(&tx, root_id)?;
+    file_writes::forget_root_writes(&tx, root_id)?;
     tx.commit()
 }
 

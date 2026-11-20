@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 // -- Local Imports --
 use super::duplicates::member_count;
+use super::file_writes::{has_journal_under, repoint_undo_rows};
 use super::folder_moves::reid_folder_moves;
 use super::playlist_albums::{dissolve_entries_into, referenced_album_members};
 use super::relocate_fold::{fold_pairs, set_scan_values};
@@ -38,6 +39,8 @@ pub enum RelocateError {
     // A track still points at the absorbed root once its rows were carried over.
     AbsorbNotEmpty,
     SameRoot,
+    // A root involved still has a write to a music file in flight.
+    PendingWrites,
 }
 
 impl std::fmt::Display for RelocateError {
@@ -52,6 +55,7 @@ impl std::fmt::Display for RelocateError {
                 write!(f, "tracks still point at the folder being merged")
             }
             RelocateError::SameRoot => write!(f, "a folder cannot merge into itself"),
+            RelocateError::PendingWrites => write!(f, "unfinished writes"),
         }
     }
 }
@@ -122,14 +126,18 @@ pub fn root_track_paths(conn: &Connection, root_id: i64) -> rusqlite::Result<Vec
 }
 
 /// Points `root_id` at `new_path` in one transaction, keeping every track id: each track's key and
-/// display path, the root row, its folder covers and its recorded earlier paths are rewritten. A
-/// case-only move leaves every key equal and changes display values only.
+/// display path, the root row, its folder covers, its recorded earlier paths and its undo rows'
+/// root path are rewritten. A case-only move leaves every key equal and changes display values only.
+/// Refused while the root has a write in flight.
 pub fn move_root(
     conn: &mut Connection,
     root_id: i64,
     new_path: &str,
 ) -> Result<RelocateReport, RelocateError> {
     let tx = conn.transaction()?;
+    if has_journal_under(&tx, root_id, "")? {
+        return Err(RelocateError::PendingWrites);
+    }
     let (root, rows) = read_side(&tx, root_id)?;
     let new_root = Path::new(new_path);
 
@@ -141,6 +149,7 @@ pub fn move_root(
         "UPDATE roots SET path = ?1, root_key = ?2 WHERE id = ?3",
         params![new_path, normalize_path_key(new_path), root_id],
     )?;
+    repoint_undo_rows(&tx, &[root_id], root_id, new_path)?;
     rebase_folder_covers(&tx, &root.key, new_root)?;
     record_move(&tx, root_id, &root.path, new_path, None)?;
 
@@ -170,7 +179,8 @@ pub fn plan_merge(
 /// scan columns. Absorbed-only tracks move to the kept root with their ids. Kept-only tracks are
 /// rewritten to the new path. Albums left with no member are deleted and counted; a playlist entry of
 /// one becomes the kept tracks its members folded onto, in the album's order. The absorbed root's
-/// recorded folder moves pass to the kept root.
+/// recorded folder moves pass to the kept root, and so do both roots' undo rows from music file
+/// writes. Refused while either root has a write in flight.
 pub fn merge_root(
     conn: &mut Connection,
     keep_root: i64,
@@ -181,6 +191,10 @@ pub fn merge_root(
         return Err(RelocateError::SameRoot);
     }
     let tx = conn.transaction()?;
+    // The kept root changes place too, so a row in flight under either would point at the wrong file.
+    if has_journal_under(&tx, keep_root, "")? || has_journal_under(&tx, absorb_root, "")? {
+        return Err(RelocateError::PendingWrites);
+    }
     let (keep, keep_rows) = read_side(&tx, keep_root)?;
     let (absorb, absorb_rows) = read_side(&tx, absorb_root)?;
     let plan = plan_rows(&tx, &keep_rows, &absorb_rows)?;
@@ -209,6 +223,8 @@ pub fn merge_root(
         "UPDATE scan_issues SET root_id = ?1 WHERE root_id = ?2",
         params![keep.id, absorb.id],
     )?;
+    // The kept root takes the absorbed root's path, so an absorbed row's rel_path stays valid as it is.
+    repoint_undo_rows(&tx, &[keep.id, absorb.id], keep.id, &absorb.path)?;
     tx.execute("DELETE FROM roots WHERE id = ?1", params![absorb.id])?;
     tx.execute(
         "UPDATE roots SET path = ?1, root_key = ?2 WHERE id = ?3",
@@ -503,6 +519,7 @@ mod tests {
     use super::super::relocate_fold::scan_values;
     use super::*;
     use crate::db;
+    use crate::db::file_writes;
     use crate::dto::DismissedPair;
     use crate::normalize::folder_of;
     use rusqlite::types::Value;
@@ -1614,5 +1631,108 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- Writes to music files ----
+
+    fn journal_row(op: &str, batch_id: i64, root_id: i64, rel: &str) -> file_writes::JournalRow {
+        file_writes::JournalRow {
+            op_id: op.to_string(),
+            batch_id,
+            kind: "trim".to_string(),
+            root_id,
+            rel_path: rel.to_string(),
+            rel_key: String::new(),
+            temp_name: format!("t-{op}"),
+            backup_name: format!("b-{op}"),
+            pre_size: 1,
+            pre_mtime: 1,
+            phase: "journaled".to_string(),
+            undo_json: None,
+            target_undo_id: None,
+            created_at: 1,
+        }
+    }
+
+    // A finished trim of a file under the root, left as a kept backup; returns the undo row's id.
+    fn kept_trim(conn: &Connection, root_id: i64, root_path: &str, rel: &str) -> i64 {
+        let batch = file_writes::begin_batch(conn, "trim", None, 1).unwrap();
+        file_writes::insert_journal(conn, &journal_row(rel, batch, root_id, rel)).unwrap();
+        let draft = file_writes::UndoDraft {
+            root_id: Some(root_id),
+            root_path: root_path.to_string(),
+            rel_path: rel.to_string(),
+            backup_name: Some(format!("b-{rel}")),
+            backup_size: Some(5),
+            ..file_writes::UndoDraft::default()
+        };
+        let json = serde_json::to_string(&draft).unwrap();
+        file_writes::set_phase(conn, rel, "replaced", Some(&json)).unwrap();
+        file_writes::finish_file(conn, rel, 2).unwrap().undo_id
+    }
+
+    fn undo_place(conn: &Connection, id: i64) -> (Option<i64>, String, String) {
+        let row = file_writes::undo_row(conn, id).unwrap().unwrap();
+        (row.root_id, row.root_path, row.rel_path)
+    }
+
+    #[test]
+    fn a_merge_hands_the_absorbed_roots_kept_backups_to_the_kept_root() {
+        let mut conn = db::open_in_memory().unwrap();
+        let keep = add_root(&conn, OLD);
+        let absorb = add_root(&conn, NEW);
+        let from_keep = kept_trim(&conn, keep, OLD, "k.opus");
+        let from_absorb = kept_trim(&conn, absorb, NEW, "a.opus");
+
+        merge_root(&mut conn, keep, absorb, 50).unwrap();
+
+        // The kept root now lives at the absorbed root's path, so both rows read from there.
+        assert_eq!(
+            undo_place(&conn, from_absorb),
+            (Some(keep), NEW.to_string(), "a.opus".to_string())
+        );
+        assert_eq!(
+            undo_place(&conn, from_keep),
+            (Some(keep), NEW.to_string(), "k.opus".to_string())
+        );
+    }
+
+    #[test]
+    fn a_merge_is_refused_while_either_root_has_a_write_in_flight() {
+        for busy in [0, 1] {
+            let mut conn = db::open_in_memory().unwrap();
+            let keep = add_root(&conn, OLD);
+            let absorb = add_root(&conn, NEW);
+            let batch = file_writes::begin_batch(&conn, "trim", None, 1).unwrap();
+            let root = [keep, absorb][busy];
+            file_writes::insert_journal(&conn, &journal_row("a", batch, root, "a.opus")).unwrap();
+
+            assert!(matches!(
+                merge_root(&mut conn, keep, absorb, 50),
+                Err(RelocateError::PendingWrites)
+            ));
+            assert!(root_of(&conn, absorb).is_some(), "nothing was written");
+        }
+    }
+
+    #[test]
+    fn a_move_refreshes_the_kept_backups_root_path_and_is_refused_with_a_row_in_flight() {
+        let mut conn = db::open_in_memory().unwrap();
+        let root = add_root(&conn, OLD);
+        let id = kept_trim(&conn, root, OLD, "k.opus");
+
+        move_root(&mut conn, root, NEW).unwrap();
+        assert_eq!(
+            undo_place(&conn, id),
+            (Some(root), NEW.to_string(), "k.opus".to_string())
+        );
+
+        let batch = file_writes::begin_batch(&conn, "trim", None, 1).unwrap();
+        file_writes::insert_journal(&conn, &journal_row("a", batch, root, "a.opus")).unwrap();
+        assert!(matches!(
+            move_root(&mut conn, root, OLD),
+            Err(RelocateError::PendingWrites)
+        ));
+        assert_eq!(root_of(&conn, root).unwrap().0, NEW);
     }
 }

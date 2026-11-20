@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
+use crate::scan_lock::user_scan_running;
 use crate::state::AppState;
 
 /// The running jobs whose output would be lost to an abrupt quit, in a stable order. Discovery and
@@ -18,7 +19,7 @@ use crate::state::AppState;
 /// each job for the confirm dialog. An absent AppState (never, past setup) reads none.
 fn work_losing_jobs(state: &AppState) -> Vec<&'static str> {
     let mut jobs = Vec::new();
-    if state.scan_running.load(Ordering::Relaxed) && !state.bg_active.load(Ordering::Relaxed) {
+    if user_scan_running(state) {
         jobs.push("scan");
     }
     // Covers MTP too: the device transfer runs under the export guard, with no separate flag.
@@ -30,6 +31,9 @@ fn work_losing_jobs(state: &AppState) -> Vec<&'static str> {
     }
     if state.playlist_export_running.load(Ordering::Relaxed) {
         jobs.push("playlist_export");
+    }
+    if state.file_write_running.load(Ordering::Relaxed) {
+        jobs.push("file_write");
     }
     jobs
 }
@@ -148,5 +152,14 @@ mod tests {
         let state = state();
         let _user = acquire_scan_lock(&state, Holder::User).unwrap();
         assert_eq!(work_losing_jobs(&state), vec!["scan"]);
+    }
+
+    #[test]
+    fn a_file_write_blocks_quit_as_a_file_write_and_not_as_a_scan() {
+        let state = state();
+        let _write = acquire_scan_lock(&state, Holder::FileWrite).unwrap();
+        assert!(work_losing_jobs(&state).is_empty());
+        state.file_write_running.store(true, Ordering::SeqCst);
+        assert_eq!(work_losing_jobs(&state), vec!["file_write"]);
     }
 }

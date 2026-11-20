@@ -1,8 +1,9 @@
 /*
  * The IPC surface for restoring a restore point: the list with the folder's disk use, a dry run, and
  * the restore itself. A restore replaces the library's organization, so it runs under the scan lock
- * and is refused while a user scan runs; an export may run meanwhile, since it works from a snapshot
- * of its own. A point is named by its bare file name inside the points folder, never by a path.
+ * and is refused while a user scan or a write to a music file runs; an export may run meanwhile,
+ * since it works from a snapshot of its own. A point is named by its bare file name inside the
+ * points folder, never by a path.
  */
 
 // -- Library Imports --
@@ -13,6 +14,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 // -- Local Imports --
+use super::file_writes::refuse_while_writing;
 use super::organize::with_scan_guard;
 use super::restore_points::{log_failed, log_taken};
 use crate::bootlog::{BootLog, PointLine, RestoreLine};
@@ -24,6 +26,7 @@ use crate::dto::{
     RestoreOutcome, RestorePointList, RestorePointRow, RestorePointStatus, RestorePreview,
     RestoreRefusal,
 };
+use crate::scan_lock::WRITE_BUSY;
 use crate::state::AppState;
 
 /// Every restore point, newest first, with the folder's point count and total size. A point that does
@@ -134,6 +137,7 @@ async fn restore(
     };
     let mut ran = false;
     let result = with_scan_guard(state, |conn| {
+        refuse_while_writing(state)?;
         ran = true;
         Ok(points::apply_restore(conn, &loaded, &dir, now_ms, |taken| {
             log_before_point(log, file, taken)
@@ -141,12 +145,15 @@ async fn restore(
     });
     match result {
         Ok(applied) => outcome(log, file, started, applied),
-        // The guard gave up before the restore began: a scan holds the lock.
-        Err(_) if !ran && !state.db.is_poisoned() => {
-            log.log_restore(file, &RestoreLine::Refused { why: "busy" });
-            Ok(RestoreOutcome::Refused {
-                reason: RestoreRefusal::Busy,
-            })
+        // The guard gave up before the restore began: a scan or a file write holds the lock.
+        Err(e) if !ran && !state.db.is_poisoned() => {
+            let (why, reason) = if e == WRITE_BUSY {
+                ("file_write", RestoreRefusal::FileWrite)
+            } else {
+                ("busy", RestoreRefusal::Busy)
+            };
+            log.log_restore(file, &RestoreLine::Refused { why });
+            Ok(RestoreOutcome::Refused { reason })
         }
         Err(e) => {
             let ms = started.elapsed().as_millis() as u64;
@@ -389,6 +396,33 @@ mod tests {
             list_in(&points::points_dir(&state.db_path)).unwrap().points.len(),
             1,
             "no point is taken for a refused restore"
+        );
+    }
+
+    #[test]
+    fn a_running_file_write_refuses_the_restore_with_its_own_code() {
+        let dir = scratch("file_write");
+        let (state, log) = library(&dir.0);
+        let file = take_daily(&state, 1000);
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM albums WHERE id = 2", [])
+            .unwrap();
+        let refused = RestoreOutcome::Refused {
+            reason: RestoreRefusal::FileWrite,
+        };
+
+        // A batch between two files holds no lock, but its write is still running.
+        state.file_write_running.store(true, Ordering::SeqCst);
+        assert_eq!(restore(&state, &log, &file, 2000).unwrap(), refused);
+
+        assert_eq!(titles(&state), ["One"]);
+        assert!(log_text(&dir.0).contains(&format!(" RESTORE {file} refused why=file_write")));
+        assert_eq!(
+            serde_json::to_value(RestoreRefusal::FileWrite).unwrap(),
+            serde_json::json!({ "code": "file_write" })
         );
     }
 

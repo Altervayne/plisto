@@ -19,6 +19,7 @@ use tauri::{AppHandle, Manager, State};
 
 // -- Local Imports --
 use crate::commands::export::{civil_stamp, StagingGuard};
+use crate::commands::file_writes::begin_export;
 use crate::db;
 use crate::dto::{DeviceTarget, ExportPhase, ExportProgress, ExportSummary, PlaylistM3uSummary};
 use crate::export;
@@ -95,9 +96,11 @@ pub async fn export_playlist_folder(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
-    if state.playlist_export_running.swap(true, Ordering::SeqCst) {
-        return Err("a playlist export is already running".to_string());
-    }
+    begin_export(
+        &state,
+        &state.playlist_export_running,
+        "a playlist export is already running",
+    )?;
     state.playlist_export_cancel.store(false, Ordering::SeqCst);
 
     // The idle-to-running handoff: one Preparing tick while the plan is snapshotted and validated.
@@ -336,9 +339,11 @@ pub async fn export_playlist_mimic_album(
     on_progress: Channel<ExportProgress>,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
-    if state.playlist_export_running.swap(true, Ordering::SeqCst) {
-        return Err("a playlist export is already running".to_string());
-    }
+    begin_export(
+        &state,
+        &state.playlist_export_running,
+        "a playlist export is already running",
+    )?;
     state.playlist_export_cancel.store(false, Ordering::SeqCst);
 
     // The idle-to-running handoff: one Preparing tick while the plan is snapshotted and validated.

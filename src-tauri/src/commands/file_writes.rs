@@ -5,15 +5,20 @@
  */
 
 // -- Library Imports --
-use std::sync::atomic::Ordering;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::State;
 
 // -- Local Imports --
 use crate::db;
-use crate::db::file_writes::{last_batch, undo_rows};
+use crate::db::file_writes::{journal_rows, last_batch, undo_rows};
 use crate::dto::{LastFileWrite, WriteRecovery};
+use crate::scan_lock::WRITE_BUSY;
 use crate::state::AppState;
+
+/// The error a root command gets while files under it have unfinished writes.
+pub const UNFINISHED_WRITES: &str = "unfinished writes";
 
 /// What recovery settled since the last call, then cleared. None when nothing happened.
 #[tauri::command]
@@ -109,13 +114,67 @@ pub fn write_guard<'a>(state: &'a AppState, kind: &str) -> Result<FileWriteRun<'
         return Err(WriteRefusal::Running);
     }
     let run = FileWriteRun { state };
-    if state.export_running.load(Ordering::SeqCst)
-        || state.playlist_export_running.load(Ordering::SeqCst)
-    {
+    if export_active(state) {
         return Err(WriteRefusal::ExportRunning);
     }
     state.file_write_cancel.store(false, Ordering::SeqCst);
     Ok(run)
+}
+
+// One side of the export handshake: a file write sets its flag and then reads this, an export sets
+// its own flag and then reads `file_write_running`. Both orders are SeqCst, so at least one side
+// sees the other and refuses.
+fn export_active(state: &AppState) -> bool {
+    state.export_running.load(Ordering::SeqCst)
+        || state.playlist_export_running.load(Ordering::SeqCst)
+}
+
+/// Marks an export as running through `flag` (the library or the playlist export's own flag) and
+/// refuses with the file-write busy error when a write to a music file runs. A refused export leaves
+/// its flag clear. `running` is the error for a second export of the same kind.
+pub fn begin_export(state: &AppState, flag: &AtomicBool, running: &str) -> Result<(), String> {
+    if flag.swap(true, Ordering::SeqCst) {
+        return Err(running.to_string());
+    }
+    if state.file_write_running.load(Ordering::SeqCst) {
+        flag.store(false, Ordering::SeqCst);
+        return Err(WRITE_BUSY.to_string());
+    }
+    Ok(())
+}
+
+/// Refuses a structural command (restore, purge, locate, relocate, remove) while a write to a music
+/// file runs, since the command would move or replace what the write is on. Called once the command
+/// holds the scan lock, so a write cannot start between the check and the work.
+pub fn refuse_while_writing(state: &AppState) -> Result<(), String> {
+    if state.file_write_running.load(Ordering::SeqCst) {
+        return Err(WRITE_BUSY.to_string());
+    }
+    Ok(())
+}
+
+/// The absolute path of every file of root `root_id` that has an unfinished write, for the confirm
+/// that names what a removal forgets. Empty for an unknown root.
+#[tauri::command]
+pub fn pending_writes(root_id: i64, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| "index is unavailable".to_string())?;
+    pending_paths(&conn, root_id).map_err(|e| e.to_string())
+}
+
+pub(crate) fn pending_paths(
+    conn: &rusqlite::Connection,
+    root_id: i64,
+) -> rusqlite::Result<Vec<String>> {
+    let Some((_, root)) = db::root_target(conn, root_id)? else {
+        return Ok(Vec::new());
+    };
+    Ok(journal_rows(conn, root_id)?
+        .into_iter()
+        .map(|row| Path::new(&root).join(row.rel_path).to_string_lossy().into_owned())
+        .collect())
 }
 
 #[cfg(test)]
@@ -160,6 +219,74 @@ mod tests {
         state.file_write_cancel.store(true, Ordering::SeqCst);
         let _run = write_guard(&state, "trim").unwrap();
         assert!(!state.file_write_cancel.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn an_export_and_a_file_write_exclude_each_other_in_both_orders() {
+        let state = state();
+        switch_on(&state, "trimReplace");
+        let kinds = [
+            (&state.export_running, "an export is already running"),
+            (
+                &state.playlist_export_running,
+                "a playlist export is already running",
+            ),
+        ];
+        for (flag, running) in kinds {
+            // The export is first: the write is refused and the export keeps its flag.
+            begin_export(&state, flag, running).unwrap();
+            assert_eq!(write_guard(&state, "trim").err(), Some(WriteRefusal::ExportRunning));
+            assert_eq!(begin_export(&state, flag, running), Err(running.to_string()));
+            assert!(flag.load(Ordering::SeqCst));
+            flag.store(false, Ordering::SeqCst);
+
+            // The write is first: the export is refused and leaves its flag clear.
+            let run = write_guard(&state, "trim").unwrap();
+            assert_eq!(begin_export(&state, flag, running), Err(WRITE_BUSY.to_string()));
+            assert!(!flag.load(Ordering::SeqCst));
+            drop(run);
+            assert!(begin_export(&state, flag, running).is_ok());
+            flag.store(false, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn a_structural_command_is_refused_while_a_write_runs() {
+        let state = state();
+        assert_eq!(refuse_while_writing(&state), Ok(()));
+        state.file_write_running.store(true, Ordering::SeqCst);
+        assert_eq!(refuse_while_writing(&state), Err("a file write is running".to_string()));
+    }
+
+    #[test]
+    fn pending_writes_list_the_files_of_that_root_only() {
+        let conn = db::open_in_memory().unwrap();
+        let one = db::insert_root(&conn, "/music", "/music", 1).unwrap();
+        let two = db::insert_root(&conn, "/other", "/other", 1).unwrap();
+        let batch = begin_batch(&conn, "trim", None, 1).unwrap();
+        for (root, rel) in [(one, "a.opus"), (one, "b.opus"), (two, "c.opus")] {
+            let row = JournalRow {
+                op_id: rel.to_string(),
+                batch_id: batch,
+                kind: "trim".to_string(),
+                root_id: root,
+                rel_path: rel.to_string(),
+                rel_key: String::new(),
+                temp_name: "t".to_string(),
+                backup_name: "b".to_string(),
+                pre_size: 1,
+                pre_mtime: 1,
+                phase: "journaled".to_string(),
+                undo_json: None,
+                target_undo_id: None,
+                created_at: 1,
+            };
+            insert_journal(&conn, &row).unwrap();
+        }
+        let listed = pending_paths(&conn, one).unwrap();
+        let want = |name: &str| Path::new("/music").join(name).to_string_lossy().into_owned();
+        assert_eq!(listed, vec![want("a.opus"), want("b.opus")]);
+        assert!(pending_paths(&conn, 99).unwrap().is_empty());
     }
 
     #[test]

@@ -344,8 +344,6 @@ pub fn journal_roots(conn: &Connection) -> rusqlite::Result<Vec<i64>> {
 
 /// True when a journal row lies under `rel_prefix_key` in the root: the folder itself or any path
 /// inside it. `rel_prefix_key` is in `normalize_path_key` form; an empty prefix is the whole root.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn has_journal_under(
     conn: &Connection,
     root_id: i64,
@@ -369,6 +367,38 @@ pub fn has_journal_under(
         params![root_id, prefix, inside],
         |r| r.get(0),
     )
+}
+
+/// Forgets a removed root's writes: its journal rows go, and its undo rows stay with no root. Their
+/// `root_path` snapshot is what finds a kept backup afterwards. The journal rows must go with the
+/// root because a root id can be reused, and a new root must not inherit them.
+pub(super) fn forget_root_writes(conn: &Connection, root_id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM file_write_journal WHERE root_id = ?1",
+        params![root_id],
+    )?;
+    conn.execute(
+        "UPDATE file_write_undo SET root_id = NULL WHERE root_id = ?1",
+        params![root_id],
+    )?;
+    Ok(())
+}
+
+/// Hands the undo rows of the roots in `from` to root `to`, now at `root_path`. A row's `rel_path`
+/// is below its root's path, and every caller moves roots so that this path holds those files.
+pub(super) fn repoint_undo_rows(
+    conn: &Connection,
+    from: &[i64],
+    to: i64,
+    root_path: &str,
+) -> rusqlite::Result<()> {
+    for root_id in from {
+        conn.execute(
+            "UPDATE file_write_undo SET root_id = ?1, root_path = ?2 WHERE root_id = ?3",
+            params![to, root_path, root_id],
+        )?;
+    }
+    Ok(())
 }
 
 /// Retires a journal row and records its outcome in one transaction.

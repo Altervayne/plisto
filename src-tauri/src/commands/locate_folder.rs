@@ -15,10 +15,14 @@ use std::time::{Duration, Instant};
 use tauri::State;
 
 // -- Local Imports --
+use super::file_writes::{refuse_while_writing, UNFINISHED_WRITES};
 use super::restore_points::point_before;
 use crate::bootlog::BootLog;
+use crate::db::file_writes::has_journal_under;
 use crate::db::{self, LocateFolderError, LocateFolderPlan, LocateTarget};
 use crate::dto::{LocateFolderOutcome, LocateFolderPreview, LocateFolderRefusal};
+use crate::normalize::normalize_path_key;
+use crate::paths::relative_under;
 use crate::relocate::check_files;
 use crate::scan;
 use crate::scan_lock::{acquire_scan_lock, Holder};
@@ -44,7 +48,8 @@ pub async fn preview_locate_folder(
 
 /// Points the gone tracks under `folder` of `root_id` at `new_path`. The scan lock is held from the
 /// re-check through the write, and the preview is never trusted: the files are stat'ed again with no
-/// deadline, ending early if the user cancels. A refusal, including a failed write (which leaves the
+/// deadline, ending early if the user cancels. It is refused while a write to a music file runs or
+/// is unfinished under the folder. A refusal, including a failed write (which leaves the
 /// library as it was), is returned as `Refused`. A scan is not needed: the stat proved each found file.
 #[tauri::command]
 pub async fn locate_folder(
@@ -85,7 +90,15 @@ async fn apply(
     point: impl FnOnce() -> bool,
 ) -> Result<LocateFolderOutcome, String> {
     let _lock = acquire_scan_lock(state, Holder::User)?;
+    refuse_while_writing(state)?;
     state.cancel.store(false, Ordering::SeqCst);
+    if writes_under(state, root_id, folder)? {
+        return Ok(LocateFolderOutcome::Refused {
+            reason: LocateFolderRefusal::Failed {
+                message: UNFINISHED_WRITES.to_string(),
+            },
+        });
+    }
 
     let targets = match read_targets(state, root_id, folder, new_path)? {
         Ok(targets) => targets,
@@ -97,6 +110,21 @@ async fn apply(
         Err(reason) => return Ok(LocateFolderOutcome::Refused { reason }),
     };
     write(state, root_id, folder, new_path, &found, point)
+}
+
+/// Whether a write to a music file is in flight at or under `folder` of root `root_id`. The folder is
+/// compared by path component and case-folded, so a sibling that shares a prefix does not count.
+fn writes_under(state: &AppState, root_id: i64, folder: &str) -> Result<bool, String> {
+    let conn = state.db.lock().map_err(|_| INDEX_UNAVAILABLE.to_string())?;
+    let Some((_, root)) = db::root_target(&conn, root_id).map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let folder_key = normalize_path_key(folder);
+    let root_key = normalize_path_key(&root);
+    let Some(rel) = relative_under(Path::new(&folder_key), Path::new(&root_key)) else {
+        return Ok(false);
+    };
+    has_journal_under(&conn, root_id, &rel.to_string_lossy()).map_err(|e| e.to_string())
 }
 
 /// The gone files to look for under `new_path`, read under a brief lock. The outer error is a failure

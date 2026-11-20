@@ -1383,6 +1383,8 @@ pub enum RestoreRefusal {
     BeforePoint { message: String },
     /// A scan is running.
     Busy,
+    /// A write to a music file is running.
+    FileWrite,
 }
 
 /// A dry run of a restore. Tagged on `kind`. Mirrors RestorePreview in types.ts.

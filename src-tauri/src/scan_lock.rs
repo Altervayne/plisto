@@ -24,7 +24,8 @@ const PREEMPT_WAIT: Duration = Duration::from_secs(5);
 const PREEMPT_POLL: Duration = Duration::from_millis(20);
 
 const BUSY: &str = "a scan is already running";
-const WRITE_BUSY: &str = "a file write is running";
+/// The error a command gets while a write to a music file is running.
+pub const WRITE_BUSY: &str = "a file write is running";
 
 /// Who holds the scan lock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +53,12 @@ impl Holder {
                 | (Holder::FileWrite, Holder::Background)
         )
     }
+}
+
+/// True while a scan the user started holds the lock; a background pass or a file write is not one.
+pub fn user_scan_running(state: &AppState) -> bool {
+    let holder = state.scan_holder.lock().unwrap_or_else(|e| e.into_inner());
+    *holder == Some(Holder::User)
 }
 
 /// The held scan lock. Dropping it releases the lock, whatever path the holder leaves by.

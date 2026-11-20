@@ -2,9 +2,11 @@
  * The IPC commands that point a root at the folder its files moved to. A preview checks the picked
  * folder (a bounded stat sample for a move, an exact database match for a merge into a root already
  * in the library) and a relocate repeats that check under the scan lock, backs the database up, runs
- * the writer and rescans. A refusal before the commit comes back as a value and changes nothing;
- * only a scan failure after the commit is an error. The database mutex is only held for reads and
- * for the backup and writer, never across the stat sample or an await.
+ * the writer and rescans; a write to a music file that a crash left half done is recovered at the
+ * new place first, or held when that place is offline. A refusal before the commit comes back as a
+ * value and changes nothing; only a scan failure after the commit is an error. The database mutex is
+ * only held for reads, the recovery of the few journaled files, and the backup and writer, never
+ * across a stat probe or sample or an await.
  */
 
 // -- Library Imports --
@@ -17,13 +19,16 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 // -- Local Imports --
+use super::file_writes::{refuse_while_writing, UNFINISHED_WRITES};
 use super::restore_points::point_before;
 use super::roots::run_scan_blocking;
 use crate::bootlog::BootLog;
 use crate::db::{self, RootTrackPath};
 use crate::dto::{
     RelinkCandidate, RelocateOutcome, RelocatePreview, RelocateRefusal, Root, ScanProgress,
+    WriteRecovery,
 };
+use crate::file_writes::settle::settle_before_move;
 use crate::library_sync::SyncCmd;
 use crate::relocate::{
     check_sample, classify_target, pick_sample, rank_candidates, verdict, SampleResult, Target,
@@ -108,8 +113,9 @@ pub async fn preview_relocate(
 
 /// Points `root_id` at `new_path`, or folds it with the root already there, then rescans it,
 /// streaming progress over `on_progress`. The scan lock is held from the re-check through the
-/// rescan, and the preview is never trusted. A refusal, including a failed backup or writer (which
-/// leave the library as it was), is returned as `Refused`. Only a scan failure after the commit is an
+/// rescan, and the preview is never trusted. Unfinished writes under the root are recovered at the new
+/// place first. A refusal, including rows that stay and a failed backup or writer (which leave the
+/// library as it was), is returned as `Refused`. Only a scan failure after the commit is an
 /// error.
 #[tauri::command]
 pub async fn relocate_root(
@@ -120,6 +126,7 @@ pub async fn relocate_root(
     boot_log: State<'_, BootLog>,
 ) -> Result<RelocateOutcome, String> {
     let _lock = acquire_scan_lock(&state, Holder::User)?;
+    refuse_while_writing(&state)?;
     state.cancel.store(false, Ordering::SeqCst);
 
     let merge_with = match assess(&state, root_id, &new_path).await? {
@@ -129,6 +136,17 @@ pub async fn relocate_root(
     };
 
     let scanned_at = super::now_unix();
+    let settled = match settle_target(&state, root_id, merge_with, &new_path).await {
+        Ok((roots, place, reachable)) => {
+            settle_writes(&state, &roots, &place, reachable, scanned_at)
+        }
+        Err(message) => Err(message),
+    };
+    if let Err(message) = settled {
+        return Ok(RelocateOutcome::Refused {
+            reason: RelocateRefusal::Failed { message },
+        });
+    }
     let written = {
         let mut conn = state.db.lock().map_err(|_| INDEX_UNAVAILABLE.to_string())?;
         point_before(&state, &boot_log, "relocate");
@@ -167,6 +185,56 @@ pub async fn relocate_root(
         merged: merge_with.is_some(),
         albums_replaced: report.albums_emptied,
     })
+}
+
+/// The roots a relocate moves, the place they are moving to (the root itself for a move, the root
+/// already there for a merge) and whether that place answers. The probe runs with no lock held.
+async fn settle_target(
+    state: &AppState,
+    root_id: i64,
+    merge_with: Option<i64>,
+    new_path: &str,
+) -> Result<(Vec<i64>, String, bool), String> {
+    let (roots, place) = {
+        let conn = state.db.lock().map_err(|_| INDEX_UNAVAILABLE.to_string())?;
+        match merge_with {
+            Some(other_id) => {
+                let target = db::root_target(&conn, other_id).map_err(|e| e.to_string())?;
+                let (_, path) = target.ok_or_else(|| "no such folder".to_string())?;
+                (vec![root_id, other_id], path)
+            }
+            None => (vec![root_id], new_path.to_string()),
+        }
+    };
+    let probe = PathBuf::from(&place);
+    let reachable = tauri::async_runtime::spawn_blocking(move || scan::root_reachable(&probe))
+        .await
+        .map_err(|_| "relocate check failed to run".to_string())?;
+    Ok((roots, place, reachable))
+}
+
+/// Settles the unfinished writes of `roots` at `place`, or counts them as held offline when it is
+/// not `reachable`. What recovery did is noted for the front end. The error is the refusal message,
+/// which is `UNFINISHED_WRITES` when rows remain.
+fn settle_writes(
+    state: &AppState,
+    roots: &[i64],
+    place: &str,
+    reachable: bool,
+    now: i64,
+) -> Result<(), String> {
+    let mut report = WriteRecovery::default();
+    let settled = (|| -> Result<bool, String> {
+        let conn = state.db.lock().map_err(|_| INDEX_UNAVAILABLE.to_string())?;
+        settle_before_move(&conn, roots, Path::new(place), reachable, now, &mut report)
+            .map_err(|e| e.to_string())
+    })();
+    state.note_write_recovery(report);
+    if settled? {
+        Ok(())
+    } else {
+        Err(UNFINISHED_WRITES.to_string())
+    }
 }
 
 /// Checks `new_path` for `root_id`: the database read under a brief lock, then the stat sample on a
@@ -571,5 +639,133 @@ mod tests {
         assert!(err.contains("outside"), "message names the cause: {err}");
         assert_eq!(db::root_target(&conn, old).unwrap().unwrap().1, OLD);
         let _ = std::fs::remove_file(&backup);
+    }
+    // A folder that removes itself, for the files a recovery reads.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "plisto_relocate_cmd_{tag}_{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    // Journals a write of a.opus under `root_id` that expects the file to have this size and mtime.
+    fn journal_write(conn: &Connection, root_id: i64, pre_size: i64, pre_mtime: i64) {
+        use crate::db::file_writes::{begin_batch, insert_journal, JournalRow};
+        let batch = begin_batch(conn, "trim", None, 1).unwrap();
+        let row = JournalRow {
+            op_id: format!("op{root_id}"),
+            batch_id: batch,
+            kind: "trim".to_string(),
+            root_id,
+            rel_path: "a.opus".to_string(),
+            rel_key: String::new(),
+            temp_name: format!(".plisto-tmp-op{root_id}-a.opus"),
+            backup_name: format!(".plisto-tmp-bak-op{root_id}-a.opus"),
+            pre_size,
+            pre_mtime,
+            phase: "journaled".to_string(),
+            undo_json: None,
+            target_undo_id: None,
+            created_at: 1,
+        };
+        insert_journal(conn, &row).unwrap();
+    }
+
+    // The settle step as a relocate runs it, with the probe awaited on this thread.
+    fn settle(
+        state: &AppState,
+        root_id: i64,
+        merge_with: Option<i64>,
+        new_path: &str,
+    ) -> Result<(), String> {
+        let target = tauri::async_runtime::block_on(settle_target(
+            state, root_id, merge_with, new_path,
+        ))?;
+        let (roots, place, reachable) = target;
+        settle_writes(state, &roots, &place, reachable, 5)
+    }
+
+    fn pending(state: &AppState, root_id: i64) -> bool {
+        let conn = state.db.lock().unwrap();
+        db::file_writes::has_journal_under(&conn, root_id, "").unwrap()
+    }
+
+    #[test]
+    fn a_move_recovers_its_rows_at_the_new_place_then_goes_ahead() {
+        let (conn, old) = library();
+        let folder = Folder::new("move_ok");
+        let file = folder.0.join("a.opus");
+        std::fs::write(&file, b"audio").unwrap();
+        let (size, mtime) = scan::file_stats_checked(&file).unwrap();
+        journal_write(&conn, old, size, mtime);
+        let state = AppState::for_test(conn, PathBuf::new());
+
+        let new_path = folder.0.to_string_lossy().into_owned();
+        assert_eq!(settle(&state, old, None, &new_path), Ok(()));
+        assert!(!pending(&state, old));
+        assert_eq!(std::fs::read(&file).unwrap(), b"audio");
+    }
+
+    #[test]
+    fn a_move_with_a_row_it_cannot_recover_is_refused() {
+        let (conn, old) = library();
+        let folder = Folder::new("move_held");
+        std::fs::write(folder.0.join("a.opus"), b"audio").unwrap();
+        journal_write(&conn, old, 999, 999);
+        let state = AppState::for_test(conn, PathBuf::new());
+
+        let new_path = folder.0.to_string_lossy().into_owned();
+        assert_eq!(
+            settle(&state, old, None, &new_path),
+            Err("unfinished writes".to_string())
+        );
+        assert!(pending(&state, old));
+    }
+
+    #[test]
+    fn a_merge_recovers_both_roots_where_the_other_root_lives() {
+        let (conn, keep) = library();
+        let folder = Folder::new("merge");
+        let place = folder.0.to_string_lossy().into_owned();
+        let other = add_root(&conn, &place);
+        let file = folder.0.join("a.opus");
+        std::fs::write(&file, b"audio").unwrap();
+        let (size, mtime) = scan::file_stats_checked(&file).unwrap();
+        journal_write(&conn, keep, size, mtime);
+        journal_write(&conn, other, size, mtime);
+        let state = AppState::for_test(conn, PathBuf::new());
+
+        assert_eq!(settle(&state, keep, Some(other), NEW), Ok(()));
+        assert!(!pending(&state, keep) && !pending(&state, other));
+    }
+
+    #[test]
+    fn a_merge_onto_an_offline_place_holds_its_rows_and_touches_no_file() {
+        let (conn, keep) = library();
+        let gone =
+            std::env::temp_dir().join(format!("plisto_relocate_cmd_gone_{}", std::process::id()));
+        let other = add_root(&conn, &gone.to_string_lossy());
+        journal_write(&conn, keep, 1, 1);
+        let state = AppState::for_test(conn, PathBuf::new());
+
+        assert_eq!(
+            settle(&state, keep, Some(other), NEW),
+            Err("unfinished writes".to_string())
+        );
+        assert!(pending(&state, keep));
+        assert!(!gone.exists());
     }
 }

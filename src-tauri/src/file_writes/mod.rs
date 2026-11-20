@@ -13,4 +13,6 @@ pub mod recover;
 #[cfg(windows)]
 pub mod replace;
 #[cfg(windows)]
+pub mod settle;
+#[cfg(windows)]
 pub mod space;

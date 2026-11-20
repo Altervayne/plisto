@@ -20,6 +20,7 @@ use tauri::State;
 use crate::db;
 use crate::discovery::{run_discovery, DiscoverySnapshot};
 use crate::dto::ImageFolderGroup;
+use crate::scan_lock::user_scan_running;
 use crate::state::AppState;
 
 /// Streams every folder of loose images across the library over `on_batch`, one group per folder,
@@ -35,8 +36,8 @@ pub async fn discover_library_images(
         return Err("a discovery is already running".to_string());
     }
     // A scan and a sweep both read every root; only one at a time. A background sync pass is not
-    // the user's scan, so it never blocks a sweep.
-    if state.scan_running.load(Ordering::SeqCst) && !state.bg_active.load(Ordering::SeqCst) {
+    // the user's scan, so it never blocks a sweep, and neither does a write to a music file.
+    if user_scan_running(&state) {
         state.discovery_running.store(false, Ordering::SeqCst);
         return Err("a scan is running".to_string());
     }

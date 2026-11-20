@@ -17,6 +17,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 // -- Local Imports --
+use super::file_writes::begin_export;
 use super::now_unix;
 use crate::db;
 use crate::dto::{
@@ -135,9 +136,7 @@ pub async fn export_library(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ExportSummary, String> {
-    if state.export_running.swap(true, Ordering::SeqCst) {
-        return Err("an export is already running".to_string());
-    }
+    begin_export(&state, &state.export_running, "an export is already running")?;
     state.export_cancel.store(false, Ordering::SeqCst);
 
     // The idle-to-running handoff: one Preparing tick while the plan is snapshotted and validated.
@@ -464,9 +463,7 @@ pub async fn adopt_export_destination(
     config: ExportConfig,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
-    if state.export_running.swap(true, Ordering::SeqCst) {
-        return Err("an export is already running".to_string());
-    }
+    begin_export(&state, &state.export_running, "an export is already running")?;
     let result = (|| -> Result<u32, String> {
         let mut conn = state
             .db
