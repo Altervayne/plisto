@@ -68,7 +68,31 @@ pub fn apply_pass(
     complete: bool,
     now: i64,
 ) -> rusqlite::Result<Applied> {
-    let tx = conn.unchecked_transaction()?;
+    // A savepoint, not a transaction, so a caller already inside one can nest this write.
+    conn.execute_batch("SAVEPOINT apply_pass")?;
+    match write_pass(conn, drafts, healed, scopes, complete, now) {
+        Ok(applied) => match conn.execute_batch("RELEASE apply_pass") {
+            Ok(()) => Ok(applied),
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK TO apply_pass; RELEASE apply_pass");
+                Err(e)
+            }
+        },
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO apply_pass; RELEASE apply_pass");
+            Err(e)
+        }
+    }
+}
+
+fn write_pass(
+    tx: &Connection,
+    drafts: &[IssueDraft],
+    healed: &[String],
+    scopes: &[IssueScope<'_>],
+    complete: bool,
+    now: i64,
+) -> rusqlite::Result<Applied> {
     let walked: HashSet<i64> = scopes.iter().map(|s| s.root_id).collect();
     let drafts: Vec<&IssueDraft> = drafts
         .iter()
@@ -118,16 +142,15 @@ pub fn apply_pass(
         }
     }
 
-    delete_keys(&tx, healed)?;
+    delete_keys(tx, healed)?;
 
     if complete {
         let found: HashSet<&str> = drafts.iter().map(|d| d.key.as_str()).collect();
-        sweep_scopes(&tx, scopes, &found)?;
-        sweep_missing_tracks(&tx, &found)?;
+        sweep_scopes(tx, scopes, &found)?;
+        sweep_missing_tracks(tx, &found)?;
     }
 
-    let total = count(&tx)?;
-    tx.commit()?;
+    let total = count(tx)?;
     Ok(Applied { changed, total })
 }
 
@@ -394,6 +417,40 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap()
+    }
+
+    #[test]
+    fn a_pass_inside_a_rolled_back_transaction_leaves_no_rows() {
+        let conn = db::open_in_memory().unwrap();
+        let r = root(&conn, "/m");
+        let d = draft(r, "/m/a.mp3", IssueKind::Stat, Reason::AccessDenied);
+
+        let tx = conn.unchecked_transaction().unwrap();
+        apply_pass(&tx, &[d], &[], &[whole(r)], true, 1).unwrap();
+        assert_eq!(keys(&tx).len(), 1);
+        drop(tx);
+
+        assert!(keys(&conn).is_empty());
+    }
+
+    #[test]
+    fn a_failed_pass_rolls_back_its_rows_and_leaves_no_savepoint_open() {
+        let conn = db::open_in_memory().unwrap();
+        let r = root(&conn, "/m");
+        let first = draft(r, "/m/a.mp3", IssueKind::Stat, Reason::AccessDenied);
+        let second = draft(r, "/m/b.mp3", IssueKind::Stat, Reason::AccessDenied);
+        conn.execute_batch(
+            "CREATE TEMP TRIGGER fail_second BEFORE INSERT ON scan_issues
+             WHEN NEW.path_key = '/m/b.mp3'
+             BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .unwrap();
+
+        let out = apply_pass(&conn, &[first, second], &[], &[whole(r)], true, 1);
+
+        assert!(out.is_err());
+        assert!(keys(&conn).is_empty());
+        conn.execute_batch("BEGIN; ROLLBACK").unwrap();
     }
 
     #[test]

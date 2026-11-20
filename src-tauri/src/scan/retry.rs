@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 
 // -- Local Imports --
 use super::issues::{IssueDraft, IssueKind};
@@ -23,8 +23,9 @@ use super::{
     file_stats_checked, issue_draft, root_reachable, run_scan, ScanEmit, ScanRoot, ScanUnit,
 };
 use crate::db;
-use crate::db::scan_issues::{apply_pass, by_ids, count, IssueScope};
+use crate::db::scan_issues::{apply_pass, by_ids, count, DraftChange, IssueScope};
 use crate::dto::{ScanIssue, ScanIssueRetryProgress, ScanIssueRetryResult};
+use crate::model::TrackRecord;
 use crate::normalize::{normalize_path_key, normalize_track};
 
 /// Files re-read per transaction.
@@ -177,8 +178,116 @@ fn live_root(
     Ok(path)
 }
 
-/// Re-reads one chunk of `tags` and `stat` rows: upserts the tracks that can be read in one
-/// transaction, then writes the rows in another. Returns how many rows it retried.
+/// One file to re-read: its path, its root, and the issue kind its row keeps if it cannot be stat'd.
+type Target = (PathBuf, i64, IssueKind);
+
+/// What re-reading files found, ready to write: the records to upsert, the issues to raise, the keys
+/// whose issue is resolved, and the roots the files belong to.
+struct Reread {
+    records: Vec<(TrackRecord, i64)>,
+    drafts: Vec<IssueDraft>,
+    healed: Vec<String>,
+    walked: BTreeSet<i64>,
+}
+
+/// Stats and reads each target, calling `on_row` after each one. Touches no database, so a slow read
+/// never holds a write lock.
+fn read_files(targets: &[Target], now: i64, on_row: &mut dyn FnMut()) -> Reread {
+    let mut out = Reread {
+        records: Vec::new(),
+        drafts: Vec::new(),
+        healed: Vec::new(),
+        walked: BTreeSet::new(),
+    };
+    for (path, root_id, kind) in targets {
+        'row: {
+            let root_id = *root_id;
+            out.walked.insert(root_id);
+            let text = path.to_string_lossy().into_owned();
+            let key = normalize_path_key(&text);
+
+            // A row keeps its kind when the file still cannot be stat'd, so a tags row keeps its track.
+            let (size, mtime) = match file_stats_checked(path) {
+                Ok(stat) => stat,
+                Err(err) => {
+                    match issue_draft(*kind, root_id, path, key.clone(), &err) {
+                        Some(draft) => out.drafts.push(draft),
+                        None => out.healed.push(key),
+                    }
+                    break 'row;
+                }
+            };
+            let (raw, failure) = read_tags_detailed(path);
+            match failure {
+                // Gone between the stat and the read.
+                Some(TagFailure { reason: None, .. }) => {
+                    out.healed.push(key);
+                    break 'row;
+                }
+                Some(TagFailure {
+                    reason: Some(reason),
+                    detail,
+                }) => out.drafts.push(IssueDraft {
+                    path: text.clone(),
+                    key,
+                    root_id,
+                    kind: IssueKind::Tags,
+                    reason,
+                    detail,
+                }),
+                None => out.healed.push(key),
+            }
+            out.records
+                .push((normalize_track(&text, size, mtime, now, &raw), root_id));
+        }
+        on_row();
+    }
+    out
+}
+
+/// Upserts the records, returning their track ids.
+fn upsert_reread(tx: &Connection, read: &Reread) -> rusqlite::Result<Vec<i64>> {
+    read.records
+        .iter()
+        .map(|(record, root_id)| db::upsert_track(tx, record, Some(*root_id)))
+        .collect()
+}
+
+/// Writes the issue rows for the roots the files belong to. Opens its own transaction.
+fn write_issues(conn: &Connection, read: &Reread, now: i64) -> rusqlite::Result<Vec<DraftChange>> {
+    let scopes: Vec<IssueScope> = read
+        .walked
+        .iter()
+        .map(|&root_id| IssueScope {
+            root_id,
+            units: None,
+        })
+        .collect();
+    Ok(apply_pass(conn, &read.drafts, &read.healed, &scopes, false, now)?.changed)
+}
+
+/// Re-reads each (path, root id) pair inside the caller's transaction, as a scan would, ignoring the
+/// size and modified-time skip. Upserts the tracks that read, writes the issue rows, and returns the
+/// affected track ids, stamped `now`. Emits nothing; the caller emits once its transaction commits.
+// Unused until the stamp writer calls it, which removes this allow.
+#[allow(dead_code)]
+pub fn reread_paths(
+    tx: &Transaction,
+    files: &[(PathBuf, i64)],
+    now: i64,
+) -> rusqlite::Result<Vec<i64>> {
+    let targets: Vec<Target> = files
+        .iter()
+        .map(|(path, root_id)| (path.clone(), *root_id, IssueKind::Stat))
+        .collect();
+    let read = read_files(&targets, now, &mut || {});
+    let ids = upsert_reread(tx, &read)?;
+    write_issues(tx, &read, now)?;
+    Ok(ids)
+}
+
+/// Re-reads one chunk of `tags` and `stat` rows: reads the files outside any transaction, then upserts
+/// the tracks in one transaction and writes the rows in another. Returns how many rows it retried.
 fn retry_files<E>(
     conn: &Connection,
     db_path: &Path,
@@ -192,78 +301,24 @@ where
     E: Fn(ScanEmit) + Sync,
 {
     let to_msg = |e: rusqlite::Error| e.to_string();
-    let mut records = Vec::new();
-    let mut drafts = Vec::new();
-    let mut healed = Vec::new();
-    let mut walked = BTreeSet::new();
-    let mut retried = 0;
-
+    let mut targets = Vec::new();
     for row in chunk {
-        'row: {
-            if live_root(conn, roots, row.root_id)?.is_none() {
-                break 'row;
-            }
-            retried += 1;
-            walked.insert(row.root_id);
-            let key = normalize_path_key(&row.path);
-            let path = Path::new(&row.path);
-            // A row keeps its kind when the file still cannot be stat'd, so a tags row keeps its track.
-            let kind = IssueKind::parse(&row.kind).unwrap_or(IssueKind::Stat);
-
-            let (size, mtime) = match file_stats_checked(path) {
-                Ok(stat) => stat,
-                Err(err) => {
-                    match issue_draft(kind, row.root_id, path, key.clone(), &err) {
-                        Some(draft) => drafts.push(draft),
-                        None => healed.push(key),
-                    }
-                    break 'row;
-                }
-            };
-            let (raw, failure) = read_tags_detailed(path);
-            match failure {
-                // Gone between the stat and the read.
-                Some(TagFailure { reason: None, .. }) => {
-                    healed.push(key);
-                    break 'row;
-                }
-                Some(TagFailure {
-                    reason: Some(reason),
-                    detail,
-                }) => drafts.push(IssueDraft {
-                    path: row.path.clone(),
-                    key,
-                    root_id: row.root_id,
-                    kind: IssueKind::Tags,
-                    reason,
-                    detail,
-                }),
-                None => healed.push(key),
-            }
-            records.push((
-                normalize_track(&row.path, size, mtime, now, &raw),
-                row.root_id,
-            ));
+        if live_root(conn, roots, row.root_id)?.is_none() {
+            ticks.rows_done(1);
+            continue;
         }
-        ticks.rows_done(1);
+        let kind = IssueKind::parse(&row.kind).unwrap_or(IssueKind::Stat);
+        targets.push((PathBuf::from(&row.path), row.root_id, kind));
     }
+    let retried = targets.len() as u32;
+    let read = read_files(&targets, now, &mut || ticks.rows_done(1));
 
-    let mut changed = Vec::with_capacity(records.len());
     let tx = conn.unchecked_transaction().map_err(to_msg)?;
-    for (record, root_id) in &records {
-        changed.push(db::upsert_track(&tx, record, Some(*root_id)).map_err(to_msg)?);
-    }
+    let changed = upsert_reread(&tx, &read).map_err(to_msg)?;
     tx.commit().map_err(to_msg)?;
+    let issue_changes = write_issues(conn, &read, now).map_err(to_msg)?;
 
-    let scopes: Vec<IssueScope> = walked
-        .iter()
-        .map(|&root_id| IssueScope {
-            root_id,
-            units: None,
-        })
-        .collect();
-    let applied = apply_pass(conn, &drafts, &healed, &scopes, false, now).map_err(to_msg)?;
-    log_pass(db_path, &applied.changed);
+    log_pass(db_path, &issue_changes);
     if !changed.is_empty() {
         emit(ScanEmit::Changed(changed));
     }
@@ -784,5 +839,54 @@ mod tests {
 
         let done: Vec<u32> = events.lock().unwrap().iter().map(|p| p.done).collect();
         assert_eq!(done, vec![0, 2, 3]);
+    }
+
+    #[test]
+    fn reread_paths_reads_a_changed_file_by_path_and_root_inside_the_callers_transaction() {
+        let lib = Library::new();
+        let file = lib.music.path.join("a.m4a");
+        fs::write(&file, b"this is not audio").unwrap();
+        lib.scan(1000);
+        assert_eq!(lib.issues().len(), 1);
+        fs::write(&file, valid_audio()).unwrap();
+
+        let conn = lib.conn();
+        let tx = conn.unchecked_transaction().unwrap();
+        let ids = reread_paths(&tx, &[(file.clone(), lib.root_id)], 2000).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(ids, vec![lib.track_id(&file).unwrap()]);
+        assert!(lib.issues().is_empty(), "the read cleared the row");
+    }
+
+    #[test]
+    fn reread_paths_rolls_back_with_the_callers_transaction() {
+        let lib = Library::new();
+        let file = lib.music.path.join("a.m4a");
+        fs::write(&file, b"this is not audio").unwrap();
+        lib.scan(1000);
+        fs::write(&file, valid_audio()).unwrap();
+        let before = lib.issues();
+
+        let conn = lib.conn();
+        let tx = conn.unchecked_transaction().unwrap();
+        let ids = reread_paths(&tx, &[(file.clone(), lib.root_id)], 2000).unwrap();
+        assert_eq!(ids.len(), 1);
+        drop(tx);
+
+        assert_eq!(lib.issues(), before, "the issue row is untouched");
+        let size: i64 = lib
+            .conn()
+            .query_row(
+                "SELECT size_bytes FROM tracks WHERE id = ?1",
+                [ids[0]],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            size,
+            b"this is not audio".len() as i64,
+            "the track row is untouched"
+        );
     }
 }
