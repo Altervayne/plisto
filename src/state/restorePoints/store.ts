@@ -224,6 +224,8 @@ export const useRestoreRunning = (): boolean => useRestorePointsStore((s) => s.r
 
 /** Whether Restore can be asked for: none is running and no scan holds the library. */
 export const useRestoreAllowed = (): boolean => {
+  // Both hooks run on every render, so the hook order never depends on whether a restore runs.
   const running = useRestoreRunning();
-  return !running && useScanStatus() !== "scanning";
+  const scanning = useScanStatus() === "scanning";
+  return !running && !scanning;
 };

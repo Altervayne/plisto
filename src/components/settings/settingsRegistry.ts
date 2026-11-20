@@ -14,6 +14,7 @@ export type SettingId =
   | "rescanAll"
   | "keepUpToDate"
   | "addGenre"
+  | "restorePoints"
   | "outputDevice"
   | "playHistory"
   | "equalizer"
@@ -89,6 +90,13 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     section: "genres",
     label: (d) => d.settings.addGenre,
     synonyms: (d) => d.settingsIndex.addGenre,
+  },
+  {
+    id: "restorePoints",
+    section: "restorePoints",
+    label: (d) => d.restorePoints.section,
+    sublabel: (d) => d.restorePoints.helper,
+    synonyms: (d) => d.settingsIndex.restorePoints,
   },
   {
     id: "outputDevice",

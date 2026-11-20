@@ -31,6 +31,13 @@
   box-shadow: var(--shadow-pop);
 }
 
+/* A sheet that carries a list: wider, and scrolling inside the overlay when the window is short. */
+.wide {
+  width: min(460px, 94vw);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
 .title {
   margin: 0;
   font-size: 15px;

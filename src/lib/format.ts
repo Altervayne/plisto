@@ -56,6 +56,16 @@ export function formatShortDate(secs: number, locale: Locale, now = Date.now()):
   }).format(date);
 }
 
+/** An epoch-ms instant as an absolute local date and time in the app locale: "19 Nov 2026, 11:05". */
+export function formatDateTime(atMs: number, locale: Locale): string {
+  const date = new Intl.DateTimeFormat(DATE_TAGS[locale], {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(atMs));
+  return `${date}, ${formatClockTime(atMs / 1000)}`;
+}
+
 /** The time of day for a unix-seconds stamp: "14:32", 24h, zero-padded, in the local zone. ASCII, so
  *  it sits in a right-aligned meta cell beside the play marker. */
 export function formatClockTime(unixSeconds: number): string {

@@ -111,6 +111,7 @@ describe("settings registry", () => {
     expect(SETTINGS_SECTIONS.map((s) => s.id)).toEqual([
       "folders",
       "genres",
+      "restorePoints",
       "playback",
       "sound",
       "visualizers",

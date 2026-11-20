@@ -17,6 +17,7 @@ import { SearchSettingsDoor } from "./SearchSettingsDoor";
 import { SettingRow } from "./SettingRow";
 import { SectionsMenu, SettingsRail } from "./SettingsRail";
 import { PluginsSection } from "./plugins/PluginsSection";
+import { RestorePointsSection } from "./restorePoints/RestorePointsSection";
 import { SoundSection } from "./SoundSection";
 import { VisualizersSection } from "./visualizers/VisualizersSection";
 import { UpdatesSection } from "./UpdatesSection";
@@ -270,6 +271,10 @@ export function SettingsView({
                 <GenreAddRow className={styles.genreAdd} />
               </div>
             </section>
+          </Page>
+
+          <Page id="restorePoints" shown={section}>
+            <RestorePointsSection />
           </Page>
 
           <Page id="playback" shown={section}>

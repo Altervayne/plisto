@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   dayKey,
   formatClockTime,
+  formatDateTime,
   formatRelativeTime,
   formatShortDate,
   relativeAge,
@@ -103,5 +104,17 @@ describe("formatShortDate", () => {
 
   it("never shows a time", () => {
     expect(formatShortDate(localStamp(2026, 0, 5, 23, 59), "en", now)).not.toMatch(/\d:\d/);
+  });
+});
+
+describe("formatDateTime", () => {
+  const at = new Date(2026, 10, 19, 11, 5).getTime();
+
+  it("reads the day, month, year and clock time, day first", () => {
+    expect(formatDateTime(at, "en")).toBe("19 Nov 2026, 11:05");
+  });
+
+  it("follows the locale for the month", () => {
+    expect(formatDateTime(at, "fr")).toBe("19 nov. 2026, 11:05");
   });
 });

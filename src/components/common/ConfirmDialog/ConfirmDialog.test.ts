@@ -4,9 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 // The dialog reads as a plain element tree once its portal, effects and mount point are stood in for.
 vi.stubGlobal("document", { body: {} });
 vi.mock("react-dom", () => ({ createPortal: (node: unknown) => node }));
+const effects = vi.hoisted(() => ({ deps: [] as unknown[][] }));
 vi.mock("react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react")>()),
-  useEffect: () => {},
+  useEffect: (_fn: unknown, deps: unknown[]) => {
+    effects.deps.push(deps);
+  },
   useRef: () => ({ current: null }),
 }));
 
@@ -86,6 +89,45 @@ describe("ConfirmDialog", () => {
     const dialog = all.find((e) => e.props.role === "alertdialog");
     expect(dialog?.props["data-plugin-prompt"]).toBeUndefined();
     expect(JSON.stringify(all.map((e) => e.props.children))).not.toContain("From a plugin");
+  });
+
+  it("keys its focus effect on the dialog state, never on the close handler", () => {
+    effects.deps.length = 0;
+    render({ onClose: () => {} });
+    render({ onClose: () => {} });
+    expect(effects.deps).toHaveLength(2);
+    for (const deps of effects.deps) {
+      expect(deps.some((d) => typeof d === "function")).toBe(false);
+      expect(deps).toEqual(effects.deps[0]);
+    }
+  });
+
+  it("is the narrow card, with a prompt line, unless asked otherwise", () => {
+    const { all } = render();
+    const dialog = all.find((e) => e.props.role === "alertdialog");
+    expect(dialog?.props.className).not.toContain("wide");
+    expect(all.some((e) => e.type === "p")).toBe(true);
+  });
+
+  it("takes the wide card for a sheet with a list", () => {
+    const { all } = render({ width: "wide" });
+    const dialog = all.find((e) => e.props.role === "alertdialog");
+    expect(dialog?.props.className).toContain("wide");
+  });
+
+  it("leaves the prompt line out when it is empty, keeping the title", () => {
+    const { all } = render({ prompt: "", title: "Done" });
+    expect(all.some((e) => e.type === "p")).toBe(false);
+    expect(all.find((e) => e.type === "h2")?.props.children).toBe("Done");
+  });
+
+  it("drops Cancel on request, leaving the secondary and the confirm as the two answers", () => {
+    const onClick = vi.fn();
+    const { buttons, onClose, onConfirm } = render({ hideCancel: true, secondary: { label: "Undo", onClick } });
+    expect(buttons.map((b) => b.props.children)).toEqual(["Undo", "Yes"]);
+    buttons[1].props.onClick?.();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   describe("plugin variant", () => {
