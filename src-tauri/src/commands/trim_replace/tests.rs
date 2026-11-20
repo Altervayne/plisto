@@ -1,5 +1,6 @@
 use super::*;
 use crate::audio::{PlayerStatus, QueueMirror};
+use crate::db;
 use crate::dto::TrimExpect;
 use crate::file_writes::trim::tests::{segment, Fixture};
 use std::fs;

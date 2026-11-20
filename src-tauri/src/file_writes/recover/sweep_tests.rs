@@ -78,7 +78,7 @@ fn an_offline_root_keeps_its_rows_and_its_tracks() {
     fs::rename(&f.root, &parked).unwrap();
 
     let mut boot = WriteRecovery::default();
-    recover_at_boot(&f.conn, 20, &mut boot).unwrap();
+    recover_at_boot(&f.conn, 20, &mut boot, &mut reach_check()).unwrap();
     assert_eq!(boot.held_offline, 1);
     let (summary, found) = f.scan();
     assert_eq!(
@@ -133,7 +133,7 @@ fn the_launch_run_settles_a_reachable_root_then_sweeps() {
     f.swap();
 
     let mut report = WriteRecovery::default();
-    recover_at_boot(&f.conn, 20, &mut report).unwrap();
+    recover_at_boot(&f.conn, 20, &mut report, &mut reach_check()).unwrap();
     assert_eq!((report.restored, report.held_offline), (1, 0));
     assert_eq!(f.read(&f.source()).as_deref(), Some(ORIGINAL));
     assert!(!f.root.join("leftover").exists());

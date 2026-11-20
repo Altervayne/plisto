@@ -67,7 +67,10 @@ pub(in crate::file_writes) fn sweep_row(
 // The root and folder an undo row's files sit in: the track's current folder while it has one,
 // then the live root plus `rel_path`, then the root path recorded at write time. None when nothing
 // is left.
-fn sweep_place(conn: &Connection, row: &UndoRow) -> rusqlite::Result<Option<(PathBuf, PathBuf)>> {
+pub(in crate::file_writes) fn sweep_place(
+    conn: &Connection,
+    row: &UndoRow,
+) -> rusqlite::Result<Option<(PathBuf, PathBuf)>> {
     if let Some(track_id) = row.track_id {
         let found = conn
             .query_row(

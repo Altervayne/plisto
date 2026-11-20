@@ -21,8 +21,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use super::file_writes::{write_guard, WriteRefusal};
 use super::restore_points::point_before;
 use crate::bootlog::BootLog;
-use crate::db;
-use crate::db::file_writes::{undo_row, UndoRow};
+use crate::db::file_writes::{backup_days, undo_row, UndoRow};
 use crate::dto::{LibraryDelta, SplicePhase, SpliceProgress, TrimReplaceJob, TrimReplaceResult};
 use crate::file_writes::attrs::is_read_only;
 use crate::file_writes::fault::Fault;
@@ -191,7 +190,7 @@ fn refusal(why: WriteRefusal) -> String {
     }
 }
 
-fn index(state: &AppState) -> Result<MutexGuard<'_, Connection>, String> {
+pub(super) fn index(state: &AppState) -> Result<MutexGuard<'_, Connection>, String> {
     state
         .db
         .lock()
@@ -379,20 +378,6 @@ fn sounding(state: &AppState, track_id: i64) -> bool {
     match ids.first() {
         Some(&current) if current == track_id => status.playing,
         _ => ids.contains(&track_id),
-    }
-}
-
-// The kept backup's lifetime in days, None to keep it until discarded. Anything unknown reads as
-// 30.
-fn backup_days(conn: &Connection) -> Option<i64> {
-    match db::get_setting(conn, "trimBackupDays")
-        .ok()
-        .flatten()
-        .as_deref()
-    {
-        Some("7") => Some(7),
-        Some("never") => None,
-        _ => Some(30),
     }
 }
 

@@ -572,8 +572,6 @@ pub fn undo_row(conn: &Connection, id: i64) -> rusqlite::Result<Option<UndoRow>>
 }
 
 /// Removes an undo row, as discarding a kept backup does once its file is deleted.
-// Unused until the kept backups list can discard a backup.
-#[allow(dead_code)]
 pub fn delete_undo(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM file_write_undo WHERE id = ?1", params![id])?;
     Ok(())
@@ -588,9 +586,16 @@ pub fn kept_backups(conn: &Connection) -> rusqlite::Result<Vec<UndoRow>> {
     )
 }
 
+/// Whether a journal row still targets the undo row, as an undo held for an offline root does.
+pub fn undo_targeted(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM file_write_journal WHERE target_undo_id = ?1)",
+        params![id],
+        |r| r.get(0),
+    )
+}
+
 /// The kept backups whose expiry has passed.
-// Unused until backups past their expiry are deleted.
-#[allow(dead_code)]
 pub fn expired_backups(conn: &Connection, now: i64) -> rusqlite::Result<Vec<UndoRow>> {
     undo_rows_where(
         conn,
@@ -602,8 +607,6 @@ pub fn expired_backups(conn: &Connection, now: i64) -> rusqlite::Result<Vec<Undo
 
 /// Resets every kept backup's expiry to its batch's start plus `days`, or to never for `None`.
 /// Returns the number of rows rewritten.
-// Unused until changing how long backups are kept rewrites their expiry.
-#[allow(dead_code)]
 pub fn rewrite_expiry(conn: &Connection, days: Option<i64>) -> rusqlite::Result<usize> {
     conn.execute(
         "UPDATE file_write_undo
@@ -613,6 +616,25 @@ pub fn rewrite_expiry(conn: &Connection, days: Option<i64>) -> rusqlite::Result<
          WHERE kind = 'trim' AND backup_name IS NOT NULL AND undone_at IS NULL",
         params![days, DAY_SECS],
     )
+}
+
+/// The kept backup lifetime in days from the `trimBackupDays` setting, None to keep a backup until
+/// it is discarded. Anything unknown reads as 30.
+pub fn backup_days(conn: &Connection) -> Option<i64> {
+    match super::get_setting(conn, "trimBackupDays")
+        .ok()
+        .flatten()
+        .as_deref()
+    {
+        Some("7") => Some(7),
+        Some("never") => None,
+        _ => Some(30),
+    }
+}
+
+/// Applies the `trimBackupDays` setting to every kept backup already on disk.
+pub fn rewrite_expiry_from_setting(conn: &Connection) -> rusqlite::Result<usize> {
+    rewrite_expiry(conn, backup_days(conn))
 }
 
 /// The undo rows that still list files to delete, for the sweeper.

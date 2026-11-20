@@ -7,11 +7,13 @@
 // -- Library Imports --
 use std::sync::atomic::Ordering;
 
+use rusqlite::Connection;
 use tauri::State;
 
 // -- Local Imports --
 use crate::audio::PlayerCmd;
 use crate::db;
+use crate::db::file_writes::rewrite_expiry_from_setting;
 use crate::library_sync::SyncCmd;
 use crate::loudness::LoudnessCmd;
 use crate::plugins::api::app::{
@@ -62,7 +64,7 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
         .db
         .lock()
         .map_err(|_| "index is unavailable".to_string())?;
-    db::set_setting(&conn, &key, &value).map_err(|e| e.to_string())?;
+    save_setting(&conn, &key, &value).map_err(|e| e.to_string())?;
     // Keep the close-behavior mirror fresh, so the window-event handler never has to read the kv.
     if key == "closeToTray" {
         state.close_to_tray.store(value == "1", Ordering::Relaxed);
@@ -80,6 +82,18 @@ pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Re
     }
     notify_plugins(&key, state.plugins.api());
     Ok(())
+}
+
+// Kept backups follow a new limit, and the hourly turn deletes the ones now past it. The limit and
+// the rewrite of their expiries land together, so a failed rewrite leaves the old limit.
+fn save_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    if key != "trimBackupDays" {
+        return db::set_setting(conn, key, value);
+    }
+    let tx = conn.unchecked_transaction()?;
+    db::set_setting(&tx, key, value)?;
+    rewrite_expiry_from_setting(&tx)?;
+    tx.commit()
 }
 
 /// Tells the plugin event hub that a setting behind the theme, locale or app mode was written.
@@ -117,6 +131,28 @@ pub fn open_default_apps_settings(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn expiry_after(conn: &Connection, value: &str) -> Option<i64> {
+        save_setting(conn, "trimBackupDays", value).unwrap();
+        conn.query_row("SELECT expires_at FROM file_write_undo", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_new_backup_limit_rewrites_the_expiry_of_kept_backups() {
+        let conn = db::open_in_memory().unwrap();
+        conn.execute_batch(
+            "INSERT INTO file_write_batches (id, kind, started_at) VALUES (1, 'trim', 1000);
+             INSERT INTO file_write_undo (batch_id, kind, root_path, rel_path, title, backup_name,
+                backup_size, post_size, post_mtime, expires_at)
+             VALUES (1, 'trim', 'r', 'a.opus', 'A', 'b', 1, 0, 0, 5000);",
+        )
+        .unwrap();
+
+        assert_eq!(expiry_after(&conn, "7"), Some(1000 + 7 * 86_400));
+        assert_eq!(expiry_after(&conn, "never"), None);
+        assert_eq!(db::get_setting(&conn, "trimBackupDays").unwrap().as_deref(), Some("never"));
+    }
 
     #[test]
     fn plugin_keys_are_refused() {

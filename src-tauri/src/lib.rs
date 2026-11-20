@@ -199,8 +199,14 @@ pub fn run() {
             #[cfg(windows)]
             let write_recovery = {
                 let mut found = WriteRecovery::default();
-                if let Err(e) = file_writes::recover::recover_at_boot(&conn, now, &mut found) {
+                let mut reach = file_writes::recover::reach_check();
+                if let Err(e) =
+                    file_writes::recover::recover_at_boot(&conn, now, &mut found, &mut reach)
+                {
                     eprintln!("[file_writes] boot recovery failed: {e}");
+                }
+                if let Err(e) = file_writes::backups::expire(&conn, now, reach, || false) {
+                    eprintln!("[file_writes] boot expiry failed: {e}");
                 }
                 found
             };
@@ -427,6 +433,10 @@ pub fn run() {
             // watches and the background passes for the app's life.
             library_sync::spawn(app.handle().clone(), sync_rx, sync_tx);
 
+            // Expire kept backups and sweep leftovers once an hour for the app's life.
+            #[cfg(windows)]
+            file_writes::backups::spawn(app.handle().clone());
+
             // Start the loudness worker on its own connection, once the state it reads is managed.
             loudness::spawn(app.handle().clone(), loudness_rx, levelling_on);
 
@@ -631,6 +641,12 @@ pub fn run() {
             commands::trim_replace::trim_replace_cancel,
             #[cfg(windows)]
             commands::trim_replace::trim_undo,
+            #[cfg(windows)]
+            commands::kept_backups::kept_backups_list,
+            #[cfg(windows)]
+            commands::kept_backups::kept_backup_discard,
+            #[cfg(windows)]
+            commands::kept_backups::kept_backups_discard_all,
             commands::visualizer::get_visualizer_defaults,
             commands::visualizer::set_album_visualizer,
             commands::visualizer::set_track_visualizer,

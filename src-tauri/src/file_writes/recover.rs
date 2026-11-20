@@ -30,7 +30,7 @@ use crate::dto::WriteRecovery;
 use crate::scan::{file_stats_checked, root_reachable};
 
 pub use sweep::sweep_pending;
-pub(super) use sweep::sweep_row;
+pub(super) use sweep::{sweep_place, sweep_row};
 
 // A dead network share can hang a folder listing for tens of seconds; launch never waits that long.
 const BOOT_REACH_DEADLINE: Duration = Duration::from_secs(2);
@@ -156,7 +156,7 @@ fn committed(
 }
 
 // True for a single file name: one normal component and no separator.
-fn file_name_only(name: &str) -> bool {
+pub(super) fn file_name_only(name: &str) -> bool {
     let mut parts = Path::new(name).components();
     matches!(parts.next(), Some(Component::Normal(_)))
         && parts.next().is_none()
@@ -270,18 +270,14 @@ pub fn recover_for_scan(
 
 /// The launch run: every root with journal rows is recovered into `report` when it answers within
 /// the deadline, and counted as held offline otherwise. The sweep follows, reusing what was learned
-/// of each root. On an error, `report` keeps what was settled before it.
+/// of each root; the caller's `reachable` keeps those answers for whatever runs next. On an error,
+/// `report` keeps what was settled before it.
 pub fn recover_at_boot(
     conn: &Connection,
     now: i64,
     report: &mut WriteRecovery,
+    reachable: &mut impl FnMut(&Path) -> bool,
 ) -> rusqlite::Result<()> {
-    let mut seen: HashMap<PathBuf, bool> = HashMap::new();
-    let mut reachable = |path: &Path| {
-        *seen
-            .entry(path.to_path_buf())
-            .or_insert_with(|| reachable_within(path, BOOT_REACH_DEADLINE, root_reachable))
-    };
     for root_id in journal_roots(conn)? {
         match db::root_target(conn, root_id)? {
             Some((_, path)) if reachable(Path::new(&path)) => {
@@ -291,6 +287,16 @@ pub fn recover_at_boot(
         }
     }
     sweep_pending(conn, reachable)
+}
+
+/// A root check that asks each path once and gives up on a share that does not answer in time.
+pub fn reach_check() -> impl FnMut(&Path) -> bool {
+    let mut seen: HashMap<PathBuf, bool> = HashMap::new();
+    move |path: &Path| {
+        *seen
+            .entry(path.to_path_buf())
+            .or_insert_with(|| reachable_within(path, BOOT_REACH_DEADLINE, root_reachable))
+    }
 }
 
 /// Whether `probe` answers true for the root within `deadline`. The probe runs on its own thread,
@@ -315,7 +321,7 @@ fn stat(path: &Path) -> io::Result<Option<(i64, i64)>> {
 }
 
 // Deletes a file; true when it is gone, whether deleted now or already absent.
-fn remove(path: &Path) -> bool {
+pub(super) fn remove(path: &Path) -> bool {
     match fs::remove_file(path) {
         Ok(()) => true,
         Err(e) => e.kind() == io::ErrorKind::NotFound,

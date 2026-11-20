@@ -426,6 +426,54 @@ pub struct TrimReplaceResult {
     pub expires_at: Option<i64>,
 }
 
+/// Where a kept backup stands: on disk, gone from disk, or on a folder that does not answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeptState {
+    Kept,
+    Missing,
+    Offline,
+}
+
+/// One hidden original kept beside a trimmed file. Times are epoch milliseconds. Mirrors KeptBackup
+/// in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptBackup {
+    pub undo_id: i64,
+    pub track_id: Option<i64>,
+    pub root_id: Option<i64>,
+    pub title: String,
+    pub rel_path: String,
+    pub root_label: String,
+    pub size: i64,
+    pub kept_at: i64,
+    pub expires_at: Option<i64>,
+    pub original_duration_ms: Option<i64>,
+    pub trimmed_duration_ms: Option<i64>,
+    pub state: KeptState,
+    pub can_undo: bool,
+}
+
+/// What discarding one kept backup did. `left_in_place` is a file changed since it was kept: its
+/// entry went and the file stayed. Mirrors KeptDiscardOutcome in types.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptDiscardOutcome {
+    pub left_in_place: bool,
+}
+
+/// What discarding every kept backup did. Mirrors KeptDiscardAllOutcome in types.ts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptDiscardAllOutcome {
+    pub discarded: u32,
+    pub left_in_place: u32,
+    pub offline: u32,
+    /// Backups that could not be deleted or that an unfinished write still targets; they stay.
+    pub failed: u32,
+}
+
 /// The `library:sync` tick: whether a background session runs and its running totals across passes.
 /// Mirrors LibrarySyncTick in types.ts.
 #[derive(Debug, Clone, Serialize)]

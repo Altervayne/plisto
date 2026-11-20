@@ -16,6 +16,8 @@ pub mod duplicates;
 pub mod export;
 pub mod extract;
 pub mod file_writes;
+#[cfg(windows)]
+pub mod kept_backups;
 pub mod library_sync;
 mod list_query;
 pub mod locate_folder;
