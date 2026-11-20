@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(tag.album().as_deref(), Some("Exported Album"));
         assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Exported AA"));
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("4"));
-        assert_eq!(tag.get_string(ItemKey::Year), Some("2021"));
+        assert_eq!(tag.get_string(ItemKey::RecordingDate), Some("2021"));
         let read_genres: Vec<&str> = tag.get_strings(ItemKey::Genre).collect();
         assert_eq!(
             read_genres,

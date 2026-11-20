@@ -104,7 +104,7 @@ pub fn tag_file(
         ItemKey::DiscNumber,
         tags.disc_no.map(|n| n.to_string()),
     );
-    set_text(&mut tag, ItemKey::Year, tags.year.map(|n| n.to_string()));
+    write_year(&mut tag, tags.year);
 
     let embed = embed_cover(&mut tag, file_type, tag_type, cover);
 
@@ -278,6 +278,22 @@ fn set_text(tag: &mut Tag, key: ItemKey, value: Option<String>) {
     }
 }
 
+/// Writes the year as `ItemKey::RecordingDate`, which every writable format maps (TDRC, the MP4 day
+/// atom, DATE); `ItemKey::Year` has no ID3v2 or MP4 slot and is dropped on save. A leftover `Year`
+/// item is removed so a Vorbis file never carries both YEAR and DATE, and a None year clears both.
+/// A full date already in the file that starts with the same year is kept as it is.
+fn write_year(tag: &mut Tag, year: Option<i64>) {
+    tag.remove_key(ItemKey::Year);
+    let year = year.map(|n| n.to_string());
+    if let (Some(y), Some(date)) = (&year, tag.get_string(ItemKey::RecordingDate)) {
+        let rest = date.strip_prefix(y.as_str());
+        if rest.is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_digit())) {
+            return;
+        }
+    }
+    set_text(tag, ItemKey::RecordingDate, year);
+}
+
 /// Embeds the cover as the front picture when the format supports it, replacing any existing front
 /// cover so a re-tag does not stack art. Formats that cannot carry embedded art (WAV) skip the embed
 /// and rely on a folder sidecar.
@@ -443,7 +459,7 @@ mod tests {
         assert_eq!(tag.artist().as_deref(), Some("Whole Artist"));
         assert_eq!(tag.album().as_deref(), Some("Whole Album"));
         assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Whole AA"));
-        assert_eq!(tag.get_string(ItemKey::Year), Some("1998"));
+        assert_eq!(tag.get_string(ItemKey::RecordingDate), Some("1998"));
         assert_eq!(tag.get_string(ItemKey::Genre), Some("Jazz"));
         assert_eq!(tag.get_string(ItemKey::TrackNumber), Some("7"));
         assert_eq!(tag.get_string(ItemKey::DiscNumber), Some("2"));
@@ -486,7 +502,7 @@ mod tests {
         );
         assert_eq!(tag.album().as_deref(), Some("Source Album"));
         assert_eq!(tag.get_string(ItemKey::AlbumArtist), Some("Source AA"));
-        assert_eq!(tag.get_string(ItemKey::Year), Some("1998"));
+        assert_eq!(tag.get_string(ItemKey::RecordingDate), Some("1998"));
         assert_eq!(tag.get_string(ItemKey::Genre), Some("Jazz"));
     }
 
@@ -714,6 +730,9 @@ mod mp4_tests {
         assert_eq!(ilst.track(), Some(3));
     }
 }
+
+#[cfg(test)]
+mod year_tests;
 
 #[cfg(test)]
 mod comment_repair_tests {
