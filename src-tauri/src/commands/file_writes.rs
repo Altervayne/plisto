@@ -67,8 +67,6 @@ fn read_last_file_write(conn: &rusqlite::Connection) -> rusqlite::Result<Option<
 
 /// Why a writing command was refused before it touched a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub enum WriteRefusal {
     /// The kind's switch in Settings is off.
     Off,
@@ -78,9 +76,7 @@ pub enum WriteRefusal {
     Running,
 }
 
-/// Marks a write as running while it lives, and clears the mark when dropped.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
+/// Marks a write as running while it lives. Dropped, it clears the mark and any cancel asked of it.
 pub struct FileWriteRun<'a> {
     state: &'a AppState,
 }
@@ -88,13 +84,12 @@ pub struct FileWriteRun<'a> {
 impl Drop for FileWriteRun<'_> {
     fn drop(&mut self) {
         self.state.file_write_running.store(false, Ordering::SeqCst);
+        self.state.file_write_cancel.store(false, Ordering::SeqCst);
     }
 }
 
 /// Lets a write of `kind` (`stamp` or `trim`) start: its switch must be on, no export may run and no
-/// other write may be running. The cancel flag is reset for the new run.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
+/// other write may be running.
 pub fn write_guard<'a>(state: &'a AppState, kind: &str) -> Result<FileWriteRun<'a>, WriteRefusal> {
     let key = match kind {
         "stamp" => "stampFiles",
@@ -117,7 +112,6 @@ pub fn write_guard<'a>(state: &'a AppState, kind: &str) -> Result<FileWriteRun<'
     if export_active(state) {
         return Err(WriteRefusal::ExportRunning);
     }
-    state.file_write_cancel.store(false, Ordering::SeqCst);
     Ok(run)
 }
 
@@ -216,8 +210,9 @@ mod tests {
         assert!(!state.file_write_running.load(Ordering::SeqCst));
         state.playlist_export_running.store(false, Ordering::SeqCst);
 
+        let run = write_guard(&state, "trim").unwrap();
         state.file_write_cancel.store(true, Ordering::SeqCst);
-        let _run = write_guard(&state, "trim").unwrap();
+        drop(run);
         assert!(!state.file_write_cancel.load(Ordering::SeqCst));
     }
 

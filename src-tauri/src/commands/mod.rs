@@ -45,6 +45,8 @@ pub mod scan_issues;
 pub mod settings;
 pub mod splice;
 pub mod stream;
+#[cfg(windows)]
+pub mod trim_replace;
 pub mod visualizer;
 pub mod window;
 

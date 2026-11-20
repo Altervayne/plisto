@@ -31,8 +31,6 @@ pub const WRITE_BUSY: &str = "a file write is running";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Holder {
     User,
-    // Unused until a command writes a music file in place.
-    #[allow(dead_code)]
     FileWrite,
     Background,
 }

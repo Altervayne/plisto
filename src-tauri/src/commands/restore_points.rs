@@ -44,6 +44,7 @@ const ACTIONS: &[Action] = &[
     Action { key: "remove_root", from_front_end: false, waits: false },
     Action { key: "purge", from_front_end: false, waits: true },
     Action { key: "relocate", from_front_end: false, waits: false },
+    Action { key: "trim_replace", from_front_end: false, waits: false },
 ];
 
 type Job = Box<dyn FnOnce() + Send>;
@@ -485,7 +486,14 @@ mod tests {
             .collect();
         assert_eq!(front, ["delete_albums"]);
         let keys: Vec<&str> = ACTIONS.iter().map(|a| a.key).collect();
-        for key in ["tags_apply", "merge_duplicates", "remove_root", "purge", "relocate"] {
+        for key in [
+            "tags_apply",
+            "merge_duplicates",
+            "remove_root",
+            "purge",
+            "relocate",
+            "trim_replace",
+        ] {
             assert!(keys.contains(&key), "{key}");
         }
         assert_eq!(ACTIONS.iter().filter(|a| a.waits).count(), 1);

@@ -37,10 +37,10 @@ pub fn cut(
     end_frame: u64,
     out_tmp: &Path,
 ) -> Result<(), CutError> {
-    let input = File::open(source).map_err(|_| CutError::Open)?;
+    let input = File::open(source).map_err(CutError::of_io)?;
     let mut reader = PacketReader::new(BufReader::new(input));
 
-    let output = File::create(out_tmp).map_err(|_| CutError::Open)?;
+    let output = File::create(out_tmp).map_err(CutError::of_io)?;
     let mut writer = PacketWriter::new(BufWriter::new(output));
 
     // The stream serial and the pre-skip come from OpusHead, always the first packet. They gate the
@@ -85,14 +85,14 @@ pub fn cut(
             out_gran = pre_skip;
             writer
                 .write_packet(data, serial, PacketWriteEndInfo::EndPage, 0)
-                .map_err(|_| CutError::Open)?;
+                .map_err(CutError::of_io)?;
             have_head = true;
         } else if data.starts_with(b"OpusTags") {
             // The tags packet rides through verbatim, keeping a valid stream and the source's Vorbis
             // comments; the tagging pass overlays per-cut fields afterward.
             writer
                 .write_packet(data, serial, PacketWriteEndInfo::EndPage, 0)
-                .map_err(|_| CutError::Open)?;
+                .map_err(CutError::of_io)?;
             have_tags = true;
         } else {
             if !have_head {
@@ -119,7 +119,7 @@ pub fn cut(
 
     // Flush the buffered tail to disk before returning so the last page reaches the file.
     let mut inner = writer.into_inner();
-    inner.flush().map_err(|_| CutError::Open)?;
+    inner.flush().map_err(CutError::of_io)?;
     Ok(())
 }
 
@@ -144,7 +144,7 @@ fn write_audio_packet<W: io::Write>(
     };
     writer
         .write_packet(data, serial, info, *out_gran)
-        .map_err(|_| CutError::Open)?;
+        .map_err(CutError::of_io)?;
     *written += 1;
     Ok(())
 }

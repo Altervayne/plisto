@@ -7,6 +7,7 @@ use super::tests::{attention, Fixture, NAME, ORIGINAL, WRITTEN};
 use super::*;
 use crate::db::file_writes::{begin_batch, insert_journal, set_phase, SweepEntry, UndoMark};
 use crate::file_writes::names::{backup_name, temp_name};
+use rusqlite::params;
 
 const TRIMMED: &[u8] = b"trimmed";
 const TRIM_OP: &str = "00000000000000f0";

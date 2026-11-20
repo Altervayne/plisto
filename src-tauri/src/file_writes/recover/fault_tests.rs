@@ -5,7 +5,9 @@
 
 use super::tests::{Fixture, NAME, ORIGINAL};
 use super::*;
-use crate::db::file_writes::{begin_batch, insert_journal, set_phase, SweepEntry, UndoDraft};
+use crate::db::file_writes::{
+    begin_batch, clear_sweep, insert_journal, set_phase, SweepEntry, UndoDraft,
+};
 use crate::file_writes::fault::{Aborted, Fault, Step};
 use crate::file_writes::names::{backup_name, temp_name};
 use crate::file_writes::replace::sync_path;

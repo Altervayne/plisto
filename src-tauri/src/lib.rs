@@ -625,6 +625,12 @@ pub fn run() {
             commands::splice::splice_analyze,
             commands::splice::splice_detect_silence,
             commands::splice::splice_parse_cue,
+            #[cfg(windows)]
+            commands::trim_replace::trim_replace,
+            #[cfg(windows)]
+            commands::trim_replace::trim_replace_cancel,
+            #[cfg(windows)]
+            commands::trim_replace::trim_undo,
             commands::visualizer::get_visualizer_defaults,
             commands::visualizer::set_album_visualizer,
             commands::visualizer::set_track_visualizer,

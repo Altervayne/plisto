@@ -397,6 +397,35 @@ pub struct LastFileWrite {
     pub undoable: bool,
 }
 
+/// The library row's size and mtime, in epoch seconds, when the editor took its analysis. Mirrors
+/// `TrimReplaceJob.expect` in types.ts.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimExpect {
+    pub size_bytes: i64,
+    pub mtime: i64,
+}
+
+/// A trim in place: the library track and the one segment it keeps. Mirrors TrimReplaceJob in
+/// types.ts.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimReplaceJob {
+    pub track_id: i64,
+    pub segment: Segment,
+    pub expect: TrimExpect,
+}
+
+/// A finished trim: its undo row, the kept backup's file name, and when that backup expires in
+/// epoch milliseconds, None when it is kept until discarded. Mirrors TrimReplaceResult in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimReplaceResult {
+    pub undo_id: i64,
+    pub backup_name: String,
+    pub expires_at: Option<i64>,
+}
+
 /// The `library:sync` tick: whether a background session runs and its running totals across passes.
 /// Mirrors LibrarySyncTick in types.ts.
 #[derive(Debug, Clone, Serialize)]

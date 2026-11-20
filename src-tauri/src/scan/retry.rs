@@ -269,8 +269,6 @@ fn write_issues(conn: &Connection, read: &Reread, now: i64) -> rusqlite::Result<
 /// Re-reads each (path, root id) pair inside the caller's transaction, as a scan would, ignoring the
 /// size and modified-time skip. Upserts the tracks that read, writes the issue rows, and returns the
 /// affected track ids, stamped `now`. Emits nothing; the caller emits once its transaction commits.
-// Unused until the stamp writer calls it, which removes this allow.
-#[allow(dead_code)]
 pub fn reread_paths(
     tx: &Transaction,
     files: &[(PathBuf, i64)],

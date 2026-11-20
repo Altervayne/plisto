@@ -10,8 +10,6 @@ use std::io;
 
 use ring::rand::{SecureRandom, SystemRandom};
 
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub const OP_ID_LEN: usize = 16;
 const PREFIX: &str = ".plisto-tmp-";
 const BACKUP_TAG: &str = "bak-";
@@ -20,7 +18,7 @@ const MAX_COMPONENT: usize = 255;
 
 /// A staging file name read back into its op id and the source name it was made from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// Unused until a command writes a music file in place.
+// Not used yet: every writer so far knows its staging names from the journal row.
 #[allow(dead_code)]
 pub enum Staged<'a> {
     Temp { op: &'a str, name: &'a str },
@@ -28,8 +26,6 @@ pub enum Staged<'a> {
 }
 
 /// A fresh random op id of `OP_ID_LEN` lowercase hex characters.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn new_op_id() -> io::Result<String> {
     let mut bytes = [0u8; OP_ID_LEN / 2];
     SystemRandom::new()
@@ -39,15 +35,11 @@ pub fn new_op_id() -> io::Result<String> {
 }
 
 /// The temp beside the source file `name`.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn temp_name(op: &str, name: &str) -> String {
     fit(format!("{PREFIX}{op}-"), name)
 }
 
 /// The kept original beside the source file `name`.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn backup_name(op: &str, name: &str) -> String {
     fit(format!("{PREFIX}{BACKUP_TAG}{op}-"), name)
 }
@@ -55,7 +47,7 @@ pub fn backup_name(op: &str, name: &str) -> String {
 /// Reads a staging name back. None for any other name, an export's `.plisto-tmp-` temp included. A
 /// name `fit` shortened comes back shortened, not as the source name, so callers map a staged file to
 /// its source through the journal, never through this.
-// Unused until a command writes a music file in place.
+// Not used yet: every writer so far knows its staging names from the journal row.
 #[allow(dead_code)]
 pub fn parse(file_name: &str) -> Option<Staged<'_>> {
     let rest = file_name.strip_prefix(PREFIX)?;

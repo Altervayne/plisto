@@ -62,8 +62,6 @@ pub struct AppState {
     pub discovery_running: AtomicBool,
     /// Set while a command writes to a music file; exports and structural commands refuse meanwhile.
     pub file_write_running: AtomicBool,
-    // Unused until a command writes a music file in place.
-    #[allow(dead_code)]
     pub file_write_cancel: Arc<AtomicBool>,
     /// Raised by a user taker of the scan lock, so a file-write holder lets go between files.
     pub file_write_yield: AtomicBool,

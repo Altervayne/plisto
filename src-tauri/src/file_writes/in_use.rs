@@ -10,8 +10,6 @@
 use crate::audio::{preload_target, PlayerStatus, QueueMirror};
 
 /// The track ids a write must leave alone right now, the current one first.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn in_use(status: &PlayerStatus, queue: &QueueMirror) -> Vec<i64> {
     let (current, next) = match (status.track_id, &status.stream) {
         (Some(seated), Some(stream)) => (seated, stream.parked.map(|p| p.track_id)),

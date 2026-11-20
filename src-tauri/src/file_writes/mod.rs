@@ -1,7 +1,8 @@
 /*
  * The low-level layer for writing over a file in a library folder: the staging and backup names, the
  * Win32 replace that keeps the original under the backup name, free space, file attributes, the
- * in-use check against the player, and the fault seam crash tests stop an operation with.
+ * in-use check against the player, the fault seam crash tests stop an operation with, and the Opus
+ * trim in place built on them.
  */
 
 pub mod attrs;
@@ -16,3 +17,5 @@ pub mod replace;
 pub mod settle;
 #[cfg(windows)]
 pub mod space;
+#[cfg(windows)]
+pub mod trim;

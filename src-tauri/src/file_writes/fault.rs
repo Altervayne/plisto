@@ -7,8 +7,6 @@
 
 /// The durable steps of a write, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub enum Step {
     Journaled,
     TempWritten,
@@ -19,8 +17,7 @@ pub enum Step {
     Swept,
 }
 
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
+#[cfg(test)]
 impl Step {
     pub const ALL: [Step; 7] = [
         Step::Journaled,
@@ -35,21 +32,15 @@ impl Step {
 
 /// The step an operation was stopped after.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub struct Aborted(pub Step);
 
 /// Where a test stops one operation. Production code passes `Fault::NONE`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub struct Fault {
     #[cfg(test)]
     stop: Option<Step>,
 }
 
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 impl Fault {
     pub const NONE: Fault = Fault {
         #[cfg(test)]

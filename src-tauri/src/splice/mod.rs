@@ -69,13 +69,15 @@ impl Format {
 }
 
 /// Why a segment could not be cut. `UnsupportedFormat` is a recognized container whose cutter is not
-/// built; `Open` is a read/write failure; `Parse` is a malformed source container.
+/// built; `Open` is a read/write failure and `Io` one that carries its Windows code; `Parse` is a
+/// malformed source container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CutError {
     // A container that decodes but whose cutter cannot frame-copy it: an m4a that is ALAC rather than
     // AAC, refused rather than corrupted.
     UnsupportedFormat,
     Open,
+    Io(i32),
     Parse,
 }
 
@@ -83,7 +85,7 @@ impl std::fmt::Display for CutError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let msg = match self {
             CutError::UnsupportedFormat => "this audio format cannot be cut yet",
-            CutError::Open => "could not read the source or write the segment",
+            CutError::Open | CutError::Io(_) => "could not read the source or write the segment",
             CutError::Parse => "the source file is not a valid audio container",
         };
         f.write_str(msg)
@@ -91,6 +93,13 @@ impl std::fmt::Display for CutError {
 }
 
 impl std::error::Error for CutError {}
+
+impl CutError {
+    /// A read or write failure, keeping the Windows code when there is one.
+    pub fn of_io(e: std::io::Error) -> CutError {
+        e.raw_os_error().map_or(CutError::Open, CutError::Io)
+    }
+}
 
 /// Cuts one segment's frame range out of `source` into `out_tmp`, dispatching on the format. WAV and
 /// FLAC copy samples bit-exact; MP3, m4a, and Opus copy whole frames or packets, frame-aligned.

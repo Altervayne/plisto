@@ -5,7 +5,8 @@
 
 use super::tests::{Fixture, NAME, ORIGINAL};
 use super::*;
-use crate::db::file_writes::{begin_batch, SweepEntry, UndoDraft};
+use crate::db::file_writes::{begin_batch, sweep_rows, SweepEntry, UndoDraft};
+use rusqlite::params;
 
 fn commit(f: &Fixture, sweep: Vec<SweepEntry>, kept: Option<&str>) -> i64 {
     let batch = begin_batch(&f.conn, "trim", None, 1).unwrap();

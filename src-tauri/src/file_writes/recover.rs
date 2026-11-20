@@ -5,8 +5,11 @@
  * sweep then deletes the files committed writes listed, each only while its size still matches.
  */
 
+// -- Module Declarations --
+mod sweep;
+
 // -- Library Imports --
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -14,18 +17,20 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::Connection;
 
 // -- Local Imports --
 use super::attrs::{clear_hidden, set_hidden};
 use super::replace::{replace, ReplaceOutcome};
 use crate::db;
 use crate::db::file_writes::{
-    backup_names, clear_sweep, drop_journal, finish_file, journal_roots, journal_rows,
-    kept_backups, sweep_rows, undo_row, JournalRow, UndoRow,
+    backup_names, drop_journal, finish_file, journal_roots, journal_rows, undo_row, JournalRow,
 };
 use crate::dto::WriteRecovery;
 use crate::scan::{file_stats_checked, root_reachable};
+
+pub use sweep::sweep_pending;
+pub(super) use sweep::sweep_row;
 
 // A dead network share can hang a folder listing for tens of seconds; launch never waits that long.
 const BOOT_REACH_DEADLINE: Duration = Duration::from_secs(2);
@@ -297,77 +302,6 @@ fn reachable_within(path: &Path, deadline: Duration, probe: fn(&Path) -> bool) -
         let _ = tx.send(probe(&path));
     });
     rx.recv_timeout(deadline).unwrap_or(false)
-}
-
-/// Deletes the files committed writes listed for deletion, then clears them from their rows. A file
-/// is deleted only while its size matches; one already gone is cleared, one that differs stays
-/// listed. A row whose root is unreachable or whose folder is gone is skipped, and a kept backup is
-/// never deleted.
-pub fn sweep_pending(
-    conn: &Connection,
-    mut reachable: impl FnMut(&Path) -> bool,
-) -> rusqlite::Result<()> {
-    let kept: HashSet<String> = kept_backups(conn)?
-        .into_iter()
-        .filter_map(|row| row.backup_name)
-        .collect();
-    for row in sweep_rows(conn)? {
-        let Some((root, folder)) = sweep_place(conn, &row)? else {
-            continue;
-        };
-        if !reachable(&root) || !folder.is_dir() {
-            continue;
-        }
-        let mut settled = Vec::new();
-        for entry in row.sweep.iter().filter(|e| !kept.contains(&e.name)) {
-            let path = folder.join(&entry.name);
-            let gone = match fs::metadata(&path) {
-                Err(e) => e.kind() == io::ErrorKind::NotFound,
-                Ok(md) => {
-                    md.is_file() && md.len() as i64 == entry.size && fs::remove_file(&path).is_ok()
-                }
-            };
-            if gone {
-                settled.push(entry.name.clone());
-            }
-        }
-        if !settled.is_empty() {
-            clear_sweep(conn, row.id, &settled)?;
-        }
-    }
-    Ok(())
-}
-
-// The root and folder an undo row's files sit in: the track's current folder while it has one, then
-// the live root plus `rel_path`, then the root path recorded at write time. None when nothing is left.
-fn sweep_place(conn: &Connection, row: &UndoRow) -> rusqlite::Result<Option<(PathBuf, PathBuf)>> {
-    if let Some(track_id) = row.track_id {
-        let found = conn
-            .query_row(
-                "SELECT COALESCE(t.display_path, t.source_path), r.path
-                 FROM tracks t JOIN roots r ON r.id = t.root_id WHERE t.id = ?1",
-                params![track_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-            )
-            .optional()?;
-        if let Some((file, root)) = found {
-            if let Some(folder) = Path::new(&file).parent() {
-                return Ok(Some((PathBuf::from(root), folder.to_path_buf())));
-            }
-        }
-    }
-    let rel_dir = Path::new(&row.rel_path).parent().unwrap_or(Path::new(""));
-    let live = match row.root_id {
-        Some(id) => db::root_target(conn, id)?.map(|(_, path)| path),
-        None => None,
-    };
-    let root = match live {
-        Some(path) => PathBuf::from(path),
-        None if row.root_path.is_empty() => return Ok(None),
-        None => PathBuf::from(&row.root_path),
-    };
-    let folder = root.join(rel_dir);
-    Ok(Some((root, folder)))
 }
 
 // Size and mtime as the scan reads them, None when the file is absent. Any other error is returned,

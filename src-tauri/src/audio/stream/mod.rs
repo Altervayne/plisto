@@ -35,7 +35,7 @@ mod vorbis_setup;
 #[cfg(test)]
 mod test_containers;
 #[cfg(test)]
-mod test_media;
+pub(crate) mod test_media;
 
 // -- Re-exports --
 pub use bytes::{

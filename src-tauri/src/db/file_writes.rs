@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 // -- Type Imports --
 use crate::normalize::normalize_path_key;
 
-const DAY_SECS: i64 = 86_400;
+pub const DAY_SECS: i64 = 86_400;
 
 /// A file to delete after a committed write: its name beside the source, and the size it must
 /// still have for the delete to be safe.
@@ -222,8 +222,6 @@ fn undo_rows_where(
 }
 
 /// Opens a batch and returns its id.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn begin_batch(
     conn: &Connection,
     kind: &str,
@@ -238,8 +236,6 @@ pub fn begin_batch(
 }
 
 /// Stamps the batch's end time.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn finish_batch(conn: &Connection, batch_id: i64, now: i64) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE file_write_batches SET finished_at = ?2 WHERE id = ?1",
@@ -249,8 +245,6 @@ pub fn finish_batch(conn: &Connection, batch_id: i64, now: i64) -> rusqlite::Res
 }
 
 /// Marks a batch undone, so the Settings line stops offering Undo.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn mark_batch_undone(conn: &Connection, batch_id: i64, now: i64) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE file_write_batches SET undone_at = ?2 WHERE id = ?1",
@@ -273,8 +267,6 @@ pub fn last_batch(conn: &Connection) -> rusqlite::Result<Option<BatchRow>> {
 /// Inserts a journal row in phase `journaled`. `rel_key` is derived here with `normalize_path_key`;
 /// the row's own `rel_key`, `phase` and `undo_json` are ignored. Fails on `UNIQUE(root_id, rel_key)`
 /// when the file already has a row.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn insert_journal(conn: &Connection, row: &JournalRow) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO file_write_journal
@@ -300,8 +292,6 @@ pub fn insert_journal(conn: &Connection, row: &JournalRow) -> rusqlite::Result<(
 }
 
 /// Moves a journal row to `phase`. `undo_json` is stored when given and kept otherwise.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn set_phase(
     conn: &Connection,
     op_id: &str,
@@ -581,8 +571,8 @@ pub fn undo_row(conn: &Connection, id: i64) -> rusqlite::Result<Option<UndoRow>>
     Ok(undo_rows_where(conn, "id = ?1", &[&id])?.pop())
 }
 
-/// Removes an undo row. Used once a trim undo has swept the files it listed.
-// Unused until a command writes a music file in place.
+/// Removes an undo row, as discarding a kept backup does once its file is deleted.
+// Unused until the kept backups list can discard a backup.
 #[allow(dead_code)]
 pub fn delete_undo(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM file_write_undo WHERE id = ?1", params![id])?;
@@ -599,7 +589,7 @@ pub fn kept_backups(conn: &Connection) -> rusqlite::Result<Vec<UndoRow>> {
 }
 
 /// The kept backups whose expiry has passed.
-// Unused until a command writes a music file in place.
+// Unused until backups past their expiry are deleted.
 #[allow(dead_code)]
 pub fn expired_backups(conn: &Connection, now: i64) -> rusqlite::Result<Vec<UndoRow>> {
     undo_rows_where(
@@ -612,7 +602,7 @@ pub fn expired_backups(conn: &Connection, now: i64) -> rusqlite::Result<Vec<Undo
 
 /// Resets every kept backup's expiry to its batch's start plus `days`, or to never for `None`.
 /// Returns the number of rows rewritten.
-// Unused until a command writes a music file in place.
+// Unused until changing how long backups are kept rewrites their expiry.
 #[allow(dead_code)]
 pub fn rewrite_expiry(conn: &Connection, days: Option<i64>) -> rusqlite::Result<usize> {
     conn.execute(

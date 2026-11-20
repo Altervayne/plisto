@@ -90,8 +90,6 @@ fn untouched(source: &Path, temp: &Path, backup: &Path) -> bool {
 
 /// Flushes a file's data and metadata to the disk. A held file is retried like the replace. The flush
 /// needs write access, so a read-only file fails here; callers check `is_read_only` first.
-// Unused until a command writes a music file in place.
-#[allow(dead_code)]
 pub fn sync_path(path: &Path) -> io::Result<()> {
     let mut attempt = 1;
     loop {
