@@ -17,6 +17,7 @@ pub mod export;
 pub mod extract;
 pub mod library_sync;
 mod list_query;
+pub mod locate_folder;
 pub mod loudness;
 pub mod missing;
 pub mod organize;

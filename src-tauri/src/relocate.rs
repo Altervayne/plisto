@@ -6,12 +6,13 @@
  */
 
 // -- Library Imports --
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 // -- Local Imports --
-use crate::db::RootTrackPath;
+use crate::db::{LocateTarget, RootTrackPath};
 use crate::dto::{RelinkCandidate, Root};
 use crate::normalize::normalize_path_key;
 use crate::paths::{paths_overlap, relative_under};
@@ -197,6 +198,46 @@ pub fn check_sample(sample: &[SampleRow], new_root: &Path, deadline: Instant) ->
         }
     }
     result
+}
+
+/// The gone files a folder check found, and whether it stopped before looking at every one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilesCheck {
+    /// Folded key of each found file to its size on disk.
+    pub found: HashMap<String, i64>,
+    pub cut_short: bool,
+}
+
+/// Looks for each target's file: found when a regular file sits at its path with the indexed size.
+/// Stops before the next stat once `deadline` has passed or `cancel` is set.
+pub fn check_files(
+    targets: &[LocateTarget],
+    deadline: Option<Instant>,
+    cancel: Option<&AtomicBool>,
+) -> FilesCheck {
+    let mut check = FilesCheck {
+        found: HashMap::new(),
+        cut_short: false,
+    };
+    for target in targets {
+        let stopped = deadline.is_some_and(|d| Instant::now() >= d)
+            || cancel.is_some_and(|c| c.load(Ordering::SeqCst));
+        if stopped {
+            check.cut_short = true;
+            break;
+        }
+        let Ok(meta) = std::fs::metadata(&target.path) else {
+            continue;
+        };
+        if meta.is_file() {
+            if let Ok(size) = i64::try_from(meta.len()) {
+                if size == target.size_bytes {
+                    check.found.insert(target.key.clone(), size);
+                }
+            }
+        }
+    }
+    check
 }
 
 /// Reads a sample: 90% found or more accepts, from half up to that is partial, anything lower, fewer
@@ -543,6 +584,48 @@ mod tests {
                 timed_out: true
             }
         );
+    }
+
+    fn target(dir: &Path, name: &str, size: i64) -> LocateTarget {
+        let path = dir.join(name);
+        LocateTarget {
+            track_id: 1,
+            key: normalize_path_key(&path.to_string_lossy()),
+            path: path.to_string_lossy().into_owned(),
+            size_bytes: size,
+        }
+    }
+
+    #[test]
+    fn check_files_finds_only_regular_files_of_the_indexed_size() {
+        let dir = TempDir::new("relocate_files");
+        fs::write(dir.path.join("same.mp3"), b"12345").unwrap();
+        fs::write(dir.path.join("grown.mp3"), b"123456789").unwrap();
+        fs::create_dir(dir.path.join("folder.mp3")).unwrap();
+        let targets = [
+            target(&dir.path, "same.mp3", 5),
+            target(&dir.path, "grown.mp3", 5),
+            target(&dir.path, "absent.mp3", 5),
+            target(&dir.path, "folder.mp3", 0),
+        ];
+        let check = check_files(&targets, Some(far()), None);
+        assert!(!check.cut_short);
+        assert_eq!(check.found.len(), 1);
+        assert_eq!(check.found.get(&targets[0].key), Some(&5));
+    }
+
+    #[test]
+    fn check_files_stops_at_a_passed_deadline_or_a_set_cancel() {
+        let dir = TempDir::new("relocate_files_cut");
+        fs::write(dir.path.join("a.mp3"), b"123").unwrap();
+        let targets = [target(&dir.path, "a.mp3", 3)];
+        let late = check_files(&targets, Some(Instant::now()), None);
+        assert!(late.cut_short && late.found.is_empty());
+        let flag = AtomicBool::new(true);
+        let cancelled = check_files(&targets, None, Some(&flag));
+        assert!(cancelled.cut_short && cancelled.found.is_empty());
+        flag.store(false, Ordering::Relaxed);
+        assert_eq!(check_files(&targets, None, Some(&flag)).found.len(), 1);
     }
 
     fn candidate(id: i64, rows: usize) -> (Root, Vec<RootTrackPath>) {

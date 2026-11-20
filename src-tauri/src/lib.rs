@@ -545,6 +545,8 @@ pub fn run() {
             commands::relocate::relink_candidates,
             commands::relocate::preview_relocate,
             commands::relocate::relocate_root,
+            commands::locate_folder::preview_locate_folder,
+            commands::locate_folder::locate_folder,
             commands::missing::remove_missing_tracks,
             commands::restore_points::take_point_before,
             commands::restore::list_restore_points,

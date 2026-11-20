@@ -10,8 +10,6 @@ mod album_numbering;
 mod duplicates;
 mod export_ledger;
 mod folder_moves;
-// Only the tests call into the folder locate writer, so its surface reads as unused outside them.
-#[cfg_attr(not(test), allow(dead_code))]
 mod locate_folder;
 mod migrations;
 mod playlist_albums;
@@ -34,6 +32,10 @@ pub use playlist_albums::{
     unpack_album_entry, ALBUM_MEMBER_KEY,
 };
 pub use folder_moves::{folder_moves, FolderMove};
+pub use locate_folder::{
+    locate_folder, locate_targets, plan_locate_folder, LocateFolderError, LocateFolderPlan,
+    LocateTarget,
+};
 pub use migrations::{CopyOutcome, MigrationReport};
 pub use relocate::{
     backup_to, merge_root, move_root, plan_merge, root_moves, root_track_paths, RelocateReport,

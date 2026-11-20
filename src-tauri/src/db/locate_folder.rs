@@ -31,6 +31,9 @@ pub enum LocateFolderError {
     RootGone,
     /// A gone track's real-case path is not under the folder its key is under.
     OutOfPrefix { track_id: i64 },
+    /// The folder is the root's own: its top level offers Remove only, and a whole root has its own
+    /// relocate.
+    RootLevel,
     /// No gone track of the root sits at or under the folder.
     NothingGone,
     /// The new folder is the gone folder.
@@ -44,9 +47,11 @@ pub enum LocateFolderError {
 }
 
 impl LocateFolderError {
-    /// The refusal's code; None for a failure.
+    /// The refusal's code; None for a failure. The command maps the variants itself.
+    #[cfg(test)]
     pub fn refusal(&self) -> Option<&'static str> {
         match self {
+            LocateFolderError::RootLevel => Some("root_level"),
             LocateFolderError::NothingGone => Some("nothing_gone"),
             LocateFolderError::Same => Some("same"),
             LocateFolderError::Overlap => Some("overlap"),
@@ -67,6 +72,7 @@ impl std::fmt::Display for LocateFolderError {
             LocateFolderError::OutOfPrefix { track_id } => {
                 write!(f, "track {track_id} is stored outside its folder")
             }
+            LocateFolderError::RootLevel => write!(f, "the folder is the library folder itself"),
             LocateFolderError::NothingGone => write!(f, "no gone track is in that folder"),
             LocateFolderError::Same => write!(f, "the new folder is the gone folder"),
             LocateFolderError::Overlap => write!(f, "one folder is inside the other"),
@@ -306,6 +312,10 @@ fn read_batch(
     let folder_key = normalize_path_key(folder);
     let from_rel = relative_under(Path::new(&folder_key), Path::new(&root_key))
         .ok_or(LocateFolderError::NothingGone)?;
+    // Compared by component, so a trailing separator or another case still reads as the root.
+    if from_rel.as_os_str().is_empty() {
+        return Err(LocateFolderError::RootLevel);
+    }
     let gone = gone_under(conn, root_id, folder, &folder_key)?;
     if gone.is_empty() {
         return Err(LocateFolderError::NothingGone);

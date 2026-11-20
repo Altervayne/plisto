@@ -528,6 +528,9 @@ fn refusals_name_their_reason_and_write_nothing() {
         (refused(fx.main, &old(), "/Volumes/Stick/Old Album", &all), Some("outside_roots")),
         (refused(fx.main, &old(), &new(), &HashMap::new()), Some("no_match")),
         (refused(999, &old(), &new(), &all), None),
+        (refused(fx.main, MAIN, &new(), &all), Some("root_level")),
+        (refused(fx.main, &format!("{MAIN}/"), &new(), &all), Some("root_level")),
+        (refused(fx.main, &MAIN.to_uppercase(), &new(), &all), Some("root_level")),
     ];
     for (err, code) in &cases {
         assert_eq!(err.refusal(), *code, "{err}");

@@ -137,6 +137,59 @@ pub enum RelocateOutcome {
     },
 }
 
+/// Why locating a folder was refused or failed before anything changed. Tagged on `code`. Mirrors
+/// LocateFolderRefusal in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum LocateFolderRefusal {
+    NothingGone,
+    Same,
+    Overlap,
+    OutsideRoots,
+    NoMatch,
+    RootLevel,
+    Unreadable,
+    Inconclusive,
+    Cancelled,
+    Failed { message: String },
+}
+
+/// What locating a folder would do: `relinked` gone tracks re-pointed, `merged` folded into a row a
+/// scan already added at the new place, `stays` not found there. `partial` is true when some stay.
+/// Tagged on `kind`. Mirrors LocateFolderPreview in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LocateFolderPreview {
+    Ready {
+        target_root_id: i64,
+        total: i64,
+        relinked: i64,
+        merged: i64,
+        stays: i64,
+        albums_replaced: i64,
+        partial: bool,
+    },
+    Refused {
+        reason: LocateFolderRefusal,
+    },
+}
+
+/// The result of a folder locate: `Done` carries what was written, `Refused` means nothing changed.
+/// Tagged on `kind`. Mirrors LocateFolderOutcome in types.ts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LocateFolderOutcome {
+    Done {
+        relinked: i64,
+        merged: i64,
+        stays: i64,
+        albums_replaced: i64,
+    },
+    Refused {
+        reason: LocateFolderRefusal,
+    },
+}
+
 /// The tally of a gone-track purge: `removed` is how many gone rows the DELETE dropped, `albums_emptied`
 /// how many albums the follow-up sweep deleted because that purge left them with no members. Distinct from
 /// ScanSummary.removed, which stays 0 during a scan. Mirrors PurgeSummary in types.ts.
