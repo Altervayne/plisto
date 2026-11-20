@@ -175,6 +175,15 @@ describe("locate copy", () => {
     expect(refusalLine(t, { code: "busy" }, "n", "f")).toBe(en.settings.locateBusy);
   });
 
+  it("words a refusal for unfinished writes apart from a plain failure", () => {
+    const t = createT("en");
+    const line = refusalLine(t, { code: "failed", message: "unfinished writes" }, "Rock", "f");
+    expect(line).toBe(en.settings.locateUnfinished.replace("{name}", "Rock"));
+    expect(refusalLine(t, { code: "failed", message: "io error" }, "Rock", "f")).toBe(
+      en.settings.locateFailed.replace("{name}", "Rock"),
+    );
+  });
+
   it("reads the trailing folder name", () => {
     expect(folderName("D:\\Music\\Rock\\")).toBe("Rock");
     expect(folderName("/mnt/music")).toBe("music");

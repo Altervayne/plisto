@@ -4,6 +4,9 @@
  * the checked tracks were found; a merge's and a folder locate's counts are exact.
  */
 
+// -- Utils Imports --
+import { isUnfinishedWrites } from "../../lib/busyError";
+
 // -- Type Imports --
 import type { Translate } from "../../i18n";
 import type { RootRemovalImpact } from "../../types";
@@ -44,7 +47,9 @@ export function refusalLine(
     case "inconclusive":
       return t((d) => d.settings.locateInconclusive, { folder });
     case "failed":
-      return t((d) => d.settings.locateFailed, { name });
+      return isUnfinishedWrites(reason.message)
+        ? t((d) => d.settings.locateUnfinished, { name })
+        : t((d) => d.settings.locateFailed, { name });
     case "busy":
       return reason.by === "fileWrite" ? t((d) => d.fileWrites.busy) : t((d) => d.settings.locateBusy);
   }

@@ -28,6 +28,7 @@ import {
 
 // -- Utils Imports --
 import { pickFolder, pickPlaylistSavePath } from "../../lib/dialog";
+import { exportBusyText, exportFailureText } from "../../lib/exportFailureText";
 import { openFolder } from "../../lib/opener";
 
 // -- Local Imports --
@@ -167,15 +168,18 @@ export function PlaylistExportDialog({
     ) => {
       const dest = await pick();
       if (!dest) return;
+      setError(null);
       try {
         setFileResult(await run(dest));
         setOpenDest(openable ? dest : null);
         setPhase("done");
-      } catch {
+      } catch (e) {
         // The write failed or the desktop runtime is absent; stay on the choice, nothing was committed.
+        // A busy refusal is the one failure worth telling the user about.
+        setError(exportBusyText(t, e));
       }
     },
-    [],
+    [t],
   );
 
   // The folder and mimic shapes share the streaming run: pick a folder, stream progress, hold the
@@ -186,6 +190,7 @@ export function PlaylistExportDialog({
       const dest = await pickFolder();
       if (!dest) return;
       setOpenDest(dest);
+      setError(null);
       setProgress(null);
       setFolderResult(null);
       setPhase("running");
@@ -201,12 +206,13 @@ export function PlaylistExportDialog({
       try {
         setFolderResult(await run(dest, channel));
         setPhase("done");
-      } catch {
+      } catch (e) {
         // A destination that went invalid mid-run drops back to the choice; the source is untouched.
         setPhase("idle");
+        setError(exportBusyText(t, e));
       }
     },
-    [],
+    [t],
   );
 
   // The album folder shape pre-picks its destination, so the pick lands a validated target the Export
@@ -270,16 +276,12 @@ export function PlaylistExportDialog({
       // A folder path is the only openable destination; a device has none, so the done screen drops Open.
       setOpenDest(target.kind === "folder" ? target.path : null);
       setPhase("done");
-    } catch {
+    } catch (e) {
       // A device that dropped off mid-copy, or a folder gone invalid, drops back to the pick with the
       // reason surfaced. The source is untouched; a device may hold a partial copy (no rollback), which
       // the message is honest about.
       setPhase("idle");
-      setError(
-        target.kind === "device"
-          ? t((d) => d.export.deviceTransferFailed)
-          : t((d) => d.export.exportFailed),
-      );
+      setError(exportFailureText(t, e, target.kind === "device"));
     }
   }, [target, playlist.id, folderPattern, filePattern, deviceInPlace, t]);
 
@@ -425,7 +427,10 @@ export function PlaylistExportDialog({
                     aria-checked={selected}
                     className={styles.card}
                     data-selected={selected ? "" : undefined}
-                    onClick={() => setType(choice.id)}
+                    onClick={() => {
+                      setType(choice.id);
+                      setError(null);
+                    }}
                   >
                     <span className={styles.cardLabel}>{t(choice.label)}</span>
                     <span className={styles.cardDesc}>{t(choice.desc)}</span>
@@ -498,6 +503,8 @@ export function PlaylistExportDialog({
                 {error ? <p className={styles.warn}>{error}</p> : null}
               </section>
             ) : null}
+            {/* The other shapes have no destination section, so a refused run says why here. */}
+            {type !== "folder" && error ? <p className={styles.warn}>{error}</p> : null}
 
             {warnDescription || warnCover ? (
               <div className={styles.warnings}>

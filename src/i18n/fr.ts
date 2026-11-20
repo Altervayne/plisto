@@ -812,6 +812,8 @@ export const fr: Dict = {
       "Impossible de lire {folder} pour l'instant. Vérifiez que le disque est branché et réessayez.",
     locateInconclusive: "Plisto n'a pas pu vérifier assez de pistes dans {folder} à temps. Réessayez.",
     locateFailed: "Impossible de relocaliser {name}. Rien n'a été modifié.",
+    locateUnfinished:
+      "Impossible de relocaliser {name} : une écriture dans certains de ses fichiers n'est pas terminée. Plisto a laissé le dossier à sa place.",
     locateBusy: "Une analyse est déjà en cours. Réessayez quand elle sera terminée.",
     locateMerge: {
       one: "{folder} est déjà dans votre audiothèque ({{n}} piste). Le fusionner dans {name} ? Les albums, playlists et écoutes de {name} sont conservés ; ce que vous avez ajouté dans {folder} y est transféré. Plisto ne modifie jamais vos fichiers.",
@@ -2208,7 +2210,7 @@ export const fr: Dict = {
         adHoc: "Ce fichier n'est pas dans votre audiothèque : il ne peut être enregistré qu'en nouveau fichier.",
         flac: "Il n'existe pas encore de moyen sûr d'écrire un FLAC sur place ; la prise en charge est prévue. Le reconstruire ici ferait perdre sa table de recherche et sa somme de contrôle : un FLAC est enregistré en nouveau fichier.",
         format:
-          "Il n'existe pas encore de moyen sûr d'écrire un {format} sur place ; la prise en charge est prévue. Seul l'Opus peut être remplacé : un fichier {format} est enregistré en nouveau fichier.",
+          "Il n'existe pas encore de moyen sûr d'écrire un {format} sur place ; la prise en charge est prévue. Seul l'Opus peut être remplacé : ce fichier est enregistré en nouveau fichier.",
         rereading: "Plisto relit le fichier. Le rognage pourra être enregistré une fois la lecture terminée.",
         stale:
           "Le fichier a changé depuis sa lecture par l'éditeur : ce rognage ne peut pas être enregistré. Relisez-le pour rogner son contenu actuel ; votre rognage reste en place jusque-là.",

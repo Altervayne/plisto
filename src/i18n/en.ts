@@ -806,6 +806,8 @@ export const en = {
     locateUnreadable: "Can't read {folder} right now. Check the drive is connected and try again.",
     locateInconclusive: "Plisto couldn't check enough of {folder} in time. Try again.",
     locateFailed: "Couldn't relocate {name}. Nothing was changed.",
+    locateUnfinished:
+      "Couldn't relocate {name}: a write to some of its files is still unfinished. Plisto left the folder where it was.",
     locateBusy: "A scan is already running. Try again when it finishes.",
     locateMerge: {
       one: "{folder} is already in your library ({{n}} track). Merge it into {name}? {name}'s albums, playlists and plays stay; anything you added in {folder} moves across. Plisto never changes your files.",
@@ -2177,7 +2179,7 @@ export const en = {
         adHoc: "This file is not in your library, so it can only be saved as a new file.",
         flac: "There is no safe way to write FLAC in place yet; support is planned. Rebuilding it here would drop its seek table and checksum, so a FLAC is saved as a new file.",
         format:
-          "There is no safe way to write {format} in place yet; support is planned. Only Opus can be replaced, so a {format} file is saved as a new file.",
+          "There is no safe way to write {format} in place yet; support is planned. Only Opus can be replaced, so this file is saved as a new file.",
         rereading: "Plisto is reading the file again. The trim can be saved once that is done.",
         stale:
           "The file changed since the editor read it, so this trim cannot be saved. Reread it to trim what is there now; your trim stays until you do.",

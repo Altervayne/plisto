@@ -42,6 +42,7 @@ import {
 
 // -- Utils Imports --
 import { pickFolder } from "../../lib/dialog";
+import { exportFailureText } from "../../lib/exportFailureText";
 import { openFolder } from "../../lib/opener";
 
 // -- Local Imports --
@@ -245,16 +246,12 @@ export function ExportView() {
     try {
       setSummary(await exportLibrary(target, channel, folder, file, options));
       setPhase("done");
-    } catch {
+    } catch (e) {
       // A failed run drops back to idle with the reason surfaced rather than vanishing. The library
       // source is untouched either way; a device that dropped off mid-copy may hold a partial copy (no
       // rollback), which the device message is honest about.
       setPhase("idle");
-      setError(
-        target.kind === "device"
-          ? t((d) => d.export.deviceTransferFailed)
-          : t((d) => d.export.exportFailed),
-      );
+      setError(exportFailureText(t, e, target.kind === "device"));
     }
     // Even a failed run may have recorded what landed, so the preview reads the destination afresh.
     refresh();
