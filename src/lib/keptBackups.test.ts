@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 // -- Unit Imports --
 import {
   discardAllNotice,
+  discardFailureLine,
   discardOneNotice,
   discardable,
   expiryDays,
@@ -60,6 +61,16 @@ describe("keptRowKind", () => {
     expect(keptRowKind(backup({ canUndo: false }))).toBe("changed");
     expect(keptRowKind(backup())).toBe("ready");
   });
+
+  it("reads a track or folder no longer in the library as not in the library", () => {
+    expect(keptRowKind(backup({ trackId: null, canUndo: false }))).toBe("notInLibrary");
+    expect(keptRowKind(backup({ rootId: null, canUndo: false }))).toBe("notInLibrary");
+  });
+
+  it("lets missing and offline win over a gone track", () => {
+    expect(keptRowKind(backup({ trackId: null, state: "missing", canUndo: false }))).toBe("missing");
+    expect(keptRowKind(backup({ rootId: null, state: "offline", canUndo: false }))).toBe("offline");
+  });
 });
 
 describe("summarizeKept and discardable", () => {
@@ -93,14 +104,24 @@ describe("discard notices", () => {
     expect(discardOneNotice(t, backup(), { leftInPlace: true })).toContain("a/b.opus");
     expect(discardOneNotice(t, backup(), { leftInPlace: false })).toBeNull();
   });
-  it("joins the left-in-place and offline lines of Discard all", () => {
-    expect(discardAllNotice(t, { discarded: 3, leftInPlace: 0, offline: 0 })).toBeNull();
-    expect(discardAllNotice(t, { discarded: 1, leftInPlace: 2, offline: 0 })).toBe(
+  it("joins the left-in-place, offline and failed lines of Discard all", () => {
+    expect(discardAllNotice(t, { discarded: 3, leftInPlace: 0, offline: 0, failed: 0 })).toBeNull();
+    expect(discardAllNotice(t, { discarded: 1, leftInPlace: 2, offline: 0, failed: 0 })).toBe(
       "2 files changed since Plisto kept them, so they were left in place and only their entries were removed.",
     );
-    const both = discardAllNotice(t, { discarded: 1, leftInPlace: 1, offline: 2 });
+    const both = discardAllNotice(t, { discarded: 1, leftInPlace: 1, offline: 2, failed: 0 });
     expect(both).toContain("1 file changed");
     expect(both).toContain("2 backups on offline folders are kept.");
+    expect(discardAllNotice(t, { discarded: 0, leftInPlace: 0, offline: 0, failed: 1 })).toBe(
+      "1 backup could not be discarded and is still kept.",
+    );
+    const all = discardAllNotice(t, { discarded: 0, leftInPlace: 1, offline: 1, failed: 3 });
+    expect(all?.endsWith("3 backups could not be discarded and are still kept.")).toBe(true);
+    expect(all).toContain("1 file changed");
+  });
+  it("words a discard refused for an unfinished write apart from a plain failure", () => {
+    expect(discardFailureLine(t, new Error("unfinished writes"))).toContain("still unfinished");
+    expect(discardFailureLine(t, new Error("disk error"))).toContain("could not be discarded");
   });
 });
 

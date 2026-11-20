@@ -2286,6 +2286,7 @@ export const en = {
       missingLine: "The backup file is gone from disk, so this trim can no longer be undone.",
       removeFromList: "Remove from list",
       changedPill: "Changed since the trim",
+      notInLibraryPill: "Not in your library",
       offlinePill: "Folder offline",
       offlineLine: "{folder} is offline. Reconnect the drive to undo or discard this backup.",
       foot: "Each copy sits beside its file and counts against that drive. Synced folders sync it too.",
@@ -2312,12 +2313,17 @@ export const en = {
         one: "{{n}} backup on an offline folder is kept.",
         other: "{{n}} backups on offline folders are kept.",
       },
+      discardAllFailed: {
+        one: "{{n}} backup could not be discarded and is still kept.",
+        other: "{{n}} backups could not be discarded and are still kept.",
+      },
       leftInPlace: "The file changed since Plisto kept it, so it was left in place and only its entry was removed: {path}",
       leftInPlaceMany: {
         one: "{{n}} file changed since Plisto kept it, so it was left in place and only its entry was removed.",
         other: "{{n}} files changed since Plisto kept them, so they were left in place and only their entries were removed.",
       },
       discardFailed: "The backup could not be discarded. Nothing was changed.",
+      discardUnfinished: "A write to this file is still unfinished, so its backup is kept for now.",
       loadFailed: "Could not read the kept backups.",
     },
 

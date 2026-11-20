@@ -15,7 +15,7 @@ import { keptBackupDiscard, keptBackupsDiscardAll, keptBackupsList, trimUndo } f
 
 // -- Utils Imports --
 import { busyKind } from "../../lib/busyError";
-import { discardAllNotice, discardOneNotice, undoFailureLine } from "../../lib/keptBackups";
+import { discardAllNotice, discardFailureLine, discardOneNotice, undoFailureLine } from "../../lib/keptBackups";
 import { trimFailureOf } from "../../lib/trimReplace";
 
 // -- i18n Imports --
@@ -77,7 +77,7 @@ export function useKeptBackups() {
     discard: (backup: KeptBackup) =>
       act(
         () => keptBackupDiscard(backup.undoId).then((outcome) => discardOneNotice(t, backup, outcome)),
-        () => t((d) => d.fileWrites.kept.discardFailed),
+        (error) => discardFailureLine(t, error),
       ),
     discardAll: () =>
       act(

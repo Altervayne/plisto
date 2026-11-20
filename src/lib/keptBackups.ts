@@ -4,6 +4,7 @@
  */
 
 // -- Utils Imports --
+import { isUnfinishedWrites } from "./busyError";
 import { formatBytes } from "./format";
 import { undoFailureText } from "./trimFailureText";
 
@@ -14,8 +15,11 @@ import type { KeptBackup, KeptDiscardAllOutcome, KeptDiscardOutcome } from "../t
 
 const DAY_MS = 86_400_000;
 
-/** How a row reads: undoable, changed since the trim, its backup gone, or its folder offline. */
-export type KeptRowKind = "ready" | "changed" | "missing" | "offline";
+/**
+ * How a row reads: undoable, changed since the trim, its backup gone, its folder offline, or its track
+ * no longer in the library.
+ */
+export type KeptRowKind = "ready" | "changed" | "missing" | "offline" | "notInLibrary";
 
 /** The confirm a row or the footer has asked for. */
 export type KeptAsk =
@@ -38,6 +42,7 @@ export function keptForRoot(backups: readonly KeptBackup[], rootId: number): Kep
 export function keptRowKind(backup: KeptBackup): KeptRowKind {
   if (backup.state === "missing") return "missing";
   if (backup.state === "offline") return "offline";
+  if (backup.trackId == null || backup.rootId == null) return "notInLibrary";
   return backup.canUndo ? "ready" : "changed";
 }
 
@@ -75,13 +80,24 @@ export function discardOneNotice(t: Translate, backup: KeptBackup, outcome: Kept
   return outcome.leftInPlace ? t((d) => d.fileWrites.kept.leftInPlace, { path: backup.relPath }) : null;
 }
 
-/** The line left after Discard all, naming files left in place and offline backups kept; null when neither. */
+/**
+ * The line left after Discard all, naming files left in place, offline backups kept and backups that could
+ * not be discarded; null when none apply.
+ */
 export function discardAllNotice(t: Translate, outcome: KeptDiscardAllOutcome): string | null {
   const parts = [
     outcome.leftInPlace > 0 ? t((d) => d.fileWrites.kept.leftInPlaceMany, { n: outcome.leftInPlace }) : null,
     outcome.offline > 0 ? t((d) => d.fileWrites.kept.discardAllOffline, { n: outcome.offline }) : null,
+    outcome.failed > 0 ? t((d) => d.fileWrites.kept.discardAllFailed, { n: outcome.failed }) : null,
   ].filter((part): part is string => part != null);
   return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/** Why one discard failed: an unfinished write holds the backup, or a plain failure. */
+export function discardFailureLine(t: Translate, error: unknown): string {
+  return isUnfinishedWrites(error)
+    ? t((d) => d.fileWrites.kept.discardUnfinished)
+    : t((d) => d.fileWrites.kept.discardFailed);
 }
 
 /**

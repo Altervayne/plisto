@@ -2318,6 +2318,7 @@ export const fr: Dict = {
       missingLine: "Le fichier de sauvegarde a disparu du disque : ce rognage ne peut plus être annulé.",
       removeFromList: "Retirer de la liste",
       changedPill: "Modifié depuis le rognage",
+      notInLibraryPill: "Plus dans votre bibliothèque",
       offlinePill: "Répertoire hors ligne",
       offlineLine: "{folder} est hors ligne. Rebranchez le disque pour annuler ou supprimer cette sauvegarde.",
       foot: "Chaque copie est à côté de son fichier et occupe la place de ce disque. Les répertoires synchronisés la synchronisent aussi.",
@@ -2344,12 +2345,17 @@ export const fr: Dict = {
         one: "{{n}} sauvegarde sur un répertoire hors ligne est conservée.",
         other: "{{n}} sauvegardes sur des répertoires hors ligne sont conservées.",
       },
+      discardAllFailed: {
+        one: "{{n}} sauvegarde n'a pas pu être supprimée et est toujours conservée.",
+        other: "{{n}} sauvegardes n'ont pas pu être supprimées et sont toujours conservées.",
+      },
       leftInPlace: "Le fichier a changé depuis sa mise en réserve : il est resté en place et seule son entrée a été retirée : {path}",
       leftInPlaceMany: {
         one: "{{n}} fichier a changé depuis sa mise en réserve : il est resté en place et seule son entrée a été retirée.",
         other: "{{n}} fichiers ont changé depuis leur mise en réserve : ils sont restés en place et seules leurs entrées ont été retirées.",
       },
       discardFailed: "La sauvegarde n'a pas pu être supprimée. Rien n'a été modifié.",
+      discardUnfinished: "Une écriture dans ce fichier n'est pas terminée : sa sauvegarde est conservée pour le moment.",
       loadFailed: "Impossible de lire les sauvegardes conservées.",
     },
 

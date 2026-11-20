@@ -1795,9 +1795,11 @@ export interface KeptDiscardOutcome {
   leftInPlace: boolean;
 }
 
-/** What discarding every kept backup did: rows removed, files left in place, and offline rows skipped. */
+/** What discarding every kept backup did: rows removed, files left in place, offline rows skipped, and failures. */
 export interface KeptDiscardAllOutcome {
   discarded: number;
   leftInPlace: number;
   offline: number;
+  /** Backups that could not be discarded and are still kept. */
+  failed: number;
 }

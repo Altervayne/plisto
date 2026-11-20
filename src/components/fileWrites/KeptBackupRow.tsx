@@ -79,6 +79,9 @@ export function KeptBackupRow({
           <span className={`${styles.pill} ${styles.warn}`}>{t((d) => d.fileWrites.kept.changedPill)}</span>
         ) : null}
         {kind === "offline" ? <span className={styles.pill}>{t((d) => d.fileWrites.kept.offlinePill)}</span> : null}
+        {kind === "notInLibrary" ? (
+          <span className={styles.pill}>{t((d) => d.fileWrites.kept.notInLibraryPill)}</span>
+        ) : null}
         {kind === "ready" ? (
           <QuietButton onClick={onUndo} disabled={disabled}>
             {t((d) => d.fileWrites.kept.undoTrim)}
