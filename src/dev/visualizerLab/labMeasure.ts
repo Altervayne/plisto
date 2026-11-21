@@ -19,15 +19,14 @@ import {
 } from "./labScene";
 import { DROP_START, createLabSong } from "./labSong";
 import { createLabReplay, type LoadedTrack } from "./labReplay";
+import { meanLuma709, round } from "./labPixels";
 import {
   FLASH_SPAN_FRAMES,
   createFlashMeter,
-  meanLuma709,
   redness,
   relativeLuminance,
-  round,
   worstWindow,
-} from "./labPixels";
+} from "../../components/player/visualizers/flash/flashMeter";
 
 // -- State Imports --
 import type { Reactivity } from "../../state/player/visualizerKind";

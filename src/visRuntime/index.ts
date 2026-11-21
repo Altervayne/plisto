@@ -16,6 +16,7 @@ import { sceneForm } from "./forms/scene";
 import { shaderForm } from "./forms/shader";
 import { errorText } from "./gate";
 import { browserEnv, startMount, wrapPort } from "./lifecycle";
+import { browserMeterEnv, createStageMeter } from "./meter";
 import { readInit, VIS_API } from "./protocol";
 import { isShaderPage, loadShader } from "./shaderHost";
 
@@ -23,8 +24,9 @@ import { isShaderPage, loadShader } from "./shaderHost";
 import type { CandidateOptions } from "./forms/candidate";
 import type { SceneSpec } from "./forms/scene";
 import type { ShaderSpec } from "./forms/shader";
-import type { RawHandlers, Registration } from "./lifecycle";
-import type { VisInit } from "./protocol";
+import type { RawHandlers, Registration, VisPort } from "./lifecycle";
+import type { StageMeter } from "./meter";
+import type { FlashReading, VisInit } from "./protocol";
 import type { Candidate, Kit } from "../components/player/visualizers/gl/kit";
 
 // -- Namespace: shader sources and helpers --
@@ -67,6 +69,8 @@ export const version = VIS_API;
 let registration: Registration | null = null;
 let waiting: { init: VisInit; port: MessagePort } | null = null;
 let mounted: { dispose: () => void } | null = null;
+// The port of the mount being served, for what a kind reports itself.
+let framePort: VisPort | null = null;
 
 const bridge = createBridgeClient((msg) => window.parent.postMessage(msg, "*"));
 
@@ -86,7 +90,8 @@ const refuse = (port: MessagePort, message: string) => {
 
 function start(init: VisInit, port: MessagePort, reg: Registration): void {
   try {
-    mounted = startMount(init, wrapPort(port), reg(init), browserEnv());
+    framePort = wrapPort(port);
+    mounted = startMount(init, framePort, reg(init), browserEnv());
   } catch (e) {
     refuse(port, errorText(e));
   }
@@ -96,6 +101,7 @@ function onInit(init: VisInit, port: MessagePort): void {
   const own = ++current;
   mounted?.dispose();
   mounted = null;
+  framePort = null;
   waiting?.port.close();
   waiting = null;
   if (init.api !== VIS_API) {
@@ -146,6 +152,15 @@ export function candidate(factory: (kit: Kit) => Candidate, options?: CandidateO
 /** Registers a kind that draws itself. */
 export function raw(handlers: RawHandlers): void {
   register(rawForm(handlers));
+}
+
+/**
+ * Watches a canvas for flashing. Call `frame()` on the result after each frame is drawn. A flashing
+ * reading is reported to the host; the meter never changes what the kind draws.
+ */
+export function meter(canvas: HTMLCanvasElement): StageMeter {
+  const report = (reading: FlashReading) => framePort?.post({ type: "flash", reading });
+  return createStageMeter(canvas, report, browserMeterEnv());
 }
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { createFlashMeter, redness, type FlashMeterOptions } from "./labPixels";
+import { createFlashMeter, redness, type FlashMeterOptions } from "./flashMeter";
 
 const W = 40;
 const H = 30;

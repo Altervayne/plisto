@@ -1494,6 +1494,431 @@ ${settings}
       createRenderer
     };
   }
+  const LINEAR = Float64Array.from({ length: 256 }, (_, v) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  function relativeLuminance(bytes, i) {
+    return 0.2126 * LINEAR[bytes[i]] + 0.7152 * LINEAR[bytes[i + 1]] + 0.0722 * LINEAR[bytes[i + 2]];
+  }
+  function redness(bytes, i) {
+    const r = LINEAR[bytes[i]];
+    const g = LINEAR[bytes[i + 1]];
+    const b = LINEAR[bytes[i + 2]];
+    const total = r + g + b;
+    return total > 0 && r / total >= 0.8 ? Math.max(0, (r - g - b) * 320) : 0;
+  }
+  function popcount(v) {
+    let n = v - (v >>> 1 & 1431655765);
+    n = (n & 858993459) + (n >>> 2 & 858993459);
+    return (n + (n >>> 4) & 252645135) * 16843009 >>> 24;
+  }
+  const SECOND_FRAMES = 60;
+  const FLASH_SPAN_FRAMES = 3;
+  const SPAN_SECONDS = FLASH_SPAN_FRAMES / SECOND_FRAMES;
+  const WINDOW_STRIDE = 4;
+  const AREA_SHARE = 0.25;
+  function createFlashTracker(n, step, darkerBelow, second) {
+    const last = new Float32Array(n);
+    const cur = new Float32Array(n);
+    const dir = new Int8Array(n);
+    const prev = new Int8Array(n);
+    const moves = new Int8Array(n);
+    const pendingDown = new Uint8Array(n);
+    const pendingPair = new Uint8Array(n);
+    const flashAge = new Uint8Array(n).fill(255);
+    let ready = false;
+    const dark = (x) => darkerBelow === null || x < darkerBelow;
+    return {
+      moves,
+      step(values) {
+        if (!ready) {
+          last.set(values);
+          cur.set(values);
+          ready = true;
+        }
+        for (let i = 0; i < n; i++) {
+          const v = values[i];
+          let move = 0;
+          let trough = 0;
+          if (dir[i] === 0) {
+            if (v - last[i] >= step) {
+              move = 1;
+              trough = last[i];
+            } else if (last[i] - v >= step) move = -1;
+            if (move !== 0) {
+              dir[i] = move;
+              cur[i] = v;
+            }
+          } else if (dir[i] === 1) {
+            if (v > cur[i]) cur[i] = v;
+            else if (cur[i] - v >= step) {
+              move = -1;
+              last[i] = cur[i];
+              cur[i] = v;
+              dir[i] = -1;
+            }
+          } else if (v < cur[i]) cur[i] = v;
+          else if (v - cur[i] >= step) {
+            move = 1;
+            trough = cur[i];
+            last[i] = cur[i];
+            cur[i] = v;
+            dir[i] = 1;
+          }
+          let counted = 0;
+          let flash = false;
+          if (move === 0) {
+            if (pendingDown[i] === 1 && dir[i] === -1 && dark(cur[i])) {
+              counted = -1;
+              flash = pendingPair[i] === 1;
+              pendingDown[i] = 0;
+              pendingPair[i] = 0;
+            }
+          } else if (move === 1) {
+            pendingDown[i] = 0;
+            pendingPair[i] = 0;
+            const ok = dark(trough);
+            if (ok) counted = 1;
+            if (prev[i] === -1 && ok) {
+              flash = true;
+              prev[i] = 0;
+            } else prev[i] = ok ? 1 : 0;
+          } else {
+            const pair = prev[i] === 1;
+            pendingDown[i] = 0;
+            pendingPair[i] = 0;
+            if (dark(v)) {
+              counted = -1;
+              flash = pair;
+            } else {
+              pendingDown[i] = 1;
+              pendingPair[i] = pair ? 1 : 0;
+            }
+            prev[i] = pair ? 0 : -1;
+          }
+          moves[i] = counted;
+          flashAge[i] = flash ? 0 : Math.min(255, flashAge[i] + 1);
+        }
+      },
+      flickered(out) {
+        let any = false;
+        for (let i = 0; i < n; i++) {
+          const hit = flashAge[i] < second ? 1 : 0;
+          out[i] = hit;
+          if (hit) any = true;
+        }
+        return any;
+      }
+    };
+  }
+  function windowCounts(mask, w, h, winW, winH) {
+    const sat = new Int32Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let row = 0;
+      for (let x = 0; x < w; x++) {
+        row += mask[y * w + x];
+        sat[(y + 1) * (w + 1) + x + 1] = sat[y * (w + 1) + x + 1] + row;
+      }
+    }
+    const out = new Int32Array(windowTotal(w, h, winW, winH));
+    let k = 0;
+    for (let y = 0; y + winH <= h; y += WINDOW_STRIDE) {
+      for (let x = 0; x + winW <= w; x += WINDOW_STRIDE) {
+        const a = sat[(y + winH) * (w + 1) + x + winW] - sat[y * (w + 1) + x + winW];
+        out[k++] = a - sat[(y + winH) * (w + 1) + x] + sat[y * (w + 1) + x];
+      }
+    }
+    return out;
+  }
+  function windowTotal(w, h, winW, winH) {
+    if (w < winW || h < winH) return 0;
+    return (Math.floor((w - winW) / WINDOW_STRIDE) + 1) * (Math.floor((h - winH) / WINDOW_STRIDE) + 1);
+  }
+  function worstWindow(mask, w, h, winW, winH) {
+    return windowCounts(mask, w, h, winW, winH).reduce((a, b) => Math.max(a, b), 0);
+  }
+  function createFlashMeter(w, h, opts) {
+    const { winW, winH } = opts;
+    const n = w * h;
+    const windows = windowTotal(w, h, winW, winH);
+    const second = Math.min(SECOND_FRAMES, Math.max(1, Math.round(opts.rate ?? SECOND_FRAMES)));
+    const span = Math.max(1, Math.round(second * SPAN_SECONDS));
+    const loMask = second >= 32 ? 4294967295 : 2 ** second - 1;
+    const hiMask = second > 32 ? 2 ** (second - 32) - 1 : 0;
+    const tracker = createFlashTracker(n, opts.step, opts.darkerBelow, second);
+    const up = new Uint8Array(n);
+    const down = new Uint8Array(n);
+    const flicker = new Uint8Array(n);
+    const upRing = Array.from({ length: span }, () => new Int32Array(windows));
+    const downRing = Array.from({ length: span }, () => new Int32Array(windows));
+    const lastUp = new Int32Array(windows).fill(-1e9);
+    const lastDown = new Int32Array(windows).fill(-1e9);
+    const pending = new Int8Array(windows);
+    const pendingAt = new Int32Array(windows);
+    const lo = new Uint32Array(windows);
+    const hi = new Uint32Array(windows);
+    const needed = Math.ceil(AREA_SHARE * winW * winH);
+    let frames = 0;
+    let worstRate = 0;
+    let worstFlicker = 0;
+    const spanCount = (ring, last, k) => {
+      let sum = 0;
+      for (let j = Math.max(0, frames - span + 1, last[k] + 1); j <= frames; j++) sum += ring[j % span][k];
+      return sum;
+    };
+    const fire = (k, dir) => {
+      if (pending[k] === -dir && frames - pendingAt[k] <= second) {
+        pending[k] = 0;
+        return 1;
+      }
+      pending[k] = dir;
+      pendingAt[k] = frames;
+      return 0;
+    };
+    return {
+      frame(values) {
+        tracker.step(values);
+        let anyUp = false;
+        let anyDown = false;
+        for (let i = 0; i < n; i++) {
+          const m = tracker.moves[i];
+          up[i] = m > 0 ? 1 : 0;
+          down[i] = m < 0 ? 1 : 0;
+          if (m > 0) anyUp = true;
+          else if (m < 0) anyDown = true;
+        }
+        const slot = frames % span;
+        upRing[slot] = anyUp ? windowCounts(up, w, h, winW, winH) : new Int32Array(windows);
+        downRing[slot] = anyDown ? windowCounts(down, w, h, winW, winH) : new Int32Array(windows);
+        for (let k = 0; k < windows; k++) {
+          let flash = 0;
+          const fireUp = spanCount(upRing, lastUp, k) >= needed;
+          const fireDown = spanCount(downRing, lastDown, k) >= needed;
+          if (fireUp) lastUp[k] = frames;
+          if (fireDown) lastDown[k] = frames;
+          const downFirst = pending[k] === 1;
+          if (downFirst && fireDown) flash |= fire(k, -1);
+          if (fireUp) flash |= fire(k, 1);
+          if (!downFirst && fireDown) flash |= fire(k, -1);
+          hi[k] = (hi[k] << 1 | lo[k] >>> 31) & hiMask;
+          lo[k] = (lo[k] << 1 | flash) >>> 0;
+          worstRate = Math.max(worstRate, popcount((lo[k] & loMask) >>> 0) + popcount(hi[k]));
+        }
+        if (windows > 0 && tracker.flickered(flicker)) {
+          worstFlicker = Math.max(worstFlicker, worstWindow(flicker, w, h, winW, winH) / (winW * winH));
+        }
+        frames++;
+      },
+      result: () => ({ measured: windows > 0, flashesPerSec: worstRate, flickerShare: worstFlicker })
+    };
+  }
+  const CELL_W = 64;
+  const CELL_H = 36;
+  const CELL_HZ = 20;
+  const CELL_WINDOW_W = 21;
+  const CELL_WINDOW_H = 12;
+  const LUMA_STEP = 0.1;
+  const LUMA_DARKER_BELOW = 0.8;
+  const RED_STEP = 20;
+  const FLASHES_PER_SEC_LIMIT = 3;
+  const RED_FLASHES_LIMIT = 0;
+  function createCellMeter() {
+    const n = CELL_W * CELL_H;
+    const lumaValues = new Float32Array(n);
+    const redValues = new Float32Array(n);
+    const window2 = { winW: CELL_WINDOW_W, winH: CELL_WINDOW_H, rate: CELL_HZ };
+    let series = null;
+    let worst = { flashesPerSec: 0, redFlashesPerSec: 0, area: 0 };
+    const start2 = () => ({
+      luma: createFlashMeter(CELL_W, CELL_H, { ...window2, step: LUMA_STEP, darkerBelow: LUMA_DARKER_BELOW }),
+      red: createFlashMeter(CELL_W, CELL_H, { ...window2, step: RED_STEP, darkerBelow: null })
+    });
+    const tripped = (r) => r.flashesPerSec > FLASHES_PER_SEC_LIMIT || r.redFlashesPerSec > RED_FLASHES_LIMIT;
+    return {
+      frame(bytes) {
+        series ?? (series = start2());
+        for (let i = 0; i < n; i++) {
+          lumaValues[i] = relativeLuminance(bytes, i * 4);
+          redValues[i] = redness(bytes, i * 4);
+        }
+        series.luma.frame(lumaValues);
+        series.red.frame(redValues);
+        const luma = series.luma.result();
+        worst = {
+          flashesPerSec: Math.max(worst.flashesPerSec, luma.flashesPerSec),
+          redFlashesPerSec: Math.max(worst.redFlashesPerSec, series.red.result().flashesPerSec),
+          area: Math.max(worst.area, luma.flickerShare)
+        };
+      },
+      gap() {
+        series = null;
+      },
+      reading: () => worst,
+      tripped: () => tripped(worst)
+    };
+  }
+  const READBACK_RING = 3;
+  const STEP_MS = 1e3 / CELL_HZ;
+  const DUE_MS = STEP_MS * 0.9;
+  const STALE_MS = STEP_MS * 5;
+  const BYTES = CELL_W * CELL_H * 4;
+  function glReader(gl) {
+    const fbo = gl.createFramebuffer();
+    const target = gl.createRenderbuffer();
+    const ring = [];
+    const bytes = new Uint8Array(BYTES);
+    let head = 0;
+    let tail = 0;
+    const keeping = (fn) => {
+      const read = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+      const draw = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
+      const pack = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING);
+      const buffer = gl.getParameter(gl.RENDERBUFFER_BINDING);
+      try {
+        return fn();
+      } finally {
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, draw);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pack);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, buffer);
+      }
+    };
+    keeping(() => {
+      gl.bindRenderbuffer(gl.RENDERBUFFER, target);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, CELL_W, CELL_H);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
+      gl.framebufferRenderbuffer(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, target);
+      for (let i = 0; i < READBACK_RING; i++) {
+        const pbo = gl.createBuffer();
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, BYTES, gl.STREAM_READ);
+        ring.push({ pbo, fence: null, gapBefore: false });
+      }
+    });
+    return {
+      start(gapBefore) {
+        const slot = ring[head];
+        const w = gl.drawingBufferWidth;
+        const h = gl.drawingBufferHeight;
+        if (slot.fence || gl.isContextLost() || w === 0 || h === 0) return false;
+        keeping(() => {
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+          gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
+          gl.blitFramebuffer(0, 0, w, h, 0, 0, CELL_W, CELL_H, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.pbo);
+          gl.readPixels(0, 0, CELL_W, CELL_H, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+        });
+        slot.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        slot.gapBefore = gapBefore;
+        gl.flush();
+        head = (head + 1) % READBACK_RING;
+        return true;
+      },
+      harvest(deliver) {
+        for (let slot = ring[tail]; slot.fence; slot = ring[tail]) {
+          const status = gl.clientWaitSync(slot.fence, 0, 0);
+          if (status !== gl.ALREADY_SIGNALED && status !== gl.CONDITION_SATISFIED) break;
+          keeping(() => {
+            gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.pbo);
+            gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, bytes);
+          });
+          gl.deleteSync(slot.fence);
+          slot.fence = null;
+          tail = (tail + 1) % READBACK_RING;
+          deliver(bytes, slot.gapBefore);
+        }
+      },
+      dispose() {
+        for (const slot of ring) {
+          if (slot.fence) gl.deleteSync(slot.fence);
+          gl.deleteBuffer(slot.pbo);
+        }
+        gl.deleteFramebuffer(fbo);
+        gl.deleteRenderbuffer(target);
+      }
+    };
+  }
+  function scratchReader(canvas, ctx) {
+    let ready = null;
+    return {
+      start(gapBefore) {
+        if (ready || canvas.width === 0 || canvas.height === 0) return false;
+        ctx.drawImage(canvas, 0, 0, CELL_W, CELL_H);
+        const data = ctx.getImageData(0, 0, CELL_W, CELL_H).data;
+        ready = { bytes: new Uint8Array(data.buffer, data.byteOffset, data.length), gapBefore };
+        return true;
+      },
+      harvest(deliver) {
+        const taken = ready;
+        ready = null;
+        if (taken) deliver(taken.bytes, taken.gapBefore);
+      },
+      dispose() {
+      }
+    };
+  }
+  function readerFor(canvas, env) {
+    const gl = canvas.getContext("webgl2");
+    if (gl && !gl.getContextAttributes()?.antialias) return glReader(gl);
+    return scratchReader(canvas, env.scratch());
+  }
+  function createStageMeter(canvas, report, env) {
+    const cells = createCellMeter();
+    let reader = null;
+    let lastAt = null;
+    let skipped = false;
+    let reported = false;
+    const deliver = (bytes, gapBefore) => {
+      if (gapBefore) cells.gap();
+      cells.frame(bytes);
+      if (!reported && cells.tripped()) {
+        reported = true;
+        report({ ...cells.reading() });
+      }
+    };
+    return {
+      frame() {
+        try {
+          const t = env.now();
+          reader ?? (reader = readerFor(canvas, env));
+          reader.harvest(deliver);
+          if (lastAt !== null && t - lastAt < DUE_MS) return;
+          const stale = lastAt !== null && t - lastAt > STALE_MS;
+          if (reader.start(skipped || stale)) {
+            lastAt = t;
+            skipped = false;
+          } else skipped = true;
+        } catch {
+          cells.gap();
+          skipped = true;
+        }
+      },
+      dispose() {
+        try {
+          reader?.dispose();
+        } catch {
+        }
+        reader = null;
+      }
+    };
+  }
+  function browserMeterEnv() {
+    let ctx = null;
+    return {
+      now: () => performance.now(),
+      scratch() {
+        if (!ctx) {
+          const scratch = document.createElement("canvas");
+          scratch.width = CELL_W;
+          scratch.height = CELL_H;
+          ctx = scratch.getContext("2d", { willReadFrequently: true });
+        }
+        return ctx;
+      }
+    };
+  }
   const SHADER_PAGE_PATH = "/_plisto/vis/1/shader.html";
   function isShaderPage(pathname) {
     return pathname === SHADER_PAGE_PATH;
@@ -1754,6 +2179,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   let registration = null;
   let waiting = null;
   let mounted = null;
+  let framePort = null;
   const bridge = createBridgeClient((msg) => window.parent.postMessage(msg, "*"));
   const call = bridge.call;
   const log = bridge.log;
@@ -1766,7 +2192,8 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   };
   function start(init, port, reg) {
     try {
-      mounted = startMount(init, wrapPort(port), reg(init), browserEnv());
+      framePort = wrapPort(port);
+      mounted = startMount(init, framePort, reg(init), browserEnv());
     } catch (e) {
       refuse(port, errorText(e));
     }
@@ -1775,6 +2202,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
     const own = ++current;
     mounted?.dispose();
     mounted = null;
+    framePort = null;
     waiting?.port.close();
     waiting = null;
     if (init.api !== VIS_API) {
@@ -1816,6 +2244,10 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   }
   function raw(handlers) {
     register(rawForm(handlers));
+  }
+  function meter(canvas) {
+    const report = (reading) => framePort?.post({ type: "flash", reading });
+    return createStageMeter(canvas, report, browserMeterEnv());
   }
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("message", (event) => {
@@ -1867,6 +2299,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   exports.cyberGain = cyberGain;
   exports.easeEnvelope = easeEnvelope;
   exports.log = log;
+  exports.meter = meter;
   exports.motionEnvelope = motionEnvelope;
   exports.raw = raw;
   exports.restSignal = restSignal;
