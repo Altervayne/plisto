@@ -6,6 +6,7 @@
 
 // -- Local Imports --
 import { mountProbeFrame } from "../frames";
+import { watchSlot } from "../slotWatch";
 import { clockStep, fixed } from "../stats";
 import { awaitMessage, waitMs } from "./transportStandIn";
 
@@ -167,8 +168,10 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     ctx.log("canvas transfer");
     const transfer = await transferReading(frame.port, ctx.stages.subject.slot, ctx.signal);
     ctx.log("bitmap stream");
-    const s = await streamReading(frame.port, STREAM_MS, ctx.signal);
+    const watch = watchSlot(ctx.stages.subject.slot);
+    const s = await streamReading(frame.port, STREAM_MS, ctx.signal).finally(() => watch.stop());
     if (ctx.signal.aborted) return { state: "invalid", lines: ["stopped"] };
+    if (watch.leftView) return { state: "invalid", lines: [watch.note, ...transfer.map((l) => `canvas: ${l}`)] };
     const lines = [
       ...transfer.map((l) => `canvas: ${l}`),
       s.error

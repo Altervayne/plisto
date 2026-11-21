@@ -1,6 +1,6 @@
 /*
  * The consumer end of the transport stand-in. Ticks that arrive between two consumptions fold into one
- * held tick (dt sums, beat, flux and kick keep the max, the rest takes the latest); the consumer takes the
+ * held tick (dt and nBeats sum, beat, flux and kick keep the max, the rest takes the latest); the consumer takes the
  * held tick on its own animation frame, at most about 30 times a second, and acknowledges it. Modes:
  * "run" consumes and acknowledges, "block" also stalls 40 ms per consumed tick, "sink" only counts.
  */
@@ -20,7 +20,7 @@
   function reset() {
     held = null;
     ackedSeq = 0;
-    totals = { received: 0, beatsSeen: 0, dtSum: 0, consumed: 0, beatFrames: 0, consumedDt: 0, maxBehind: 0 };
+    totals = { received: 0, beatsSeen: 0, dtSum: 0, consumed: 0, beatsConsumed: 0, consumedDt: 0, maxBehind: 0 };
   }
   reset();
 
@@ -36,6 +36,7 @@
     totals.maxBehind = Math.max(totals.maxBehind, tick.seq - ackedSeq);
     if (held) {
       held.dt += tick.dt;
+      held.nBeats += tick.nBeats;
       held.beat = Math.max(held.beat, tick.beat);
       held.flux = Math.max(held.flux, tick.flux);
       held.kick = Math.max(held.kick, tick.kick);
@@ -44,7 +45,7 @@
       held.sentEpoch = tick.sentEpoch;
       held.rxEpoch = epoch();
     } else {
-      held = { seq: tick.seq, dt: tick.dt, beat: tick.beat, flux: tick.flux, kick: tick.kick, level: tick.level, sentEpoch: tick.sentEpoch, rxEpoch: epoch() };
+      held = { seq: tick.seq, dt: tick.dt, beat: tick.beat, nBeats: tick.nBeats, flux: tick.flux, kick: tick.kick, level: tick.level, sentEpoch: tick.sentEpoch, rxEpoch: epoch() };
     }
   }
 
@@ -58,7 +59,7 @@
         }
         totals.consumed++;
         totals.consumedDt += held.dt;
-        if (held.beat > 0) totals.beatFrames++;
+        totals.beatsConsumed += held.nBeats;
         ackedSeq = held.seq;
         port.postMessage({ type: "ack", seq: held.seq, sentEpoch: held.sentEpoch, rxEpoch: held.rxEpoch });
         held = null;

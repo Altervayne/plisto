@@ -10,6 +10,7 @@
 import "../fixtures/pattern.js";
 import { mountProbeFrame, type MountedFrame } from "../frames";
 import { comparisonPlan, locateMarks, scaleRect } from "../pixelDiff";
+import { watchSlot } from "../slotWatch";
 import { MARK_CSS_PX } from "../hold";
 import {
   alphaNote,
@@ -729,32 +730,41 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     layers.splice(layers.indexOf(subject), 1);
 
     let offscreen: OffscreenReport;
-    const setup = await offscreenLayer(stages.subject.slot, signal, dpr);
-    if (!setup.ok) {
-      offscreen = { available: false, reason: setup.reason };
-    } else {
-      layers.push(setup.layer);
-      const cases: CaseResult[] = [];
-      let stopped: string | undefined;
-      for (const spec of matrix) {
-        ensureRunning(signal);
-        ctx.log(`offscreen case ${cases.length + 1}/${matrix.length}: ${caseId(spec)}`);
-        try {
-          const result = await runCase(spec, reference, setup.layer);
-          cases.push(result);
-          if (!result.diff.valid && result.diff.reason.includes(COULD_NOT_DRAW)) stopped = result.diff.reason;
-        } catch (e) {
-          if (signal.aborted) throw e;
-          const reason = e instanceof Error ? e.message : String(e);
-          cases.push({ id: caseId(spec), diff: invalid(reason) });
-          stopped = reason;
+    const watch = watchSlot(stages.subject.slot);
+    try {
+      const setup = await offscreenLayer(stages.subject.slot, signal, dpr);
+      if (!setup.ok) {
+        offscreen = { available: false, reason: setup.reason };
+      } else {
+        layers.push(setup.layer);
+        const cases: CaseResult[] = [];
+        let stopped: string | undefined;
+        for (const spec of matrix) {
+          ensureRunning(signal);
+          ctx.log(`offscreen case ${cases.length + 1}/${matrix.length}: ${caseId(spec)}`);
+          try {
+            const result = await runCase(spec, reference, setup.layer);
+            cases.push(result);
+            if (!result.diff.valid && result.diff.reason.includes(COULD_NOT_DRAW)) stopped = result.diff.reason;
+          } catch (e) {
+            if (signal.aborted) throw e;
+            const reason = e instanceof Error ? e.message : String(e);
+            cases.push({ id: caseId(spec), diff: invalid(reason) });
+            stopped = reason;
+          }
+          if (stopped) break;
         }
-        if (stopped) break;
+        offscreen = { available: true, cases, stopped };
       }
-      offscreen = { available: true, cases, stopped };
+    } finally {
+      watch.stop();
     }
 
     const outcome = judgeP1({ controls, frame, offscreen, captureNote: note, expected });
+    if (watch.leftView) {
+      outcome.state = "invalid";
+      outcome.lines.unshift(watch.note);
+    }
     if (offGrid) outcome.lines.push("a stage edge is off the device pixel grid");
     record.state = outcome.state;
     ctx.offerActions(holdActions(prepareHeld, record, worstFailure(frame)));

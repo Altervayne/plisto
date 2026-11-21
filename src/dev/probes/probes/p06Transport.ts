@@ -9,6 +9,7 @@
 
 // -- Local Imports --
 import { mountProbeFrame } from "../frames";
+import { watchSlot } from "../slotWatch";
 import { fixed, maxOf, median, percentile } from "../stats";
 import { awaitMessage, observeClockStep, timeBatches, TransportSender, waitMs } from "./transportStandIn";
 
@@ -35,8 +36,8 @@ export interface FrameTotals {
   beatsSeen: number;
   dtSum: number;
   consumed: number;
-  /** Consumed ticks whose max-carried `beat` was above zero, counted by the frame. */
-  beatFrames: number;
+  /** Beats carried by the consumed ticks, summed from each tick's `nBeats` so coalesced ticks count all theirs. */
+  beatsConsumed: number;
   consumedDt: number;
   /** The most ticks the frame saw outstanding at once, from its own acknowledgements. */
   maxBehind: number;
@@ -102,8 +103,8 @@ export function judgeRun(r: RunResult): string[] {
   if (!t) return problems;
   if (t.received !== s.ticks) problems.push(`${r.label}: the frame received ${t.received} of ${s.ticks} ticks`);
   if (Math.abs(t.dtSum - s.dtSent) > DT_TOLERANCE) problems.push(`${r.label}: the frame's dt differs from dt sent`);
-  if (t.beatFrames < s.beatsSent) {
-    problems.push(`${r.label}: the frame consumed a beat in ${t.beatFrames} frames, fewer than the ${s.beatsSent} beats sent`);
+  if (t.beatsConsumed !== s.beatsSent) {
+    problems.push(`${r.label}: the frame consumed ${t.beatsConsumed} beats, not the ${s.beatsSent} beats sent`);
   }
   // What the frame consumed must account for everything sent: a consumer that stops late leaves dt, acks
   // or credits behind even when no beat falls in the gap.
@@ -213,7 +214,7 @@ function runLines(r: RunResult): string[] {
   const t = r.totals;
   return [
     `${r.label}: ${r.frames} page frames in ${fixed(r.seconds, 1)} s, ${s.ticks} ticks sent, ${s.samples - s.ticks} samples coalesced, outstanding at most ${t?.maxBehind ?? "n/a"} by the frame's count`,
-    `${r.label}: beats generated ${s.beatsIn}, sent ${s.beatsSent}, pending ${s.beatsPending}; frame counted ${t?.beatFrames ?? "n/a"} consumed ticks with a beat of ${t?.consumed ?? "n/a"} consumed`,
+    `${r.label}: beats generated ${s.beatsIn}, sent ${s.beatsSent}, pending ${s.beatsPending}; frame consumed ${t?.beatsConsumed ?? "n/a"} beats in ${t?.consumed ?? "n/a"} consumed ticks`,
     `${r.label}: dt in ${fixed(s.dtIn, 3)} s, sent ${fixed(s.dtSent, 3)} s, pending ${fixed(s.dtPending, 3)} s, frame received ${t ? fixed(t.dtSum, 3) : "n/a"} s`,
     `${r.label}: round trip (primary) median ${fixed(median(r.roundTrip), 2)} ms, p99 ${fixed(percentile(r.roundTrip, 99), 2)} ms, max ${fixed(maxOf(r.roundTrip), 2)} ms over ${r.roundTrip.length} acks`,
     `${r.label}: one-way median ${fixed(median(r.oneWay), 2)} ms, not comparable across processes (two clocks)`,
@@ -230,6 +231,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     height: "100%",
     borderless: true,
   });
+  const watch = watchSlot(ctx.stages.subject.slot);
   try {
     const port = frame.port;
     if (document.hidden) return { state: "invalid", lines: ["the page is hidden, so its frame loop cannot run; show the window and run again"] };
@@ -247,6 +249,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     const blocked = await creditRun(port, "block", "consumer blocked 40 ms", ctx.signal);
     if (ctx.signal.aborted) return { state: "invalid", lines: ["stopped"] };
 
+    if (watch.leftView) return { state: "invalid", lines: [watch.note] };
     const verdict = judgeTransport([normal, blocked], costMedian);
     const lines = [
       `post cost median ${fixed(costMedian, 4)} ms per post, p99 of batch means ${fixed(costP99, 4)} ms, over ${COST_BATCHES} batches of ${COST_BATCH_SIZE}; clock step observed ${fixed(cost.step, 4)} ms`,
@@ -255,6 +258,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     ];
     return { state: verdict.state, lines: [...verdict.problems, ...lines] };
   } finally {
+    watch.stop();
     frame.unmount();
   }
 }

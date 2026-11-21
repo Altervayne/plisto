@@ -6,6 +6,7 @@
 
 // -- Local Imports --
 import { mountProbeFrame } from "../frames";
+import { watchSlot } from "../slotWatch";
 import { fixed, maxOf, median, percentile, perItemMs } from "../stats";
 import { awaitMessage } from "./transportStandIn";
 
@@ -63,40 +64,46 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
   const lines: string[] = [];
   const readings: MeterReading[] = [];
   const problems: string[] = [];
-  for (const size of SIZES) {
-    if (ctx.signal.aborted) break;
-    ctx.log(size.label);
-    const frame = await mountProbeFrame({
-      host: "probe-vis",
-      file: "vis-meter.html",
-      parent: ctx.stages.subject.slot,
-      signal: ctx.signal,
-      width: "100%",
-      height: "100%",
-      borderless: true,
-    });
-    let result: MeterResult | null;
-    try {
-      result = await runFrame(frame.port, size.width, size.height, ctx.signal);
-    } finally {
-      frame.unmount();
+  const watch = watchSlot(ctx.stages.subject.slot);
+  try {
+    for (const size of SIZES) {
+      if (ctx.signal.aborted) break;
+      ctx.log(size.label);
+      const frame = await mountProbeFrame({
+        host: "probe-vis",
+        file: "vis-meter.html",
+        parent: ctx.stages.subject.slot,
+        signal: ctx.signal,
+        width: "100%",
+        height: "100%",
+        borderless: true,
+      });
+      let result: MeterResult | null;
+      try {
+        result = await runFrame(frame.port, size.width, size.height, ctx.signal);
+      } finally {
+        frame.unmount();
+      }
+      if (!result) {
+        problems.push(`${size.label}: no result in ${RUN_TIMEOUT_MS} ms`);
+        continue;
+      }
+      if (result.error || result.batchMs.length === 0) {
+        problems.push(`${size.label}: ${result.error ?? "no batches timed"}`);
+        continue;
+      }
+      const perStep = perItemMs(result.batchMs, result.batch);
+      const med = median(perStep);
+      readings.push({ samples: perStep.length, median: med, steps: result.steps, skipped: result.skipped });
+      lines.push(
+        `${size.label}: median ${fixed(med, 4)} ms per step, p99 of batch means ${fixed(percentile(perStep, 99), 4)} ms, max ${fixed(maxOf(perStep), 4)} ms; ${perStep.length} batches of ${result.batch}; clock step observed in the frame ${fixed(result.step, 4)} ms; readbacks completed ${result.completed} of ${result.steps} steps, ${result.skipped} skipped for a full ring (invalid above ${MAX_SKIPPED_SHARE * 100}% skipped); gl "${result.renderer}"`,
+      );
     }
-    if (!result) {
-      problems.push(`${size.label}: no result in ${RUN_TIMEOUT_MS} ms`);
-      continue;
-    }
-    if (result.error || result.batchMs.length === 0) {
-      problems.push(`${size.label}: ${result.error ?? "no batches timed"}`);
-      continue;
-    }
-    const perStep = perItemMs(result.batchMs, result.batch);
-    const med = median(perStep);
-    readings.push({ samples: perStep.length, median: med, steps: result.steps, skipped: result.skipped });
-    lines.push(
-      `${size.label}: median ${fixed(med, 4)} ms per step, p99 of batch means ${fixed(percentile(perStep, 99), 4)} ms, max ${fixed(maxOf(perStep), 4)} ms; ${perStep.length} batches of ${result.batch}; clock step observed in the frame ${fixed(result.step, 4)} ms; readbacks completed ${result.completed} of ${result.steps} steps, ${result.skipped} skipped for a full ring (invalid above ${MAX_SKIPPED_SHARE * 100}% skipped); gl "${result.renderer}"`,
-    );
+  } finally {
+    watch.stop();
   }
   if (ctx.signal.aborted) return { state: "invalid", lines: ["stopped", ...lines] };
+  if (watch.leftView) return { state: "invalid", lines: [watch.note, ...lines] };
   return { state: judgeMeter(readings, SIZES.length), lines: [...problems, ...lines] };
 }
 

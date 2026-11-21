@@ -6,7 +6,7 @@ import { judgeRun, judgeTransport } from "./p06Transport";
 import type { FrameTotals, RunResult } from "./p06Transport";
 
 function totals(over: Partial<FrameTotals> = {}): FrameTotals {
-  return { received: 600, beatsSeen: 40, dtSum: 20, consumed: 580, beatFrames: 40, consumedDt: 20, maxBehind: 2, ...over };
+  return { received: 600, beatsSeen: 40, dtSum: 20, consumed: 580, beatsConsumed: 40, consumedDt: 20, maxBehind: 2, ...over };
 }
 
 function run(over: Partial<RunResult> = {}, frame: Partial<FrameTotals> | null = {}): RunResult {
@@ -40,8 +40,15 @@ describe("judgeRun", () => {
   });
 
   it("fails when the frame consumed fewer beats than were sent, however the sender counted", () => {
-    const problems = judgeRun(run({}, { beatFrames: 31, beatsSeen: 40 }));
-    expect(problems.join(" ")).toContain("fewer than the 40 beats sent");
+    const problems = judgeRun(run({}, { beatsConsumed: 31, beatsSeen: 40 }));
+    expect(problems.join(" ")).toContain("not the 40 beats sent");
+  });
+
+  it("compares beats with beats when one consumed tick carries several", () => {
+    const sender = { ...run().sender, beatsIn: 60, beatsSent: 60 };
+    expect(judgeRun(run({ sender }, { beatsConsumed: 60 }))).toEqual([]);
+    const text = judgeRun(run({ sender }, { beatsConsumed: 45 })).join(" ");
+    expect(text).toContain("consumed 45 beats, not the 60 beats sent");
   });
 
   it("fails a consumer that stalled after a few acks", () => {
@@ -50,7 +57,7 @@ describe("judgeRun", () => {
         sender: { ...run().sender, ticks: 2, beatsSent: 1, beatsPending: 39, dtSent: 0.02, dtPending: 19.98 },
         roundTrip: [8, 8],
       },
-      { received: 2, beatsSeen: 1, beatFrames: 1, dtSum: 0.02, consumed: 2 },
+      { received: 2, beatsSeen: 1, beatsConsumed: 1, dtSum: 0.02, consumed: 2 },
     );
     const text = judgeRun(stalled).join(" ");
     expect(text).toContain("starved");
@@ -106,6 +113,6 @@ describe("judgeTransport", () => {
   });
 
   it("fails when any run has a problem", () => {
-    expect(judgeTransport([run(), run({}, { beatFrames: 0 })], 0.01).state).toBe("fail");
+    expect(judgeTransport([run(), run({}, { beatsConsumed: 0 })], 0.01).state).toBe("fail");
   });
 });

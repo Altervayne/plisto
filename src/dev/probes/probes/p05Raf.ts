@@ -10,6 +10,7 @@ import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
 // -- Local Imports --
 import { mountProbeFrame } from "../frames";
+import { watchSlot } from "../slotWatch";
 import { fixed } from "../stats";
 import { waitMs } from "./transportStandIn";
 
@@ -111,6 +112,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     height: "100%",
     borderless: true,
   });
+  const watch = watchSlot(stage.slot);
   try {
     const ask = makeAsker(frame.port, ctx.signal);
     const samples: Sample[] = [];
@@ -178,6 +180,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     }
 
     if (ctx.signal.aborted) return { state: "invalid", lines: ["stopped"] };
+    if (watch.leftView) return { state: "invalid", lines: [watch.note] };
     const rates = ratesByPhase(samples);
     const lines = PHASES.filter((p) => rates.has(p)).map((p) => {
       const r = rates.get(p) as Rate;
@@ -191,6 +194,7 @@ async function run(ctx: ProbeContext): Promise<ProbeOutcome> {
     }
     return { state: "measured", lines };
   } finally {
+    watch.stop();
     stage.setDip(1);
     frame.unmount();
   }

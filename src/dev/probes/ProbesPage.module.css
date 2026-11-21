@@ -65,11 +65,19 @@
   cursor: default;
 }
 
+/* Stays on screen while the cards scroll: a frame stops drawing once its slot leaves the viewport. */
+.dock {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-bottom: 8px;
+  background: var(--bg);
+}
+
 .stages {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 8px;
 }
 
 .check {

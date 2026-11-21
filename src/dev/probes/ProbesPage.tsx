@@ -68,11 +68,14 @@ export default function ProbesPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // The header and the facts line change height as readings arrive, which moves the stages.
-  useLayoutEffect(() => {
+  // The stages are sticky, so their offset from the grid depends on the scroll position too.
+  const snapStages = () => {
     stagesRef.current?.reference.snapToGrid();
     stagesRef.current?.subject.snapToGrid();
-  }, [dpr, version, webview2, displayHz, runner.notice]);
+  };
+
+  // The header and the facts line change height as readings arrive, which moves the stages.
+  useLayoutEffect(snapStages, [dpr, version, webview2, displayHz, runner.notice]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -119,7 +122,7 @@ export default function ProbesPage() {
   const busy = runner.running !== null;
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} onScroll={snapStages}>
       <header className={styles.header}>
         <h1 className={styles.title}>Visualizer probes</h1>
         <div className={styles.buttons}>
@@ -160,9 +163,11 @@ export default function ProbesPage() {
         gl "{gl}" | theme {theme}
       </p>
 
-      <div className={styles.stages}>
-        <ProbeStage ref={referenceRef} label="Reference" width={width} height={height} theme={theme} />
-        <ProbeStage ref={subjectRef} label="Subject" width={width} height={height} theme={theme} />
+      <div className={styles.dock}>
+        <div className={styles.stages}>
+          <ProbeStage ref={referenceRef} label="Reference" width={width} height={height} theme={theme} />
+          <ProbeStage ref={subjectRef} label="Subject" width={width} height={height} theme={theme} />
+        </div>
       </div>
       <p className={styles.check}>
         {stageNotes === null
