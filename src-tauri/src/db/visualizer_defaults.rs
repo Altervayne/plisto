@@ -11,7 +11,7 @@ use rusqlite::{params, Connection};
 use crate::dto::{AlbumVisualizer, TrackVisualizer, VisualizerDefaults};
 
 /// The longest kind string accepted, in bytes.
-const MAX_KIND_BYTES: usize = 64;
+const MAX_KIND_BYTES: usize = 128;
 
 /// Every stored default, albums and tracks, ordered by id.
 pub fn list_visualizer_defaults(conn: &Connection) -> rusqlite::Result<VisualizerDefaults> {
@@ -204,8 +204,10 @@ mod tests {
         let listed = list_visualizer_defaults(&conn).unwrap();
         assert!(listed.albums.is_empty() && listed.tracks.is_empty());
 
-        let at_cap = "x".repeat(MAX_KIND_BYTES);
+        let at_cap = "x".repeat(128);
         set_album_visualizer(&conn, album, Some(&at_cap)).unwrap();
+        let over_cap = "x".repeat(129);
+        assert!(set_album_visualizer(&conn, album, Some(&over_cap)).is_err());
     }
 
     #[test]

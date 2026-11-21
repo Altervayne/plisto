@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 const PLUGINS: &str = "plugins";
 const PLUGINS_DATA: &str = "plugins-data";
+// Per-plugin visualizer records, apart from the code folder because that folder is hashed.
+const PLUGINS_VIS: &str = "plugins-vis";
 const PLUGIN_KV: &str = "kv.json";
 const PLUGIN_KV_BAD: &str = "kv.json.bad";
 const PLUGIN_LOG: &str = "plugin.log";
@@ -49,6 +51,16 @@ pub fn plugin_dir(app_data: &Path, id: &str) -> PathBuf {
 /// A plugin's persistent data folder, kept outside its code folder so an update never touches it.
 pub fn data_dir(app_data: &Path, id: &str) -> PathBuf {
     app_data.join(PLUGINS_DATA).join(id)
+}
+
+/// The folder holding every plugin's visualizer store.
+pub fn vis_store_root(app_data: &Path) -> PathBuf {
+    app_data.join(PLUGINS_VIS)
+}
+
+/// One plugin's visualizer store: marks, stills and the reset trial marker.
+pub fn vis_store_dir(app_data: &Path, id: &str) -> PathBuf {
+    vis_store_root(app_data).join(id)
 }
 
 /// The file behind a plugin's `storage.*` calls.

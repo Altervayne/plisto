@@ -29,6 +29,7 @@ use super::paths::{plugin_dir, plugins_dir, validate_id};
 use super::registry::{Entry, EntryState};
 use super::revalidate::{check_folder, needs_newer};
 use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
+use super::vis_store;
 
 const OLD_SUFFIX: &str = ".old";
 
@@ -332,6 +333,11 @@ fn update_claimed(
     // After a failed undo, `.old` may be the only copy of the plugin, so it stays.
     if updated.is_ok() && had_old.get() {
         let _ = remove_folder(app_data, &old, "old");
+    }
+    // Recorded while the turn is held, so a quick second update or an uninstall cannot interleave.
+    // A developer reload is an update, so it lands here too.
+    if updated.is_ok() {
+        let _ = vis_store::record_build(app_data, id);
     }
     updated
 }

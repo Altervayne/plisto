@@ -1385,6 +1385,27 @@ export interface SandboxCheckCounts {
 /** What a plugin frame reports to Rust. Mirrors the kinds `plugin_frame_event` accepts. */
 export type PluginFrameEventKind = "live" | "not_responding" | "crashed" | "detached";
 
+/** A fault that switches a plugin visualizer off until the user turns it back on. */
+export type PluginVisMark = "flashing" | "graphics_reset";
+
+/** The theme a stored still was drawn for. */
+export type PluginVisTheme = "light" | "dark";
+
+/**
+ * What is recorded for one visualizer kind of one plugin under its current build key. Mirrors
+ * KindState in vis_store.rs. Kinds with nothing recorded are never listed.
+ */
+export interface PluginVisKindState {
+  id: string;
+  kind: string;
+  flashing: boolean;
+  graphics_reset: boolean;
+  /** The user turned the kind back on under this build; the stage meter leaves it alone. */
+  turned_back_on: boolean;
+  /** The graphics-reset trial ran its full length under this build and is not run again. */
+  trialed: boolean;
+}
+
 /** Why a frame crashed, sent with the `crashed` kind. */
 export type PluginFrameCrashReason = "silent" | "navigated" | "init";
 

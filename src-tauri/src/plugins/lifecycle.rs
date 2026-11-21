@@ -28,6 +28,7 @@ use super::registry::{Entry, EntryState, Registry};
 use super::revalidate::{check_folder, demote, needs_newer, CheckError, Problems};
 use super::state::{PluginRow, PluginsState, Withdraw};
 use super::update::{not_installed, old_dir};
+use super::vis_store;
 
 /// What uninstall did beyond removing the plugin.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -422,6 +423,7 @@ pub fn uninstall(
         return Err(e);
     }
     let _ = remove_tree(&holder);
+    vis_store::remove(app_data, id);
     let data_warning = delete_data
         .then(|| remove_data(app_data, id).err())
         .flatten()

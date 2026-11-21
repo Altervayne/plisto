@@ -45,4 +45,5 @@ pub(crate) mod summary;
 #[cfg(test)]
 mod test_kit;
 pub(crate) mod update;
+pub(crate) mod vis_store;
 pub(crate) mod visualizer_decl;

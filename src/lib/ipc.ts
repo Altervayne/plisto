@@ -68,6 +68,9 @@ import type {
   PluginUiEvent,
   PluginUninstalled,
   PluginUpdated,
+  PluginVisKindState,
+  PluginVisMark,
+  PluginVisTheme,
   PlaylistM3uSummary,
   PlaylistRow,
   PlaylistSnapshot,
@@ -1325,6 +1328,61 @@ export function pluginFrameUrl(id: string): Promise<string | null> {
  */
 export function pluginVisUrl(id: string, kind: string): Promise<string> {
   return invoke<string>("plugin_vis_url", { id, kind });
+}
+
+/** Every plugin visualizer kind with a fault mark or a turned-back-on record, for all plugins at once. */
+export function pluginVisMarks(): Promise<PluginVisKindState[]> {
+  return invoke<PluginVisKindState[]>("plugin_vis_marks");
+}
+
+/** Marks a kind as flashing or as having lost its graphics context, under its current build key. */
+export function pluginVisMark(id: string, kind: string, mark: PluginVisMark): Promise<void> {
+  return invoke<void>("plugin_vis_mark", { id, kind, mark });
+}
+
+/** Removes a kind's fault marks and records it as turned back on under its current build key. */
+export function pluginVisClearMark(id: string, kind: string): Promise<void> {
+  return invoke<void>("plugin_vis_clear_mark", { id, kind });
+}
+
+/**
+ * Writes the graphics-reset trial marker for a kind and resolves true; a marker still there at next
+ * launch becomes a mark. Resolves false, writing nothing, when the kind already passed under its build.
+ */
+export function pluginVisTrialBegin(id: string, kind: string): Promise<boolean> {
+  return invoke<boolean>("plugin_vis_trial_begin", { id, kind });
+}
+
+/**
+ * Removes the graphics-reset trial marker for a kind. `passed` records the kind as trialed under its
+ * build; false (the kind unmounted early) only removes the marker.
+ */
+export function pluginVisTrialEnd(id: string, kind: string, passed: boolean): Promise<void> {
+  return invoke<void>("plugin_vis_trial_end", { id, kind, passed });
+}
+
+/**
+ * Stores a kind's still. The PNG is the raw body (at most 1 MiB); the ids travel as headers, which
+ * Tauri forwards with a raw payload.
+ */
+export function pluginVisThumbPut(
+  id: string,
+  kind: string,
+  theme: PluginVisTheme,
+  png: Uint8Array,
+): Promise<void> {
+  const headers = { "x-vis-id": id, "x-vis-kind": kind, "x-vis-theme": theme };
+  return invoke<void>("plugin_vis_thumb_put", png, { headers });
+}
+
+/** A kind's stored still as PNG bytes, or null when none is stored under its current build key. */
+export async function pluginVisThumbGet(
+  id: string,
+  kind: string,
+  theme: PluginVisTheme,
+): Promise<ArrayBuffer | null> {
+  const bytes = await invoke<ArrayBuffer>("plugin_vis_thumb_get", { id, kind, theme });
+  return bytes.byteLength === 0 ? null : bytes;
 }
 
 /** Stages and checks a plugin folder or `.plistoplugin` file. Rejects with `{ code, detail }`. */

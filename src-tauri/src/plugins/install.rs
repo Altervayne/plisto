@@ -30,6 +30,7 @@ use super::revalidate::{check_folder, needs_newer};
 use super::stage::{fits_under, Limits, Totals};
 use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
 use super::summary::sidebar_item_count;
+use super::vis_store;
 use super::visualizer_decl::VisualizerDecl;
 
 const MAX_INBOX: usize = 64;
@@ -393,7 +394,11 @@ fn commit_claimed(
         Some(Err(_)) => {
             let _ = remove_tree(&target);
         }
-        None => {}
+        None => {
+            if committed.is_ok() {
+                let _ = vis_store::record_build(app_data, &staged.id);
+            }
+        }
     }
     committed
 }
