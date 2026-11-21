@@ -19,6 +19,7 @@
     "vis:port:check": "node tools/vis-port.mjs check",
     "kit:sync": "node tools/kit-sync.mjs build",
     "kit:sync:check": "node tools/kit-sync.mjs check",
+    "kit:check": "node plugin-kit/visualizers/check-visualizer.mjs",
     "kit:feed": "node tools/kit-feed.mjs build",
     "kit:feed:check": "node tools/kit-feed.mjs check",
     "prune:target": "node scripts/prune-target.mjs",

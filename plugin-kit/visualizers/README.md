@@ -41,6 +41,15 @@ Install the `.plistoplugin` file from Settings, Visualizers, Add visualizers, Fr
 From folder... to install without packing. [`examples/`](examples) holds three finished plugins to read:
 Level glow, Band tunnel and Lake.
 
+## Check your visualizer
+
+Run `node plugin-kit/visualizers/check-visualizer.mjs <plugin-folder>`. It reads the manifest by Plisto's own
+rules, mounts each kind in Edge through the real runtime, plays a scripted feed against the flashing,
+slow-frame and hang limits, saves a still and says where the plugin will be listed. It exits 0 when all
+passes, 1 on a failure and 3 when the only finding is flashing. See [docs/check.md](docs/check.md).
+To watch it live while you work, run `node plugin-kit/sdk/mock-serve.mjs 8765 <plugin-folder> --watch`
+and open the harness it prints. See [docs/harness.md](docs/harness.md).
+
 ## The four forms
 
 Pick the form by how much of the work you want Plisto to do.
@@ -107,7 +116,7 @@ The manifest names a `page`. The page's script calls `plistoVis.scene(spec)` onc
 
 ```js
 plistoVis.scene({
-  passes: [{ name: "main", fs: plistoVis.SCENE_PRELUDE + "...your main()..." }],
+  passes: [{ name: "scene", fs: plistoVis.SCENE_PRELUDE + "...your main()..." }],
   init: (kit) => ({ travel: 0 }),
   update: (frame, state) => { state.travel += frame.dt; },
   uniforms: (pass, program, kit, frame, state) => kit.set1(program, "uTravel", state.travel),
@@ -380,6 +389,8 @@ tool you like: Plisto does not need a build step.
 | `README.md` | This page |
 | `docs/feed.md` | Every field of the frame and what it means. Generated from the types |
 | `docs/photosensitivity.md` | The flashing rule, the setting, advice and the raw meter |
+| `docs/check.md` | The checker: manifest, compile, a scripted run, a still and the listing |
+| `check-visualizer.mjs` | The command that runs the checker on a plugin folder |
 | `starters/` | One minimal plugin per form |
 | `examples/` | Three finished plugins |
 | `fixtures/` | Ports of Plisto's own kinds, as candidate scripts, to read and learn from |

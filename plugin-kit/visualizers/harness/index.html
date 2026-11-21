@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visualizer harness</title>
+<link rel="stylesheet" href="harness.css">
+</head>
+<body>
+<header class="bar">
+  <h1 id="title">Visualizer harness</h1>
+  <span id="status" class="status" role="status"></span>
+</header>
+<main class="layout">
+  <section class="work" aria-label="Stage">
+    <div id="notice" class="notice" hidden></div>
+    <div class="scroller">
+      <div id="stage" class="stage">
+        <canvas id="backdrop" class="backdrop"></canvas>
+        <div id="overlay" class="overlay"></div>
+      </div>
+    </div>
+    <figure id="still" class="still" hidden>
+      <figcaption>
+        The still, as reduced motion shows it
+        <button id="still-close" type="button">Close</button>
+      </figcaption>
+      <img id="still-img" alt="The still the kind gives under reduced motion">
+    </figure>
+  </section>
+  <aside class="side">
+    <form id="controls" class="controls" aria-label="Controls" onsubmit="return false"></form>
+    <section aria-label="Readout">
+      <h2>Readout</h2>
+      <dl id="readout" class="readout"></dl>
+      <h2>Frame log</h2>
+      <pre id="log" class="log"></pre>
+    </section>
+  </aside>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>

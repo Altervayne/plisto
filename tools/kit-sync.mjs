@@ -2,8 +2,9 @@
 //   node tools/kit-sync.mjs build   writes the copies
 //   node tools/kit-sync.mjs check   compares the copies with their sources and fails on a stale one
 // The protocol module is written as plain JS by the TypeScript compiler, with its types erased. The Edge
-// runner gets a one-line header that marks it generated. The lake fixture, which the lake example ships as
-// its script, is copied unchanged.
+// runner gets a one-line header that marks it generated. The limits file joins the net limits with the two
+// flash-meter constants, so the checker judges a run by the numbers Plisto uses. The lake fixture, which the
+// lake example ships as its script, is copied unchanged.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -25,9 +26,30 @@ function protocolJs() {
   return HEADER + lf(out.outputText);
 }
 
+/** The net limits module as plain JS, followed by the flash-meter limits read from the cell meter. */
+function limitsJs() {
+  const nets = ts.transpileModule(read("src/state/player/pluginVis/netLimits.ts"), {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2020,
+      module: ts.ModuleKind.ESNext,
+      newLine: ts.NewLineKind.LineFeed,
+    },
+  });
+  const meter = read("src/components/player/visualizers/flash/cellMeter.ts");
+  const lines = ["FLASHES_PER_SEC_LIMIT", "RED_FLASHES_LIMIT"].map((name) => {
+    const found = meter.match(new RegExp(`^export const ${name} = ([0-9.]+);`, "m"));
+    if (!found) throw new Error(`kit-sync: ${name} not found in cellMeter.ts`);
+    return `/** The flash-meter limit of the same name in Plisto. */
+export const ${name} = ${found[1]};
+`;
+  });
+  return HEADER + lf(nets.outputText) + lines.join("");
+}
+
 // Each copy: where it lands (relative to the repository) and how its text is made.
 const COPIES = [
   ["plugin-kit/visualizers/lib/protocol.js", protocolJs],
+  ["plugin-kit/visualizers/lib/limits.js", limitsJs],
   ["plugin-kit/visualizers/lib/edgeLive.mjs", () => HEADER + read("tools/lib/edgeLive.mjs")],
   ["plugin-kit/visualizers/examples/lake/vis/lake.js", () => read("plugin-kit/visualizers/fixtures/lake.js")],
 ];

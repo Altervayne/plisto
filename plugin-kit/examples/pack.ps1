@@ -9,6 +9,11 @@
 #                            tap-meter\pack.ps1).
 #   -Out <folder>            Where the file goes, for both forms.
 #
+# A folder that declares visualizers is first run through the visualizer checker
+# (..\visualizers\check-visualizer.mjs) when node is on the path, and the run is skipped with a note
+# when it is not. A check that fails stops the pack. A check that only finds flashing prints its
+# warning and the pack goes on.
+#
 # Entry names are written with forward slashes, as Plisto reads them. Compress-Archive in Windows
 # PowerShell 5.1 can write backslashes, which Plisto refuses, so the archive is built here entry by entry.
 param(
@@ -100,10 +105,29 @@ function Pack-Sample([string]$Name, [string]$Dest) {
     Write-Archive $src $files $zip
 }
 
+# Runs the visualizer checker on a folder that declares visualizers. Exit 3 is flashing only: a warning.
+function Test-Visualizers([string]$Src, [object]$Manifest) {
+    if (-not $Manifest.visualizers) { return }
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Host "node is not on the path, so the visualizer check was skipped."
+        return
+    }
+    $checker = Join-Path $PSScriptRoot "..\visualizers\check-visualizer.mjs"
+    & $node.Source $checker $Src
+    if ($LASTEXITCODE -eq 3) {
+        Write-Warning "The check found flashing. Read visualizers\docs\photosensitivity.md before you ship."
+    }
+    elseif ($LASTEXITCODE -ne 0) {
+        throw "The visualizer check failed (exit code $LASTEXITCODE). Fix it and pack again."
+    }
+}
+
 function Pack-Folder([string]$Folder, [string]$Dest) {
     if (-not (Test-Path $Folder -PathType Container)) { throw "$Folder is not a folder" }
     $src = (Resolve-Path $Folder).Path.TrimEnd("\")
     $manifest = Read-Manifest $src
+    Test-Visualizers $src $manifest
 
     $copy = Join-Path $src "plisto-sdk.js"
     if ((Test-Path $copy) -and (Get-FileHash $copy -Algorithm SHA256).Hash -ne $sdkHash) {

@@ -4,7 +4,7 @@ plistoVis.scene({
   mode: "glow",
   passes: [
     {
-      name: "main",
+      name: "scene",
       fs: plistoVis.SCENE_PRELUDE + `
 uniform float uSpin;
 void main() {
