@@ -1,12 +1,13 @@
 /*
  * The production wiring of the host shim: the real window, the `plugin_call` and `plugin_fetch` commands,
- * the theme runtime, and the frame-gone report to Rust.
+ * the theme runtime, the frame-gone report to Rust and the plugins' grants.
  */
 
 // -- State Imports --
 import { useFrameHealthStore } from "./frameHealth";
 import { defaultSleep } from "./hostCall";
 import { useSidebarState } from "./sidebarState";
+import { usePluginsStore } from "./store";
 
 // -- IPC Imports --
 import { pluginCall, pluginFetch, pluginFrameEvent } from "../../lib/ipc";
@@ -45,5 +46,6 @@ export function browserHostDeps(): HostDeps {
       reportFrame(pluginId, crashed ? "crashed" : "detached", crashed ? health.reason : undefined);
       if (crashed) useSidebarState.getState().drop(pluginId);
     },
+    granted: (pluginId) => usePluginsStore.getState().rows.find((row) => row.id === pluginId)?.granted ?? [],
   };
 }

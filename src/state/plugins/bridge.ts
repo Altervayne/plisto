@@ -90,11 +90,19 @@ export type HostToFrame =
   | { plisto: 1; type: "plisto:plugin-event"; topic: string; data: unknown }
   | { plisto: 1; type: "plisto:event"; topic: string; data: unknown };
 
+/**
+ * What a frame is for. Page and background frames are both `page`. A visualizer frame is mapped so its
+ * calls find their plugin, but it is never a delivery target and never counts for the plugin's session.
+ */
+export type FrameRole = "page" | "visualizer";
+
 /** One mounted frame as the host tracks it. */
 export interface FrameRecord<S> {
   mountKey: string;
   pluginId: string;
   source: S;
+  /** Absent reads as a page frame. */
+  role?: FrameRole;
   /** How many times the frame's document has finished loading. */
   loads: number;
   /** Calls forwarded and not yet answered. */
@@ -142,6 +150,20 @@ export class FrameMap<S> {
   /** The live records of one plugin, oldest attach first, so the last is the newest. */
   byPlugin(pluginId: string): FrameRecord<S>[] {
     return this.live().filter((rec) => rec.pluginId === pluginId);
+  }
+
+  /** The plugin's live records that may receive events, topics, streams and sockets, oldest first. */
+  deliverable(pluginId: string): FrameRecord<S>[] {
+    return this.pageFrames(pluginId);
+  }
+
+  /** The plugin's live records that keep its page session open. */
+  sessionFrames(pluginId: string): FrameRecord<S>[] {
+    return this.pageFrames(pluginId);
+  }
+
+  private pageFrames(pluginId: string): FrameRecord<S>[] {
+    return this.byPlugin(pluginId).filter((rec) => rec.role !== "visualizer");
   }
 }
 

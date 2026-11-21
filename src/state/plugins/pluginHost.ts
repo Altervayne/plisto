@@ -29,11 +29,12 @@ import { FRAME_LIMIT, PONG_LIMIT, admit, defaultNow, newBudget } from "./frameBu
 import { hostCall } from "./hostCall";
 import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
 import { SUBSCRIBE_METHOD, createTopicRouter } from "./topicRouter";
+import { screenCall } from "./visualizerAccess";
 
 // -- Type Imports --
 import type { FrameBudget } from "./frameBudget";
 import type { TopicRouter } from "./topicRouter";
-import type { AppInfo, FrameRecord, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
+import type { AppInfo, FrameRecord, FrameRole, HostToFrame, SocketDelivery, StreamDelivery } from "./bridge";
 import type {
   PluginCallReply,
   PluginSidebarDelivery,
@@ -69,6 +70,8 @@ export interface HostDeps {
   frameGone?: (pluginId: string) => void;
   /** The clock for each frame's message budget, in milliseconds. */
   now?: () => number;
+  /** The plugin's granted capabilities, read for a visualizer frame's calls. Absent reads as none. */
+  granted?: (pluginId: string) => readonly string[];
 }
 
 export type LoadKind = "first" | "again";
@@ -101,7 +104,7 @@ const UNREACHABLE: PluginCallReply = {
 };
 
 interface Host {
-  attach: (mountKey: string, pluginId: string, source: FrameWindow) => void;
+  attach: (mountKey: string, pluginId: string, source: FrameWindow, role: FrameRole) => void;
   detach: (mountKey: string) => void;
   loaded: (mountKey: string) => LoadKind;
   isLoaded: (mountKey: string) => boolean;
@@ -221,11 +224,10 @@ function createHost(deps: HostDeps): Host {
     const known = source == null ? undefined : map.get(source);
     const owned = known && extras.get(known);
     if (owned && !admit(isPongShaped(event.data) ? owned.pongBudget : owned.budget, now())) return;
-    const action = route(map, {
-      origin: event.origin,
-      source: event.source as FrameWindow | null,
-      data: event.data,
-    });
+    const action = screenCall(
+      route(map, { origin: event.origin, source: event.source as FrameWindow | null, data: event.data }),
+      deps.granted ?? (() => []),
+    );
     if (action.kind === "reply") post(action.rec, action.msg);
     else if (action.kind === "pong") pongs.forEach((listener) => listener(action.rec.mountKey, action.seq));
     else if (action.kind === "call") {
@@ -240,16 +242,17 @@ function createHost(deps: HostDeps): Host {
     return rec;
   };
 
-  // Reported only when no other frame of the plugin is left, so a remount does not release what the
-  // newer frame opened.
-  const detach = (mountKey: string) => {
-    const rec = unmap(mountKey);
-    if (rec && map.byPlugin(rec.pluginId).length === 0) deps.frameGone?.(rec.pluginId);
+  // Reported only when no other page or background frame of the plugin is left, so a remount does not
+  // release what the newer frame opened. A visualizer frame never ends the session.
+  const endIfLast = (rec: FrameRecord<FrameWindow> | undefined) => {
+    const ends = rec && rec.role !== "visualizer" && map.sessionFrames(rec.pluginId).length === 0;
+    if (ends) deps.frameGone?.(rec.pluginId);
   };
+  const detach = (mountKey: string) => endIfLast(unmap(mountKey));
 
-  /** The plugin's newest live record whose init is done. Never a record of another plugin. */
+  /** The plugin's newest deliverable live record whose init is done. Never a record of another plugin. */
   const initialised = (pluginId: string) => {
-    const recs = map.byPlugin(pluginId);
+    const recs = map.deliverable(pluginId);
     for (let i = recs.length - 1; i >= 0; i -= 1) {
       const rec = recs[i];
       if (rec.pluginId === pluginId && extras.get(rec)?.init === "done" && isLive(rec)) return rec;
@@ -266,11 +269,11 @@ function createHost(deps: HostDeps): Host {
   });
 
   return {
-    attach(mountKey, pluginId, source) {
-      unmap(mountKey);
+    attach(mountKey, pluginId, source, role) {
+      const displaced = [unmap(mountKey)];
       const holder = map.get(source);
-      if (holder) unmap(holder.mountKey);
-      const rec: FrameRecord<FrameWindow> = { mountKey, pluginId, source, loads: 0, pending: 0, dead: false };
+      if (holder) displaced.push(unmap(holder.mountKey));
+      const rec: FrameRecord<FrameWindow> = { mountKey, pluginId, source, role, loads: 0, pending: 0, dead: false };
       map.attach(source, rec);
       extras.set(rec, {
         calls: new Set(),
@@ -283,6 +286,8 @@ function createHost(deps: HostDeps): Host {
         budget: newBudget(now(), FRAME_LIMIT),
         pongBudget: newBudget(now(), PONG_LIMIT),
       });
+      // Checked once the new record is mapped, so a page remount of the same plugin keeps the session.
+      displaced.forEach(endIfLast);
     },
 
     detach,
@@ -411,13 +416,13 @@ export function startPluginHost(deps: HostDeps = browserHostDeps()): () => void 
 }
 
 /** Maps a frame's window to its plugin. Call once the iframe has a window and before its first load. */
-export function attachFrame(mountKey: string, pluginId: string, source: FrameWindow): void {
-  active?.attach(mountKey, pluginId, source);
+export function attachFrame(mountKey: string, pluginId: string, source: FrameWindow, role: FrameRole = "page"): void {
+  active?.attach(mountKey, pluginId, source, role);
 }
 
 /**
- * Forgets a frame. Answers still in flight for it are dropped. When it was the plugin's last frame, Rust
- * hears that it detached or crashed, which ends the plugin's open toasts and prompts.
+ * Forgets a frame. Answers still in flight for it are dropped. When it was the plugin's last page or
+ * background frame, Rust hears that it detached or crashed, which ends the plugin's open toasts and prompts.
  */
 export function detachFrame(mountKey: string): void {
   active?.detach(mountKey);
