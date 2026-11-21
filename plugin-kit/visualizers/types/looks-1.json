@@ -1,0 +1,284 @@
+{
+  "api": 1,
+  "looks": {
+    "bloom": {
+      "fixture": "5189322e3c448c781d6aeefc1d201732bb82d6f3c01fc7f5d853dccbe3adcaea",
+      "rows": {
+        "light player": "b3f42798300e1af49989d2a7844dcb71e1d0cbeb1b0d5a10e690117f8bb4805a",
+        "light ambient": "857721c3d264cb68c301b0431d46d89d9032e19dca8e1f27cc7515300e1ed412",
+        "dark player": "9508064099078385b6e4c8c0fb3d9f958e05bb29fe3f40b077662533259ba682",
+        "dark ambient": "b13c250f86fa618e390a9a0db7b34fa2ac3022879b59c6b6547b4b86d2e87c33"
+      }
+    },
+    "circuit-board": {
+      "fixture": "c3c6d01fb7d361eb2f08237148e77d83e1f2d4c042f46a91b78b6f1d7bfe9b1f",
+      "rows": {
+        "light player": "b73d1f34943f8f5261fc5afb66558bda766deccb3b338f75b8b4258e7eabb38c",
+        "light ambient": "ee781377b84aed7b65a1b179087b6011d68705b7a6606569f6519c6a193fa770",
+        "dark player": "b93a2485282dd820bd4cf7cc59ab474ca6a20151d32029369f59e24749038e1e",
+        "dark ambient": "1c340ccc3590ce11c57550407091a36cc61ba28b797da2843fe85ac08da0f763"
+      }
+    },
+    "dot-cover": {
+      "fixture": "af5304395eb81c81cc96e92a8a3da24aca302ba2e1638285938661531ce23d80",
+      "rows": {
+        "light player": "43fd9d2779eeff17c8c849ccdaa1d3161b6c087ccfef1d664fbf2ec3960df27d",
+        "light ambient": "7c73d6d548ddb394cee583065a914e498133abb7ab1504181aa5a2d17a9b9068",
+        "dark player": "b2045ec61e58f86af6e62ad947ae0553b5a6bcec19ed231ae5e538c7d7f2b2c5",
+        "dark ambient": "31ae94c22afa5bb68d394ff2e4806861269746493bd121ae324de3e158eca9df"
+      }
+    },
+    "dot-spectrum": {
+      "fixture": "0d4fc7b04b05db9aa0b5f38569c6370c1f25f48acbe373cae2d635571ba279d3",
+      "rows": {
+        "light player": "563f6070bdf45586629b8df76249a0f72500b1c4d64e0e78310a5f57f20565c8",
+        "light ambient": "6936cd1cae53b32c0b172db5b0fd277939e18827e9d8efe4b7652ce0c5d90220",
+        "dark player": "6cc988b6e29b370159418f0b6d350b5281abe27e79e719465672c98d052e411a",
+        "dark ambient": "205c79f096f68ce4a9c00e5febcab8e08680ddecb5ea5b49069a621c8804e6ff"
+      }
+    },
+    "event-horizon": {
+      "fixture": "634e3616b416ad75e41cb2bd13484d59bd33f0c88061b5593dfd5edbd76e539c",
+      "rows": {
+        "light player": "ff23aadde1961b92a2f06f4a822f137dfce0c3d9e9dd70a10608142dd66dda71",
+        "light ambient": "9aee3ca8641d0932411c9aa11ab985f2a8b7d134e4230348eb95e47bc4aabfcb",
+        "dark player": "ff23aadde1961b92a2f06f4a822f137dfce0c3d9e9dd70a10608142dd66dda71",
+        "dark ambient": "9aee3ca8641d0932411c9aa11ab985f2a8b7d134e4230348eb95e47bc4aabfcb"
+      }
+    },
+    "fireflies": {
+      "fixture": "c451271eb52c6bf6740beb458816bc99e8fd629db2d958d838bf024377faeb27",
+      "rows": {
+        "light player": "e4015d1e6a596aacef55c1922abfaa9b454b502cd19d176fc49092a92d0c7000",
+        "light ambient": "01636704e61bbbf60e201985094a896889b26d9c358465b0ee4529e38a1023c2",
+        "dark player": "eb2390a931e51d370f8ce672638a0cb2df727e0d9ff6232804c5ee85355e8a90",
+        "dark ambient": "2009c14e8bca61d8c7cec0ed75c19431785667d2c7d91ba8369c8173797c40e5"
+      }
+    },
+    "glass": {
+      "fixture": "5dbfe9ac461b43796146acb0a93a222a7ff54ea0f5a33dca3e4b15ca5db067f0",
+      "rows": {
+        "light player": "0f6dc9f2111b66bb325bce285314ebee137001f8943d8d24fc7262912a21f5d8",
+        "light ambient": "f91612c0bcf3fcd8964ae534806d893eb1275ac7a39d3f60a5bdde616dae57c3",
+        "dark player": "36922cadf224d7edbceb4531760e2eacb6cb78b77cf80d88602331c7da088c05",
+        "dark ambient": "51735564b8b84cc60cdf02fa535427eeaccb8fade77f9258c8fdabffc1ae1357"
+      }
+    },
+    "gravitational-waves": {
+      "fixture": "37b916cd532498a87f529b82c47adb2f4abb31a0f9311adbc091571a3531f3db",
+      "rows": {
+        "light player": "8fd2d896f11010dd8293c29b9894618bbb3fde6c4dc36e4ca224fe965461da04",
+        "light ambient": "abb12b8b6a5641960845d392e15c96bb2fffdebe62784ff00c18983a869f8976",
+        "dark player": "8fd2d896f11010dd8293c29b9894618bbb3fde6c4dc36e4ca224fe965461da04",
+        "dark ambient": "abb12b8b6a5641960845d392e15c96bb2fffdebe62784ff00c18983a869f8976"
+      }
+    },
+    "halftone": {
+      "fixture": "ba5b24aa436d29847c0943fcf1f2257eaabc28e221278c815a2347dbd32667be",
+      "rows": {
+        "light player": "f2fd5172f17263ac5cd73e6468e1aa1f7f24e8c13eb67eabffccb6167eb4c944",
+        "light ambient": "51b31170cca7427319ce65fdc3dc76b82f118a8106faeaede2566b001bf73988",
+        "dark player": "e69e1d4e23f74a8e576620f86b339d563ac5d1337604292e7285ef36ba280cc3",
+        "dark ambient": "a36fb79d38221cfe01300b5288a38528319757be88d242dfa21602e9450e361e"
+      }
+    },
+    "hologram": {
+      "fixture": "785930f29e9475c44e00ff2b0c98a7abf393fc8d6b686ff98458acb3e8f7454a",
+      "rows": {
+        "light player": "6931de2191c7d5edad82e2aa8c1a57281fbf0d2fa308f2285285521985854ad2",
+        "light ambient": "6d5974a70dab184618ed9ca809a046fb47d7c71a9786a38059c2f817ff9ee966",
+        "dark player": "1b1c4ec9cc3d6832c20e2b8b6cf3bd9aa6f032f9d3ce1665c5657aaf1d576a8c",
+        "dark ambient": "3972981c74de507f60b3ff768a1026c05a94c2381d7a00ebdc7eb81e07d97e48"
+      }
+    },
+    "ink": {
+      "fixture": "8d14ab509083b86e8557f0e7cfbab615d51c8d8b4e325a586841db8737e9ae2d",
+      "rows": {
+        "light player": "28e000a159b983e816cd324f822a61e07341e5840b4ab90041331728bf5ae9de",
+        "light ambient": "992f75840ad71b90b926c220a5db2295918f803d6ab95e95a1a74aba31df8fc3",
+        "dark player": "da1c6af1e2afa9351b07bf05074bcdc1e931d78456f450e9fde245a352604290",
+        "dark ambient": "b0748c63f64205f07b05b2c9afb380c1bde83d979247e7403c25df782442ba43"
+      }
+    },
+    "lake": {
+      "fixture": "334bffde96752559086f09a10451f1128057f08e5cc400e6b5f6e1bc09b91ffa",
+      "rows": {
+        "light player": "279d82e4b602a6d9383f716b8f2d681cb87f844468f28cd96e11bd09afee8e7b",
+        "light ambient": "6fcd6d8437540fbfde839e5bb95b4ad4eee6273d1f615187a54f7981b5687157",
+        "dark player": "7efc100f951ec6d1951f1bd83a763d5cfe16d30e8858b5ae98b79fbc3a296e3d",
+        "dark ambient": "46a6725feb230fbe013c3678b2ac6ff67cca98686695cdc0592702023b1417b0"
+      }
+    },
+    "latte": {
+      "fixture": "6d6648d5a508bafa6f5fd9c40ce600244596e5b27a5f358a9ac236e0a262f773",
+      "rows": {
+        "light player": "e9e7c4dac92fac471e88adb18e4299564bcbe81724ce3855fcd063e2397af466",
+        "light ambient": "071e17ea7f1c1816cb042abdc4211de42a80d2c864a6e132fe39212199750c4e",
+        "dark player": "eeea9406c7e14ad759f796a4c5ec713b47551cbe8b88194220428925049f6a64",
+        "dark ambient": "d89c0739aa37629f4d333994348b7e0d587df52696f2291c898f6cbca0074ff8"
+      }
+    },
+    "liquid": {
+      "fixture": "dbfb25a13679534335c71f38d97835125595ec9f9b61604cbb474d7104e7a1e8",
+      "rows": {
+        "light player": "9871fa1ea003a8062352f3dba985086c0835bf8ef3887339c507bf50c83488a1",
+        "light ambient": "fcb3f49ce9629ae4d484ef5f6e5b3066387c8e1c76f76f9e687e7564327f12e7",
+        "dark player": "0e6bb2a2c7ca59c36f4118a7f736d1ec81cf3b9eda77b544cd2f021050554533",
+        "dark ambient": "c89d221cbf64034a85dc3e65470f604cb152a56d457df98304f959913eee193d"
+      }
+    },
+    "mercury": {
+      "fixture": "d1d1a6f4b2047dc9ba8172d25c055cb68f5b84afc3fed42be7e57a7d51ff180b",
+      "rows": {
+        "light player": "3f63bbca53f99be9883dadf432c17c12fda30c154014833922f4bc0002e52b8d",
+        "light ambient": "7c651ac57677c409675e62dd7a63566bd81bb00eed6bb4ff2cee5f2c153b405e",
+        "dark player": "42f08890144740cd2ed2da8d101a787265986f4410277dfa37fbff0ca9bc849a",
+        "dark ambient": "36823044a3d4ad9b1342d2c07237273a02deb3df87fd7f82b0a238c2a9078979"
+      }
+    },
+    "nebula": {
+      "fixture": "96ecc34cf82fe794bf8ac5a5ffc0b2db8ff64b649d0ae4552f57710dd15fb2b7",
+      "rows": {
+        "light player": "95db4ee7e48636e43d4507c9889a40c117fa486485db6a70ce8f504745f5e055",
+        "light ambient": "e316e988d723ab638bdb9785b84dbc7add8ff8a1e0aabad457b147fa121d1730",
+        "dark player": "865afeb14c2dc80baa009a0770c1dfea18c7e45a12e5751e647cc066257aa913",
+        "dark ambient": "a252b24be9370925161b7ed538dc33a5f1200348fd994fbbdf99fe7bbf1ee858"
+      }
+    },
+    "neon-highway": {
+      "fixture": "106c06a4a531fb5878b0ac6d50f1814ab06596885de4f29eafa8f2e8c72a84cb",
+      "rows": {
+        "light player": "03f19ede8f4af24c38553a88a73a1d604ded55fe0e0b6ecfd314448c744efcdf",
+        "light ambient": "12a85934bf7cc937066afc16412ff2ba58c02e0cc891aaec89d026394242e975",
+        "dark player": "babe7ce5ef23f7dc35ef1a7cadbc04d497e3e4812dac3f1f023a654ef5cf6f5b",
+        "dark ambient": "a108928f0e484a0383e30934d61a634cd8b73b079b47288b469064511b301f1a"
+      }
+    },
+    "oscilloscope": {
+      "fixture": "81600db4bfe4671973ac2c5572baf807870e11f9d80d3e31b59bbdb9fe799763",
+      "rows": {
+        "light player": "0c2cbe483f92da0395137d4d88bac7a31db08642c2475a909d05caff5e5c3c73",
+        "light ambient": "82e07d5dbcbc39e2937b00daafda79cd8a62fccc9adcbab6add5f8b56b729e4c",
+        "dark player": "d105d840fd5244bcd46d2dacd55a2d2575388beca257bc3ed950a4803cab5efd",
+        "dark ambient": "0064bcfbd084934873b451cd440d2546725b04dc4c034595eb69cdaa6afdb4f8"
+      }
+    },
+    "pond": {
+      "fixture": "2535ce6d78d730960f8566bc0737bade1233dde737d826d4bbbc3369f67739d6",
+      "rows": {
+        "light player": "d73e11acda93331bd9737c6af3f1bf25d7c01960c851f94622e11b5d3c5d4015",
+        "light ambient": "53d4311411dd9265cd0dd33375967b84d675bf0fb3e90ca638005a3c6e1d6c9d",
+        "dark player": "de4dd0c3bd7ec9ea6552009dfcb9dc4392d3119f4ab8356405968a9b8fe8ad16",
+        "dark ambient": "d9d9e219ee41704dad0b13dd53246150945366fbdee35b0600f3578804fc507f"
+      }
+    },
+    "record": {
+      "fixture": "5da3a2710aa542c03c7a0283637d15b1f1eb228f864c26bdccc835269ddd34e1",
+      "rows": {
+        "light player": "ad5d082bd8e1d021c168366ed1d95962f03bc938163ccadb4cd0f345a6ab1ab2",
+        "light ambient": "61c8dc25be268332a82adedca87d895a103537a4ffa2b4217272badf2df54506",
+        "dark player": "924868da6eef87d0cec50afea2bca978975b5526d2849564f32efd379c8e3950",
+        "dark ambient": "cc15c036733238de2e0f8011228ecf7e119b1053a01cf3bf19cb52adcc63bf45"
+      }
+    },
+    "ridge": {
+      "fixture": "c2774d654039bbdab051ed141dac57556b27144cd605f0d4964a54fa126a14d7",
+      "rows": {
+        "light player": "7682a2faceb73a3feaa24296a3bd367db461794c421a12cef95928c997a1dfaf",
+        "light ambient": "58f5a747270f3a650d56058b1523c9e832027fc2574a94adef6d3fc4f08b1cb6",
+        "dark player": "dfc45eb808972077d9420f80780132eef9303e4c5602c8a90a426c051c12e6cc",
+        "dark ambient": "eedccfa8c5904b77033954323c7ba140122fedaec205cc40205f0e2baa966f3b"
+      }
+    },
+    "ringed-planet": {
+      "fixture": "22c940c7decf8d5ec2feaa609775faa4ac14ac8d567bd4e2f98fb1f7ff46e33c",
+      "rows": {
+        "light player": "c0957cfc517c8d4fe15b99661e4a421264a82f379dfcf53a5944e572b86688e1",
+        "light ambient": "e881c4b0d4bde740c70178767571552c6dbca6d68e0b00be63f55ecf9aa7fb78",
+        "dark player": "c0957cfc517c8d4fe15b99661e4a421264a82f379dfcf53a5944e572b86688e1",
+        "dark ambient": "e881c4b0d4bde740c70178767571552c6dbca6d68e0b00be63f55ecf9aa7fb78"
+      }
+    },
+    "server-room": {
+      "fixture": "5f1667f5abe74072c04c7813918e61dc3c0167983a13f652377fe751e423fb1f",
+      "rows": {
+        "light player": "b143424df05b5c41554ed29f2870f9f0d08edaa272e976688ebf2683e30e9ff6",
+        "light ambient": "0e79c0f6d3caefcbf4cd9bfc43a31559ddd689bd3d4cedf6ed892fc54e4ccd66",
+        "dark player": "fea0dec3694fc8795b4a7efc1edde89ab0e9e2afa9b3cd228b7b36e4083dc895",
+        "dark ambient": "aa5913f3a8c3c06b821f88f9ec381d59d95f1a3b72d19b8c0d8725f3eed2d305"
+      }
+    },
+    "silk": {
+      "fixture": "1238202f2e1118a4554d5529d4175b7b9d009167deb4efccb5e6126b5c2d0b81",
+      "rows": {
+        "light player": "a886891f1d655f8f69d548de51662315d92b289e34c052b178dc7f63f538b7d6",
+        "light ambient": "72fc86dbf99d143fa72386628027112c3fb92da4fa28e63b10614ff0a5929976",
+        "dark player": "fe115e5436677a5efce294daede820b3ba20e96ed37cbdaaae0aa82fcbe76e2a",
+        "dark ambient": "e66c55834923403f56679000209873aeb9ff132cfedcb72b056b2299bdafe28a"
+      }
+    },
+    "snowfall": {
+      "fixture": "679e186ac907c22420a73e39f9ed20c495b6a35a2f49584ce35787c2d5f7f20f",
+      "rows": {
+        "light player": "925454bfc8201f8cad95fc6b1e91dc2273eeb841eed55d4f650b04af2289c8d6",
+        "light ambient": "a75dde67d6bd9c7defff023e7210ad0e74281cb42ac07b811170b628a61edce5",
+        "dark player": "5790bc88d88dfb06ce7c8ccb29e8574867c552aff2efd669fb8adbeae72f2c5e",
+        "dark ambient": "d4ee6b97b7ec5cfc7a34e16555b6cd14097a04918a17565c6e03af501b0c4a84"
+      }
+    },
+    "solar-flare": {
+      "fixture": "ee16f1c1206baf4abef877edd91cf3384bc2d438c400b5234ec2f5ced1acd82d",
+      "rows": {
+        "light player": "89a99ebd2c03d41df2fab85678e26244d34e9a689549d2a3ab1357d24ca47bd8",
+        "light ambient": "1421c2888b004e935e1243b4a30164f8b506fde12858bdbe4b84aeec1fd19a86",
+        "dark player": "89a99ebd2c03d41df2fab85678e26244d34e9a689549d2a3ab1357d24ca47bd8",
+        "dark ambient": "1421c2888b004e935e1243b4a30164f8b506fde12858bdbe4b84aeec1fd19a86"
+      }
+    },
+    "station": {
+      "fixture": "c6d1c8adcff22abae024cd968d647cf2a6e1ad69e665465cb48ea5b7d2b8a3bd",
+      "rows": {
+        "light player": "83777bbddc668d40c2ba87859feea53a96d2721ebb2e2a635cec9e3b12d5122b",
+        "light ambient": "839cea55c35e993354a74578f0c331fd16dcc1e44c86c69a894fdcab7b6188cb",
+        "dark player": "83777bbddc668d40c2ba87859feea53a96d2721ebb2e2a635cec9e3b12d5122b",
+        "dark ambient": "839cea55c35e993354a74578f0c331fd16dcc1e44c86c69a894fdcab7b6188cb"
+      }
+    },
+    "terrain": {
+      "fixture": "71309484bed9a9592c160cc5c84c37883900e4a019f9420c2ad485dc030813c3",
+      "rows": {
+        "light player": "3d7405b6aa25ba2132ef9235fc29eb727010559ba1d497133bb64bcecf900950",
+        "light ambient": "54295f5c7793b806470ff68585fd4329d4484f700557eff41d5bc640777f56fc",
+        "dark player": "0efe7468260832729929ffb0e90361d5d5ba32b87ca89eb54cf58de882df1ccf",
+        "dark ambient": "cd92dd1f0fc61d0aca3b92ff12ecbc4161cc72086bde20f1ae23b40a8948d4a6"
+      }
+    },
+    "train": {
+      "fixture": "cc5d8d3bc25f529afc7f3058ec576f4aca8f0587bf99f2cd95ed76cadccfe130",
+      "rows": {
+        "light player": "144da9d1ebc6e8fb6a941dac113c0410810c2513290cbcdba8cc61eba6612bbd",
+        "light ambient": "4a0636283ac688fc01861e66ace09afa07b7c017ec0d77f45d86682b1b16e5b6",
+        "dark player": "8b68ea33e1373e66655bbe31e47ccae318646881cc11cc8b70b89486f30efe5e",
+        "dark ambient": "68aadb4a1d813afbc56772c7cc49ae31b78e1a3286e8b2573ef84beb411b02a1"
+      }
+    },
+    "warp": {
+      "fixture": "92131e85ef5208152727a8d9b574a8b44804a578827757efffb9a23a3af9d8bb",
+      "rows": {
+        "light player": "00391c524f9a8b510f2332204471be7451c4ab22e233bf1d3403497c8099a816",
+        "light ambient": "d909c08b991bb44f592a1cc39000b93b8f3e09fe3537fb0b5ed4286d0c883ec0",
+        "dark player": "a4bd2253dd9f1b3a50fe1d614e46423c0942c22228a4f057b43d397e3299eb67",
+        "dark ambient": "b77304ab6f5fe949c803d30e88a3ec401c5f87cf12def6d1b10fa973054c0472"
+      }
+    },
+    "window": {
+      "fixture": "bba6872408e6aca9126eb13da1527a8aa71ebbfdfdd055f7373a9f920518f610",
+      "rows": {
+        "light player": "96df3e2ad703fed0d19ba7e3a51d02bc35ab9d86273468ebffc21279578bd714",
+        "light ambient": "9b40ed8e89e93162df2d02060e9ebcd4987bc56bf1814ad07f81903008c96b0c",
+        "dark player": "72b4b6f51924637538d62b5cc23e30e4027e7ce65d3fb534d23d7910cfd3f04a",
+        "dark ambient": "243e0bccf13df0c6f3fa07709be9c03f43fc88c5ec172982e153172ce22486da"
+      }
+    }
+  }
+}

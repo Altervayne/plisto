@@ -1,12 +1,14 @@
 /*
  * The visualizer render lab. A dev-only page that draws the GL kinds through the real renderer from a
- * fixed scene. Query params: mode=view|hash|thumb|bench|flash|steps|level|calm, kind (one GL kind; absent
+ * fixed scene. Query params: mode=view|hash|port|thumb|bench|flash|steps|level|calm, kind (one GL kind; absent
  * means all of them, except view, which takes glass), scene=<id> (a scene module the registry does not
  * hold, drawn in place of kind; dark=1 marks it dark-only), theme=light|dark and layout=player|ambient|
  * ambient-side (absent means player and ambient for hash, and player and ambient-side for the measures;
  * view takes player). ambient-side is the app's ambient stage: cover left, words right. Every non-view mode
  * writes its result as JSON into <pre id="out"> and sets body[data-done]. Thumb mode also takes
- * kind=ridge: the Canvas 2D ridge, drawn by its real component.
+ * kind=ridge: the Canvas 2D ridge, drawn by its real component. Port mode returns hash's rows for the plugin
+ * fixtures (plugin-kit/visualizers/fixtures) drawn through the runtime bundle; kind=ridge there is the
+ * hand-written raw port, which hash has no row for.
  *
  * Measures read the composited picture (the layout's ground, then the layer in the kind's blend): steps
  * (brightness steps over a window of the song), flash (with kind or scene: WCAG flashes over the same
@@ -45,6 +47,7 @@ import { createLabReplay, loadTrack, type LoadedTrack } from "./labReplay";
 import { blendOf, darkOnlyOf, loadScene, openLab, type LabScene } from "./labSceneModule";
 import { runThumb } from "./labThumbs";
 import { readPixels, sha256 } from "./labPixels";
+import { runPort } from "./labPort";
 
 // -- State Imports --
 import {
@@ -77,6 +80,11 @@ function pickKinds(fallback: readonly string[]): string[] {
   if (!raw) return [...fallback];
   if (!(GL_KINDS as readonly string[]).includes(raw)) throw new Error(`unknown GL kind: ${raw}`);
   return [raw];
+}
+
+/** The kinds a port run draws: the GL kinds, or the raw Ridge port when kind=ridge. */
+function pickPortKinds(): string[] {
+  return params.get("kind") === "ridge" ? ["ridge"] : pickKinds(GL_KINDS);
 }
 
 function pickThumbKinds(): string[] {
@@ -229,6 +237,14 @@ async function main() {
     switch (mode) {
       case "hash":
         return runHash();
+      case "port":
+        setDpr(1);
+        return runPort({
+          kinds: pickPortKinds(),
+          themes: pickThemes(),
+          layouts: pickLayoutIds(params.get("layout"), HASH_LAYOUTS),
+          cover: await coverPixels(),
+        });
       case "thumb":
         return runThumb(scene, pickThumbKinds(), pickThemes());
       case "bench":

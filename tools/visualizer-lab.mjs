@@ -1,6 +1,8 @@
 // Drives the dev-only visualizer render lab (visualizer-lab.html) through headless Edge and reads its result.
 // The dev server must already be running; this script never starts one. Launch it from PowerShell.
 //   node tools/visualizer-lab.mjs hash [OUT.json] [--kind K] [--theme T] [--layout L]
+//   node tools/visualizer-lab.mjs port [OUT.json] [--kind K] [--theme T] [--layout L]
+//     (hash's rows, drawn from the plugin fixtures; --kind ridge for the raw Ridge port)
 //   node tools/visualizer-lab.mjs thumb [OUT_DIR] [--kind K]
 //   node tools/visualizer-lab.mjs bench [--kind K] [--ref K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs steps  --kind K [--theme T] [--layout L] [--from S] [--for S] [--react R] [--track N]
@@ -102,7 +104,7 @@ function printBench({ theme, layouts, ref, signal, rows }) {
 const MEASURES = ["steps", "flash", "level", "calm"];
 
 async function main() {
-  if (mode === "hash") {
+  if (mode === "hash" || mode === "port") {
     const rows = await runLab(labUrl());
     const json = JSON.stringify(rows, null, 2) + "\n";
     if (positional[0]) writeFileSync(positional[0], json);
@@ -125,7 +127,7 @@ async function main() {
   } else if (mode === "view") {
     console.log(labUrl());
   } else {
-    console.error("usage: visualizer-lab.mjs hash|thumb|bench|steps|flash|level|calm|view [options]");
+    console.error("usage: visualizer-lab.mjs hash|port|thumb|bench|steps|flash|level|calm|view [options]");
     process.exit(1);
   }
 }

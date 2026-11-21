@@ -1,0 +1,269 @@
+{
+  "api": 1,
+  "exports": {
+    "BAND_COUNT": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "c2356069e9d1e79ca924378153cfbbfb4d4416b1f99d41a2940bfdb66c5319db"
+    },
+    "BEAT_MAX_PER_SEC": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+    },
+    "BEAT_MIN_GAP_SECS": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "221764976efe04132774d96b0253cc31434c5261737469324f222621baf34b20"
+    },
+    "COSMIC_COMMON": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "413a9ba784c649b9daf6e0b3277e04147a12f89f575dcb4833ec0fc2805e0e3d"
+    },
+    "COZY_PRELUDE": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "5f29386f91f6824e35fe1ed0987eeb15f12a73e04dc3ead982b51d86d3fde22a"
+    },
+    "CYBER_KIT": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "32bf05a010b270be6b92dc95fe1e4b1050329fde11600375263eaf0b9a560761"
+    },
+    "DOT_FS": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "e7fc6fa6c0c71cc5abf8d0c6652f7f54e8e18d9e0837c10ed826601716b6d8fa"
+    },
+    "DOT_PRELUDE": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "dec1bb77fac522176da15e77eb752b30213f95918a035872af7fa1eb1dcf9999"
+    },
+    "FINE_BAND_COUNT": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "2747b7c718564ba5f066f0523b03e17f6a496b06851333d2d59ab6d863225848"
+    },
+    "FLUID_PRELUDE": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "53d587a1177e6f3620d31353596c31b1e6c2fd524d090a0d9f06384c0a90c14a"
+    },
+    "FS_VS": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "7f2ecbb8cb17fea7109b16ec151fcdd3c00daba9bce23a3294305e5be0cf74e9"
+    },
+    "HUSH": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "4e5f366e8947155e366773de72149c7b1f123876424101bc90a63cf09e705aaf"
+    },
+    "HUSH_SLOTS": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35"
+    },
+    "LEVEL_TAU": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "8139b33952401b3ee0e2ca84651cb9a1d7f66d442bf908f9cf1f53ea746e5801"
+    },
+    "MOTION_ATTACK_SECS": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "0602d7c813c1f6e7351a5832730f29daf739674976caba8d9dd955be838d46ea"
+    },
+    "PRELUDE": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "ed750cd049f0092c5334d5c5016c7053ae441baa4a3fcb9a2f90b66b0f32ff95"
+    },
+    "REACTIVITY_PROFILES": {
+      "type": "{ calm: ReactivityProfile; balanced: ReactivityProfile; lively: ReactivityProfile; }",
+      "kind": "value",
+      "sha256": "2ade64cfc22a894e695e043a7a372826367b981eb2f76a87c9e15133d03dbf82"
+    },
+    "RING_SLOTS": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+    },
+    "SCENE_PRELUDE": {
+      "type": "string",
+      "kind": "value",
+      "sha256": "7fccdf33110f41f072b0e2fa39aba03b52015745a24b702f0df73bbd44484ed0"
+    },
+    "SWELL_TAU": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "b05e244762b1e472be89a93800cc3ee326743cecb55984bf12813addb8de66d0"
+    },
+    "admitBeat": {
+      "type": "(fired: readonly number[], now: number) => boolean",
+      "kind": "function"
+    },
+    "call": {
+      "type": "(method: string, args?: unknown) => Promise<unknown>",
+      "kind": "function"
+    },
+    "candidate": {
+      "type": "(factory: (kit: Kit) => Candidate, options?: CandidateOptions | undefined) => void",
+      "kind": "function"
+    },
+    "clamp01": {
+      "type": "(v: number) => number",
+      "kind": "function"
+    },
+    "cosmicPunch": {
+      "type": "(st: CosmicPunch, beat: number, dt: number) => number",
+      "kind": "function"
+    },
+    "createBeatClock": {
+      "type": "() => BeatClock",
+      "kind": "function"
+    },
+    "createCosmicPunch": {
+      "type": "() => CosmicPunch",
+      "kind": "function"
+    },
+    "createCoverTexture": {
+      "type": "(gl: WebGL2RenderingContext) => CoverTexture",
+      "kind": "function"
+    },
+    "createCyberBeat": {
+      "type": "() => CyberBeatState",
+      "kind": "function"
+    },
+    "createDots": {
+      "type": "(kit: Kit) => Dots",
+      "kind": "function"
+    },
+    "createRings": {
+      "type": "(life: number, rise: number, height: number) => Rings",
+      "kind": "function"
+    },
+    "createRng": {
+      "type": "(seed: number) => () => number",
+      "kind": "function"
+    },
+    "cyberBandMean": {
+      "type": "(bands: ArrayLike<number>, lo: number, hi: number) => number",
+      "kind": "function"
+    },
+    "cyberBands": {
+      "type": "(eased: Float32Array<ArrayBufferLike>, sig: VisualSignal, gain: number, dt: number) => Float32Array<ArrayBufferLike>",
+      "kind": "function"
+    },
+    "cyberBeat": {
+      "type": "(st: CyberBeatState, sig: VisualSignal, gain: number, dt: number, rng: () => number) => number",
+      "kind": "function"
+    },
+    "cyberGain": {
+      "type": "(sig: VisualSignal, playing: boolean) => number",
+      "kind": "function"
+    },
+    "easeEnvelope": {
+      "type": "(prev: number, target: number, dt: number, tau: number) => number",
+      "kind": "function"
+    },
+    "log": {
+      "type": "{ debug: (text: unknown) => Promise<unknown>; info: (text: unknown) => Promise<unknown>; warn: (text: unknown) => Promise<unknown>; error: (text: unknown) => Promise<unknown>; }",
+      "kind": "value",
+      "sha256": "a812a99cfd5470b9085ef7eaffc8ad917ab09edda11f03486a9c5eaf3925a33c"
+    },
+    "meter": {
+      "type": "(canvas: HTMLCanvasElement) => StageMeter",
+      "kind": "function"
+    },
+    "motionEnvelope": {
+      "type": "(prev: number, target: number, dt: number, release: number) => number",
+      "kind": "function"
+    },
+    "raw": {
+      "type": "(handlers: RawHandlers) => void",
+      "kind": "function"
+    },
+    "restSignal": {
+      "type": "() => VisualSignal",
+      "kind": "function"
+    },
+    "restingBands": {
+      "type": "() => Float32Array<ArrayBufferLike>",
+      "kind": "function"
+    },
+    "scene": {
+      "type": "<S>(spec: SceneSpec<S>) => void",
+      "kind": "function"
+    },
+    "setFluid": {
+      "type": "(kit: Kit, p: Program, f: Frame, flow: number, rings: Float32Array<ArrayBufferLike> | null, coverTex: WebGLTexture | null) => void",
+      "kind": "function"
+    },
+    "setScene": {
+      "type": "(kit: Kit, p: Program, f: Frame, flow: number, rings: Float32Array<ArrayBufferLike> | null, coverTex: WebGLTexture | null) => void",
+      "kind": "function"
+    },
+    "settingUniform": {
+      "type": "(id: string) => string",
+      "kind": "function"
+    },
+    "shader": {
+      "type": "(spec: ShaderSpec) => void",
+      "kind": "function"
+    },
+    "smoothBands": {
+      "type": "(prev: number[], target: number[], attack: number, decay: number) => number[]",
+      "kind": "function"
+    },
+    "stepBeatClock": {
+      "type": "(st: BeatClock, dt: number, beat: number, drive: number) => void",
+      "kind": "function"
+    },
+    "storage": {
+      "type": "{ get: (key: string, fallback?: unknown) => Promise<unknown>; set: (key: string, value: unknown) => Promise<unknown>; remove: (key: string) => Promise<unknown>; keys: (prefix?: string | undefined) => Promise<unknown>; clear: () => Promise<unknown>; usage: () => Promise<unknown>; }",
+      "kind": "value",
+      "sha256": "c090acc57ca95c54a939c31e4497154adda7c430b3ff3171710b979c7497b81e"
+    },
+    "version": {
+      "type": "number",
+      "kind": "value",
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+    }
+  },
+  "types": {
+    "BeatClock@src/components/player/visualizers/gl/beatClock.ts": "export interface BeatClock {\n    clock: number;\n    lastBeat: number;\n    period: number;\n    beatPos: number;\n    pull: number;\n    lock: number;\n}",
+    "Candidate@src/components/player/visualizers/gl/kit.ts": "export interface Candidate {\n    mode: \"glow\" | \"image\";\n    bloom: number;\n    exposure: number;\n    inkGain: number;\n    trail: Trail | null;\n    draw: (frame: Frame) => void;\n    trailCenter?: () => [\n        number,\n        number\n    ];\n    trailZoom?: (frame: Frame) => number;\n    trailDecay?: (frame: Frame) => number;\n    vignette?: number;\n    dispose: () => void;\n}",
+    "CandidateOptions@src/visRuntime/forms/candidate.ts": "export interface CandidateOptions {\n    programs?: ProgramSource[];\n}",
+    "CosmicPunch@src/components/player/visualizers/gl/cosmic.ts": "export interface CosmicPunch {\n    held: number;\n    eased: number;\n}",
+    "CoverTexture@src/components/player/visualizers/gl/coverTexture.ts": "export interface CoverTexture {\n    tex: WebGLTexture;\n    sync: (bitmap: ImageBitmap) => boolean;\n    dispose: () => void;\n}",
+    "CyberBeatState@src/components/player/visualizers/gl/cyber.ts": "export interface CyberBeatState {\n    be: number;\n    tgt: number;\n    seed: number;\n}",
+    "Dots@src/components/player/visualizers/gl/dots.ts": "export interface Dots {\n    begin: (p: Program, f: Frame) => void;\n    draw: (count: number, glow: boolean) => void;\n    floorY: () => number;\n    dispose: () => void;\n}",
+    "Frame@src/components/player/visualizers/gl/kit.ts": "export interface Frame {\n    t: number;\n    dt: number;\n    sig: VisualSignal;\n    palette: Float32Array;\n    light: boolean;\n    ambient: boolean;\n    still: boolean;\n    playing: boolean;\n    fine: number[] | null;\n    cover: ImageBitmap | null;\n    mirrored: boolean;\n    backing: [\n        number,\n        number,\n        number\n    ];\n    ground: [\n        number,\n        number,\n        number\n    ];\n    progress?: number | null;\n}",
+    "Geometry@src/components/player/visualizers/gl/kit.ts": "export interface Geometry {\n    cover: Rect;\n    radius: number;\n    mask: Rect | null;\n    floor: number | null;\n    hush: Rect[];\n}",
+    "Kit@src/components/player/visualizers/gl/kit.ts": "export interface Kit {\n    gl: WebGL2RenderingContext;\n    size: {\n        w: number;\n        h: number;\n        dpr: number;\n    };\n    geo: Geometry;\n    program: (src: ProgramSource) => Program;\n    pending: () => string[];\n    uniform: (p: Program, name: string) => WebGLUniformLocation | null;\n    set1: (p: Program, name: string, v: number) => void;\n    set2: (p: Program, name: string, a: number, b: number) => void;\n    set4: (p: Program, name: string, v: Rect) => void;\n    seti: (p: Program, name: string, v: number) => void;\n    bindTex: (p: Program, name: string, unit: number, tex: WebGLTexture) => void;\n    setCommon: (p: Program, frame: Frame) => void;\n    drawQuad: () => void;\n    makeTarget: (w: number, h: number) => Target;\n    freeTarget: (t: Target) => void;\n    bindTarget: (t: Target | null) => void;\n    boundTarget: () => Target | null;\n    dispose: () => void;\n}",
+    "Program@src/components/player/visualizers/gl/kit.ts": "export interface Program {\n    handle: WebGLProgram;\n    loc: Map<string, WebGLUniformLocation | null>;\n}",
+    "ProgramSource@src/components/player/visualizers/gl/kit.ts": "export interface ProgramSource {\n    name: string;\n    vs: string;\n    fs: string;\n}",
+    "RawHandlers@src/visRuntime/lifecycle.ts": "export interface RawHandlers {\n    setup?: (ctx: VisContext) => HTMLCanvasElement | void;\n    frame: (frame: VisFrame) => void;\n    resize?: (layout: VisLayout) => void;\n    theme?: (ctx: VisContext) => void;\n    settings?: (settings: VisContext[\"settings\"]) => void;\n    still?: (frame: VisFrame) => void | ImageBitmap;\n    dispose?: () => void;\n}",
+    "ReactivityProfile@src/state/player/visualSignal.ts": "export interface ReactivityProfile {\n    gain: number;\n    release: number;\n}",
+    "Rect@src/components/player/visualizers/gl/kit.ts": "export type Rect = [\n    number,\n    number,\n    number,\n    number\n];",
+    "Rings@src/components/player/visualizers/gl/fluid.ts": "export interface Rings {\n    packed: Float32Array;\n    step: (dt: number, beat: number) => void;\n    clear: () => void;\n}",
+    "ScenePass@src/visRuntime/forms/scene.ts": "export interface ScenePass {\n    name: string;\n    fs: string;\n    feedback?: boolean;\n    scale?: number;\n    inputs?: string[];\n    blend?: \"replace\" | \"add\";\n}",
+    "SceneSpec@src/visRuntime/forms/scene.ts": "export interface SceneSpec<S> {\n    passes: ScenePass[];\n    mode?: \"glow\" | \"image\";\n    bloom?: number;\n    exposure?: number;\n    inkGain?: number;\n    vignette?: number;\n    trail?: Trail | null;\n    rings?: {\n        life: number;\n        rise: number;\n        height: number;\n    };\n    init?: (kit: Kit) => S;\n    update?: (frame: VisFrame, state: S) => number | void;\n    uniforms?: (pass: string, program: Program, kit: Kit, frame: VisFrame, state: S) => void;\n    dispose?: (state: S, kit: Kit) => void;\n}",
+    "ShaderSpec@src/visRuntime/forms/shader.ts": "export interface ShaderSpec {\n    source: string;\n    mode?: \"glow\" | \"image\";\n    bloom?: number;\n    exposure?: number;\n    inkGain?: number;\n    vignette?: number;\n}",
+    "StageMeter@src/visRuntime/meter.ts": "export interface StageMeter {\n    frame: () => void;\n    dispose: () => void;\n}",
+    "Target@src/components/player/visualizers/gl/kit.ts": "export interface Target {\n    tex: WebGLTexture;\n    fbo: WebGLFramebuffer;\n    w: number;\n    h: number;\n}",
+    "Trail@src/components/player/visualizers/gl/kit.ts": "export interface Trail {\n    decay: number;\n    zoom: number;\n    rot: number;\n}",
+    "VisColors@src/visRuntime/protocol.ts": "export interface VisColors {\n    ground: VisRgb;\n    backing: VisRgb;\n    ink: VisRgb;\n}",
+    "VisContext@src/visRuntime/protocol.ts": "export interface VisContext {\n    layout: VisLayout;\n    palette: Float32Array;\n    cover: ImageBitmap | null;\n    colors: VisColors;\n    light: boolean;\n    reactivity: \"calm\" | \"balanced\" | \"lively\";\n    ambient: boolean;\n    reducedMotion: boolean;\n    settings: Record<string, VisSettingValue>;\n}",
+    "VisFrame@src/visRuntime/frame.ts": "export interface VisFrame extends Frame {\n    settings: Record<string, VisSettingValue>;\n    rawBands: number[];\n    nBeats: number;\n    beatAt: number | null;\n    trackSeq: number;\n    pointer: VisPointer | null;\n    wave: Float32Array | null;\n    colors: VisColors;\n}",
+    "VisLayout@src/visRuntime/protocol.ts": "export interface VisLayout {\n    width: number;\n    height: number;\n    cover: VisRect;\n    radius: number;\n    mask: VisRect | null;\n    floor: number | null;\n    hush: VisRect[];\n}",
+    "VisPointer@src/visRuntime/protocol.ts": "export interface VisPointer {\n    x: number;\n    y: number;\n    inside: boolean;\n}",
+    "VisRect@src/visRuntime/protocol.ts": "export type VisRect = [\n    number,\n    number,\n    number,\n    number\n];",
+    "VisRgb@src/visRuntime/protocol.ts": "export type VisRgb = [\n    number,\n    number,\n    number\n];",
+    "VisSettingValue@src/visRuntime/protocol.ts": "export type VisSettingValue = boolean | number | string;",
+    "VisualSignal@src/state/player/visualSignal.ts": "export interface VisualSignal {\n    bands: Float32Array;\n    rms: number;\n    peak: number;\n    flux: number;\n    kick: number;\n    bass: number;\n    mid: number;\n    high: number;\n    level: number;\n    swell: number;\n    bassMotion: number;\n    midMotion: number;\n    highMotion: number;\n    beat: number;\n    drive: number;\n    loudness: number;\n    bassHit: number;\n    midHit: number;\n    highHit: number;\n    beatWeight: number;\n    surge: number;\n    cut: number;\n}"
+  }
+}
