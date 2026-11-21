@@ -1,0 +1,328 @@
+[
+  {
+    "name": "visualizer only",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ]
+    },
+    "listing": "catalog"
+  },
+  {
+    "name": "a null entry and sidebar",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "entry": null,
+      "capabilities": [
+        "visualizer"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ],
+      "sidebar": null
+    },
+    "listing": "catalog"
+  },
+  {
+    "name": "every capability a visualizer frame uses",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "visualizer.waveform",
+        "storage",
+        "playback.read",
+        "library.read"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "wave",
+          "name": "Wave",
+          "api": 1,
+          "page": "vis/wave.html",
+          "look": "image",
+          "needs": {
+            "waveform": true
+          }
+        }
+      ]
+    },
+    "listing": "catalog"
+  },
+  {
+    "name": "a page of its own",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ],
+      "entry": "index.html"
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "network",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "network"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ],
+      "network": [
+        "https://api.example.com"
+      ]
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "background",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "background"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ]
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "a toast",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "ui.toast"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ]
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "playback control",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "playback.control"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ]
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "playback stream",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "playback.stream"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ]
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "native tier",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "native",
+      "capabilities": [
+        "visualizer"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ],
+      "entry": "bin/tool.exe",
+      "native_reason": "Reads the audio stream in real time."
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "a sidebar",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.vis",
+      "name": "Vis",
+      "version": "1.0.0",
+      "tier": "ui",
+      "capabilities": [
+        "visualizer",
+        "ui.sidebar"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A",
+      "visualizers": [
+        {
+          "id": "glow",
+          "name": "Glow",
+          "api": 1,
+          "shader": "vis/glow.frag",
+          "look": "glow"
+        }
+      ],
+      "entry": "index.html",
+      "sidebar": {
+        "layout": "section",
+        "items": [
+          {
+            "id": "home",
+            "type": "nav",
+            "label": "Home",
+            "route": "/"
+          }
+        ]
+      }
+    },
+    "listing": "plugins"
+  },
+  {
+    "name": "a plain page plugin",
+    "manifest": {
+      "manifest_version": 1,
+      "id": "com.example.page",
+      "name": "Page",
+      "version": "1.0.0",
+      "tier": "ui",
+      "entry": "index.html",
+      "capabilities": [
+        "storage",
+        "playback.read"
+      ],
+      "min_plisto": "1.0.0",
+      "author": "A"
+    },
+    "listing": "plugins"
+  }
+]

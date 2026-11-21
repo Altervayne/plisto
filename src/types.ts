@@ -3,6 +3,9 @@
  * lockstep with the backend: a field added there is added here in the same pass.
  */
 
+// -- Type Imports --
+import type { PluginVisualizerDecl } from "./state/plugins/visualizerDecl";
+
 /** Backend identity, returned by the `app_info` command. Mirrors AppInfo in lib.rs. */
 export interface AppInfo {
   name: string;
@@ -1159,7 +1162,12 @@ export type PluginCapability =
   | "audio.events"
   | "audio.device"
   | "audio.output_takeover"
-  | "playback.stream";
+  | "playback.stream"
+  | "visualizer"
+  | "visualizer.waveform";
+
+/** Where Settings lists a plugin. Mirrors Listing in plugins/listing.rs; never computed here. */
+export type PluginListing = "catalog" | "plugins";
 
 /** How a plugin's sidebar items are laid out. Mirrors Layout in sidebar_decl.rs. */
 export type PluginSidebarLayout = "compact" | "section";
@@ -1205,10 +1213,15 @@ export interface PluginManifestSummary {
   /** The app modes it shows in; never empty. A manifest without modes arrives as `["player"]`. */
   modes: PluginMode[];
   sidebar: PluginSidebarDecl | null;
-  /** The page's entry file, relative to the plugin folder. For a native plugin, its program. */
-  entry: string;
+  /**
+   * The page's entry file, relative to the plugin folder. For a native plugin, its program. Null for a UI
+   * plugin that only adds visualizers.
+   */
+  entry: string | null;
   /** A native plugin's own page, relative to the plugin folder; null when it has none or is a UI plugin. */
   page: string | null;
+  listing: PluginListing;
+  visualizers: PluginVisualizerDecl[];
 }
 
 /** Every stable code a plugin API call fails with. Mirrors ApiCode in plugins/api/error.rs. */
@@ -1471,6 +1484,9 @@ export interface PluginInspection {
   sidebar_items: number;
   /** True when the id is not installed but a saved-data folder already exists for it. */
   leftover_data: boolean;
+  /** Where Settings will list the plugin once installed. */
+  listing: PluginListing;
+  visualizers: PluginVisualizerDecl[];
 }
 
 /** What waits in the plugins inbox folder. Mirrors InboxItem in install.rs. */

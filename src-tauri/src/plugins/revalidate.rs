@@ -19,6 +19,7 @@ use super::icon::{check_icon, IconError};
 use super::manifest::{self, Compat, Manifest, ManifestError, Tier, MAX_MANIFEST_BYTES};
 use super::paths::{plugin_dir, plugins_dir, validate_id};
 use super::registry::{Entry, EntryState, Registry};
+use super::visualizer_decl::{self, MissingFile};
 
 pub const MANIFEST_FILE: &str = "plugin.json";
 
@@ -38,6 +39,7 @@ pub enum CheckError {
     Icon(IconError),
     /// A file the manifest names is missing or not a plain file. Holds the manifest field.
     MissingFile(&'static str),
+    VisualizerFile(MissingFile),
 }
 
 impl fmt::Display for CheckError {
@@ -54,6 +56,7 @@ impl fmt::Display for CheckError {
             CheckError::MissingFile(field) => {
                 write!(f, "the file named by '{field}' is missing")
             }
+            CheckError::VisualizerFile(e) => write!(f, "{e}"),
         }
     }
 }
@@ -70,7 +73,7 @@ pub fn manifest_hash(bytes: &[u8]) -> String {
 
 /// Whether `rel` (already accepted by the manifest parser) is a plain file inside `dir`, reached
 /// through plain folders only.
-fn plain_file(dir: &Path, rel: &str) -> bool {
+pub(super) fn plain_file(dir: &Path, rel: &str) -> bool {
     let mut path = dir.to_path_buf();
     let mut parts = rel.split('/').peekable();
     while let Some(part) = parts.next() {
@@ -86,9 +89,10 @@ fn plain_file(dir: &Path, rel: &str) -> bool {
     true
 }
 
-/// Reads, parses and checks the manifest in `dir`: the folder and manifest are plain (never a link),
-/// the manifest validates against the running Plisto, its id is `id` when one is given, its icon passes
-/// the disk checks and its entry and page files exist. Returns the manifest and the hash of its bytes.
+/// Reads, parses and checks the manifest in `dir`: the folder and manifest are plain (never a
+/// link), the manifest validates against the running Plisto, its id is `id` when one is given, its
+/// icon passes the disk checks and its entry, page and visualizer files exist. Returns the manifest
+/// and the hash of its bytes.
 pub fn check_folder(dir: &Path, id: Option<&str>) -> Result<(Manifest, String), CheckError> {
     let meta = fs::symlink_metadata(dir).map_err(|_| CheckError::FolderMissing)?;
     if !meta.is_dir() || is_reparse_point(&meta) {
@@ -113,12 +117,13 @@ pub fn check_folder(dir: &Path, id: Option<&str>) -> Result<(Manifest, String), 
     if let Some(icon) = &parsed.icon {
         check_icon(dir, icon).map_err(CheckError::Icon)?;
     }
-    if !plain_file(dir, &parsed.entry) {
+    if parsed.entry.as_ref().is_some_and(|entry| !plain_file(dir, entry)) {
         return Err(CheckError::MissingFile("entry"));
     }
     if parsed.page.as_ref().is_some_and(|page| !plain_file(dir, page)) {
         return Err(CheckError::MissingFile("page"));
     }
+    visualizer_decl::check_files(dir, &parsed.visualizers).map_err(CheckError::VisualizerFile)?;
     Ok((parsed, manifest_hash(&bytes)))
 }
 

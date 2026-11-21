@@ -17,6 +17,7 @@ use unicode_normalization::char::is_combining_mark;
 use super::paths::{validate_id, validate_rel_path};
 use super::semver::SemVer;
 use super::sidebar_decl::{self, RawSidebar, SidebarDecl, SidebarError};
+use super::visualizer_decl::{self, RawVisualizer, VisualizerDecl, VisualizerError};
 
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 pub const SUPPORTED_MANIFEST_VERSION: u64 = 1;
@@ -126,10 +127,12 @@ pub enum Capability {
     AudioDevice,
     AudioOutputTakeover,
     PlaybackStream,
+    Visualizer,
+    VisualizerWaveform,
 }
 
 impl Capability {
-    pub const ALL: [Capability; 15] = [
+    pub const ALL: [Capability; 17] = [
         Capability::Storage,
         Capability::LibraryRead,
         Capability::PlaybackRead,
@@ -145,6 +148,8 @@ impl Capability {
         Capability::AudioDevice,
         Capability::AudioOutputTakeover,
         Capability::PlaybackStream,
+        Capability::Visualizer,
+        Capability::VisualizerWaveform,
     ];
 
     /// The manifest spelling, also the key of the Plisto-owned review-sheet label.
@@ -165,6 +170,8 @@ impl Capability {
             Capability::AudioDevice => "audio.device",
             Capability::AudioOutputTakeover => "audio.output_takeover",
             Capability::PlaybackStream => "playback.stream",
+            Capability::Visualizer => "visualizer",
+            Capability::VisualizerWaveform => "visualizer.waveform",
         }
     }
 
@@ -206,13 +213,14 @@ pub enum Compat {
     NeedsNewer(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Manifest {
     pub id: String,
     pub name: String,
     pub version: String,
     pub tier: Tier,
-    pub entry: String,
+    /// Absent only for a UI plugin that only adds visualizers.
+    pub entry: Option<String>,
     /// A native plugin's own HTML page; a UI plugin's page is its `entry`.
     pub page: Option<String>,
     pub capabilities: Vec<Capability>,
@@ -224,6 +232,7 @@ pub struct Manifest {
     pub modes: Vec<ModeOpt>,
     pub network: Vec<String>,
     pub sidebar: Option<SidebarDecl>,
+    pub visualizers: Vec<VisualizerDecl>,
     pub compat: Compat,
 }
 
@@ -282,6 +291,7 @@ pub enum ManifestError {
     },
     DuplicateNetworkOrigin(String),
     Sidebar(SidebarError),
+    Visualizer(VisualizerError),
 }
 
 impl fmt::Display for ManifestError {
@@ -354,6 +364,7 @@ impl fmt::Display for ManifestError {
             BadNetworkOrigin { origin, reason } => write!(f, "network origin '{origin}' {reason}"),
             DuplicateNetworkOrigin(o) => write!(f, "network origin '{o}' is listed twice"),
             Sidebar(e) => write!(f, "{e}"),
+            Visualizer(e) => write!(f, "{e}"),
         }
     }
 }
@@ -363,6 +374,12 @@ impl std::error::Error for ManifestError {}
 impl From<SidebarError> for ManifestError {
     fn from(e: SidebarError) -> Self {
         ManifestError::Sidebar(e)
+    }
+}
+
+impl From<VisualizerError> for ManifestError {
+    fn from(e: VisualizerError) -> Self {
+        ManifestError::Visualizer(e)
     }
 }
 
@@ -386,6 +403,7 @@ struct RawManifest {
     modes: Option<Vec<String>>,
     network: Option<Vec<String>>,
     sidebar: Option<RawSidebar>,
+    visualizers: Option<Vec<RawVisualizer>>,
 }
 
 fn require<T>(v: Option<T>, name: &'static str) -> Result<T, ManifestError> {
@@ -416,7 +434,7 @@ fn check_path(s: &str, field: &'static str) -> Result<(), ManifestError> {
     validate_rel_path(s).map_err(|reason| ManifestError::BadPath { field, reason })
 }
 
-fn has_ext(path: &str, ext: &str) -> bool {
+pub(super) fn has_ext(path: &str, ext: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or("");
     name.len() > ext.len() && name.to_ascii_lowercase().ends_with(ext)
 }
@@ -680,13 +698,20 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         other => return Err(ManifestError::UnknownTier(clip(other))),
     };
 
-    let entry = require(raw.entry, "entry")?;
-    check_path(&entry, "entry")?;
-    if !has_ext(&entry, tier.entry_ext()) {
-        return Err(ManifestError::WrongEntryType {
-            tier: tier.as_str(),
-            expected: tier.entry_ext(),
-        });
+    // A UI plugin that only adds visualizers has no page of its own; a sidebar always opens one.
+    let entry_optional = tier == Tier::Ui && raw.visualizers.is_some() && raw.sidebar.is_none();
+    let entry = match raw.entry {
+        None if entry_optional => None,
+        entry => Some(require(entry, "entry")?),
+    };
+    if let Some(entry) = &entry {
+        check_path(entry, "entry")?;
+        if !has_ext(entry, tier.entry_ext()) {
+            return Err(ManifestError::WrongEntryType {
+                tier: tier.as_str(),
+                expected: tier.entry_ext(),
+            });
+        }
     }
 
     let page = match (&raw.page, tier) {
@@ -754,6 +779,7 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         Some(block) => Some(sidebar_decl::validate(block, tier, &capabilities)?),
         None => None,
     };
+    let visualizers = visualizer_decl::validate(raw.visualizers, &capabilities)?;
     let has_nav = sidebar
         .as_ref()
         .is_some_and(|s| s.items.iter().any(|i| i.kind == sidebar_decl::ItemType::Nav));
@@ -782,6 +808,7 @@ pub fn parse_against(bytes: &[u8], running: Option<&SemVer>) -> Result<Manifest,
         modes,
         network,
         sidebar,
+        visualizers,
         compat,
     })
 }

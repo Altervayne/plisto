@@ -19,6 +19,8 @@ export const manifest = (over: Partial<PluginManifestSummary> = {}): PluginManif
   sidebar: null,
   entry: "index.html",
   page: null,
+  listing: "plugins",
+  visualizers: [],
   ...over,
 });
 
@@ -56,6 +58,8 @@ export const inspection = (over: Partial<PluginInspection> = {}): PluginInspecti
   origins: ["lyrics.example.com", "notes.example.com"],
   sidebar_items: 1,
   leftover_data: false,
+  listing: "plugins",
+  visualizers: [],
   ...over,
 });
 

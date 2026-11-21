@@ -1776,6 +1776,9 @@ export const en = {
       "audio.output_takeover": "Silence Plisto's own speakers while it plays your music",
       "playback.stream":
         "Play audio streams through Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen",
+      visualizer:
+        "Draw visualizers in the Player. While one is shown it runs and sees your music's levels and the cover of what is playing.",
+      "visualizer.waveform": "See brief snapshots of the sound wave of what is playing",
     },
     errors: {
       not_found: "Plisto could not find that file or plugin.",

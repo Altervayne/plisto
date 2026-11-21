@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::*;
 
 const ID: &str = "com.example.demo";
+const MANIFEST: &str = r#"{"manifest_version": 1, "id": "com.example.demo", "name": "Demo",
+    "version": "1.0.0", "tier": "ui", "entry": "index.html", "capabilities": [],
+    "min_plisto": "1.0.0", "author": "A"}"#;
 
 /// A throwaway app data dir holding one installed plugin and a few files outside it that a
 /// broken resolver would reach.
@@ -27,6 +30,7 @@ impl AppData {
         d.write("plugins/secret.js", b"outside");
         d.write(&format!("plugins/{ID}/index.html"), b"<p>hi</p>");
         d.write(&format!("plugins/{ID}/ui/app.js"), b"1");
+        d.write(&format!("plugins/{ID}/plugin.json"), MANIFEST.as_bytes());
         d
     }
 
@@ -187,6 +191,19 @@ fn frame_urls_are_handed_out_only_for_installed_plugins() {
     if link_dir(&linked, &d.plugin()) {
         assert_eq!(installed_frame_url(&d.0, "com.example.linked", &all), None);
     }
+}
+
+#[test]
+fn a_plugin_without_an_entry_or_a_readable_manifest_gets_no_frame_url() {
+    let d = AppData::new();
+    let visualizer_only = r#"{"manifest_version": 1, "id": "com.example.demo", "name": "Demo",
+        "version": "1.0.0", "tier": "ui", "capabilities": ["visualizer"], "min_plisto": "1.0.0",
+        "author": "A", "visualizers": [
+            {"id": "rings", "name": "Rings", "api": 1, "page": "index.html", "look": "glow"}]}"#;
+    d.write(&format!("plugins/{ID}/plugin.json"), visualizer_only.as_bytes());
+    assert_eq!(installed_frame_url(&d.0, ID, &all), None);
+    d.write(&format!("plugins/{ID}/plugin.json"), b"{ nope");
+    assert_eq!(installed_frame_url(&d.0, ID, &all), None);
 }
 
 // ---- Resolver ----
@@ -1051,7 +1068,7 @@ fn probe_fixtures_are_valid_manifests() {
             .expect("the probe fixture must parse");
         assert_eq!(manifest.id, id);
         assert_eq!(manifest.tier, super::super::manifest::Tier::Ui);
-        assert!(dir.join(&manifest.entry).is_file());
+        assert!(dir.join(manifest.entry.as_deref().unwrap()).is_file());
     }
 
     // The two network probe pages run one script, with and without the capability.
@@ -1089,7 +1106,8 @@ fn kit_examples_are_valid_manifests() {
 
         let mut files = Vec::new();
         if tier == Tier::Ui {
-            files.push(manifest.entry.clone());
+            let entry = manifest.entry.clone();
+            files.push(entry.unwrap_or_else(|| panic!("kit example {folder}: no entry")));
         }
         files.extend(manifest.page.clone());
         files.extend(manifest.icon.clone());

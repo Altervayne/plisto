@@ -39,6 +39,19 @@ describe("review sheet network lines", () => {
     expect(sheet({ capabilities: caps("network", "playback.read") })).toContain(reads);
   });
 
+  it("warns about reads for network plus a visualizer, which sees what is playing", () => {
+    expect(sheet({ capabilities: caps("network", "visualizer") })).toContain(reads);
+    expect(sheet({ capabilities: caps("network", "visualizer", "visualizer.waveform") })).toContain(reads);
+    expect(sheet({ capabilities: caps("visualizer") })).not.toContain(reads);
+    expect(sheet({ capabilities: caps("network", "visualizer"), tier: "native" })).not.toContain(reads);
+  });
+
+  it("lists the visualizer lines in Plisto's own words", () => {
+    const html = sheet({ capabilities: caps("visualizer", "visualizer.waveform") });
+    expect(html).toContain("Draw visualizers in the Player.");
+    expect(html).toContain("See brief snapshots of the sound wave");
+  });
+
   it("does not warn for network alone or on a native subject", () => {
     expect(sheet({ capabilities: caps("network") })).not.toContain(reads);
     expect(sheet({ capabilities: caps("network", "library.read"), tier: "native" })).not.toContain(reads);
@@ -87,6 +100,8 @@ describe("network copy keys", () => {
     expect(dict.plugins.sheet.networkHow).toBeTruthy();
     expect(dict.plugins.sheet.streamNetwork).toBeTruthy();
     expect(dict.plugins.capability["playback.stream"]).toBeTruthy();
+    expect(dict.plugins.capability.visualizer).toBeTruthy();
+    expect(dict.plugins.capability["visualizer.waveform"]).toBeTruthy();
     expect(dict.plugins.sheet.networkReadsNote).toBeTruthy();
     expect(dict.plugins.sheet.devOrigin).toBeTruthy();
     expect(dict.plugins.devMode.loopbackNote).toBeTruthy();

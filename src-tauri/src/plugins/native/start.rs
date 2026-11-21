@@ -5,6 +5,7 @@
 
 // -- Local Imports --
 use super::*;
+use crate::plugins::summary::read_manifest;
 
 impl NativeHost {
     /// Starts the plugin when it is a serving native plugin whose manifest is the consented one. A
@@ -39,7 +40,7 @@ impl NativeHost {
                 let background = plugins
                     .enabled_set()
                     .serving(id)
-                    .is_some_and(|serving| is_background(&serving.granted));
+                    .is_some_and(|serving| self.has_background_frame(id, &serving.granted));
                 if background {
                     self.board.set_host(id, HostState::Starting, self.clock.now());
                 }
@@ -165,8 +166,12 @@ impl NativeHost {
         if hash != entry.manifest_hash {
             return Err(StartError::Changed);
         }
+        let exe = manifest
+            .entry
+            .as_deref()
+            .ok_or_else(|| StartError::Invalid("the manifest names no entry".to_string()))?;
         Ok(LaunchSpec {
-            exe: entry_path(&dir, &manifest.entry),
+            exe: entry_path(&dir, exe),
             plugin_dir: dir,
             data_dir: data_dir(&self.app_data, id),
             tap: None,
@@ -185,10 +190,17 @@ impl NativeHost {
                     }
                     Err(e) => eprintln!("plugins: {id}: not started: {e}"),
                 }
-            } else if is_background(&serving.granted) && plugins.is_enabled(&id) {
+            } else if plugins.is_enabled(&id) && self.has_background_frame(&id, &serving.granted) {
                 self.board.set_host(&id, HostState::Starting, self.clock.now());
             }
         }
+    }
+
+    /// Whether a UI plugin has a background frame to mount: it holds the background grant and its
+    /// manifest names an entry. Without a frame, nothing would ever report it live.
+    fn has_background_frame(&self, id: &str, granted: &[Capability]) -> bool {
+        is_background(granted)
+            && read_manifest(&plugin_dir(&self.app_data, id)).is_some_and(|m| m.entry.is_some())
     }
 
     /// Forgets the plugin's crashes and any due restart, for a start the user asked for.

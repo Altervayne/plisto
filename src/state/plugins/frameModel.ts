@@ -36,10 +36,13 @@ export function pluginRuntimeReady(boot: PluginBootState | null): boolean {
   return boot?.runtime === "running";
 }
 
-/** Whether the row is a live UI plugin, or a live native plugin with a page, so it can own a frame. */
+/**
+ * Whether the row is a live UI plugin with an entry, or a live native plugin with a page, so it can own a
+ * frame. A plugin that only adds visualizers has no entry.
+ */
 export function frameCapable(row: PluginRow): row is ZonePlugin {
-  if (livePlugins([row]).length !== 1) return false;
-  return row.tier === "ui" || (row.tier === "native" && row.manifest?.page != null);
+  const [live] = livePlugins([row]);
+  return live !== undefined && frameEntry(live) != null;
 }
 
 /** Whether the row's frame stays mounted without its page open. A native page never does. */
@@ -47,9 +50,9 @@ export function runsInBackground(row: PluginRow): row is ZonePlugin {
   return frameCapable(row) && row.tier === "ui" && row.granted.includes("background");
 }
 
-/** The file a row's frame loads: a native plugin's page, a UI plugin's entry. */
-export function frameEntry(row: ZonePlugin): string {
-  return row.tier === "native" ? (row.manifest.page ?? row.manifest.entry) : row.manifest.entry;
+/** The file a row's frame loads: a native plugin's page, a UI plugin's entry; null when it has none. */
+export function frameEntry(row: ZonePlugin): string | null {
+  return row.tier === "native" ? row.manifest.page : row.manifest.entry;
 }
 
 /** Whether a crashed row's frame is remounted when its status reaches `starting`: background frames only. */
@@ -82,15 +85,11 @@ export function wantedFrames(input: WantedInput): FrameWant[] {
   if (!runtime) return [];
 
   const keyOf = (row: PluginRow) => `${crashKey(row)}|${generation[row.id] ?? 0}`;
-  const want = (row: ZonePlugin, kind: FrameWant["kind"], active: boolean): FrameWant => ({
-    mountKey: keyOf(row),
-    id: row.id,
-    kind,
-    entry: frameEntry(row),
-    name: row.manifest.name,
-    tier: row.tier,
-    active,
-  });
+  const want = (row: ZonePlugin, kind: FrameWant["kind"], active: boolean): FrameWant[] => {
+    const entry = frameEntry(row);
+    if (entry == null) return [];
+    return [{ mountKey: keyOf(row), id: row.id, kind, entry, name: row.manifest.name, tier: row.tier, active }];
+  };
 
   const qualified = new Set(qualifiedPlugins(rows, appMode).map((row) => row.id));
   const pageShows = (row: ZonePlugin) => row.id === pageId && qualified.has(row.id);
@@ -98,12 +97,12 @@ export function wantedFrames(input: WantedInput): FrameWant[] {
 
   for (const row of livePlugins(rows)) {
     if (!runsInBackground(row) || crashed.has(crashKey(row))) continue;
-    if (released.has(row.id) || row.id === pageId) wants.push(want(row, "background", pageShows(row)));
+    if (released.has(row.id) || row.id === pageId) wants.push(...want(row, "background", pageShows(row)));
   }
   for (const row of livePlugins(rows)) {
     if (row.id !== pageId || !qualified.has(row.id)) continue;
     if (!frameCapable(row) || runsInBackground(row) || crashed.has(crashKey(row))) continue;
-    wants.push(want(row, "page", true));
+    wants.push(...want(row, "page", true));
   }
   return wants;
 }

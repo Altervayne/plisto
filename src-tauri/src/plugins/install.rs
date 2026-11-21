@@ -22,6 +22,7 @@ use super::extract::extract;
 use super::frame_host::is_reparse_point;
 use super::install_error::{ErrorCode, InstallError};
 use super::lifecycle::{busy, park, remove_data, save_failed};
+use super::listing::{listing, Listing};
 use super::manifest::{Capability, Compat, Tier};
 use super::paths::{data_dir, inbox_dir, plugin_dir, staging_dir};
 use super::registry::{Entry, EntryState};
@@ -29,6 +30,7 @@ use super::revalidate::{check_folder, needs_newer};
 use super::stage::{fits_under, Limits, Totals};
 use super::state::{PluginRow, PluginsState, StagedPlugin, Withdraw};
 use super::summary::sidebar_item_count;
+use super::visualizer_decl::VisualizerDecl;
 
 const MAX_INBOX: usize = 64;
 const PLUGIN_EXT: &str = "plistoplugin";
@@ -64,6 +66,9 @@ pub struct Inspection {
     /// The id is not installed but saved data under it is already there, left by an earlier plugin
     /// that claimed the same id; an install hands that data to this one.
     pub leftover_data: bool,
+    /// Where Settings will list the plugin once installed.
+    pub listing: Listing,
+    pub visualizers: Vec<VisualizerDecl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -187,6 +192,7 @@ pub fn inspect(
         let _ = fs::remove_dir_all(old.dir);
     }
     let sidebar_items = sidebar_item_count(&manifest);
+    let listing = listing(&manifest);
     Ok(Inspection {
         token,
         id: manifest.id,
@@ -204,6 +210,8 @@ pub fn inspect(
         origins: manifest.network,
         sidebar_items,
         leftover_data,
+        listing,
+        visualizers: manifest.visualizers,
     })
 }
 

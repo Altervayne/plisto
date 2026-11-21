@@ -60,6 +60,12 @@ describe("frameCapable and runsInBackground", () => {
     expect(frameCapable(ui("a", { manifest: null }))).toBe(false);
   });
 
+  it("refuses a plugin with no entry, which only adds visualizers", () => {
+    const visualizersOnly = manifest({ name: "v", modes: ["player", "organizer"], entry: null });
+    expect(frameCapable(ui("v", { manifest: visualizersOnly }))).toBe(false);
+    expect(runsInBackground(bg("v", { manifest: visualizersOnly }))).toBe(false);
+  });
+
   it("accepts a live native plugin only when it declares a page", () => {
     expect(frameCapable(nativePage("t"))).toBe(true);
     expect(frameCapable(ui("t", { tier: "native" }))).toBe(false);
@@ -85,6 +91,11 @@ describe("wantedFrames", () => {
     expect(wantedFrames(input(rows, { pageId: "p" }))).toEqual([
       { mountKey: "p|1.3.0|hash-1|0", id: "p", kind: "page", entry: "p.html", name: "p", tier: "ui", active: true },
     ]);
+  });
+
+  it("skips a plugin with no entry, for its page and its background frame", () => {
+    const rows = [bg("v", { manifest: manifest({ name: "v", modes: ["player", "organizer"], entry: null }) })];
+    expect(ids(rows, { pageId: "v", released: new Set(["v"]) })).toEqual([]);
   });
 
   it("does not mount a page for a plugin the mode hides", () => {

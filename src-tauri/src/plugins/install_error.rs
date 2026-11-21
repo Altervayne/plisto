@@ -83,7 +83,9 @@ impl From<CheckError> for InstallError {
         let code = match &e {
             CheckError::FolderMissing => ErrorCode::NotFound,
             CheckError::FolderNotPlain | CheckError::ManifestNotPlain => ErrorCode::LinkNotAllowed,
-            CheckError::ManifestMissing | CheckError::MissingFile(_) => ErrorCode::MissingFile,
+            CheckError::ManifestMissing
+            | CheckError::MissingFile(_)
+            | CheckError::VisualizerFile(_) => ErrorCode::MissingFile,
             CheckError::ManifestUnreadable(_) => ErrorCode::Io,
             CheckError::Manifest(_) | CheckError::WrongId => ErrorCode::InvalidManifest,
             CheckError::Icon(_) => ErrorCode::BadIcon,

@@ -14,21 +14,24 @@ use serde::Serialize;
 
 // -- Local Imports --
 use super::frame_host::is_reparse_point;
+use super::listing::{listing, Listing};
 use super::manifest::{self, Capability, Compat, Manifest, ModeOpt, MAX_MANIFEST_BYTES};
 use super::paths::plugin_dir;
 use super::revalidate::MANIFEST_FILE;
 use super::sidebar_decl::SidebarDecl;
 use super::state::PluginRow;
 use super::update::Updated;
+use super::visualizer_decl::VisualizerDecl;
 
 /// The manifest fields a row shows.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ManifestSummary {
     pub name: String,
     pub author: String,
     pub homepage: Option<String>,
-    /// The page a frame loads, relative to the plugin's base URL.
-    pub entry: String,
+    /// The page a frame loads, relative to the plugin's base URL; null for a plugin that only adds
+    /// visualizers.
+    pub entry: Option<String>,
     /// A native plugin's own page, relative to the plugin's base URL; null when it has none.
     pub page: Option<String>,
     pub capabilities: Vec<Capability>,
@@ -38,6 +41,8 @@ pub struct ManifestSummary {
     pub sidebar: Option<SidebarDecl>,
     pub modes: Vec<ModeOpt>,
     pub compat: Compat,
+    pub listing: Listing,
+    pub visualizers: Vec<VisualizerDecl>,
 }
 
 impl ManifestSummary {
@@ -55,6 +60,8 @@ impl ManifestSummary {
             sidebar: manifest.sidebar.clone(),
             modes: manifest.modes.clone(),
             compat: manifest.compat.clone(),
+            listing: listing(manifest),
+            visualizers: manifest.visualizers.clone(),
         }
     }
 }
@@ -238,6 +245,42 @@ mod tests {
         manifest["page"] = json!("index.html");
         k.install(&manifest);
         assert_eq!(row_json(&k)["manifest"]["page"], "index.html");
+    }
+
+    #[test]
+    fn a_plugin_that_only_adds_visualizers_is_listed_in_the_catalog() {
+        let k = Kit::new();
+        let mut manifest = ui("1.0.0", &["visualizer"]);
+        manifest.as_object_mut().unwrap().remove("entry");
+        manifest["visualizers"] = json!([
+            {"id": "rings", "name": "Rings", "api": 1, "page": "index.html", "look": "glow"}
+        ]);
+        k.install(&manifest);
+        let m = &row_json(&k)["manifest"];
+        assert!(m["entry"].is_null());
+        assert_eq!(m["listing"], "catalog");
+        let kind = &m["visualizers"][0];
+        assert_eq!(kind["id"], "rings");
+        assert_eq!(kind["page"], "index.html");
+        assert!(kind["shader"].is_null());
+        assert_eq!(
+            kind["look"],
+            json!({
+                "light": {"composite": "ink", "blend": "multiply"},
+                "dark": {"composite": "light", "blend": "screen"}
+            })
+        );
+        assert_eq!(kind["dark_only"], false);
+        assert_eq!(kind["settings"], json!([]));
+    }
+
+    #[test]
+    fn a_plain_plugin_is_listed_in_the_plugins_list_with_no_visualizers() {
+        let k = Kit::new();
+        k.install(&ui("1.0.0", &[]));
+        let m = &row_json(&k)["manifest"];
+        assert_eq!(m["listing"], "plugins");
+        assert_eq!(m["visualizers"], json!([]));
     }
 
     #[test]

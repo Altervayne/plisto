@@ -189,6 +189,15 @@ describe("livePlugins and qualifiedPlugins", () => {
     expect(qualifiedPlugins(rows, "organizer").map((p) => p.id)).toEqual(["early", "late"]);
   });
 
+  it("leaves out a UI plugin with no page, keeping a native one", () => {
+    const pageless = { entry: null, sidebar: null, listing: "catalog" as const };
+    const vis = row({ id: "vis", manifest: manifest({ ...pageless, modes: ["player", "organizer"] }) });
+    const tool = row({ id: "tool", tier: "native", manifest: manifest({ modes: ["player"] }) });
+    expect(livePlugins([vis, tool]).map((p) => p.id)).toEqual(["vis", "tool"]);
+    expect(qualifiedPlugins([vis, tool], "both").map((p) => p.id)).toEqual(["tool"]);
+    expect(pluginZoneModel([vis, tool], "both").compact.map((p) => p.id)).toEqual(["tool"]);
+  });
+
   it("does not mutate the input order", () => {
     const before = rows.map((r) => r.id);
     livePlugins(rows);

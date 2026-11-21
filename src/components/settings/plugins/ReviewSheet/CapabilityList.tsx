@@ -11,14 +11,16 @@ import { useT } from "../../../../i18n";
 
 // -- Type Imports --
 import type { ReviewSubject } from "../../../../state/plugins/review";
+import type { PluginCapability } from "../../../../types";
 
 // -- Style Imports --
 import styles from "./ReviewSheet.module.css";
 
-// A native plugin reads nothing through Plisto's API, so the note applies to the UI tier only.
+// A native plugin reads nothing through Plisto's API, so the note applies to the UI tier only. A
+// visualizer sees what is playing, so it reads too.
+const READS: PluginCapability[] = ["library.read", "playback.read", "visualizer", "visualizer.waveform"];
 const readsPlisto = (subject: ReviewSubject): boolean =>
-  subject.tier === "ui" &&
-  (subject.capabilities.includes("library.read") || subject.capabilities.includes("playback.read"));
+  subject.tier === "ui" && subject.capabilities.some((cap) => READS.includes(cap));
 
 /**
  * What the plugin asks for, in Plisto's own words: one line per capability, never the plugin's text.

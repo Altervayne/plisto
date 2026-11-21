@@ -401,7 +401,7 @@ fn page_is_accepted_on_native_and_optional() {
     assert_eq!(run(&native()).unwrap().page, None);
     let m = run(&with(native(), "page", json!("ui/Panel.HTML"))).unwrap();
     assert_eq!(m.page.as_deref(), Some("ui/Panel.HTML"));
-    assert_eq!(m.entry, "bin/tool.exe");
+    assert_eq!(m.entry.as_deref(), Some("bin/tool.exe"));
 }
 
 #[test]

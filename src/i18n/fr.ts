@@ -1806,6 +1806,9 @@ export const fr: Dict = {
       "audio.output_takeover": "Couper les haut-parleurs de Plisto pendant qu'il lit votre musique",
       "playback.stream":
         "Lire des flux audio dans le lecteur de Plisto à tout moment, en mettant votre musique en pause, avec leurs propres titres sur vos touches multimédia et l'écran de verrouillage",
+      visualizer:
+        "Afficher des visualiseurs dans le lecteur. Tant qu'un visualiseur est affiché, il s'exécute et voit les niveaux de votre musique et la pochette de ce qui est en cours de lecture.",
+      "visualizer.waveform": "Voir de brefs instantanés de la forme d'onde de ce qui est en cours de lecture",
     },
     errors: {
       not_found: "Plisto n'a pas trouvé ce fichier ou ce plugin.",

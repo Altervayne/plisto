@@ -556,6 +556,34 @@ fn plugins_stopped_for_an_update_start_again_when_it_fails() {
     host.shutdown_all();
 }
 
+#[test]
+fn a_background_ui_plugin_is_marked_starting_only_when_it_has_a_frame() {
+    for with_entry in [false, true] {
+        let mut manifest = ui("1.0.0", &["visualizer", "background"]);
+        manifest["visualizers"] = json!([
+            { "id": "glow", "name": "Glow", "api": 1, "page": "index.html", "look": "glow" }
+        ]);
+        if !with_entry {
+            manifest.as_object_mut().unwrap().remove("entry");
+        }
+        let k = Kit::new();
+        k.install(&manifest);
+        let link = Arc::new(RecordingLink::default());
+        let host = Arc::new(NativeHost::new(k.data.clone(), link.clone()));
+        k.plugins.set_starter(host.clone());
+        k.enable(&["visualizer", "background"]);
+        let owed = host.board.host(ID) == Some(HostState::Starting);
+        assert_eq!(owed, with_entry, "a start owed, entry: {with_entry}");
+
+        session::clear(&k.data);
+        let plugins = k.reboot();
+        let host = NativeHost::new(k.data.clone(), link);
+        host.start_serving(&plugins);
+        let serving = host.board.host(ID) == Some(HostState::Starting);
+        assert_eq!(serving, with_entry, "the serving set, entry: {with_entry}");
+    }
+}
+
 /// A running native plugin on a host, with its state.
 fn running_host() -> (Kit, NativeHost, PluginsState) {
     let k = native_kit("echo");

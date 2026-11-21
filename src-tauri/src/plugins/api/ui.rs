@@ -234,11 +234,13 @@ fn open_page(ctx: &CallCtx<'_>, args: &Map<String, Value>) -> Outcome {
     Outcome::Done(request_page(ctx, args, Instant::now()))
 }
 
-/// Whether the caller has a page to show: every UI plugin does, a native one only when its manifest
-/// declares one.
+/// Whether the caller has a page to show: a UI plugin when its manifest names an entry, a native
+/// one when its manifest declares a page.
 fn has_page(ctx: &CallCtx<'_>) -> bool {
-    ctx.serving.tier == Tier::Ui
-        || read_manifest(&plugin_dir(ctx.app_data, ctx.id)).is_some_and(|m| m.page.is_some())
+    read_manifest(&plugin_dir(ctx.app_data, ctx.id)).is_some_and(|m| match ctx.serving.tier {
+        Tier::Ui => m.entry.is_some(),
+        Tier::Native => m.page.is_some(),
+    })
 }
 
 /// Asks the main window to show the caller's own page. Whether the app mode lets it is the window's
@@ -270,6 +272,7 @@ mod tests {
     use crate::plugins::api::ui_state::{UiAnswer, GESTURE_MS, MAX_OPEN_PROMPTS};
     use crate::plugins::api::{admit, dispatch, method_names, test_ctx, FakeHost, TestCall};
     use crate::plugins::manifest::{Tier, MAX_COMBINING_RUN};
+    use crate::plugins::stage::Temp;
     use crate::plugins::state::{EnabledSet, Serving};
     use std::path::Path;
     use std::sync::Arc;
@@ -287,6 +290,20 @@ mod tests {
 
     fn call<'a>(host: &'a FakeHost) -> TestCall<'a> {
         test_ctx(Path::new("unused"), host)
+    }
+
+    /// Writes the demo plugin's manifest into a throwaway app data folder.
+    fn installed(name: &str, manifest: &Value) -> Temp {
+        let temp = Temp::new(name);
+        let dir = plugin_dir(&temp.0, ID);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("plugin.json"), manifest.to_string()).unwrap();
+        temp
+    }
+
+    /// An app data folder where the demo UI plugin has its page.
+    fn with_page() -> Temp {
+        installed("ui-page", &crate::plugins::test_kit::ui("1.0.0", &[]))
     }
 
     fn prompt_args() -> Value {
@@ -810,7 +827,8 @@ mod tests {
     #[test]
     fn open_page_follows_the_route_rule() {
         let host = FakeHost::default();
-        let call = call(&host);
+        let temp = with_page();
+        let call = test_ctx(&temp.0, &host);
         call.api.set_page_open(ID, true);
         let ctx = call.ctx();
         let now = Instant::now();
@@ -847,7 +865,8 @@ mod tests {
     #[test]
     fn open_page_emits_its_own_page_request() {
         let host = FakeHost::default();
-        let call = call(&host);
+        let temp = with_page();
+        let call = test_ctx(&temp.0, &host);
         call.api.set_page_open(ID, true);
         let page = args(json!({ "route": "settings", "id": OTHER }));
         request_page(&call.ctx(), &page, Instant::now()).unwrap();
@@ -863,7 +882,8 @@ mod tests {
     #[test]
     fn open_page_passes_the_gate() {
         let host = FakeHost::default();
-        let call = call(&host);
+        let temp = with_page();
+        let call = test_ctx(&temp.0, &host);
         let ctx = call.ctx();
         let ui = call.api.ui();
         let now = Instant::now();
@@ -887,15 +907,8 @@ mod tests {
 
     #[test]
     fn a_native_plugin_asks_for_its_page_only_when_it_declares_one() {
-        use crate::plugins::stage::Temp;
-        let temp = Temp::new("ui-native-page");
-        let dir = plugin_dir(&temp.0, ID);
-        std::fs::create_dir_all(&dir).unwrap();
         let mut manifest = crate::plugins::test_kit::native("1.0.0", &[]);
-        let write = |manifest: &Value| {
-            std::fs::write(dir.join("plugin.json"), manifest.to_string()).unwrap();
-        };
-        write(&manifest);
+        let temp = installed("ui-native-page", &manifest);
         let host = FakeHost::default();
         let mut call = test_ctx(&temp.0, &host);
         call.serving.tier = Tier::Native;
@@ -909,10 +922,30 @@ mod tests {
         );
         // The refusal comes before the gate, so the token is still there.
         manifest["page"] = json!("page/index.html");
-        write(&manifest);
+        let file = plugin_dir(&temp.0, ID).join("plugin.json");
+        std::fs::write(file, manifest.to_string()).unwrap();
         call.api.set_page_open(ID, false);
         assert_eq!(request_page(&call.ctx(), &page, now), Ok(json!({})));
         assert_eq!(ui_events(&host).len(), 1);
+    }
+
+    #[test]
+    fn a_ui_plugin_without_an_entry_has_no_page_to_ask_for() {
+        let mut manifest = crate::plugins::test_kit::ui("1.0.0", &["visualizer"]);
+        manifest.as_object_mut().unwrap().remove("entry");
+        manifest["visualizers"] = json!([{ "id": "glow", "name": "Glow", "api": 1,
+                                           "shader": "vis/glow.frag", "look": "glow" }]);
+        let temp = installed("ui-no-entry", &manifest);
+        assert!(read_manifest(&plugin_dir(&temp.0, ID)).is_some());
+        let host = FakeHost::default();
+        let call = test_ctx(&temp.0, &host);
+        call.api.set_page_open(ID, true);
+        let page = args(json!({ "route": "settings" }));
+        assert_eq!(
+            request_page(&call.ctx(), &page, Instant::now()),
+            Err(ApiError::unavailable())
+        );
+        assert!(ui_events(&host).is_empty());
     }
 
     // -- Through the dispatch table --

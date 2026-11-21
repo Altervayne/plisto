@@ -118,11 +118,19 @@ export function livePlugins(rows: readonly PluginRow[]): ZonePlugin[] {
 }
 
 /**
- * The plugins the rail and the finder may show, in install order: the live ones that are visible under
- * the app mode. Anything else is reachable from the Settings hub only.
+ * Whether the plugin has a page to open. A native plugin always does, if only to show its status; a UI
+ * plugin only when its manifest names an entry, since a visualizer-only plugin has no page.
+ */
+function hasPage(row: ZonePlugin): boolean {
+  return row.tier === "native" || row.manifest.entry != null;
+}
+
+/**
+ * The plugins the rail and the finder may show, in install order: the live ones with a page that are
+ * visible under the app mode. Anything else is reachable from the Settings hub only.
  */
 export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): ZonePlugin[] {
-  return livePlugins(rows).filter((row) => isPluginVisible(appMode, row.manifest.modes));
+  return livePlugins(rows).filter((row) => hasPage(row) && isPluginVisible(appMode, row.manifest.modes));
 }
 
 /** One plugin-owned sidebar section with its items and fold state. */

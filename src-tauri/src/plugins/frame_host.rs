@@ -20,6 +20,7 @@ use tauri::http::{header, Response, StatusCode};
 // -- Local Imports --
 use super::frame_host_files::host_file;
 use super::paths::{plugin_dir, plugins_dir, validate_id, validate_rel_path};
+use super::summary::read_manifest;
 
 /// The request pattern the webview routes to the frame host.
 pub const FILTER: &str = "https://pp-*.invalid/*";
@@ -173,7 +174,8 @@ pub fn frame_url(id: &str) -> String {
 }
 
 /// The base URL for an enabled plugin: a valid id the registry serves whose folder is a plain
-/// directory. None otherwise.
+/// directory and whose manifest names an entry page. None otherwise, so a plugin that only adds
+/// visualizers never gets a frame of its own.
 pub fn installed_frame_url(
     app_data: &Path,
     id: &str,
@@ -183,8 +185,8 @@ pub fn installed_frame_url(
     if !enabled(id) {
         return None;
     }
-    let meta = fs::symlink_metadata(plugin_dir(app_data, id)).ok()?;
-    (meta.is_dir() && !is_reparse_point(&meta)).then(|| frame_url(id))
+    read_manifest(&plugin_dir(app_data, id))?.entry?;
+    Some(frame_url(id))
 }
 
 fn is_label(label: &str) -> bool {
