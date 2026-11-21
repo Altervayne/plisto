@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // -- Unit Imports --
 import { PREVIEW_DWELL_MS, useVisualizerSheet } from "./visualizerSheet";
+import { PLUGIN_PREVIEW_DWELL_MS } from "./pluginVis/frameCache";
+import type { PluginKindId } from "./pluginVisualizers";
 
 // -- State Imports --
 import { PREF_KEYS, usePreferencesStore } from "../preferences/store";
@@ -71,6 +73,16 @@ describe("visualizer sheet", () => {
     expect(sheet().previewKind).toBeNull();
     vi.advanceTimersByTime(1);
     expect(sheet().previewKind).toBe("nebula");
+  });
+
+  it("waits the longer dwell before previewing a plugin kind", () => {
+    const rings = "com.example.rings/aurora-rings" as PluginKindId;
+    sheet().open();
+    sheet().preview(rings);
+    vi.advanceTimersByTime(PLUGIN_PREVIEW_DWELL_MS - 1);
+    expect(sheet().previewKind).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(sheet().previewKind).toBe(rings);
   });
 
   it("lands only the last of several quick changes", () => {

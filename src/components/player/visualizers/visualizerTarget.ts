@@ -7,12 +7,8 @@
 
 // -- State Imports --
 import type { DipReason } from "../../../state/player/visualizerDip";
-import {
-  effectiveVisualizerKind,
-  isGlKind,
-  needsCoverPixels,
-  type VisualizerKind,
-} from "../../../state/player/visualizerKind";
+import { isGlKind, needsCoverPixels, type VisualizerKind } from "../../../state/player/visualizerKind";
+import { stageKind } from "../../../state/player/visualizerResolve";
 
 // -- Local Imports --
 import type { CoverPixels, CoverPixelState } from "./useCoverPixels";
@@ -34,7 +30,7 @@ export function dipTarget(
   pixels: CoverPixelState,
   warm: (kind: VisualizerKind) => boolean = () => true,
 ): DipTarget {
-  const target = effectiveVisualizerKind(picked, { glFailed, coverPixels: pixels !== "absent" });
+  const target = stageKind(picked, { glFailed, coverPixels: pixels !== "absent" });
   const waitingOnPixels = needsCoverPixels(target) && pixels === "pending";
   return { target, ready: !waitingOnPixels && (!isGlKind(target) || warm(target)) };
 }

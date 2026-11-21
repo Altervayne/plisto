@@ -152,7 +152,7 @@ function PlayerStage({
   const hushRefs = useMemo(() => [sourceRef, textRef], []);
   // The panel carries the dip's opacity for the visualizer and the queue plate beneath it.
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, panelRef);
+  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, panelRef, "player");
   const { shown } = choice;
   const easedAurora = auroraEased(useVisualizersAllowed(), usePlayerVisualizer(), usePlayerVisualizerReactivity());
   // Liquid and Dot cover draw the art themselves, under a clear tile over the cover.

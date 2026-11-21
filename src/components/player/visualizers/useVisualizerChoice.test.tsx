@@ -62,7 +62,7 @@ vi.mock("../../../theme", () => ({ isDarkTheme: () => false, subscribeTheme: () 
 function choose(): VisualizerChoice {
   let out!: VisualizerChoice;
   function Probe() {
-    out = useVisualizerChoice("cover.png", "present", 3, { current: null });
+    out = useVisualizerChoice("cover.png", "present", 3, { current: null }, "player");
     return null;
   }
   renderToStaticMarkup(<Probe />);

@@ -170,7 +170,15 @@ function SheetBody({
           {t((d) => d.player.warnLineSheet)}
         </p>
       </div>
-      <KindStrip groups={groups} checked={picked} stripRef={stripRef} onPick={onPick} onGroupChange={setGroup} tagFor={tagFor} />
+      <KindStrip
+        groups={groups}
+        checked={picked}
+        stripRef={stripRef}
+        onPick={onPick}
+        onGroupChange={setGroup}
+        tagFor={tagFor}
+        surface={place}
+      />
       <SheetFooter
         picked={picked}
         aside={<DefaultsAside resolved={resolved} fallback={fallback} />}

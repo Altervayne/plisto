@@ -73,7 +73,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   const coverSrc = cover?.src ?? null;
   // The stage carries the dip's opacity for the visualizer and the cover crossfade.
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, stageRef);
+  const choice = useVisualizerChoice(coverSrc, artStatus, trackId, stageRef, "ambient");
   const { shown, picked } = choice;
   const pick = useVisualizerPick(trackId);
   const catalog = useVisualizerCatalog();
@@ -98,7 +98,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
   } | null>(null);
   // The toast holds while its kind builds, then reads normally and fades.
   const toastWarm = useIsWarm(toast?.kind ?? "off");
-  const toastLoading = useLoadingCue(toast && !toastWarm ? toast.kind : null);
+  const toastLoading = useLoadingCue(toast && !toastWarm ? toast.kind : null, "ambient");
 
   useFullscreen();
 

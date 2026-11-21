@@ -1,10 +1,12 @@
 // -- Test Imports --
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // -- Unit Imports --
 import { CUE_DELAY_MS, boundaryKey, composePixels, dipReason, dipTarget, fallbackOf, mountedKind, shouldRetryDefaults, type DipLatch } from "./visualizerTarget";
 import type { CoverPixels, CoverPixelState } from "./useCoverPixels";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
+import { applyPluginRows, type PluginKindId } from "../../../state/player/pluginVisualizers";
+import { visualizerDecl as decl, visualizerRow as visRow } from "../../../state/plugins/fixtures";
 
 describe("dipTarget", () => {
   const cases: [string, VisualizerKind, boolean, CoverPixelState, VisualizerKind, boolean][] = [
@@ -21,6 +23,31 @@ describe("dipTarget", () => {
 
   it.each(cases)("%s", (_, picked, glFailed, pixels, target, ready) => {
     expect(dipTarget(picked, glFailed, pixels)).toEqual({ target, ready });
+  });
+});
+
+describe("dipTarget for a plugin kind", () => {
+  const RINGS = "com.example.rings/aurora-rings" as PluginKindId;
+
+  beforeEach(() => {
+    const needs = { fine: false, cover: true, pointer: false, waveform: false };
+    applyPluginRows([visRow("com.example.rings", "Rings", [decl({ needs })])]);
+  });
+
+  it("falls to Ridge with the gl line when its frame failed", () => {
+    const { target } = dipTarget(RINGS, true, "ready");
+    expect(target).toBe("ridge");
+    expect(fallbackOf(RINGS, target, true)).toBe("gl");
+  });
+
+  it("falls to Ridge with the cover line when it draws the cover and there is none", () => {
+    const { target } = dipTarget(RINGS, false, "absent");
+    expect(target).toBe("ridge");
+    expect(fallbackOf(RINGS, target, false)).toBe("cover");
+  });
+
+  it("aims at the kind while its cover is on hand", () => {
+    expect(dipTarget(RINGS, false, "ready")).toEqual({ target: RINGS, ready: true });
   });
 });
 

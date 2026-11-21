@@ -19,6 +19,7 @@ import { isPendingPluginKind } from "../../../state/player/pluginVisualizers";
 import { usePluginsListed, usePluginsStore } from "../../../state/plugins/store";
 import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
 import type { DipReason } from "../../../state/player/visualizerDip";
+import type { StageSurface } from "../../../state/player/pluginVis/frameCache";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
 import { isDarkTheme, subscribeTheme } from "../../../theme";
 import {
@@ -68,9 +69,9 @@ export interface VisualizerChoice {
 }
 
 /**
- * Resolves the picked visualizer for the stage at `stageRef`, showing track `trackId` with the cover at
- * `coverSrc` and the cover's `status`. A coverless track draws a generated seed image where a cover would
- * be, and dips the stage from the shown kind to it. A kind previewed from the picker takes the
+ * Resolves the picked visualizer for the stage at `stageRef` on `surface`, showing track `trackId` with
+ * the cover at `coverSrc` and the cover's `status`. A coverless track draws a generated seed image where a
+ * cover would be, and dips the stage from the shown kind to it. A kind previewed from the picker takes the
  * pick's place as the dip target until the preview ends; the pick and its fallback line stay as they are.
  * Cover pixels load while either end of the dip draws them, so the outgoing kind keeps its art on the way
  * down. Until the flash warning is acknowledged the stage aims at Off whatever the pick or a preview says,
@@ -83,6 +84,7 @@ export function useVisualizerChoice(
   status: CoverStatus,
   trackId: number,
   stageRef: RefObject<HTMLElement | null>,
+  surface: StageSurface,
 ): VisualizerChoice {
   const { resolution } = useVisualizerResolution(trackId);
   const { picked, source, defaultKind, defaultTier } = resolution;
@@ -137,7 +139,7 @@ export function useVisualizerChoice(
   // A not-ready target leaves the outgoing kind at full opacity, so a pending kind holds the stage as it is.
   const ready = aim.ready && !isPendingPluginKind(aimed, listed);
   const reason = useDipReason(boundaryKey(trackId, defaultsReady), target);
-  useVisualizerDip(stageRef, target, ready, reason, shown, setShown);
+  useVisualizerDip(stageRef, target, ready, reason, shown, setShown, surface);
   const pickedTarget = !allowed || isPendingPluginKind(picked, listed)
     ? picked
     : preview == null

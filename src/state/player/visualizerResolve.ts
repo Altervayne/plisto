@@ -22,7 +22,13 @@ import {
   resolveAlias,
 } from "./pluginVisualizers";
 import { isOffered, type Catalog } from "./visualizerCatalog";
-import { isKnownKind, type VisualizerKind } from "./visualizerKind";
+import {
+  effectiveVisualizerKind,
+  isKnownKind,
+  needsCoverPixels,
+  type VisualizerKind,
+  type VisualizerSupport,
+} from "./visualizerKind";
 
 // -- Type Imports --
 import type { AlbumKind } from "../../types";
@@ -257,4 +263,15 @@ export function defaultActions(place: TrackPlace, res: Resolution, status: Defau
     // A skipped default stays removable.
     clear: { visible: res.defaultTier != null || res.skipped != null, disabled: off },
   };
+}
+
+/**
+ * The kind a stage draws for a pick, with the fallbacks applied. A plugin kind falls to Ridge as a WebGL
+ * kind does: when its frame failed, or when it draws the cover and there are no cover pixels.
+ */
+export function stageKind(picked: VisualizerKind, support: VisualizerSupport): VisualizerKind {
+  if (!isPluginKindId(picked)) return effectiveVisualizerKind(picked, support);
+  if (support.glFailed) return "ridge";
+  if (needsCoverPixels(picked) && !support.coverPixels) return "ridge";
+  return picked;
 }

@@ -1,0 +1,29 @@
+/* A plugin visualizer's slot: the WebGL surface's layer, between the ambient ground and the content. The
+ * blend is set on the slot from the component, on the same element as the dip's opacity, so screen and
+ * multiply still reach the aurora. A slot that is not shown, or whose frame has not drawn, sits at
+ * opacity 0 with its layout intact, so the frame compiles and is measured as if it were shown. */
+.slot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: var(--viz-dip, 1);
+}
+
+.held {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* The frame's document picks its own scheme, so the page's never paints an opaque canvas behind it. */
+.frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}

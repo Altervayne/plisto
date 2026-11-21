@@ -1,8 +1,8 @@
 /*
  * The visualizer sheet: whether it is open, the control that opened it, and the kind it previews on the
  * stage. A preview change waits out a short dwell, so a pointer sweeping across the strip never dips the
- * stage through every tile it crosses. A preview only aims the stage: it never writes a pick. Closing
- * drops the preview at once.
+ * stage through every tile it crosses; a plugin tile waits longer, as its preview may start a frame. A
+ * preview only aims the stage: it never writes a pick. Closing drops the preview at once.
  */
 
 // -- Library Imports --
@@ -11,6 +11,7 @@ import { create } from "zustand";
 // -- State Imports --
 import { usePreferencesStore } from "../preferences/store";
 import { warningStatus } from "./visualizerWarning";
+import { previewDwellMs } from "./pluginVis/frameCache";
 
 // -- Type Imports --
 import type { VisualizerKind } from "./visualizerKind";
@@ -69,7 +70,7 @@ export const useVisualizerSheet = create<VisualizerSheetStore>((set, get) => ({
     const timer = setTimeout(() => {
       pending = null;
       if (get().isOpen) set({ previewKind: kind });
-    }, PREVIEW_DWELL_MS);
+    }, previewDwellMs(kind, PREVIEW_DWELL_MS));
     pending = { kind, timer };
   },
   clearPreview: () => {

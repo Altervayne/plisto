@@ -57,7 +57,8 @@ describe("visualizer gate guard", () => {
     expect(files.length).toBeGreaterThan(200);
   });
 
-  it.each(["GlVisualizer", "SpectrumRidge"])("%s is drawn only by the gated stage, the widget and dev code", (name) => {
+  const DRAWERS = ["GlVisualizer", "SpectrumRidge", "PluginStage"];
+  it.each(DRAWERS)("%s is drawn only by the gated stage, the widget and dev code", (name) => {
     expect(importers(name).length).toBeGreaterThan(0);
     expect(importers(name).filter((file) => !allowedDrawers(file))).toEqual([]);
   });

@@ -17,6 +17,7 @@ import { useLoadingCue } from "../useLoadingCue";
 import { warmKind } from "../gl/warm";
 import { useVisualizerPreview, useVisualizerSheet } from "../../../../state/player/visualizerSheet";
 import type { VisualizerKind } from "../../../../state/player/visualizerKind";
+import type { StageSurface } from "../../../../state/player/pluginVis/frameCache";
 
 // -- Local Imports --
 import { sheetGroupLabel, type SheetGroup, type SheetGroupId } from "./sheetGroups";
@@ -38,6 +39,8 @@ interface KindStripProps {
   onGroupChange: (id: SheetGroupId) => void;
   // A `KindTag` over a kind's thumb, if any.
   tagFor?: (kind: VisualizerKind) => ReactNode;
+  // The stage the sheet sits on, whose frames the loading cue follows.
+  surface: StageSurface;
 }
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -64,13 +67,21 @@ function kindOf(target: EventTarget | null): VisualizerKind | null {
  * rather than bound per tile. The strip opens on the checked tile once, on mount; a later pick leaves the
  * scroll where it is.
  */
-export function KindStrip({ groups, checked, stripRef, onPick, onGroupChange, tagFor }: KindStripProps) {
+export function KindStrip({
+  groups,
+  checked,
+  stripRef,
+  onPick,
+  onGroupChange,
+  tagFor,
+  surface,
+}: KindStripProps) {
   const t = useT();
   const [fades, setFades] = useState({ left: 0, right: FADE_RIGHT });
   const hovered = useRef<VisualizerKind | null>(null);
   useStripWheel(stripRef);
   const aimed = useVisualizerPreview() ?? checked;
-  const cueing = useLoadingCue(aimed);
+  const cueing = useLoadingCue(aimed, surface);
 
   const sync = useCallback(() => {
     const strip = stripRef.current;
