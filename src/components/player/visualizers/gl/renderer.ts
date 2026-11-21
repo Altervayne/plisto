@@ -17,6 +17,7 @@ import {
   type Target,
 } from "./kit";
 import { BLUR_PROGRAM, COMPOSITE_PROGRAM, DOWN_PROGRAM, TRAIL_PROGRAM } from "./shaders";
+import { syncCompile, type Compile } from "./compile";
 
 // -- State Imports --
 import type { GlBlendMode } from "../../../../state/player/visualizerRegistry";
@@ -79,14 +80,18 @@ const MAX_DPR = 2;
 // The corner darkening ambient applies unless a candidate sets its own.
 const AMBIENT_VIGNETTE = 0.35;
 
-/** Opens a WebGL2 context on `canvas`, or returns null when WebGL2 is unavailable. */
+/**
+ * Opens a WebGL2 context on `canvas`, or returns null when WebGL2 is unavailable. `compile` is handed to
+ * the kit; a deferred one makes a draw throw ProgramPending until its programs have finished.
+ */
 export function createRenderer<K extends string = GlKind>(
   canvas: HTMLCanvasElement,
   resolve: SceneResolver<K>,
+  compile: Compile = syncCompile,
 ): Renderer<K> | null {
   const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
   if (!gl) return null;
-  const kit = createKit(gl);
+  const kit = createKit(gl, compile);
   let targets: Targets | null = null;
   let current: { kind: K; candidate: Candidate; traits: SceneTraits } | null = null;
   let flip = 0;

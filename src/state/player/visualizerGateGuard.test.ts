@@ -62,7 +62,7 @@ describe("visualizer gate guard", () => {
     expect(importers(name).filter((file) => !allowedDrawers(file))).toEqual([]);
   });
 
-  it("only GlVisualizer, the scenes and dev code load the renderer", () => {
+  it("only GlVisualizer, the scenes, the plugin visualizer runtime and dev code load the renderer", () => {
     const offenders = files
       .filter(([, text]) => loadsPath(text, "gl/renderer") || loadsModule(text, "renderer"))
       .map(([path]) => path)
@@ -70,6 +70,7 @@ describe("visualizer gate guard", () => {
         (file) =>
           file !== "components/player/visualizers/GlVisualizer.tsx" &&
           !file.startsWith("components/player/visualizers/gl/") &&
+          !file.startsWith("visRuntime/") &&
           !underDev(file),
       );
     expect(offenders).toEqual([]);

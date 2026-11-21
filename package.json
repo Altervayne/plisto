@@ -11,6 +11,8 @@
     "tauri": "tauri",
     "thumbs": "node tools/visualizer-thumbs.mjs capture",
     "thumbs:check": "node tools/visualizer-thumbs.mjs check",
+    "vis:build": "node tools/vis-bundle.mjs build",
+    "vis:check": "node tools/vis-bundle.mjs check",
     "prune:target": "node scripts/prune-target.mjs",
     "release:manifest": "node scripts/make-latest-json.mjs",
     "build:diagnostic": "tauri build --features diagnostic --no-bundle",
