@@ -7,9 +7,20 @@
  * track on itself, so a pick never sticks across unrelated loose tracks. A file opened from disk has no
  * key and no defaults. A single has one tier: its album, so a stray track row on it is never read.
  * A stored string that names no kind means no default at that tier, never Ridge.
+ *
+ * A former plugin kind id reads as its current one; only the next write of that value stores the new id.
+ * A plugin kind read before the plugins list has arrived is pending: it is taken at its word, never read
+ * as gone, so no fallback stands in for it.
  */
 
 // -- State Imports --
+import {
+  isPendingPluginKind,
+  isPluginKindId,
+  pluginFamilyOf,
+  pluginVisualizer,
+  resolveAlias,
+} from "./pluginVisualizers";
 import { isOffered, type Catalog } from "./visualizerCatalog";
 import { isKnownKind, type VisualizerKind } from "./visualizerKind";
 
@@ -41,6 +52,8 @@ export interface ResolveInput {
   albumKey: string | null;
   // Which kinds are offered. A tier naming a kind it turns off is skipped; nothing stored is rewritten.
   catalog: Catalog;
+  // True until the plugins list has been read once, so a stored plugin kind is pending.
+  pluginsPending?: boolean;
 }
 
 /** A stored default the catalog turns off, so it is not in play. */
@@ -119,48 +132,56 @@ export function storedDefaultsOf(
   }
 }
 
-function knownKind(raw: string | null): VisualizerKind | null {
-  return isKnownKind(raw) ? raw : null;
+// A stored string as a kind: a known kind under its current id, or a pending plugin kind. Null otherwise.
+function readKind(raw: string | null, input: ResolveInput): VisualizerKind | null {
+  if (raw == null) return null;
+  const id = resolveAlias(raw);
+  if (isKnownKind(id)) return id;
+  return isPluginKindId(id) && isPendingPluginKind(id, !input.pluginsPending) ? id : null;
 }
 
-// A stored default in play: a kind the registry knows and the catalog offers.
-function offeredKindOf(raw: string | null, catalog: Catalog): VisualizerKind | null {
-  const kind = knownKind(raw);
-  return kind && isOffered(catalog, kind) ? kind : null;
+// A pending plugin kind has no catalog entry yet: it is offered unless the stored catalog turns it or its
+// family off.
+function offered(catalog: Catalog, kind: VisualizerKind): boolean {
+  if (!isPluginKindId(kind) || pluginVisualizer(kind)) return isOffered(catalog, kind);
+  const family = pluginFamilyOf(kind.slice(0, kind.indexOf("/")));
+  return !catalog.state.kinds.includes(kind) && !catalog.state.groups.includes(family);
+}
+
+// A stored default in play: a kind read from it that the catalog offers.
+function offeredKindOf(raw: string | null, input: ResolveInput): VisualizerKind | null {
+  const kind = readKind(raw, input);
+  return kind && offered(input.catalog, kind) ? kind : null;
 }
 
 // An override holds only while playback stays on the album key it was picked on, and only on an offered kind.
-function liveOverride(
-  override: VisualizerOverride | null,
-  albumKey: string | null,
-  catalog: Catalog,
-): VisualizerKind | null {
-  return override && albumKey != null && override.albumKey === albumKey && isOffered(catalog, override.kind)
-    ? override.kind
-    : null;
+function liveOverride(input: ResolveInput): VisualizerKind | null {
+  const { override, albumKey } = input;
+  if (!override || albumKey == null || override.albumKey !== albumKey) return null;
+  return offeredKindOf(override.kind, input);
 }
 
 // The global pick when it is offered, else the catalog's fallback. Off is always offered.
-function globalKind(global: VisualizerKind, catalog: Catalog): VisualizerKind {
-  return isOffered(catalog, global) ? global : (catalog.fallback as VisualizerKind);
+function globalKind(input: ResolveInput): VisualizerKind {
+  return offeredKindOf(input.global, input) ?? (input.catalog.fallback as VisualizerKind);
 }
 
 // The known default a turned-off kind keeps out of play, when it outranks the one in play.
 function skippedDefault(input: ResolveInput, played: DefaultTier | null): SkippedDefault | null {
-  const track = knownKind(input.trackDefault);
+  const track = readKind(input.trackDefault, input);
   if (track && played !== "track") return { kind: track, tier: "track" };
-  const album = knownKind(input.albumDefault);
+  const album = readKind(input.albumDefault, input);
   if (album && played == null) return { kind: album, tier: "album" };
   return null;
 }
 
 export function resolveVisualizer(input: ResolveInput): Resolution {
-  const track = offeredKindOf(input.trackDefault, input.catalog);
-  const album = offeredKindOf(input.albumDefault, input.catalog);
+  const track = offeredKindOf(input.trackDefault, input);
+  const album = offeredKindOf(input.albumDefault, input);
   const defaultKind = track ?? album;
   const defaultTier: DefaultTier | null = track ? "track" : album ? "album" : null;
-  const override = liveOverride(input.override, input.albumKey, input.catalog);
-  const picked = override ?? defaultKind ?? globalKind(input.global, input.catalog);
+  const override = liveOverride(input);
+  const picked = override ?? defaultKind ?? globalKind(input);
   const skipped = skippedDefault(input, defaultTier);
   // The global pick Off outranks every default and override. The default stays reported, so the pickers
   // can name it while it waits.
@@ -181,9 +202,10 @@ export function defaultWaits(res: Resolution): boolean {
  * A pick from the picker or V. Off always writes the global pref and drops the override. A kind picked
  * while the global pref is Off becomes the global pref. Over a default a kind is a temporary override,
  * and picking the default itself drops it. With no default it writes the global pref and drops any
- * override left behind.
+ * override left behind. A former plugin kind id is written as its current one.
  */
-export function applyManualPick(input: ResolveInput, kind: VisualizerKind): ManualPick {
+export function applyManualPick(input: ResolveInput, picked: VisualizerKind): ManualPick {
+  const kind = resolveAlias(picked);
   if (kind === "off") return { override: null, global: "off" };
   const { defaultKind } = resolveVisualizer(input);
   if (defaultKind == null || input.albumKey == null) return { override: null, global: kind };

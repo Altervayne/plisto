@@ -51,6 +51,16 @@ describe("catalogOf with plugin kinds", () => {
     expect(catalogOf(raw, false)).toBe(b);
   });
 
+  it("reads a kind stored under a former id as the current id, written only by the next toggle", () => {
+    applyPluginRows([visRow("com.zeta.vis", "Zeta", [decl({ id: "z1", aliases: ["old"] })])]);
+    const raw = stored(["com.zeta.vis/old", "com.zeta.vis/z1"]);
+    const c = catalogOf(raw, false);
+    expect(c.state.kinds).toEqual(["com.zeta.vis/z1"]);
+    expect(c.offeredKinds).not.toContain("com.zeta.vis/z1");
+    expect(canTurnOff(c, "kind", "com.zeta.vis/z1")).toBe(false);
+    expect(serializeCatalog(toggleKind(c, "ink")!)).toBe(stored(["com.zeta.vis/z1", "ink"]));
+  });
+
   it("walks plugin kinds in the V cycle after the built-ins and before Off", () => {
     installTwo();
     const c = catalogOf(undefined, false);

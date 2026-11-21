@@ -1,5 +1,5 @@
 // -- Test Imports --
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 // -- Unit Imports --
@@ -13,9 +13,14 @@ import { useVisualizerDefaults } from "../../../state/player/visualizerDefaults"
 import { ALL_OFFERED, nextOfferedKind } from "../../../state/player/visualizerCatalog";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 import type { VisualizerOverride } from "../../../state/player/visualizerResolve";
+import { usePluginsStore } from "../../../state/plugins/store";
+import { reloadPlugins, startPluginsSync } from "../../../state/plugins/usePluginsSync";
+import { visualizerDecl as decl, visualizerRow as visRow } from "../../../state/plugins/fixtures";
 
 const h = vi.hoisted(() => ({
   setSetting: vi.fn(() => Promise.resolve()),
+  setAlbumVisualizer: vi.fn(() => Promise.resolve()),
+  pluginsList: vi.fn(),
   warmKind: vi.fn(),
   trackId: 3,
 }));
@@ -38,7 +43,14 @@ vi.mock("zustand", async (orig) => {
 vi.mock("../../../lib/ipc", async (orig) => ({
   ...(await orig<typeof import("../../../lib/ipc")>()),
   setSetting: h.setSetting,
+  setAlbumVisualizer: h.setAlbumVisualizer,
+  pluginsList: h.pluginsList,
+  pluginsBootState: () => Promise.resolve({ runtime: "running", unclean: false, safe_flag: false }),
+  pluginsDevMode: () => Promise.resolve(false),
 }));
+// One attempt per read, so a failed plugins read lands at once.
+vi.mock("../../../lib/withRetry", () => ({ withRetry: (fn: () => Promise<unknown>) => fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
 vi.mock("../../../state/organize/store", () => ({
   useAlbumIndex: () => ALBUM_INDEX,
 }));
@@ -86,10 +98,18 @@ const override = () => useVisualizerDefaults.getState().override;
 const pickOn = (trackId: number, kind: VisualizerKind) => probe(() => useVisualizerPick(trackId))(kind);
 const drawn = (trackId = 3) => probe(() => useVisualizerResolution(trackId)).resolution.picked;
 
+let stopSync: (() => void) | null = null;
+
 beforeEach(() => {
   vi.clearAllMocks();
   setGlobal("ridge");
   setDefaults({});
+  usePluginsStore.setState({ rows: [], boot: null, status: "idle", listed: false, epoch: 0 });
+});
+
+afterEach(() => {
+  stopSync?.();
+  stopSync = null;
 });
 
 describe("useVisualizerPick of Off", () => {
@@ -182,5 +202,111 @@ describe("useWarmCurrentVisualizer while the global pick is Off", () => {
     setDefaults({ 7: "nebula" }, OVERRIDE);
     probe(useWarmCurrentVisualizer);
     expect(h.warmKind.mock.calls).toEqual([["off"]]);
+  });
+});
+
+const AURORA = "com.example.vis/aurora-rings";
+const RINGS = "com.example.vis/rings";
+const EXAMPLE = visRow("com.example.vis", "Example", [decl({ aliases: ["rings"] })]);
+
+/** Every stored visualizer value, as one string to compare byte for byte. */
+const stored = () => {
+  const { albums, tracks } = useVisualizerDefaults.getState();
+  return JSON.stringify([usePreferencesStore.getState().values, albums, tracks]);
+};
+
+describe("a stored plugin kind before the plugins list arrives", () => {
+  const failRead = () => h.pluginsList.mockRejectedValue(new Error("backend not ready"));
+  const startSync = async () => {
+    stopSync = startPluginsSync();
+    await vi.waitFor(() => expect(usePluginsStore.getState().status).not.toBe("loading"));
+  };
+
+  it("is never written back through a failed read, a retry and a late success", async () => {
+    setGlobal(AURORA);
+    setDefaults({ 7: AURORA });
+    const before = stored();
+    failRead();
+    await startSync();
+    expect(usePluginsStore.getState().status).toBe("failed");
+    expect(drawn()).toBe(AURORA);
+    expect(stored()).toBe(before);
+
+    expect(await reloadPlugins()).toBe(false);
+    expect(drawn()).toBe(AURORA);
+    expect(stored()).toBe(before);
+
+    h.pluginsList.mockResolvedValue([EXAMPLE]);
+    expect(await reloadPlugins()).toBe(true);
+    expect(drawn()).toBe(AURORA);
+    expect(stored()).toBe(before);
+    expect(h.setSetting).not.toHaveBeenCalled();
+    expect(h.setAlbumVisualizer).not.toHaveBeenCalled();
+  });
+
+  it("falls back on screen only once a listing lacks the plugin", async () => {
+    setGlobal(AURORA);
+    const before = stored();
+    failRead();
+    await startSync();
+    h.pluginsList.mockResolvedValue([]);
+    expect(await reloadPlugins()).toBe(true);
+    expect(drawn()).toBe("ridge");
+    expect(stored()).toBe(before);
+    expect(h.setSetting).not.toHaveBeenCalled();
+  });
+
+  it("sets a pick aside over a pending default instead of replacing the global pick", () => {
+    setDefaults({ 7: AURORA });
+    pickOn(3, "nebula");
+    expect(globalPick()).toBe("ridge");
+    expect(override()).toEqual({ kind: "nebula", albumKey: "album:7" });
+    expect(useVisualizerDefaults.getState().albums).toEqual({ 7: AURORA });
+  });
+});
+
+describe("a kind stored under an alias", () => {
+  beforeEach(() => usePluginsStore.getState().applyRows([EXAMPLE]));
+
+  it("reads as its current kind and is not rewritten on read", () => {
+    setGlobal(RINGS);
+    setDefaults({ 7: RINGS });
+    const before = stored();
+    expect(drawn()).toBe(AURORA);
+    expect(probe(() => useVisualizerResolution(3)).resolution.defaultKind).toBe(AURORA);
+    expect(stored()).toBe(before);
+    expect(h.setSetting).not.toHaveBeenCalled();
+  });
+
+  it("is rewritten by the next write of the pick", () => {
+    setGlobal(RINGS);
+    pickOn(3, RINGS);
+    expect(globalPick()).toBe(AURORA);
+    expect(h.setSetting).toHaveBeenCalledWith(PREF_KEYS.playerVisualizer, AURORA);
+  });
+
+  it("stays as stored on an album default until that default is written", async () => {
+    setDefaults({ 7: RINGS });
+    expect(pickOn(3, AURORA)).toEqual({ override: null, global: null });
+    expect(useVisualizerDefaults.getState().albums).toEqual({ 7: RINGS });
+
+    const { picked } = probe(() => useVisualizerResolution(3)).resolution;
+    expect(await useVisualizerDefaults.getState().setAlbumDefault(7, picked)).toBe(true);
+    expect(useVisualizerDefaults.getState().albums).toEqual({ 7: AURORA });
+    expect(h.setAlbumVisualizer).toHaveBeenCalledWith(7, AURORA);
+  });
+});
+
+describe("safe mode and a held runtime", () => {
+  it.each(["safe", "held"] as const)("keep a stored plugin pick and default in a %s runtime", (runtime) => {
+    usePluginsStore.getState().applyRows([EXAMPLE]);
+    usePluginsStore.getState().applyBoot({ runtime, unclean: true, safe_flag: runtime === "safe" });
+    setGlobal(AURORA);
+    setDefaults({ 7: AURORA });
+    const before = stored();
+    expect(drawn()).toBe(AURORA);
+    expect(pickOn(3, AURORA)).toEqual({ override: null, global: null });
+    expect(stored()).toBe(before);
+    expect(h.setSetting).not.toHaveBeenCalled();
   });
 });

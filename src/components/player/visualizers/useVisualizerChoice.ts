@@ -15,6 +15,9 @@ import { usePlayerSpectrumLayout, usePlayerVisualizerReactivity } from "../../..
 import { useVisualizerDefaults, useVisualizerDefaultsStatus } from "../../../state/player/visualizerDefaults";
 import { useVisualizerPreview } from "../../../state/player/visualizerSheet";
 import { useVisualizersAllowed } from "../../../state/player/visualizerWarning";
+import { isPendingPluginKind } from "../../../state/player/pluginVisualizers";
+import { usePluginsListed, usePluginsStore } from "../../../state/plugins/store";
+import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
 import type { DipReason } from "../../../state/player/visualizerDip";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
 import { isDarkTheme, subscribeTheme } from "../../../theme";
@@ -72,7 +75,8 @@ export interface VisualizerChoice {
  * Cover pixels load while either end of the dip draws them, so the outgoing kind keeps its art on the way
  * down. Until the flash warning is acknowledged the stage aims at Off whatever the pick or a preview says,
  * loads no pixels and warms nothing, then dips to the pick once it is. A WebGL failure drops that kind to
- * Ridge until the target changes, so aiming at it again retries.
+ * Ridge until the target changes, so aiming at it again retries. A plugin kind still waiting on the plugins
+ * list holds whatever the stage shows, with no fallback line, until the list arrives.
  */
 export function useVisualizerChoice(
   coverSrc: string | null,
@@ -84,14 +88,19 @@ export function useVisualizerChoice(
   const { picked, source, defaultKind, defaultTier } = resolution;
   const defaultsStatus = useVisualizerDefaultsStatus();
   const defaultsReady = defaultsStatus === "ready";
-  // A failed boot read is tried again at the next track change; load() joins a read already in flight.
+  // A failed boot read is tried again at the next track change; load() joins a read already in flight. The
+  // plugins list follows the same rule, so a stored plugin kind is never left pending for good.
   const lastTrack = useRef(trackId);
   useEffect(() => {
     if (shouldRetryDefaults(useVisualizerDefaults.getState().status, lastTrack.current, trackId)) {
       void useVisualizerDefaults.getState().load();
     }
+    if (shouldRetryDefaults(usePluginsStore.getState().status, lastTrack.current, trackId)) {
+      void reloadPlugins();
+    }
     lastTrack.current = trackId;
   }, [trackId]);
+  const listed = usePluginsListed();
   const reactivity = usePlayerVisualizerReactivity();
   const spectrumLayout = usePlayerSpectrumLayout();
   const preview = useVisualizerPreview();
@@ -102,7 +111,9 @@ export function useVisualizerChoice(
   const [failed, setFailed] = useState<VisualizerKind | null>(null);
   const warmed = useWarmState((s) => s.warmed);
   const warm = (kind: VisualizerKind) => warmIn(warmed, kind);
-  const [shown, setShown] = useState(() => mountedKind(wanted, warm));
+  const [shown, setShown] = useState(() =>
+    isPendingPluginKind(wanted, listed) ? "off" : mountedKind(wanted, warm),
+  );
   // The programs reach the shader cache before the dip aims at the kind, so its first frame never stalls.
   useEffect(() => {
     warmKind(aimed);
@@ -121,10 +132,13 @@ export function useVisualizerChoice(
   const { state } = composed;
   const pixels = composed.pixels ?? (state === "pending" ? held.current : null);
   const onGlFail = useCallback(() => setFailed(aimed), [aimed]);
-  const { target, ready } = dipTarget(aimed, failed === aimed, state, warm);
+  const aim = dipTarget(aimed, failed === aimed, state, warm);
+  const { target } = aim;
+  // A not-ready target leaves the outgoing kind at full opacity, so a pending kind holds the stage as it is.
+  const ready = aim.ready && !isPendingPluginKind(aimed, listed);
   const reason = useDipReason(boundaryKey(trackId, defaultsReady), target);
   useVisualizerDip(stageRef, target, ready, reason, shown, setShown);
-  const pickedTarget = !allowed
+  const pickedTarget = !allowed || isPendingPluginKind(picked, listed)
     ? picked
     : preview == null
       ? target

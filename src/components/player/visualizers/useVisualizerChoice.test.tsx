@@ -8,12 +8,17 @@ import { useVisualizerChoice, type VisualizerChoice } from "./useVisualizerChoic
 // -- Type Imports --
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
+// -- State Imports --
+import { usePluginsStore } from "../../../state/plugins/store";
+import { visualizerDecl as decl, visualizerRow as visRow } from "../../../state/plugins/fixtures";
+
 const h = vi.hoisted(() => ({
   allowed: false,
   picked: "nebula" as string,
   source: "default" as string,
   preview: null as string | null,
   dipTarget: null as string | null,
+  dipReady: null as boolean | null,
   coverSrc: null as string | null,
   warmed: [] as string[],
 }));
@@ -46,8 +51,9 @@ vi.mock("./useCoverPixels", () => ({
 }));
 vi.mock("./useCoverSeed", () => ({ useCoverSeed: () => ({ pixels: null, state: "absent" }) }));
 vi.mock("./useVisualizerDip", () => ({
-  useVisualizerDip: (_stage: unknown, target: string) => {
+  useVisualizerDip: (_stage: unknown, target: string, ready: boolean) => {
     h.dipTarget = target;
+    h.dipReady = ready;
   },
 }));
 vi.mock("./gl/warm", () => ({ warmKind: (kind: string) => h.warmed.push(kind) }));
@@ -69,8 +75,10 @@ beforeEach(() => {
   h.source = "default";
   h.preview = null;
   h.dipTarget = null;
+  h.dipReady = null;
   h.coverSrc = null;
   h.warmed = [];
+  usePluginsStore.setState({ rows: [], status: "idle", listed: false });
 });
 
 describe("useVisualizerChoice gate", () => {
@@ -113,5 +121,37 @@ describe("useVisualizerChoice gate", () => {
     h.preview = "oscilloscope" as VisualizerKind;
     choose();
     expect(h.dipTarget).toBe("oscilloscope");
+  });
+});
+
+describe("useVisualizerChoice with a plugin kind waiting on the plugins list", () => {
+  const AURORA = "com.example.vis/aurora-rings";
+
+  it("holds the stage as it is, with no fallback line, until the list arrives", () => {
+    h.allowed = true;
+    h.picked = AURORA;
+    usePluginsStore.setState({ status: "failed" });
+    const choice = choose();
+    expect(choice.shown).toBe("off");
+    expect(h.dipTarget).toBe(AURORA);
+    expect(h.dipReady).toBe(false);
+    expect(choice.picked).toBe(AURORA);
+    expect(choice.fallback).toBeNull();
+  });
+
+  it("aims at the kind once a listing holds it", () => {
+    h.allowed = true;
+    h.picked = AURORA;
+    usePluginsStore.getState().applyRows([visRow("com.example.vis", "Example", [decl()])]);
+    choose();
+    expect(h.dipTarget).toBe(AURORA);
+    expect(h.dipReady).toBe(true);
+  });
+
+  it("never holds a built-in pick", () => {
+    h.allowed = true;
+    h.picked = "ridge";
+    expect(choose().shown).toBe("ridge");
+    expect(h.dipReady).toBe(true);
   });
 });

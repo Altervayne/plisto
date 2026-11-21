@@ -23,6 +23,8 @@ interface PluginsStore {
   /** Developer mode, as last read. A failed read leaves it as it was. */
   devMode: boolean;
   status: PluginsLoadStatus;
+  /** Whether a listing has applied once. Until one has, the rows say nothing about what is installed. */
+  listed: boolean;
   /** Bumped by every local row change, so a listing that began before one can be told apart. */
   epoch: number;
   setStatus: (status: PluginsLoadStatus) => void;
@@ -53,9 +55,10 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
   boot: null,
   devMode: false,
   status: "idle",
+  listed: false,
   epoch: 0,
   setStatus: (status) => set({ status }),
-  applyRows: (rows) => set((s) => ({ rows: reuse(s.rows, rows) })),
+  applyRows: (rows) => set((s) => ({ rows: reuse(s.rows, rows), listed: true })),
   upsertRow: (row) =>
     set((s) => {
       const at = s.rows.findIndex((r) => r.id === row.id);
@@ -103,6 +106,7 @@ export const usePlugin = (id: string): PluginRow | undefined =>
   usePluginsStore((s) => s.rows.find((row) => row.id === id));
 export const useEnabledPlugins = (): PluginRow[] => usePluginsStore((s) => enabledOf(s.rows));
 export const usePluginsStatus = (): PluginsLoadStatus => usePluginsStore((s) => s.status);
+export const usePluginsListed = (): boolean => usePluginsStore((s) => s.listed);
 export const usePluginsBoot = (): PluginBootState | null => usePluginsStore((s) => s.boot);
 export const useDevMode = (): boolean => usePluginsStore((s) => s.devMode);
 export const usePluginRuntime = (): PluginRuntime | null => usePluginsStore((s) => s.boot?.runtime ?? null);

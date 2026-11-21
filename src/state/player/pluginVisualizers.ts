@@ -4,6 +4,10 @@
  * family order. The revision bumps only when the table's content changes, so a memo keyed on it rebuilds
  * only then.
  *
+ * The table follows the rows alone, never the runtime gate: a plugin held for the user's answer or off
+ * for a safe-mode session keeps its kinds here, so its stored picks stay known. Whether a kind can run
+ * is the stage's question.
+ *
  * Type imports only: every scene reaches this module through visualizerKind, so it must stay free of the
  * store, React and IPC. The plugins store feeds it.
  */
@@ -136,6 +140,15 @@ export function familyLabel(family: string): string | null {
 }
 
 /** The current id for a former id an installed kind lists as an alias; any other string comes back as is. */
-export function resolveAlias(id: string): string {
+export function resolveAlias<T extends string>(id: T): T | PluginKindId {
   return aliasOf.get(id) ?? id;
+}
+
+/**
+ * Whether a kind waits on the plugins list: a plugin kind id the table neither holds nor knows as an
+ * alias, while no listing has applied. Such a kind is neither installed nor gone yet, so nothing may stand
+ * in for it.
+ */
+export function isPendingPluginKind(kind: string, listed: boolean): boolean {
+  return !listed && isPluginKindId(kind) && !byId.has(kind) && !aliasOf.has(kind);
 }

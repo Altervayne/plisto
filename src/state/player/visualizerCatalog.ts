@@ -2,7 +2,8 @@
  * The visualizer catalog: which kinds and families the user turned off. The stored value lists only the
  * turned-off ids, so a kind or family the registry gains later arrives on. Ids are plain strings: one the
  * registry does not know is never offered and is kept untouched on every write. Installed plugin kinds
- * join as entries of their `plugin:<id>` families, after the built-ins.
+ * join as entries of their `plugin:<id>` families, after the built-ins. A kind stored under a former id
+ * reads as its current id, and the next toggle writes the current id; reading never writes.
  *
  * A read that failed, or a value written by a newer version, offers every kind and refuses every write,
  * so an unreadable value can neither hide all visualizers nor be overwritten. At least one built-in kind
@@ -17,6 +18,7 @@ import {
   PLUGIN_FAMILY_PREFIX,
   pluginVisualizerRevision,
   pluginVisualizers,
+  resolveAlias,
 } from "./pluginVisualizers";
 import { GROUP_ORDER, VISUALIZER_DESCRIPTORS } from "./visualizerRegistry";
 
@@ -137,7 +139,8 @@ export function buildCatalog(
   entries: readonly CatalogEntry[] = BUILTIN_ENTRIES,
 ): Catalog {
   const parsed = parseCatalog(raw, failed);
-  let state = parsed.state;
+  const kinds = [...new Set(parsed.state.kinds.map(resolveAlias))];
+  let state: CatalogState = { kinds, groups: parsed.state.groups };
   // A stored value that offers no built-in drops its known built-in kind and family ids, so they are all on.
   // Unknown ids and plugin ids stay so the next write keeps them.
   const builtins = entries.filter(isBuiltinEntry);
