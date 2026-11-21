@@ -1,7 +1,7 @@
 /*
  * Repository-level guards for the plugin frame host: the window CSPs, the capability files, the app
- * builder and the locked Tauri stack. Each fails when a config change would quietly undo a property
- * the frame sandbox relies on.
+ * builder, the locked Tauri stack, and what only the visualizer host may serve. Each fails when a
+ * change would quietly undo a property the frame sandbox relies on.
  */
 
 // -- Library Imports --
@@ -9,6 +9,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use tauri::http::{header, Response, StatusCode};
+
+// -- Local Imports --
+use super::frame_host::vis_host::{vis_url, VIS_CSP};
+use super::frame_host::{frame_url, respond, ResourceKind, FRAME_CSP};
+use super::stage::Temp;
+use super::test_kit;
 
 // The versions the sandbox probe ran against. A bump re-runs the probe before these move.
 const PROBED: &[(&str, &str)] = &[
@@ -179,4 +186,76 @@ fn the_webview_guard_restates_the_probed_wry() {
          and restate them in webview_guard.rs WRY_DEFAULT_ARGS, then re-run the WebRTC leak probe \
          before updating WRY_DEFAULTS_FROM."
     );
+}
+
+const DEMO: &str = "com.example.demo";
+
+/// A throwaway app data dir with one installed UI plugin and one plain file.
+fn demo() -> Temp {
+    let d = Temp::new("frame-host-guard");
+    let dir = d.0.join("plugins").join(DEMO);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("plugin.json"), test_kit::ui("1.0.0", &[]).to_string()).unwrap();
+    fs::write(dir.join("app.js"), "1").unwrap();
+    d
+}
+
+fn get(d: &Temp, uri: &str, referer: Option<&str>) -> Response<Vec<u8>> {
+    let kind = ResourceKind::Subresource;
+    respond(&d.0, "GET", uri, referer, None, kind, &|_: &str| true)
+}
+
+fn on(base: String, path: &str) -> String {
+    format!("{}{path}", base.trim_end_matches('/'))
+}
+
+// Blob workers and WebAssembly let a frame run code built from data rather than its installed
+// files. Only the visualizer host's policy carries them; a page, sidebar or background frame never.
+#[test]
+fn a_page_frame_never_gains_blob_workers_or_wasm() {
+    let d = demo();
+    let page = on(frame_url(DEMO), "/app.js");
+    let elsewhere = on(vis_url(DEMO), "/app.js");
+    let served = get(&d, &page, None);
+    let refused = get(&d, &page, Some(&elsewhere));
+    let malformed = get(&d, "https://pv-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.invalid/app.js", None);
+    assert_eq!(served.status(), StatusCode::OK);
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(malformed.status(), StatusCode::NOT_FOUND);
+    let sent: Vec<&str> = [&served, &refused, &malformed]
+        .iter()
+        .map(|res| res.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap())
+        .collect();
+    for csp in sent.iter().copied().chain([FRAME_CSP]) {
+        assert_eq!(csp, FRAME_CSP);
+        for directive in csp.split(';').map(str::trim) {
+            let name = directive.split_whitespace().next().unwrap_or("");
+            assert!(
+                !matches!(name, "worker-src" | "child-src"),
+                "the page frame CSP names {name}"
+            );
+            assert!(!directive.contains("wasm"), "{directive}");
+            assert!(!directive.contains("eval"), "{directive}");
+            assert!(
+                !directive.contains("blob:") || name == "img-src",
+                "{directive}"
+            );
+        }
+    }
+    assert!(VIS_CSP.contains("worker-src blob:"));
+    assert!(VIS_CSP.contains("'wasm-unsafe-eval'"));
+}
+
+#[test]
+fn the_visualizer_files_are_served_on_the_visualizer_host_only() {
+    let d = demo();
+    for path in ["/_plisto/vis/1/plisto-vis.js", "/_plisto/vis/1/shader.html"] {
+        assert_eq!(
+            get(&d, &on(frame_url(DEMO), path), None).status(),
+            StatusCode::NOT_FOUND,
+            "{path} is served on the page host"
+        );
+        let res = get(&d, &on(vis_url(DEMO), path), None);
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+    }
 }

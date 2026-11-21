@@ -131,6 +131,18 @@ fn bad_sources_reject() {
 }
 
 #[test]
+fn a_source_in_the_host_folder_rejects() {
+    for page in ["_plisto/vis/1/shader.html", "_PLISTO/vis/1/shader.html", "_Plisto/a.html"] {
+        assert_eq!(field_refusal(&with_kind("page", json!(page))), "page", "{page}");
+    }
+    let mut k = kind();
+    k.as_object_mut().unwrap().remove("page");
+    k["shader"] = json!("_plisto/glow.frag");
+    assert_eq!(field_refusal(&manifest(&["visualizer"], json!([k]))), "shader");
+    assert!(run(&with_kind("page", json!("vis/_plisto/rings.html"))).is_ok());
+}
+
+#[test]
 fn the_block_and_the_capability_come_together() {
     assert_eq!(
         refusal(&manifest(&["storage"], json!([kind()]))),

@@ -94,14 +94,15 @@ fn the_plugin_frame_host_literals_are_unchanged() {
     assert_eq!(
         FRAME_CSP,
         "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self' \
-         'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'"
+         'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'"
     );
     let extensions: Vec<&str> = MIME_TYPES.iter().map(|(ext, _)| *ext).collect();
     assert_eq!(
         extensions,
         [
             "html", "js", "css", "json", "txt", "png", "jpg", "jpeg", "gif", "webp", "svg", "ico",
-            "woff", "woff2", "ttf", "otf"
+            "woff", "woff2", "ttf", "otf", "mjs", "wasm", "bin", "glsl", "frag", "vert", "ktx2",
+            "glb"
         ]
     );
 }
@@ -152,12 +153,15 @@ fn only_the_fixed_hosts_parse() {
 // ---- Policies ----
 
 #[test]
-fn the_released_host_carries_the_frame_csp_byte_for_byte() {
-    assert_eq!(Policy::Released.csp(), FRAME_CSP);
+fn the_additions_hosts_carry_the_frame_host_policies_byte_for_byte() {
+    assert_eq!(Policy::UiAdditions.csp(), FRAME_CSP);
+    assert_eq!(Policy::Visualizer.csp(), VIS_CSP);
     let f = Fixtures::new();
-    let res = f.get("probe-ui0", "/app.js");
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_eq!(res.headers()[header::CONTENT_SECURITY_POLICY], FRAME_CSP);
+    for (host, csp) in [("probe-ui1", FRAME_CSP), ("probe-vis", VIS_CSP)] {
+        let res = f.get(host, "/app.js");
+        assert_eq!(res.status(), StatusCode::OK, "{host}");
+        assert_eq!(res.headers()[header::CONTENT_SECURITY_POLICY], csp, "{host}");
+    }
 }
 
 #[test]
@@ -263,7 +267,7 @@ fn the_extended_types_are_served_only_by_the_extended_hosts() {
             "{host}"
         );
     }
-    for (ext, _) in EXTENDED_MIME_TYPES {
+    for ext in EXTENDED_TYPES {
         assert!(Policy::Released.mime_for(ext).is_none(), "{ext}");
         assert!(Policy::ReleasedSelfConnect.mime_for(ext).is_none(), "{ext}");
         assert!(Policy::UiAdditions.mime_for(ext).is_some(), "{ext}");

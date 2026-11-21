@@ -1,10 +1,10 @@
 /*
  * A frame host for development test pages, compiled into debug builds only: fixed
  * `https://probe-<name>.invalid` hosts that serve flat files from `src/dev/probes/fixtures/` with no
- * plugin installed. Each host serves under one header policy derived from the plugin frame headers, so
- * one page can be loaded under the released frame policy and under looser variants of it and the
- * results compared. The document and Referer rules are the plugin frame host's own. Fixtures are read,
- * never written.
+ * plugin installed. Each host serves under one header policy derived from the plugin frame host's
+ * own, so one page can be loaded under the page and visualizer policies and under stricter variants
+ * of them and the results compared. The document and Referer rules are the plugin frame host's own.
+ * Fixtures are read, never written.
  */
 
 // -- Library Imports --
@@ -22,6 +22,7 @@ use super::{
     is_document, is_reparse_point, origin_of, permissions_policy, read_capped, referer_allowed,
     ResourceKind, FRAME_CSP, HOST_SUFFIX, MIME_TYPES, PERMISSIONS_POLICY, SCHEME_PREFIX,
 };
+use crate::plugins::frame_host::vis_host::VIS_CSP;
 
 /// The request pattern the webview routes to the probe host.
 pub const PROBE_FILTER: &str = "https://probe-*.invalid/*";
@@ -51,13 +52,14 @@ static LOG: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 /// The header policy a probe host serves under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Policy {
-    /// The plugin frame headers as released.
+    /// The page host headers without the UI additions: `connect-src 'none'`, no CORS header and
+    /// none of the extended file types.
     Released,
-    /// The released headers with `connect-src 'self'` and no CORS header.
+    /// `Released` with `connect-src 'self'`.
     ReleasedSelfConnect,
-    /// `connect-src 'self'`, any-origin CORS and the extended file types.
+    /// The page host headers.
     UiAdditions,
-    /// `UiAdditions` plus WebAssembly compilation and blob workers.
+    /// The visualizer host headers.
     Visualizer,
 }
 
@@ -69,17 +71,8 @@ const HOSTS: &[(&str, Policy)] = &[
     ("probe-vis2", Policy::Visualizer),
 ];
 
-// The file types the extended policies serve beyond the plugin list.
-const EXTENDED_MIME_TYPES: &[(&str, &str)] = &[
-    ("mjs", "text/javascript; charset=utf-8"),
-    ("wasm", "application/wasm"),
-    ("bin", "application/octet-stream"),
-    ("glsl", "text/plain; charset=utf-8"),
-    ("frag", "text/plain; charset=utf-8"),
-    ("vert", "text/plain; charset=utf-8"),
-    ("ktx2", "image/ktx2"),
-    ("glb", "model/gltf-binary"),
-];
+// The file types only the extended policies serve.
+const EXTENDED_TYPES: &[&str] = &["mjs", "wasm", "bin", "glsl", "frag", "vert", "ktx2", "glb"];
 
 impl Policy {
     /// The policies with CORS and the extended file types.
@@ -87,28 +80,22 @@ impl Policy {
         matches!(self, Policy::UiAdditions | Policy::Visualizer)
     }
 
-    /// The Content-Security-Policy, rewritten from `FRAME_CSP` so a variant differs only where named.
+    /// The Content-Security-Policy: a frame host policy, or `FRAME_CSP` rewritten so the variant
+    /// differs only where named.
     pub fn csp(self) -> String {
-        let self_connect = FRAME_CSP.replace("connect-src 'none'", "connect-src 'self'");
         match self {
-            Policy::Released => FRAME_CSP.to_string(),
-            Policy::ReleasedSelfConnect | Policy::UiAdditions => self_connect,
-            Policy::Visualizer => format!(
-                "{}; worker-src blob:",
-                self_connect.replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'")
-            ),
+            Policy::Released => FRAME_CSP.replace("connect-src 'self'", "connect-src 'none'"),
+            Policy::ReleasedSelfConnect | Policy::UiAdditions => FRAME_CSP.to_string(),
+            Policy::Visualizer => VIS_CSP.to_string(),
         }
     }
 
     fn mime_for(self, ext: &str) -> Option<&'static str> {
-        let extended: &[(&str, &str)] = if self.extended() {
-            EXTENDED_MIME_TYPES
-        } else {
-            &[]
-        };
+        if !self.extended() && EXTENDED_TYPES.contains(&ext) {
+            return None;
+        }
         MIME_TYPES
             .iter()
-            .chain(extended)
             .find(|(known, _)| *known == ext)
             .map(|(_, mime)| *mime)
     }

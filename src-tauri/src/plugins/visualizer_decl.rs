@@ -231,6 +231,10 @@ pub(super) fn check_label(s: &str) -> Result<(), &'static str> {
 
 fn check_file(path: &str, exts: &[&str], wrong_type: &'static str) -> Result<(), &'static str> {
     validate_rel_path(path)?;
+    // The host serves its own files under this segment, so a kind naming it would load Plisto's.
+    if path.split('/').next().is_some_and(|seg| seg.eq_ignore_ascii_case("_plisto")) {
+        return Err("must not start with the reserved '_plisto' folder");
+    }
     if !exts.iter().any(|ext| has_ext(path, ext)) {
         return Err(wrong_type);
     }

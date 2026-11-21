@@ -26,7 +26,7 @@ use windows62::core::{Interface, Result, HSTRING, PWSTR};
 use windows62::Win32::UI::Shell::SHCreateMemStream;
 
 // -- Local Imports --
-use super::frame_host::{self, ResourceKind};
+use super::frame_host::{self, vis_host, ResourceKind};
 use super::state::EnabledSet;
 
 #[cfg(debug_assertions)]
@@ -85,11 +85,13 @@ pub fn install<R: Runtime>(
     // SAFETY: the controller and its webview are live for the duration of `with_webview`.
     unsafe {
         let webview = pw.controller().CoreWebView2()?.cast::<ICoreWebView2_22>()?;
-        webview.AddWebResourceRequestedFilterWithRequestSourceKinds(
-            &HSTRING::from(frame_host::FILTER),
-            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
-            COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
-        )?;
+        for filter in [frame_host::FILTER, vis_host::VIS_FILTER] {
+            webview.AddWebResourceRequestedFilterWithRequestSourceKinds(
+                &HSTRING::from(filter),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+            )?;
+        }
         let mut token = 0;
         webview.add_WebResourceRequested(&handler, &mut token)?;
     }
@@ -142,7 +144,7 @@ unsafe fn on_request<R: Runtime>(
     let Some(uri) = request_uri(&request) else {
         return;
     };
-    if frame_host::parse_frame_url(&uri).is_none() {
+    if frame_host::parse_frame_url(&uri).is_none() && vis_host::parse_vis_url(&uri).is_none() {
         return;
     }
 

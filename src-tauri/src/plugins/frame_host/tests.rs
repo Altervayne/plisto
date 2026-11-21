@@ -4,7 +4,10 @@
 // -- Library Imports --
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use tauri::http::header;
+
 // -- Local Imports --
+use super::host::is_label;
 use super::*;
 
 const ID: &str = "com.example.demo";
@@ -92,7 +95,7 @@ fn origin(id: &str) -> String {
 fn host_labels_are_hashed_lowercase_hex() {
     for id in [ID, "a.b", "a.b-c", "a-b.c", "io.plisto.demo-1"] {
         let label = host_for_id(id);
-        assert!(is_label(&label), "{label}");
+        assert!(is_label(&PAGE_HOST, &label), "{label}");
         assert_eq!(label.len(), LABEL_PREFIX.len() + HASH_HEX_LEN);
         assert_eq!(label, label.to_ascii_lowercase());
         assert!(!label.ends_with(".localhost"));
@@ -370,8 +373,6 @@ fn mime_allow_list() {
         "tool.exe",
         "lib.dll",
         "data.sqlite",
-        "mod.mjs",
-        "code.wasm",
         "page.htm",
         "page.xhtml",
         "LICENSE",
@@ -636,7 +637,7 @@ fn the_frame_csp_confines_each_plugin_to_its_own_host() {
             .map(|(_, s)| s.clone())
     };
     assert_eq!(sources("default-src"), Some(vec!["'none'"]), "{reason}");
-    assert_eq!(sources("connect-src"), Some(vec!["'none'"]), "{reason}");
+    assert_eq!(sources("connect-src"), Some(vec!["'self'"]), "{reason}");
     assert_eq!(sources("sandbox"), Some(vec!["allow-scripts"]), "{reason}");
     assert_eq!(
         sources("img-src"),
@@ -923,7 +924,7 @@ fn every_response_carries_the_frame_headers() {
         assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         assert_eq!(h[header::CACHE_CONTROL], "no-store");
         assert_eq!(h[PERMISSIONS_POLICY], permissions_policy().as_str());
-        assert!(!h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+        assert_eq!(h[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         if res.status() != StatusCode::OK {
             assert!(res.body().is_empty());
         }
@@ -935,12 +936,13 @@ fn every_response_carries_the_frame_headers() {
 fn header_block_is_exact() {
     let policy = permissions_policy();
     assert_eq!(
-        header_block(&served("text/css; charset=utf-8", b"x".to_vec())),
+        header_block(&served(&PAGE_HOST, "text/css; charset=utf-8", b"x".to_vec())),
         format!(
             "content-security-policy: {FRAME_CSP}\r\n\
                  x-content-type-options: nosniff\r\n\
                  cache-control: no-store\r\n\
                  permissions-policy: {policy}\r\n\
+                 access-control-allow-origin: *\r\n\
                  content-type: text/css; charset=utf-8\r\n"
         )
     );
@@ -950,7 +952,8 @@ fn header_block_is_exact() {
             "content-security-policy: {FRAME_CSP}\r\n\
                  x-content-type-options: nosniff\r\n\
                  cache-control: no-store\r\n\
-                 permissions-policy: {policy}\r\n"
+                 permissions-policy: {policy}\r\n\
+                 access-control-allow-origin: *\r\n"
         )
     );
 }

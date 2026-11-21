@@ -651,6 +651,7 @@ pub fn run() {
             commands::visualizer::set_album_visualizer,
             commands::visualizer::set_track_visualizer,
             commands::plugins::plugin_frame_url,
+            commands::plugin_vis::plugin_vis_url,
             commands::plugins::plugins_list,
             commands::plugins::plugins_boot_state,
             commands::plugins::plugins_resolve_boot,

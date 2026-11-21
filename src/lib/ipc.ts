@@ -1319,6 +1319,14 @@ export function pluginFrameUrl(id: string): Promise<string | null> {
   return invoke<string | null>("plugin_frame_url", { id });
 }
 
+/**
+ * The URL a declared visualizer kind of an enabled plugin loads from its visualizer host. Rejects
+ * when frames are unavailable, the plugin is not enabled, or it declares no such kind.
+ */
+export function pluginVisUrl(id: string, kind: string): Promise<string> {
+  return invoke<string>("plugin_vis_url", { id, kind });
+}
+
 /** Stages and checks a plugin folder or `.plistoplugin` file. Rejects with `{ code, detail }`. */
 export function pluginInspect(path: string): Promise<PluginInspection> {
   return invoke<PluginInspection>("plugin_inspect", { path });

@@ -1,7 +1,8 @@
 /*
  * The files the frame host serves itself under `/_plisto/`: the app's token sheet and a base sheet
- * for plugin pages, compiled into the binary. The match is exact on the raw request path, so no
- * encoding of it reaches a file, and a plugin folder can never supply one: `resolve` refuses the
+ * for plugin pages, and on the visualizer host only, the visualizer runtime and the page that runs
+ * a shader kind. All are compiled into the binary. The match is exact on the raw request path, so
+ * no encoding of it reaches a file, and a plugin folder can never supply one: `resolve` refuses the
  * segment for plugin files.
  */
 
@@ -11,8 +12,16 @@ pub struct HostFile {
 }
 
 const CSS: &str = "text/css; charset=utf-8";
+const JS: &str = "text/javascript; charset=utf-8";
+const HTML: &str = "text/html; charset=utf-8";
 const TOKENS: &str = include_str!("../../../src/styles/tokens.css");
 const PLUGIN_BASE: &str = include_str!("../../../src/styles/plugin-base.css");
+
+// TODO: both are placeholders; each becomes an `include_str!` of its file in
+// `plugin-kit/visualizers/runtime/` once the runtime bundle is built.
+pub const VIS_RUNTIME: &str = "\"use strict\";\n";
+pub const VIS_SHADER_PAGE: &str =
+    "<!doctype html>\n<meta charset=\"utf-8\">\n<script src=\"plisto-vis.js\"></script>\n";
 
 /// The host file at `raw_path`, still percent-encoded; None for any other path.
 pub fn host_file(raw_path: &str) -> Option<HostFile> {
@@ -23,6 +32,20 @@ pub fn host_file(raw_path: &str) -> Option<HostFile> {
     };
     Some(HostFile {
         mime: CSS,
+        body: body.as_bytes(),
+    })
+}
+
+/// The visualizer host's own file at `raw_path`: the runtime, the shader page, or any page host
+/// file. None for any other path.
+pub fn vis_host_file(raw_path: &str) -> Option<HostFile> {
+    let (mime, body) = match raw_path {
+        "/_plisto/vis/1/plisto-vis.js" => (JS, VIS_RUNTIME),
+        "/_plisto/vis/1/shader.html" => (HTML, VIS_SHADER_PAGE),
+        _ => return host_file(raw_path),
+    };
+    Some(HostFile {
+        mime,
         body: body.as_bytes(),
     })
 }
@@ -92,7 +115,7 @@ mod tests {
             assert_eq!(h[header::CONTENT_SECURITY_POLICY], FRAME_CSP);
             assert_eq!(h[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
             assert_eq!(h[header::CACHE_CONTROL], "no-store");
-            assert!(!h.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+            assert_eq!(h[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         }
     }
 
