@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.vis-three-orbs",
+  "name": "Three orbs",
+  "version": "1.0.0",
+  "tier": "ui",
+  "capabilities": ["visualizer"],
+  "min_plisto": "2.8.0",
+  "author": "Plisto",
+  "visualizers": [
+    { "id": "three-orbs", "name": "Three orbs", "api": 1, "page": "vis/orbs.html", "look": "image" }
+  ]
+}
