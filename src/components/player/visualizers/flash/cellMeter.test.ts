@@ -2,7 +2,14 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { CELL_H, CELL_HZ, CELL_W, createCellMeter } from "./cellMeter";
+import {
+  CELL_H,
+  CELL_HZ,
+  CELL_W,
+  FLASHES_PER_SEC_LIMIT,
+  RED_FLASHES_LIMIT,
+  createCellMeter,
+} from "./cellMeter";
 
 const GREY = (v: number): [number, number, number] => [v, v, v];
 const DARK = GREY(50);
@@ -26,6 +33,13 @@ function wave(hz: number, seconds: number, a: [number, number, number], b: [numb
   }
   return meter;
 }
+
+describe("cell meter limits", () => {
+  it("pins the flash limits so neither moves unnoticed", () => {
+    expect(FLASHES_PER_SEC_LIMIT).toBe(3);
+    expect(RED_FLASHES_LIMIT).toBe(0);
+  });
+});
 
 describe("createCellMeter", () => {
   it("never completes a transition across a gap", () => {

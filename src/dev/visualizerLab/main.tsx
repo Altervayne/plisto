@@ -1,14 +1,17 @@
 /*
  * The visualizer render lab. A dev-only page that draws the GL kinds through the real renderer from a
- * fixed scene. Query params: mode=view|hash|port|thumb|bench|flash|steps|level|calm, kind (one GL kind; absent
- * means all of them, except view, which takes glass), scene=<id> (a scene module the registry does not
- * hold, drawn in place of kind; dark=1 marks it dark-only), theme=light|dark and layout=player|ambient|
- * ambient-side (absent means player and ambient for hash, and player and ambient-side for the measures;
- * view takes player). ambient-side is the app's ambient stage: cover left, words right. Every non-view mode
- * writes its result as JSON into <pre id="out"> and sets body[data-done]. Thumb mode also takes
+ * fixed scene. Query params: mode=view|hash|port|port-nets|thumb|bench|flash|steps|level|calm, kind (one
+ * GL kind; absent means all of them, except view, which takes glass), scene=<id> (a scene module the
+ * registry does not hold, drawn in place of kind; dark=1 marks it dark-only), theme=light|dark and
+ * layout=player|ambient|ambient-side (absent means player and ambient for hash, and player and
+ * ambient-side for the measures; view takes player). ambient-side is the app's ambient stage: cover
+ * left, words right. Every non-view mode writes its result as JSON into <pre id="out"> and sets
+ * body[data-done]. Thumb mode also takes
  * kind=ridge: the Canvas 2D ridge, drawn by its real component. Port mode returns hash's rows for the plugin
  * fixtures (plugin-kit/visualizers/fixtures) drawn through the runtime bundle; kind=ridge there is the
- * hand-written raw port, which hash has no row for.
+ * hand-written raw port, which hash has no row for. port-nets plays each fixture through the runtime over
+ * the steps/flash window (from, for, track, react) and reports the cell meter's reading, the step cost and
+ * the first-frame time; it takes the dark theme and the player layout unless theme= or layout= says otherwise.
  *
  * Measures read the composited picture (the layout's ground, then the layer in the kind's blend): steps
  * (brightness steps over a window of the song), flash (with kind or scene: WCAG flashes over the same
@@ -40,7 +43,7 @@ import {
 import { runBench } from "./labBench";
 import { runLevel, runCalm } from "./labHold";
 import { DEFAULT_WINDOW, runDropFlash, runFireflyFlash, runSteps, type Probe } from "./labMeasure";
-import { parseReadWindow, pickLayoutIds, pickReactivity } from "./labParams";
+import { parseReadWindow, pickLayoutIds, pickReactivity, type ReadWindow } from "./labParams";
 import { rgbCss } from "./labCompose";
 import { SONG_SECONDS, createLabSong } from "./labSong";
 import { createLabReplay, loadTrack, type LoadedTrack } from "./labReplay";
@@ -48,6 +51,7 @@ import { blendOf, darkOnlyOf, loadScene, openLab, type LabScene } from "./labSce
 import { runThumb } from "./labThumbs";
 import { readPixels, sha256 } from "./labPixels";
 import { runPort } from "./labPort";
+import { runPortNets } from "./labPortNets";
 
 // -- State Imports --
 import {
@@ -183,17 +187,24 @@ async function pickTrack(): Promise<LoadedTrack | null> {
 // The window a track run reads when from= and for= are absent: its first ten seconds.
 const TRACK_WINDOW = { from: 0, length: 10 };
 
-/** The scene a measure runs on, with the themes, layouts and song window the query asks for. */
-async function probeOf(kind: string, windowed = true): Promise<Probe> {
-  setDpr(1);
+/** The real track and the song or track window a run reads: from= and for=, else the defaults. */
+async function readWindowOf(windowed = true): Promise<{ track: LoadedTrack | null; window: ReadWindow }> {
   const track = await pickTrack();
   const defaults = track ? TRACK_WINDOW : DEFAULT_WINDOW;
   const end = track ? track.dump.durationSecs : SONG_SECONDS;
+  const read = windowed ? parseReadWindow(params.get("from"), params.get("for"), defaults, end) : defaults;
+  return { track, window: read };
+}
+
+/** The scene a measure runs on, with the themes, layouts and song window the query asks for. */
+async function probeOf(kind: string, windowed = true): Promise<Probe> {
+  setDpr(1);
+  const { track, window: read } = await readWindowOf(windowed);
   return {
     kind,
     darkOnly: darkOnlyOf(scene, kind),
     needsFine: needsFineOf(kind),
-    window: windowed ? parseReadWindow(params.get("from"), params.get("for"), defaults, end) : defaults,
+    window: read,
     reactivity: pickReactivity(params.get("react"), "lively"),
     track,
     blend: (light) => blendOf(scene, kind, light),
@@ -244,6 +255,16 @@ async function main() {
           themes: pickThemes(),
           layouts: pickLayoutIds(params.get("layout"), HASH_LAYOUTS),
           cover: await coverPixels(),
+        });
+      case "port-nets":
+        setDpr(1);
+        return runPortNets({
+          kinds: pickPortKinds(),
+          themes: params.get("theme") === "light" ? ["light"] : ["dark"],
+          layouts: pickLayoutIds(params.get("layout"), VIEW_LAYOUT),
+          cover: await coverPixels(),
+          reactivity: pickReactivity(params.get("react"), "lively"),
+          ...(await readWindowOf()),
         });
       case "thumb":
         return runThumb(scene, pickThumbKinds(), pickThemes());

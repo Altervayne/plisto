@@ -3,6 +3,8 @@
 //   node tools/visualizer-lab.mjs hash [OUT.json] [--kind K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs port [OUT.json] [--kind K] [--theme T] [--layout L]
 //     (hash's rows, drawn from the plugin fixtures; --kind ridge for the raw Ridge port)
+//   node tools/visualizer-lab.mjs port-nets [--kind K] [--theme T] [--layout L] [--from S] [--for S]
+//     [--react R] [--track N]  (each fixture played through the runtime: meter, frame ms)
 //   node tools/visualizer-lab.mjs thumb [OUT_DIR] [--kind K]
 //   node tools/visualizer-lab.mjs bench [--kind K] [--ref K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs steps  --kind K [--theme T] [--layout L] [--from S] [--for S] [--react R] [--track N]
@@ -17,10 +19,10 @@
 // track seconds, default 0 s for 10 s).
 // flash with no kind runs Fireflies' worst case. --json prints the raw result instead of a table.
 // Shared flags: --url BASE (default http://localhost:1420), --edge PATH, --gpu or --soft to force the real
-// GPU or software GL. Bench defaults to the GPU and every other mode to software GL, so hashes and
-// thumbnails do not depend on the machine. Every run is read live over the DevTools protocol (real clock, so
-// timings are true) and is bounded by --timeout SECONDS (default 1800). Edge is closed and its profile removed
-// however the run ends, Ctrl+C included.
+// GPU or software GL. Bench and port-nets default to the GPU and every other mode to software GL, so
+// hashes and thumbnails do not depend on the machine. Every run is read live over the DevTools protocol
+// (real clock, so timings are true) and is bounded by --timeout SECONDS (default 1800). Edge is closed and
+// its profile removed however the run ends, Ctrl+C included.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,7 +41,7 @@ for (let i = 0; i < rest.length; i++) {
 
 const BASE = flags.url ?? "http://localhost:1420";
 const EDGE = flags.edge ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
-const useGpu = flags.gpu || (mode === "bench" && !flags.soft);
+const useGpu = flags.gpu || ((mode === "bench" || mode === "port-nets") && !flags.soft);
 const TIMEOUT_MS = Number(flags.timeout ?? 1800) * 1000;
 const FORWARDED = ["kind", "scene", "theme", "layout", "ref", "red", "level", "from", "for", "react", "track"];
 
@@ -121,13 +123,16 @@ async function main() {
     console.error(`${rows.length} thumbnails in ${dir}`);
   } else if (mode === "bench") {
     printBench(await runLab(labUrl()));
+  } else if (mode === "port-nets") {
+    printResult(await runLab(labUrl()));
   } else if (MEASURES.includes(mode)) {
     if (mode !== "flash" && !flags.kind && !flags.scene) throw new Error(`${mode} needs --kind or --scene`);
     printResult(await runLab(labUrl()));
   } else if (mode === "view") {
     console.log(labUrl());
   } else {
-    console.error("usage: visualizer-lab.mjs hash|port|thumb|bench|steps|flash|level|calm|view [options]");
+    const modes = "hash|port|port-nets|thumb|bench|steps|flash|level|calm|view";
+    console.error(`usage: visualizer-lab.mjs ${modes} [options]`);
     process.exit(1);
   }
 }
