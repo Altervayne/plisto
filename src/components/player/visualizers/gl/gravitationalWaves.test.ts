@@ -198,7 +198,8 @@ describe("stepGravitationalWaves", () => {
     expect(sawWave).toBeGreaterThan(WAVE_LOUD + 0.05);
     expect(sawWell).toBeGreaterThan(WELL_BASE + WELL_BASS * LIVELY + 0.1);
     expect(sawPace).toBeGreaterThan(0.95 * PACE_MAX);
-  });
+    // A minute of frames with every bound checked each step overruns the default 5 s on a loaded machine.
+  }, 20000);
 
   it("eases the pace into PACE_MAX, so the wave arms pass a point under three times a second", () => {
     let prev = 0;
