@@ -23,6 +23,7 @@ import type { VisualizerResolution } from "../useVisualizerResolution";
 import type { VisualizerFallback } from "../visualizerTarget";
 
 // -- Local Imports --
+import { kindName } from "../kindName";
 import { VISUALIZER_VIEWS } from "../visualizerViews";
 
 // -- i18n Imports --
@@ -52,14 +53,14 @@ export function DefaultsAside({
 
   const ridge = t(VISUALIZER_VIEWS.ridge.label);
   let line: string | null = null;
-  const skippedName = skipped ? t(VISUALIZER_VIEWS[skipped.kind].label) : "";
+  const skippedName = skipped ? kindName(skipped.kind, t) : "";
   if (resolution.source === "override") line = t((d) => d.player.visualizerFootOverride);
   else if (skipped?.tier === "track") line = t((d) => d.player.visualizerSkippedTrack, { name: skippedName });
   else if (skipped?.tier === "album") line = t((d) => d.player.visualizerSkippedAlbum, { name: skippedName });
   else if (defaultWaits(resolution) && resolution.defaultKind) {
     const track = resolution.defaultTier === "track";
     const tier = track ? t((d) => d.player.visualizerTagTrack) : t((d) => d.player.visualizerTagAlbum);
-    const name = t(VISUALIZER_VIEWS[resolution.defaultKind].label);
+    const name = kindName(resolution.defaultKind, t);
     line = t((d) => d.player.visualizerDefaultWaiting, { tier, name });
   } else if (resolution.source === "album") line = t((d) => d.player.visualizerFootAlbum);
   else if (resolution.source === "track") line = t((d) => d.player.visualizerFootTrack);

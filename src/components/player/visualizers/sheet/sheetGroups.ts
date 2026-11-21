@@ -1,10 +1,10 @@
 // -- State Imports --
 import { offeredGroups, type Catalog } from "../../../../state/player/visualizerCatalog";
-import { groupLabel, isVisualizerKind } from "../../../../state/player/visualizerRegistry";
+import { isKnownKind, type VisualizerKind } from "../../../../state/player/visualizerKind";
+import { groupLabel } from "../../../../state/player/visualizerRegistry";
 
 // -- Type Imports --
 import type { Translate } from "../../../../i18n";
-import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 
 /** A run of the strip: a family's id, or "off" for Off on its own at the end. */
 export type SheetGroupId = string;
@@ -17,7 +17,7 @@ export interface SheetGroup {
 /** The strip's runs: the families with an offered kind in registry order, then Off. */
 export function sheetGroupsOf(catalog: Catalog): readonly SheetGroup[] {
   return [
-    ...offeredGroups(catalog).map((g) => ({ id: g.id, kinds: g.kinds.filter(isVisualizerKind) })),
+    ...offeredGroups(catalog).map((g) => ({ id: g.id, kinds: g.kinds.filter(isKnownKind) })),
     { id: "off", kinds: ["off"] },
   ];
 }

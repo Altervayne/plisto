@@ -18,7 +18,7 @@ import { GROUP_ORDER } from "../../../state/player/visualizerRegistry";
 // -- Type Imports --
 import type { Dict } from "../../../i18n/en";
 import type { Catalog } from "../../../state/player/visualizerCatalog";
-import type { VisualizerKind } from "../../../state/player/visualizerKind";
+import type { BuiltinKind } from "../../../state/player/visualizerKind";
 
 export interface CatalogRow {
   id: string;
@@ -44,7 +44,7 @@ export function catalogFamilies(catalog: Catalog): CatalogFamily[] {
       const rows = catalog.entries
         .filter((e) => e.group === group && e.id in VISUALIZER_VIEWS)
         .map((e): CatalogRow => {
-          const kind = e.id as VisualizerKind;
+          const kind = e.id as BuiltinKind;
           return {
             id: e.id,
             group,

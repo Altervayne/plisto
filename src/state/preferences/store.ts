@@ -23,6 +23,7 @@ import {
   type VisualizerKind,
 } from "../player/visualizerKind";
 import { catalogOf, serializeCatalog, type Catalog, type CatalogState } from "../player/visualizerCatalog";
+import { usePluginsStore } from "../plugins/store";
 
 /** The persisted preference keys, mapped to their kv-table column names. */
 export const PREF_KEYS = {
@@ -250,6 +251,8 @@ export const selectCatalogUnreadable = (s: { loaded: boolean; failedKeys: Readon
 export const useVisualizerCatalog = (): Catalog => {
   const raw = usePreference(PREF_KEYS.playerVisualizerCatalog);
   const unreadable = usePreferencesStore(selectCatalogUnreadable);
+  // Re-renders when the plugin rows change: the plugin table follows them, and catalogOf folds it in.
+  usePluginsStore((s) => s.rows);
   return catalogOf(raw, unreadable);
 };
 

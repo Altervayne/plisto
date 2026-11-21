@@ -7,7 +7,8 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 // -- Local Imports --
 import { isDarkScheme, usePanelScheme } from "../../../../theme/scheme";
 import { VisualizerGlyph } from "../VisualizerGlyph";
-import { VISUALIZER_VIEWS, thumbFor } from "../visualizerViews";
+import { kindName } from "../kindName";
+import { thumbFor } from "../visualizerViews";
 
 // -- State Imports --
 import { useT } from "../../../../i18n";
@@ -67,7 +68,7 @@ export function KindTile({ kind, checked, width, tag, loading, style, ...rest }:
         {tag}
         {loading ? <span className={styles.cue} aria-hidden="true" /> : null}
       </span>
-      <span className={styles.name}>{t(VISUALIZER_VIEWS[kind].label)}</span>
+      <span className={styles.name}>{kindName(kind, t)}</span>
     </button>
   );
 }

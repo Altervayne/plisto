@@ -7,6 +7,9 @@
 // -- Library Imports --
 import { create } from "zustand";
 
+// -- State Imports --
+import { applyPluginRows } from "../player/pluginVisualizers";
+
 // -- Type Imports --
 import type { PluginBootState, PluginRow, PluginRuntime } from "../../types";
 
@@ -77,6 +80,9 @@ export const usePluginsStore = create<PluginsStore>((set) => ({
     ),
   applyDevMode: (devMode) => set({ devMode }),
 }));
+
+// The plugin visualizer table follows the rows; it stays a plain module so the scenes can read it.
+usePluginsStore.subscribe((s) => applyPluginRows(s.rows));
 
 // The enabled slice is derived once per rows array, so a selector returns the same array until rows change.
 let enabledFrom: PluginRow[] | null = null;

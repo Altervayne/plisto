@@ -41,7 +41,7 @@ import { useVisualizersAllowed } from "../../../state/player/visualizerWarning";
 // -- Local Imports --
 import { panelScheme, useSchemeSwap } from "../panelScheme";
 import { PanelSchemeContext, schemeStamp } from "../../../theme/scheme";
-import { VISUALIZER_VIEWS } from "../visualizers/visualizerViews";
+import { kindName } from "../visualizers/kindName";
 import { useIsWarm } from "../visualizers/gl/warmState";
 import { waitWord } from "../streamWords";
 
@@ -129,7 +129,7 @@ export function AmbientStage({ trackId, onExit }: { trackId: number; onExit: () 
     if (next == null) return;
     // The suffix says the pick holds for this album only, which is true when it set a default aside.
     const setAside = pick(next).override != null;
-    const name = t(VISUALIZER_VIEWS[next].label);
+    const name = kindName(next, t);
     const label = name + (setAside ? t((d) => d.player.visualizerToastSuffix) : "");
     setToast((was) => ({ label, name, kind: next, id: (was?.id ?? 0) + 1, gone: false }));
     wake();

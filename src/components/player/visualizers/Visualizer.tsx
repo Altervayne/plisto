@@ -15,6 +15,9 @@ import { seedPalette } from "./coverSeed";
 import { paletteFloats } from "./visualizerPalette";
 import type { VisualizerChoice } from "./useVisualizerChoice";
 
+// -- State Imports --
+import { isGlKind } from "../../../state/player/visualizerKind";
+
 /**
  * The visualizer layer of a stage, by shown kind: today's Canvas 2D ridge, the WebGL surface for every
  * other kind, or nothing for Off. Every WebGL kind renders the same surface at the same spot, so a switch
@@ -47,6 +50,8 @@ export function Visualizer({
 
   if (shown === "off") return null;
   if (shown === "ridge") return <SpectrumRidge tall={ambient} />;
+  // A plugin kind draws in its own frame, never on this surface.
+  if (!isGlKind(shown)) return null;
   return (
     <GlVisualizer
       kind={shown}

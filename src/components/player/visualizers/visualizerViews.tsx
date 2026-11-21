@@ -42,7 +42,7 @@ import { createWindow, WINDOW_PROGRAMS } from "./gl/window";
 // -- Type Imports --
 import type { Candidate, Kit, ProgramSource } from "./gl/kit";
 import type { Dict } from "../../../i18n/en";
-import type { VisualizerKind } from "../../../state/player/visualizerKind";
+import type { BuiltinKind, VisualizerKind } from "../../../state/player/visualizerKind";
 
 export interface VisualizerView {
   // The localized name, as an accessor for `t`.
@@ -54,7 +54,7 @@ export interface VisualizerView {
   programs?: readonly ProgramSource[];
 }
 
-export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
+export const VISUALIZER_VIEWS: Record<BuiltinKind, VisualizerView> = {
   ridge: {
     label: (d) => d.player.visualizerRidge,
     glyph: <path d="M2 20c3-1 4-9 8-9s4 6 7 6 3-5 5-6v9z" fill="currentColor" fillOpacity={0.3} />,
@@ -470,7 +470,7 @@ export const VISUALIZER_VIEWS: Record<VisualizerKind, VisualizerView> = {
 };
 
 /** The programs a kind compiles, or an empty list for a kind that draws without WebGL. */
-export function programsOf(kind: VisualizerKind): readonly ProgramSource[] {
+export function programsOf(kind: BuiltinKind): readonly ProgramSource[] {
   return VISUALIZER_VIEWS[kind].programs ?? [];
 }
 

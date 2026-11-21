@@ -27,7 +27,7 @@ import type { SkippedDefault } from "../../../../state/player/visualizerResolve"
 
 // -- Utils Imports --
 import { nextFocus, type NavDirection } from "../tiles/focusNav";
-import { VISUALIZER_VIEWS } from "../visualizerViews";
+import { kindName as nameOf } from "../kindName";
 
 // -- i18n Imports --
 import { useT } from "../../../../i18n";
@@ -75,7 +75,7 @@ export function VisualizerPopover({ scope, close }: { scope: VisualizerScope } &
     if (next != null) items[next].focus();
   };
 
-  const kindName = (kind: VisualizerKind) => t(VISUALIZER_VIEWS[kind].label);
+  const kindName = (kind: VisualizerKind) => nameOf(kind, t);
   const topLabel =
     model.topLabel.form === "albumDefault"
       ? t((d) => d.player.visualizerUseAlbumDefault, { name: kindName(model.topLabel.kind) })

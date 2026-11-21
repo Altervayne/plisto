@@ -1,14 +1,23 @@
 /*
  * The visualizer catalog: which kinds and families the user turned off. The stored value lists only the
  * turned-off ids, so a kind or family the registry gains later arrives on. Ids are plain strings: one the
- * registry does not know is never offered and is kept untouched on every write.
+ * registry does not know is never offered and is kept untouched on every write. Installed plugin kinds
+ * join as entries of their `plugin:<id>` families, after the built-ins.
  *
  * A read that failed, or a value written by a newer version, offers every kind and refuses every write,
- * so an unreadable value can neither hide all visualizers nor be overwritten. At least one kind always
- * stays offered; Off is always offered and never an entry.
+ * so an unreadable value can neither hide all visualizers nor be overwritten. At least one built-in kind
+ * always stays offered, as a plugin can go away; Off is always offered and never an entry.
  */
 
 // -- State Imports --
+import {
+  familyLabel,
+  isPluginFamily,
+  isPluginKindId,
+  PLUGIN_FAMILY_PREFIX,
+  pluginVisualizerRevision,
+  pluginVisualizers,
+} from "./pluginVisualizers";
 import { GROUP_ORDER, VISUALIZER_DESCRIPTORS } from "./visualizerRegistry";
 
 /** A kind the catalog can offer, with its family. */
@@ -93,16 +102,32 @@ export function serializeCatalog(state: CatalogState): string {
   return JSON.stringify({ v: CATALOG_VERSION, kinds: [...new Set(state.kinds)], groups: [...new Set(state.groups)] });
 }
 
-/** Family order: the registry's own, then any other family the entries name. */
-function familyOrder(entries: readonly CatalogEntry[]): string[] {
-  const present = new Set(entries.map((e) => e.group));
-  return [...new Set<string>([...GROUP_ORDER, ...entries.map((e) => e.group)])].filter((g) => present.has(g));
+const isBuiltinEntry = (e: CatalogEntry): boolean => !isPluginKindId(e.id);
+
+/** A plugin family's sort key: its plugin's name, or the id after the prefix when the plugin is gone. */
+const pluginFamilyName = (id: string): string => familyLabel(id) ?? id.slice(PLUGIN_FAMILY_PREFIX.length);
+
+function byPluginName(a: string, b: string): number {
+  return pluginFamilyName(a).localeCompare(pluginFamilyName(b)) || a.localeCompare(b);
+}
+
+/** Family order: the registry's own, then any other family the entries name, then plugin families by plugin name. */
+export function familyOrder(entries: readonly CatalogEntry[]): string[] {
+  const present = [...new Set(entries.map((e) => e.group))];
+  const plugins = present.filter(isPluginFamily).sort(byPluginName);
+  const others = present.filter((g) => !isPluginFamily(g));
+  return [...new Set<string>([...GROUP_ORDER, ...others])].filter((g) => others.includes(g)).concat(plugins);
 }
 
 function offeredUnder(state: CatalogState, entries: readonly CatalogEntry[]): string[] {
   const kindsOff = new Set(state.kinds);
   const groupsOff = new Set(state.groups);
   return entries.filter((e) => !kindsOff.has(e.id) && !groupsOff.has(e.group)).map((e) => e.id);
+}
+
+/** The offered built-in kinds: the ones a plugin going away cannot take with it. */
+function offeredBuiltins(state: CatalogState, entries: readonly CatalogEntry[]): string[] {
+  return offeredUnder(state, entries.filter(isBuiltinEntry));
 }
 
 /** Combines the stored value with the registry entries. */
@@ -113,18 +138,18 @@ export function buildCatalog(
 ): Catalog {
   const parsed = parseCatalog(raw, failed);
   let state = parsed.state;
-  let offeredKinds = offeredUnder(state, entries);
-  // A stored value that offers nothing drops its known kind and family ids, so everything is on.
-  // Unknown ids stay so the next write keeps them.
-  if (offeredKinds.length === 0 && entries.length > 0) {
-    const knownKinds = new Set(entries.map((e) => e.id));
-    const knownGroups = new Set(entries.map((e) => e.group));
+  // A stored value that offers no built-in drops its known built-in kind and family ids, so they are all on.
+  // Unknown ids and plugin ids stay so the next write keeps them.
+  const builtins = entries.filter(isBuiltinEntry);
+  if (offeredBuiltins(state, entries).length === 0 && builtins.length > 0) {
+    const knownKinds = new Set(builtins.map((e) => e.id));
+    const knownGroups = new Set(builtins.map((e) => e.group));
     state = {
       kinds: state.kinds.filter((id) => !knownKinds.has(id)),
       groups: state.groups.filter((id) => !knownGroups.has(id)),
     };
-    offeredKinds = offeredUnder(state, entries);
   }
+  const offeredKinds = offeredUnder(state, entries);
   const offered = new Set(offeredKinds);
   const offeredFamilies = familyOrder(entries)
     .map((id) => ({ id, kinds: entries.filter((e) => e.group === id && offered.has(e.id)).map((e) => e.id) }))
@@ -135,7 +160,9 @@ export function buildCatalog(
     entries,
     offeredKinds,
     offeredFamilies,
-    fallback: offered.has(PREFERRED_FALLBACK) ? PREFERRED_FALLBACK : offeredKinds[0] ?? PREFERRED_FALLBACK,
+    fallback: offered.has(PREFERRED_FALLBACK)
+      ? PREFERRED_FALLBACK
+      : offeredBuiltins(state, entries)[0] ?? PREFERRED_FALLBACK,
   };
 }
 
@@ -144,14 +171,21 @@ export const ALL_OFFERED: Catalog = buildCatalog(undefined, false);
 
 let memoRaw: string | null | undefined;
 let memoFailed = false;
+let memoRevision = 0;
 let memo: Catalog = ALL_OFFERED;
 
-/** `buildCatalog` over the built-in entries, returning the same object for the same inputs. */
+/**
+ * `buildCatalog` over the built-in entries and the installed plugin kinds, returning the same object for
+ * the same inputs and plugin table.
+ */
 export function catalogOf(raw: string | null | undefined, failed: boolean): Catalog {
-  if (raw !== memoRaw || failed !== memoFailed) {
+  const revision = pluginVisualizerRevision();
+  if (raw !== memoRaw || failed !== memoFailed || revision !== memoRevision) {
     memoRaw = raw;
     memoFailed = failed;
-    memo = buildCatalog(raw, failed);
+    memoRevision = revision;
+    const plugins = pluginVisualizers().map((d): CatalogEntry => ({ id: d.id, group: d.family }));
+    memo = buildCatalog(raw, failed, plugins.length > 0 ? [...BUILTIN_ENTRIES, ...plugins] : BUILTIN_ENTRIES);
   }
   return memo;
 }
@@ -174,9 +208,9 @@ export function familyState(catalog: Catalog, group: string): FamilyState {
   return { state: offered < total ? "mixed" : "on", offered, total };
 }
 
-/** The next state if `next` still offers a kind, else null. */
+/** The next state if `next` still offers a built-in kind, else null. Plugin kinds never count. */
 function guarded(catalog: Catalog, next: CatalogState): CatalogState | null {
-  return offeredUnder(next, catalog.entries).length > 0 ? next : null;
+  return offeredBuiltins(next, catalog.entries).length > 0 ? next : null;
 }
 
 /**

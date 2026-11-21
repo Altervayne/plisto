@@ -9,31 +9,26 @@ import { seedKey } from "./visualizers/useCoverSeed";
 import { PanelSchemeContext, isDarkScheme, schemeStamp, usePanelScheme } from "../../theme/scheme";
 
 // -- State Imports --
+import { applyPluginRows } from "../../state/player/pluginVisualizers";
 import { isDarkOnly } from "../../state/player/visualizerKind";
-import type { VisualizerKind } from "../../state/player/visualizerKind";
+import { visualizerDecl, visualizerRow } from "../../state/plugins/fixtures";
 
 const h = vi.hoisted(() => ({ rootDark: false }));
 
-// A stand-in descriptor answers for a dark-only kind, so the rule is tested apart from the registry's rows.
-vi.mock("../../state/player/visualizerRegistry", async (orig) => {
-  const real = await orig<typeof import("../../state/player/visualizerRegistry")>();
-  return {
-    ...real,
-    descriptorOf: (kind: string) =>
-      kind === "stub-dark" ? { ...real.descriptorOf("ridge"), darkOnly: true } : real.descriptorOf(kind as never),
-  };
-});
 vi.mock("../../theme", () => ({ useTheme: () => "system", isDarkTheme: () => h.rootDark }));
 vi.mock("../../i18n", async (orig) => {
   const real = await orig<typeof import("../../i18n")>();
   return { ...real, useT: () => real.createT("en") };
 });
 
-const STUB = "stub-dark" as VisualizerKind;
+// A stand-in plugin kind answers for a dark-only kind, so the rule is tested apart from the registry's rows.
+const STUB = "com.example.stub/dark";
 
 describe("the stamp rule", () => {
   it("stamps a dark-only kind and no other", () => {
+    applyPluginRows([visualizerRow("com.example.stub", "Stub", [visualizerDecl({ id: "dark", dark_only: true })])]);
     expect(schemeStamp(panelScheme(isDarkOnly(STUB)))).toEqual({ "data-theme": "dark" });
+    applyPluginRows([]);
     expect(schemeStamp(panelScheme(isDarkOnly("ridge")))).toEqual({});
     expect(schemeStamp(panelScheme(isDarkOnly("off")))).toEqual({});
   });

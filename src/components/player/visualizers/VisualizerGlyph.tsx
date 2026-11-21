@@ -1,10 +1,13 @@
 // -- Local Imports --
 import { VISUALIZER_VIEWS } from "./visualizerViews";
 
+// -- State Imports --
+import { isVisualizerKind } from "../../../state/player/visualizerRegistry";
+
 // -- Type Imports --
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
 
-/** A visualizer's glyph for the picker rows, stroked in the current color. */
+/** A visualizer's glyph for the picker rows, stroked in the current color. A plugin kind draws an empty frame. */
 export function VisualizerGlyph({ kind, size = 16 }: { kind: VisualizerKind; size?: number }) {
   return (
     <svg
@@ -18,7 +21,7 @@ export function VisualizerGlyph({ kind, size = 16 }: { kind: VisualizerKind; siz
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {VISUALIZER_VIEWS[kind].glyph}
+      {isVisualizerKind(kind) ? VISUALIZER_VIEWS[kind].glyph : null}
     </svg>
   );
 }

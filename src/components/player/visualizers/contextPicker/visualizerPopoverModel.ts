@@ -10,10 +10,9 @@
 
 // -- State Imports --
 import { isOffered, offeredGroups, type Catalog } from "../../../../state/player/visualizerCatalog";
-import { isVisualizerKind } from "../../../../state/player/visualizerRegistry";
+import { isKnownKind, type VisualizerKind } from "../../../../state/player/visualizerKind";
 
 // -- Type Imports --
-import type { VisualizerKind } from "../../../../state/player/visualizerKind";
 import type { DefaultTier, SkippedDefault, TrackPlace } from "../../../../state/player/visualizerResolve";
 
 /** What the popover targets: an album from its card or shelf record, or a track placed in the library. */
@@ -57,7 +56,7 @@ export interface PopoverModel {
 
 /** A stored string split by the catalog: the kind when offered, else the known kind it turns off. */
 function read(raw: string | null, catalog: Catalog): { offered: VisualizerKind | null; off: VisualizerKind | null } {
-  if (!isVisualizerKind(raw)) return { offered: null, off: null };
+  if (!isKnownKind(raw)) return { offered: null, off: null };
   return isOffered(catalog, raw) ? { offered: raw, off: null } : { offered: null, off: raw };
 }
 
@@ -130,7 +129,7 @@ export function visualizerPopoverModel(
 ): PopoverModel {
   const tiers = tiersOf(subject, stored, catalog);
   const setAside = tiers.albumDefault !== tiers.stored ? tiers.albumDefault : null;
-  const groups = offeredGroups(catalog).map((g) => ({ id: g.id, kinds: g.kinds.filter(isVisualizerKind) }));
+  const groups = offeredGroups(catalog).map((g) => ({ id: g.id, kinds: g.kinds.filter(isKnownKind) }));
   const activeGroup = groupOf(catalog, tiers.stored);
   const setAsideGroup = groupOf(catalog, setAside);
   const markers: PopoverModel["markers"] = {};

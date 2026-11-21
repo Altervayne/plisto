@@ -4,6 +4,9 @@
  * glyph and GL factory live in a second table keyed by the same ids, in the visualizers folder.
  */
 
+// -- State Imports --
+import { familyLabel } from "./pluginVisualizers";
+
 // -- Type Imports --
 import type { Translate } from "../../i18n";
 import type { Dict } from "../../i18n/en";
@@ -38,9 +41,10 @@ export function groupMark(id: string): GroupMark | null {
   return GROUP_TEMPERAMENT[id as VisualizerGroupId] ?? null;
 }
 
-/** A family's localized name. An id the registry does not name reads as itself. */
+/** A family's localized name, or a plugin family's plugin name. Any other id reads as itself. */
 export function groupLabel(id: string, t: Translate): string {
-  return Object.prototype.hasOwnProperty.call(GROUP_LABELS, id) ? t(GROUP_LABELS[id as VisualizerGroupId]) : id;
+  if (Object.prototype.hasOwnProperty.call(GROUP_LABELS, id)) return t(GROUP_LABELS[id as VisualizerGroupId]);
+  return familyLabel(id) ?? id;
 }
 
 /**

@@ -5,6 +5,7 @@
 
 // -- Type Imports --
 import type { PluginInspection, PluginManifestSummary, PluginRow, PluginStatus } from "../../types";
+import type { PluginVisualizerDecl } from "./visualizerDecl";
 
 export const manifest = (over: Partial<PluginManifestSummary> = {}): PluginManifestSummary => ({
   name: "Lyrics",
@@ -86,6 +87,30 @@ export const streamRow = (over: Partial<PluginRow> = {}): PluginRow =>
     }),
     ...over,
   });
+
+export const visualizerDecl = (over: Partial<PluginVisualizerDecl> = {}): PluginVisualizerDecl => ({
+  id: "aurora-rings",
+  name: "Aurora rings",
+  api: 1,
+  page: "vis/rings.html",
+  shader: null,
+  look: { light: { composite: "ink", blend: "multiply" }, dark: { composite: "light", blend: "screen" } },
+  fills_stage: false,
+  dark_only: false,
+  needs: { fine: false, cover: false, pointer: false, waveform: false },
+  aliases: [],
+  settings: [],
+  presets: [],
+  ...over,
+});
+
+/** A ready, enabled plugin that only brings visualizers. */
+export const visualizerRow = (
+  id: string,
+  name: string,
+  visualizers: PluginVisualizerDecl[],
+  over: Partial<PluginRow> = {},
+): PluginRow => row({ id, manifest: manifest({ name, entry: null, listing: "catalog", visualizers }), ...over });
 
 export const status = (over: Partial<PluginStatus> = {}): PluginStatus =>
   ({

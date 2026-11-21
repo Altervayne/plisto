@@ -5,11 +5,14 @@
  */
 
 // -- State Imports --
+import { isPluginKindId, pluginVisualizer, type PluginKindId } from "./pluginVisualizers";
 import {
   GROUP_ORDER,
   VISUALIZER_DESCRIPTORS,
   descriptorOf,
+  isVisualizerKind,
   type GlVisualizerId,
+  type VisualizerDescriptor,
   type VisualizerGroupId,
   type VisualizerId,
 } from "./visualizerRegistry";
@@ -26,12 +29,15 @@ export const VISUALIZER_GROUPS: readonly { id: VisualizerGroupId; kinds: readonl
     kinds: VISUALIZER_DESCRIPTORS.filter((d) => d.group === id).map((d) => d.id),
   }));
 
-/** Off draws nothing; it closes the order after the sections and carries no label. */
-export type VisualizerKind = VisualizerId | "off";
+/** A kind the registry knows, or Off. Off draws nothing; it closes the order after the sections and carries no label. */
+export type BuiltinKind = VisualizerId | "off";
 
-/** Every visualizer in registry order, offered or not. A surface that lists kinds reads the catalog instead. */
-export const VISUALIZER_KINDS: readonly VisualizerKind[] = [
-  ...VISUALIZER_GROUPS.flatMap((group): VisualizerKind[] => [...group.kinds]),
+/** Any kind a pick can name: a built-in, Off, or a plugin kind, which resolves through the plugin table. */
+export type VisualizerKind = BuiltinKind | PluginKindId;
+
+/** Every built-in visualizer in registry order, offered or not. A surface that lists kinds reads the catalog instead. */
+export const VISUALIZER_KINDS: readonly BuiltinKind[] = [
+  ...VISUALIZER_GROUPS.flatMap((group): BuiltinKind[] => [...group.kinds]),
   "off",
 ];
 
@@ -40,35 +46,51 @@ export type GlKind = GlVisualizerId;
 
 export const DEFAULT_VISUALIZER: VisualizerKind = "ridge";
 
-/** Reads a stored pref value as a kind. Anything absent or unknown reads Ridge. */
+/**
+ * Reads a stored pref value as a kind. A well-formed plugin kind id is kept whether or not its plugin is
+ * installed; anything else absent or unknown reads Ridge.
+ */
 export function normalizeVisualizerKind(raw: string | null | undefined): VisualizerKind {
-  return (VISUALIZER_KINDS as readonly string[]).includes(raw ?? "")
-    ? (raw as VisualizerKind)
-    : DEFAULT_VISUALIZER;
+  if (isVisualizerKind(raw) || isPluginKindId(raw)) return raw;
+  return DEFAULT_VISUALIZER;
 }
 
+/** Whether a string names a kind Plisto can resolve now: a built-in, Off, or an installed plugin kind. */
+export function isKnownKind(raw: string | null | undefined): raw is VisualizerKind {
+  return isVisualizerKind(raw) || (raw != null && pluginVisualizer(raw) !== undefined);
+}
+
+/** Built-in kinds only: a plugin kind draws in its own frame, never through this renderer. */
 export function isGlKind(kind: VisualizerKind): kind is GlKind {
-  return kind !== "off" && descriptorOf(kind).engine === "gl";
+  return kind !== "off" && isVisualizerKind(kind) && descriptorOf(kind).engine === "gl";
+}
+
+type Traits = Pick<VisualizerDescriptor, "needs" | "fillsStage" | "darkOnly">;
+
+/** The registry's traits for a built-in, the plugin table's for an installed plugin kind, else null. */
+function traitsOf(kind: VisualizerKind): Traits | null {
+  if (kind === "off") return null;
+  return isVisualizerKind(kind) ? descriptorOf(kind) : pluginVisualizer(kind) ?? null;
 }
 
 /** Whether a kind draws from the 128-band spectrum, which costs the engine a second analysis. */
 export function needsFineSpectrum(kind: VisualizerKind): boolean {
-  return kind !== "off" && descriptorOf(kind).needs.fine;
+  return traitsOf(kind)?.needs.fine ?? false;
 }
 
 /** Whether a kind draws the cover's own pixels, so it needs them on hand as a texture. */
 export function needsCoverPixels(kind: VisualizerKind): boolean {
-  return kind !== "off" && descriptorOf(kind).needs.cover;
+  return traitsOf(kind)?.needs.cover ?? false;
 }
 
 /** Whether a kind paints an opaque image across the whole stage, so the Player's queue needs a backing. */
 export function fillsStage(kind: VisualizerKind): boolean {
-  return kind !== "off" && descriptorOf(kind).fillsStage;
+  return traitsOf(kind)?.fillsStage ?? false;
 }
 
 /** Whether a kind has no light variant and draws its dark look in either theme. */
 export function isDarkOnly(kind: VisualizerKind): boolean {
-  return kind !== "off" && descriptorOf(kind).darkOnly;
+  return traitsOf(kind)?.darkOnly ?? false;
 }
 
 /** Whether a scene draws its light look: the theme is light and the scene has a light variant. */

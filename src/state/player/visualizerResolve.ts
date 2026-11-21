@@ -11,10 +11,9 @@
 
 // -- State Imports --
 import { isOffered, type Catalog } from "./visualizerCatalog";
-import { isVisualizerKind } from "./visualizerRegistry";
+import { isKnownKind, type VisualizerKind } from "./visualizerKind";
 
 // -- Type Imports --
-import type { VisualizerKind } from "./visualizerKind";
 import type { AlbumKind } from "../../types";
 
 export type DefaultTier = "album" | "track";
@@ -121,7 +120,7 @@ export function storedDefaultsOf(
 }
 
 function knownKind(raw: string | null): VisualizerKind | null {
-  return isVisualizerKind(raw) ? raw : null;
+  return isKnownKind(raw) ? raw : null;
 }
 
 // A stored default in play: a kind the registry knows and the catalog offers.
