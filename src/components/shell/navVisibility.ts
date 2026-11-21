@@ -13,6 +13,7 @@
 import type { AppMode } from "../../state/player/store";
 import type { CollectionTarget } from "../../state/collection/store";
 import type {
+  PluginListing,
   PluginManifestSummary,
   PluginMode,
   PluginRow,
@@ -125,12 +126,30 @@ function hasPage(row: ZonePlugin): boolean {
   return row.tier === "native" || row.manifest.entry != null;
 }
 
+/** Where Settings lists a row. A row whose manifest cannot be read is listed under Plugins, where it is diagnosed. */
+export function listingOf(row: PluginRow): PluginListing {
+  return row.manifest?.listing ?? "plugins";
+}
+
+/** The rows Settings lists under Plugins, in the order given. */
+export function listedRows(rows: readonly PluginRow[]): PluginRow[] {
+  return rows.filter((row) => listingOf(row) === "plugins");
+}
+
+/** How many rows the Visualizers catalog manages instead of the Plugins list. */
+export function catalogManagedCount(rows: readonly PluginRow[]): number {
+  return rows.length - listedRows(rows).length;
+}
+
 /**
- * The plugins the rail and the finder may show, in install order: the live ones with a page that are
- * visible under the app mode. Anything else is reachable from the Settings hub only.
+ * The plugins the rail and the finder may show, in install order: the live ones listed under Plugins
+ * with a page that are visible under the app mode. Anything else is reachable from Settings only.
  */
 export function qualifiedPlugins(rows: readonly PluginRow[], appMode: AppMode): ZonePlugin[] {
-  return livePlugins(rows).filter((row) => hasPage(row) && isPluginVisible(appMode, row.manifest.modes));
+  return livePlugins(rows).filter(
+    (row) =>
+      row.manifest.listing === "plugins" && hasPage(row) && isPluginVisible(appMode, row.manifest.modes),
+  );
 }
 
 /** One plugin-owned sidebar section with its items and fold state. */

@@ -1,7 +1,8 @@
 /*
  * The finder's Settings entries, built from the settings registry so the palette never lists a row the
  * page lacks or misses one it has: one entry per visible setting, one per section (a jump to its top)
- * and one per installed plugin's hub row. The scoped list reads the same entries.
+ * and one per installed plugin's hub row (under Visualizers for a plugin the catalog lists). The scoped
+ * list reads the same entries.
  */
 
 // -- Utils Imports --
@@ -9,10 +10,12 @@ import { searchFold } from "../../lib/fold";
 import { matchesTokens, searchTokens } from "../../lib/tokenMatch";
 import { hubSettingId, visibleSettings } from "../settings/settingsRegistry";
 import { SETTINGS_SECTIONS } from "../settings/settingsSections";
+import { familySettingId } from "../settings/settingsTarget";
 
 // -- Type Imports --
 import type { Dict } from "../../i18n/en";
 import type { PluginTagKind } from "../../state/plugins/trust";
+import type { PluginListing } from "../../types";
 import type { SettingsContext } from "../settings/settingsRegistry";
 import type { SettingsSectionId } from "../settings/settingsSections";
 import type { SettingFinderEntry } from "./finderIndex";
@@ -26,10 +29,11 @@ export interface SettingsEntryText {
   path: (section: string) => string;
 }
 
-/** An installed plugin, as its hub row needs it. */
+/** An installed plugin, as its hub row needs it. Its listing picks the section the row sits in. */
 export interface HubSource {
   id: string;
   name: string;
+  listing: PluginListing;
   tag: PluginTagKind | null;
 }
 
@@ -86,11 +90,14 @@ export function settingEntries(
         trackIds: [],
       });
     }
-    if (section.id !== "plugins") continue;
+    const listing: PluginListing | null =
+      section.id === "plugins" ? "plugins" : section.id === "visualizers" ? "catalog" : null;
+    if (!listing) continue;
     for (const hub of hubs) {
+      if (hub.listing !== listing) continue;
       entries.push({
         kind: "setting",
-        id: hubSettingId(hub.id),
+        id: listing === "plugins" ? hubSettingId(hub.id) : familySettingId(hub.id),
         variant: "hub",
         section: section.id,
         label: hub.name,

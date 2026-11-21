@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 // -- Unit Imports --
+import { usePluginsStore } from "../plugins/store";
+import { manifest, row } from "../plugins/fixtures";
 import { openPluginHub, openSettings, settingsSection, takeSettingsTarget } from "./store";
 import { hubSettingId } from "../../components/settings/settingsRegistry";
 import { sectionForTarget } from "../../components/settings/settingsTarget";
@@ -51,6 +53,28 @@ describe("settings target", () => {
   it("opening a plugin hub row targets its hub setting", () => {
     openPluginHub("tandem");
     expect(takeSettingsTarget()).toBe("hub-tandem");
+  });
+});
+
+describe("opening a plugin hub by listing", () => {
+  const vis = row({ id: "glow", manifest: manifest({ entry: null, listing: "catalog" }) });
+  const page = row({ id: "lyrics" });
+
+  it("sends a catalog-listed plugin to its Visualizers family", () => {
+    usePluginsStore.setState({ rows: [vis, page] });
+    openPluginHub("glow");
+    expect(settingsSection()).toBe("visualizers");
+    expect(takeSettingsTarget()).toBe("family-glow");
+  });
+
+  it("sends a Plugins-listed or unknown plugin to its hub row", () => {
+    usePluginsStore.setState({ rows: [vis, page] });
+    openPluginHub("lyrics");
+    expect(settingsSection()).toBe("plugins");
+    expect(takeSettingsTarget()).toBe("hub-lyrics");
+    openPluginHub("ghost");
+    expect(takeSettingsTarget()).toBe("hub-ghost");
+    usePluginsStore.setState({ rows: [] });
   });
 });
 

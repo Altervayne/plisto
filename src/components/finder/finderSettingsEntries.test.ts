@@ -28,7 +28,7 @@ import type { FinderEntry, SettingFinderEntry } from "./finderIndex";
 import type { HubSource } from "./finderSettingsEntries";
 
 const NO_PLAYS = new Map<number, number>();
-const HUBS: HubSource[] = [{ id: "tandem", name: "Tandem", tag: "native" }];
+const HUBS: HubSource[] = [{ id: "tandem", name: "Tandem", listing: "plugins", tag: "native" }];
 
 function build(dict: Dict, windows: boolean, hubs: HubSource[] = HUBS): SettingFinderEntry[] {
   const group = dict.settings.nav;
@@ -51,6 +51,15 @@ describe("settingEntries", () => {
       expect(entries.filter((e) => e.variant === "section")).toHaveLength(SETTINGS_SECTIONS.length);
       expect(entries.filter((e) => e.variant === "hub").map((e) => e.id)).toEqual([hubSettingId("tandem")]);
     }
+  });
+
+  it("files a catalog-listed plugin under Visualizers, not Plugins", () => {
+    const hubs: HubSource[] = [...HUBS, { id: "glow", name: "Glow", listing: "catalog", tag: null }];
+    const hubRows = build(en, true, hubs).filter((e) => e.variant === "hub");
+    expect(hubRows.map((e) => [e.id, e.section, e.pluginId])).toEqual([
+      ["family-glow", "visualizers", "glow"],
+      [hubSettingId("tandem"), "plugins", "tandem"],
+    ]);
   });
 
   it("never offers the tag-write setting while the feature is off", () => {

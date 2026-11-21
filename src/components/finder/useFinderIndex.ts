@@ -19,6 +19,7 @@ import {
 } from "./finderIndex";
 import { DESTINATION_LABEL } from "./finderDestinations";
 import { settingEntries } from "./finderSettingsEntries";
+import { listingOf } from "../shell/navVisibility";
 import { settingsContext } from "../settings/settingsRegistry";
 
 // -- Hook Imports --
@@ -137,6 +138,7 @@ export function useFinderIndex(): {
         installed.map((row) => ({
           id: row.id,
           name: row.manifest?.name ?? row.id,
+          listing: listingOf(row),
           tag: tagKind(row.tier, probe),
         })),
         {

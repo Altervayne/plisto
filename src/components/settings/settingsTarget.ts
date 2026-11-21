@@ -1,7 +1,7 @@
 /*
- * What a surface outside Settings can ask Settings to land on: one row, one plugin's hub row, or a
- * whole section. Resolution against the live page lives here so a target that has no row on screen
- * falls back to its section.
+ * What a surface outside Settings can ask Settings to land on: one row, one plugin's hub row, one
+ * visualizer plugin's family in the catalog, or a whole section. Resolution against the live page lives
+ * here so a target that has no row on screen falls back to its section.
  */
 
 // -- Local Imports --
@@ -12,7 +12,14 @@ import { SETTINGS_SECTIONS } from "./settingsSections";
 import type { HubSettingId, SettingId } from "./settingsRegistry";
 import type { SettingsSectionId } from "./settingsSections";
 
-export type SettingsTarget = SettingId | HubSettingId | SettingsSectionId;
+/** The id of a visualizer-only plugin's family in the Visualizers catalog. */
+export type FamilySettingId = `family-${string}`;
+
+export type SettingsTarget = SettingId | HubSettingId | FamilySettingId | SettingsSectionId;
+
+export function familySettingId(pluginId: string): FamilySettingId {
+  return `family-${pluginId}`;
+}
 
 /** Where a target lands: the DOM id of a row, or a section. */
 export type LandingAnchor =
@@ -29,12 +36,13 @@ function isSectionId(id: string): id is SettingsSectionId {
 
 /**
  * The section a target lives in: a section is itself, a row is in its registry section, a hub row in
- * Plugins. Null for an id that names nothing, which leaves the shown section alone.
+ * Plugins, a family in Visualizers. Null for an id that names nothing, which leaves the shown section alone.
  */
 export function sectionForTarget(target: string): SettingsSectionId | null {
   if (isSectionId(target)) return target;
   const entry = settingEntry(target);
   if (entry) return entry.section;
+  if (target.startsWith("family-")) return "visualizers";
   return target.startsWith("hub-") ? "plugins" : null;
 }
 
@@ -52,6 +60,7 @@ export function resolveLanding(
   const entry = settingEntry(target);
   if (entry) return { kind: "section", section: entry.section };
   if (target.startsWith("hub-")) return { kind: "section", section: "plugins" };
+  if (target.startsWith("family-")) return { kind: "section", section: "visualizers" };
   return null;
 }
 

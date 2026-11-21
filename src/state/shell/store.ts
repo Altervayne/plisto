@@ -10,10 +10,12 @@ import { create } from "zustand";
 
 // -- State Imports --
 import { ALL_GONE } from "../gone/goneGroups";
+import { usePluginsStore } from "../plugins/store";
 
 // -- Utils Imports --
+import { listingOf } from "../../components/shell/navVisibility";
 import { hubSettingId } from "../../components/settings/settingsRegistry";
-import { sectionForTarget } from "../../components/settings/settingsTarget";
+import { familySettingId, sectionForTarget } from "../../components/settings/settingsTarget";
 
 // -- Type Imports --
 import type { GoneScope } from "../gone/goneGroups";
@@ -130,16 +132,31 @@ const useShellStore = create<ShellStore>((set, get) => ({
     set((s) => ({ pluginPageRequest: { id, route, seq: (s.pluginPageRequest?.seq ?? 0) + 1 } })),
   pluginHubFocus: null,
   openPluginHub: (id) =>
-    set((s) => ({
-      pluginHubFocus: id,
-      settingsRequest: s.settingsRequest + 1,
-      settingsTarget: { target: hubSettingId(id), seq: s.settingsRequest + 1 },
-      settingsSection: "plugins",
-    })),
+    set((s) => {
+      const row = usePluginsStore.getState().rows.find((r) => r.id === id);
+      const seq = s.settingsRequest + 1;
+      if (row && listingOf(row) === "catalog") {
+        return {
+          pluginHubFocus: null,
+          settingsRequest: seq,
+          settingsTarget: { target: familySettingId(id), seq },
+          settingsSection: "visualizers" as const,
+        };
+      }
+      return {
+        pluginHubFocus: id,
+        settingsRequest: seq,
+        settingsTarget: { target: hubSettingId(id), seq },
+        settingsSection: "plugins" as const,
+      };
+    }),
   clearPluginHubFocus: () => set({ pluginHubFocus: null }),
 }));
 
-/** Opens Settings on a plugin's hub row, from outside React. */
+/**
+ * Opens Settings where a plugin is managed: its hub row under Plugins, or its family under Visualizers
+ * for a plugin the catalog lists. An id with no row opens the hub row.
+ */
 export function openPluginHub(id: string): void {
   useShellStore.getState().openPluginHub(id);
 }

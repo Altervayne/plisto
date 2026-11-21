@@ -10,6 +10,9 @@ import {
   isPluginVisible,
   isSectionVisible,
   isZoneEmpty,
+  catalogManagedCount,
+  listedRows,
+  listingOf,
   livePlugins,
   pluginIdOf,
   pluginMode,
@@ -158,6 +161,29 @@ describe("plugin destinations", () => {
     expect(pluginMode("tandem")).toBe("plugin:tandem");
     expect(pluginIdOf("plugin:tandem")).toBe("tandem");
     expect(pluginIdOf("settings")).toBeNull();
+  });
+});
+
+describe("listing", () => {
+  const listed = row({ id: "page" });
+  const catalog = row({ id: "vis", manifest: manifest({ entry: null, listing: "catalog" }) });
+  const unreadable = row({ id: "broken", manifest: null });
+
+  it("lists a row under Plugins unless its manifest says catalog", () => {
+    expect(listingOf(listed)).toBe("plugins");
+    expect(listingOf(catalog)).toBe("catalog");
+    expect(listingOf(unreadable)).toBe("plugins");
+  });
+
+  it("selects the Plugins rows and counts the catalog-managed ones", () => {
+    const rows = [listed, catalog, unreadable];
+    expect(listedRows(rows).map((r) => r.id)).toEqual(["page", "broken"]);
+    expect(catalogManagedCount(rows)).toBe(1);
+  });
+
+  it("keeps a catalog row with a page out of the rail and finder", () => {
+    const odd = row({ id: "odd", manifest: manifest({ listing: "catalog" }) });
+    expect(qualifiedPlugins([listed, odd], "both").map((p) => p.id)).toEqual(["page"]);
   });
 });
 

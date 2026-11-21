@@ -1,5 +1,5 @@
 // -- Framework Imports --
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // -- Library Imports --
 import { FileArchive, FolderOpen, FolderSearch } from "lucide-react";
@@ -31,6 +31,7 @@ import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
 import { pluginInboxPath } from "../../../lib/ipc";
 
 // -- Utils Imports --
+import { listedRows } from "../../shell/navVisibility";
 import { pickFolder, pickPluginFile } from "../../../lib/dialog";
 import { openFolder } from "../../../lib/opener";
 import { appVersion } from "../../../lib/updater";
@@ -56,6 +57,7 @@ import styles from "./PluginsSection.module.css";
 export function PluginsSection() {
   const t = useT();
   const rows = usePlugins();
+  const listed = useMemo(() => listedRows(rows), [rows]);
   const status = usePluginsStatus();
   const leaking = useSandboxLeaking();
   const lock = useOperationLock();
@@ -111,7 +113,7 @@ export function PluginsSection() {
       <div className={styles.group}>
         <span className={styles.sub}>{t((d) => d.plugins.installedLabel)}</span>
         <div className={settingsStyles.list}>
-          {rows.map((row) => (
+          {listed.map((row) => (
             <SettingRow key={row.id} id={hubSettingId(row.id)}>
               <PluginRow
                 row={row}
@@ -124,10 +126,10 @@ export function PluginsSection() {
               />
             </SettingRow>
           ))}
-          {rows.length === 0 && (status === "idle" || status === "loading") ? (
+          {listed.length === 0 && (status === "idle" || status === "loading") ? (
             <p className={settingsStyles.empty}>{t((d) => d.plugins.loading)}</p>
           ) : null}
-          {rows.length === 0 && status === "ready" ? (
+          {listed.length === 0 && status === "ready" ? (
             <p className={settingsStyles.empty}>{t((d) => d.plugins.empty)}</p>
           ) : null}
         </div>

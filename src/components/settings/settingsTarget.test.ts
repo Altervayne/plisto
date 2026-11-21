@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
-import { landingScrollTop, resolveLanding, sectionForTarget } from "./settingsTarget";
+import { familySettingId, landingScrollTop, resolveLanding, sectionForTarget } from "./settingsTarget";
 import { hubSettingId, settingAnchorId } from "./settingsRegistry";
 
 const none = () => false;
@@ -31,6 +31,11 @@ describe("resolveLanding", () => {
 
   it("lands on Plugins for a hub row that is not there", () => {
     expect(resolveLanding(hubSettingId("gone"), none)).toEqual({ kind: "section", section: "plugins" });
+  });
+
+  it("lands on Visualizers for a family target", () => {
+    expect(resolveLanding(familySettingId("glow"), none)).toEqual({ kind: "section", section: "visualizers" });
+    expect(sectionForTarget(familySettingId("glow"))).toBe("visualizers");
   });
 
   it("returns null for an unknown id", () => {
