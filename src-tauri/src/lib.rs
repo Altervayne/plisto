@@ -652,6 +652,7 @@ pub fn run() {
             commands::visualizer::set_track_visualizer,
             commands::plugins::plugin_frame_url,
             commands::plugin_vis::plugin_vis_url,
+            commands::plugin_vis::plugin_vis_shown,
             commands::plugin_vis::plugin_vis_marks,
             commands::plugin_vis::plugin_vis_mark,
             commands::plugin_vis::plugin_vis_clear_mark,

@@ -1330,6 +1330,19 @@ export function pluginVisUrl(id: string, kind: string): Promise<string> {
   return invoke<string>("plugin_vis_url", { id, kind });
 }
 
+/**
+ * Reports the visualizer hosts (`pv-<hash>.invalid`, the hostname of a kind's URL) whose frames
+ * are shown. Call it whenever that set changes, with the union of every visible visualizer frame:
+ * the stage and any previews, and again every few seconds while any visualizer frame is mounted, so
+ * a frame whose process the watch tracks after the last change still gets a report. A renderer is
+ * ended for load only after a valid report has arrived since the watch began tracking it, and never
+ * while one of its hosts was in a report since its last sample. A report with any other host
+ * rejects, and nothing is ended until the next valid one.
+ */
+export function pluginVisShown(hosts: string[]): Promise<void> {
+  return invoke<void>("plugin_vis_shown", { hosts });
+}
+
 /** Every plugin visualizer kind with a fault mark or a turned-back-on record, for all plugins at once. */
 export function pluginVisMarks(): Promise<PluginVisKindState[]> {
   return invoke<PluginVisKindState[]>("plugin_vis_marks");

@@ -1,11 +1,13 @@
 /*
  * The IPC commands for plugin visualizers: the URL a declared kind's frame loads from its
- * plugin's visualizer host, and the per-plugin store of fault marks, reset trial markers and
- * stills. Like the page frame URL, no URL is handed out until the main webview's frame handler
- * is installed, so nothing mounts a frame that no one would answer.
+ * plugin's visualizer host, the set of shown visualizer hosts the process watch reads, and the
+ * per-plugin store of fault marks, reset trial markers and stills. Like the page frame URL, no URL
+ * is handed out until the main webview's frame handler is installed, so nothing mounts a frame that
+ * no one would answer.
  */
 
 // -- Library Imports --
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -15,7 +17,7 @@ use tauri::{AppHandle, Manager, State, Webview};
 // -- Local Imports --
 use super::plugins::MAIN_LABEL;
 use crate::plugins::frame_host::vis_host;
-use crate::plugins::vis_store;
+use crate::plugins::{vis_process, vis_store};
 use crate::state::AppState;
 
 /// The URL visualizer `kind` of enabled plugin `id` loads from. Errors when frames are unavailable,
@@ -36,6 +38,41 @@ pub fn plugin_vis_url(
         .map_err(|e| format!("no app data folder: {e}"))?;
     vis_host::kind_url(&app_data, &id, &kind, &|id| state.plugins.is_enabled(id))
         .map_err(|e| e.to_string())
+}
+
+/// Reports the set of visualizer hosts (`pv-<hash>.invalid`) whose frames are shown. The process
+/// watch ends a renderer only after a valid report has arrived since it began tracking it, and
+/// never while a host it served was shown at any report since its last sample. Main window only.
+/// One entry that is not a visualizer host rejects the whole report and leaves the shown set
+/// unknown, so nothing is ended until the next valid report.
+#[tauri::command]
+pub fn plugin_vis_shown(
+    hosts: Vec<String>,
+    webview: Webview,
+    app: AppHandle,
+) -> Result<(), String> {
+    if webview.label() != MAIN_LABEL {
+        return Err("visualizer commands are only available to the main window".to_string());
+    }
+    let labels = hosts
+        .iter()
+        .map(|host| {
+            vis_process::shown_label(host).ok_or_else(|| format!("not a visualizer host: {host}"))
+        })
+        .collect::<Result<BTreeSet<String>, String>>();
+    let labels = match labels {
+        Ok(labels) => labels,
+        Err(e) => {
+            #[cfg(windows)]
+            crate::plugins::vis_process_win::reject_shown();
+            return Err(e);
+        }
+    };
+    #[cfg(windows)]
+    crate::plugins::vis_process_win::set_shown(&app, labels);
+    #[cfg(not(windows))]
+    let _ = (labels, app);
+    Ok(())
 }
 
 // -- Store commands --

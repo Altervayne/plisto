@@ -1,10 +1,11 @@
 /*
  * Plugin system foundations: on-disk locations, the strict manifest parser with its sidebar and
- * visualizer declarations and the listing rule, the frame host that serves plugin pages, and the
- * registry of what is installed with the session marker and safe-mode flag beside it, the installer
- * that stages a folder or archive and commits it, and the lifecycle after that: consent, enable,
- * disable, update and uninstall. Everything here is pure or takes the directory it reads from,
- * except the WebView2 binding of the frame host.
+ * visualizer declarations and the listing rule, the frame host that serves plugin pages, the watch
+ * that ends a visualizer process spinning out of sight, and the registry of what is installed with
+ * the session marker and safe-mode flag beside it, the installer that stages a folder or archive
+ * and commits it, and the lifecycle after that: consent, enable, disable, update and uninstall.
+ * Everything here is pure or takes the directory it reads from, except the WebView2 bindings of
+ * the frame host and the process watch.
  */
 
 // Nothing outside this module calls into it yet, so most items are unused.
@@ -45,5 +46,8 @@ pub(crate) mod summary;
 #[cfg(test)]
 mod test_kit;
 pub(crate) mod update;
+pub(crate) mod vis_process;
+#[cfg(windows)]
+pub(crate) mod vis_process_win;
 pub(crate) mod vis_store;
 pub(crate) mod visualizer_decl;

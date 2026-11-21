@@ -3,7 +3,8 @@
  * requests for the plugin frame host from the plugin folders. wry's own handler receives the same
  * events, so a URI the frame host does not own is left untouched: no response and no deferral. COM
  * pointers are not Send, so the pending requests stay in a map on the UI thread while the disk work
- * runs on the blocking pool, and the answer is completed back on the UI thread.
+ * runs on the blocking pool, and the answer is completed back on the UI thread. A visualizer host
+ * request also wakes the visualizer process watch.
  */
 
 // -- Library Imports --
@@ -144,8 +145,12 @@ unsafe fn on_request<R: Runtime>(
     let Some(uri) = request_uri(&request) else {
         return;
     };
-    if frame_host::parse_frame_url(&uri).is_none() && vis_host::parse_vis_url(&uri).is_none() {
+    let vis = vis_host::parse_vis_url(&uri).is_some();
+    if frame_host::parse_frame_url(&uri).is_none() && !vis {
         return;
+    }
+    if vis {
+        super::vis_process_win::wake(app);
     }
 
     // From here the request is ours and always gets an answer.
