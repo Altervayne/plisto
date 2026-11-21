@@ -17,11 +17,11 @@ const HTML: &str = "text/html; charset=utf-8";
 const TOKENS: &str = include_str!("../../../src/styles/tokens.css");
 const PLUGIN_BASE: &str = include_str!("../../../src/styles/plugin-base.css");
 
-// TODO: both are placeholders; each becomes an `include_str!` of its file in
-// `plugin-kit/visualizers/runtime/` once the runtime bundle is built.
-pub const VIS_RUNTIME: &str = "\"use strict\";\n";
+// Built by `npm run vis:build`; `npm run vis:check` fails while the bundle is stale.
+pub const VIS_RUNTIME: &str =
+    include_str!("../../../plugin-kit/visualizers/runtime/plisto-vis-1.js");
 pub const VIS_SHADER_PAGE: &str =
-    "<!doctype html>\n<meta charset=\"utf-8\">\n<script src=\"plisto-vis.js\"></script>\n";
+    include_str!("../../../plugin-kit/visualizers/runtime/shader.html");
 
 /// The host file at `raw_path`, still percent-encoded; None for any other path.
 pub fn host_file(raw_path: &str) -> Option<HostFile> {

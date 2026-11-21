@@ -145,6 +145,8 @@ fn every_visualizer_response_carries_the_visualizer_headers() {
 
 #[test]
 fn the_runtime_and_shader_page_are_served() {
+    assert!(VIS_RUNTIME.starts_with("var plistoVis = "));
+    assert!(VIS_SHADER_PAGE.contains("<script src=\"plisto-vis.js\"></script>"));
     let d = app_data();
     for (path, mime, body) in [
         (
