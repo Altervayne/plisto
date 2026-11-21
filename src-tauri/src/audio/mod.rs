@@ -179,6 +179,8 @@ pub enum PlayerCmd {
     // Turns the 128-band `player:spectrum_fine` emit on or off. Off by default, so nothing beyond the
     // regular bands is analyzed unless a visualizer asks for it.
     SetFineSpectrum(bool),
+    // Turns the 256-value `player:wave` window emit on or off. Off by default.
+    SetWaveform(bool),
     // Sends the feed consumers one snapshot of the current state. Changes nothing.
     FeedSnapshot,
     // Mutes Plisto's own output (true) while another player renders the music, or restores it (false).
@@ -418,6 +420,8 @@ pub struct LevelFrame {
     pub flux: f32,
     #[serde(rename = "rmsDb")]
     pub rms_db: f32,
+    /// The play head in seconds at the end of the analysed window.
+    pub at: f64,
 }
 
 impl Default for LevelFrame {
@@ -428,6 +432,7 @@ impl Default for LevelFrame {
             peak: 0.0,
             flux: 0.0,
             rms_db: spectrum::RMS_DB_FLOOR,
+            at: 0.0,
         }
     }
 }

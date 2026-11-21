@@ -1108,6 +1108,14 @@ export function playerSetFineSpectrum(on: boolean): Promise<void> {
   return invoke("player_set_fine_spectrum", { on });
 }
 
+/**
+ * Turns the 256-value `player:wave` snapshot emit on or off. It rides the same audible gate as the
+ * spectrum and is on only while a visualizer reads it.
+ */
+export function playerSetWaveform(on: boolean): Promise<void> {
+  return invoke("player_set_waveform", { on });
+}
+
 /** Every available output device, each flagged when it is the current OS default. */
 export function listOutputDevices(): Promise<OutputDeviceInfo[]> {
   return invoke<OutputDeviceInfo[]>("list_output_devices");

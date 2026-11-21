@@ -25,6 +25,7 @@ pub mod loudness;
 pub mod missing;
 pub mod organize;
 pub mod player;
+pub mod player_wave;
 pub mod plays;
 pub mod playlist_export;
 pub mod playlists;

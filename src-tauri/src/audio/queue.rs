@@ -339,7 +339,7 @@ impl Xorshift {
 
     /// A value in [0, bound), for a bound of at least one. The modulo's bias is immaterial at queue
     /// lengths.
-    fn below(&mut self, bound: usize) -> usize {
+    pub(super) fn below(&mut self, bound: usize) -> usize {
         (self.next_u64() % bound as u64) as usize
     }
 }

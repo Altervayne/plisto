@@ -622,6 +622,7 @@ pub fn run() {
             commands::player::list_output_devices,
             commands::player::player_set_output_device,
             commands::player::player_set_fine_spectrum,
+            commands::player_wave::player_set_waveform,
             commands::player::player_clear_parked,
             commands::stream::get_stream_now,
             commands::plays::reset_play_history,

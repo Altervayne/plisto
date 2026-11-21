@@ -140,6 +140,7 @@ fn rig() -> Rig {
         cur_spectrum: None,
         prev_bands: [0.0; BAND_COUNT],
         fine_spectrum: false,
+        wave: crate::audio::engine::wave::Waveform::new(1),
         dsp: Arc::new(DspShared::default()),
         tap: Arc::clone(&tap),
         feed: hub,

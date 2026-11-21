@@ -55,7 +55,7 @@ pub(super) struct SpectrumTap {
 
 impl SpectrumTap {
     /// A silent tap: the ring zeroed and the cursor at the start.
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             ring: std::array::from_fn(|_| AtomicU32::new(0)),
             written: AtomicU64::new(0),

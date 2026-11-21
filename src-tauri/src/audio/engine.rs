@@ -41,9 +41,11 @@ use crate::scan::progress::ProgressThrottle;
 mod events;
 mod opened;
 mod seat;
+mod wave;
 
 use events::AppEvents;
 use opened::OpenedSource;
+use wave::{Waveform, WAVE_LEN};
 
 // The engine's tick period while audible, the cadence of the spectrum and level frames.
 const AUDIBLE_TICK: Duration = Duration::from_millis(33);
@@ -121,6 +123,8 @@ struct Engine {
     prev_bands: [f32; BAND_COUNT],
     // Whether a visualizer asked for the fine spectrum frame alongside the regular bands.
     fine_spectrum: bool,
+    // The waveform snapshot picker; on only while a visualizer asked for the `player:wave` window.
+    wave: Waveform,
     // The live DSP parameters every source's stage reads.
     dsp: Arc<DspShared>,
     // The audio tap every library source writes while it is active. Previews never feed it.
@@ -316,7 +320,8 @@ impl Engine {
             Some(tap) if self.is_audible() => tap,
             _ => return,
         };
-        let Some(a) = analyze(tap, self.cur_rate, &self.prev_bands) else {
+        let at = self.position_secs();
+        let Some(a) = analyze(tap, self.cur_rate, &self.prev_bands, at) else {
             return;
         };
         for (prev, cur) in self.prev_bands.iter_mut().zip(&a.bands) {
@@ -328,6 +333,9 @@ impl Engine {
             let _ = self
                 .app
                 .emit("player:spectrum_fine", &a.bins.bands(FINE_BAND_COUNT));
+        }
+        if let Some(window) = self.wave.snapshot(tap) {
+            let _ = self.app.emit("player:wave", &window);
         }
     }
 
@@ -341,6 +349,9 @@ impl Engine {
             let _ = self
                 .app
                 .emit("player:spectrum_fine", &vec![0.0f32; FINE_BAND_COUNT]);
+        }
+        if self.wave.is_on() {
+            let _ = self.app.emit("player:wave", &vec![0.0f32; WAVE_LEN]);
         }
     }
 
@@ -440,6 +451,7 @@ impl Engine {
     fn seat(&mut self, h: SourceHandles) {
         self.cur_frames = Some(h.frames);
         self.cur_spectrum = Some(h.spectrum);
+        self.wave.reset();
         self.cur_ended = Some(h.ended);
         self.cut = Some(h.cut);
         self.cur_rate = h.rate;
@@ -1108,6 +1120,7 @@ impl Engine {
             PlayerCmd::RestoreLibrary { secs, playing } => self.restore_library(secs, playing),
             PlayerCmd::SetSound(settings) => self.dsp.store(&DspParams::from(&settings)),
             PlayerCmd::SetFineSpectrum(on) => self.fine_spectrum = on,
+            PlayerCmd::SetWaveform(on) => self.wave.set_on(on),
             PlayerCmd::FeedSnapshot => self.feed(FeedCause::Snapshot),
             PlayerCmd::SetOutputTakeover(on) => {
                 self.taken_over = on;
@@ -1203,8 +1216,9 @@ struct Analysis {
 }
 
 /// Analyzes the trailing SPECTRUM_WINDOW samples of `tap` at `rate`, with flux measured against
-/// `prev_bands`. None until a full window has been written.
-fn analyze(tap: &SpectrumTap, rate: u32, prev_bands: &[f32]) -> Option<Analysis> {
+/// `prev_bands`, the frame stamped with the play head `at` in seconds. None until a full window has
+/// been written.
+fn analyze(tap: &SpectrumTap, rate: u32, prev_bands: &[f32], at: f64) -> Option<Analysis> {
     let w = tap.written.load(Ordering::Relaxed);
     if w < SPECTRUM_WINDOW as u64 {
         return None;
@@ -1222,6 +1236,7 @@ fn analyze(tap: &SpectrumTap, rate: u32, prev_bands: &[f32]) -> Option<Analysis>
         peak: level.peak,
         flux: spectrum::flux(prev_bands, &bands),
         rms_db: level.rms_db,
+        at,
     };
     Some(Analysis { bins, bands, frame })
 }
@@ -1291,6 +1306,7 @@ fn run(
         cur_spectrum: None,
         prev_bands: [0.0; BAND_COUNT],
         fine_spectrum: false,
+        wave: Waveform::new(now_ms() ^ 0x5851_f42d_4c95_7f2d),
         dsp: Arc::new(DspShared::default()),
         tap: Arc::clone(feed_hub().slot()),
         feed: feed_hub(),
@@ -1385,6 +1401,15 @@ mod tests {
         sample_rate: 44_100,
         channels: 2,
     };
+
+    #[test]
+    fn the_level_frame_carries_the_play_head() {
+        let tap = SpectrumTap::new();
+        tap.written.store(SPECTRUM_WINDOW as u64, Ordering::Relaxed);
+        let a = analyze(&tap, 44_100, &[0.0; BAND_COUNT], 12.5).expect("a full window");
+        assert_eq!(a.frame.at, 12.5);
+        assert_eq!(LevelFrame::default().at, 0.0);
+    }
 
     #[test]
     fn a_preload_of_the_same_layout_joins_gapless() {

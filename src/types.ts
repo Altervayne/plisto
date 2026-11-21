@@ -834,6 +834,8 @@ export interface LevelFrame {
   peak: number;
   flux: number;
   rmsDb?: number;
+  /** The engine play head in seconds at the end of the analysed window. */
+  at?: number;
 }
 
 /**

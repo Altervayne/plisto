@@ -84,7 +84,7 @@ fn dump(track: &Path) -> Option<Value> {
                 break 'ticks;
             }
         }
-        let Some(a) = analyze(&src.spectrum, rate, &prev) else {
+        let Some(a) = analyze(&src.spectrum, rate, &prev, target as f64 / f64::from(rate)) else {
             continue;
         };
         prev.copy_from_slice(&a.bands);
