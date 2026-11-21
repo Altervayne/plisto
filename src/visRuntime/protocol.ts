@@ -113,6 +113,8 @@ export interface VisInit {
   fillsStage: boolean;
   needs: { fine: boolean; cover: boolean; pointer: boolean; waveform: boolean };
   settingShapes: VisSettingShape[];
+  // Whether the flash meter runs at mount; `meter` messages switch it afterwards.
+  meter: boolean;
   context: VisContext;
 }
 
@@ -121,6 +123,7 @@ export type HostMessage =
   | ({ type: "tick" } & Tick)
   | { type: "update"; context: Partial<VisContext> }
   | { type: "still"; id: number }
+  | { type: "meter"; on: boolean }
   | { type: "dispose" };
 
 /** What the frame reports with `error`: where the mount failed. */
@@ -142,6 +145,8 @@ export type FrameMessage =
   | { type: "ack"; seq: number; ms: number | null }
   // The first frame is on the canvas. `metered` is whether a canvas is registered for the meter.
   | { type: "ready"; metered: boolean }
+  // A kind that was not metered at ready registered a canvas afterwards; posted once.
+  | { type: "metered" }
   // `error` says why a still was refused; the bitmap is then null.
   | { type: "still"; id: number; bitmap: ImageBitmap | null; error?: string }
   | { type: "lost" }
@@ -247,6 +252,7 @@ export function readInit(data: unknown): VisInit | null {
   if (!isObject(data) || data.plisto !== 1 || data.type !== VIS_INIT_TYPE) return null;
   if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
   if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
+  if (typeof data.meter !== "boolean") return null;
   return data as unknown as VisInit;
 }
 
@@ -262,6 +268,8 @@ export function readHostMessage(data: unknown): HostMessage | null {
       return isObject(data.context) ? (data as unknown as HostMessage) : null;
     case "still":
       return isCount(data.id) ? (data as unknown as HostMessage) : null;
+    case "meter":
+      return typeof data.on === "boolean" ? { type: "meter", on: data.on } : null;
     case "dispose":
       return { type: "dispose" };
     default:
@@ -277,6 +285,8 @@ export function readFrameMessage(data: unknown): FrameMessage | null {
       return isCount(data.seq) && (data.ms === null || isNum(data.ms)) ? (data as unknown as FrameMessage) : null;
     case "ready":
       return typeof data.metered === "boolean" ? (data as unknown as FrameMessage) : null;
+    case "metered":
+      return { type: "metered" };
     case "still":
       return isCount(data.id) && (data.error === undefined || typeof data.error === "string")
         ? (data as unknown as FrameMessage)

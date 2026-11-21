@@ -5,23 +5,28 @@
  * the next one, so its beats and time are not lost. `ready` is posted once a frame is on the canvas;
  * until then the host keeps the slot hidden. Compiling advances on every draw attempt, and draw attempts
  * follow ticks, so a frame the webview throttles still finishes. A still is served only before the
- * first tick, since drawing one starts the scene over.
+ * first tick, since drawing one starts the scene over. While metering is on, the canvas the kind draws on
+ * is metered after each drawn frame.
  */
 
 // -- Local Imports --
 import { createFrameBuilder } from "./frame";
-import { MountError, createGate, errorText } from "./gate";
+import { MountError, errorText } from "./gate";
+import { browserMeterEnv } from "./meter";
+import { createMeterHub } from "./meterHub";
 import { foldTick, readHostMessage } from "./protocol";
 import { DT_MAX, createFrameTransport } from "./transport";
-import { deferredCompile } from "../components/player/visualizers/gl/compile";
+import { glSurface, rawSurface } from "./surfaces";
 import { ProgramPending } from "../components/player/visualizers/gl/kit";
 import { createRenderer } from "../components/player/visualizers/gl/renderer";
 
 // -- Type Imports --
 import type { VisFrame } from "./frame";
-import type { FrameMessage, Tick, VisComposite, VisContext, VisErrorStage, VisInit, VisLayout } from "./protocol";
+import type { StageMeter } from "./meter";
+import type { MeterHub } from "./meterHub";
+import type { FrameMessage, Tick, VisContext, VisErrorStage, VisInit, VisLayout } from "./protocol";
 import type { Candidate, Kit, ProgramSource } from "../components/player/visualizers/gl/kit";
-import type { SceneSource, SceneTraits } from "../components/player/visualizers/gl/renderer";
+import type { Surface } from "./surfaces";
 
 /** A GL kind: the programs it declares and the factory the stage calls once they have compiled. */
 export interface GlMount {
@@ -75,15 +80,7 @@ export interface LifecycleEnv {
 
 // How often a still waiting on a compile retries when no tick comes.
 const STILL_POLL_MS = 50;
-// The one kind a frame renders; the renderer keys its candidate by it.
-const KIND = "mount";
 const STILL_REFUSED = "a still is only drawn before the first tick";
-
-const BLEND_OF: Record<VisComposite, SceneTraits["blend"]["light"]> = {
-  light: "screen",
-  ink: "multiply",
-  image: "normal",
-};
 
 const stageOf = (e: unknown, fallback: VisErrorStage): VisErrorStage =>
   e instanceof MountError ? e.stage : fallback;
@@ -91,106 +88,21 @@ const stageOf = (e: unknown, fallback: VisErrorStage): VisErrorStage =>
 const isCanvas = (shot: HTMLCanvasElement | ImageBitmap): shot is HTMLCanvasElement =>
   typeof (shot as HTMLCanvasElement).getContext === "function";
 
-/** What a mount draws through, whichever form it is. */
-interface Surface {
-  // Starts a frame: a compile submitted in an earlier one may now be polled.
-  nextFrame: () => void;
-  // Throws ProgramPending when nothing reached the canvas.
-  draw: (frame: VisFrame) => void;
-  // Draws the still frame; returns the canvas to read it from, the still itself, or null for none.
-  still: (frame: VisFrame) => HTMLCanvasElement | ImageBitmap | null;
-  update: (ctx: VisContext, changed: Partial<VisContext>) => void;
-  metered: boolean;
-  dispose: () => void;
-}
-
-function glSurface(init: VisInit, mount: GlMount, env: LifecycleEnv, onLost: () => void): Surface {
-  const canvas = env.createCanvas();
-  const gate = createGate(mount.programs, mount.factory);
-  const source: SceneSource = {
-    factory: gate.factory,
-    descriptor: {
-      fillsStage: init.fillsStage,
-      blend: { light: BLEND_OF[init.composite.light], dark: BLEND_OF[init.composite.dark] },
-      composite: init.composite,
-    },
-  };
-  const renderer = env.createRenderer<string>(canvas, () => source, deferredCompile);
-  if (!renderer) {
-    canvas.remove();
-    throw new MountError("setup", "WebGL2 is unavailable");
-  }
-  const onContextLost = (e: Event) => {
-    e.preventDefault();
-    onLost();
-  };
-  canvas.addEventListener("webglcontextlost", onContextLost);
-  renderer.fit(init.context.layout);
-
-  // Runs a render only when no program is compiling, so an aborted draw never touches the trail.
-  const guarded = (run: () => void) => {
-    if (gate.blocked()) throw new ProgramPending(KIND);
-    try {
-      run();
-    } catch (e) {
-      if (e instanceof ProgramPending) gate.hold();
-      throw e;
-    }
-  };
-
-  return {
-    nextFrame: gate.nextFrame,
-    draw: (f) => guarded(() => renderer.render(KIND, f)),
-    still(f) {
-      guarded(() => renderer.still(KIND, f));
-      return canvas;
-    },
-    update(ctx, changed) {
-      if (changed.layout) renderer.fit(ctx.layout);
-    },
-    metered: true,
-    dispose() {
-      canvas.removeEventListener("webglcontextlost", onContextLost);
-      try {
-        renderer.dispose();
-      } finally {
-        canvas.remove();
-      }
-    },
-  };
-}
-
-function rawSurface(init: VisInit, h: RawHandlers): Surface {
-  let canvas: HTMLCanvasElement | null;
-  try {
-    canvas = h.setup?.(init.context) || null;
-  } catch (e) {
-    throw new MountError("setup", errorText(e));
-  }
-  return {
-    nextFrame: () => {},
-    draw: (f) => h.frame(f),
-    still(f) {
-      if (!h.still) {
-        h.frame(f);
-        return canvas;
-      }
-      return h.still(f) ?? canvas;
-    },
-    update(ctx, changed) {
-      if (changed.layout) h.resize?.(ctx.layout);
-      if (changed.settings) h.settings?.(ctx.settings);
-      if (changed.light !== undefined || changed.palette || changed.colors || changed.cover !== undefined) {
-        h.theme?.(ctx);
-      }
-    },
-    metered: canvas !== null,
-    dispose: () => h.dispose?.(),
-  };
-}
-
-/** Runs one mount until the host disposes it, the context is lost, or it fails. */
-export function startMount(init: VisInit, port: VisPort, mount: Mount, env: LifecycleEnv): { dispose: () => void } {
+/**
+ * Runs one mount until the host disposes it, the context is lost, or it fails. `meters` is the mount's
+ * meter hub; a kind's own meters come from it too.
+ */
+export function startMount(
+  init: VisInit,
+  port: VisPort,
+  mount: Mount,
+  env: LifecycleEnv,
+  meters: MeterHub = createMeterHub(
+    init.meter,
+    (reading) => port.post({ type: "flash", reading }),
+    browserMeterEnv(),
+  ),
+): { dispose: () => void } {
   let ctx = init.context;
   let shown = false;
   let stopped = false;
@@ -202,6 +114,8 @@ export function startMount(init: VisInit, port: VisPort, mount: Mount, env: Life
   const frames = createFrameBuilder();
   let surface: Surface | null = null;
   let transport: ReturnType<typeof createFrameTransport> | null = null;
+  let stage: StageMeter | null = null;
+  let announced = false;
 
   const clearStillTimer = () => {
     if (stillTimer !== null) env.clearTimer(stillTimer);
@@ -213,6 +127,7 @@ export function startMount(init: VisInit, port: VisPort, mount: Mount, env: Life
     stopped = true;
     transport?.dispose();
     clearStillTimer();
+    meters.dispose();
     try {
       surface?.dispose();
     } catch {
@@ -235,8 +150,16 @@ export function startMount(init: VisInit, port: VisPort, mount: Mount, env: Life
   const markShown = () => {
     if (shown) return;
     shown = true;
-    port.post({ type: "ready", metered: surface?.metered ?? false });
+    announced = surface?.canvas != null || meters.hasAuthored();
+    port.post({ type: "ready", metered: announced });
   };
+
+  // A kind that first makes a meter after ready tells the host once.
+  meters.onAuthored(() => {
+    if (!shown || announced || stopped) return;
+    announced = true;
+    port.post({ type: "metered" });
+  });
 
   // Whether the frame reached the canvas.
   const draw = (frame: VisFrame): boolean => {
@@ -247,6 +170,7 @@ export function startMount(init: VisInit, port: VisPort, mount: Mount, env: Life
       return false;
     }
     markShown();
+    if (surface?.canvas) (stage ??= meters.stage(surface.canvas)).frame();
     return true;
   };
 
@@ -313,6 +237,9 @@ export function startMount(init: VisInit, port: VisPort, mount: Mount, env: Life
         } catch (e) {
           fail("draw", e);
         }
+        break;
+      case "meter":
+        meters.setOn(msg.on);
         break;
       case "still":
         stills.push(msg.id);

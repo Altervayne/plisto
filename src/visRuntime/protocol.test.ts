@@ -104,11 +104,14 @@ describe("message reading", () => {
       fillsStage: true,
       needs: { fine: false, cover: true, pointer: false, waveform: false },
       settingShapes: [],
+      meter: false,
       context: {},
     };
     expect(readInit(init)).toBe(init);
     expect(readInit({ ...init, plisto: 2 })).toBeNull();
     expect(readInit({ ...init, settingShapes: undefined })).toBeNull();
+    expect(readInit({ ...init, meter: undefined })).toBeNull();
+    expect(readInit({ ...init, meter: 1 })).toBeNull();
     expect(readInit("plisto:vis-init")).toBeNull();
   });
 
@@ -118,6 +121,9 @@ describe("message reading", () => {
     expect(readHostMessage({ type: "tick", ...tick(3), seq: 1.5 })).toBeNull();
     expect(readHostMessage({ type: "still", id: 4 })).toEqual({ type: "still", id: 4 });
     expect(readHostMessage({ type: "update" })).toBeNull();
+    expect(readHostMessage({ type: "meter", on: true })).toEqual({ type: "meter", on: true });
+    expect(readHostMessage({ type: "meter", on: 1 })).toBeNull();
+    expect(readHostMessage({ type: "meter" })).toBeNull();
     expect(readHostMessage({ type: "dispose", extra: 1 })).toEqual({ type: "dispose" });
     expect(readHostMessage({ type: "unknown" })).toBeNull();
     expect(readHostMessage(null)).toBeNull();
@@ -129,6 +135,7 @@ describe("message reading", () => {
     expect(readFrameMessage({ type: "ack", seq: 2 })).toBeNull();
     expect(readFrameMessage({ type: "ready", metered: true })).not.toBeNull();
     expect(readFrameMessage({ type: "ready" })).toBeNull();
+    expect(readFrameMessage({ type: "metered", extra: 1 })).toEqual({ type: "metered" });
     expect(readFrameMessage({ type: "lost" })).toEqual({ type: "lost" });
     expect(readFrameMessage({ type: "error", stage: "compile", message: "x" })).not.toBeNull();
     expect(readFrameMessage({ type: "log", level: "info" })).toBeNull();

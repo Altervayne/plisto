@@ -27,6 +27,7 @@ import { isDarkOnly, type GlKind, type VisualizerKind } from "../../state/player
 
 // -- Type Imports --
 import type { Candidate, Kit } from "../../components/player/visualizers/gl/kit";
+import type { RawHandlers } from "../../visRuntime/lifecycle";
 import type { FrameMessage, VisInit } from "../../visRuntime/protocol";
 
 const FIXTURES = import.meta.glob<string>("../../../plugin-kit/visualizers/fixtures/*.js", {
@@ -39,7 +40,14 @@ const STILL_TIMEOUT_MS = 120000;
 
 interface Namespace {
   candidate: (factory: (kit: Kit) => Candidate, options?: unknown) => void;
+  raw: (handlers: RawHandlers) => void;
   [name: string]: unknown;
+}
+
+/** What a run wraps around the registered kind before it mounts. */
+export interface KindHooks {
+  candidate?: (candidate: Candidate) => Candidate;
+  raw?: (handlers: RawHandlers) => RawHandlers;
 }
 
 export interface PortRow {
@@ -57,7 +65,7 @@ export interface PortRun {
 }
 
 /** The window a bundle copy sees: the real one, except its parent is itself and it hears its own messages. */
-function standInWindow(): { stand: Window; deliver: (init: VisInit, port: MessagePort) => void } {
+export function standInWindow(): { stand: Window; deliver: (init: VisInit, port: MessagePort) => void } {
   let listener: ((e: MessageEvent) => void) | null = null;
   const stand: Window = new Proxy(window, {
     get(target, key) {
@@ -105,7 +113,14 @@ function canvasBytes(canvas: HTMLCanvasElement): Uint8Array {
   return new Uint8Array(g.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
 }
 
-function initFor(kind: string, theme: LabTheme, layout: LabLayoutId, cover: ImageBitmap): VisInit {
+/** The init for one mount; `fine` says the kind draws from the fine spectrum, so its ticks carry it. */
+export function initFor(
+  kind: string,
+  theme: LabTheme,
+  layout: LabLayoutId,
+  cover: ImageBitmap,
+  fine = false,
+): VisInit {
   const frame = labFrame(theme, layout, cover);
   const traits = kind === "ridge" ? null : registryScene(kind as GlKind).descriptor;
   const { id: _id, ...stage } = LAB_LAYOUTS[layout];
@@ -116,8 +131,9 @@ function initFor(kind: string, theme: LabTheme, layout: LabLayoutId, cover: Imag
     kind,
     composite: traits?.composite ?? { light: "image", dark: "image" },
     fillsStage: traits?.fillsStage ?? true,
-    needs: { fine: false, cover: false, pointer: false, waveform: false },
+    needs: { fine, cover: false, pointer: false, waveform: false },
     settingShapes: [],
+    meter: false,
     context: {
       layout: stage,
       palette: frame.palette,
@@ -132,15 +148,32 @@ function initFor(kind: string, theme: LabTheme, layout: LabLayoutId, cover: Imag
   };
 }
 
+/** The source of one kind's fixture. */
+export async function fixtureSource(kind: string): Promise<string> {
+  const load = FIXTURES[`../../../plugin-kit/visualizers/fixtures/${kind}.js`];
+  if (!load) throw new Error(`no fixture for ${kind}`);
+  return load();
+}
+
+/** Loads a fresh bundle copy against `stand` and runs the fixture on it; `hooks` wrap its registration. */
+export function loadKind(source: string, stand: Window, hooks: KindHooks): void {
+  const ns = new Function("window", `${bundleSource}\nreturn plistoVis;`)(stand) as Namespace;
+  const { candidate: wrapCandidate, raw: wrapRaw } = hooks;
+  const api: Namespace = {
+    ...ns,
+    ...(wrapCandidate && {
+      candidate: (factory: (kit: Kit) => Candidate, options?: unknown) =>
+        ns.candidate((kit) => wrapCandidate(factory(kit)), options),
+    }),
+    ...(wrapRaw && { raw: (handlers: RawHandlers) => ns.raw(wrapRaw(handlers)) }),
+  };
+  new Function("plistoVis", source)(api);
+}
+
 /** Mounts one fixture and returns the pixels of its still. */
 async function drawStill(source: string, init: VisInit): Promise<Uint8Array> {
   const { stand, deliver } = standInWindow();
-  const ns = new Function("window", `${bundleSource}\nreturn plistoVis;`)(stand) as Namespace;
-  const api: Namespace = {
-    ...ns,
-    candidate: (factory, options) => ns.candidate((kit) => pinPlaying(factory(kit)), options),
-  };
-  new Function("plistoVis", source)(api);
+  loadKind(source, stand, { candidate: pinPlaying });
 
   let pixels: Uint8Array | null = null;
   const realSnapshot = window.createImageBitmap;
@@ -185,9 +218,7 @@ async function drawStill(source: string, init: VisInit): Promise<Uint8Array> {
 export async function runPort(run: PortRun): Promise<PortRow[]> {
   const rows: PortRow[] = [];
   for (const kind of run.kinds) {
-    const load = FIXTURES[`../../../plugin-kit/visualizers/fixtures/${kind}.js`];
-    if (!load) throw new Error(`no fixture for ${kind}`);
-    const source = await load();
+    const source = await fixtureSource(kind);
     for (const theme of run.themes) {
       const drawn = sceneTheme(isDarkOnly(kind as VisualizerKind), theme);
       applyTheme(drawn);

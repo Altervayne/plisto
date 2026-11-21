@@ -363,11 +363,18 @@ out vec4 outColor;
 void main() { outColor = texture(uSrc, vUv); }`
   };
   const programOf = (pass) => ({ name: `scene:${pass.name}`, vs: FS_VS, fs: pass.fs });
+  const GLSL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  function checkPassName(name) {
+    if (!GLSL_IDENT.test(name)) throw new Error(`pass name "${name}" is not a valid GLSL identifier`);
+    if (name === "main") throw new Error('pass name "main" is reserved: a pass name cannot be main');
+    if (name.startsWith("gl_")) throw new Error(`pass name "${name}" cannot start with gl_`);
+  }
   function checkPasses(passes) {
     if (!Array.isArray(passes) || passes.length === 0) throw new Error("a scene needs at least one pass");
     const seen = /* @__PURE__ */ new Set();
     for (const pass of passes) {
       if (typeof pass.name !== "string" || typeof pass.fs !== "string") throw new Error("a pass needs a name and fs");
+      checkPassName(pass.name);
       if (seen.has(pass.name)) throw new Error(`pass ${pass.name} is declared twice`);
       for (const input of pass.inputs ?? []) {
         if (!seen.has(input)) throw new Error(`pass ${pass.name} samples ${input}, which does not draw before it`);
@@ -493,6 +500,7 @@ float vig(vec2 fc) { vec2 su = fc / uRes; return smoothstep(1.15, 0.25, length((
   }
   const BAND_COUNT = 24;
   const FINE_BAND_COUNT = 128;
+  const FLOW_BASE = 0.25;
   function settingUniform(id) {
     return `uSetting_${id.replace(/[^A-Za-z0-9_]/g, "_")}`;
   }
@@ -532,13 +540,18 @@ ${settings}
     return (init) => {
       const shapes = init.settingShapes;
       const fine = new Float32Array(FINE_BAND_COUNT);
+      let flow = 0;
       return sceneForm({
-        passes: [{ name: "main", fs: shaderPrelude(shapes) + spec.source, feedback: true }],
+        passes: [{ name: "shader", fs: shaderPrelude(shapes) + spec.source, feedback: true }],
         mode: spec.mode,
         bloom: spec.bloom,
         exposure: spec.exposure,
         inkGain: spec.inkGain,
         vignette: spec.vignette,
+        update(frame) {
+          flow += frame.dt * (FLOW_BASE + frame.sig.level);
+          return flow;
+        },
         uniforms(_pass, p, kit, frame) {
           fine.fill(0);
           if (frame.fine) fine.set(frame.fine.slice(0, FINE_BAND_COUNT));
@@ -958,540 +971,6 @@ ${settings}
           wave: null
         };
       }
-    };
-  }
-  const VIS_API = 1;
-  const VIS_INIT_TYPE = "plisto:vis-init";
-  const SIGNAL_FOLD = {
-    bands: "latest",
-    rms: "latest",
-    peak: "latest",
-    flux: "max",
-    kick: "max",
-    bass: "latest",
-    mid: "latest",
-    high: "latest",
-    level: "latest",
-    swell: "latest",
-    bassMotion: "latest",
-    midMotion: "latest",
-    highMotion: "latest",
-    beat: "max",
-    drive: "latest",
-    loudness: "latest",
-    bassHit: "max",
-    midHit: "max",
-    highHit: "max",
-    beatWeight: "max",
-    surge: "max",
-    cut: "max"
-  };
-  const MAX_CARRY = Object.keys(SIGNAL_FOLD).filter(
-    (key) => SIGNAL_FOLD[key] === "max"
-  );
-  function foldTick(held2, next) {
-    const sig = { ...next.sig };
-    for (const key of MAX_CARRY) {
-      sig[key] = Math.max(held2.sig[key], next.sig[key]);
-    }
-    return { ...next, sig, dt: held2.dt + next.dt, nBeats: held2.nBeats + next.nBeats };
-  }
-  const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-  const isCount = (v) => Number.isSafeInteger(v) && v >= 0;
-  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
-  function readInit(data) {
-    if (!isObject(data) || data.plisto !== 1 || data.type !== VIS_INIT_TYPE) return null;
-    if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
-    if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
-    return data;
-  }
-  function readHostMessage(data) {
-    if (!isObject(data)) return null;
-    switch (data.type) {
-      case "tick":
-        return isCount(data.seq) && isNum(data.t) && isNum(data.dt) && data.dt >= 0 && isObject(data.sig) && isCount(data.nBeats) ? data : null;
-      case "update":
-        return isObject(data.context) ? data : null;
-      case "still":
-        return isCount(data.id) ? data : null;
-      case "dispose":
-        return { type: "dispose" };
-      default:
-        return null;
-    }
-  }
-  const RAF_STARVED_MS = 100;
-  const IDLE_STOP_MS = 250;
-  const DT_MAX = 0.05;
-  function createFrameTransport(deps) {
-    let waiting2 = null;
-    let lastTickAt = -Infinity;
-    let lastFrameAt = -Infinity;
-    let frameId = null;
-    let lastMs = null;
-    let disposed = false;
-    const consume = () => {
-      const tick = waiting2;
-      if (!tick) return;
-      waiting2 = null;
-      deps.postAck(tick.seq, lastMs);
-      const start2 = deps.now();
-      try {
-        deps.step(tick, Math.min(DT_MAX, tick.dt));
-      } finally {
-        lastMs = deps.now() - start2;
-      }
-    };
-    const onFrame = () => {
-      frameId = null;
-      if (disposed) return;
-      lastFrameAt = deps.now();
-      consume();
-      if (deps.now() - lastTickAt < IDLE_STOP_MS) frameId = deps.requestFrame(onFrame);
-    };
-    return {
-      onTick(tick) {
-        if (disposed) return;
-        const now = deps.now();
-        lastTickAt = now;
-        const queued = waiting2 !== null;
-        waiting2 = waiting2 ? foldTick(waiting2, tick) : tick;
-        if (frameId === null) {
-          lastFrameAt = now;
-          frameId = deps.requestFrame(onFrame);
-        }
-        if (queued || now - lastFrameAt > RAF_STARVED_MS) consume();
-      },
-      dispose() {
-        disposed = true;
-        waiting2 = null;
-        if (frameId !== null) deps.cancelFrame(frameId);
-        frameId = null;
-      }
-    };
-  }
-  const MODE_INDEX = { light: 0, ink: 1, image: 2 };
-  const MAX_DPR = 2;
-  const AMBIENT_VIGNETTE = 0.35;
-  function createRenderer(canvas, resolve, compile = syncCompile) {
-    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
-    if (!gl) return null;
-    const kit = createKit(gl, compile);
-    let targets = null;
-    let current2 = null;
-    let flip = 0;
-    const freeTargets = () => {
-      if (!targets) return;
-      for (const target of Object.values(targets)) kit.freeTarget(target);
-      targets = null;
-    };
-    const resizeTargets = () => {
-      freeTargets();
-      const { w, h } = kit.size;
-      const qw = Math.max(1, w >> 2);
-      const qh = Math.max(1, h >> 2);
-      const ew = Math.max(1, w >> 3);
-      const eh = Math.max(1, h >> 3);
-      targets = {
-        scene0: kit.makeTarget(w, h),
-        scene1: kit.makeTarget(w, h),
-        q0: kit.makeTarget(qw, qh),
-        q1: kit.makeTarget(qw, qh),
-        e0: kit.makeTarget(ew, eh),
-        e1: kit.makeTarget(ew, eh)
-      };
-    };
-    const fit = (layout) => {
-      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-      const w = Math.max(1, Math.round(layout.width * dpr));
-      const h = Math.max(1, Math.round(layout.height * dpr));
-      kit.size.dpr = dpr;
-      if (w !== kit.size.w || h !== kit.size.h || !targets) {
-        kit.size.w = w;
-        kit.size.h = h;
-        canvas.width = w;
-        canvas.height = h;
-        resizeTargets();
-      }
-      const toGl = (r) => [r[0] * dpr, h - (r[1] + r[3]) * dpr, r[2] * dpr, r[3] * dpr];
-      kit.geo.cover = toGl(layout.cover);
-      kit.geo.radius = layout.radius * dpr;
-      kit.geo.mask = layout.mask ? toGl(layout.mask) : null;
-      kit.geo.floor = layout.floor != null ? h - layout.floor * dpr : null;
-      kit.geo.hush = layout.hush.map(toGl);
-    };
-    const bloomChain = (T, src, threshold) => {
-      const { gl: g } = kit;
-      const down = kit.program(DOWN_PROGRAM);
-      const blur = kit.program(BLUR_PROGRAM);
-      g.disable(g.BLEND);
-      g.useProgram(down.handle);
-      kit.bindTarget(T.q0);
-      kit.bindTex(down, "uSrc", 0, src.tex);
-      kit.set2(down, "uTexel", 1 / src.w, 1 / src.h);
-      kit.set1(down, "uThreshold", threshold);
-      kit.drawQuad();
-      const pass = (from, to, dx, dy) => {
-        kit.bindTarget(to);
-        g.useProgram(blur.handle);
-        kit.bindTex(blur, "uSrc", 0, from.tex);
-        kit.set2(blur, "uDir", dx / from.w, dy / from.h);
-        kit.drawQuad();
-      };
-      pass(T.q0, T.q1, 1.5, 0);
-      pass(T.q1, T.q0, 0, 1.5);
-      g.useProgram(down.handle);
-      kit.bindTarget(T.e0);
-      kit.bindTex(down, "uSrc", 0, T.q0.tex);
-      kit.set2(down, "uTexel", 1 / T.q0.w, 1 / T.q0.h);
-      kit.set1(down, "uThreshold", 0);
-      kit.drawQuad();
-      pass(T.e0, T.e1, 2, 0);
-      pass(T.e1, T.e0, 0, 2);
-    };
-    const composite = (T, src, traits, mode, bloom, c, f) => {
-      const { gl: g } = kit;
-      const p = kit.program(COMPOSITE_PROGRAM);
-      kit.bindTarget(null);
-      g.disable(g.BLEND);
-      g.useProgram(p.handle);
-      kit.bindTex(p, "uScene", 0, src.tex);
-      kit.bindTex(p, "uB1", 1, T.q0.tex);
-      kit.bindTex(p, "uB2", 2, T.e0.tex);
-      kit.seti(p, "uMode", MODE_INDEX[mode]);
-      kit.set1(p, "uBloomK", bloom);
-      kit.set1(p, "uExposure", f.light && c.mode === "glow" ? c.exposure * c.inkGain : c.exposure);
-      kit.set2(p, "uRes", kit.size.w, kit.size.h);
-      kit.set1(p, "uMaskOn", kit.geo.mask && !traits.fillsStage ? 1 : 0);
-      kit.set4(p, "uMask", kit.geo.mask ?? [0, 0, kit.size.w, kit.size.h]);
-      kit.set1(p, "uFeather", 90 * kit.size.dpr);
-      kit.set1(p, "uVignette", f.ambient ? c.vignette ?? AMBIENT_VIGNETTE : 0);
-      kit.drawQuad();
-    };
-    const candidateFor = (T, kind) => {
-      if (current2?.kind === kind) return current2;
-      current2?.candidate.dispose();
-      const { factory, descriptor } = resolve(kind);
-      current2 = { kind, candidate: factory(kit), traits: descriptor };
-      for (const target of [T.scene0, T.scene1]) {
-        kit.bindTarget(target);
-        kit.gl.clearColor(0, 0, 0, 0);
-        kit.gl.clear(kit.gl.COLOR_BUFFER_BIT);
-      }
-      return current2;
-    };
-    const render = (kind, f) => {
-      const T = targets;
-      if (!T || gl.isContextLost()) return;
-      const { candidate: c, traits } = candidateFor(T, kind);
-      const dst = flip ? T.scene1 : T.scene0;
-      const src = flip ? T.scene0 : T.scene1;
-      kit.bindTarget(dst);
-      gl.disable(gl.BLEND);
-      if (c.trail) {
-        const p = kit.program(TRAIL_PROGRAM);
-        gl.useProgram(p.handle);
-        kit.set2(p, "uRes", kit.size.w, kit.size.h);
-        kit.bindTex(p, "uPrev", 0, src.tex);
-        const step = Math.min(3, f.dt * 60);
-        kit.set1(p, "uDecay", Math.pow(c.trailDecay ? c.trailDecay(f) : c.trail.decay, step));
-        const center = c.trailCenter ? c.trailCenter() : [kit.size.w / 2, kit.size.h / 2];
-        kit.set2(p, "uCenter", center[0], center[1]);
-        kit.set1(p, "uZoom", Math.pow(c.trailZoom ? c.trailZoom(f) : c.trail.zoom, step));
-        kit.set1(p, "uRot", c.trail.rot * step);
-        kit.drawQuad();
-        flip = 1 - flip;
-      } else {
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-      }
-      c.draw(f);
-      const mode = f.light ? traits.composite.light : traits.composite.dark;
-      const bloom = mode === "image" && c.mode === "glow" ? 0 : c.bloom;
-      if (bloom > 0) bloomChain(T, dst, c.mode === "image" ? 0.55 : 0);
-      composite(T, dst, traits, mode, bloom, c, f);
-    };
-    const still = (kind, f) => {
-      if (!targets || gl.isContextLost()) return;
-      current2?.candidate.dispose();
-      current2 = null;
-      const rolls = candidateFor(targets, kind).candidate.trail ? 40 : 1;
-      for (let i = 0; i < rolls; i++) render(kind, { ...f, t: 14 + i / 60, dt: 1 / 60, still: true });
-    };
-    const dispose = () => {
-      current2?.candidate.dispose();
-      current2 = null;
-      freeTargets();
-      kit.dispose();
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
-    };
-    return { fit, render, still, dispose };
-  }
-  const STILL_POLL_MS = 50;
-  const KIND = "mount";
-  const STILL_REFUSED = "a still is only drawn before the first tick";
-  const BLEND_OF = {
-    light: "screen",
-    ink: "multiply",
-    image: "normal"
-  };
-  const stageOf = (e, fallback) => e instanceof MountError ? e.stage : fallback;
-  const isCanvas = (shot) => typeof shot.getContext === "function";
-  function glSurface(init, mount, env, onLost) {
-    const canvas = env.createCanvas();
-    const gate = createGate(mount.programs, mount.factory);
-    const source = {
-      factory: gate.factory,
-      descriptor: {
-        fillsStage: init.fillsStage,
-        blend: { light: BLEND_OF[init.composite.light], dark: BLEND_OF[init.composite.dark] },
-        composite: init.composite
-      }
-    };
-    const renderer = env.createRenderer(canvas, () => source, deferredCompile);
-    if (!renderer) {
-      canvas.remove();
-      throw new MountError("setup", "WebGL2 is unavailable");
-    }
-    const onContextLost = (e) => {
-      e.preventDefault();
-      onLost();
-    };
-    canvas.addEventListener("webglcontextlost", onContextLost);
-    renderer.fit(init.context.layout);
-    const guarded = (run) => {
-      if (gate.blocked()) throw new ProgramPending(KIND);
-      try {
-        run();
-      } catch (e) {
-        if (e instanceof ProgramPending) gate.hold();
-        throw e;
-      }
-    };
-    return {
-      nextFrame: gate.nextFrame,
-      draw: (f) => guarded(() => renderer.render(KIND, f)),
-      still(f) {
-        guarded(() => renderer.still(KIND, f));
-        return canvas;
-      },
-      update(ctx, changed) {
-        if (changed.layout) renderer.fit(ctx.layout);
-      },
-      metered: true,
-      dispose() {
-        canvas.removeEventListener("webglcontextlost", onContextLost);
-        try {
-          renderer.dispose();
-        } finally {
-          canvas.remove();
-        }
-      }
-    };
-  }
-  function rawSurface(init, h) {
-    let canvas;
-    try {
-      canvas = h.setup?.(init.context) || null;
-    } catch (e) {
-      throw new MountError("setup", errorText(e));
-    }
-    return {
-      nextFrame: () => {
-      },
-      draw: (f) => h.frame(f),
-      still(f) {
-        if (!h.still) {
-          h.frame(f);
-          return canvas;
-        }
-        return h.still(f) ?? canvas;
-      },
-      update(ctx, changed) {
-        if (changed.layout) h.resize?.(ctx.layout);
-        if (changed.settings) h.settings?.(ctx.settings);
-        if (changed.light !== void 0 || changed.palette || changed.colors || changed.cover !== void 0) {
-          h.theme?.(ctx);
-        }
-      },
-      metered: canvas !== null,
-      dispose: () => h.dispose?.()
-    };
-  }
-  function startMount(init, port, mount, env) {
-    let ctx = init.context;
-    let shown = false;
-    let stopped = false;
-    let ticked = false;
-    let carry = null;
-    let stillTimer = null;
-    const stills = [];
-    const frames = createFrameBuilder();
-    let surface = null;
-    let transport = null;
-    const clearStillTimer = () => {
-      if (stillTimer !== null) env.clearTimer(stillTimer);
-      stillTimer = null;
-    };
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      transport?.dispose();
-      clearStillTimer();
-      try {
-        surface?.dispose();
-      } catch {
-      }
-    };
-    const dispose = () => {
-      stop();
-      port.close();
-    };
-    const fail = (stage, e) => {
-      if (stopped) return;
-      for (const id of stills.splice(0)) port.post({ type: "still", id, bitmap: null });
-      port.post({ type: "error", stage, message: errorText(e) });
-      stop();
-    };
-    const markShown = () => {
-      if (shown) return;
-      shown = true;
-      port.post({ type: "ready", metered: surface?.metered ?? false });
-    };
-    const draw = (frame) => {
-      try {
-        surface?.draw(frame);
-      } catch (e) {
-        if (!(e instanceof ProgramPending)) fail(stageOf(e, "draw"), e);
-        return false;
-      }
-      markShown();
-      return true;
-    };
-    const refuseStills = () => {
-      clearStillTimer();
-      for (const id of stills.splice(0)) port.post({ type: "still", id, bitmap: null, error: STILL_REFUSED });
-    };
-    const serveStills = () => {
-      if (stopped || stills.length === 0 || !surface) return;
-      let shot;
-      try {
-        shot = surface.still(frames.rest(ctx));
-      } catch (e) {
-        if (!(e instanceof ProgramPending)) fail(stageOf(e, "still"), e);
-        else if (stillTimer === null) {
-          stillTimer = env.setTimer(() => {
-            stillTimer = null;
-            surface?.nextFrame();
-            serveStills();
-          }, STILL_POLL_MS);
-        }
-        return;
-      }
-      markShown();
-      const ids = stills.splice(0);
-      if (shot && !isCanvas(shot)) {
-        port.post({ type: "still", id: ids[0], bitmap: shot }, [shot]);
-        for (const id of ids.slice(1)) port.post({ type: "still", id, bitmap: null });
-        return;
-      }
-      for (const id of ids) {
-        if (!shot) {
-          port.post({ type: "still", id, bitmap: null });
-          continue;
-        }
-        env.snapshot(shot).then(
-          (bitmap) => port.post({ type: "still", id, bitmap }, [bitmap]),
-          () => port.post({ type: "still", id, bitmap: null })
-        );
-      }
-    };
-    const lose = () => {
-      if (stopped) return;
-      port.post({ type: "lost" });
-      stop();
-    };
-    port.listen((data) => {
-      const msg = readHostMessage(data);
-      if (!msg) return;
-      if (msg.type === "dispose") return dispose();
-      if (stopped) return;
-      switch (msg.type) {
-        case "tick":
-          transport?.onTick(msg);
-          break;
-        case "update":
-          ctx = { ...ctx, ...msg.context };
-          try {
-            surface?.update(ctx, msg.context);
-          } catch (e) {
-            fail("draw", e);
-          }
-          break;
-        case "still":
-          stills.push(msg.id);
-          if (ticked) refuseStills();
-          else serveStills();
-          break;
-      }
-    });
-    env.prepareRoot();
-    try {
-      surface = mount.form === "gl" ? glSurface(init, mount, env, lose) : rawSurface(init, mount.handlers);
-    } catch (e) {
-      fail(stageOf(e, "setup"), e);
-      port.close();
-      return { dispose };
-    }
-    transport = createFrameTransport({
-      now: env.now,
-      requestFrame: env.requestFrame,
-      cancelFrame: env.cancelFrame,
-      postAck: (seq, ms) => port.post({ type: "ack", seq, ms }),
-      step(tick) {
-        if (!ticked) {
-          ticked = true;
-          refuseStills();
-        }
-        surface?.nextFrame();
-        const next = carry ? foldTick(carry, tick) : tick;
-        carry = null;
-        if (!draw(frames.build(next, Math.min(DT_MAX, next.dt), ctx))) carry = next;
-      }
-    });
-    return { dispose };
-  }
-  function wrapPort(port) {
-    return {
-      post: (message, transfer = []) => port.postMessage(message, transfer),
-      listen(handler) {
-        port.onmessage = (e) => handler(e.data);
-      },
-      close: () => port.close()
-    };
-  }
-  function browserEnv() {
-    return {
-      now: () => performance.now(),
-      requestFrame: (cb) => requestAnimationFrame(() => cb()),
-      cancelFrame: (id) => cancelAnimationFrame(id),
-      setTimer: (cb, ms) => window.setTimeout(cb, ms),
-      clearTimer: (id) => window.clearTimeout(id),
-      prepareRoot() {
-        const root = document.documentElement;
-        root.style.colorScheme = "normal";
-        root.style.background = "transparent";
-        root.style.overflow = "hidden";
-        if (document.body) document.body.style.margin = "0";
-      },
-      createCanvas() {
-        const canvas = document.createElement("canvas");
-        canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;display:block";
-        (document.body ?? document.documentElement).appendChild(canvas);
-        return canvas;
-      },
-      snapshot: (canvas) => createImageBitmap(canvas),
-      createRenderer
     };
   }
   const LINEAR = Float64Array.from({ length: 256 }, (_, v) => {
@@ -1919,6 +1398,612 @@ ${settings}
       }
     };
   }
+  function createMeterHub(on, report, env) {
+    let enabled = on;
+    let made = false;
+    let notify = () => {
+    };
+    const live = /* @__PURE__ */ new Set();
+    const watch = (canvas) => {
+      let inner = null;
+      let disposed = false;
+      const release = () => {
+        inner?.dispose();
+        inner = null;
+      };
+      const entry = { release };
+      live.add(entry);
+      return {
+        frame() {
+          if (!enabled || disposed) return;
+          inner ?? (inner = createStageMeter(canvas, report, env));
+          inner.frame();
+        },
+        dispose() {
+          disposed = true;
+          release();
+          live.delete(entry);
+        }
+      };
+    };
+    return {
+      setOn(next) {
+        enabled = next;
+        if (!enabled) for (const entry of live) entry.release();
+      },
+      stage: watch,
+      authored(canvas) {
+        const meter2 = watch(canvas);
+        if (!made) {
+          made = true;
+          notify();
+        }
+        return meter2;
+      },
+      hasAuthored: () => made,
+      onAuthored(cb) {
+        notify = cb;
+      },
+      dispose() {
+        for (const entry of live) entry.release();
+        live.clear();
+      }
+    };
+  }
+  const VIS_API = 1;
+  const VIS_INIT_TYPE = "plisto:vis-init";
+  const SIGNAL_FOLD = {
+    bands: "latest",
+    rms: "latest",
+    peak: "latest",
+    flux: "max",
+    kick: "max",
+    bass: "latest",
+    mid: "latest",
+    high: "latest",
+    level: "latest",
+    swell: "latest",
+    bassMotion: "latest",
+    midMotion: "latest",
+    highMotion: "latest",
+    beat: "max",
+    drive: "latest",
+    loudness: "latest",
+    bassHit: "max",
+    midHit: "max",
+    highHit: "max",
+    beatWeight: "max",
+    surge: "max",
+    cut: "max"
+  };
+  const MAX_CARRY = Object.keys(SIGNAL_FOLD).filter(
+    (key) => SIGNAL_FOLD[key] === "max"
+  );
+  function foldTick(held2, next) {
+    const sig = { ...next.sig };
+    for (const key of MAX_CARRY) {
+      sig[key] = Math.max(held2.sig[key], next.sig[key]);
+    }
+    return { ...next, sig, dt: held2.dt + next.dt, nBeats: held2.nBeats + next.nBeats };
+  }
+  const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+  const isCount = (v) => Number.isSafeInteger(v) && v >= 0;
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  function readInit(data) {
+    if (!isObject(data) || data.plisto !== 1 || data.type !== VIS_INIT_TYPE) return null;
+    if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
+    if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
+    if (typeof data.meter !== "boolean") return null;
+    return data;
+  }
+  function readHostMessage(data) {
+    if (!isObject(data)) return null;
+    switch (data.type) {
+      case "tick":
+        return isCount(data.seq) && isNum(data.t) && isNum(data.dt) && data.dt >= 0 && isObject(data.sig) && isCount(data.nBeats) ? data : null;
+      case "update":
+        return isObject(data.context) ? data : null;
+      case "still":
+        return isCount(data.id) ? data : null;
+      case "meter":
+        return typeof data.on === "boolean" ? { type: "meter", on: data.on } : null;
+      case "dispose":
+        return { type: "dispose" };
+      default:
+        return null;
+    }
+  }
+  const RAF_STARVED_MS = 100;
+  const IDLE_STOP_MS = 250;
+  const DT_MAX = 0.05;
+  function createFrameTransport(deps) {
+    let waiting2 = null;
+    let lastTickAt = -Infinity;
+    let lastFrameAt = -Infinity;
+    let frameId = null;
+    let lastMs = null;
+    let disposed = false;
+    const consume = () => {
+      const tick = waiting2;
+      if (!tick) return;
+      waiting2 = null;
+      deps.postAck(tick.seq, lastMs);
+      const start2 = deps.now();
+      try {
+        deps.step(tick, Math.min(DT_MAX, tick.dt));
+      } finally {
+        lastMs = deps.now() - start2;
+      }
+    };
+    const onFrame = () => {
+      frameId = null;
+      if (disposed) return;
+      lastFrameAt = deps.now();
+      consume();
+      if (deps.now() - lastTickAt < IDLE_STOP_MS) frameId = deps.requestFrame(onFrame);
+    };
+    return {
+      onTick(tick) {
+        if (disposed) return;
+        const now = deps.now();
+        lastTickAt = now;
+        const queued = waiting2 !== null;
+        waiting2 = waiting2 ? foldTick(waiting2, tick) : tick;
+        if (frameId === null) {
+          lastFrameAt = now;
+          frameId = deps.requestFrame(onFrame);
+        }
+        if (queued || now - lastFrameAt > RAF_STARVED_MS) consume();
+      },
+      dispose() {
+        disposed = true;
+        waiting2 = null;
+        if (frameId !== null) deps.cancelFrame(frameId);
+        frameId = null;
+      }
+    };
+  }
+  const KIND = "mount";
+  const BLEND_OF = {
+    light: "screen",
+    ink: "multiply",
+    image: "normal"
+  };
+  function glSurface(init, mount, env, onLost) {
+    const canvas = env.createCanvas();
+    const gate = createGate(mount.programs, mount.factory);
+    const source = {
+      factory: gate.factory,
+      descriptor: {
+        fillsStage: init.fillsStage,
+        blend: { light: BLEND_OF[init.composite.light], dark: BLEND_OF[init.composite.dark] },
+        composite: init.composite
+      }
+    };
+    const renderer = env.createRenderer(canvas, () => source, deferredCompile);
+    if (!renderer) {
+      canvas.remove();
+      throw new MountError("setup", "WebGL2 is unavailable");
+    }
+    const onContextLost = (e) => {
+      e.preventDefault();
+      onLost();
+    };
+    canvas.addEventListener("webglcontextlost", onContextLost);
+    renderer.fit(init.context.layout);
+    const guarded = (run) => {
+      if (gate.blocked()) throw new ProgramPending(KIND);
+      try {
+        run();
+      } catch (e) {
+        if (e instanceof ProgramPending) gate.hold();
+        throw e;
+      }
+    };
+    return {
+      nextFrame: gate.nextFrame,
+      draw: (f) => guarded(() => renderer.render(KIND, f)),
+      still(f) {
+        guarded(() => renderer.still(KIND, f));
+        return canvas;
+      },
+      update(ctx, changed) {
+        if (changed.layout) renderer.fit(ctx.layout);
+      },
+      canvas,
+      dispose() {
+        canvas.removeEventListener("webglcontextlost", onContextLost);
+        try {
+          renderer.dispose();
+        } finally {
+          canvas.remove();
+        }
+      }
+    };
+  }
+  function rawSurface(init, h) {
+    let canvas;
+    try {
+      canvas = h.setup?.(init.context) || null;
+    } catch (e) {
+      throw new MountError("setup", errorText(e));
+    }
+    return {
+      nextFrame: () => {
+      },
+      draw: (f) => h.frame(f),
+      still(f) {
+        if (!h.still) {
+          h.frame(f);
+          return canvas;
+        }
+        return h.still(f) ?? canvas;
+      },
+      update(ctx, changed) {
+        if (changed.layout) h.resize?.(ctx.layout);
+        if (changed.settings) h.settings?.(ctx.settings);
+        if (changed.light !== void 0 || changed.palette || changed.colors || changed.cover !== void 0) {
+          h.theme?.(ctx);
+        }
+      },
+      canvas,
+      dispose: () => h.dispose?.()
+    };
+  }
+  const MODE_INDEX = { light: 0, ink: 1, image: 2 };
+  const MAX_DPR = 2;
+  const AMBIENT_VIGNETTE = 0.35;
+  function createRenderer(canvas, resolve, compile = syncCompile) {
+    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false });
+    if (!gl) return null;
+    const kit = createKit(gl, compile);
+    let targets = null;
+    let current2 = null;
+    let flip = 0;
+    const freeTargets = () => {
+      if (!targets) return;
+      for (const target of Object.values(targets)) kit.freeTarget(target);
+      targets = null;
+    };
+    const resizeTargets = () => {
+      freeTargets();
+      const { w, h } = kit.size;
+      const qw = Math.max(1, w >> 2);
+      const qh = Math.max(1, h >> 2);
+      const ew = Math.max(1, w >> 3);
+      const eh = Math.max(1, h >> 3);
+      targets = {
+        scene0: kit.makeTarget(w, h),
+        scene1: kit.makeTarget(w, h),
+        q0: kit.makeTarget(qw, qh),
+        q1: kit.makeTarget(qw, qh),
+        e0: kit.makeTarget(ew, eh),
+        e1: kit.makeTarget(ew, eh)
+      };
+    };
+    const fit = (layout) => {
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      const w = Math.max(1, Math.round(layout.width * dpr));
+      const h = Math.max(1, Math.round(layout.height * dpr));
+      kit.size.dpr = dpr;
+      if (w !== kit.size.w || h !== kit.size.h || !targets) {
+        kit.size.w = w;
+        kit.size.h = h;
+        canvas.width = w;
+        canvas.height = h;
+        resizeTargets();
+      }
+      const toGl = (r) => [r[0] * dpr, h - (r[1] + r[3]) * dpr, r[2] * dpr, r[3] * dpr];
+      kit.geo.cover = toGl(layout.cover);
+      kit.geo.radius = layout.radius * dpr;
+      kit.geo.mask = layout.mask ? toGl(layout.mask) : null;
+      kit.geo.floor = layout.floor != null ? h - layout.floor * dpr : null;
+      kit.geo.hush = layout.hush.map(toGl);
+    };
+    const bloomChain = (T, src, threshold) => {
+      const { gl: g } = kit;
+      const down = kit.program(DOWN_PROGRAM);
+      const blur = kit.program(BLUR_PROGRAM);
+      g.disable(g.BLEND);
+      g.useProgram(down.handle);
+      kit.bindTarget(T.q0);
+      kit.bindTex(down, "uSrc", 0, src.tex);
+      kit.set2(down, "uTexel", 1 / src.w, 1 / src.h);
+      kit.set1(down, "uThreshold", threshold);
+      kit.drawQuad();
+      const pass = (from, to, dx, dy) => {
+        kit.bindTarget(to);
+        g.useProgram(blur.handle);
+        kit.bindTex(blur, "uSrc", 0, from.tex);
+        kit.set2(blur, "uDir", dx / from.w, dy / from.h);
+        kit.drawQuad();
+      };
+      pass(T.q0, T.q1, 1.5, 0);
+      pass(T.q1, T.q0, 0, 1.5);
+      g.useProgram(down.handle);
+      kit.bindTarget(T.e0);
+      kit.bindTex(down, "uSrc", 0, T.q0.tex);
+      kit.set2(down, "uTexel", 1 / T.q0.w, 1 / T.q0.h);
+      kit.set1(down, "uThreshold", 0);
+      kit.drawQuad();
+      pass(T.e0, T.e1, 2, 0);
+      pass(T.e1, T.e0, 0, 2);
+    };
+    const composite = (T, src, traits, mode, bloom, c, f) => {
+      const { gl: g } = kit;
+      const p = kit.program(COMPOSITE_PROGRAM);
+      kit.bindTarget(null);
+      g.disable(g.BLEND);
+      g.useProgram(p.handle);
+      kit.bindTex(p, "uScene", 0, src.tex);
+      kit.bindTex(p, "uB1", 1, T.q0.tex);
+      kit.bindTex(p, "uB2", 2, T.e0.tex);
+      kit.seti(p, "uMode", MODE_INDEX[mode]);
+      kit.set1(p, "uBloomK", bloom);
+      kit.set1(p, "uExposure", f.light && c.mode === "glow" ? c.exposure * c.inkGain : c.exposure);
+      kit.set2(p, "uRes", kit.size.w, kit.size.h);
+      kit.set1(p, "uMaskOn", kit.geo.mask && !traits.fillsStage ? 1 : 0);
+      kit.set4(p, "uMask", kit.geo.mask ?? [0, 0, kit.size.w, kit.size.h]);
+      kit.set1(p, "uFeather", 90 * kit.size.dpr);
+      kit.set1(p, "uVignette", f.ambient ? c.vignette ?? AMBIENT_VIGNETTE : 0);
+      kit.drawQuad();
+    };
+    const candidateFor = (T, kind) => {
+      if (current2?.kind === kind) return current2;
+      current2?.candidate.dispose();
+      const { factory, descriptor } = resolve(kind);
+      current2 = { kind, candidate: factory(kit), traits: descriptor };
+      for (const target of [T.scene0, T.scene1]) {
+        kit.bindTarget(target);
+        kit.gl.clearColor(0, 0, 0, 0);
+        kit.gl.clear(kit.gl.COLOR_BUFFER_BIT);
+      }
+      return current2;
+    };
+    const render = (kind, f) => {
+      const T = targets;
+      if (!T || gl.isContextLost()) return;
+      const { candidate: c, traits } = candidateFor(T, kind);
+      const dst = flip ? T.scene1 : T.scene0;
+      const src = flip ? T.scene0 : T.scene1;
+      kit.bindTarget(dst);
+      gl.disable(gl.BLEND);
+      if (c.trail) {
+        const p = kit.program(TRAIL_PROGRAM);
+        gl.useProgram(p.handle);
+        kit.set2(p, "uRes", kit.size.w, kit.size.h);
+        kit.bindTex(p, "uPrev", 0, src.tex);
+        const step = Math.min(3, f.dt * 60);
+        kit.set1(p, "uDecay", Math.pow(c.trailDecay ? c.trailDecay(f) : c.trail.decay, step));
+        const center = c.trailCenter ? c.trailCenter() : [kit.size.w / 2, kit.size.h / 2];
+        kit.set2(p, "uCenter", center[0], center[1]);
+        kit.set1(p, "uZoom", Math.pow(c.trailZoom ? c.trailZoom(f) : c.trail.zoom, step));
+        kit.set1(p, "uRot", c.trail.rot * step);
+        kit.drawQuad();
+        flip = 1 - flip;
+      } else {
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+      c.draw(f);
+      const mode = f.light ? traits.composite.light : traits.composite.dark;
+      const bloom = mode === "image" && c.mode === "glow" ? 0 : c.bloom;
+      if (bloom > 0) bloomChain(T, dst, c.mode === "image" ? 0.55 : 0);
+      composite(T, dst, traits, mode, bloom, c, f);
+    };
+    const still = (kind, f) => {
+      if (!targets || gl.isContextLost()) return;
+      current2?.candidate.dispose();
+      current2 = null;
+      const rolls = candidateFor(targets, kind).candidate.trail ? 40 : 1;
+      for (let i = 0; i < rolls; i++) render(kind, { ...f, t: 14 + i / 60, dt: 1 / 60, still: true });
+    };
+    const dispose = () => {
+      current2?.candidate.dispose();
+      current2 = null;
+      freeTargets();
+      kit.dispose();
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    };
+    return { fit, render, still, dispose };
+  }
+  const STILL_POLL_MS = 50;
+  const STILL_REFUSED = "a still is only drawn before the first tick";
+  const stageOf = (e, fallback) => e instanceof MountError ? e.stage : fallback;
+  const isCanvas = (shot) => typeof shot.getContext === "function";
+  function startMount(init, port, mount, env, meters = createMeterHub(
+    init.meter,
+    (reading) => port.post({ type: "flash", reading }),
+    browserMeterEnv()
+  )) {
+    let ctx = init.context;
+    let shown = false;
+    let stopped = false;
+    let ticked = false;
+    let carry = null;
+    let stillTimer = null;
+    const stills = [];
+    const frames = createFrameBuilder();
+    let surface = null;
+    let transport = null;
+    let stage = null;
+    let announced = false;
+    const clearStillTimer = () => {
+      if (stillTimer !== null) env.clearTimer(stillTimer);
+      stillTimer = null;
+    };
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      transport?.dispose();
+      clearStillTimer();
+      meters.dispose();
+      try {
+        surface?.dispose();
+      } catch {
+      }
+    };
+    const dispose = () => {
+      stop();
+      port.close();
+    };
+    const fail = (stage2, e) => {
+      if (stopped) return;
+      for (const id of stills.splice(0)) port.post({ type: "still", id, bitmap: null });
+      port.post({ type: "error", stage: stage2, message: errorText(e) });
+      stop();
+    };
+    const markShown = () => {
+      if (shown) return;
+      shown = true;
+      announced = surface?.canvas != null || meters.hasAuthored();
+      port.post({ type: "ready", metered: announced });
+    };
+    meters.onAuthored(() => {
+      if (!shown || announced || stopped) return;
+      announced = true;
+      port.post({ type: "metered" });
+    });
+    const draw = (frame) => {
+      try {
+        surface?.draw(frame);
+      } catch (e) {
+        if (!(e instanceof ProgramPending)) fail(stageOf(e, "draw"), e);
+        return false;
+      }
+      markShown();
+      if (surface?.canvas) (stage ?? (stage = meters.stage(surface.canvas))).frame();
+      return true;
+    };
+    const refuseStills = () => {
+      clearStillTimer();
+      for (const id of stills.splice(0)) port.post({ type: "still", id, bitmap: null, error: STILL_REFUSED });
+    };
+    const serveStills = () => {
+      if (stopped || stills.length === 0 || !surface) return;
+      let shot;
+      try {
+        shot = surface.still(frames.rest(ctx));
+      } catch (e) {
+        if (!(e instanceof ProgramPending)) fail(stageOf(e, "still"), e);
+        else if (stillTimer === null) {
+          stillTimer = env.setTimer(() => {
+            stillTimer = null;
+            surface?.nextFrame();
+            serveStills();
+          }, STILL_POLL_MS);
+        }
+        return;
+      }
+      markShown();
+      const ids = stills.splice(0);
+      if (shot && !isCanvas(shot)) {
+        port.post({ type: "still", id: ids[0], bitmap: shot }, [shot]);
+        for (const id of ids.slice(1)) port.post({ type: "still", id, bitmap: null });
+        return;
+      }
+      for (const id of ids) {
+        if (!shot) {
+          port.post({ type: "still", id, bitmap: null });
+          continue;
+        }
+        env.snapshot(shot).then(
+          (bitmap) => port.post({ type: "still", id, bitmap }, [bitmap]),
+          () => port.post({ type: "still", id, bitmap: null })
+        );
+      }
+    };
+    const lose = () => {
+      if (stopped) return;
+      port.post({ type: "lost" });
+      stop();
+    };
+    port.listen((data) => {
+      const msg = readHostMessage(data);
+      if (!msg) return;
+      if (msg.type === "dispose") return dispose();
+      if (stopped) return;
+      switch (msg.type) {
+        case "tick":
+          transport?.onTick(msg);
+          break;
+        case "update":
+          ctx = { ...ctx, ...msg.context };
+          try {
+            surface?.update(ctx, msg.context);
+          } catch (e) {
+            fail("draw", e);
+          }
+          break;
+        case "meter":
+          meters.setOn(msg.on);
+          break;
+        case "still":
+          stills.push(msg.id);
+          if (ticked) refuseStills();
+          else serveStills();
+          break;
+      }
+    });
+    env.prepareRoot();
+    try {
+      surface = mount.form === "gl" ? glSurface(init, mount, env, lose) : rawSurface(init, mount.handlers);
+    } catch (e) {
+      fail(stageOf(e, "setup"), e);
+      port.close();
+      return { dispose };
+    }
+    transport = createFrameTransport({
+      now: env.now,
+      requestFrame: env.requestFrame,
+      cancelFrame: env.cancelFrame,
+      postAck: (seq, ms) => port.post({ type: "ack", seq, ms }),
+      step(tick) {
+        if (!ticked) {
+          ticked = true;
+          refuseStills();
+        }
+        surface?.nextFrame();
+        const next = carry ? foldTick(carry, tick) : tick;
+        carry = null;
+        if (!draw(frames.build(next, Math.min(DT_MAX, next.dt), ctx))) carry = next;
+      }
+    });
+    return { dispose };
+  }
+  function wrapPort(port) {
+    return {
+      post: (message, transfer = []) => port.postMessage(message, transfer),
+      listen(handler) {
+        port.onmessage = (e) => handler(e.data);
+      },
+      close: () => port.close()
+    };
+  }
+  function browserEnv() {
+    return {
+      now: () => performance.now(),
+      requestFrame: (cb) => requestAnimationFrame(() => cb()),
+      cancelFrame: (id) => cancelAnimationFrame(id),
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+      prepareRoot() {
+        const root = document.documentElement;
+        root.style.colorScheme = "normal";
+        root.style.background = "transparent";
+        root.style.overflow = "hidden";
+        if (document.body) document.body.style.margin = "0";
+      },
+      createCanvas() {
+        const canvas = document.createElement("canvas");
+        canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;display:block";
+        (document.body ?? document.documentElement).appendChild(canvas);
+        return canvas;
+      },
+      snapshot: (canvas) => createImageBitmap(canvas),
+      createRenderer
+    };
+  }
   const SHADER_PAGE_PATH = "/_plisto/vis/1/shader.html";
   function isShaderPage(pathname) {
     return pathname === SHADER_PAGE_PATH;
@@ -2179,7 +2264,8 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   let registration = null;
   let waiting = null;
   let mounted = null;
-  let framePort = null;
+  let hub = null;
+  const early = [];
   const bridge = createBridgeClient((msg) => window.parent.postMessage(msg, "*"));
   const call = bridge.call;
   const log = bridge.log;
@@ -2192,8 +2278,14 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   };
   function start(init, port, reg) {
     try {
-      framePort = wrapPort(port);
-      mounted = startMount(init, framePort, reg(init), browserEnv());
+      const framePort = wrapPort(port);
+      hub = createMeterHub(
+        init.meter,
+        (reading) => framePort.post({ type: "flash", reading }),
+        browserMeterEnv()
+      );
+      for (const bind of early.splice(0)) bind(hub);
+      mounted = startMount(init, framePort, reg(init), browserEnv(), hub);
     } catch (e) {
       refuse(port, errorText(e));
     }
@@ -2202,7 +2294,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
     const own = ++current;
     mounted?.dispose();
     mounted = null;
-    framePort = null;
+    hub = null;
     waiting?.port.close();
     waiting = null;
     if (init.api !== VIS_API) {
@@ -2246,8 +2338,19 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
     register(rawForm(handlers));
   }
   function meter(canvas) {
-    const report = (reading) => framePort?.post({ type: "flash", reading });
-    return createStageMeter(canvas, report, browserMeterEnv());
+    if (hub) return hub.authored(canvas);
+    let inner = null;
+    let disposed = false;
+    early.push((next) => {
+      if (!disposed) inner = next.authored(canvas);
+    });
+    return {
+      frame: () => inner?.frame(),
+      dispose() {
+        disposed = true;
+        inner?.dispose();
+      }
+    };
   }
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("message", (event) => {

@@ -5,6 +5,7 @@
 
 // -- Local Imports --
 import { startMount } from "./lifecycle";
+import { createMeterHub } from "./meterHub";
 import { restSignal } from "../state/player/visualSignal";
 import { FS_VS } from "../components/player/visualizers/gl/shaders";
 import { createRenderer } from "../components/player/visualizers/gl/renderer";
@@ -61,6 +62,9 @@ export function fakeGl(log: string[], parallel = true) {
       bindFramebuffer: (_t: unknown, fbo: unknown) => {
         bound = fbo;
       },
+      readPixels: () => {
+        log.push("readback");
+      },
       drawArrays: () => {
         log.push(bound === null ? "shown" : "draw");
       },
@@ -107,6 +111,7 @@ export function testInit(): VisInit {
     fillsStage: true,
     needs: { fine: false, cover: false, pointer: false, waveform: false },
     settingShapes: [],
+    meter: false,
     context: {
       layout: { width: 100, height: 80, cover: [10, 10, 40, 40], radius: 8, mask: null, floor: null, hush: [] },
       palette: new Float32Array(9),
@@ -141,7 +146,12 @@ export function testTick(seq: number, nBeats = 0): Tick & { type: "tick" } {
 }
 
 /** Mounts `mount` on a frame whose animation frames never come, 200 ms of time per tick. */
-export function harness(mount: Mount, canvasFor: () => HTMLCanvasElement, log: string[] = []) {
+export function harness(
+  mount: Mount,
+  canvasFor: () => HTMLCanvasElement,
+  log: string[] = [],
+  opts: { meter?: boolean } = {},
+) {
   const sent: FrameMessage[] = [];
   const transfers: Transferable[][] = [];
   const snapshots: HTMLCanvasElement[] = [];
@@ -176,7 +186,18 @@ export function harness(mount: Mount, canvasFor: () => HTMLCanvasElement, log: s
     },
     createRenderer,
   };
-  const handle = startMount(testInit(), port, mount, env);
+  const init = { ...testInit(), meter: opts.meter ?? false };
+  const meters = createMeterHub(
+    init.meter,
+    (reading) => port.post({ type: "flash", reading }),
+    {
+      now: () => now,
+      scratch: () => {
+        throw new Error("no 2d canvas");
+      },
+    },
+  );
+  const handle = startMount(init, port, mount, env, meters);
   let seq = 0;
   return {
     log,
@@ -184,6 +205,7 @@ export function harness(mount: Mount, canvasFor: () => HTMLCanvasElement, log: s
     transfers,
     snapshots,
     handle,
+    meters,
     closed: () => closed,
     send: (data: unknown) => handler(data),
     tick(nBeats = 0) {

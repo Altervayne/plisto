@@ -16,7 +16,8 @@ import { sceneForm } from "./forms/scene";
 import { shaderForm } from "./forms/shader";
 import { errorText } from "./gate";
 import { browserEnv, startMount, wrapPort } from "./lifecycle";
-import { browserMeterEnv, createStageMeter } from "./meter";
+import { browserMeterEnv } from "./meter";
+import { createMeterHub } from "./meterHub";
 import { readInit, VIS_API } from "./protocol";
 import { isShaderPage, loadShader } from "./shaderHost";
 
@@ -24,9 +25,10 @@ import { isShaderPage, loadShader } from "./shaderHost";
 import type { CandidateOptions } from "./forms/candidate";
 import type { SceneSpec } from "./forms/scene";
 import type { ShaderSpec } from "./forms/shader";
-import type { RawHandlers, Registration, VisPort } from "./lifecycle";
+import type { RawHandlers, Registration } from "./lifecycle";
 import type { StageMeter } from "./meter";
-import type { FlashReading, VisInit } from "./protocol";
+import type { MeterHub } from "./meterHub";
+import type { VisInit } from "./protocol";
 import type { Candidate, Kit } from "../components/player/visualizers/gl/kit";
 
 // -- Namespace: shader sources and helpers --
@@ -69,8 +71,10 @@ export const version = VIS_API;
 let registration: Registration | null = null;
 let waiting: { init: VisInit; port: MessagePort } | null = null;
 let mounted: { dispose: () => void } | null = null;
-// The port of the mount being served, for what a kind reports itself.
-let framePort: VisPort | null = null;
+// The meters of the mount being served; a kind's own meters come from it.
+let hub: MeterHub | null = null;
+// Meters a kind asked for before any mount, bound to the next mount's hub.
+const early: ((hub: MeterHub) => void)[] = [];
 
 const bridge = createBridgeClient((msg) => window.parent.postMessage(msg, "*"));
 
@@ -90,8 +94,14 @@ const refuse = (port: MessagePort, message: string) => {
 
 function start(init: VisInit, port: MessagePort, reg: Registration): void {
   try {
-    framePort = wrapPort(port);
-    mounted = startMount(init, framePort, reg(init), browserEnv());
+    const framePort = wrapPort(port);
+    hub = createMeterHub(
+      init.meter,
+      (reading) => framePort.post({ type: "flash", reading }),
+      browserMeterEnv(),
+    );
+    for (const bind of early.splice(0)) bind(hub);
+    mounted = startMount(init, framePort, reg(init), browserEnv(), hub);
   } catch (e) {
     refuse(port, errorText(e));
   }
@@ -101,7 +111,7 @@ function onInit(init: VisInit, port: MessagePort): void {
   const own = ++current;
   mounted?.dispose();
   mounted = null;
-  framePort = null;
+  hub = null;
   waiting?.port.close();
   waiting = null;
   if (init.api !== VIS_API) {
@@ -155,12 +165,24 @@ export function raw(handlers: RawHandlers): void {
 }
 
 /**
- * Watches a canvas for flashing. Call `frame()` on the result after each frame is drawn. A flashing
- * reading is reported to the host; the meter never changes what the kind draws.
+ * Watches a canvas for flashing, for a kind that draws outside its frame handler. Call `frame()` on the
+ * result after each frame is drawn; it does nothing while the host has metering off. A flashing reading
+ * is reported to the host; the meter never changes what the kind draws.
  */
 export function meter(canvas: HTMLCanvasElement): StageMeter {
-  const report = (reading: FlashReading) => framePort?.post({ type: "flash", reading });
-  return createStageMeter(canvas, report, browserMeterEnv());
+  if (hub) return hub.authored(canvas);
+  let inner: StageMeter | null = null;
+  let disposed = false;
+  early.push((next) => {
+    if (!disposed) inner = next.authored(canvas);
+  });
+  return {
+    frame: () => inner?.frame(),
+    dispose() {
+      disposed = true;
+      inner?.dispose();
+    },
+  };
 }
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {

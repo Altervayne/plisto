@@ -1,7 +1,8 @@
 /*
  * The shader form: one fragment source over the cozy prelude, drawn as a single feedback pass. The
  * prelude adds the eased level, the previous frame as `uPrev`, the fine spectrum as `uFine`, and one
- * uniform per declared setting. `#line 1` follows the prelude, so compile errors name the author's lines.
+ * uniform per declared setting. `uFlow` advances at a base rate plus the eased level. `#line 1` follows
+ * the prelude, so compile errors name the author's lines.
  */
 
 // -- Local Imports --
@@ -14,6 +15,9 @@ import type { VisFrame } from "../frame";
 import type { Registration } from "../lifecycle";
 import type { VisSettingShape } from "../protocol";
 import type { Kit, Program } from "../../components/player/visualizers/gl/kit";
+
+// `uFlow` runs at this much plus the eased level, per second.
+const FLOW_BASE = 0.25;
 
 export interface ShaderSpec {
   source: string;
@@ -72,13 +76,18 @@ export function shaderForm(spec: ShaderSpec): Registration {
   return (init) => {
     const shapes = init.settingShapes;
     const fine = new Float32Array(FINE_BAND_COUNT);
+    let flow = 0;
     return sceneForm({
-      passes: [{ name: "main", fs: shaderPrelude(shapes) + spec.source, feedback: true }],
+      passes: [{ name: "shader", fs: shaderPrelude(shapes) + spec.source, feedback: true }],
       mode: spec.mode,
       bloom: spec.bloom,
       exposure: spec.exposure,
       inkGain: spec.inkGain,
       vignette: spec.vignette,
+      update(frame) {
+        flow += frame.dt * (FLOW_BASE + frame.sig.level);
+        return flow;
+      },
       uniforms(_pass, p, kit, frame) {
         fine.fill(0);
         if (frame.fine) fine.set(frame.fine.slice(0, FINE_BAND_COUNT));

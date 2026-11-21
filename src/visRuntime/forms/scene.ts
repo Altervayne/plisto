@@ -74,11 +74,21 @@ void main() { outColor = texture(uSrc, vUv); }`,
 
 const programOf = (pass: ScenePass): ProgramSource => ({ name: `scene:${pass.name}`, vs: FS_VS, fs: pass.fs });
 
+// A pass name becomes a sampler uniform name, so it must be one GLSL accepts.
+const GLSL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function checkPassName(name: string): void {
+  if (!GLSL_IDENT.test(name)) throw new Error(`pass name "${name}" is not a valid GLSL identifier`);
+  if (name === "main") throw new Error('pass name "main" is reserved: a pass name cannot be main');
+  if (name.startsWith("gl_")) throw new Error(`pass name "${name}" cannot start with gl_`);
+}
+
 function checkPasses(passes: ScenePass[]): void {
   if (!Array.isArray(passes) || passes.length === 0) throw new Error("a scene needs at least one pass");
   const seen = new Set<string>();
   for (const pass of passes) {
     if (typeof pass.name !== "string" || typeof pass.fs !== "string") throw new Error("a pass needs a name and fs");
+    checkPassName(pass.name);
     if (seen.has(pass.name)) throw new Error(`pass ${pass.name} is declared twice`);
     for (const input of pass.inputs ?? []) {
       if (!seen.has(input)) throw new Error(`pass ${pass.name} samples ${input}, which does not draw before it`);
