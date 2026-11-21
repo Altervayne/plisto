@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "com.example.vis-candidate",
+  "name": "Candidate starter",
+  "version": "1.0.0",
+  "tier": "ui",
+  "capabilities": ["visualizer"],
+  "min_plisto": "2.8.0",
+  "author": "Your Name",
+  "visualizers": [
+    { "id": "starter", "name": "Starter", "api": 1, "page": "vis/starter.html", "look": "glow" }
+  ]
+}

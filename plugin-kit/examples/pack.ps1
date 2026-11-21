@@ -29,14 +29,18 @@ function Read-Manifest([string]$Src) {
     $file = Join-Path $Src "plugin.json"
     if (-not (Test-Path $file -PathType Leaf)) { throw "$Src has no plugin.json at its root" }
     $manifest = Get-Content $file -Raw | ConvertFrom-Json
-    foreach ($field in @("id", "version", "entry")) {
+    # A plugin that only adds visualizers has no page of its own, so it needs no entry.
+    $needed = @("id", "version")
+    if (-not $manifest.visualizers) { $needed += "entry" }
+    foreach ($field in $needed) {
         if (-not $manifest.$field) { throw "plugin.json has no '$field'" }
     }
     foreach ($field in @("name", "author")) {
         $value = [string]$manifest.$field
         if ($value -ne $value.Trim()) { throw "'$field' must not start or end with a space" }
     }
-    $named = @($manifest.entry, $manifest.page, $manifest.icon) | Where-Object { $_ }
+    $kindFiles = @($manifest.visualizers) | ForEach-Object { if ($_) { $_.page; $_.shader } }
+    $named = @($manifest.entry, $manifest.page, $manifest.icon) + @($kindFiles) | Where-Object { $_ }
     foreach ($rel in $named) {
         if (-not (Test-Path (Join-Path $Src ($rel -replace "/", "\")) -PathType Leaf)) {
             throw "plugin.json names '$rel', which is not in $Src"

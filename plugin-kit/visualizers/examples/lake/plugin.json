@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.vis-lake",
+  "name": "Lake",
+  "version": "1.0.0",
+  "tier": "ui",
+  "capabilities": ["visualizer"],
+  "min_plisto": "2.8.0",
+  "author": "Plisto",
+  "visualizers": [
+    {
+      "id": "lake",
+      "name": "Lake",
+      "api": 1,
+      "page": "vis/lake.html",
+      "look": "image",
+      "fills_stage": true,
+      "needs": { "cover": true }
+    }
+  ]
+}
