@@ -8,13 +8,12 @@
 
 // -- Local Imports --
 import {
-  blendModeFor,
   createRenderer,
-  registryScene,
   type Renderer,
   type SceneResolver,
   type SceneSource,
 } from "../../components/player/visualizers/gl/renderer";
+import { blendModeFor, registryScene } from "../../components/player/visualizers/gl/registryScene";
 import { LAB_LAYOUTS, type LabLayoutId } from "./labScene";
 
 // -- State Imports --
@@ -53,7 +52,11 @@ export async function loadScene(id: string, darkOnly: boolean): Promise<LabScene
     darkOnly,
     source: {
       factory: create as (kit: Kit) => Candidate,
-      descriptor: { fillsStage: true, blend: { light: "normal", dark: "normal" } },
+      descriptor: {
+        fillsStage: true,
+        blend: { light: "normal", dark: "normal" },
+        composite: { light: "image", dark: "image" },
+      },
     },
   };
 }

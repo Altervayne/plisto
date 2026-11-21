@@ -3,7 +3,8 @@ import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 // -- Local Imports --
-import { blendModeFor, createRenderer, type Layout, type Renderer } from "./gl/renderer";
+import { createRenderer, type Layout, type Renderer } from "./gl/renderer";
+import { blendModeFor, registryScene } from "./gl/registryScene";
 import { clamp01 } from "./gl/cozy";
 import type { Frame, Rect } from "./gl/kit";
 
@@ -111,7 +112,7 @@ export function GlVisualizer({
 
     let renderer: Renderer | null = null;
     try {
-      renderer = createRenderer(canvas);
+      renderer = createRenderer(canvas, registryScene);
     } catch {
       renderer = null;
     }

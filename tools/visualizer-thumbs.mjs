@@ -17,7 +17,7 @@ const MANIFEST = join(DIR, "manifest.json");
 const VIS = "src/components/player/visualizers";
 
 // Files every GL kind's still depends on beyond its own module.
-const GL_ONLY = [`${VIS}/gl/renderer.ts`, `${VIS}/visualizerPalette.ts`];
+const GL_ONLY = [`${VIS}/gl/renderer.ts`, `${VIS}/gl/registryScene.ts`, `${VIS}/visualizerPalette.ts`];
 
 // Files every still depends on, Ridge's included: the lab scene, the groove, and the modules that compose a still.
 const LAB_SHARED = [
