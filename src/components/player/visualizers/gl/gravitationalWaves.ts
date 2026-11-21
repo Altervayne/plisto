@@ -9,14 +9,16 @@
  * faint wave. Above that floor the pace swings with the intensity (the loudness plus the recent kick weight)
  * against its own slow mean, through a soft spring, so a build or a drop whips the pair round even when the
  * loudness is pinned high and a calmer passage lets it settle. A strong kick pushes the orbit on through an
- * eased envelope. The bass raises the wave and deepens the wells, the mids add pace and disc turbulence, the
- * highs spark the photon rings and shimmer the jets. A beat sends a crest out on the wave, sized by the beat's
- * weight, and a knot up each jet; a surge sends one great wave and lurches the pair, a cut lets the turning
- * and the waves sink. Calm and paused hold a fixed slow orbit with no reaction.
+ * eased envelope, and every beat punches the wells down, flares the discs and pulls the orbit in. The bass
+ * raises the wave and deepens the wells, the mids add pace and disc turbulence, the highs spark the photon
+ * rings and shimmer the jets. A beat sends a crest out on the wave, sized by the beat's weight, and a knot
+ * up each jet; a surge sends one great wave and lurches the pair, a cut lets the turning and the waves
+ * sink. Calm and paused hold a fixed slow orbit with no reaction.
  *
  * Photosensitivity: overall brightness follows the eased level. The wave, the beat crests, the photon-ring spark,
- * the jet knot and the disc turbulence add light too, but each is eased and local, and crests launch at most
- * a few times a second.
+ * the jet knot, the kick flare and the disc turbulence add light too, but each is eased and local. The
+ * flare follows the beats, which the signal admits at most 3 times a second, and no more than 3 crests
+ * launch in any second, surge included: a surge past that limit lifts the newest crest instead.
  */
 
 // -- Local Imports --
@@ -37,8 +39,8 @@ export const CALM_PACE = 0.6;
 // The pace as a multiple of OMEGA: the near-silent floor, and the pace at full loudness while the music holds
 // its own recent level, at Balanced and at Lively.
 export const PACE_QUIET = 0.12;
-const PACE_BODY_BALANCED = 1.1;
-export const PACE_BODY_LIVELY = 1.3;
+const PACE_BODY_BALANCED = 1.02;
+export const PACE_BODY_LIVELY = 1.2;
 // The drive above which the Lively body and swing apply.
 const LIVELY_DRIVE = 1.3;
 // How far the share of the pace above the floor swings with the intensity against its recent level:
@@ -60,11 +62,18 @@ const KICK_TAU = 0.8;
 const FAST_TAU = 0.8;
 const SLOW_TAU = 10;
 const REL_SPAN = 0.12;
-// The beat push: extra pace per unit of beat weight, the time constant of each of its two rise stages and its
-// fall, in seconds.
-export const PUSH_PACE = 0.5;
-const PUSH_RISE = 0.05;
-const PUSH_FALL = 0.25;
+// The beat push: extra pace per unit of beat weight, the time constant of its rise and of its fall, in seconds.
+export const PUSH_PACE = 0.9;
+const PUSH_RISE = 0.03;
+const PUSH_FALL = 0.18;
+// The kick at the centre: the beat weight's envelope rises over KICK_RISE and falls over KICK_FALL, seconds.
+// At a weight of 1 it deepens the wells by KICK_WELL, pulls the orbit in by KICK_PULL and flares the discs.
+const KICK_RISE = 0.035;
+const KICK_FALL = 0.22;
+export const KICK_WELL = 0.22;
+export const KICK_PULL = 0.035;
+// The weight the kick envelope and a crest's height are capped at.
+export const WEIGHT_MAX = 1.5;
 // Extra pace per unit of the mid envelope.
 const MID_PACE = 0.12;
 // Extra pace per unit of surge, easing out over LURCH_TAU seconds.
@@ -84,9 +93,16 @@ export const WAVE_BASS = 0.07;
 // Well depth at the throat, at rest and per unit of bass envelope.
 export const WELL_BASE = 0.62;
 export const WELL_BASS = 0.16;
-// Least time between two beat crests, and a crest's life, in seconds.
-const CREST_GAP = 0.55;
-export const CREST_LIFE = 8;
+// Least time between two crests, just under the follower's own gap between beats, and the most crests that
+// launch in any CREST_WINDOW seconds (the last 1 ms is slack for clock rounding).
+const CREST_GAP = 0.28;
+const CREST_BURST = 3;
+const CREST_WINDOW = 1;
+// A crest's life and fade-in, in seconds. Its height decays over CREST_DECAY, and is under 2% of its launch
+// height when its life ends, so it leaves without a pop.
+export const CREST_LIFE = 4.4;
+const CREST_FADE_IN = 0.04;
+const CREST_DECAY = 1.1;
 // A beat's weight below this launches no crest; a crest's height follows the weight while it is held.
 const CREST_MIN = 0.12;
 const WEIGHT_HOLD = 0.12;
@@ -95,8 +111,9 @@ const SURGE_CREST = 2.2;
 export const SURGE_MAX = 2.6;
 // The shader caps the sum of overlapping crests here, so the lift stays inside the surface solver's bracket.
 export const CREST_SUM_MAX = SURGE_MAX;
-// Beat crests alive at once; the shader's uCrest holds this many.
-const CREST_SLOTS = 4;
+// Crests alive at once; the shader's uCrest holds this many. Launches are at least CREST_GAP apart and a
+// crest lives CREST_LIFE, so a slot is always free before a crest is due to launch.
+export const CREST_SLOTS = 16;
 // A jet knot's climb, in seconds.
 const KNOT_LIFE = 1.1;
 // The discs' inner-edge rotation, rad/s, before the mids.
@@ -112,8 +129,9 @@ uniform float uShine;
 uniform float uTurb;
 uniform float uHighE;
 uniform float uWaveK;
-uniform vec2 uCrest[4];
+uniform vec2 uCrest[${CREST_SLOTS}];
 uniform vec2 uKnot;
+uniform float uThump;
 // -- Tunables (shader side) --
 const float ORBIT_W = 0.84;       // orbit radius on screen at rest, in cover widths
 const float DIST = 6.0;           // camera distance, in orbit radii
@@ -156,13 +174,19 @@ float height(vec2 xz) {
   float wave = ((xz.x * xz.x - xz.y * xz.y) * cos(x) - 2.0 * xz.x * xz.y * sin(x)) / r2;
   float env = smoothstep(0.5 * uOrbR, 1.7 * uOrbR, r) / (1.0 + 0.15 * r);
   float crest = 0.0;
-  for (int i = 0; i < 4; i++) { float u = (r - uCrest[i].x) / CREST_W; crest += uCrest[i].y * exp(-u * u); }
+  for (int i = 0; i < ${CREST_SLOTS}; i++) {
+    if (uCrest[i].y <= 0.0) continue;
+    float u = (r - uCrest[i].x) / CREST_W;
+    crest += uCrest[i].y * exp(-u * u);
+  }
   crest = min(crest, ${CREST_SUM_MAX.toFixed(2)});
+  // A beat crest is already strong at the orbit, where it is born.
+  float envC = smoothstep(0.7 * uOrbR, 1.3 * uOrbR, r) / (1.0 + 0.15 * r);
   gWave = wave * env;
   // The arm profile: narrow bright crests over wide dim troughs, averaging zero along a ring.
   gArm = (smoothstep(0.25, 1.0, wave) - 0.28) * env;
-  gCrest = crest * env;
-  gLift = env * (wave * min(uWaveA + CREST_A * crest, WAVE_MAX) + 0.35 * CREST_A * crest);
+  gCrest = crest * envC;
+  gLift = env * wave * min(uWaveA + CREST_A * crest, WAVE_MAX) + envC * 0.35 * CREST_A * crest;
   return SHEET_Y + wells + gLift;
 }
 
@@ -225,7 +249,7 @@ void drawHole(inout vec3 col, vec2 p, int i, float shine) {
     col += mix(vec3(0.45, 0.65, 1.0), vec3(0.9, 0.95, 1.0), sat(core)) * jet * shine * (dp.y < 0.0 ? 0.6 : 1.0);
   }
   // A wide warm bloom, so each disc lights the space around it.
-  col += vec3(1.0, 0.42, 0.12) * exp(-pow(dist / (rs * 5.5), 2.0)) * 0.22 * shine;
+  col += vec3(1.0, 0.42, 0.12) * exp(-pow(dist / (rs * 5.5), 2.0)) * (0.22 + 0.04 * uThump) * shine;
   if (dist > rs * DISC_OUT * 1.25) return;
   float te = LENS * rs;
   vec2 pl = p - te * te * dp / max(dot(dp, dp), 1.0);
@@ -235,18 +259,20 @@ void drawHole(inout vec3 col, vec2 p, int i, float shine) {
   // The far and near halves blend over a short depth band at the sides, so the lensed half meets the direct one.
   float m = HOLE_R * 1.2;
   float far = smoothstep(z - m, z + m, depthOf(Q1));
-  if (far > 0.0) col += discAt(Q1, i) * shine * outside * far;
+  // A kick flares the discs and the photon ring.
+  float flare = 1.0 + 0.35 * uThump;
+  if (far > 0.0) col += discAt(Q1, i) * shine * flare * outside * far;
   col *= outside;
   float pw = max(0.8, rs * 0.04);
   float ring = exp(-pow((dist - rs * 1.04) / pw, 2.0));
   float ang = atan(dp.y, dp.x);
   float spark = pow(sat(0.5 + 0.5 * sin(ang * 9.0 + uSpin * 1.7) * sin(ang * 5.0 - uSpin * 1.1 + float(i))), 6.0);
-  col += vec3(1.0, 0.93, 0.82) * ring * shine * (1.6 + 2.2 * uHighE * spark);
+  col += vec3(1.0, 0.93, 0.82) * ring * shine * (1.6 + 2.2 * uHighE * spark + 0.8 * uThump);
   vec3 d0 = rayAt(p);
   vec3 Q0 = gCam + d0 * (-gCam.y / d0.y);
   float nearW = 1.0 - smoothstep(z - m, z + m, depthOf(Q0));
   if (nearW > 0.0) {
-    vec3 near = discAt(Q0, i) * shine * nearW;
+    vec3 near = discAt(Q0, i) * shine * flare * nearW;
     col = col * (1.0 - sat(luma(near) * 0.8)) + near;
   }
 }
@@ -395,11 +421,13 @@ export interface GravitationalWavesState {
   primed: boolean;
   speed: number;
   vel: number;
-  // The peak-followed kick weight, and the beat push's held target, first ease and envelope.
+  // The peak-followed kick weight, and the beat push's held target and envelope.
   kick: number;
   pushHold: number;
-  pushIn: number;
   push: number;
+  // The kick at the centre: the beat weight's held peak and its envelope.
+  thumpHold: number;
+  thump: number;
   // The orbit's pace this step, as a multiple of OMEGA.
   pace: number;
   // The share of the loudness curve reached, 0..1, and the surge lurch and cut sink envelopes.
@@ -414,6 +442,8 @@ export interface GravitationalWavesState {
   high: number;
   crests: Crest[];
   lastCrest: number;
+  // The clocks of the launches in the last CREST_WINDOW seconds.
+  launches: number[];
   knotAge: number;
   knotH: number;
   clock: number;
@@ -434,8 +464,9 @@ export function createGravitationalWavesState(): GravitationalWavesState {
     vel: 0,
     kick: 0,
     pushHold: 0,
-    pushIn: 0,
     push: 0,
+    thumpHold: 0,
+    thump: 0,
     pace: CALM_PACE,
     lv: 0,
     lurch: 0,
@@ -448,6 +479,7 @@ export function createGravitationalWavesState(): GravitationalWavesState {
     high: 0,
     crests: [],
     lastCrest: -9,
+    launches: [],
     knotAge: 9,
     knotH: 0,
     clock: 0,
@@ -456,11 +488,28 @@ export function createGravitationalWavesState(): GravitationalWavesState {
   };
 }
 
+/** Whether a crest may launch now: past the gap, and under the burst limit for the last second. */
+function crestAllowed(st: GravitationalWavesState): boolean {
+  if (st.clock - st.lastCrest < CREST_GAP) return false;
+  st.launches = st.launches.filter((t) => st.clock - t < CREST_WINDOW - 1e-3);
+  return st.launches.length < CREST_BURST;
+}
+
 /** A pace eased into PACE_MAX above PACE_KNEE, with no kink at the knee. */
 export function paceKnee(p: number): number {
   if (p <= PACE_KNEE) return p;
   const room = PACE_MAX - PACE_KNEE;
   return PACE_KNEE + room * Math.tanh((p - PACE_KNEE) / room);
+}
+
+/** The well depth the shader draws: the eased depth plus the kick's plunge. */
+export function wellDepth(st: GravitationalWavesState): number {
+  return st.well + KICK_WELL * st.thump;
+}
+
+/** The orbit radius the shader draws: the eased radius pulled in by the kick, which springs back. */
+export function orbitRadius(st: GravitationalWavesState): number {
+  return st.radius * (1 - KICK_PULL * st.thump);
 }
 
 /**
@@ -515,9 +564,10 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   st.speed = Math.max(0.05, st.speed + st.vel * dt);
   // A kick pushes the orbit on, and the push eases out over PUSH_FALL.
   st.pushHold = Math.max(weight, st.pushHold * Math.exp(-dt / PUSH_FALL));
-  // Two eases in a row start the push gently, so the pace never steps.
-  st.pushIn = easeEnvelope(st.pushIn, st.pushHold, dt, PUSH_RISE);
-  st.push = easeEnvelope(st.push, st.pushIn, dt, PUSH_RISE);
+  st.push = easeEnvelope(st.push, st.pushHold, dt, PUSH_RISE);
+  // The kick envelope follows the same weight on its own timing, held to a cap.
+  st.thumpHold = Math.max(Math.min(WEIGHT_MAX, weight), st.thumpHold * Math.exp(-dt / KICK_FALL));
+  st.thump = easeEnvelope(st.thump, st.thumpHold, dt, KICK_RISE);
   st.pace = paceKnee(st.speed * (1 + PUSH_PACE * st.push * (1 - st.sink)));
   const omega = OMEGA * st.pace;
   st.phi += omega * dt;
@@ -538,23 +588,32 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   // A beat's crest takes the highest weight while the beat is held, and is dropped if the final weight is slight.
   for (const k of st.crests) {
     if (!k.held) continue;
-    k.h = Math.max(k.h, Math.min(1.5, weight));
+    k.h = Math.max(k.h, Math.min(WEIGHT_MAX, weight));
     if (k.age >= WEIGHT_HOLD) k.held = false;
     else st.knotH = k.h;
   }
   st.crests = st.crests.filter((k) => k.age < CREST_LIFE && (k.held || k.h >= CREST_MIN));
   if (surge > 0) {
-    // A surge sends one great wave, taller than any beat crest, and holds the beat crests back for the gap.
-    st.lastCrest = st.clock;
-    if (st.crests.length === CREST_SLOTS) st.crests.shift();
+    // A surge sends one great wave, taller than any beat crest. Where a launch is not allowed it lifts a
+    // crest launched within the gap, as one wave; lifting an older one would be another flash.
     const h = Math.min(SURGE_MAX, SURGE_CREST * surge);
-    st.crests.push({ r: st.radius * 1.1, age: 0, h, held: false });
-    st.knotAge = 0;
-    st.knotH = Math.min(1.5, h);
-  } else if (beat > 0 && st.clock - st.lastCrest >= CREST_GAP) {
+    if (crestAllowed(st)) {
+      st.lastCrest = st.clock;
+      st.launches.push(st.clock);
+      if (st.crests.length === CREST_SLOTS) st.crests.shift();
+      st.crests.push({ r: st.radius * 1.1, age: 0, h, held: false });
+      st.knotAge = 0;
+      st.knotH = Math.min(WEIGHT_MAX, h);
+    } else if (st.crests.length > 0 && st.crests[st.crests.length - 1].age < CREST_GAP) {
+      const newest = st.crests[st.crests.length - 1];
+      newest.h = Math.max(newest.h, h);
+      st.knotH = Math.max(st.knotH, Math.min(WEIGHT_MAX, h));
+    }
+  } else if (beat > 0 && crestAllowed(st)) {
     st.lastCrest = st.clock;
+    st.launches.push(st.clock);
     if (st.crests.length === CREST_SLOTS) st.crests.shift();
-    const h = Math.min(1.5, weight);
+    const h = Math.min(WEIGHT_MAX, weight);
     st.crests.push({ r: st.radius * 1.1, age: 0, h, held: true });
     st.knotAge = 0;
     st.knotH = h;
@@ -562,9 +621,9 @@ export function stepGravitationalWaves(st: GravitationalWavesState, s: VisualSig
   st.crest.fill(0);
   const sunk = 1 - 0.8 * st.sink;
   st.crests.forEach((k, i) => {
-    const fin = Math.min(1, k.age / 0.35);
+    const fin = Math.min(1, k.age / CREST_FADE_IN);
     st.crest[i * 2] = k.r;
-    st.crest[i * 2 + 1] = k.h * sunk * fin * fin * (3 - 2 * fin) * Math.exp(-k.age / 4);
+    st.crest[i * 2 + 1] = k.h * sunk * fin * fin * (3 - 2 * fin) * Math.exp(-k.age / CREST_DECAY);
   });
   st.knotAge += dt;
   const ka = st.knotAge / KNOT_LIFE;
@@ -595,9 +654,10 @@ export function createGravitationalWaves(kit: Kit): Candidate {
       const p = kit.program(GRAVITATIONAL_WAVES_PROGRAM);
       setScene(kit, p, f, 0, null, art.tex);
       kit.set1(p, "uPhi", st.phi);
-      kit.set1(p, "uOrbR", st.radius);
+      kit.set1(p, "uOrbR", orbitRadius(st));
       kit.set1(p, "uWaveA", st.waveA);
-      kit.set1(p, "uWell", st.well);
+      kit.set1(p, "uWell", wellDepth(st));
+      kit.set1(p, "uThump", st.thump);
       kit.set1(p, "uSpin", st.spin);
       kit.set1(p, "uShine", st.shine);
       kit.set1(p, "uTurb", st.turb);

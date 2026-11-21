@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   CALM_PACE,
   CREST_LIFE,
+  CREST_SLOTS,
+  KICK_PULL,
+  KICK_WELL,
   LURCH_PACE,
   OMEGA,
   PACE_BODY_LIVELY,
@@ -13,6 +16,7 @@ import {
   PUSH_PACE,
   CREST_SUM_MAX,
   SURGE_MAX,
+  WEIGHT_MAX,
   WAVE_BASS,
   WAVE_K,
   WAVE_LOUD,
@@ -20,13 +24,15 @@ import {
   WELL_BASE,
   WELL_BASS,
   createGravitationalWavesState,
+  orbitRadius,
   paceKnee,
   stepGravitationalWaves,
+  wellDepth,
   type GravitationalWavesState,
 } from "./gravitationalWaves";
 
-// -- Type Imports --
-import type { VisualSignal } from "../../../../state/player/visualSignal";
+// -- State Imports --
+import { WEIGHT_SPAN_SECS, type VisualSignal } from "../../../../state/player/visualSignal";
 
 const DT = 1 / 60;
 const LIVELY = 1.6;
@@ -71,7 +77,18 @@ function drop(i: number, drive = LIVELY): VisualSignal {
 
 /** What the shader reads, so two runs can be compared by their pixels' inputs. */
 function uniforms(st: GravitationalWavesState) {
-  return [st.phi, st.radius, st.waveA, st.well, st.spin, st.turb, st.high, ...st.crest, ...st.knot];
+  return [
+    st.phi,
+    orbitRadius(st),
+    st.waveA,
+    wellDepth(st),
+    st.thump,
+    st.spin,
+    st.turb,
+    st.high,
+    ...st.crest,
+    ...st.knot,
+  ];
 }
 
 /** Holds a signal for seconds and returns the state and the pace of the last frame in rad/s. */
@@ -109,7 +126,8 @@ describe("stepGravitationalWaves", () => {
       expect(st.radius).toBeGreaterThanOrEqual(0.9);
       expect(st.radius).toBeLessThanOrEqual(1);
       expect(st.speed).toBeGreaterThanOrEqual(0.05);
-      expect(st.crests.length).toBeLessThanOrEqual(4);
+      expect(st.crests.length).toBeLessThanOrEqual(CREST_SLOTS);
+      expect(st.thump).toBeLessThanOrEqual(WEIGHT_MAX);
       for (let k = 1; k < st.crest.length; k += 2) expect(st.crest[k]).toBeLessThanOrEqual(1.5);
       expect(st.knot[1]).toBeLessThanOrEqual(1.2);
     }
@@ -164,6 +182,8 @@ describe("stepGravitationalWaves", () => {
       expect(st.waveA).toBeLessThanOrEqual(WAVE_LOUD + WAVE_BASS * LIVELY);
       expect(st.well).toBeGreaterThanOrEqual(WELL_BASE);
       expect(st.well).toBeLessThanOrEqual(WELL_BASE + WELL_BASS * LIVELY);
+      expect(wellDepth(st)).toBeLessThanOrEqual(WELL_BASE + WELL_BASS * LIVELY + KICK_WELL * WEIGHT_MAX);
+      expect(orbitRadius(st)).toBeGreaterThanOrEqual(0.9 * (1 - KICK_PULL * WEIGHT_MAX));
       expect(st.pace).toBeLessThanOrEqual(PACE_MAX);
       sawPace = Math.max(sawPace, st.pace);
       for (const k of st.crests) {
@@ -172,11 +192,11 @@ describe("stepGravitationalWaves", () => {
         expect(k.r).toBeLessThanOrEqual(reach);
       }
       sawWave = Math.max(sawWave, st.waveA);
-      sawWell = Math.max(sawWell, st.well);
+      sawWell = Math.max(sawWell, wellDepth(st));
     }
     // The bounds are reached, so they are not vacuous.
     expect(sawWave).toBeGreaterThan(WAVE_LOUD + 0.05);
-    expect(sawWell).toBeGreaterThan(WELL_BASE + 0.05);
+    expect(sawWell).toBeGreaterThan(WELL_BASE + WELL_BASS * LIVELY + 0.1);
     expect(sawPace).toBeGreaterThan(0.95 * PACE_MAX);
   });
 
@@ -246,7 +266,8 @@ describe("stepGravitationalWaves", () => {
   });
 
   it("keeps the tallest crest on the loudest wave inside the surface solver's bracket", () => {
-    // The shader's lift: env * (wave * min(waveA + CREST_A * crest, WAVE_MAX) + 0.35 * CREST_A * crest), wave in -1..1.
+    // The shader's lift: env * wave * min(waveA + CREST_A * crest, WAVE_MAX) + envC * 0.35 * CREST_A * crest,
+    // wave in -1..1.
     const CREST_A = 0.08;
     const WAVE_MAX = 0.22;
     // The funnel march starts this far above the rest height; the off-funnel solve starts 0.3 above.
@@ -255,11 +276,16 @@ describe("stepGravitationalWaves", () => {
       const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
       return t * t * (3 - 2 * t);
     };
-    // The widest envelope over the radii a crest can reach, at the tightest orbit.
+    // The widest envelopes over the radii a crest can reach, at the tightest orbit the kick pulls in.
+    const orbit = 0.9 * (1 - KICK_PULL * WEIGHT_MAX);
     let env = 0;
-    for (let r = 0.9; r < 40; r += 0.01) env = Math.max(env, smooth(0.45, 1.53, r) / (1 + 0.15 * r));
+    let envC = 0;
+    for (let r = orbit; r < 40; r += 0.01) {
+      env = Math.max(env, smooth(0.5 * orbit, 1.7 * orbit, r) / (1 + 0.15 * r));
+      envC = Math.max(envC, smooth(0.7 * orbit, 1.3 * orbit, r) / (1 + 0.15 * r));
+    }
     const waveA = WAVE_LOUD + WAVE_BASS * LIVELY;
-    const lift = (crest: number) => env * (Math.min(waveA + CREST_A * crest, WAVE_MAX) + 0.35 * CREST_A * crest);
+    const lift = (crest: number) => env * Math.min(waveA + CREST_A * crest, WAVE_MAX) + envC * 0.35 * CREST_A * crest;
     // A surge at the cap overlapping a full-weight beat crest: the shader caps the sum at CREST_SUM_MAX.
     expect(lift(Math.min(SURGE_MAX + 1.5, CREST_SUM_MAX))).toBeLessThan(BRACKET_UP);
     // The cap leaves a single surge crest its full height.
@@ -312,7 +338,7 @@ describe("stepGravitationalWaves", () => {
     expect(mid.omega).toBeGreaterThan(intro.omega);
     // A steady loud passage sits at the body pace: the swing reads the music against its own level.
     expect(loud.omega).toBeCloseTo(OMEGA * PACE_BODY_LIVELY, 2);
-    expect(loud.omega / silent.omega).toBeGreaterThan(10);
+    expect(loud.omega / silent.omega).toBeGreaterThan(9.9);
     expect(silent.st.waveA).toBeCloseTo(WAVE_QUIET, 3);
     expect(loud.st.waveA).toBeGreaterThanOrEqual(WAVE_LOUD * 0.99);
     expect(loud.st.waveA / silent.st.waveA).toBeGreaterThan(5);
@@ -348,8 +374,8 @@ describe("stepGravitationalWaves", () => {
     for (let i = 0; i < 90; i++) {
       const over = i === 0 ? { beat: 1.5, beatWeight: LIVELY } : { beatWeight: i < HELD ? LIVELY : 0 };
       stepGravitationalWaves(st, sig({ loudness: 0.85, ...over }), DT, true);
-      // Eased in: the push starts gently and then ramps, never a step.
-      expect(Math.abs(st.pace - prev)).toBeLessThan((i === 0 ? 0.08 : 0.15) * rest);
+      // The push rises over PUSH_RISE, so the strongest weight moves the pace by about 61% of rest in one frame, no more.
+      expect(Math.abs(st.pace - prev)).toBeLessThan(0.63 * rest);
       prev = st.pace;
       if (i < 20) peak = Math.max(peak, st.pace);
     }
@@ -368,6 +394,82 @@ describe("stepGravitationalWaves", () => {
     expect(beatCrest(0.02, 0.2)).toBe(0);
   });
 
+  it("launches a crest on each of several beats 0.47 s apart, born at full height", () => {
+    const st = createGravitationalWavesState();
+    for (let i = 0; i < 120; i++) stepGravitationalWaves(st, sig({ loudness: 0.9 }), DT, true);
+    // 28 frames is 0.467 s, the beat gap of a 128 bpm track.
+    const GAP = 28;
+    let launched = 0;
+    for (let i = 0; i < GAP * 8; i++) {
+      const since = i % GAP;
+      const over = since === 0 ? { beat: 1.5, beatWeight: 1.2 } : { beatWeight: since < HELD ? 1.2 : 0 };
+      stepGravitationalWaves(st, sig({ loudness: 0.9, ...over }), DT, true);
+      if (since === 0) {
+        const newest = st.crests[st.crests.length - 1];
+        // A crest is added (or the oldest of a full set replaced) on this frame, at age 0.
+        expect(newest.age).toBe(0);
+        launched++;
+      }
+      if (since === 3) {
+        // 4 frames after the beat the crest is at full height, not fading in.
+        const slot = st.crests.length - 1;
+        expect(st.crest[slot * 2 + 1]).toBeGreaterThan(0.9);
+      }
+    }
+    expect(launched).toBe(8);
+    expect(st.crests.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("lifts the kick envelope within about 40 ms of a beat and has it mostly spent by the next beat", () => {
+    const st = createGravitationalWavesState();
+    for (let i = 0; i < 120; i++) stepGravitationalWaves(st, sig({ loudness: 0.9 }), DT, true);
+    const trace: number[] = [];
+    // The signal holds a weight for up to WEIGHT_SPAN_SECS.
+    const span = Math.round(WEIGHT_SPAN_SECS / DT);
+    for (let i = 0; i < 30; i++) {
+      const over = i === 0 ? { beat: 1.5, beatWeight: 1 } : { beatWeight: i < span ? 1 : 0 };
+      stepGravitationalWaves(st, sig({ loudness: 0.9, ...over }), DT, true);
+      trace.push(st.thump);
+    }
+    const peak = Math.max(...trace);
+    // 3 frames is 50 ms; the envelope has reached most of its height by then.
+    expect(trace[2]).toBeGreaterThan(0.6 * peak);
+    expect(peak).toBeGreaterThan(0.8);
+    // Held for the full span the fall starts late: 0.48 s after the beat the envelope is at about 24% of
+    // its peak, and under a quarter.
+    expect(trace[29]).toBeLessThan(0.25 * peak);
+    expect(wellDepth(st) - st.well).toBeCloseTo(KICK_WELL * st.thump, 9);
+    expect(orbitRadius(st)).toBeLessThanOrEqual(st.radius);
+  });
+
+  it("holds the kick at the cap and pulls the orbit in by a few percent at full weight", () => {
+    const st = createGravitationalWavesState();
+    for (let i = 0; i < 120; i++) stepGravitationalWaves(st, sig({ loudness: 0.9 }), DT, true);
+    for (let i = 0; i < 30; i++) stepGravitationalWaves(st, sig({ loudness: 0.9, beatWeight: 3 }), DT, true);
+    expect(st.thump).toBeLessThanOrEqual(WEIGHT_MAX);
+    expect(1 - orbitRadius(st) / st.radius).toBeLessThanOrEqual(KICK_PULL * WEIGHT_MAX + 1e-9);
+    expect(1 - orbitRadius(st) / st.radius).toBeGreaterThan(0.03);
+  });
+
+  it("ignores every beat term under Calm and while paused, kick included", () => {
+    const calm = createGravitationalWavesState();
+    const paused = createGravitationalWavesState();
+    const rest = createGravitationalWavesState();
+    for (let i = 0; i < 300; i++) {
+      const beat = { beat: i % 28 === 0 ? 1.5 : 0, beatWeight: i % 28 < HELD ? 1.2 : 0 };
+      stepGravitationalWaves(calm, sig({ drive: 0, ...beat }), DT, true);
+      stepGravitationalWaves(paused, sig({ ...beat }), DT, false);
+      stepGravitationalWaves(rest, sig({ drive: 0 }), DT, true);
+    }
+    for (const st of [calm, paused]) {
+      expect(st.thump).toBe(0);
+      expect(st.push).toBe(0);
+      expect(st.crests).toHaveLength(0);
+      expect(wellDepth(st)).toBe(wellDepth(rest));
+      expect(orbitRadius(st)).toBe(orbitRadius(rest));
+    }
+  });
+
   it("raises a crest's height when the weight climbs during the hold", () => {
     const st = createGravitationalWavesState();
     stepGravitationalWaves(st, sig({ beat: 1.5, beatWeight: 0.3 }), DT, true);
@@ -375,6 +477,50 @@ describe("stepGravitationalWaves", () => {
     for (let i = 0; i < HELD; i++) stepGravitationalWaves(st, sig({}), DT, true);
     expect(st.crests).toHaveLength(1);
     expect(st.crests[0].h).toBeCloseTo(0.9, 6);
+  });
+
+  it("launches at most 3 crests in any second when a surge follows 3 admitted beats", () => {
+    const st = createGravitationalWavesState();
+    for (let i = 0; i < 120; i++) stepGravitationalWaves(st, sig({ loudness: 0.9 }), DT, true);
+    const seen = new Set<object>();
+    const launches: number[] = [];
+    let tallest = 0;
+    for (let i = 0; i < 240; i++) {
+      // Beats every 20 frames for 3 beats, then a surge at 0.983 s.
+      const beat = i < 60 && i % BEAT_EVERY === 0;
+      const over = beat ? { beat: 1.5, beatWeight: 1.2 } : { beatWeight: i < 60 && i % BEAT_EVERY < HELD ? 1.2 : 0 };
+      stepGravitationalWaves(st, sig({ loudness: 0.9, ...over, surge: i === 59 ? 1 : 0 }), DT, true);
+      for (const k of st.crests) {
+        if (!seen.has(k)) launches.push(i * DT);
+        seen.add(k);
+      }
+      tallest = Math.max(tallest, ...st.crests.map((k) => k.h));
+    }
+    expect(launches).toHaveLength(3);
+    for (const t of launches) expect(launches.filter((u) => u >= t && u < t + 1).length).toBeLessThanOrEqual(3);
+    // The newest crest is older than the gap, so the refused surge lifts nothing.
+    expect(tallest).toBeCloseTo(1.2, 6);
+  });
+
+  it("lets a crest fade to under 2% of its height before it leaves the slots, at the fastest launch rate", () => {
+    const st = createGravitationalWavesState();
+    for (let i = 0; i < 120; i++) stepGravitationalWaves(st, sig({ loudness: 0.9 }), DT, true);
+    let worst = 0;
+    let dropped = 0;
+    for (let i = 0; i < 1800; i++) {
+      // A beat every 17 frames, just past the crest gap, and a surge now and then.
+      const since = i % 17;
+      const over = since === 0 ? { beat: 1.5, beatWeight: 1.2 } : { beatWeight: since < HELD ? 1.2 : 0 };
+      const before = st.crests.map((k, j) => ({ k, drawn: st.crest[j * 2 + 1] }));
+      stepGravitationalWaves(st, sig({ loudness: 0.9, ...over, surge: i % 400 === 399 ? 1 : 0 }), DT, true);
+      for (const { k, drawn } of before) {
+        if (st.crests.includes(k)) continue;
+        dropped++;
+        worst = Math.max(worst, drawn / k.h);
+      }
+    }
+    expect(dropped).toBeGreaterThan(50);
+    expect(worst).toBeLessThanOrEqual(0.02);
   });
 
   it("sends one great wave and lurches the pair on a surge", () => {
