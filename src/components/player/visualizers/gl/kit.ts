@@ -4,9 +4,11 @@
  */
 
 // -- Local Imports --
+import { pollProgram, syncCompile } from "./compile";
 import { HUSH_SLOTS } from "./shaders";
 
 // -- Type Imports --
+import type { Compile } from "./compile";
 import type { VisualSignal } from "../../../../state/player/visualSignal";
 
 /** A rect in GL pixels: left, bottom, width, height. */
@@ -101,6 +103,8 @@ export interface Kit {
   size: { w: number; h: number; dpr: number };
   geo: Geometry;
   program: (src: ProgramSource) => Program;
+  // The names of programs still compiling, after polling each one.
+  pending: () => string[];
   uniform: (p: Program, name: string) => WebGLUniformLocation | null;
   set1: (p: Program, name: string, v: number) => void;
   set2: (p: Program, name: string, a: number, b: number) => void;
@@ -117,11 +121,24 @@ export interface Kit {
   dispose: () => void;
 }
 
+/** Raised by `program` when a deferred program has not finished, so the caller can abort the draw and retry. */
+export class ProgramPending extends Error {
+  readonly program: string;
+  constructor(program: string) {
+    super(`program ${program} is still compiling`);
+    this.program = program;
+  }
+}
+
 // The hush's falloff width around a text block, in CSS pixels.
 const HUSH_FEATHER = 110;
 
-/** Builds the kit over a fresh context. Throws on a shader that fails to compile or link. */
-export function createKit(gl: WebGL2RenderingContext): Kit {
+/**
+ * Builds the kit over a fresh context. The default compiler throws on a shader that fails to compile or
+ * link. With a deferred compiler, `program` throws ProgramPending until the program has finished, and
+ * `pending` polls and lists the ones still compiling; a failed link throws from either.
+ */
+export function createKit(gl: WebGL2RenderingContext, compile: Compile = syncCompile): Kit {
   const floatOk = gl.getExtension("EXT_color_buffer_float") != null;
   const programs = new Map<string, Program>();
   const size = { w: 1, h: 1, dpr: 1 };
@@ -137,36 +154,42 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
 
-  const compile = (vsSrc: string, fsSrc: string): WebGLProgram => {
-    const make = (type: number, src: string) => {
-      const s = gl.createShader(type);
-      if (!s) throw new Error("shader allocation failed");
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader compile failed");
-      return s;
-    };
-    const p = gl.createProgram();
-    if (!p) throw new Error("program allocation failed");
-    const vs = make(gl.VERTEX_SHADER, vsSrc);
-    const fs = make(gl.FRAGMENT_SHADER, fsSrc);
-    gl.attachShader(p, vs);
-    gl.attachShader(p, fs);
-    gl.linkProgram(p);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) ?? "program link failed");
-    return p;
-  };
+  // Programs submitted by a deferred compiler that have not been seen finished.
+  const compiling = new Map<string, Program>();
 
   const program = ({ name, vs, fs }: ProgramSource): Program => {
     let p = programs.get(name);
     if (!p) {
-      p = { handle: compile(vs, fs), loc: new Map() };
+      p = { handle: compile(gl, vs, fs), loc: new Map() };
       programs.set(name, p);
+      if (compile.deferred) {
+        compiling.set(name, p);
+        throw new ProgramPending(name);
+      }
+    } else if (compiling.has(name)) {
+      if (!settle(name)) throw new ProgramPending(name);
     }
     return p;
   };
+
+  // Polls one submitted program. A failed link drops it, so a later call submits it afresh.
+  const settle = (name: string): boolean => {
+    const p = compiling.get(name);
+    if (!p) return true;
+    let done: boolean;
+    try {
+      done = pollProgram(gl, p.handle);
+    } catch (e) {
+      gl.deleteProgram(p.handle);
+      programs.delete(name);
+      compiling.delete(name);
+      throw e;
+    }
+    if (done) compiling.delete(name);
+    return done;
+  };
+
+  const pending = (): string[] => [...compiling.keys()].filter((n) => !settle(n));
 
   const uniform = (p: Program, name: string) => {
     if (!p.loc.has(name)) p.loc.set(name, gl.getUniformLocation(p.handle, name));
@@ -262,6 +285,7 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
   const dispose = () => {
     for (const p of programs.values()) gl.deleteProgram(p.handle);
     programs.clear();
+    compiling.clear();
     gl.deleteVertexArray(quad);
     gl.deleteBuffer(quadVbo);
   };
@@ -271,6 +295,7 @@ export function createKit(gl: WebGL2RenderingContext): Kit {
     size,
     geo,
     program,
+    pending,
     uniform,
     set1,
     set2,
