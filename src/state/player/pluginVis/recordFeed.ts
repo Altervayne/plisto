@@ -10,6 +10,8 @@
 import { usePluginsStore } from "../../plugins/store";
 import { isShownStage, stageHandles, watchStages, type StageHandle } from "./frameCache";
 import { feedTapOf, type FeedTap } from "./feedTap";
+import { publishFeedRecording } from "./feedRecording";
+import type { FeedOutcome } from "./feedRecording";
 
 // -- IPC Imports --
 import { pluginVisRecordSave } from "../../../lib/ipc";
@@ -30,7 +32,8 @@ export const RECORD_ALIVE_MS = 250;
 export const RECORD_MAX_BYTES = 7 * 1024 * 1024;
 
 /** Why a recording was refused or lost. */
-export type RecordRefusal = "dev_mode_off" | "not_on_stage" | "busy" | "stage_left" | "save_failed";
+export type RecordRefusal =
+  "dev_mode_off" | "not_on_stage" | "busy" | "stage_left" | "too_short" | "save_failed";
 
 export class FeedRecordError extends Error {
   readonly reason: RecordRefusal;
@@ -100,6 +103,13 @@ function recorded(tick: Tick, origin: number) {
 }
 
 let running = false;
+// Ends the running recording early, or null while none runs.
+let stopRunning: (() => void) | null = null;
+
+/** Ends the running recording now: kept at 3 seconds or more, else it rejects as too_short. */
+export function stopFeedRecording(): void {
+  stopRunning?.();
+}
 
 /**
  * Records the feed of the kind's stage frame (`<plugin id>/<kind id>`) for 30 seconds and saves it. Resolves
@@ -110,7 +120,18 @@ export function startFeedRecording(
   kind: string,
   deps: RecordDeps = productionDeps,
 ): Promise<{ path: string }> {
-  const refuse = (reason: RecordRefusal) => Promise.reject(new FeedRecordError(reason));
+  // A refusal while another recording runs leaves that recording's state alone.
+  const refuse = (reason: RecordRefusal) => {
+    if (reason !== "busy") {
+      publishFeedRecording({
+        kind,
+        phase: "idle",
+        startedAt: 0,
+        outcome: { ok: false, reason, detail: null },
+      });
+    }
+    return Promise.reject(new FeedRecordError(reason));
+  };
   if (!deps.devMode()) return refuse("dev_mode_off");
   if (running) return refuse("busy");
   const handle = deps.stages().find((h) => h.kind === kind && isShownStage(h));
@@ -119,11 +140,21 @@ export function startFeedRecording(
   if (!handle || !tap || slash < 0) return refuse("not_on_stage");
 
   running = true;
+  publishFeedRecording({ kind, phase: "recording", startedAt: Date.now(), outcome: null });
   return new Promise((resolve, reject) => {
     const ticks: ReturnType<typeof recorded>[] = [];
     let origin: number | null = null;
     let bytes = 0;
     let finished = false;
+    let stopped = false;
+    const ended = (outcome: FeedOutcome) => {
+      running = false;
+      publishFeedRecording({ kind, phase: "idle", startedAt: 0, outcome });
+    };
+    const lose = (error: FeedRecordError) => {
+      ended({ ok: false, reason: error.reason, detail: error.detail });
+      reject(error);
+    };
     let release = () => {};
     let unwatch = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -133,7 +164,7 @@ export function startFeedRecording(
     const finish = (early: boolean) => {
       if (finished) return;
       finished = true;
-      running = false;
+      stopRunning = null;
       clearTimeout(timer);
       clearInterval(poll);
       release();
@@ -141,20 +172,29 @@ export function startFeedRecording(
       const last = ticks[ticks.length - 1];
       const secs = last ? last.t + last.dt : 0;
       if (!last || (early && secs < RECORD_KEEP_MIN_SECS)) {
-        reject(new FeedRecordError("stage_left"));
+        lose(new FeedRecordError(stopped ? "too_short" : "stage_left"));
         return;
       }
       // Developer mode can go off while recording; nothing is saved then.
       if (!deps.devMode()) {
-        reject(new FeedRecordError("dev_mode_off"));
+        lose(new FeedRecordError("dev_mode_off"));
         return;
       }
       const json = JSON.stringify({ kind, ticks });
-      deps
-        .save(kind.slice(0, slash), kind.slice(slash + 1), json)
-        .then((path) => resolve({ path }), (e) => reject(saveFailure(e)));
+      publishFeedRecording({ kind, phase: "saving", startedAt: 0, outcome: null });
+      deps.save(kind.slice(0, slash), kind.slice(slash + 1), json).then(
+        (path) => {
+          ended({ ok: true, path });
+          resolve({ path });
+        },
+        (e) => lose(saveFailure(e)),
+      );
     };
 
+    stopRunning = () => {
+      stopped = true;
+      finish(true);
+    };
     release = tap((tick) => {
       origin ??= tick.t;
       const one = recorded(tick, origin);

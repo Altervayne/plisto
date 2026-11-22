@@ -7,9 +7,11 @@ import {
   RECORD_ALIVE_MS,
   RECORD_MS,
   startFeedRecording,
+  stopFeedRecording,
   type RecordDeps,
   type RecordRefusal,
 } from "./recordFeed";
+import { feedRecording, RESULT_MS } from "./feedRecording";
 import { restSignal } from "../visualSignal";
 
 import type { Tick } from "../../../visRuntime/protocol";
@@ -200,6 +202,57 @@ describe("a frame that leaves mid-recording", () => {
     s.leave();
     await expect(done).resolves.toEqual({ path: "C:/data/feeds/feed-x.json" });
     expect(await parse(JSON.parse(s.saved[0].json))).toHaveLength((RECORD_KEEP_MIN_SECS + 1) * 30);
+  });
+
+  it("ends early on a stop and keeps what was recorded at three seconds or more", async () => {
+    const s = setup();
+    const done = s.start();
+    feedSeconds(s, RECORD_KEEP_MIN_SECS + 1);
+    stopFeedRecording();
+    await expect(done).resolves.toEqual({ path: "C:/data/feeds/feed-x.json" });
+    expect(s.listening()).toBe(false);
+  });
+
+  it("rejects a stop under three seconds as too_short, and ignores an idle stop", async () => {
+    stopFeedRecording();
+    const s = setup();
+    const done = s.start();
+    feedSeconds(s, 1);
+    stopFeedRecording();
+    expect(await reasonOf(done)).toBe("too_short");
+    expect(s.saved).toEqual([]);
+  });
+
+  it("rejects a stop before any tick as too_short", async () => {
+    const s = setup();
+    const done = s.start();
+    stopFeedRecording();
+    expect(await reasonOf(done)).toBe("too_short");
+  });
+
+  it("publishes recording, saving and the outcome for any chip to read", async () => {
+    const s = setup();
+    const done = s.start();
+    expect(feedRecording()).toMatchObject({ kind: KIND, phase: "recording" });
+    feedSeconds(s, RECORD_KEEP_MIN_SECS + 1);
+    stopFeedRecording();
+    expect(feedRecording().phase).toBe("saving");
+    await done;
+    expect(feedRecording()).toMatchObject({
+      kind: KIND,
+      phase: "idle",
+      outcome: { ok: true, path: "C:/data/feeds/feed-x.json" },
+    });
+    await vi.advanceTimersByTimeAsync(RESULT_MS);
+    expect(feedRecording().outcome).toBeNull();
+  });
+
+  it("publishes a lost stage as stage_left", async () => {
+    const s = setup();
+    const done = s.start();
+    s.leave();
+    await reasonOf(done);
+    expect(feedRecording().outcome).toEqual({ ok: false, reason: "stage_left", detail: null });
   });
 
   it("ends on its own clock when the frame is hidden and ticks stop, keeping 3 s or more", async () => {

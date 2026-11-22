@@ -7,6 +7,7 @@ import { usePluginStageMount, type PluginStageProps } from "./usePluginStageMoun
 
 // -- Component Imports --
 import { PluginStill } from "./PluginStill";
+import { StageReadout } from "./StageReadout";
 
 // -- State Imports --
 import { useFrameHealthStore } from "../../../../state/plugins/frameHealth";
@@ -50,25 +51,28 @@ function StageSlot({ mountKey, ...props }: PluginStageProps & { mountKey: string
   const look = descriptor.look[sceneLight(descriptor.id, !rootDark) ? "light" : "dark"];
   const live = shown && phase === "ready";
   return (
-    <div
-      ref={slotRef}
-      className={live ? styles.slot : styles.held}
-      style={{ mixBlendMode: look.blend as CSSProperties["mixBlendMode"] }}
-      inert
-      aria-hidden
-    >
-      {src != null ? (
-        <iframe
-          ref={iframeRef}
-          className={styles.frame}
-          title={t((d) => d.plugins.frame.title, { name: descriptor.name })}
-          src={src}
-          sandbox="allow-scripts"
-          allow=""
-          referrerPolicy="strict-origin"
-          onLoad={onLoad}
-        />
-      ) : null}
-    </div>
+    <>
+      <div
+        ref={slotRef}
+        className={live ? styles.slot : styles.held}
+        style={{ mixBlendMode: look.blend as CSSProperties["mixBlendMode"] }}
+        inert
+        aria-hidden
+      >
+        {src != null ? (
+          <iframe
+            ref={iframeRef}
+            className={styles.frame}
+            title={t((d) => d.plugins.frame.title, { name: descriptor.name })}
+            src={src}
+            sandbox="allow-scripts"
+            allow=""
+            referrerPolicy="strict-origin"
+            onLoad={onLoad}
+          />
+        ) : null}
+      </div>
+      <StageReadout kind={descriptor.id} surface={props.surface} shown={live} />
+    </>
   );
 }

@@ -296,11 +296,13 @@ describe("plugin stage under reduced motion", () => {
     h.refAt = 0;
     h.stateAt = 0;
     h.effectAt = 0;
+    usePluginsStore.setState({ devMode: true });
     const html = renderToStaticMarkup(<PluginStage {...props({ shown: true })} />);
     await Promise.resolve();
     await Promise.resolve();
     expect(html).toContain("<canvas");
     expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("<button");
     expect(h.url).not.toHaveBeenCalled();
     expect(h.attach).not.toHaveBeenCalled();
     expect(stageHandles()).toHaveLength(0);
