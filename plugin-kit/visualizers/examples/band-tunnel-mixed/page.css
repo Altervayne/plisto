@@ -1,0 +1,43 @@
+.card {
+  max-width: 480px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+h1 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.row {
+  display: flex;
+  gap: 8px;
+}
+.note {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+}
+#status {
+  margin: 0 0 14px;
+}
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.fill {
+  width: 0;
+  height: 100%;
+  background: currentColor;
+}
+button[aria-pressed="true"] {
+  font-weight: 600;
+}

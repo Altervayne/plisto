@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Band tunnel controls</title>
+    <link rel="stylesheet" href="/_plisto/tokens.css" />
+    <link rel="stylesheet" href="/_plisto/plugin-base.css" />
+    <link rel="stylesheet" href="page.css" />
+    <script src="plisto-sdk.js"></script>
+    <script src="page.js" defer></script>
+  </head>
+  <body>
+    <h1>Band tunnel controls</h1>
+    <p id="status" class="note">Checking the channel...</p>
+
+    <section class="card">
+      <h2>Accent</h2>
+      <div class="row" id="accents">
+        <button type="button" data-accent="default">Default</button>
+        <button type="button" data-accent="warm">Warm</button>
+        <button type="button" data-accent="cool">Cool</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Pulse</h2>
+      <div class="row"><button type="button" id="pulse">Pulse</button></div>
+    </section>
+
+    <section class="card">
+      <h2>From the tunnel</h2>
+      <div class="meter"><div class="fill" id="fill"></div></div>
+      <p class="note" id="report">Nothing yet.</p>
+    </section>
+  </body>
+</html>

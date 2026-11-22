@@ -4,7 +4,8 @@
 // The protocol module is written as plain JS by the TypeScript compiler, with its types erased. The Edge
 // runner gets a one-line header that marks it generated. The limits file joins the net limits with the two
 // flash-meter constants, so the checker judges a run by the numbers Plisto uses. The lake fixture, which the
-// lake example ships as its script, is copied unchanged.
+// lake example ships as its script, is copied unchanged. The plugin SDK copies the examples ship are verbatim
+// too, with no header, so a modder can diff one against the kit's SDK.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -46,8 +47,17 @@ export const ${name} = ${found[1]};
   return HEADER + lf(nets.outputText) + lines.join("");
 }
 
+const SDK = "plugin-kit/sdk/plisto-sdk.js";
+const SDK_COPIES = [
+  "plugin-kit/examples/hello-ui/plisto-sdk.js",
+  "plugin-kit/examples/hello-background/plisto-sdk.js",
+  "plugin-kit/examples/tap-meter/page/plisto-sdk.js",
+  "plugin-kit/visualizers/examples/band-tunnel-mixed/plisto-sdk.js",
+];
+
 // Each copy: where it lands (relative to the repository) and how its text is made.
 const COPIES = [
+  ...SDK_COPIES.map((path) => [path, () => read(SDK)]),
   ["plugin-kit/visualizers/lib/protocol.js", protocolJs],
   ["plugin-kit/visualizers/lib/limits.js", limitsJs],
   ["plugin-kit/visualizers/lib/edgeLive.mjs", () => HEADER + read("tools/lib/edgeLive.mjs")],

@@ -1,0 +1,24 @@
+{
+  "manifest_version": 1,
+  "id": "dev.plisto.vis-band-tunnel-mixed",
+  "name": "Band tunnel with control page",
+  "version": "1.0.0",
+  "tier": "ui",
+  "entry": "index.html",
+  "capabilities": ["visualizer"],
+  "min_plisto": "2.8.0",
+  "author": "Plisto",
+  "visualizers": [
+    {
+      "id": "band-tunnel-mixed",
+      "name": "Band tunnel (live)",
+      "api": 1,
+      "page": "vis/tunnel.html",
+      "look": "glow",
+      "settings": [
+        { "id": "speed", "label": "Speed", "type": "choice", "default": "calm",
+          "options": [{ "id": "calm", "label": "Calm" }, { "id": "fast", "label": "Fast" }] }
+      ]
+    }
+  ]
+}
