@@ -3,6 +3,8 @@
 //   node tools/visualizer-lab.mjs hash [OUT.json] [--kind K] [--theme T] [--layout L]
 //   node tools/visualizer-lab.mjs port [OUT.json] [--kind K] [--theme T] [--layout L]
 //     (hash's rows, drawn from the plugin fixtures; --kind ridge for the raw Ridge port)
+//   node tools/visualizer-lab.mjs examples [OUT.json] [--example FOLDER] [--theme T] [--layout L]
+//     (port's rows for the kit examples under plugin-kit/visualizers/examples, kind <folder>/<kind id>)
 //   node tools/visualizer-lab.mjs port-nets [--kind K] [--theme T] [--layout L] [--from S] [--for S]
 //     [--react R] [--track N]  (each fixture played through the runtime: meter, frame ms)
 //   node tools/visualizer-lab.mjs thumb [OUT_DIR] [--kind K]
@@ -43,7 +45,9 @@ const BASE = flags.url ?? "http://localhost:1420";
 const EDGE = flags.edge ?? "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 const useGpu = flags.gpu || ((mode === "bench" || mode === "port-nets") && !flags.soft);
 const TIMEOUT_MS = Number(flags.timeout ?? 1800) * 1000;
-const FORWARDED = ["kind", "scene", "theme", "layout", "ref", "red", "level", "from", "for", "react", "track"];
+const FORWARDED = [
+  "kind", "example", "scene", "theme", "layout", "ref", "red", "level", "from", "for", "react", "track",
+];
 
 function labUrl() {
   const q = new URLSearchParams({ mode });
@@ -106,7 +110,7 @@ function printBench({ theme, layouts, ref, signal, rows }) {
 const MEASURES = ["steps", "flash", "level", "calm"];
 
 async function main() {
-  if (mode === "hash" || mode === "port") {
+  if (mode === "hash" || mode === "port" || mode === "examples") {
     const rows = await runLab(labUrl());
     const json = JSON.stringify(rows, null, 2) + "\n";
     if (positional[0]) writeFileSync(positional[0], json);
@@ -131,7 +135,7 @@ async function main() {
   } else if (mode === "view") {
     console.log(labUrl());
   } else {
-    const modes = "hash|port|port-nets|thumb|bench|steps|flash|level|calm|view";
+    const modes = "hash|port|examples|port-nets|thumb|bench|steps|flash|level|calm|view";
     console.error(`usage: visualizer-lab.mjs ${modes} [options]`);
     process.exit(1);
   }

@@ -1,6 +1,24 @@
 {
   "api": 1,
   "looks": {
+    "band-tunnel-mixed/band-tunnel-mixed": {
+      "fixture": "29c08cc07759e00a70ff0b1db86056c527a565409752e2f360d496fe41f58faa",
+      "rows": {
+        "light player": "16480e483630334cb3d1ab4ac37060fe212631253bf31fb44c5bb97aa38a9091",
+        "light ambient": "115b9fc7d4698871d7ea719ceba4897ddaf04d30ba3763f81c183ef9a9451a85",
+        "dark player": "4f3e028fbc4657098b5a95ac70aaef2d0cdc0fe90a36b64c727037bbd6030be5",
+        "dark ambient": "26dad9678e9df8789e55772a68b3675d45d6473a11c71ec75796372a80cba135"
+      }
+    },
+    "band-tunnel/band-tunnel": {
+      "fixture": "261d7e059ad289ca32093fb527c77cda56cea6d7ab55aba8e80c6032aede940b",
+      "rows": {
+        "light player": "16480e483630334cb3d1ab4ac37060fe212631253bf31fb44c5bb97aa38a9091",
+        "light ambient": "115b9fc7d4698871d7ea719ceba4897ddaf04d30ba3763f81c183ef9a9451a85",
+        "dark player": "4f3e028fbc4657098b5a95ac70aaef2d0cdc0fe90a36b64c727037bbd6030be5",
+        "dark ambient": "26dad9678e9df8789e55772a68b3675d45d6473a11c71ec75796372a80cba135"
+      }
+    },
     "bloom": {
       "fixture": "5189322e3c448c781d6aeefc1d201732bb82d6f3c01fc7f5d853dccbe3adcaea",
       "rows": {
@@ -109,6 +127,15 @@
         "dark ambient": "46a6725feb230fbe013c3678b2ac6ff67cca98686695cdc0592702023b1417b0"
       }
     },
+    "lake/lake": {
+      "fixture": "3cb3e89fd109a12430641bafce128bbe7425dc1c16f57090e195583d3552a612",
+      "rows": {
+        "light player": "279d82e4b602a6d9383f716b8f2d681cb87f844468f28cd96e11bd09afee8e7b",
+        "light ambient": "6fcd6d8437540fbfde839e5bb95b4ad4eee6273d1f615187a54f7981b5687157",
+        "dark player": "7efc100f951ec6d1951f1bd83a763d5cfe16d30e8858b5ae98b79fbc3a296e3d",
+        "dark ambient": "46a6725feb230fbe013c3678b2ac6ff67cca98686695cdc0592702023b1417b0"
+      }
+    },
     "latte": {
       "fixture": "6d6648d5a508bafa6f5fd9c40ce600244596e5b27a5f358a9ac236e0a262f773",
       "rows": {
@@ -116,6 +143,15 @@
         "light ambient": "071e17ea7f1c1816cb042abdc4211de42a80d2c864a6e132fe39212199750c4e",
         "dark player": "eeea9406c7e14ad759f796a4c5ec713b47551cbe8b88194220428925049f6a64",
         "dark ambient": "d89c0739aa37629f4d333994348b7e0d587df52696f2291c898f6cbca0074ff8"
+      }
+    },
+    "level-glow/level-glow": {
+      "fixture": "6807f225d7bc3d68d384becf6754624c6f621c09d4589ed0226433ca6cae2bf7",
+      "rows": {
+        "light player": "8c09d0ed184b709464b35d1a887ef22e3cf21c79f4215b95f9e5c44a6c5cb9a4",
+        "light ambient": "9d8c97893a9ee310219a259325c74369bcc2f4cbb3666df7840af108de76ea72",
+        "dark player": "fc3c417aae5d9bd48e8d0e2a9bda39d6cdde10fcf0e804e381fd4e7ff6c6b4d9",
+        "dark ambient": "d4bac5929c54b44a83fc79cb3cb440c7a885ebca2ba43b1250659481af1f0ef1"
       }
     },
     "liquid": {
@@ -251,6 +287,15 @@
         "light ambient": "54295f5c7793b806470ff68585fd4329d4484f700557eff41d5bc640777f56fc",
         "dark player": "0efe7468260832729929ffb0e90361d5d5ba32b87ca89eb54cf58de882df1ccf",
         "dark ambient": "cd92dd1f0fc61d0aca3b92ff12ecbc4161cc72086bde20f1ae23b40a8948d4a6"
+      }
+    },
+    "three-orbs/three-orbs": {
+      "fixture": "9f4626e1797769ad6f97e7bf3279eac6a4196488daa31c81a63a71f9c0ca25ce",
+      "rows": {
+        "light player": "26c93ab3f34471f5b153f464ec2cd5be04ab4a97acd7f83c592f826849125fce",
+        "light ambient": "fcbef9fb813bcd37a1c4d81cc9b99d456ec93f3fb5f3b9e210baaee599dfc740",
+        "dark player": "26c93ab3f34471f5b153f464ec2cd5be04ab4a97acd7f83c592f826849125fce",
+        "dark ambient": "fcbef9fb813bcd37a1c4d81cc9b99d456ec93f3fb5f3b9e210baaee599dfc740"
       }
     },
     "train": {

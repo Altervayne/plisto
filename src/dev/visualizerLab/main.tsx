@@ -1,15 +1,17 @@
 /*
  * The visualizer render lab. A dev-only page that draws the GL kinds through the real renderer from a
- * fixed scene. Query params: mode=view|hash|port|port-nets|thumb|bench|flash|steps|level|calm, kind (one
- * GL kind; absent means all of them, except view, which takes glass), scene=<id> (a scene module the
- * registry does not hold, drawn in place of kind; dark=1 marks it dark-only), theme=light|dark and
+ * fixed scene. Query params: mode=view|hash|port|examples|port-nets|thumb|bench|flash|steps|level|calm,
+ * kind (one GL kind; absent means all of them, except view, which takes glass), scene=<id> (a scene module
+ * the registry does not hold, drawn in place of kind; dark=1 marks it dark-only), theme=light|dark and
  * layout=player|ambient|ambient-side (absent means player and ambient for hash, and player and
  * ambient-side for the measures; view takes player). ambient-side is the app's ambient stage: cover
  * left, words right. Every non-view mode writes its result as JSON into <pre id="out"> and sets
  * body[data-done]. Thumb mode also takes
  * kind=ridge: the Canvas 2D ridge, drawn by its real component. Port mode returns hash's rows for the plugin
  * fixtures (plugin-kit/visualizers/fixtures) drawn through the runtime bundle; kind=ridge there is the
- * hand-written raw port, which hash has no row for. port-nets plays each fixture through the runtime over
+ * hand-written raw port, which hash has no row for. Examples mode returns the same rows for the kinds of the
+ * plugin kit examples (plugin-kit/visualizers/examples), example=<folder> narrowing it to one, each kind
+ * named <folder>/<kind id>. port-nets plays each fixture through the runtime over
  * the steps/flash window (from, for, track, react) and reports the cell meter's reading, the step cost and
  * the first-frame time; it takes the dark theme and the player layout unless theme= or layout= says otherwise.
  *
@@ -50,6 +52,7 @@ import { createLabReplay, loadTrack, type LoadedTrack } from "./labReplay";
 import { blendOf, darkOnlyOf, loadScene, openLab, type LabScene } from "./labSceneModule";
 import { runThumb } from "./labThumbs";
 import { readPixels, sha256 } from "./labPixels";
+import { runExamples } from "./labExamples";
 import { runPort } from "./labPort";
 import { runPortNets } from "./labPortNets";
 
@@ -252,6 +255,14 @@ async function main() {
         setDpr(1);
         return runPort({
           kinds: pickPortKinds(),
+          themes: pickThemes(),
+          layouts: pickLayoutIds(params.get("layout"), HASH_LAYOUTS),
+          cover: await coverPixels(),
+        });
+      case "examples":
+        setDpr(1);
+        return runExamples({
+          example: params.get("example"),
           themes: pickThemes(),
           layouts: pickLayoutIds(params.get("layout"), HASH_LAYOUTS),
           cover: await coverPixels(),

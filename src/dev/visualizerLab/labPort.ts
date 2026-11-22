@@ -38,7 +38,7 @@ const FIXTURES = import.meta.glob<string>("../../../plugin-kit/visualizers/fixtu
 // A still that takes longer than this fails the row.
 const STILL_TIMEOUT_MS = 120000;
 
-interface Namespace {
+export interface Namespace {
   candidate: (factory: (kit: Kit) => Candidate, options?: unknown) => void;
   raw: (handlers: RawHandlers) => void;
   [name: string]: unknown;
@@ -89,7 +89,7 @@ export function standInWindow(): { stand: Window; deliver: (init: VisInit, port:
 }
 
 /** Holds `playing` true for every frame the candidate is asked to draw. */
-function pinPlaying(candidate: Candidate): Candidate {
+export function pinPlaying(candidate: Candidate): Candidate {
   const draw = candidate.draw;
   candidate.draw = (f) => draw({ ...f, playing: true });
   return candidate;
@@ -157,9 +157,14 @@ export async function fixtureSource(kind: string): Promise<string> {
 
 /** Loads a fresh bundle copy against `stand` and runs the fixture on it; `hooks` wrap its registration. */
 export function loadKind(source: string, stand: Window, hooks: KindHooks): void {
+  new Function("plistoVis", source)(bundleApi(stand, hooks));
+}
+
+/** A fresh bundle copy against `stand`, its registration calls wrapped by `hooks`. */
+export function bundleApi(stand: Window, hooks: KindHooks): Namespace {
   const ns = new Function("window", `${bundleSource}\nreturn plistoVis;`)(stand) as Namespace;
   const { candidate: wrapCandidate, raw: wrapRaw } = hooks;
-  const api: Namespace = {
+  return {
     ...ns,
     ...(wrapCandidate && {
       candidate: (factory: (kit: Kit) => Candidate, options?: unknown) =>
@@ -167,13 +172,15 @@ export function loadKind(source: string, stand: Window, hooks: KindHooks): void 
     }),
     ...(wrapRaw && { raw: (handlers: RawHandlers) => ns.raw(wrapRaw(handlers)) }),
   };
-  new Function("plistoVis", source)(api);
 }
 
-/** Mounts one fixture and returns the pixels of its still. */
-async function drawStill(source: string, init: VisInit): Promise<Uint8Array> {
+/** Mounts one kind, registered by `load` against a stand-in window, and returns the pixels of its still. */
+export async function drawStill(
+  load: (stand: Window) => void | Promise<void>,
+  init: VisInit,
+): Promise<Uint8Array> {
   const { stand, deliver } = standInWindow();
-  loadKind(source, stand, { candidate: pinPlaying });
+  await load(stand);
 
   let pixels: Uint8Array | null = null;
   const realSnapshot = window.createImageBitmap;
@@ -223,7 +230,10 @@ export async function runPort(run: PortRun): Promise<PortRow[]> {
       const drawn = sceneTheme(isDarkOnly(kind as VisualizerKind), theme);
       applyTheme(drawn);
       for (const layout of run.layouts) {
-        const bytes = await drawStill(source, initFor(kind, drawn, layout, run.cover));
+        const bytes = await drawStill(
+          (stand) => loadKind(source, stand, { candidate: pinPlaying }),
+          initFor(kind, drawn, layout, run.cover),
+        );
         rows.push({ kind, theme, layout, sha256: await sha256(bytes) });
       }
     }
