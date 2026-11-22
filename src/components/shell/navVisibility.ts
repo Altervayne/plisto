@@ -141,6 +141,13 @@ export function catalogManagedCount(rows: readonly PluginRow[]): number {
   return rows.length - listedRows(rows).length;
 }
 
+/** The id of the catalog's first plugin family, by plugin name as the catalog orders them; null when none. */
+export function firstCatalogFamily(rows: readonly PluginRow[]): string | null {
+  const named = rows.filter((r) => listingOf(r) === "catalog" && r.manifest != null);
+  named.sort((a, b) => a.manifest!.name.localeCompare(b.manifest!.name) || a.id.localeCompare(b.id));
+  return named[0]?.id ?? null;
+}
+
 /**
  * The plugins the rail and the finder may show, in install order: the live ones listed under Plugins
  * with a page that are visible under the app mode. Anything else is reachable from Settings only.

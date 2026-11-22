@@ -16,6 +16,7 @@ import type {
   PluginCapability,
   PluginCompat,
   PluginInspection,
+  PluginListing,
   PluginRow,
   PluginTier,
   PluginUpdated,
@@ -37,6 +38,8 @@ export interface ReviewPrevious {
   origins: string[];
   /** Empty when unknown. */
   author: string;
+  /** Where Settings listed it; absent when unknown. */
+  listing?: PluginListing;
 }
 
 /** Everything a review sheet renders, as plain data. */
@@ -55,6 +58,8 @@ export interface ReviewSubject {
   previous: ReviewPrevious | null;
   /** An install whose id still has saved data from an earlier plugin. Never set for an installed row. */
   leftoverData: boolean;
+  /** Where Settings will list this version; absent when unknown. */
+  listing?: PluginListing;
 }
 
 /**
@@ -67,6 +72,7 @@ export function previousFromRow(row: PluginRow | undefined, version = ""): Revie
     capabilities: row && row.state === "ready" ? row.granted : null,
     origins: row?.manifest?.origins ?? [],
     author: row?.manifest?.author ?? "",
+    listing: row?.manifest?.listing,
   };
 }
 
@@ -93,6 +99,7 @@ export function subjectFromInspection(
     previous:
       inspection.installed === null ? null : previousFromRow(installed, inspection.installed),
     leftoverData: inspection.installed === null && inspection.leftover_data,
+    listing: inspection.listing,
   };
 }
 
@@ -113,6 +120,7 @@ export function subjectFromRow(row: PluginRow, previous: ReviewPrevious | null =
     compat: m.compat,
     previous,
     leftoverData: false,
+    listing: m.listing,
   };
 }
 
@@ -135,6 +143,10 @@ export function isNewOrigin(subject: ReviewSubject, origin: string): boolean {
   return !!prev?.capabilities && prev.capabilities.includes("network") && !prev.origins.includes(origin);
 }
 
+/** The capabilities the approved version had that this one no longer asks for. */
+export const droppedCapabilities = (subject: ReviewSubject): PluginCapability[] =>
+  (subject.previous?.capabilities ?? []).filter((c) => !subject.capabilities.includes(c));
+
 /** Whether the sheet marks anything as new. */
 export const hasNewCapabilities = (subject: ReviewSubject): boolean =>
   subject.capabilities.some((c) => isNewCapability(subject, c));
@@ -146,6 +158,16 @@ export const updateChange = (subject: ReviewSubject): VersionChange =>
 /** Whether the confirm turns the plugin on, which is when the user must say they understand. */
 export function needsTick(subject: ReviewSubject, mode: ReviewMode, probe: ProbeOutcome): boolean {
   return mode !== "update" && variantOf(subject, probe) !== "calm";
+}
+
+/** Whether the subject adds visualizers, so the sheet says where it and they will be listed. */
+export const addsVisualizers = (subject: ReviewSubject): boolean =>
+  subject.capabilities.includes("visualizer");
+
+/** The listing an update moves the plugin to; null when it stays put or either side is unknown. */
+export function listingMove(subject: ReviewSubject): PluginListing | null {
+  const before = subject.previous?.listing;
+  return before && subject.listing && before !== subject.listing ? subject.listing : null;
 }
 
 /** Whether this Plisto can run the plugin. */

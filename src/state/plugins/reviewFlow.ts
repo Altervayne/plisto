@@ -25,6 +25,9 @@ import {
 import { fileNameOf, reviewState } from "./sheet";
 import { logInstallError } from "./errors";
 import { notifyBuildReplaced } from "./buildReplaced";
+import { clearFamilyFlag } from "./familyFlag";
+import { listingChange, reviewLanding } from "./pluginFamily";
+import { showPluginNotice } from "./pluginNotice";
 
 // -- IPC Imports --
 import {
@@ -41,7 +44,7 @@ import type { PluginErrorKey } from "./errors";
 import type { OperationLock } from "./operationLock";
 import type { ReviewLead, ReviewPrevious, ReviewSubject } from "./review";
 import type { NoticeKind, ReviewState, SheetPhase, SheetState } from "./sheet";
-import type { PluginRow } from "../../types";
+import type { PluginListing, PluginRow } from "../../types";
 
 export interface ReviewFlow {
   getSheet: () => SheetState | null;
@@ -66,7 +69,11 @@ const rowOf = (id: string): PluginRow | undefined =>
 const discardQuietly = (token: string) =>
   void pluginDiscard(token).catch((e: unknown) => logInstallError("discard", e));
 
-export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
+/**
+ * `origin` is the Settings section the flow runs in. A plugin installed or moved into the other listing
+ * says where it went, since the section the user is looking at does not show it.
+ */
+export function createReviewFlow(lock: Pick<OperationLock, "run">, origin?: PluginListing): ReviewFlow {
   let sheet: SheetState | null = null;
   let alive = true;
   const listeners = new Set<() => void>();
@@ -142,17 +149,19 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
     subject: ReviewSubject,
     hash: string,
     ticked: boolean,
-  ) => {
+  ): Promise<boolean> => {
     setPhase(kind === "approve" ? "approving" : "enabling");
     try {
       const args = enableArgs(subject, hash, ticked);
       const commit = kind === "approve" ? pluginApprove : pluginEnable;
       usePluginsStore.getState().upsertRow(await commit(args.id, args.grants, args.nativeAck, args.manifestHash));
       show(null);
+      return true;
     } catch (e) {
       const key = logInstallError(kind, e);
       if (reopensReview(key)) await reviewUnavailable(subject);
       else showNotice(kind, subject.name, key);
+      return false;
     }
   };
 
@@ -176,7 +185,16 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
     usePluginsStore.getState().upsertRow(row);
     // The staged copy is consumed: nothing may discard it from here on.
     if (sheet?.kind === "review") show({ ...sheet, token: null, hash: row.manifest_hash });
-    await consentReviewed("approve", s.subject, row.manifest_hash, ticked);
+    // A plugin that only adds visualizers lands turned on; every other one stays off.
+    const landing = reviewLanding(row);
+    const lands = landing?.enablePlugin === true;
+    const done = await consentReviewed(lands ? "enable" : "approve", s.subject, row.manifest_hash, ticked);
+    if (done && lands && landing) clearFamilyFlag(landing.clearFlag);
+    const listing = row.manifest?.listing;
+    if (done && origin && listing && listing !== origin) {
+      const change = listing === "catalog" ? "added" : "addedToPlugins";
+      showPluginNotice({ id: row.id, kind: "listing", change });
+    }
   };
 
   const update = async (s: ReviewState) => {
@@ -185,7 +203,14 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
       const done = await pluginUpdate(s.token!);
       dropInstalledIcons(s.subject.id);
       notifyBuildReplaced(s.subject.id);
+      const before = rowOf(s.subject.id);
       usePluginsStore.getState().upsertRow(done.row);
+      const moved = before ? listingChange(before, done.row) : null;
+      if (moved?.clearFlag) clearFamilyFlag(moved.clearFlag);
+      if (moved && origin && moved.to !== origin) {
+        const change = moved.notice === "ownPage" ? "ownPage" : "managed";
+        showPluginNotice({ id: done.row.id, kind: "listing", change });
+      }
       if (afterUpdate(done) !== "consent") {
         show(null);
         return;

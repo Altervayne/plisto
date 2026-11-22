@@ -42,3 +42,19 @@
   flex-direction: column;
   gap: 26px;
 }
+
+/* The Add visualizers row: its label, then the two ways in, pulled left by the buttons' own padding. */
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-left: -12px;
+}
+
+.addLabel {
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+}

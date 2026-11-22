@@ -1,7 +1,7 @@
 /*
  * The groups inside the Plugins section, which takes the settings column's section, label, helper and
  * list styles: the installed and inbox groups, the install buttons, the failed-read line, the sandbox
- * warning above the list and the message line under the buttons.
+ * warning above the list and the line saying where visualizer plugins are managed.
  */
 .group {
   display: flex;
@@ -25,6 +25,15 @@
   font-size: 12px;
   line-height: 1.4;
   color: var(--warn-text);
+}
+
+/* The line that says where the visualizer-only plugins are managed, in the list's own row rhythm. */
+.managed {
+  margin: 0;
+  padding: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
 }
 
 .hint {
@@ -52,29 +61,4 @@
   align-items: center;
   gap: 10px;
   margin-left: -12px;
-}
-
-.message {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--warn-text);
-  overflow-wrap: anywhere;
-}
-
-.dismiss {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-
-.dismiss:hover {
-  color: var(--ink);
 }

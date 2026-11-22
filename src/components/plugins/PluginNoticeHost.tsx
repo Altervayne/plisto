@@ -20,6 +20,7 @@ import { pluginVisualizer } from "../../state/player/pluginVisualizers";
 import { kindName } from "../player/visualizers/kindName";
 
 // -- Type Imports --
+import type { ListingNotice, ListingNoticeKind } from "../../state/plugins/pluginNotice";
 import type { PluginNotice, VisualizerStopCause } from "../../types";
 import type { Dict } from "../../i18n/en";
 
@@ -36,17 +37,25 @@ const STOP_LINE: Record<VisualizerStopCause, (d: Dict) => string> = {
   flashing: (d) => d.plugins.status.noticeVisFlash,
 };
 
+const LISTING_LINE: Record<ListingNoticeKind, (d: Dict) => string> = {
+  added: (d) => d.plugins.vis.noticeAdded,
+  addedToPlugins: (d) => d.plugins.vis.noticeAddedPlugins,
+  ownPage: (d) => d.plugins.vis.noticeOwnPage,
+  managed: (d) => d.plugins.vis.noticeManaged,
+};
+
 /**
  * Plisto's own toast for a plugin it turned off after repeated crashes: the plugin's name, the sentence
- * and a Show action that opens its row in Settings; also the line for a visualizer kind Plisto stopped.
- * This is the common pill, not the plugin toast, so nothing in it is plugin-authored beyond declared names
- * drawn as text. The last notice stays through the fade-out.
+ * and a Show action that opens its row in Settings; also the line for a visualizer kind Plisto stopped,
+ * and the lines that say where a plugin was listed after an install or an update, each with a Show
+ * action that opens it there. This is the common pill, not the plugin toast, so nothing in it is
+ * plugin-authored beyond declared names drawn as text. The last notice stays through the fade-out.
  */
 export function PluginNoticeHost() {
   const t = useT();
   const { notice, visible } = usePluginNotice();
   const rows = usePlugins();
-  const last = useRef<PluginNotice | null>(null);
+  const last = useRef<PluginNotice | ListingNotice | null>(null);
 
   useEffect(() => startPluginNoticeListener(), []);
 
@@ -54,6 +63,22 @@ export function PluginNoticeHost() {
   const shown = notice ?? last.current;
   if (!shown) return null;
   const name = shown.id == null ? null : (rows.find((row) => row.id === shown.id)?.manifest?.name ?? shown.id);
+
+  if (shown.kind === "listing") {
+    return (
+      <Toast visible={visible} className={styles.pill}>
+        <span className={styles.text}>{t(LISTING_LINE[shown.change], { name: name ?? shown.id })}</span>
+        <QuietButton
+          onClick={() => {
+            dismissPluginNotice();
+            openPluginHub(shown.id);
+          }}
+        >
+          {t((d) => d.plugins.status.noticeShow)}
+        </QuietButton>
+      </Toast>
+    );
+  }
 
   if (shown.kind === "visualizer_stopped") {
     const kind = pluginVisualizer(shown.visualizer)?.name ?? shown.visualizer;

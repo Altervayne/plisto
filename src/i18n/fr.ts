@@ -1801,6 +1801,49 @@ export const fr: Dict = {
       proxyWarning:
         "Windows utilise un proxy sur ce réseau. Plisto n'envoie pas les connexions des plugins par un proxy, ce plugin risque donc de ne pas joindre ses sites.",
     },
+    vis: {
+      tag: "Plugin",
+      notChecked: "Non vérifié",
+      notCheckedLine:
+        "Plisto n'a pas vérifié les mouvements ni les flashs de ces visualiseurs. En cas de malaise, arrêtez et consultez un médecin.",
+      fromPlugin: "Fourni par {name}",
+      openInPlugins: "Ouvrir dans Plugins",
+      managedElsewhere: "Le mode développeur et le mode sans échec se trouvent dans {link}.",
+      offInPlugins: "Désactivé dans Plugins",
+      stoppedFlash: "Arrêté par Plisto : flashs",
+      stoppedReset: "Arrêté par Plisto : réinitialisation graphique",
+      notWatched: "Flashs non surveillés",
+      turnBackOn: "Réactiver",
+      turnBackFailed: "Impossible de le réactiver. Réessayez.",
+      addTitle: "Ajouter des visualiseurs",
+      addFile: "Depuis un fichier...",
+      addFolder: "Depuis un dossier...",
+      managedLine: {
+        one: "{{n}} plugin de visualiseurs est géré dans {link}",
+        other: "{{n}} plugins de visualiseurs sont gérés dans {link}",
+      },
+      managedLink: "Visualiseurs",
+      adds: { one: "Ajoute {{n}} visualiseur. {link}", other: "Ajoute {{n}} visualiseurs. {link}" },
+      addsLabel: "Visualiseurs",
+      showInVisualizers: "Afficher dans Visualiseurs",
+      flashNote:
+        "Plisto ne vérifie pas les flashs des visualiseurs de plugins. Il arrête celui qui ne répond plus. Vous pouvez demander à Plisto d'arrêter celui qui fait des flashs dans Paramètres, Visualiseurs.",
+      listedVisualizers: "Il figurera dans Visualiseurs.",
+      listedPlugins: "Il figurera dans Plugins, et ses visualiseurs apparaîtront dans Visualiseurs.",
+      landsOn: "Il est installé activé : ses visualiseurs apparaissent aussitôt dans le sélecteur.",
+      movesToPlugins:
+        "Après cette mise à jour, il aura sa propre page et figurera dans Plugins. Ses visualiseurs restent dans Visualiseurs.",
+      movesToVisualizers:
+        "Après cette mise à jour, il n'aura plus de page propre et figurera dans Visualiseurs au lieu de Plugins.",
+      capsRemoved: "Plus nécessaire",
+      updateKeeps: "Vos choix, vos défauts et vos données enregistrées restent tels quels.",
+      uninstallFallback:
+        "Les albums et pistes réglés sur l'un de ses visualiseurs reviennent au visualiseur par défaut.",
+      noticeAdded: "{name} ajouté à Visualiseurs",
+      noticeAddedPlugins: "{name} ajouté à Plugins, désactivé",
+      noticeOwnPage: "{name} a désormais sa propre page et figure dans Plugins",
+      noticeManaged: "{name} est désormais géré dans Visualiseurs",
+    },
     capability: {
       storage: "Enregistrer ses propres réglages et données",
       "library.read": "Lire votre bibliothèque (titres, artistes, albums ; jamais l'emplacement des fichiers)",
@@ -1820,7 +1863,7 @@ export const fr: Dict = {
         "Lire des flux audio dans le lecteur de Plisto à tout moment, en mettant votre musique en pause, avec leurs propres titres sur vos touches multimédia et l'écran de verrouillage",
       visualizer:
         "Afficher des visualiseurs dans le lecteur. Tant qu'un visualiseur est affiché, il s'exécute et voit les niveaux de votre musique et la pochette de ce qui est en cours de lecture.",
-      "visualizer.waveform": "Voir de brefs instantanés de la forme d'onde de ce qui est en cours de lecture",
+      "visualizer.waveform": "Voir de brefs aperçus de l'onde sonore de ce qui est en lecture.",
     },
     errors: {
       not_found: "Plisto n'a pas trouvé ce fichier ou ce plugin.",

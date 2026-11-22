@@ -2,6 +2,7 @@
 import { CapabilityList } from "./CapabilityList";
 import { ChangeNotes } from "./ChangeNotes";
 import { NewNote } from "./NewNote";
+import { FlashNote, ListingLine } from "./VisualizerLines";
 import { WebsiteLine } from "./WebsiteLine";
 
 // -- i18n Imports --
@@ -30,6 +31,7 @@ export function UnsandboxedBody({
   return (
     <div className={styles.body}>
       <div className={styles.box}>{t((d) => d.plugins.sheet.unsandboxedWarning)}</div>
+      <ListingLine subject={subject} mode={mode} />
       <ChangeNotes subject={subject} mode={mode} lead={lead} />
       <CapabilityList
         subject={subject}
@@ -38,6 +40,7 @@ export function UnsandboxedBody({
         }
       />
       <NewNote subject={subject} />
+      <FlashNote subject={subject} />
       <WebsiteLine url={subject.homepage} />
     </div>
   );

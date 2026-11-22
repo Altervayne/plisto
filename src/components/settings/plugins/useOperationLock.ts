@@ -14,6 +14,6 @@ import type { OperationLock } from "../../../state/plugins/operationLock";
 
 export function useOperationLock(): OperationLock {
   const lock = useMemo(createLock, []);
-  useSyncExternalStore(lock.subscribe, () => lock.busy);
+  useSyncExternalStore(lock.subscribe, () => lock.busy, () => false);
   return lock;
 }

@@ -8,7 +8,13 @@ import { CheckRow } from "../../../plugins/CheckRow";
 import { useProbe } from "../../../../state/plugins/sandboxStore";
 
 // -- Utils Imports --
-import { canConfirm, isCompatible, needsTick } from "../../../../state/plugins/review";
+import {
+  addsVisualizers,
+  canConfirm,
+  isCompatible,
+  listingMove,
+  needsTick,
+} from "../../../../state/plugins/review";
 
 // -- i18n Imports --
 import { useT } from "../../../../i18n";
@@ -42,6 +48,8 @@ export function ReviewActions({
   const probe = useProbe();
   const tick = needsTick(subject, mode, probe);
   const compatible = isCompatible(subject);
+  const visualizers = addsVisualizers(subject);
+  const landsOn = visualizers && subject.listing === "catalog";
   const minVersion = subject.compat.state === "needs_newer" ? subject.compat.min_plisto : "";
 
   return (
@@ -60,9 +68,16 @@ export function ReviewActions({
           {t((d) => d.plugins.sheet.incompatible, { version: minVersion })}
         </p>
       ) : mode === "install" ? (
-        <p className={styles.note}>{t((d) => d.plugins.sheet.offNote)}</p>
+        <p className={styles.note}>
+          {landsOn ? t((d) => d.plugins.vis.landsOn) : t((d) => d.plugins.sheet.offNote)}
+        </p>
       ) : mode === "update" ? (
-        <p className={styles.note}>{t((d) => d.plugins.sheet.updateNote)}</p>
+        <>
+          <p className={styles.note}>{t((d) => d.plugins.sheet.updateNote)}</p>
+          {visualizers && listingMove(subject) ? (
+            <p className={styles.note}>{t((d) => d.plugins.vis.updateKeeps)}</p>
+          ) : null}
+        </>
       ) : null}
       <div className={styles.actions}>
         <button type="button" className={styles.cancel} data-autofocus onClick={onCancel}>

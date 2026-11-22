@@ -75,8 +75,12 @@ interface ShellStore {
   requestPluginPage: (id: string, route: string | null) => void;
   // The hub row a surface outside Settings asked to land on. Settings opens it once and clears it.
   pluginHubFocus: string | null;
+  // The catalog family to unfold; separate from the hub row's focus so only the surface asked for opens.
+  pluginFamilyFocus: string | null;
   openPluginHub: (id: string) => void;
+  openPluginFamily: (id: string) => void;
   clearPluginHubFocus: () => void;
+  clearPluginFamilyFocus: () => void;
 }
 
 export interface OpenSettingsOptions {
@@ -131,6 +135,17 @@ const useShellStore = create<ShellStore>((set, get) => ({
   requestPluginPage: (id, route) =>
     set((s) => ({ pluginPageRequest: { id, route, seq: (s.pluginPageRequest?.seq ?? 0) + 1 } })),
   pluginHubFocus: null,
+  pluginFamilyFocus: null,
+  openPluginFamily: (id) =>
+    set((s) => {
+      const seq = s.settingsRequest + 1;
+      return {
+        pluginFamilyFocus: id,
+        settingsRequest: seq,
+        settingsTarget: { target: familySettingId(id), seq },
+        settingsSection: "visualizers" as const,
+      };
+    }),
   openPluginHub: (id) =>
     set((s) => {
       const row = usePluginsStore.getState().rows.find((r) => r.id === id);
@@ -138,6 +153,7 @@ const useShellStore = create<ShellStore>((set, get) => ({
       if (row && listingOf(row) === "catalog") {
         return {
           pluginHubFocus: null,
+          pluginFamilyFocus: id,
           settingsRequest: seq,
           settingsTarget: { target: familySettingId(id), seq },
           settingsSection: "visualizers" as const,
@@ -145,12 +161,14 @@ const useShellStore = create<ShellStore>((set, get) => ({
       }
       return {
         pluginHubFocus: id,
+        pluginFamilyFocus: null,
         settingsRequest: seq,
         settingsTarget: { target: hubSettingId(id), seq },
         settingsSection: "plugins" as const,
       };
     }),
   clearPluginHubFocus: () => set({ pluginHubFocus: null }),
+  clearPluginFamilyFocus: () => set({ pluginFamilyFocus: null }),
 }));
 
 /**
@@ -159,6 +177,11 @@ const useShellStore = create<ShellStore>((set, get) => ({
  */
 export function openPluginHub(id: string): void {
   useShellStore.getState().openPluginHub(id);
+}
+
+/** Opens Settings on a plugin's family under Visualizers, unfolded. */
+export function openPluginFamily(id: string): void {
+  useShellStore.getState().openPluginFamily(id);
 }
 
 /** Opens Settings, optionally on a target, from outside React. */
@@ -223,3 +246,6 @@ export const useRequestPluginPage = (): ((id: string, route: string | null) => v
 
 export const usePluginHubFocus = (): string | null => useShellStore((s) => s.pluginHubFocus);
 export const useClearPluginHubFocus = (): (() => void) => useShellStore((s) => s.clearPluginHubFocus);
+export const usePluginFamilyFocus = (): string | null => useShellStore((s) => s.pluginFamilyFocus);
+export const useClearPluginFamilyFocus = (): (() => void) =>
+  useShellStore((s) => s.clearPluginFamilyFocus);

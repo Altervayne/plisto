@@ -24,7 +24,7 @@ export type FamilyStatus = "on" | "off" | "review" | "newer" | "broken" | "crash
 
 /** What flipping a family's switch does: the plugin's enabled state, or the family's catalog flag. */
 export type FamilySwitchAction =
-  | { kind: "plugin"; enable: boolean }
+  | { kind: "plugin"; enable: boolean; clearFlag: PluginFamilyId | null }
   | { kind: "catalog"; family: PluginFamilyId; on: boolean };
 
 /** The one action that takes the switch's place in the heading row. */
@@ -74,7 +74,7 @@ export function isMixed(row: PluginRow): boolean {
 
 /*
  * Precedence, first match wins: broken, newer, review, crash, then (for a plugin that is off) off or
- * off in Plugins, then safe, then a mixed plugin's own flag as off, else on. The row's problem states
+ * off in Plugins, then safe, then a stored family flag as off, else on. The row's problem states
  * outrank everything, and a crash loop outranks off because Plisto turns the plugin off itself.
  */
 function statusOf(row: PluginRow, ctx: FamilyContext): FamilyStatus {
@@ -84,7 +84,7 @@ function statusOf(row: PluginRow, ctx: FamilyContext): FamilyStatus {
   if (ctx.boot?.runtime === "running" && ctx.status?.host === "crash_loop") return "crash";
   if (!row.enabled) return isMixed(row) ? "offInPlugins" : "off";
   if (ctx.boot?.runtime === "safe") return "safe";
-  if (isMixed(row) && ctx.groupsOff.includes(pluginFamilyOf(row.id))) return "off";
+  if (ctx.groupsOff.includes(pluginFamilyOf(row.id))) return "off";
   return "on";
 }
 
@@ -123,9 +123,11 @@ export function familyView(row: PluginRow, ctx: FamilyContext): FamilyView {
     case "on":
     case "safe": {
       const on = status !== "off";
+      // A stored flag on a visualizer-only family still hides its kinds, so turning it on clears it.
+      const flagged = ctx.groupsOff.includes(family);
       const flip: FamilySwitchAction = mixed
         ? { kind: "catalog", family, on: !on }
-        : { kind: "plugin", enable: !on };
+        : { kind: "plugin", enable: !on, clearFlag: flagged && !on ? family : null };
       return { ...view, checked: on, flip, link: status === "safe" ? "restartNormally" : null };
     }
   }

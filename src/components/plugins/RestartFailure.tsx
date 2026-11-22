@@ -5,7 +5,7 @@ import { useT } from "../../i18n";
 import type { PluginErrorKey } from "../../state/plugins/errors";
 
 // -- Style Imports --
-import styles from "../settings/plugins/PluginsSection.module.css";
+import styles from "../settings/plugins/RowMessageLine.module.css";
 
 /** The hub's failed-action line, for a restart that was refused. */
 export function RestartFailure({ error, onDismiss }: { error: PluginErrorKey; onDismiss: () => void }) {

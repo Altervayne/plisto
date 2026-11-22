@@ -2,6 +2,7 @@
 import { CapabilityList } from "./CapabilityList";
 import { ChangeNotes } from "./ChangeNotes";
 import { NewNote } from "./NewNote";
+import { FlashNote, ListingLine } from "./VisualizerLines";
 import { WebsiteLine } from "./WebsiteLine";
 
 // -- i18n Imports --
@@ -31,6 +32,7 @@ export function HeavyBody({
   return (
     <div className={styles.body}>
       <div className={styles.box}>{t((d) => d.plugins.sheet.nativeWarning)}</div>
+      <ListingLine subject={subject} mode={mode} />
       <ChangeNotes subject={subject} mode={mode} lead={lead} />
       {subject.nativeReason ? (
         <div className={styles.sect}>
@@ -45,6 +47,7 @@ export function HeavyBody({
         }
       />
       <NewNote subject={subject} />
+      <FlashNote subject={subject} />
       <WebsiteLine url={subject.homepage} />
     </div>
   );

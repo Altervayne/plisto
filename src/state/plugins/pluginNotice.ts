@@ -20,9 +20,19 @@ import type { PluginNotice } from "../../types";
 /** The event the backend emits once when it turns a plugin off after repeated crashes. */
 export const PLUGINS_NOTICE = "plugins:notice";
 
+/** Where a plugin went after an install or an update: the line the pill says. */
+export type ListingNoticeKind = "added" | "addedToPlugins" | "ownPage" | "managed";
+
+/** A notice raised here rather than by the backend. */
+export interface ListingNotice {
+  id: string;
+  kind: "listing";
+  change: ListingNoticeKind;
+}
+
 /** What the pill renders: the notice, or the last one while it fades, and whether it shows. */
 export interface PluginNoticeView {
-  notice: PluginNotice | null;
+  notice: PluginNotice | ListingNotice | null;
   visible: boolean;
 }
 
@@ -43,14 +53,17 @@ export function dismissPluginNotice(): void {
   publish({ notice: snapshot.notice, visible: false });
 }
 
-function sameNotice(a: PluginNotice, b: PluginNotice): boolean {
+function sameNotice(a: PluginNotice | ListingNotice, b: PluginNotice | ListingNotice): boolean {
   if (a.id !== b.id || a.kind !== b.kind) return false;
+  if (a.kind === "listing" || b.kind === "listing") {
+    return a.kind === "listing" && b.kind === "listing" && a.change === b.change;
+  }
   if (a.kind !== "visualizer_stopped" || b.kind !== "visualizer_stopped") return true;
   return a.visualizer === b.visualizer && a.cause === b.cause;
 }
 
 /** Shows a notice, unless the same one is already showing. */
-export function showPluginNotice(notice: PluginNotice): void {
+export function showPluginNotice(notice: PluginNotice | ListingNotice): void {
   const current = snapshot.notice;
   if (snapshot.visible && current && sameNotice(current, notice)) return;
   if (timer != null) clearTimeout(timer);

@@ -49,7 +49,7 @@ describe("review sheet network lines", () => {
   it("lists the visualizer lines in Plisto's own words", () => {
     const html = sheet({ capabilities: caps("visualizer", "visualizer.waveform") });
     expect(html).toContain("Draw visualizers in the Player.");
-    expect(html).toContain("See brief snapshots of the sound wave");
+    expect(html).toContain("See brief snapshots of the sound wave of what is playing.");
   });
 
   it("does not warn for network alone or on a native subject", () => {

@@ -66,24 +66,31 @@ export function LogPanelView({
   rows,
   activeId,
   onSelect,
+  nested = false,
   view: { tail, failed },
 }: {
   rows: PluginRow[];
   activeId: string;
   onSelect: (id: string) => void;
+  /** Opened in its own plugin's family: a label in place of the tabs, one step deeper than its surface. */
+  nested?: boolean;
   view: LogTailView;
 }) {
   const t = useT();
   const segments = rows.map((row) => ({ value: row.id, label: row.manifest?.name ?? row.id }));
 
   return (
-    <div className={styles.panel}>
-      <SegmentedControl
-        segments={segments}
-        value={activeId}
-        onChange={onSelect}
-        label={t((d) => d.plugins.devMode.logLabel)}
-      />
+    <div className={nested ? `${styles.panel} ${styles.nested}` : styles.panel}>
+      {nested ? (
+        <span className={styles.sub}>{t((d) => d.plugins.devMode.logLabel)}</span>
+      ) : (
+        <SegmentedControl
+          segments={segments}
+          value={activeId}
+          onChange={onSelect}
+          label={t((d) => d.plugins.devMode.logLabel)}
+        />
+      )}
       {failed ? <p className={styles.note}>{t((d) => d.plugins.devMode.logFailed)}</p> : null}
       {tail === null && !failed ? <p className={styles.note}>{t((d) => d.plugins.devMode.logLoading)}</p> : null}
       {tail !== null && tail.plugin.length === 0 ? (

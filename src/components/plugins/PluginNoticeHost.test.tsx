@@ -64,4 +64,23 @@ describe("PluginNoticeHost", () => {
     showPluginNotice(other);
     expect(currentPluginNotice().notice).toBe(other);
   });
+
+  it("says a plugin was added to Visualizers, with Show", () => {
+    showPluginNotice({ id: "pulse", kind: "listing", change: "added" });
+    const html = renderToStaticMarkup(<PluginNoticeHost />);
+    expect(html).toContain("pulse added to Visualizers");
+    expect(html).toContain("<button");
+  });
+
+  it("says each way a listing changed", () => {
+    const lines = {
+      addedToPlugins: "pulse added to Plugins, turned off",
+      ownPage: "pulse now has its own page and is listed in Plugins",
+      managed: "pulse is now managed in Visualizers",
+    } as const;
+    for (const [change, line] of Object.entries(lines)) {
+      showPluginNotice({ id: "pulse", kind: "listing", change: change as keyof typeof lines });
+      expect(renderToStaticMarkup(<PluginNoticeHost />)).toContain(line);
+    }
+  });
 });

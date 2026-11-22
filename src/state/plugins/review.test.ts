@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 
 // -- Unit Imports --
 import {
+  addsVisualizers,
   afterUpdate,
   authorChanged,
   canConfirm,
   consentCommand,
+  droppedCapabilities,
   enableArgs,
   hasNewCapabilities,
   isNewCapability,
   isNewOrigin,
+  listingMove,
   needsTick,
   reopensReview,
   subjectFromInspection,
@@ -20,6 +23,7 @@ import {
 } from "./review";
 import { fileNameOf } from "./sheet";
 import { inspection, manifest, row } from "./fixtures";
+import type { PluginInspection } from "../../types";
 
 describe("the subject of a review", () => {
   it("comes from an inspection, with capabilities in sheet order", () => {
@@ -40,6 +44,7 @@ describe("the subject of a review", () => {
       capabilities: ["playback.read", "network"],
       origins: ["lyrics.example.com"],
       author: "Lyric Works",
+      listing: "plugins",
     });
   });
 
@@ -195,5 +200,30 @@ describe("fileNameOf", () => {
   it("takes the last segment of either separator", () => {
     expect(fileNameOf("C:\\plugins\\lyrics.plistoplugin")).toBe("lyrics.plistoplugin");
     expect(fileNameOf("/home/me/lyrics/")).toBe("lyrics");
+  });
+});
+
+describe("what a sheet says about visualizers and listing", () => {
+  const visual: Partial<PluginInspection> = { capabilities: ["visualizer", "storage"], listing: "catalog" };
+
+  it("adds visualizers only when it asks for the visualizer capability", () => {
+    expect(addsVisualizers(subjectFromInspection(inspection({ ...visual })))).toBe(true);
+    expect(addsVisualizers(subjectFromInspection(inspection()))).toBe(false);
+  });
+
+  it("moves a plugin when an update changes its listing, and not otherwise", () => {
+    const before = row({ manifest: manifest({ listing: "plugins" }) });
+    const moved = subjectFromInspection(inspection({ ...visual, installed: "1.3.0" }), before);
+    expect(listingMove(moved)).toBe("catalog");
+    const stays = subjectFromInspection(inspection({ listing: "plugins", installed: "1.3.0" }), before);
+    expect(listingMove(stays)).toBeNull();
+    expect(listingMove(subjectFromInspection(inspection({ ...visual })))).toBeNull();
+  });
+
+  it("lists the capabilities an update no longer asks for", () => {
+    const update = inspection({ capabilities: ["network"], installed: "1.3.0" });
+    const subject = subjectFromInspection(update, row());
+    expect(droppedCapabilities(subject)).toEqual(["playback.read"]);
+    expect(droppedCapabilities(subjectFromInspection(inspection()))).toEqual([]);
   });
 });

@@ -23,7 +23,8 @@ import styles from "./UninstallDialog.module.css";
 
 /**
  * The uninstall confirm: a prompt worded for the plugin's state, the data tick (off by default, so saved
- * data stays unless asked), and the line that the library and source folders are never touched. A
+ * data stays unless asked), for a plugin with visualizers the line that its picks fall back to the
+ * default, and the line that the library and source folders are never touched. A
  * broken plugin is "removed" rather than uninstalled, since its files could not be read. Mount it per
  * row (keyed by id) so the tick starts off each time.
  */
@@ -43,6 +44,7 @@ export function UninstallDialog({
   const [deleteData, setDeleteData] = useState(false);
   const size = useDataSize(row.id);
   const noData = size.status === "ready" && size.bytes === 0;
+  const hasVisualizers = (row.manifest?.visualizers.length ?? 0) > 0;
 
   const name = row.manifest?.name ?? row.id;
   const prompt = uninstallPrompt(row);
@@ -84,6 +86,7 @@ export function UninstallDialog({
           trailing={size.status === "ready" ? formatBytes(size.bytes) : undefined}
         />
       )}
+      {hasVisualizers ? <p className={styles.note}>{t((d) => d.plugins.vis.uninstallFallback)}</p> : null}
       <p className={styles.note}>{t((d) => d.plugins.uninstallDialog.keepLine)}</p>
     </ConfirmDialog>
   );

@@ -60,8 +60,16 @@ describe("familyView status", () => {
     expect(familyView(mixed(), ctx()).status).toBe("on");
   });
 
-  it("ignores a stale catalog flag on a visualizer-only plugin", () => {
-    expect(familyView(only(), ctx({ groupsOff: ["plugin:com.test.pulse"] })).status).toBe("on");
+  it("reads a stored flag on a visualizer-only plugin as off; turning it on clears it", () => {
+    const view = familyView(only(), ctx({ groupsOff: ["plugin:com.test.pulse"] }));
+    expect(view).toMatchObject({ status: "off", checked: false });
+    expect(view.flip).toEqual({ kind: "plugin", enable: true, clearFlag: "plugin:com.test.pulse" });
+  });
+
+  it("reads a flagged family off after every other family was kept only", () => {
+    const groups = ["classic", "plugin:com.test.pulse"];
+    expect(familyView(only(), ctx({ groupsOff: groups })).status).toBe("off");
+    expect(familyView(only(), ctx({ groupsOff: [] })).status).toBe("on");
   });
 
   it("treats a held runtime like running for a healthy plugin", () => {
@@ -89,7 +97,7 @@ describe("familyView switch", () => {
   it("keeps the switch live in safe mode", () => {
     const view = familyView(only(), ctx({ boot: SAFE }));
     expect(view).toMatchObject({ checked: true, locked: false, link: "restartNormally" });
-    expect(view.flip).toEqual({ kind: "plugin", enable: false });
+    expect(view.flip).toEqual({ kind: "plugin", enable: false, clearFlag: null });
   });
 
   it("replaces the switch with one action for a visualizer-only plugin", () => {

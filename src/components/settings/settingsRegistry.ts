@@ -10,6 +10,7 @@ import { STAMP_ENABLED } from "../../lib/features";
 
 // -- Type Imports --
 import type { Dict } from "../../i18n/en";
+import type { FamilySettingId } from "./settingsTarget";
 import type { SettingsSectionId } from "./settingsSections";
 
 export type SettingId =
@@ -268,6 +269,6 @@ export function hubSettingId(pluginId: string): HubSettingId {
 }
 
 /** The DOM id a row carries, usable as a scroll anchor. */
-export function settingAnchorId(id: SettingId | HubSettingId): string {
+export function settingAnchorId(id: SettingId | HubSettingId | FamilySettingId): string {
   return `setting-${id}`;
 }

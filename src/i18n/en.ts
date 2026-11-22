@@ -1771,6 +1771,48 @@ export const en = {
       proxyWarning:
         "Windows is set to use a proxy on this network. Plisto does not send plugin connections through a proxy, so this plugin may not reach its sites.",
     },
+    vis: {
+      tag: "Plugin",
+      notChecked: "Not checked",
+      notCheckedLine:
+        "Plisto has not checked how these visualizers move or flash. If you feel unwell, stop and consult a doctor.",
+      fromPlugin: "From {name}",
+      openInPlugins: "Open in Plugins",
+      managedElsewhere: "Developer mode and safe mode are in {link}.",
+      offInPlugins: "Off in Plugins",
+      stoppedFlash: "Stopped by Plisto: flashing",
+      stoppedReset: "Stopped by Plisto: graphics reset",
+      notWatched: "Not watched for flashing",
+      turnBackOn: "Turn back on",
+      turnBackFailed: "Could not turn it back on. Try again.",
+      addTitle: "Add visualizers",
+      addFile: "From file...",
+      addFolder: "From folder...",
+      managedLine: {
+        one: "{{n}} visualizer plugin is managed in {link}",
+        other: "{{n}} visualizer plugins are managed in {link}",
+      },
+      managedLink: "Visualizers",
+      adds: { one: "Adds {{n}} visualizer. {link}", other: "Adds {{n}} visualizers. {link}" },
+      addsLabel: "Visualizers",
+      showInVisualizers: "Show in Visualizers",
+      flashNote:
+        "Plisto does not check plugin visualizers for flashing. It stops one that stops responding. You can have Plisto stop one that flashes in Settings, Visualizers.",
+      listedVisualizers: "It will be listed in Visualizers.",
+      listedPlugins: "It will be listed in Plugins, and its visualizers will appear in Visualizers.",
+      landsOn: "It is installed turned on, so its visualizers appear in the picker at once.",
+      movesToPlugins:
+        "After this update it will have its own page and be listed in Plugins. Its visualizers stay in Visualizers.",
+      movesToVisualizers:
+        "After this update it will no longer have its own page, and will be listed in Visualizers instead of Plugins.",
+      capsRemoved: "No longer needed",
+      updateKeeps: "Your picks, defaults and saved data stay as they are.",
+      uninstallFallback: "Albums and tracks set to one of its visualizers go back to the default.",
+      noticeAdded: "{name} added to Visualizers",
+      noticeAddedPlugins: "{name} added to Plugins, turned off",
+      noticeOwnPage: "{name} now has its own page and is listed in Plugins",
+      noticeManaged: "{name} is now managed in Visualizers",
+    },
     capability: {
       storage: "Save its own settings and data",
       "library.read": "Read your library (titles, artists, albums; never file locations)",
@@ -1790,7 +1832,7 @@ export const en = {
         "Play audio streams through Plisto's player at any time, pausing your music, with their own titles on your media keys and lock screen",
       visualizer:
         "Draw visualizers in the Player. While one is shown it runs and sees your music's levels and the cover of what is playing.",
-      "visualizer.waveform": "See brief snapshots of the sound wave of what is playing",
+      "visualizer.waveform": "See brief snapshots of the sound wave of what is playing.",
     },
     errors: {
       not_found: "Plisto could not find that file or plugin.",

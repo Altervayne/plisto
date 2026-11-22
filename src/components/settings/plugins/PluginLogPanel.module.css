@@ -63,3 +63,9 @@
 .warn {
   color: var(--warn-text);
 }
+
+/* Inside a plugin's own open family the log sits one step deeper than the family's surface. */
+.nested {
+  align-self: stretch;
+  background: var(--veil-2);
+}

@@ -1,6 +1,10 @@
+// -- Framework Imports --
+import type { ReactNode } from "react";
+
 // -- Component Imports --
 import { HomepageLink } from "../../plugins/HomepageLink";
 import { QuietButton } from "../../common/QuietButton";
+import { TextLink, WithLink } from "../../plugins/TextLink";
 
 // -- State Imports --
 import { restartPlugin } from "../../../state/plugins/restartPlugin";
@@ -9,7 +13,7 @@ import { useNetEnvironment } from "../../../state/plugins/useNetEnvironment";
 import { usePluginStatusView } from "../../../state/plugins/usePluginStatusView";
 import { usePlugins, usePluginsBoot } from "../../../state/plugins/store";
 import { useAppMode } from "../../../state/player/store";
-import { useRequestPluginPage } from "../../../state/shell/store";
+import { openPluginFamily, useRequestPluginPage } from "../../../state/shell/store";
 
 // -- Utils Imports --
 import { knownCapabilities, sortCapabilities } from "../../../state/plugins/capabilities";
@@ -31,18 +35,21 @@ import styles from "./PluginRowPanel.module.css";
 /**
  * The details under an open row: what the plugin was allowed to do, its author and website as declared,
  * and Open settings (for a plugin with a page in the rail), Restart (while its status offers it),
- * Disable and Uninstall.
+ * Disable and Uninstall. In a visualizer family the heading row holds the switch and Restart, so the panel
+ * keeps only `family.tools` ahead of Uninstall, and `family.below` follows the buttons.
  */
 export function PluginRowPanel({
   row,
   busy,
   onToggle,
   onUninstall,
+  family,
 }: {
   row: PluginRow;
   busy: boolean;
   onToggle: (on: boolean) => void;
   onUninstall: () => void;
+  family?: { tools: ReactNode; below: ReactNode };
 }) {
   const t = useT();
   const m = row.manifest;
@@ -108,19 +115,35 @@ export function PluginRowPanel({
             <dd>{size.bytes > 0 ? formatBytes(size.bytes) : t((d) => d.plugins.savedNone)}</dd>
           </>
         ) : null}
+        {m && m.visualizers.length > 0 && !family ? (
+          <>
+            <dt>{t((d) => d.plugins.vis.addsLabel)}</dt>
+            <dd>
+              <WithLink
+                text={t((d) => d.plugins.vis.adds, { n: m.visualizers.length })}
+                link={
+                  <TextLink onClick={() => openPluginFamily(row.id)}>
+                    {t((d) => d.plugins.vis.showInVisualizers)}
+                  </TextLink>
+                }
+              />
+            </dd>
+          </>
+        ) : null}
       </dl>
       <div className={styles.foot}>
-        {hasPage ? (
+        {family?.tools}
+        {hasPage && !family ? (
           <QuietButton onClick={() => requestPage(row.id, "settings")}>
             {t((d) => d.plugins.ui.openSettings)}
           </QuietButton>
         ) : null}
-        {canRestart ? (
+        {canRestart && !family ? (
           <QuietButton onClick={() => restartPlugin(row)} disabled={busy}>
             {t((d) => d.plugins.frame.restart)}
           </QuietButton>
         ) : null}
-        {row.state === "ready" && row.enabled ? (
+        {row.state === "ready" && row.enabled && !family ? (
           <QuietButton onClick={() => onToggle(false)} disabled={busy}>
             {t((d) => d.plugins.disable)}
           </QuietButton>
@@ -129,6 +152,7 @@ export function PluginRowPanel({
           {t((d) => d.plugins.uninstall)}
         </QuietButton>
       </div>
+      {family?.below}
     </div>
   );
 }

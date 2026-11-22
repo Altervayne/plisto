@@ -6,15 +6,18 @@ import { FileArchive, FolderOpen, FolderSearch } from "lucide-react";
 
 // -- Component Imports --
 import { QuietButton } from "../../common/QuietButton";
+import { TextLink, WithLink } from "../../plugins/TextLink";
 import { DevModeEntry } from "./DevModeEntry";
 import { InboxList } from "./InboxList";
 import { PluginRow } from "./PluginRow";
 import { SafeModeEntry } from "./SafeModeEntry";
 import { UninstallDialog } from "./UninstallDialog";
 import { ReviewSheet } from "./ReviewSheet/ReviewSheet";
+import { RowMessageLine } from "./RowMessageLine";
 import { SettingRow } from "../SettingRow";
 import { hubSettingId } from "../settingsRegistry";
 import { sectionAttr } from "../settingsSections";
+import { familySettingId } from "../settingsTarget";
 
 // -- Hook Imports --
 import { useInbox } from "./useInbox";
@@ -26,12 +29,13 @@ import { useRowActions } from "./useRowActions";
 import { useDevMode, usePlugins, usePluginsStatus } from "../../../state/plugins/store";
 import { useSandboxLeaking } from "../../../state/plugins/sandboxStore";
 import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
+import { useOpenSettings } from "../../../state/shell/store";
 
 // -- IPC Imports --
 import { pluginInboxPath } from "../../../lib/ipc";
 
 // -- Utils Imports --
-import { listedRows } from "../../shell/navVisibility";
+import { catalogManagedCount, firstCatalogFamily, listedRows } from "../../shell/navVisibility";
 import { pickFolder, pickPluginFile } from "../../../lib/dialog";
 import { openFolder } from "../../../lib/opener";
 import { appVersion } from "../../../lib/updater";
@@ -40,7 +44,6 @@ import { appVersion } from "../../../lib/updater";
 import { useT } from "../../../i18n";
 
 // -- Type Imports --
-import type { RowMessage } from "./useRowActions";
 import type { PluginRow as RowData } from "../../../types";
 
 // -- Style Imports --
@@ -58,10 +61,14 @@ export function PluginsSection() {
   const t = useT();
   const rows = usePlugins();
   const listed = useMemo(() => listedRows(rows), [rows]);
+  const managed = catalogManagedCount(rows);
+  const firstFamily = useMemo(() => firstCatalogFamily(rows), [rows]);
+  const openSettings = useOpenSettings();
+  const managedTarget = firstFamily ? familySettingId(firstFamily) : "visualizers";
   const status = usePluginsStatus();
   const leaking = useSandboxLeaking();
   const lock = useOperationLock();
-  const flow = useReviewFlow(lock);
+  const flow = useReviewFlow(lock, "plugins");
   const actions = useRowActions(lock, flow.openReview);
   const inbox = useInbox(rows);
   const [uninstalling, setUninstalling] = useState<RowData | null>(null);
@@ -85,12 +92,6 @@ export function PluginsSection() {
     void pluginInboxPath()
       .then(openFolder)
       .catch((e: unknown) => console.warn("plugin inbox path failed", e));
-
-  const messageText = (m: RowMessage): string => {
-    if (m.kind === "dataWarning") return t((d) => d.plugins.dataWarning, { name: m.name });
-    const name = m.kind === "devFailed" ? t((d) => d.plugins.devMode.label) : m.name;
-    return t((d) => d.plugins.actionFailed, { name, message: t((d) => d.plugins.errors[m.error]) });
-  };
 
   const openLog = (row: RowData) => {
     setLogId(row.id);
@@ -129,7 +130,19 @@ export function PluginsSection() {
           {listed.length === 0 && (status === "idle" || status === "loading") ? (
             <p className={settingsStyles.empty}>{t((d) => d.plugins.loading)}</p>
           ) : null}
-          {listed.length === 0 && status === "ready" ? (
+          {managed > 0 ? (
+            <p className={styles.managed}>
+              <WithLink
+                text={t((d) => d.plugins.vis.managedLine, { n: managed })}
+                link={
+                  <TextLink onClick={() => openSettings({ target: managedTarget })}>
+                    {t((d) => d.plugins.vis.managedLink)}
+                  </TextLink>
+                }
+              />
+            </p>
+          ) : null}
+          {listed.length === 0 && managed === 0 && status === "ready" ? (
             <p className={settingsStyles.empty}>{t((d) => d.plugins.empty)}</p>
           ) : null}
         </div>
@@ -181,14 +194,7 @@ export function PluginsSection() {
         panelRef={logPanel}
       />
 
-      {actions.message ? (
-        <p className={styles.message} role="status">
-          <span>{messageText(actions.message)}</span>
-          <button type="button" className={styles.dismiss} onClick={actions.dismiss}>
-            {t((d) => d.plugins.sheet.close)}
-          </button>
-        </p>
-      ) : null}
+      {actions.message ? <RowMessageLine message={actions.message} onDismiss={actions.dismiss} /> : null}
 
       {uninstalling ? (
         <UninstallDialog

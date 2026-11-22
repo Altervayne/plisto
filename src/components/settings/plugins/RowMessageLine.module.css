@@ -1,0 +1,24 @@
+.message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+
+.dismiss {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  color: var(--ink);
+}

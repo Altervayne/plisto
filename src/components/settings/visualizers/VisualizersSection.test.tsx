@@ -17,6 +17,8 @@ import { SETTINGS_SECTIONS } from "../settingsSections";
 import { SETTINGS_REGISTRY } from "../settingsRegistry";
 
 // -- State Imports --
+import { usePluginsStore } from "../../../state/plugins/store";
+import { visualizerDecl, visualizerRow } from "../../../state/plugins/fixtures";
 import { PREF_KEYS, usePreferencesStore } from "../../../state/preferences/store";
 import { buildCatalog, serializeCatalog, toggleGroup, toggleKind } from "../../../state/player/visualizerCatalog";
 import { GROUP_ORDER } from "../../../state/player/visualizerRegistry";
@@ -127,6 +129,25 @@ describe("registry and sections", () => {
 });
 
 describe("VisualizersSection", () => {
+  it("offers Add visualizers from a file or a folder, above the stop-flashing row", () => {
+    const html = renderToStaticMarkup(<VisualizersSection />);
+    expect(html).toContain(en.plugins.vis.addTitle);
+    expect(html).toContain(en.plugins.vis.addFile);
+    expect(html).toContain(en.plugins.vis.addFolder);
+    const add = html.indexOf(en.plugins.vis.addTitle);
+    expect(add).toBeLessThan(html.indexOf('data-setting-id="visualizerStopFlashing"'));
+    expect(add).toBeGreaterThan(html.indexOf('data-setting-id="visualizerCatalog"'));
+  });
+
+  it("lists a plugin's family after the built-in families", () => {
+    usePluginsStore.setState({ rows: [visualizerRow("com.test.pulse", "Pulse Lab", [visualizerDecl()])] });
+    const html = renderToStaticMarkup(<VisualizersSection />);
+    usePluginsStore.setState({ rows: [] });
+    expect(html).toContain("Pulse Lab");
+    expect(html).toContain('id="setting-family-com.test.pulse"');
+    expect(html.indexOf("Pulse Lab")).toBeGreaterThan(html.indexOf(en.player.visualizerGroupCosmic));
+  });
+
   it("stamps the section, the catalog row with its kind and family switches, and the flash row", () => {
     const html = renderToStaticMarkup(<VisualizersSection />);
     expect(html).toContain('data-settings-section="visualizers"');

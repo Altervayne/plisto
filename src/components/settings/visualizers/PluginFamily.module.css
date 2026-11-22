@@ -1,0 +1,156 @@
+/*
+ * A plugin family: one wrapper holds the heading row, the unfolded details, the unchecked-flashing line
+ * and the tiles. Unfolded, the wrapper is the single veiled surface, so the details are the heading
+ * row's width and joined to it. The side margins put the heading row's text on the built-in families' edge.
+ */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+
+/* The margin keeps neighbouring open families from fusing. */
+.open {
+  margin-top: 4px;
+  margin-bottom: 4px;
+  border-radius: var(--r-md);
+  background: var(--veil);
+}
+
+.head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-fast) ease;
+}
+
+.wrap:not(.open) .head:hover {
+  background: var(--veil);
+}
+
+.grey .nameText {
+  color: var(--ink-3);
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+}
+
+.nameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unchecked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.warn {
+  color: var(--warn-text);
+}
+
+.acts {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.chevron svg {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.open .chevron svg {
+  transform: rotate(90deg);
+}
+
+/* Text starts on the name's column: 8px row padding + 32px icon + 12px gap. */
+.fromPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 8px 14px 52px;
+}
+
+.from {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.fromFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-left: -12px;
+}
+
+.elsewhere {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 68ch;
+  padding: 0 8px 6px 52px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.note svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px 12px;
+  padding: 2px 8px 14px;
+}
+
+.wrap:not(.open) .tiles {
+  padding-top: 0;
+}
