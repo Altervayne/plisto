@@ -22,6 +22,7 @@ import { readInit, VIS_API } from "./protocol";
 import { isShaderPage, loadShader } from "./shaderHost";
 
 // -- Type Imports --
+import type { VisChannel } from "./bridgeClient";
 import type { CandidateOptions } from "./forms/candidate";
 import type { SceneSpec } from "./forms/scene";
 import type { ShaderSpec } from "./forms/shader";
@@ -83,6 +84,9 @@ export const call = bridge.call;
 export const log = bridge.log;
 export const storage = bridge.storage;
 
+/** The channel to the plugin's page or background frame; defined only while the init says one exists. */
+export let channel: VisChannel | undefined;
+
 // The init being served; one that a later init replaced is dropped when its shader arrives.
 let current = 0;
 
@@ -112,6 +116,7 @@ function onInit(init: VisInit, port: MessagePort): void {
   mounted?.dispose();
   mounted = null;
   hub = null;
+  channel = init.channel === true ? bridge.channel : undefined;
   waiting?.port.close();
   waiting = null;
   if (init.api !== VIS_API) {

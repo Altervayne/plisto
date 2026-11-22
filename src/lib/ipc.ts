@@ -1396,6 +1396,16 @@ export function pluginVisThumbPut(
   return invoke<void>("plugin_vis_thumb_put", png, { headers });
 }
 
+/**
+ * Saves a developer-mode feed recording under the plugin's data folder and resolves with the file's
+ * path. The recording is the raw body (at most 8 MiB); the ids travel as headers. Rejects with a
+ * PluginVisRecordError.
+ */
+export function pluginVisRecordSave(id: string, kindId: string, json: string): Promise<string> {
+  const headers = { "x-vis-id": id, "x-vis-kind": kindId };
+  return invoke<string>("plugin_vis_record_save", new TextEncoder().encode(json), { headers });
+}
+
 /** A kind's stored still as PNG bytes, or null when none is stored under its current build key. */
 export async function pluginVisThumbGet(
   id: string,

@@ -240,13 +240,23 @@ export interface StageHandle {
 const handles = new Set<StageHandle>();
 const watchers = new Set<() => void>();
 
+/** Tells the watchers that something a handle reports changed, such as whether its frame is metered. */
+export function stageChanged(): void {
+  watchers.forEach((notify) => notify());
+}
+
 /** Lists a mounted frame until the returned release runs. */
 export function registerStage(handle: StageHandle): () => void {
   handles.add(handle);
-  watchers.forEach((notify) => notify());
+  stageChanged();
   return () => {
-    if (handles.delete(handle)) watchers.forEach((notify) => notify());
+    if (handles.delete(handle)) stageChanged();
   };
+}
+
+/** Whether a frame is on screen: its stage's shown kind, and drawn. A kept or compiling frame is not. */
+export function isShownStage(handle: Pick<StageHandle, "shown" | "phase">): boolean {
+  return handle.shown() && handle.phase() === "ready";
 }
 
 /** Every mounted stage frame, kept ones included. */

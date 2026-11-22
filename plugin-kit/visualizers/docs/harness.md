@@ -41,6 +41,7 @@ guides" outlines the cover, the mask and the floor.
 | Simulate a hidden slot | Withholds ticks as Plisto does when the slot is not visible. The held ticks fold into one |
 | Kind settings | One control per declared setting, the presets as buttons, and a reset. Each change is a `settings` update |
 | Restart the kind | A fresh mount: init, compile and first frame again |
+| Channel | Plays the page: sends JSON to the frame, lists what it sends back. See [channel](channel.md) |
 
 A change reaches the frame as `{type: "update", context}` carrying only the fields that differ. The frame
 hears `resize`, `settings` or `theme` as it would in the app; a change to ambient, reactivity or reduced

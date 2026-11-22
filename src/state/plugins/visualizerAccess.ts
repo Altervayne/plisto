@@ -1,13 +1,14 @@
 /*
  * What a visualizer frame may ask of Plisto, by exact method name. A visualizer frame is torn down at
  * every kind change, so it gets nothing that needs a long-lived delivery target: no subscriptions, streams,
- * sockets, sidebar, toasts, prompts or network. A call not listed here is refused before it reaches Rust,
- * so a new method stays refused until it is judged here; Rust still checks the plugin's grants for
- * whatever passes.
+ * sockets, sidebar, toasts, prompts or network. The page channel is its one way to the plugin's own page.
+ * A call not listed here is refused before it reaches Rust, so a new method stays refused until it is
+ * judged here; Rust still checks the plugin's grants for whatever passes.
  */
 
 // -- State Imports --
 import { errorMsg } from "./bridge";
+import { CHANNEL_METHOD } from "../../visRuntime/protocol";
 
 // -- Type Imports --
 import type { Action } from "./bridge";
@@ -26,6 +27,7 @@ const STORAGE = new Set([
 
 const OPEN = new Set([
   "log.write",
+  CHANNEL_METHOD,
   "playback.state",
   "library.tracks",
   "library.tracks_by_id",

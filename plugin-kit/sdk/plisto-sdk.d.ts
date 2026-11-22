@@ -971,6 +971,19 @@ export interface Plisto {
     warn(text: string): Promise<LogWriteResult>;
     error(text: string): Promise<LogWriteResult>;
   };
+  /**
+   * The channel to this plugin's live visualizer frames. A message nobody receives is dropped, with no
+   * error; limits are 16384 bytes of JSON and 20 messages a second per sending frame.
+   */
+  readonly visualizers: {
+    /**
+     * Sends to every live visualizer frame of this plugin, or only those of the kind `kindId`. Throws a
+     * TypeError for data that is not JSON-serializable and a RangeError over 16384 bytes.
+     */
+    send(data: unknown, kindId?: string): void;
+    /** Receives what a visualizer frame sent, with the kind that sent it. Returns the unsubscribe. */
+    onMessage(callback: (data: unknown, from: { kind: string }) => void): () => void;
+  };
 }
 
 declare global {

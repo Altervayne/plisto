@@ -33,6 +33,11 @@ describe("visualizerMay", () => {
     }
   });
 
+  it("allows the page channel, with or without grants", () => {
+    expect(visualizerMay("channel.send", [])).toBe(true);
+    expect(visualizerMay("channel.send", ["storage"])).toBe(true);
+  });
+
   it("matches exact names, never a namespace", () => {
     for (const method of ["log.other", "channel.post", "storage.other", "library.tracks.extra"]) {
       expect(visualizerMay(method, ["storage"])).toBe(false);

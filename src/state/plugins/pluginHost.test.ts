@@ -272,7 +272,7 @@ describe("init", () => {
           plisto: 1,
           type: "plisto:init",
           info: INFO,
-          methods: ["app.info", "app.methods"],
+          methods: ["app.info", "app.methods", "channel.send"],
           page_open: true,
           route: "/x",
         },

@@ -62,7 +62,7 @@ Pick the form by how much of the work you want Plisto to do.
 | `raw` | Handlers, on any canvas, DOM or SVG | The feed and a stage | You use a library or 2D canvas |
 
 All four take the same [feed](docs/feed.md) and the same composite, which is how Plisto maps the picture
-onto the stage for the theme.
+onto the stage for the theme. A plugin with a page can also use the [channel](docs/channel.md).
 
 ### shader
 

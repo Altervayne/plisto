@@ -29,6 +29,8 @@ export interface TransportOptions {
   now?: () => number;
   // Every well-formed frame message except acks, which the transport consumes itself.
   onFrameMessage?: (message: FrameMessage) => void;
+  // Every tick as it goes out to the frame: folded ticks arrive folded, withheld ones not at all.
+  onSend?: (tick: Tick) => void;
 }
 
 /** What a net reads to tell a hung frame from a quiet one. */
@@ -59,7 +61,7 @@ export interface Transport {
 }
 
 export function createTransport(options: TransportOptions): Transport {
-  const { port, isVisible, onFrameMessage } = options;
+  const { port, isVisible, onFrameMessage, onSend } = options;
   const now = options.now ?? (() => performance.now());
   let disposed = false;
   let pending: Tick | null = null;
@@ -75,6 +77,7 @@ export function createTransport(options: TransportOptions): Transport {
     sent += 1;
     lastSentAt = now();
     port.postMessage({ type: "tick", ...tick });
+    onSend?.(tick);
   });
 
   port.onmessage = (event) => {

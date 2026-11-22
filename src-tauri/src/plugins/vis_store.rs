@@ -175,7 +175,7 @@ fn check_id(id: &str) -> Result<(), String> {
     validate_id(id).map_err(|e| format!("invalid plugin id: {e}"))
 }
 
-fn check_ids(id: &str, kind: &str) -> Result<(), String> {
+pub fn check_ids(id: &str, kind: &str) -> Result<(), String> {
     check_id(id)?;
     if !valid_kind_id(kind) {
         return Err("invalid visualizer kind".to_string());
@@ -191,7 +191,7 @@ fn read_store(dir: &Path) -> Store {
 }
 
 /// Writes `bytes` to a synced temp file beside `path`, then renames it over `path`.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let temp = path.with_file_name(name);

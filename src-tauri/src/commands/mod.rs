@@ -37,6 +37,7 @@ pub mod plugin_fetch;
 pub mod plugin_status;
 pub mod plugin_ui;
 pub mod plugin_vis;
+pub mod plugin_vis_record;
 pub mod plugins;
 #[cfg(debug_assertions)]
 pub mod probes;

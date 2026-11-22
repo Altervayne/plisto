@@ -30,6 +30,8 @@ import { hostCall } from "./hostCall";
 import { decodeFetchReply, encodeFetchRequest } from "./netFrame";
 import { SUBSCRIBE_METHOD, createTopicRouter } from "./topicRouter";
 import { screenCall } from "./visualizerAccess";
+import { createChannelRelay } from "../player/pluginVis/channel";
+import { CHANNEL_METHOD } from "../../visRuntime/protocol";
 
 // -- Type Imports --
 import type { FrameBudget } from "./frameBudget";
@@ -72,6 +74,8 @@ export interface HostDeps {
   now?: () => number;
   /** The plugin's granted capabilities, read for a visualizer frame's calls. Absent reads as none. */
   granted?: (pluginId: string) => readonly string[];
+  /** Whether developer mode is on; channel drops are logged to the plugin only then. Absent reads as off. */
+  devMode?: () => boolean;
 }
 
 export type LoadKind = "first" | "again";
@@ -217,6 +221,17 @@ function createHost(deps: HostDeps): Host {
   const initCall = (rec: FrameRecord<FrameWindow>, method: string) =>
     hostCall(deps, rec.pluginId, method, () => isLive(rec));
 
+  const channel = createChannelRelay<FrameRecord<FrameWindow>>({
+    now,
+    frames: (pluginId) => map.byPlugin(pluginId),
+    deliver: post,
+    devMode: deps.devMode ?? (() => false),
+    log: (pluginId, text) => {
+      const args = JSON.stringify({ level: "warn", text });
+      deps.invoke(pluginId, "log.write", args).catch(() => {});
+    },
+  });
+
   const onMessage = (event: HostMessage) => {
     // Spent before any parsing: a flood costs the host one map lookup per message, and an over-budget
     // message gets no reply, so the page cannot make the host post back either.
@@ -230,7 +245,11 @@ function createHost(deps: HostDeps): Host {
     );
     if (action.kind === "reply") post(action.rec, action.msg);
     else if (action.kind === "pong") pongs.forEach((listener) => listener(action.rec.mountKey, action.seq));
-    else if (action.kind === "call") {
+    else if (action.kind === "call" && action.method === CHANNEL_METHOD) {
+      // Answered at once and never forwarded: a dropped message is silent to its sender.
+      channel.relay(action.rec, action.args);
+      post(action.rec, resultMsg(action.callId, { ok: true, result: null }));
+    } else if (action.kind === "call") {
       const extra = extras.get(action.rec);
       if (extra) void forward(action.rec, extra, action.callId, action.method, action.args, action.body);
     }
@@ -320,7 +339,9 @@ function createHost(deps: HostDeps): Host {
       if (!info || !Array.isArray(names) || !isLive(rec)) return false;
       const appInfo = info as AppInfo;
       // Read after the await, so a visibility or route change during init is carried by the init itself.
-      post(rec, initMsg(appInfo, names as string[], extra.pageOpen, extra.route));
+      // The host answers the channel itself, so Rust's list lacks it; `plisto.has` finds it here.
+      const listed = [...(names as string[]), CHANNEL_METHOD];
+      post(rec, initMsg(appInfo, listed, extra.pageOpen, extra.route));
       extra.init = "done";
       extra.theme = appInfo.theme;
       pushTheme(rec, extra);

@@ -1,8 +1,11 @@
 /*
  * The plugin bridge as a visualizer frame sees it: a small client over the same window messages the
- * full SDK uses, carrying calls, logs and storage. Results and pongs come through
- * `handle`, which the runtime's one window listener feeds; nothing here listens on its own.
+ * full SDK uses, carrying calls, logs, storage and the page channel. Results, pongs and channel messages
+ * come through `handle`, which the runtime's one window listener feeds; nothing here listens on its own.
  */
+
+// -- Local Imports --
+import { CHANNEL_METHOD, channelText } from "./protocol";
 
 /** The bridge protocol number the host routes. */
 export const BRIDGE_PROTOCOL = 1;
@@ -20,6 +23,14 @@ export class BridgeError extends Error {
   }
 }
 
+/** The message channel to the plugin's page or background frame. */
+export interface VisChannel {
+  // Throws a TypeError for data that is not JSON-serializable and a RangeError over the size limit.
+  send: (data: unknown) => void;
+  // Returns the unsubscribe.
+  onMessage: (fn: (data: unknown) => void) => () => void;
+}
+
 export interface BridgeClient {
   call: (method: string, args?: unknown) => Promise<unknown>;
   log: Record<"debug" | "info" | "warn" | "error", (text: unknown) => Promise<unknown>>;
@@ -31,6 +42,7 @@ export interface BridgeClient {
     clear: () => Promise<unknown>;
     usage: () => Promise<unknown>;
   };
+  channel: VisChannel;
   // Takes one bridge message from the host; false when it is not one.
   handle: (data: Record<string, unknown>) => boolean;
 }
@@ -39,6 +51,7 @@ export function createBridgeClient(postToParent: (msg: Record<string, unknown>) 
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number }>();
   let nextId = 1;
 
+  const listeners = new Set<(data: unknown) => void>();
   const post = (msg: Record<string, unknown>) => postToParent({ ...msg, plisto: BRIDGE_PROTOCOL });
 
   const call = (method: string, args: unknown = {}) =>
@@ -79,8 +92,23 @@ export function createBridgeClient(postToParent: (msg: Record<string, unknown>) 
     );
   };
 
+  const channel: VisChannel = {
+    send(data) {
+      channelText(data);
+      // A drop is silent by design, so the answer carries nothing to wait for.
+      call(CHANNEL_METHOD, { data }).catch(() => {});
+    },
+    onMessage(fn) {
+      listeners.add(fn);
+      return () => {
+        listeners.delete(fn);
+      };
+    },
+  };
+
   return {
     call,
+    channel,
     log: { debug: logAt("debug"), info: logAt("info"), warn: logAt("warn"), error: logAt("error") },
     storage: {
       get: (key, fallback) =>
@@ -102,6 +130,15 @@ export function createBridgeClient(postToParent: (msg: Record<string, unknown>) 
           return true;
         case "plisto:result":
           onResult(data);
+          return true;
+        case "plisto:channel":
+          for (const fn of [...listeners]) {
+            try {
+              fn(data.data);
+            } catch {
+              // A throwing subscriber must not stop the others.
+            }
+          }
           return true;
         default:
           return false;

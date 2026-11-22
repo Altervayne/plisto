@@ -131,6 +131,8 @@ export function buildInit(decl, context, meter) {
       ...(s.type === "choice" && { options: s.options.map((o) => o.id) }),
     })),
     meter,
+    // The Channel box plays the page, so every kind has a channel here.
+    channel: true,
     context,
   };
 }

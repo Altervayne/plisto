@@ -196,6 +196,8 @@ export function renderPluginStill(
         context: () => context,
         reactivity: () => context.reactivity,
         meter: () => false,
+        // A still never has a page to talk to, whatever the plugin has.
+        pageChannel: () => false,
         onPhase: (phase) => {
           // The frame's own slow mark stops at ready, so the mount's stands in for it.
           if (phase !== "slow") options.onPhase?.(phase);

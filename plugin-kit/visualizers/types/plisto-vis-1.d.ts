@@ -308,6 +308,17 @@ declare namespace plistoVis {
     clear: () => Promise<unknown>;
     usage: () => Promise<unknown>;
   };
+  /**
+   * The message channel to the plugin's page or background frame. Defined only when the plugin has one;
+   * read it in `setup` or `frame`, not at load. `send` throws a TypeError for data that is not
+   * JSON-serializable and a RangeError over 16384 bytes of JSON; a message nobody receives is dropped.
+   */
+  const channel:
+    | {
+        send: (data: unknown) => void;
+        onMessage: (fn: (data: unknown) => void) => () => void;
+      }
+    | undefined;
 
   // -- Shader sources --
 

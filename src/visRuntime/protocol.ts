@@ -19,6 +19,35 @@ export const VIS_INIT_TYPE = "plisto:vis-init";
 /** Ticks the host may send before an ack. */
 export const TICK_CREDITS = 2;
 
+/** The bridge method a channel message travels as, from a visualizer frame and from a page alike. */
+export const CHANNEL_METHOD = "channel.send";
+
+/** The most a channel message may hold: the UTF-8 bytes of its JSON text. */
+export const CHANNEL_MAX_BYTES = 16384;
+
+/** The UTF-8 byte length of a string. */
+export function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * The JSON text of a channel message. Throws a TypeError when the data cannot be serialized and a
+ * RangeError when its text is over the limit.
+ */
+export function channelText(data: unknown): string {
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(data);
+  } catch {
+    text = undefined;
+  }
+  if (typeof text !== "string") throw new TypeError("channel data must be JSON-serializable");
+  if (utf8Length(text) > CHANNEL_MAX_BYTES) {
+    throw new RangeError(`channel data is over ${CHANNEL_MAX_BYTES} bytes`);
+  }
+  return text;
+}
+
 /** A rect in CSS pixels with a top-left origin: left, top, width, height. */
 export type VisRect = [number, number, number, number];
 
@@ -115,6 +144,8 @@ export interface VisInit {
   settingShapes: VisSettingShape[];
   // Whether the flash meter runs at mount; `meter` messages switch it afterwards.
   meter: boolean;
+  // Whether the plugin has a page or background frame to talk to, so `plistoVis.channel` exists.
+  channel?: boolean;
   context: VisContext;
 }
 
@@ -253,6 +284,7 @@ export function readInit(data: unknown): VisInit | null {
   if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
   if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
   if (typeof data.meter !== "boolean") return null;
+  if (data.channel !== undefined && typeof data.channel !== "boolean") return null;
   return data as unknown as VisInit;
 }
 

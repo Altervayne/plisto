@@ -161,6 +161,20 @@ progress { width: 120px; }
       <div class="muted">Sends a stream event to the page, as Plisto does for the plugin's own stream. An ended event also clears the fake stream.</div>
     </div>
     <div class="panel">
+      <h2>Visualizer channel</h2>
+      <div class="row">
+        <input type="text" id="chanText" size="24" aria-label="Message as JSON"
+               placeholder="{&quot;level&quot;: 1}" />
+        <input type="text" id="chanKind" size="10" aria-label="Kind id" value="mock-kind" />
+        <button type="button" id="chanSend">Send to page</button>
+      </div>
+      <ul class="list log" id="chanList"></ul>
+      <div class="muted">
+        Plays a visualizer frame: sends the message to the page as Plisto relays it, and lists what the page
+        sends. Limits: 16384 bytes of JSON, 20 messages a second.
+      </div>
+    </div>
+    <div class="panel">
       <h2>Sidebar</h2>
       <div id="sidebar"></div>
     </div>
@@ -679,6 +693,36 @@ progress { width: 120px; }
   });
   h("storage.clear", function () { store.clear(); return { usage: 0 }; });
   h("storage.usage", function () { return { usage: usage(), quota: STORAGE_QUOTA }; });
+
+  // channel: no visualizer frame exists here, so what the page sends is listed and nothing is delivered
+  var CHANNEL_MAX_BYTES = 16384;
+  var CHANNEL_PER_SEC = 20;
+  var chanSent = [];
+  // At most CHANNEL_PER_SEC messages in any one-second window.
+  function chanAdmits() {
+    var now = Date.now();
+    chanSent = chanSent.filter(function (t) { return now - t < 1000; });
+    if (chanSent.length >= CHANNEL_PER_SEC) return false;
+    chanSent.push(now);
+    return true;
+  }
+  function chanLine(text) {
+    var li = el("li");
+    li.appendChild(el("span", "t", clock() + " "));
+    li.appendChild(document.createTextNode(text));
+    var list = $("chanList");
+    list.insertBefore(li, list.firstChild);
+    while (list.children.length > LOG_MAX) list.removeChild(list.lastChild);
+  }
+  h("channel.send", function (a) {
+    var text = JSON.stringify(a.data);
+    var to = typeof a.kind === "string" ? a.kind : "all kinds";
+    if (typeof text !== "string") chanLine("dropped: not a JSON message");
+    else if (byteLen(text) > CHANNEL_MAX_BYTES) chanLine("dropped: over " + CHANNEL_MAX_BYTES + " bytes");
+    else if (!chanAdmits()) chanLine("dropped: over " + CHANNEL_PER_SEC + " a second");
+    else chanLine("page -> " + to + ": " + clip(text, 140));
+    return null;
+  });
 
   // log
   h("log.write", function (a) {
@@ -1732,6 +1776,17 @@ progress { width: 120px; }
     else streamEmit({ item: item, kind: "room", room: Number(value) });
   });
   fillEventValues();
+  $("chanSend").addEventListener("click", function () {
+    var data;
+    try {
+      data = JSON.parse($("chanText").value);
+    } catch (e) {
+      chanLine("not sent: the text is not JSON");
+      return;
+    }
+    send({ type: "plisto:channel", data: data, from: { kind: $("chanKind").value } });
+    chanLine($("chanKind").value + " -> page: " + clip(JSON.stringify(data), 140));
+  });
   $("clearCalls").addEventListener("click", function () { $("calls").textContent = ""; });
   $("clearLog").addEventListener("click", function () { $("logList").textContent = ""; });
 

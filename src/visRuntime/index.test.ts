@@ -113,8 +113,21 @@ describe("the runtime's init handling", () => {
   });
 
   it("exposes no channel until the host relays one", async () => {
-    const { vis } = await loadRuntime();
-    expect("channel" in vis).toBe(false);
+    const { vis, init } = await loadRuntime();
+    expect(vis.channel).toBeUndefined();
+    vis.candidate(testCandidate({ on: false }), { programs: [MINE] });
+    init(fakePort());
+    expect(vis.channel).toBeUndefined();
+  });
+
+  it("exposes the channel when the init says there is a page, and drops it on a later init", async () => {
+    const { vis, init } = await loadRuntime();
+    vis.candidate(testCandidate({ on: false }), { programs: [MINE] });
+    init(fakePort(), { channel: true });
+    expect(typeof vis.channel?.send).toBe("function");
+    expect(typeof vis.channel?.onMessage).toBe("function");
+    init(fakePort(), { channel: false });
+    expect(vis.channel).toBeUndefined();
   });
 });
 

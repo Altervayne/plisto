@@ -112,6 +112,8 @@ describe("message reading", () => {
     expect(readInit({ ...init, settingShapes: undefined })).toBeNull();
     expect(readInit({ ...init, meter: undefined })).toBeNull();
     expect(readInit({ ...init, meter: 1 })).toBeNull();
+    expect(readInit({ ...init, channel: true })).not.toBeNull();
+    expect(readInit({ ...init, channel: "yes" })).toBeNull();
     expect(readInit("plisto:vis-init")).toBeNull();
   });
 

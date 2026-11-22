@@ -1572,6 +1572,12 @@ export type PluginInstallErrorCode =
   | "needs_reinstall"
   | "busy";
 
+/** The rejection of a feed recording save. Mirrors SaveError in plugin_vis_record.rs. */
+export interface PluginVisRecordError {
+  code: "not_main" | "dev_mode_off" | "invalid_id" | "not_installed" | "too_large" | "not_json" | "io";
+  detail: string;
+}
+
 /** The rejection of an install or lifecycle command. `detail` is for logs, never for the user. */
 export interface PluginInstallError {
   code: PluginInstallErrorCode;

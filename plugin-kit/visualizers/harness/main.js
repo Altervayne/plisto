@@ -9,6 +9,7 @@
 // -- Local Imports --
 import { createAudioFeed } from "./audioFeed.js";
 import { paintBackdrop } from "./backdrop.js";
+import { mountChannelBox } from "./channel.js";
 import { buildControls, el } from "./controls.js";
 import {
   LAYOUTS,
@@ -315,6 +316,7 @@ function start(config) {
       resetSettings: () => (state.settings[state.kind] = defaultSettings(kindOf().decl)),
     },
   });
+  mountChannelBox($("channel"), () => mount?.frame ?? null);
   applyStage();
   setFeed("scripted").then(mountKind);
   requestAnimationFrame(frameStep);

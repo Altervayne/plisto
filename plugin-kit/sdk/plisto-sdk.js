@@ -199,6 +199,9 @@
       case "plisto:event":
         onAppEvent(data);
         break;
+      case "plisto:channel":
+        onChannel(data);
+        break;
       default:
         // Unknown types belong to later protocol additions and are ignored.
         break;
@@ -1612,6 +1615,59 @@
   plisto.onStream = function (callback) {
     if (typeof callback !== "function") throw new TypeError("plisto.onStream: bad callback");
     return plisto.onPluginEvent("stream", callback);
+  };
+
+  // ---- visualizer channel ----
+
+  var CHANNEL_MAX_BYTES = 16384;
+  var channelListeners = [];
+
+  // The JSON text of a message; throws a TypeError when it cannot be serialized, a RangeError when too big.
+  function channelText(data) {
+    var text;
+    try {
+      text = JSON.stringify(data);
+    } catch (e) {
+      text = undefined;
+    }
+    if (typeof text !== "string") throw new TypeError("channel data must be JSON-serializable");
+    if (new TextEncoder().encode(text).length > CHANNEL_MAX_BYTES) {
+      throw new RangeError("channel data is over " + CHANNEL_MAX_BYTES + " bytes");
+    }
+    return text;
+  }
+
+  function onChannel(data) {
+    var from = data.from && typeof data.from.kind === "string" ? { kind: data.from.kind } : { kind: "" };
+    var list = channelListeners.slice();
+    for (var i = 0; i < list.length; i++) {
+      try {
+        list[i](data.data, from);
+      } catch (e) {
+        // A throwing subscriber must not stop the others or the message loop.
+      }
+    }
+  }
+
+  /**
+   * The channel to this plugin's live visualizer frames. A message nobody receives is dropped, with no
+   * error: at most 16384 bytes of JSON and 20 a second per sending frame.
+   */
+  plisto.visualizers = {
+    send: function (data, kindId) {
+      channelText(data);
+      if (kindId !== undefined && typeof kindId !== "string") throw new TypeError("kindId must be a string");
+      var args = kindId === undefined ? { data: data } : { data: data, kind: kindId };
+      request("channel.send", args, null, null).then(noop, noop);
+    },
+    onMessage: function (callback) {
+      if (typeof callback !== "function") throw new TypeError("plisto.visualizers.onMessage: bad callback");
+      channelListeners.push(callback);
+      return function () {
+        var i = channelListeners.indexOf(callback);
+        if (i >= 0) channelListeners.splice(i, 1);
+      };
+    },
   };
 
   window.plisto = plisto;

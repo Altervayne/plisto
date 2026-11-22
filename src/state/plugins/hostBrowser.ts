@@ -47,5 +47,6 @@ export function browserHostDeps(): HostDeps {
       if (crashed) useSidebarState.getState().drop(pluginId);
     },
     granted: (pluginId) => usePluginsStore.getState().rows.find((row) => row.id === pluginId)?.granted ?? [],
+    devMode: () => usePluginsStore.getState().devMode,
   };
 }

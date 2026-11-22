@@ -150,6 +150,16 @@ describe("still mount", () => {
     expect(f.removed()).toBe(1);
   });
 
+  it("never carries the channel in its init, even for a plugin with a page", async () => {
+    const row = visRow("com.example.rings", "Rings", [decl()]);
+    usePluginsStore.setState({ rows: [{ ...row, manifest: { ...row.manifest!, entry: "index.html" } }] });
+    const f = fake();
+    renderPluginStill(pluginVisualizer(KIND)!, context(), { env: f.env });
+    await vi.waitFor(() => expect(f.env.attach).toHaveBeenCalled());
+    f.load();
+    expect((f.received[0].init as { channel?: boolean }).channel).toBe(false);
+  });
+
   it("never reports shown, never takes part in the stage and never writes a trial itself", async () => {
     const f = fake();
     const render = renderPluginStill(pluginVisualizer(KIND)!, context(), { env: f.env });

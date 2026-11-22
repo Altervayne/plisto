@@ -3,6 +3,88 @@ var plistoVis = (function(exports) {
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
+  const VIS_API = 1;
+  const VIS_INIT_TYPE = "plisto:vis-init";
+  const CHANNEL_METHOD = "channel.send";
+  const CHANNEL_MAX_BYTES = 16384;
+  function utf8Length(text) {
+    return new TextEncoder().encode(text).length;
+  }
+  function channelText(data) {
+    let text;
+    try {
+      text = JSON.stringify(data);
+    } catch {
+      text = void 0;
+    }
+    if (typeof text !== "string") throw new TypeError("channel data must be JSON-serializable");
+    if (utf8Length(text) > CHANNEL_MAX_BYTES) {
+      throw new RangeError(`channel data is over ${CHANNEL_MAX_BYTES} bytes`);
+    }
+    return text;
+  }
+  const SIGNAL_FOLD = {
+    bands: "latest",
+    rms: "latest",
+    peak: "latest",
+    flux: "max",
+    kick: "max",
+    bass: "latest",
+    mid: "latest",
+    high: "latest",
+    level: "latest",
+    swell: "latest",
+    bassMotion: "latest",
+    midMotion: "latest",
+    highMotion: "latest",
+    beat: "max",
+    drive: "latest",
+    loudness: "latest",
+    bassHit: "max",
+    midHit: "max",
+    highHit: "max",
+    beatWeight: "max",
+    surge: "max",
+    cut: "max"
+  };
+  const MAX_CARRY = Object.keys(SIGNAL_FOLD).filter(
+    (key) => SIGNAL_FOLD[key] === "max"
+  );
+  function foldTick(held2, next) {
+    const sig = { ...next.sig };
+    for (const key of MAX_CARRY) {
+      sig[key] = Math.max(held2.sig[key], next.sig[key]);
+    }
+    return { ...next, sig, dt: held2.dt + next.dt, nBeats: held2.nBeats + next.nBeats };
+  }
+  const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+  const isCount = (v) => Number.isSafeInteger(v) && v >= 0;
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  function readInit(data) {
+    if (!isObject(data) || data.plisto !== 1 || data.type !== VIS_INIT_TYPE) return null;
+    if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
+    if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
+    if (typeof data.meter !== "boolean") return null;
+    if (data.channel !== void 0 && typeof data.channel !== "boolean") return null;
+    return data;
+  }
+  function readHostMessage(data) {
+    if (!isObject(data)) return null;
+    switch (data.type) {
+      case "tick":
+        return isCount(data.seq) && isNum(data.t) && isNum(data.dt) && data.dt >= 0 && isObject(data.sig) && isCount(data.nBeats) ? data : null;
+      case "update":
+        return isObject(data.context) ? data : null;
+      case "still":
+        return isCount(data.id) ? data : null;
+      case "meter":
+        return typeof data.on === "boolean" ? { type: "meter", on: data.on } : null;
+      case "dispose":
+        return { type: "dispose" };
+      default:
+        return null;
+    }
+  }
   const BRIDGE_PROTOCOL = 1;
   const CALL_TIMEOUT_MS = 1e4;
   class BridgeError extends Error {
@@ -16,6 +98,7 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
   function createBridgeClient(postToParent) {
     const pending = /* @__PURE__ */ new Map();
     let nextId = 1;
+    const listeners = /* @__PURE__ */ new Set();
     const post = (msg) => postToParent({ ...msg, plisto: BRIDGE_PROTOCOL });
     const call2 = (method, args = {}) => new Promise((resolve, reject) => {
       let text;
@@ -51,8 +134,22 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
         )
       );
     };
+    const channel = {
+      send(data) {
+        channelText(data);
+        call2(CHANNEL_METHOD, { data }).catch(() => {
+        });
+      },
+      onMessage(fn) {
+        listeners.add(fn);
+        return () => {
+          listeners.delete(fn);
+        };
+      }
+    };
     return {
       call: call2,
+      channel,
       log: { debug: logAt("debug"), info: logAt("info"), warn: logAt("warn"), error: logAt("error") },
       storage: {
         get: (key, fallback) => call2("storage.get", { key }).then((r) => {
@@ -72,6 +169,14 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
             return true;
           case "plisto:result":
             onResult(data);
+            return true;
+          case "plisto:channel":
+            for (const fn of [...listeners]) {
+              try {
+                fn(data.data);
+              } catch {
+              }
+            }
             return true;
           default:
             return false;
@@ -1450,69 +1555,6 @@ ${settings}
       }
     };
   }
-  const VIS_API = 1;
-  const VIS_INIT_TYPE = "plisto:vis-init";
-  const SIGNAL_FOLD = {
-    bands: "latest",
-    rms: "latest",
-    peak: "latest",
-    flux: "max",
-    kick: "max",
-    bass: "latest",
-    mid: "latest",
-    high: "latest",
-    level: "latest",
-    swell: "latest",
-    bassMotion: "latest",
-    midMotion: "latest",
-    highMotion: "latest",
-    beat: "max",
-    drive: "latest",
-    loudness: "latest",
-    bassHit: "max",
-    midHit: "max",
-    highHit: "max",
-    beatWeight: "max",
-    surge: "max",
-    cut: "max"
-  };
-  const MAX_CARRY = Object.keys(SIGNAL_FOLD).filter(
-    (key) => SIGNAL_FOLD[key] === "max"
-  );
-  function foldTick(held2, next) {
-    const sig = { ...next.sig };
-    for (const key of MAX_CARRY) {
-      sig[key] = Math.max(held2.sig[key], next.sig[key]);
-    }
-    return { ...next, sig, dt: held2.dt + next.dt, nBeats: held2.nBeats + next.nBeats };
-  }
-  const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-  const isCount = (v) => Number.isSafeInteger(v) && v >= 0;
-  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
-  function readInit(data) {
-    if (!isObject(data) || data.plisto !== 1 || data.type !== VIS_INIT_TYPE) return null;
-    if (!isCount(data.api) || typeof data.kind !== "string" || !isObject(data.context)) return null;
-    if (!isObject(data.composite) || !isObject(data.needs) || !Array.isArray(data.settingShapes)) return null;
-    if (typeof data.meter !== "boolean") return null;
-    return data;
-  }
-  function readHostMessage(data) {
-    if (!isObject(data)) return null;
-    switch (data.type) {
-      case "tick":
-        return isCount(data.seq) && isNum(data.t) && isNum(data.dt) && data.dt >= 0 && isObject(data.sig) && isCount(data.nBeats) ? data : null;
-      case "update":
-        return isObject(data.context) ? data : null;
-      case "still":
-        return isCount(data.id) ? data : null;
-      case "meter":
-        return typeof data.on === "boolean" ? { type: "meter", on: data.on } : null;
-      case "dispose":
-        return { type: "dispose" };
-      default:
-        return null;
-    }
-  }
   const RAF_STARVED_MS = 100;
   const IDLE_STOP_MS = 250;
   const DT_MAX = 0.05;
@@ -2270,6 +2312,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
   const call = bridge.call;
   const log = bridge.log;
   const storage = bridge.storage;
+  exports.channel = void 0;
   let current = 0;
   const refuse = (port, message) => {
     const visPort = wrapPort(port);
@@ -2295,6 +2338,7 @@ vec3 lift(vec3 c, float l) { return c / max(luma(c), 0.05) * l; }
     mounted?.dispose();
     mounted = null;
     hub = null;
+    exports.channel = init.channel === true ? bridge.channel : void 0;
     waiting?.port.close();
     waiting = null;
     if (init.api !== VIS_API) {

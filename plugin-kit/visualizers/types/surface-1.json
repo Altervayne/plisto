@@ -113,6 +113,11 @@
       "type": "(factory: (kit: Kit) => Candidate, options?: CandidateOptions | undefined) => void",
       "kind": "function"
     },
+    "channel": {
+      "type": "VisChannel | undefined",
+      "kind": "value",
+      "sha256": "eb045d78d273107348b0300c01d29b7552d622abbc6faf81b3ec55359aa9950c"
+    },
     "clamp01": {
       "type": "(v: number) => number",
       "kind": "function"
@@ -256,6 +261,7 @@
     "StageMeter@src/visRuntime/meter.ts": "export interface StageMeter {\n    frame: () => void;\n    dispose: () => void;\n}",
     "Target@src/components/player/visualizers/gl/kit.ts": "export interface Target {\n    tex: WebGLTexture;\n    fbo: WebGLFramebuffer;\n    w: number;\n    h: number;\n}",
     "Trail@src/components/player/visualizers/gl/kit.ts": "export interface Trail {\n    decay: number;\n    zoom: number;\n    rot: number;\n}",
+    "VisChannel@src/visRuntime/bridgeClient.ts": "export interface VisChannel {\n    send: (data: unknown) => void;\n    onMessage: (fn: (data: unknown) => void) => () => void;\n}",
     "VisColors@src/visRuntime/protocol.ts": "export interface VisColors {\n    ground: VisRgb;\n    backing: VisRgb;\n    ink: VisRgb;\n}",
     "VisContext@src/visRuntime/protocol.ts": "export interface VisContext {\n    layout: VisLayout;\n    palette: Float32Array;\n    cover: ImageBitmap | null;\n    colors: VisColors;\n    light: boolean;\n    reactivity: \"calm\" | \"balanced\" | \"lively\";\n    ambient: boolean;\n    reducedMotion: boolean;\n    settings: Record<string, VisSettingValue>;\n}",
     "VisFrame@src/visRuntime/frame.ts": "export interface VisFrame extends Frame {\n    settings: Record<string, VisSettingValue>;\n    rawBands: number[];\n    nBeats: number;\n    beatAt: number | null;\n    trackSeq: number;\n    pointer: VisPointer | null;\n    wave: Float32Array | null;\n    colors: VisColors;\n}",

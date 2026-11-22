@@ -45,8 +45,8 @@ async function bundle() {
 const STRING_TABLES = ["src/i18n/en.ts", "src/i18n/fr.ts"];
 
 // Words the tables also hold as search keywords that are names in the runtime's own api: the host's
-// `update` message, the scene pass blend `add` and the log level `debug`.
-const API_WORDS = new Set(["update", "add", "debug"]);
+// `update` message, the frame's `flash` message, the scene pass blend `add` and the log level `debug`.
+const API_WORDS = new Set(["update", "flash", "add", "debug"]);
 
 // Every string value in the string tables, found with the TypeScript parser.
 function uiStrings() {

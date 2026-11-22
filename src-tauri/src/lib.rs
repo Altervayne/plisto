@@ -661,6 +661,7 @@ pub fn run() {
             commands::plugin_vis::plugin_vis_trial_end,
             commands::plugin_vis::plugin_vis_thumb_put,
             commands::plugin_vis::plugin_vis_thumb_get,
+            commands::plugin_vis_record::plugin_vis_record_save,
             commands::plugins::plugins_list,
             commands::plugins::plugins_boot_state,
             commands::plugins::plugins_resolve_boot,

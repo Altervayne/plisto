@@ -11,6 +11,8 @@ const PLUGINS: &str = "plugins";
 const PLUGINS_DATA: &str = "plugins-data";
 // Per-plugin visualizer records, apart from the code folder because that folder is hashed.
 const PLUGINS_VIS: &str = "plugins-vis";
+// Developer-mode feed recordings, inside the plugin's data folder.
+const PLUGIN_FEEDS: &str = "feeds";
 const PLUGIN_KV: &str = "kv.json";
 const PLUGIN_KV_BAD: &str = "kv.json.bad";
 const PLUGIN_LOG: &str = "plugin.log";
@@ -51,6 +53,11 @@ pub fn plugin_dir(app_data: &Path, id: &str) -> PathBuf {
 /// A plugin's persistent data folder, kept outside its code folder so an update never touches it.
 pub fn data_dir(app_data: &Path, id: &str) -> PathBuf {
     app_data.join(PLUGINS_DATA).join(id)
+}
+
+/// Where a plugin's developer-mode feed recordings are saved.
+pub fn feeds_dir(app_data: &Path, id: &str) -> PathBuf {
+    data_dir(app_data, id).join(PLUGIN_FEEDS)
 }
 
 /// The folder holding every plugin's visualizer store.
@@ -216,6 +223,7 @@ mod tests {
             root.join("plugins-data").join("com.a.b")
         );
         let data = root.join("plugins-data").join("com.a.b");
+        assert_eq!(feeds_dir(root, "com.a.b"), data.join("feeds"));
         assert_eq!(kv_file(root, "com.a.b"), data.join("kv.json"));
         assert_eq!(kv_bad_file(root, "com.a.b"), data.join("kv.json.bad"));
         assert_eq!(log_file(root, "com.a.b"), data.join("plugin.log"));

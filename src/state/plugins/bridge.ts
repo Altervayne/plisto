@@ -67,7 +67,8 @@ export type SocketDelivery =
 /**
  * Every message the host sends a frame. `plisto:plugin-event` carries a native plugin's page event and
  * the owner-only stream channel; `plisto:event` carries the app event topics a frame subscribed to. Both
- * exist in this direction only: the router never accepts either from a frame.
+ * exist in this direction only: the router never accepts either from a frame. `plisto:channel` is a
+ * relayed channel message; `from` names the sending visualizer kind when a page receives it.
  */
 export type HostToFrame =
   | ({ plisto: 1; type: "plisto:stream" } & StreamDelivery)
@@ -88,7 +89,8 @@ export type HostToFrame =
   | { plisto: 1; type: "plisto:sidebar"; item_id: string; value: boolean | null; gesture: string }
   | { plisto: 1; type: "plisto:route"; route: string | null }
   | { plisto: 1; type: "plisto:plugin-event"; topic: string; data: unknown }
-  | { plisto: 1; type: "plisto:event"; topic: string; data: unknown };
+  | { plisto: 1; type: "plisto:event"; topic: string; data: unknown }
+  | { plisto: 1; type: "plisto:channel"; data: unknown; from?: { kind: string } };
 
 /**
  * What a frame is for. Page and background frames are both `page`. A visualizer frame is mapped so its
@@ -355,4 +357,11 @@ export function streamMsg(delivery: StreamDelivery): HostToFrame {
 
 export function socketMsg(delivery: SocketDelivery): HostToFrame {
   return { plisto: PROTOCOL, type: "plisto:socket", ...delivery };
+}
+
+/** A channel message relayed from another frame of the same plugin. */
+export function channelMsg(data: unknown, from?: { kind: string }): HostToFrame {
+  return from
+    ? { plisto: PROTOCOL, type: "plisto:channel", data, from }
+    : { plisto: PROTOCOL, type: "plisto:channel", data };
 }

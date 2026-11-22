@@ -15,13 +15,17 @@ import {
   type VisPointer,
 } from "../../../visRuntime/protocol";
 import { createContextSync } from "./contextDiff";
+import { pluginHasPage } from "./channel";
 import { createFeed, liveSources, type Feed, type FeedSources } from "./feed";
+import { bindFeedTap } from "./feedTap";
+import { stageChanged } from "./frameCache";
 import { createTransport, type HostPort, type Transport, type TransportStats } from "./transport";
 import { createVisibilityState, type VisibilityInputs } from "./visibility";
 
 // -- Type Imports --
 import type { PluginVisualizerDescriptor } from "../pluginVisualizers";
 import type { Reactivity } from "../visualizerKind";
+import type { Tick } from "../../../visRuntime/protocol";
 
 /** Where a mount stands: compiling, compiling past the slow mark, drawing, given up on, or failed. */
 export type StagePhase = "mounting" | "slow" | "ready" | "dropped" | "failed";
@@ -51,6 +55,8 @@ export interface StageMountOptions {
   channel?: () => StageChannel;
   // Whether the flash meter runs from init; read once, at start.
   meter?: () => boolean;
+  // Whether the plugin has a page or background frame for the channel; read once, at start.
+  pageChannel?: () => boolean;
   // The frame answered a still request; the bitmap is null when it refused.
   onStill?: (id: number, bitmap: ImageBitmap | null, error: string | undefined) => void;
 }
@@ -108,6 +114,7 @@ export function stageInit(
   descriptor: PluginVisualizerDescriptor,
   context: VisContext,
   meter = false,
+  channel = false,
 ): VisInit {
   return {
     plisto: 1,
@@ -123,6 +130,7 @@ export function stageInit(
         : { id: s.id, type: s.type },
     ),
     meter,
+    channel,
     context,
   };
 }
@@ -146,6 +154,7 @@ export function createStageMount(options: StageMountOptions): StageMount {
   // posted before the frame took the switch arrives ahead of that ack.
   let switchedAt: number | null = null;
   let held = false;
+  const tapped = new Set<(tick: Tick) => void>();
 
   const freshFlash = () =>
     meterOn && (switchedAt === null || (transport?.stats().acked ?? 0) > switchedAt);
@@ -174,19 +183,25 @@ export function createStageMount(options: StageMountOptions): StageMount {
   const slowTimer = setTimeout(() => enter("slow"), SLOW_MS);
   const giveUpTimer = setTimeout(() => enter("dropped"), GIVE_UP_MS);
 
-  return {
+  const mount: StageMount = {
     start(post) {
       if (transport || ended) return;
       const channel = (options.channel ?? messageChannel)();
       transport = createTransport({
         port: channel.host,
         isVisible: () => view.visible() && !held,
+        onSend: (tick) => tapped.forEach((listener) => listener(tick)),
         onFrameMessage: (message) => {
           if (message.type === "ready") {
+            const before = metered;
             metered = message.metered;
+            if (before !== metered) stageChanged();
             enter("ready");
           }
-          if (message.type === "metered") metered = true;
+          if (message.type === "metered" && metered !== true) {
+            metered = true;
+            stageChanged();
+          }
           if (message.type === "still") options.onStill?.(message.id, message.bitmap, message.error);
           if (message.type === "flash" && freshFlash()) flash ??= message.reading;
           if ((message.type === "error" || message.type === "lost") && !ended) {
@@ -199,7 +214,8 @@ export function createStageMount(options: StageMountOptions): StageMount {
       const sent = transport;
       contextSync = createContextSync(initial, (message) => sent.post(message));
       meterOn = options.meter?.() ?? false;
-      post(stageInit(descriptor, initial, meterOn), channel.frame);
+      const hasPage = (options.pageChannel ?? (() => pluginHasPage(descriptor.pluginId)))();
+      post(stageInit(descriptor, initial, meterOn, hasPage), channel.frame);
     },
     step(nowMs) {
       if (ended) return;
@@ -233,4 +249,11 @@ export function createStageMount(options: StageMountOptions): StageMount {
       release();
     },
   };
+  bindFeedTap(mount.stats, (listener) => {
+    tapped.add(listener);
+    return () => {
+      tapped.delete(listener);
+    };
+  });
+  return mount;
 }
