@@ -111,11 +111,12 @@ describe("catalogFamilies", () => {
 });
 
 describe("registry and sections", () => {
-  it("files the catalog row under a Visualizers section after Sound", () => {
+  it("files the catalog and stop-flashing rows under a Visualizers section after Sound", () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id);
     expect(ids.indexOf("visualizers")).toBe(ids.indexOf("sound") + 1);
     expect(SETTINGS_REGISTRY.filter((e) => e.section === "visualizers").map((e) => e.id)).toEqual([
       "visualizerCatalog",
+      "visualizerStopFlashing",
     ]);
   });
 
@@ -126,11 +127,12 @@ describe("registry and sections", () => {
 });
 
 describe("VisualizersSection", () => {
-  it("stamps the section and the one catalog row, with a switch per kind and per family", () => {
+  it("stamps the section, the catalog row with its kind and family switches, and the flash row", () => {
     const html = renderToStaticMarkup(<VisualizersSection />);
     expect(html).toContain('data-settings-section="visualizers"');
     expect(html).toContain('data-setting-id="visualizerCatalog"');
-    expect((html.match(/role="switch"/g) ?? []).length).toBe(ALL_KINDS.length + GROUP_ORDER.length);
+    expect(html).toContain('data-setting-id="visualizerStopFlashing"');
+    expect((html.match(/role="switch"/g) ?? []).length).toBe(ALL_KINDS.length + GROUP_ORDER.length + 1);
     expect(html).toContain(`${ALL_KINDS.length} of ${ALL_KINDS.length} on`);
   });
 
@@ -179,7 +181,8 @@ describe("VisualizersSection", () => {
     const html = renderToStaticMarkup(<VisualizersSection />);
     expect(html).toContain(en.settings.visualizersFailed);
     expect(html).toContain(en.settings.visualizersRetry);
-    const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
+    const stopFlashing = `aria-label="${en.settings.visualizersStopFlashing}"`;
+    const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!.filter((s) => !s.includes(stopFlashing));
     expect(switches.every((s) => s.includes("disabled"))).toBe(true);
   });
 

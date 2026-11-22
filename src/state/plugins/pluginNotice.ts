@@ -43,10 +43,16 @@ export function dismissPluginNotice(): void {
   publish({ notice: snapshot.notice, visible: false });
 }
 
+function sameNotice(a: PluginNotice, b: PluginNotice): boolean {
+  if (a.id !== b.id || a.kind !== b.kind) return false;
+  if (a.kind !== "visualizer_stopped" || b.kind !== "visualizer_stopped") return true;
+  return a.visualizer === b.visualizer && a.cause === b.cause;
+}
+
 /** Shows a notice, unless the same one is already showing. */
 export function showPluginNotice(notice: PluginNotice): void {
   const current = snapshot.notice;
-  if (snapshot.visible && current && current.id === notice.id && current.kind === notice.kind) return;
+  if (snapshot.visible && current && sameNotice(current, notice)) return;
   if (timer != null) clearTimeout(timer);
   timer = setTimeout(dismissPluginNotice, TOAST_VISIBLE_MS);
   publish({ notice, visible: true });

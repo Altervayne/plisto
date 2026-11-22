@@ -1485,7 +1485,12 @@ export type PluginStatus = PluginHostState & {
 export type PluginNotice =
   | { id: string; kind: "auto_disabled" }
   /** Raised by the frontend after the user took the output back; `id` is null when the holder is unknown. */
-  | { id: string | null; kind: "takeover_returned" };
+  | { id: string | null; kind: "takeover_returned" }
+  /** Raised by the frontend when it stops a plugin visualizer kind; `visualizer` is the kind id. */
+  | { id: string; kind: "visualizer_stopped"; visualizer: string; cause: VisualizerStopCause };
+
+/** Why Plisto stopped a plugin visualizer kind. */
+export type VisualizerStopCause = "hang" | "slow" | "graphics_reset" | "flashing";
 
 /** What the review sheet shows before an install or update. Mirrors Inspection in install.rs. */
 export interface PluginInspection {

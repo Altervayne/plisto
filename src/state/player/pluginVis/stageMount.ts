@@ -9,6 +9,7 @@
 import {
   VIS_API,
   VIS_INIT_TYPE,
+  type FlashReading,
   type VisContext,
   type VisInit,
   type VisPointer,
@@ -48,6 +49,8 @@ export interface StageMountOptions {
   pointer?: () => VisPointer | null;
   sources?: FeedSources;
   channel?: () => StageChannel;
+  // Whether the flash meter runs from init; read once, at start.
+  meter?: () => boolean;
 }
 
 export interface StageMount {
@@ -62,6 +65,14 @@ export interface StageMount {
   visible: () => boolean;
   // Null until started.
   stats: () => TransportStats | null;
+  // Whether a canvas is registered for the meter: null until ready, then from ready or a late `metered`.
+  metered: () => boolean | null;
+  // The reading the meter posted when it tripped since it was last switched, else null.
+  flash: () => FlashReading | null;
+  // Switches the meter of a started mount, dropping any reading; a change before start reaches init.
+  setMeter: (on: boolean) => void;
+  // Withholds ticks while on, as a hidden slot does; `visible` is unchanged.
+  hold: (on: boolean) => void;
   // Gives the mount up with no fault mark, as the limit does.
   end: () => void;
   dispose: () => void;
@@ -89,7 +100,11 @@ function messageChannel(): StageChannel {
 }
 
 /** The init for a kind: its look, needs and setting shapes, at the declared setting defaults. */
-export function stageInit(descriptor: PluginVisualizerDescriptor, context: VisContext): VisInit {
+export function stageInit(
+  descriptor: PluginVisualizerDescriptor,
+  context: VisContext,
+  meter = false,
+): VisInit {
   return {
     plisto: 1,
     type: VIS_INIT_TYPE,
@@ -103,7 +118,7 @@ export function stageInit(descriptor: PluginVisualizerDescriptor, context: VisCo
         ? { id: s.id, type: s.type, options: s.options.map((o) => o.id) }
         : { id: s.id, type: s.type },
     ),
-    meter: false,
+    meter,
     context,
   };
 }
@@ -125,6 +140,16 @@ export function createStageMount(options: StageMountOptions): StageMount {
   let transport: Transport | null = null;
   let contextSync: ReturnType<typeof createContextSync> | null = null;
   let ended = false;
+  let meterOn = false;
+  let metered: boolean | null = null;
+  let flash: FlashReading | null = null;
+  // Ticks sent when the meter was last switched. A reading counts only once a later tick is acked, as one
+  // posted before the frame took the switch arrives ahead of that ack.
+  let switchedAt: number | null = null;
+  let held = false;
+
+  const freshFlash = () =>
+    meterOn && (switchedAt === null || (transport?.stats().acked ?? 0) > switchedAt);
 
   const release = () => {
     clearTimeout(slowTimer);
@@ -156,9 +181,14 @@ export function createStageMount(options: StageMountOptions): StageMount {
       const channel = (options.channel ?? messageChannel)();
       transport = createTransport({
         port: channel.host,
-        isVisible: view.visible,
+        isVisible: () => view.visible() && !held,
         onFrameMessage: (message) => {
-          if (message.type === "ready") enter("ready");
+          if (message.type === "ready") {
+            metered = message.metered;
+            enter("ready");
+          }
+          if (message.type === "metered") metered = true;
+          if (message.type === "flash" && freshFlash()) flash ??= message.reading;
           if ((message.type === "error" || message.type === "lost") && !ended) {
             enter("failed");
             onFail();
@@ -168,7 +198,8 @@ export function createStageMount(options: StageMountOptions): StageMount {
       const initial = context();
       const sent = transport;
       contextSync = createContextSync(initial, (message) => sent.post(message));
-      post(stageInit(descriptor, initial), channel.frame);
+      meterOn = options.meter?.() ?? false;
+      post(stageInit(descriptor, initial, meterOn), channel.frame);
     },
     step(nowMs) {
       if (ended) return;
@@ -182,6 +213,18 @@ export function createStageMount(options: StageMountOptions): StageMount {
     phase: () => phase,
     visible: view.visible,
     stats: () => transport?.stats() ?? null,
+    metered: () => metered,
+    flash: () => flash,
+    setMeter(on) {
+      if (!transport || ended || on === meterOn) return;
+      meterOn = on;
+      flash = null;
+      switchedAt = transport.stats().sent;
+      transport.post({ type: "meter", on });
+    },
+    hold(on) {
+      held = on;
+    },
     end: () => enter("dropped"),
     dispose() {
       if (ended) return;

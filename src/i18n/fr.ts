@@ -730,6 +730,9 @@ export const fr: Dict = {
     visualizersLastOn: "Au moins un visualiseur doit rester activé.",
     visualizersFlashLine:
       "Certains visualiseurs réagissent à la musique par des flashs lumineux et des mouvements rapides, surtout dans Cyber et Cosmique. Cosy est plus calme, et régler la réactivité sur Calme réduit leur réaction. En cas de malaise, arrêtez et consultez un médecin.",
+    visualizersStopFlashing: "Arrêter les visualiseurs de plugins qui font des flashs",
+    visualizersStopFlashingHint:
+      "Plisto surveille les visualiseurs de plugins et arrête celui qui fait des flashs. Désactivé par défaut.",
     sectionAppearance: "Apparence et langue",
     sectionSystem: "Système",
     closeBehavior: "À la fermeture de la fenêtre",
@@ -880,6 +883,7 @@ export const fr: Dict = {
     preamp: ["gain", "amplification", "marge"],
     levelLoudness: ["replaygain", "volume", "normalisation"],
     visualizerCatalog: ["visualiseur", "visualisation", "classiques", "points", "fluides", "cosy", "cyber", "cosmique", "masquer", "désactiver", "sélecteur"],
+    visualizerStopFlashing: ["flash", "photosensible", "épilepsie", "plugin", "arrêter", "crise"],
     theme: ["mode sombre", "mode clair", "couleur", "apparence"],
     language: ["anglais", "français", "traduction"],
     closeBehavior: ["zone de notification", "quitter", "réduire"],
@@ -1302,6 +1306,7 @@ export const fr: Dict = {
     visualizerFootOverride: "Mis de côté jusqu'au prochain album",
     visualizerFallbackCover: "Sans pochette : affiché en {ridge}",
     visualizerFallbackGl: "Indisponible ici : affiché en {ridge}",
+    visualizerFallbackLoading: "Chargement en cours : affiché en {ridge}",
     visualizerToastSuffix: " - cet album seulement",
     visualizerMenu: "Visualiseur...",
     visualizerHeader: "Visualiseur pour {name}",
@@ -1642,6 +1647,10 @@ export const fr: Dict = {
       noticeShow: "Afficher",
       noticeTakeoverReturned: "{name} a arrêté la diffusion. Les haut-parleurs de Plisto rejouent le son.",
       noticeTakeoverReturnedUnknown: "Diffusion arrêtée. Les haut-parleurs de Plisto rejouent le son.",
+      noticeVisHang: "{name} ne répond plus : affichage de {fallback}",
+      noticeVisSlow: "{name} est trop lent ici : affichage de {fallback}",
+      noticeVisReset: "{name} a provoqué une réinitialisation graphique et a été arrêté",
+      noticeVisFlash: "{name} a été arrêté pour cause de flashs",
     },
     safeOffer: {
       title: "Plisto s'est fermé de façon inattendue",

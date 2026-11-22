@@ -58,6 +58,8 @@ export const PREF_KEYS = {
   // The visualizer kinds and families turned off, a JSON blob.
   playerVisualizerCatalog: "player_visualizer_catalog",
   playerVisualizerReactivity: "player_visualizer_reactivity",
+  // "1" when plugin visualizers that flash are stopped; absent reads off.
+  playerVisualizerStopFlashing: "player_visualizer_stop_flashing",
   playerSpectrumLayout: "player_spectrum_layout",
   // The resume-on-launch blob: the library queue, current track, position, volume and repeat.
   playerResume: "player_resume",
@@ -271,6 +273,18 @@ export const usePlayerVisualizerReactivity = (): Reactivity =>
 export const useSetPlayerVisualizerReactivity = (): ((level: Reactivity) => void) => {
   const setPreference = useSetPreference();
   return (level) => setPreference(PREF_KEYS.playerVisualizerReactivity, level);
+};
+
+/** Whether plugin visualizers that flash are stopped. Off by default: only an explicit "1" turns it on. */
+export const selectStopFlashing = (s: { values: Record<string, string> }): boolean =>
+  s.values[PREF_KEYS.playerVisualizerStopFlashing] === "1";
+
+export const usePlayerVisualizerStopFlashing = (): boolean => usePreferencesStore(selectStopFlashing);
+
+/** Flips the stop-flashing pref. Best-effort persist like every other pref. */
+export const useSetPlayerVisualizerStopFlashing = (): ((on: boolean) => void) => {
+  const setPreference = useSetPreference();
+  return (on) => setPreference(PREF_KEYS.playerVisualizerStopFlashing, on ? "1" : "0");
 };
 
 /** How the dot spectrum lays out its columns. An absent or unknown pref reads bass-left. */

@@ -18,6 +18,7 @@ import {
   reportPhase,
   type StageSurface,
 } from "../../../../state/player/pluginVis/frameCache";
+import { meterWanted } from "../../../../state/player/pluginVis/netPolicy";
 import type { PluginVisualizerDescriptor } from "../../../../state/player/pluginVisualizers";
 
 // -- IPC Imports --
@@ -114,6 +115,7 @@ export function usePluginStageMount(props: PluginStageProps, mountKey: string): 
         setPhase(next);
       },
       onFail: () => live.current.onFail(),
+      meter: () => meterWanted(kind),
     });
     mountRef.current = mount;
     reportPhase(surface, kind, "mounting");
@@ -122,8 +124,14 @@ export function usePluginStageMount(props: PluginStageProps, mountKey: string): 
       kind,
       phase: mount.phase,
       visible: mount.visible,
+      shown: () => live.current.shown,
       stats: mount.stats,
       url: () => iframeRef.current?.src || null,
+      metered: mount.metered,
+      flash: mount.flash,
+      setMeter: mount.setMeter,
+      hold: mount.hold,
+      end: mount.end,
     });
 
     let raf = 0;

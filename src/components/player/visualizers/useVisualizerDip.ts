@@ -8,6 +8,7 @@ import type { VisualizerKind } from "../../../state/player/visualizerKind";
 import { isPluginKindId, pluginVisualizer } from "../../../state/player/pluginVisualizers";
 import { stageAim, usePluginPhase, wantFrame } from "../../../state/player/pluginVis/frameCache";
 import type { StageSurface } from "../../../state/player/pluginVis/frameCache";
+import { useKindStopped } from "../../../state/player/pluginVis/netPolicy";
 
 // The longest step one frame may take, so a stalled frame never jumps the dip.
 const MAX_DT = 0.05;
@@ -18,7 +19,7 @@ const MAX_DT = 0.05;
  * visualizer layers and the queue plate read it, so the dip never re-renders the stage. The frame loop
  * runs only while the dip moves, and a reduced-motion preference swaps at once. A plugin kind is aimed at
  * through its frame on this `surface`: the outgoing kind holds until that frame draws, and the fallback
- * stands in while it is slow or gone.
+ * stands in while it is slow or gone, or once the stage nets stopped the kind.
  */
 export function useVisualizerDip(
   stageRef: RefObject<HTMLElement | null>,
@@ -30,9 +31,14 @@ export function useVisualizerDip(
   surface: StageSurface,
 ): void {
   const phase = usePluginPhase(surface, aimed);
+  const stopped = useKindStopped(aimed);
   // Keeps the frame mounting while the fallback shows, so a late first frame can still swap in.
-  useEffect(() => (isPluginKindId(aimed) ? wantFrame(surface, aimed) : undefined), [surface, aimed]);
-  const { target, ready } = stageAim(aimed, aimedReady, phase, pluginVisualizer(aimed) !== undefined);
+  useEffect(
+    () => (isPluginKindId(aimed) && !stopped ? wantFrame(surface, aimed) : undefined),
+    [surface, aimed, stopped],
+  );
+  const known = pluginVisualizer(aimed) !== undefined && !stopped;
+  const { target, ready } = stageAim(aimed, aimedReady, phase, known);
   const dip = useRef<DipState | null>(null);
   if (dip.current == null) dip.current = createDip(shown);
 

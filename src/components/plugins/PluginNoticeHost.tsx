@@ -13,9 +13,15 @@ import {
 } from "../../state/plugins/pluginNotice";
 import { usePlugins } from "../../state/plugins/store";
 import { openPluginHub } from "../../state/shell/store";
+import { STAGE_FALLBACK } from "../../state/player/pluginVis/frameCache";
+import { pluginVisualizer } from "../../state/player/pluginVisualizers";
+
+// -- Utils Imports --
+import { kindName } from "../player/visualizers/kindName";
 
 // -- Type Imports --
-import type { PluginNotice } from "../../types";
+import type { PluginNotice, VisualizerStopCause } from "../../types";
+import type { Dict } from "../../i18n/en";
 
 // -- i18n Imports --
 import { useT } from "../../i18n";
@@ -23,11 +29,18 @@ import { useT } from "../../i18n";
 // -- Style Imports --
 import styles from "./PluginNoticeHost.module.css";
 
+const STOP_LINE: Record<VisualizerStopCause, (d: Dict) => string> = {
+  hang: (d) => d.plugins.status.noticeVisHang,
+  slow: (d) => d.plugins.status.noticeVisSlow,
+  graphics_reset: (d) => d.plugins.status.noticeVisReset,
+  flashing: (d) => d.plugins.status.noticeVisFlash,
+};
+
 /**
  * Plisto's own toast for a plugin it turned off after repeated crashes: the plugin's name, the sentence
- * and a Show action that opens its row in Settings. This is the common pill, not the plugin toast, so
- * nothing in it is plugin-authored beyond the manifest name drawn as text. The last notice stays through
- * the fade-out.
+ * and a Show action that opens its row in Settings; also the line for a visualizer kind Plisto stopped.
+ * This is the common pill, not the plugin toast, so nothing in it is plugin-authored beyond declared names
+ * drawn as text. The last notice stays through the fade-out.
  */
 export function PluginNoticeHost() {
   const t = useT();
@@ -41,6 +54,16 @@ export function PluginNoticeHost() {
   const shown = notice ?? last.current;
   if (!shown) return null;
   const name = shown.id == null ? null : (rows.find((row) => row.id === shown.id)?.manifest?.name ?? shown.id);
+
+  if (shown.kind === "visualizer_stopped") {
+    const kind = pluginVisualizer(shown.visualizer)?.name ?? shown.visualizer;
+    const vars = { name: kind, fallback: kindName(STAGE_FALLBACK, t) };
+    return (
+      <Toast visible={visible} className={styles.pill}>
+        <span className={styles.text}>{t(STOP_LINE[shown.cause], vars)}</span>
+      </Toast>
+    );
+  }
 
   if (shown.kind === "takeover_returned") {
     return (

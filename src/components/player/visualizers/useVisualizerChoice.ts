@@ -19,7 +19,7 @@ import { isPendingPluginKind } from "../../../state/player/pluginVisualizers";
 import { usePluginsListed, usePluginsStore } from "../../../state/plugins/store";
 import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
 import type { DipReason } from "../../../state/player/visualizerDip";
-import type { StageSurface } from "../../../state/player/pluginVis/frameCache";
+import { usePluginPhase, type StageSurface } from "../../../state/player/pluginVis/frameCache";
 import type { DefaultTier, VisualizerSource } from "../../../state/player/visualizerResolve";
 import { isDarkTheme, subscribeTheme } from "../../../theme";
 import {
@@ -145,7 +145,9 @@ export function useVisualizerChoice(
     : preview == null
       ? target
       : dipTarget(picked, failed === picked, state).target;
-  const fallback = fallbackOf(picked, pickedTarget, failed === picked);
+  // A plugin pick past the slow mark shows the fallback while it compiles on.
+  const loading = usePluginPhase(surface, picked) === "slow" && allowed && preview == null;
+  const fallback = loading ? "loading" : fallbackOf(picked, pickedTarget, failed === picked);
   return {
     picked,
     source,

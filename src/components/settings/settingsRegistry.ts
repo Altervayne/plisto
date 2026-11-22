@@ -27,6 +27,7 @@ export type SettingId =
   | "preamp"
   | "levelLoudness"
   | "visualizerCatalog"
+  | "visualizerStopFlashing"
   | "theme"
   | "language"
   | "closeBehavior"
@@ -163,6 +164,13 @@ export const SETTINGS_REGISTRY: readonly SettingEntry[] = [
     label: (d) => d.settings.visualizerCatalog,
     sublabel: (d) => d.settings.visualizersHelper,
     synonyms: (d) => d.settingsIndex.visualizerCatalog,
+  },
+  {
+    id: "visualizerStopFlashing",
+    section: "visualizers",
+    label: (d) => d.settings.visualizersStopFlashing,
+    sublabel: (d) => d.settings.visualizersStopFlashingHint,
+    synonyms: (d) => d.settingsIndex.visualizerStopFlashing,
   },
   {
     id: "theme",

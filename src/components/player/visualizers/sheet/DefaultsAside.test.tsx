@@ -19,6 +19,7 @@ import {
   type TrackPlace,
 } from "../../../../state/player/visualizerResolve";
 import type { VisualizerResolution } from "../useVisualizerResolution";
+import type { VisualizerFallback } from "../visualizerTarget";
 
 // A static render reads a store's initial state; hooks read the live state instead.
 vi.mock("zustand", async (orig) => {
@@ -62,10 +63,10 @@ function resolvedOf(patch: Partial<ResolveInput>): VisualizerResolution {
 const off = (...kinds: string[]) => buildCatalog(serializeCatalog({ kinds, groups: [] }), false);
 
 /** The element tree the aside returns, with its hooks run inside a render. */
-function treeOf(resolved: VisualizerResolution): Node[] {
+function treeOf(resolved: VisualizerResolution, fallback: VisualizerFallback | null = null): Node[] {
   let out: Node[] = [];
   function Probe() {
-    out = elements(DefaultsAside({ resolved, fallback: null }));
+    out = elements(DefaultsAside({ resolved, fallback }));
     return null;
   }
   renderToStaticMarkup(<Probe />);
@@ -190,5 +191,13 @@ describe("DefaultsAside clear pill", () => {
     const tree = treeOf(resolvedOf({ trackDefault: "train", albumDefault: "nebula", override, catalog: off("train") }));
     pressClear(tree);
     expect(setTrackDefault).toHaveBeenCalledWith(3, null);
+  });
+});
+
+describe("DefaultsAside fallback line", () => {
+  it("says a plugin pick is still loading, beside the other fallback lines", () => {
+    const tree = treeOf(resolvedOf({}), "loading");
+    expect(lines(tree)).toContain("Still loading: showing Ridge");
+    expect(lines(treeOf(resolvedOf({}), "gl"))).toContain("Can't draw here: showing Ridge");
   });
 });

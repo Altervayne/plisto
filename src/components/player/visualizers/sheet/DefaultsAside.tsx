@@ -67,6 +67,7 @@ export function DefaultsAside({
   let fallbackLine: string | null = null;
   if (fallback === "cover") fallbackLine = t((d) => d.player.visualizerFallbackCover, { ridge });
   else if (fallback === "gl") fallbackLine = t((d) => d.player.visualizerFallbackGl, { ridge });
+  else if (fallback === "loading") fallbackLine = t((d) => d.player.visualizerFallbackLoading, { ridge });
 
   // The pill names its tier when it removes a turned-off default, which the line above names too.
   let clearLabel = t((d) => d.player.visualizerClearDefault);

@@ -45,7 +45,7 @@ const CONTEXT: VisContext = {
   settings: { shape: "a", glow: true },
 };
 
-function setup(needs: PluginVisualizerNeeds = NO_NEEDS) {
+function setup(needs: PluginVisualizerNeeds = NO_NEEDS, meter?: () => boolean) {
   const posted: HostMessage[] = [];
   const port: HostPort = { postMessage: (m) => posted.push(m), close: vi.fn(), onmessage: null };
   const phases: StagePhase[] = [];
@@ -71,6 +71,7 @@ function setup(needs: PluginVisualizerNeeds = NO_NEEDS) {
     pointer: () => ({ x: 0.5, y: 0.25, inside: true }),
     sources,
     channel: () => ({ host: port, frame: {} as Transferable }),
+    meter,
   });
   let init: VisInit | null = null;
   const start = () => mount.start((message) => (init = message));
@@ -215,5 +216,84 @@ describe("stage mount ticking", () => {
     s.mount.sync();
     const updates = s.posted.filter((m) => m.type === "update");
     expect(updates).toEqual([{ type: "update", context: { light: true } }]);
+  });
+});
+
+const READING = { flashesPerSec: 6, redFlashesPerSec: 0, area: 0.4 };
+
+describe("stage mount meter", () => {
+  it("starts the meter at init when it is wanted then", () => {
+    const s = setup(NO_NEEDS, () => true);
+    s.start();
+    expect(s.init()!.meter).toBe(true);
+  });
+
+  it("switches the meter of a started frame only on a change", () => {
+    const s = setup();
+    s.mount.setMeter(true);
+    s.start();
+    expect(s.init()!.meter).toBe(false);
+    s.mount.setMeter(false);
+    s.mount.setMeter(true);
+    s.mount.setMeter(true);
+    s.mount.setMeter(false);
+    expect(s.posted.filter((m) => m.type === "meter")).toEqual([
+      { type: "meter", on: true },
+      { type: "meter", on: false },
+    ]);
+  });
+
+  it("records whether the frame is metered, from ready or a late message", () => {
+    const s = setup();
+    s.start();
+    expect(s.mount.metered()).toBeNull();
+    s.say({ type: "ready", metered: false });
+    expect(s.mount.metered()).toBe(false);
+    s.say({ type: "metered" });
+    expect(s.mount.metered()).toBe(true);
+  });
+
+  it("keeps the reading the meter tripped with", () => {
+    const s = setup(NO_NEEDS, () => true);
+    s.start();
+    const reading = { flashesPerSec: 5, redFlashesPerSec: 1, area: 0.3 };
+    s.say({ type: "flash", reading });
+    s.say({ type: "flash", reading: { ...reading, flashesPerSec: 9 } });
+    expect(s.mount.flash()).toEqual(reading);
+  });
+
+  it("drops the reading on a switch, and takes none sent before the frame got the switch", () => {
+    const s = setup(NO_NEEDS, () => true);
+    s.start();
+    s.mount.setInputs({ intersecting: true });
+    s.say({ type: "ready", metered: true });
+    s.say({ type: "flash", reading: READING });
+    expect(s.mount.flash()).toEqual(READING);
+    s.mount.setMeter(false);
+    expect(s.mount.flash()).toBeNull();
+    s.say({ type: "flash", reading: READING });
+    expect(s.mount.flash()).toBeNull();
+    s.mount.setMeter(true);
+    s.say({ type: "flash", reading: READING });
+    expect(s.mount.flash()).toBeNull();
+    s.mount.step(16);
+    const [tick] = s.ticks();
+    s.say({ type: "ack", seq: tick.seq, ms: 2 });
+    s.say({ type: "flash", reading: READING });
+    expect(s.mount.flash()).toEqual(READING);
+  });
+
+  it("withholds ticks while held, with the slot still visible", () => {
+    const s = setup();
+    s.start();
+    s.mount.setInputs({ intersecting: true });
+    s.say({ type: "ready", metered: false });
+    s.mount.hold(true);
+    s.mount.step(16);
+    expect(s.ticks()).toHaveLength(0);
+    expect(s.mount.visible()).toBe(true);
+    s.mount.hold(false);
+    s.mount.step(32);
+    expect(s.ticks()).toHaveLength(1);
   });
 });

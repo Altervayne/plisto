@@ -76,6 +76,7 @@ import { useOrgStatus, usePlaylistsStatus } from "../../state/projectionStatus";
 import { useNeedsCoverCount } from "../../state/covers/store";
 import { useCloseCollectionFull, useCollectionFullAlbumId } from "../../state/collection/store";
 import { useAppMode, usePlayerStore } from "../../state/player/store";
+import { useStageNets } from "../../state/player/pluginVis/useStageNets";
 import { useRestoreGeneration } from "../../state/restorePoints/store";
 import { useHistoryLens, useSetShortcutsOpen, useShortcutsOpen } from "../../state/shell/store";
 
@@ -143,6 +144,7 @@ export function AppShell({
   const clearError = useClearError();
   const t = useT();
   useShellSync();
+  useStageNets();
   const appMode = useAppMode();
   // The library's own track count gates content-vs-empty and feeds the Files nav - it holds on boot
   // hydration (no fresh scan summary) as well as after a scan.

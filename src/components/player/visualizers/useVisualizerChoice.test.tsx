@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   dipReady: null as boolean | null,
   coverSrc: null as string | null,
   warmed: [] as string[],
+  phase: undefined as string | undefined,
 }));
 
 // A static render has no server snapshot, so the store read takes the client one.
@@ -56,6 +57,10 @@ vi.mock("./useVisualizerDip", () => ({
     h.dipReady = ready;
   },
 }));
+vi.mock("../../../state/player/pluginVis/frameCache", async (orig) => ({
+  ...(await orig<typeof import("../../../state/player/pluginVis/frameCache")>()),
+  usePluginPhase: () => h.phase,
+}));
 vi.mock("./gl/warm", () => ({ warmKind: (kind: string) => h.warmed.push(kind) }));
 vi.mock("../../../theme", () => ({ isDarkTheme: () => false, subscribeTheme: () => () => {} }));
 
@@ -79,6 +84,7 @@ beforeEach(() => {
   h.coverSrc = null;
   h.warmed = [];
   usePluginsStore.setState({ rows: [], status: "idle", listed: false });
+  h.phase = undefined;
 });
 
 describe("useVisualizerChoice gate", () => {
@@ -153,5 +159,15 @@ describe("useVisualizerChoice with a plugin kind waiting on the plugins list", (
     h.picked = "ridge";
     expect(choose().shown).toBe("ridge");
     expect(h.dipReady).toBe(true);
+  });
+
+  it("says the pick is still loading while its frame is past the slow mark", () => {
+    h.allowed = true;
+    h.picked = AURORA;
+    usePluginsStore.getState().applyRows([visRow("com.example.vis", "Example", [decl()])]);
+    h.phase = "slow";
+    expect(choose().fallback).toBe("loading");
+    h.phase = "ready";
+    expect(choose().fallback).toBeNull();
   });
 });

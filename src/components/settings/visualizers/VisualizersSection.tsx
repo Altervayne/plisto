@@ -5,6 +5,7 @@ import { RotateCw, Zap } from "lucide-react";
 import { QuietButton } from "../../common/QuietButton";
 import { SettingRow } from "../SettingRow";
 import { FamilyBlock } from "./FamilyBlock";
+import { StopFlashingRow } from "./StopFlashingRow";
 import { sectionAttr } from "../settingsSections";
 
 // -- State Imports --
@@ -66,6 +67,8 @@ export function VisualizersSection() {
           )}
         </div>
       </SettingRow>
+
+      <StopFlashingRow />
 
       <div className={styles.families}>
         {families.map((family) => (

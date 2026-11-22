@@ -35,8 +35,8 @@ export function dipTarget(
   return { target, ready: !waitingOnPixels && (!isGlKind(target) || warm(target)) };
 }
 
-/** Why a stage draws something other than the pick: no cover art, or WebGL could not draw it. */
-export type VisualizerFallback = "cover" | "gl";
+/** Why a stage draws something other than the pick: no cover art, WebGL failed, or it still loads. */
+export type VisualizerFallback = "cover" | "gl" | "loading";
 
 export function fallbackOf(picked: VisualizerKind, target: VisualizerKind, glFailed: boolean): VisualizerFallback | null {
   if (target === picked) return null;

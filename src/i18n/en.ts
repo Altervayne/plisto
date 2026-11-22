@@ -727,6 +727,9 @@ export const en = {
     visualizersLastOn: "At least one visualizer has to stay on.",
     visualizersFlashLine:
       "Some visualizers react to the music with bright flashes and fast movement, most of all in Cyber and Cosmic. Cozy is calmer, and setting Reactivity to Calm reduces how they react. If you feel unwell, stop and consult a doctor.",
+    visualizersStopFlashing: "Stop plugin visualizers that flash",
+    visualizersStopFlashingHint:
+      "Plisto watches plugin visualizers and stops one that flashes. Off by default.",
     sectionAppearance: "Appearance & language",
     sectionSystem: "System",
     closeBehavior: "When you close the window",
@@ -872,6 +875,7 @@ export const en = {
     preamp: ["gain", "headroom", "boost"],
     levelLoudness: ["replaygain", "volume", "normalise"],
     visualizerCatalog: ["visualizer", "visualization", "classic", "dots", "fluid", "cozy", "cyber", "cosmic", "hide", "turn off", "picker"],
+    visualizerStopFlashing: ["flash", "photosensitive", "epilepsy", "plugin", "stop", "seizure"],
     theme: ["dark mode", "light mode", "colour", "appearance"],
     language: ["english", "french", "locale"],
     closeBehavior: ["tray", "quit", "minimize", "exit"],
@@ -1294,6 +1298,7 @@ export const en = {
     visualizerFootOverride: "Set aside until the album changes",
     visualizerFallbackCover: "No cover art: showing {ridge}",
     visualizerFallbackGl: "Can't draw here: showing {ridge}",
+    visualizerFallbackLoading: "Still loading: showing {ridge}",
     visualizerToastSuffix: " - this album only",
     visualizerMenu: "Visualizer...",
     visualizerHeader: "Visualizer for {name}",
@@ -1622,6 +1627,10 @@ export const en = {
       noticeShow: "Show",
       noticeTakeoverReturned: "{name} stopped mirroring. Plisto's own speakers are playing again.",
       noticeTakeoverReturnedUnknown: "Mirroring stopped. Plisto's own speakers are playing again.",
+      noticeVisHang: "{name} stopped responding: showing {fallback}",
+      noticeVisSlow: "{name} is too slow here: showing {fallback}",
+      noticeVisReset: "{name} caused a graphics reset and was stopped",
+      noticeVisFlash: "{name} was stopped for flashing",
     },
     safeOffer: {
       title: "Plisto closed unexpectedly",

@@ -4,7 +4,7 @@
  * kind holds meanwhile. A stage keeps the last frame it stopped showing for a while, hidden and unticked,
  * so a quick return reuses it instead of compiling again. Aims and phases are keyed by surface and kind, so
  * each surface dips on its own frame; a given-up or failed frame keeps its phase until its surface aims at
- * the kind again, which retries it.
+ * the kind again, which retries it. A kind the stage nets hold mounts no frame at all.
  */
 
 // -- Framework Imports --
@@ -15,11 +15,13 @@ import { create } from "zustand";
 
 // -- State Imports --
 import { isPluginKindId, pluginVisualizer, type PluginKindId } from "../pluginVisualizers";
+import { useKindHeld } from "./netPolicy";
 
 // -- Type Imports --
 import type { VisualizerKind } from "../visualizerKind";
 import type { StagePhase } from "./stageMount";
 import type { TransportStats } from "./transport";
+import type { FlashReading } from "../../../visRuntime/protocol";
 
 export type StageSurface = "player" | "ambient";
 
@@ -187,7 +189,8 @@ export function keptFrames(keep: FrameKeep, gone: (kind: PluginKindId) => boolea
 export function usePluginFrames(surface: StageSurface, shown: VisualizerKind): PluginKindId[] {
   const wants = useFrameCache((s) => s.wants);
   const phases = useFrameCache((s) => s.phases);
-  const gone = (kind: PluginKindId) => ended(phases[phaseKey(surface, kind)]);
+  const held = useKindHeld();
+  const gone = (kind: PluginKindId) => ended(phases[phaseKey(surface, kind)]) || held(kind);
   const live = liveFrames(shown, wantedOn(surface, wants), gone);
   const [keep, setKeep] = useState<FrameKeep>({ live, kept: null });
   let current = keep;
@@ -216,23 +219,45 @@ export interface StageHandle {
   phase: () => StagePhase;
   // Whether the slot may be ticked now.
   visible: () => boolean;
+  // Whether this kind is the stage's shown kind.
+  shown: () => boolean;
   // Null until the frame is initialised.
   stats: () => TransportStats | null;
   // The frame's URL, or null until it is known.
   url: () => string | null;
+  // Whether a canvas is registered for the flash meter; null until the frame says.
+  metered: () => boolean | null;
+  // The flash meter's reading once it tripped, else null.
+  flash: () => FlashReading | null;
+  // Switches the frame's flash meter.
+  setMeter: (on: boolean) => void;
+  // Withholds ticks while on, as a hidden slot does, without hiding the frame.
+  hold: (on: boolean) => void;
+  // Gives the frame up with no fault mark.
+  end: () => void;
 }
 
 const handles = new Set<StageHandle>();
+const watchers = new Set<() => void>();
 
 /** Lists a mounted frame until the returned release runs. */
 export function registerStage(handle: StageHandle): () => void {
   handles.add(handle);
+  watchers.forEach((notify) => notify());
   return () => {
-    handles.delete(handle);
+    if (handles.delete(handle)) watchers.forEach((notify) => notify());
   };
 }
 
 /** Every mounted stage frame, kept ones included. */
 export function stageHandles(): readonly StageHandle[] {
   return [...handles];
+}
+
+/** Calls `notify` whenever a frame is listed or leaves, until the returned release runs. */
+export function watchStages(notify: () => void): () => void {
+  watchers.add(notify);
+  return () => {
+    watchers.delete(notify);
+  };
 }

@@ -10,6 +10,7 @@ import { applyPluginRows, type PluginKindId } from "../../../state/player/plugin
 import { isFrameWanted, reportPhase, useFrameCache } from "../../../state/player/pluginVis/frameCache";
 import type { StageSurface } from "../../../state/player/pluginVis/frameCache";
 import { GIVE_UP_MS, SLOW_MS, createStageMount } from "../../../state/player/pluginVis/stageMount";
+import { useNetPolicy } from "../../../state/player/pluginVis/netPolicy";
 import { visualizerDecl as decl, visualizerRow as visRow } from "../../../state/plugins/fixtures";
 import type { DipReason } from "../../../state/player/visualizerDip";
 import type { VisualizerKind } from "../../../state/player/visualizerKind";
@@ -120,6 +121,8 @@ beforeEach(() => {
   swaps = [];
   dip = { aimed: "nebula", ready: true, reason: "manual", shown: "nebula", surface: "player" };
   useFrameCache.setState({ wants: {}, phases: {} });
+  // The marks have been read, so a plugin kind may mount.
+  useNetPolicy.setState({ loaded: true, session: {}, marks: {}, pending: {} });
   applyPluginRows([visRow("com.example.rings", "Rings", [decl()])]);
   vi.stubGlobal("window", { matchMedia: () => ({ matches: clock.reduced }) });
   vi.stubGlobal("requestAnimationFrame", (cb: (now: number) => void) => {
@@ -226,6 +229,18 @@ describe("plugin dips", () => {
     reportPhase("ambient", RINGS, "ready");
     render();
     expect(run(400)).toEqual([300]);
+  });
+
+  it("mounts no frame and shows the fallback until the marks are read", () => {
+    useNetPolicy.setState({ loaded: false });
+    render();
+    render({ aimed: RINGS });
+    expect(isFrameWanted("player", RINGS)).toBe(false);
+    run(700);
+    expect(swaps).toEqual(["ridge"]);
+    useNetPolicy.setState({ loaded: true });
+    render();
+    expect(isFrameWanted("player", RINGS)).toBe(true);
   });
 
   it("releases the frame once nothing aims at it", () => {
