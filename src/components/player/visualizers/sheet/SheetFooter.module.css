@@ -5,6 +5,12 @@
   padding-top: 4px;
 }
 
+/* A plugin kind's controls wrap rather than push the sheet wider. */
+.wrap {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
 .group {
   display: flex;
   flex-direction: column;

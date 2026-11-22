@@ -5,10 +5,8 @@ import type { RefObject } from "react";
 // -- State Imports --
 import { attachFrame, detachFrame, frameLoaded } from "../../../../state/plugins/pluginHost";
 import { usePluginRuntime } from "../../../../state/plugins/store";
-import { sceneLight, type Reactivity } from "../../../../state/player/visualizerKind";
 import {
   createStageMount,
-  defaultSettings,
   type StageMount,
   type StagePhase,
 } from "../../../../state/player/pluginVis/stageMount";
@@ -19,41 +17,27 @@ import {
   type StageSurface,
 } from "../../../../state/player/pluginVis/frameCache";
 import { meterWanted } from "../../../../state/player/pluginVis/netPolicy";
+import { kindValues } from "../../../../state/player/pluginVis/kindSettings";
+import { usePlayerVisualizerSettings } from "../../../../state/preferences/store";
 import type { PluginVisualizerDescriptor } from "../../../../state/player/pluginVisualizers";
 
 // -- IPC Imports --
 import { pluginVisUrl } from "../../../../lib/ipc";
 
-// -- Utils Imports --
-import { isDarkTheme } from "../../../../theme";
-import { measureLayout, stageColors, type StageRefs } from "./stageContext";
+// -- Local Imports --
+import { readStageContext, type StageInputs } from "./stageContext";
 
 // -- Type Imports --
-import type { VisColors, VisContext, VisLayout, VisPointer } from "../../../../visRuntime/protocol";
+import type { VisContext, VisPointer } from "../../../../visRuntime/protocol";
 
 // Layout, theme and colors are re-read on this frame interval rather than every frame.
 const SYNC_EVERY = 30;
-// What a slot not yet in the page measures as.
-const NO_LAYOUT: VisLayout = {
-  width: 0,
-  height: 0,
-  cover: [0, 0, 1, 1],
-  radius: 0,
-  mask: null,
-  floor: null,
-  hush: [],
-};
-const NO_COLORS: VisColors = { ground: [0, 0, 0], backing: [0, 0, 0], ink: [1, 1, 1] };
 
-export interface PluginStageProps extends StageRefs {
+export interface PluginStageProps extends StageInputs {
   descriptor: PluginVisualizerDescriptor;
   surface: StageSurface;
   // Whether this kind is the stage's shown kind; a frame that is not stays hidden.
   shown: boolean;
-  ambient: boolean;
-  palette: Float32Array;
-  pixels: ImageBitmap | null;
-  reactivity: Reactivity;
   // The frame reported an error or lost its context.
   onFail: () => void;
 }
@@ -83,6 +67,9 @@ export function usePluginStageMount(props: PluginStageProps, mountKey: string): 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const live = useRef(props);
   live.current = props;
+  const settingsRaw = usePlayerVisualizerSettings();
+  const rawRef = useRef(settingsRaw);
+  rawRef.current = settingsRaw;
   const mountRef = useRef<StageMount | null>(null);
   const [src, setSrc] = useState<string | null>(null);
   const [phase, setPhase] = useState<StagePhase>("mounting");
@@ -90,20 +77,8 @@ export function usePluginStageMount(props: PluginStageProps, mountKey: string): 
   useEffect(() => {
     const pointerAt: { current: VisPointer | null } = { current: null };
     const context = (): VisContext => {
-      const p = live.current;
-      const slot = slotRef.current;
-      const light = sceneLight(kind, !isDarkTheme());
-      return {
-        layout: slot ? measureLayout(slot, p) : NO_LAYOUT,
-        palette: p.palette,
-        cover: descriptor.needs.cover ? p.pixels : null,
-        colors: slot ? stageColors(slot, light, p.ambient) : NO_COLORS,
-        light,
-        reactivity: p.reactivity,
-        ambient: p.ambient,
-        reducedMotion: reducedMotion(),
-        settings: defaultSettings(descriptor),
-      };
+      const settings = kindValues(descriptor, rawRef.current);
+      return readStageContext(slotRef.current, live.current, descriptor, settings, reducedMotion());
     };
     const mount = createStageMount({
       descriptor,
@@ -200,6 +175,11 @@ export function usePluginStageMount(props: PluginStageProps, mountKey: string): 
     attachFrame(mountKey, pluginId, win, "visualizer");
     return () => detachFrame(mountKey);
   }, [src, mountKey, pluginId]);
+
+  // A changed setting reaches the frame at once rather than at the next periodic sync.
+  useEffect(() => {
+    mountRef.current?.sync();
+  }, [settingsRaw]);
 
   // Ticks flow while compiling at opacity 0; once drawn, only while the frame is the one on the stage.
   useEffect(() => {

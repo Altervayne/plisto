@@ -5,6 +5,8 @@
  * moment the kind enters, compile included, so a reset that takes Plisto down with it still marks the kind
  * at next launch. The trial passes once the kind has drawn for the trial time. A loss inside trials is laid
  * on their kinds at once; a kind that leaves first ends its trial unpassed, which only removes the marker.
+ * A short-lived offscreen mount (a still or a thumbnail) keeps the context open while it lives and has a
+ * loss laid on its kind, but runs no trial: the marker is one per kind, so it belongs to the stage alone.
  */
 
 // -- Framework Imports --
@@ -57,14 +59,18 @@ interface Trial {
 
 export function createResetSentinel(options: ResetSentinelOptions) {
   const trials = new Map<string, Trial>();
+  const offscreens = new Set<{ kind: ResetKind }>();
   let target: LossTarget | null = null;
+  let disposed = false;
 
   const onLost = () => {
     // The context is dead: dropped without giving it back, and a fresh one opens on the next set.
     target?.removeEventListener("webglcontextlost", onLost);
     target = null;
-    const lost = [...trials.values()].filter((trial) => trial.running).map((trial) => trial.kind);
-    if (lost.length > 0) options.onLoss(lost);
+    const lost = new Map<string, ResetKind>();
+    for (const trial of trials.values()) if (trial.running) lost.set(trial.kind.kind, trial.kind);
+    for (const { kind } of offscreens) if (!lost.has(kind.kind)) lost.set(kind.kind, kind);
+    if (lost.size > 0) options.onLoss([...lost.values()]);
   };
   const finish = (trial: Trial, passed: boolean) => {
     if (trial.timer != null) clearTimeout(trial.timer);
@@ -80,7 +86,7 @@ export function createResetSentinel(options: ResetSentinelOptions) {
     }
   };
   const open = () => {
-    if (target) return;
+    if (target || disposed) return;
     target = options.target();
     target?.addEventListener("webglcontextlost", onLost);
   };
@@ -93,6 +99,7 @@ export function createResetSentinel(options: ResetSentinelOptions) {
 
   /** The kinds on a visible stage now; a new one begins its trial, a gone one ends it unpassed. */
   const set = (kinds: readonly TrialKind[]) => {
+    if (disposed) return;
     const now = new Map(kinds.map((k) => [k.kind as string, k]));
     for (const [key, trial] of trials) {
       if (now.has(key)) continue;
@@ -120,11 +127,33 @@ export function createResetSentinel(options: ResetSentinelOptions) {
         () => {},
       );
     }
-    if (trials.size > 0) open();
+    refresh();
+  };
+  // The context stays open while any trial or offscreen mount is live.
+  const refresh = () => {
+    if (trials.size > 0 || offscreens.size > 0) open();
     else close();
   };
 
-  return { set, dispose: () => set([]) };
+  /** Lays a loss on `kind` while a short-lived offscreen mount of it lives; the release ends that. */
+  const offscreen = (kind: ResetKind): (() => void) => {
+    if (disposed) return () => {};
+    const entry = { kind };
+    offscreens.add(entry);
+    open();
+    return () => {
+      if (offscreens.delete(entry)) refresh();
+    };
+  };
+
+  const dispose = () => {
+    set([]);
+    offscreens.clear();
+    close();
+    disposed = true;
+  };
+
+  return { set, offscreen, dispose };
 }
 
 function webglTarget(): LossTarget | null {
@@ -138,6 +167,16 @@ function webglTarget(): LossTarget | null {
     removeEventListener: (type, listener) => canvas.removeEventListener(type, listener),
     release: () => gl.getExtension("WEBGL_lose_context")?.loseContext(),
   };
+}
+
+export type ResetSentinel = ReturnType<typeof createResetSentinel>;
+
+// The sentinel the shell runs, so offscreen mounts anywhere reach it.
+let shell: ResetSentinel | null = null;
+
+/** Lays a loss during a short-lived offscreen mount on its kind; a no-op without a shell. */
+export function watchOffscreen(kind: ResetKind): () => void {
+  return shell ? shell.offscreen(kind) : () => {};
 }
 
 /** Runs the sentinel over the kinds on a visible stage, laying a loss inside trials on `onLoss`. */
@@ -154,9 +193,11 @@ export function useResetSentinel(kinds: readonly TrialKind[], onLoss: (kinds: Re
       target: webglTarget,
     });
     sentinel.current = made;
+    shell = made;
     return () => {
       made.dispose();
       sentinel.current = null;
+      if (shell === made) shell = null;
     };
   }, []);
 

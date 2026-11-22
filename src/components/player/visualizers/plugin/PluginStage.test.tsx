@@ -273,3 +273,39 @@ describe("plugin stage sources", () => {
     }
   });
 });
+
+describe("plugin stage under reduced motion", () => {
+  it("draws the still on a canvas and mounts no live frame", async () => {
+    vi.stubGlobal("window", {
+      matchMedia: () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    vi.stubGlobal("document", {
+      visibilityState: "visible",
+      documentElement: {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    const watcher = class {
+      observe() {}
+      disconnect() {}
+    };
+    vi.stubGlobal("ResizeObserver", watcher);
+    vi.stubGlobal("MutationObserver", watcher);
+    h.refAt = 0;
+    h.stateAt = 0;
+    h.effectAt = 0;
+    const html = renderToStaticMarkup(<PluginStage {...props({ shown: true })} />);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(html).toContain("<canvas");
+    expect(html).not.toContain("<iframe");
+    expect(h.url).not.toHaveBeenCalled();
+    expect(h.attach).not.toHaveBeenCalled();
+    expect(stageHandles()).toHaveLength(0);
+    expect(phaseOf("player", KIND)).toBeDefined();
+    unmount();
+    expect(phaseOf("player", KIND)).toBeUndefined();
+  });
+});

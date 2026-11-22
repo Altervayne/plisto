@@ -1,6 +1,7 @@
 /*
- * Mounts the stage nets once for the app: the marks reads, the hang, slow-frame and flash nets with the
- * shown-hosts report, the meter switch and the graphics-reset sentinel. Mounted by the shell.
+ * Mounts the stage nets once for the app: the marks reads, the sweep of crash crumbs left by offscreen
+ * mounts, the hang, slow-frame and flash nets with the shown-hosts report, the meter switch and the
+ * graphics-reset sentinel. Mounted by the shell.
  */
 
 // -- Framework Imports --
@@ -8,6 +9,7 @@ import { useEffect, useState } from "react";
 
 // -- Local Imports --
 import { startVisMarks } from "./netPolicy";
+import { startCrumbSweep } from "./offscreenCrumbs";
 import { layReset, startStageNets, watchMeters } from "./stageNets";
 import { useResetSentinel, type TrialKind } from "./useResetSentinel";
 
@@ -23,6 +25,7 @@ export function useStageNets(): void {
   const [kinds, setKinds] = useState<TrialKind[]>(NO_KINDS);
 
   useEffect(() => startVisMarks(), []);
+  useEffect(() => startCrumbSweep(), []);
   useEffect(() => watchMeters(), []);
 
   useEffect(() => {

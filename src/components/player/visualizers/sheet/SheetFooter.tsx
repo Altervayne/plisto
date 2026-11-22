@@ -7,7 +7,11 @@ import { SlidersHorizontal } from "lucide-react";
 // -- Component Imports --
 import { SegmentedControl } from "../../../common/SegmentedControl";
 
+// -- Local Imports --
+import { PluginKindControls } from "./PluginKindControls";
+
 // -- State Imports --
+import { isPluginKindId, pluginVisualizer } from "../../../../state/player/pluginVisualizers";
 import {
   usePlayerSpectrumLayout,
   usePlayerVisualizerReactivity,
@@ -35,8 +39,9 @@ import styles from "./SheetFooter.module.css";
 
 /**
  * The sheet's footer: the reactivity row, and the dot spectrum's layout row beside it while that kind is
- * picked, so the sheet never grows when it appears. Both persist as prefs. `onManage` adds a quiet link after
- * them in the same row; `aside` sits at the trailing edge.
+ * picked, so the sheet never grows when it appears. Both persist as prefs. A picked plugin kind with settings
+ * adds its own controls and presets there, wrapping onto more rows when they need the room. `onManage` adds
+ * a quiet link after them in the same row; `aside` sits at the trailing edge.
  */
 export function SheetFooter({
   picked,
@@ -52,6 +57,8 @@ export function SheetFooter({
   const layout = usePlayerSpectrumLayout();
   const setLayout = useSetPlayerSpectrumLayout();
   const t = useT();
+  const plugin = isPluginKindId(picked) ? pluginVisualizer(picked) : undefined;
+  const kindSettings = plugin && plugin.settings.length > 0 ? plugin : undefined;
   const reactivityLabels: Record<Reactivity, string> = {
     calm: t((d) => d.player.reactivityCalm),
     balanced: t((d) => d.player.reactivityBalanced),
@@ -71,7 +78,7 @@ export function SheetFooter({
   }));
 
   return (
-    <div className={styles.footer}>
+    <div className={kindSettings ? `${styles.footer} ${styles.wrap}` : styles.footer}>
       <div className={styles.group}>
         <span className={styles.label}>{t((d) => d.player.visualizerReactivity)}</span>
         <div className={rowStyles.compact}>
@@ -96,6 +103,8 @@ export function SheetFooter({
           </div>
         </div>
       ) : null}
+      {/* Keyed by kind, so a pending write never moves to the next kind picked. */}
+      {kindSettings ? <PluginKindControls key={kindSettings.id} descriptor={kindSettings} /> : null}
       {onManage ? (
         <button type="button" className={styles.manage} onClick={onManage}>
           <SlidersHorizontal size={15} aria-hidden="true" />

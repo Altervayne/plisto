@@ -5,9 +5,13 @@ import type { CSSProperties } from "react";
 // -- Hook Imports --
 import { usePluginStageMount, type PluginStageProps } from "./usePluginStageMount";
 
+// -- Component Imports --
+import { PluginStill } from "./PluginStill";
+
 // -- State Imports --
 import { useFrameHealthStore } from "../../../../state/plugins/frameHealth";
 import { sceneLight } from "../../../../state/player/visualizerKind";
+import { useReducedMotion } from "../../../../state/player/pluginVis/useStill";
 
 // -- Utils Imports --
 import { isDarkTheme, subscribeTheme } from "../../../../theme";
@@ -21,12 +25,15 @@ import styles from "./PluginStage.module.css";
 /**
  * One plugin visualizer frame on a stage, keyed on its mount key so a frame is never reused across a
  * version, a manifest change or a plugin restart. The key's `vis|` namespace keeps it apart from page frames.
+ * Under reduced motion no frame stays mounted: the kind shows its still instead.
  */
 export function PluginStage(props: PluginStageProps) {
   const { descriptor, surface } = props;
+  const reduced = useReducedMotion();
   const generation = useFrameHealthStore((s) => s.generation[descriptor.pluginId] ?? 0);
   const { id, version, manifestHash } = descriptor;
   const mountKey = `vis|${surface}|${id}|${version}|${manifestHash}|${generation}`;
+  if (reduced) return <PluginStill key={mountKey} mountKey={mountKey} {...props} />;
   return <StageSlot key={mountKey} mountKey={mountKey} {...props} />;
 }
 

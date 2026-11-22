@@ -132,6 +132,85 @@ describe("graphics-reset sentinel", () => {
   });
 });
 
+describe("graphics-reset sentinel offscreen mounts", () => {
+  it("never begins or ends a trial, opens the context, and lays a loss during it on its kind", async () => {
+    const s = setup();
+    const release = s.sentinel.offscreen(bare(HALO));
+    await settle();
+    expect(s.open).toHaveBeenCalledTimes(1);
+    s.lose();
+    expect(s.onLoss).toHaveBeenCalledWith([bare(HALO)]);
+    release();
+    vi.advanceTimersByTime(TRIAL_MS * 2);
+    expect(s.begin).not.toHaveBeenCalled();
+    expect(s.end).not.toHaveBeenCalled();
+  });
+
+  it("lays a loss on the offscreen kind together with the running live trials, once each", async () => {
+    const s = setup();
+    s.sentinel.set([AURORA]);
+    s.sentinel.offscreen(bare(HALO));
+    s.sentinel.offscreen(bare(AURORA));
+    s.sentinel.offscreen(bare(HALO));
+    await settle();
+    s.lose();
+    expect(s.onLoss).toHaveBeenCalledTimes(1);
+    expect(s.onLoss.mock.calls[0][0]).toEqual([bare(AURORA), bare(HALO)]);
+  });
+
+  it("closes the context on the last release, and lays no loss after it", async () => {
+    const s = setup();
+    const first = s.sentinel.offscreen(bare(HALO));
+    const second = s.sentinel.offscreen(bare(HALO));
+    first();
+    first();
+    expect(s.targets[0].release).not.toHaveBeenCalled();
+    second();
+    expect(s.targets[0].release).toHaveBeenCalledTimes(1);
+    s.lose();
+    expect(s.onLoss).not.toHaveBeenCalled();
+  });
+
+  it("leaves a live trial of the same kind and its marker alone", async () => {
+    const s = setup();
+    s.sentinel.set([HALO]);
+    await settle();
+    const release = s.sentinel.offscreen(bare(HALO));
+    release();
+    await settle();
+    expect(s.begin).toHaveBeenCalledTimes(1);
+    expect(s.end).not.toHaveBeenCalled();
+    expect(s.targets[0].release).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(TRIAL_MS);
+    expect(s.end).toHaveBeenCalledWith("com.example.rings", "halo", true);
+  });
+
+  it("keeps the context open for a live offscreen mount when the stage empties", async () => {
+    const s = setup();
+    s.sentinel.set([AURORA]);
+    const release = s.sentinel.offscreen(bare(HALO));
+    await settle();
+    s.sentinel.set([]);
+    expect(s.targets[0].release).not.toHaveBeenCalled();
+    release();
+    expect(s.targets[0].release).toHaveBeenCalledTimes(1);
+  });
+
+  it("never reopens the context after dispose", async () => {
+    const s = setup();
+    const release = s.sentinel.offscreen(bare(HALO));
+    s.sentinel.dispose();
+    expect(s.targets[0].release).toHaveBeenCalledTimes(1);
+    release();
+    s.sentinel.set([AURORA]);
+    const late = s.sentinel.offscreen(bare(AURORA));
+    late();
+    await settle();
+    expect(s.open).toHaveBeenCalledTimes(1);
+    expect(s.begin).not.toHaveBeenCalled();
+  });
+});
+
 describe("graphics-reset sentinel context", () => {
   it("gives its context back once no trial needs it", async () => {
     const s = setup();

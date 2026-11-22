@@ -1,5 +1,5 @@
 // -- Library Imports --
-import { Check } from "lucide-react";
+import { Check, Waves } from "lucide-react";
 
 // -- Framework Imports --
 import type { ButtonHTMLAttributes, ReactNode } from "react";
@@ -11,6 +11,8 @@ import { kindName } from "../kindName";
 import { thumbFor } from "../visualizerViews";
 
 // -- State Imports --
+import { isVisualizerKind } from "../../../../state/player/visualizerRegistry";
+import { usePluginThumb } from "../../../../state/player/pluginVis/thumbs";
 import { useT } from "../../../../i18n";
 import { isDarkTheme, useTheme } from "../../../../theme";
 
@@ -40,7 +42,11 @@ export function KindTile({ kind, checked, width, tag, loading, style, ...rest }:
   // Subscribed so the still follows a theme change; isDarkTheme resolves "system". A dark island reads dark either way.
   useTheme();
   const scheme = usePanelScheme();
-  const src = thumbFor(kind, isDarkScheme(scheme, isDarkTheme()) ? "dark" : "light");
+  const theme = isDarkScheme(scheme, isDarkTheme()) ? "dark" : "light";
+  // A plugin kind's still is rendered by Plisto once its build is known; a built-in's ships with the app.
+  const builtIn = isVisualizerKind(kind);
+  const pluginSrc = usePluginThumb(kind, theme);
+  const src = builtIn ? thumbFor(kind, theme) : pluginSrc;
   return (
     <button
       {...rest}
@@ -57,7 +63,7 @@ export function KindTile({ kind, checked, width, tag, loading, style, ...rest }:
           <img className={styles.img} src={src} alt="" draggable={false} />
         ) : (
           <span className={styles.glyph}>
-            <VisualizerGlyph kind={kind} size={26} />
+            {builtIn ? <VisualizerGlyph kind={kind} size={26} /> : <Waves size={26} strokeWidth={1.6} />}
           </span>
         )}
         {checked ? (

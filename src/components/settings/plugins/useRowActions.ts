@@ -11,6 +11,7 @@ import { useState } from "react";
 // -- State Imports --
 import { usePluginsStore } from "../../../state/plugins/store";
 import { reloadPlugins } from "../../../state/plugins/usePluginsSync";
+import { notifyBuildReplaced } from "../../../state/plugins/buildReplaced";
 import { dropInstalledIcons } from "../../../state/plugins/iconCache";
 import { afterUpdate, previousFromRow, reopensReview } from "../../../state/plugins/review";
 import { logInstallError } from "../../../state/plugins/errors";
@@ -99,6 +100,7 @@ export function useRowActions(
       try {
         const done = await pluginReload(row.id);
         dropInstalledIcons(row.id);
+        notifyBuildReplaced(row.id);
         store().upsertRow(done.row);
         if (afterUpdate(done) !== "consent") return;
         // Different permissions: the same review an update opens.

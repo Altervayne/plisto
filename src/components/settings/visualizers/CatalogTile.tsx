@@ -4,6 +4,7 @@ import { Tooltip } from "../../common/Tooltip/Tooltip";
 import { TruncatedText } from "../../common/TruncatedText/TruncatedText";
 
 // -- State Imports --
+import { usePluginThumb } from "../../../state/player/pluginVis/thumbs";
 import { useT } from "../../../i18n";
 import { isDarkTheme, useTheme } from "../../../theme";
 
@@ -36,7 +37,10 @@ export function CatalogTile({
   const t = useT();
   // Subscribed so the still follows a theme change; isDarkTheme resolves "system".
   useTheme();
-  const src = row.thumb(isDarkTheme() ? "dark" : "light");
+  const theme = isDarkTheme() ? "dark" : "light";
+  // A plugin kind's still is rendered at runtime and follows its build; a built-in's is a shipped file.
+  const pluginSrc = usePluginThumb(row.id, theme);
+  const src = row.source === "plugin" ? pluginSrc : row.thumb(theme);
   const name = t(row.label);
   return (
     <div className={dimmed ? `${styles.tile} ${styles.dim}` : styles.tile} data-kind={row.id}>

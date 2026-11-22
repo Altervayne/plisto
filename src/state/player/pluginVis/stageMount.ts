@@ -51,6 +51,8 @@ export interface StageMountOptions {
   channel?: () => StageChannel;
   // Whether the flash meter runs from init; read once, at start.
   meter?: () => boolean;
+  // The frame answered a still request; the bitmap is null when it refused.
+  onStill?: (id: number, bitmap: ImageBitmap | null, error: string | undefined) => void;
 }
 
 export interface StageMount {
@@ -73,6 +75,8 @@ export interface StageMount {
   setMeter: (on: boolean) => void;
   // Withholds ticks while on, as a hidden slot does; `visible` is unchanged.
   hold: (on: boolean) => void;
+  // Asks the frame for a still, which it serves only before its first tick; a started mount only.
+  requestStill: (id: number) => void;
   // Gives the mount up with no fault mark, as the limit does.
   end: () => void;
   dispose: () => void;
@@ -99,7 +103,7 @@ function messageChannel(): StageChannel {
   return { host: hostPortOf(port1), frame: port2 };
 }
 
-/** The init for a kind: its look, needs and setting shapes, at the declared setting defaults. */
+/** The init for a kind: its look, needs and setting shapes, with the context as given. */
 export function stageInit(
   descriptor: PluginVisualizerDescriptor,
   context: VisContext,
@@ -121,11 +125,6 @@ export function stageInit(
     meter,
     context,
   };
-}
-
-/** The declared default of each setting, by id. */
-export function defaultSettings(descriptor: PluginVisualizerDescriptor): VisContext["settings"] {
-  return Object.fromEntries(descriptor.settings.map((s) => [s.id, s.default]));
 }
 
 /** Starts the slow and give-up clocks at once; nothing is posted until `start`. */
@@ -188,6 +187,7 @@ export function createStageMount(options: StageMountOptions): StageMount {
             enter("ready");
           }
           if (message.type === "metered") metered = true;
+          if (message.type === "still") options.onStill?.(message.id, message.bitmap, message.error);
           if (message.type === "flash" && freshFlash()) flash ??= message.reading;
           if ((message.type === "error" || message.type === "lost") && !ended) {
             enter("failed");
@@ -225,6 +225,7 @@ export function createStageMount(options: StageMountOptions): StageMount {
     hold(on) {
       held = on;
     },
+    requestStill: (id) => transport?.post({ type: "still", id }),
     end: () => enter("dropped"),
     dispose() {
       if (ended) return;

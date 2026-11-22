@@ -6,8 +6,16 @@
 // -- Framework Imports --
 import type { RefObject } from "react";
 
+// -- State Imports --
+import { sceneLight, type Reactivity } from "../../../../state/player/visualizerKind";
+import type { KindValues } from "../../../../state/player/pluginVis/kindSettings";
+import type { PluginVisualizerDescriptor } from "../../../../state/player/pluginVisualizers";
+
+// -- Utils Imports --
+import { isDarkTheme } from "../../../../theme";
+
 // -- Type Imports --
-import type { VisColors, VisLayout, VisRect, VisRgb } from "../../../../visRuntime/protocol";
+import type { VisColors, VisContext, VisLayout, VisRect, VisRgb } from "../../../../visRuntime/protocol";
 
 /** The stage elements a frame draws around. */
 export interface StageRefs {
@@ -16,6 +24,26 @@ export interface StageRefs {
   floorRef?: RefObject<HTMLElement | null>;
   hushRefs?: readonly RefObject<HTMLElement | null>[];
 }
+
+/** What a stage reads its context from, beyond its own slot. */
+export interface StageInputs extends StageRefs {
+  ambient: boolean;
+  palette: Float32Array;
+  pixels: ImageBitmap | null;
+  reactivity: Reactivity;
+}
+
+// What a slot not yet in the page measures as.
+const NO_LAYOUT: VisLayout = {
+  width: 0,
+  height: 0,
+  cover: [0, 0, 1, 1],
+  radius: 0,
+  mask: null,
+  floor: null,
+  hush: [],
+};
+const NO_COLORS: VisColors = { ground: [0, 0, 0], backing: [0, 0, 0], ink: [1, 1, 1] };
 
 /** Reads a color token as sRGB in 0..1, through the element's own computed color. */
 function tokenRgb(el: HTMLElement, token: string): VisRgb {
@@ -62,4 +90,26 @@ export function stageColors(slot: HTMLElement, light: boolean, ambient: boolean)
   };
   slot.style.color = "";
   return colors;
+}
+
+/** The context of a kind on the stage now; `slot` is null before it is in the page. */
+export function readStageContext(
+  slot: HTMLElement | null,
+  inputs: StageInputs,
+  descriptor: PluginVisualizerDescriptor,
+  settings: KindValues,
+  reducedMotion: boolean,
+): VisContext {
+  const light = sceneLight(descriptor.id, !isDarkTheme());
+  return {
+    layout: slot ? measureLayout(slot, inputs) : NO_LAYOUT,
+    palette: inputs.palette,
+    cover: descriptor.needs.cover ? inputs.pixels : null,
+    colors: slot ? stageColors(slot, light, inputs.ambient) : NO_COLORS,
+    light,
+    reactivity: inputs.reactivity,
+    ambient: inputs.ambient,
+    reducedMotion,
+    settings,
+  };
 }

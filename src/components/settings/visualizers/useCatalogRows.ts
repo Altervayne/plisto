@@ -66,7 +66,7 @@ export interface PluginCatalogInput {
 
 const NO_PLUGINS: PluginCatalogInput = { rows: [], boot: null, statuses: {} };
 
-/** The still of a plugin kind: none yet, so its tile shows the glyph. */
+/** A plugin kind has no shipped still: its tile reads the rendered one from the thumbnail store. */
 const noThumb = (): string | null => null;
 
 /**

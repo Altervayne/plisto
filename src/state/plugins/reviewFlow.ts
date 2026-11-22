@@ -24,6 +24,7 @@ import {
 } from "./review";
 import { fileNameOf, reviewState } from "./sheet";
 import { logInstallError } from "./errors";
+import { notifyBuildReplaced } from "./buildReplaced";
 
 // -- IPC Imports --
 import {
@@ -183,6 +184,7 @@ export function createReviewFlow(lock: Pick<OperationLock, "run">): ReviewFlow {
     try {
       const done = await pluginUpdate(s.token!);
       dropInstalledIcons(s.subject.id);
+      notifyBuildReplaced(s.subject.id);
       usePluginsStore.getState().upsertRow(done.row);
       if (afterUpdate(done) !== "consent") {
         show(null);
